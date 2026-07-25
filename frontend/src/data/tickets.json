@@ -1,0 +1,628 @@
+[
+  {
+    "id": "T9000",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Sneha Shah",
+    "mobile": "9124855617",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Tanvi Rao",
+    "value": 6000,
+    "createdAt": "2026-06-15",
+    "notes": [
+      {
+        "at": "2026-06-30",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9001",
+    "team": "legal",
+    "service": "Property & Legal",
+    "customer": "Gauri Mehta",
+    "mobile": "9691884062",
+    "status": "new",
+    "priority": "low",
+    "assignedTo": null,
+    "value": 11000,
+    "createdAt": "2026-06-12",
+    "notes": [],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9002",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Diya Deshpande",
+    "mobile": "9152892152",
+    "status": "in_progress",
+    "priority": "high",
+    "assignedTo": "Tanvi Rao",
+    "value": 6000,
+    "createdAt": "2026-05-23",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Villa, Aundh"
+  },
+  {
+    "id": "T9003",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Neha Sharma",
+    "mobile": "9808019141",
+    "status": "new",
+    "priority": "high",
+    "assignedTo": null,
+    "value": 5000,
+    "createdAt": "2026-06-20",
+    "notes": [],
+    "detail": "Villa, Aundh"
+  },
+  {
+    "id": "T9004",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Sneha Shah",
+    "mobile": "9124855617",
+    "status": "done",
+    "priority": "medium",
+    "assignedTo": "Karan Chavan",
+    "value": 18000,
+    "createdAt": "2026-06-02",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9005",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Aarav Reddy",
+    "mobile": "9240355264",
+    "status": "done",
+    "priority": "medium",
+    "assignedTo": "Kabir Iyer",
+    "value": 14000,
+    "createdAt": "2026-06-19",
+    "notes": [
+      {
+        "at": "2026-06-30",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9006",
+    "team": "legal",
+    "service": "Property & Legal",
+    "customer": "Tanvi Deshpande",
+    "mobile": "9122040348",
+    "status": "in_progress",
+    "priority": "low",
+    "assignedTo": "Meera Mehta",
+    "value": 19000,
+    "createdAt": "2026-06-09",
+    "notes": [
+      {
+        "at": "2026-06-28",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9007",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Nikhil Sharma",
+    "mobile": "9646894809",
+    "status": "in_progress",
+    "priority": "high",
+    "assignedTo": "Neha Mehta",
+    "value": 24000,
+    "createdAt": "2026-06-08",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9008",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Meera Chavan",
+    "mobile": "9817252766",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Diya Jain",
+    "value": 22000,
+    "createdAt": "2026-06-26",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "3 BHK, Baner"
+  },
+  {
+    "id": "T9009",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Tanvi Jain",
+    "mobile": "9531006179",
+    "status": "in_progress",
+    "priority": "medium",
+    "assignedTo": "Kabir Iyer",
+    "value": 19000,
+    "createdAt": "2026-06-26",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9010",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Aditya Shah",
+    "mobile": "9878457666",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Karan Chavan",
+    "value": 22000,
+    "createdAt": "2026-06-12",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9011",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Tanvi Chavan",
+    "mobile": "9592138848",
+    "status": "new",
+    "priority": "high",
+    "assignedTo": null,
+    "value": 8000,
+    "createdAt": "2026-06-15",
+    "notes": [],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9012",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Isha Mehta",
+    "mobile": "9552538370",
+    "status": "cancelled",
+    "priority": "high",
+    "assignedTo": "Neha Mehta",
+    "value": 9000,
+    "createdAt": "2026-05-21",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9013",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Aditya Iyer",
+    "mobile": "9712728163",
+    "status": "done",
+    "priority": "medium",
+    "assignedTo": "Rahul Joshi",
+    "value": 19000,
+    "createdAt": "2026-05-26",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9014",
+    "team": "legal",
+    "service": "Property & Legal",
+    "customer": "Ananya Reddy",
+    "mobile": "9650468398",
+    "status": "new",
+    "priority": "medium",
+    "assignedTo": null,
+    "value": 7000,
+    "createdAt": "2026-06-30",
+    "notes": [],
+    "detail": "3 BHK, Baner"
+  },
+  {
+    "id": "T9015",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Gauri Mehta",
+    "mobile": "9691884062",
+    "status": "in_progress",
+    "priority": "medium",
+    "assignedTo": "Kabir Iyer",
+    "value": 15000,
+    "createdAt": "2026-05-28",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9016",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Rahul Joshi",
+    "mobile": "9641381391",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Kabir Iyer",
+    "value": 2000,
+    "createdAt": "2026-06-16",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9017",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Meera Deshpande",
+    "mobile": "9470744469",
+    "status": "new",
+    "priority": "high",
+    "assignedTo": null,
+    "value": 18000,
+    "createdAt": "2026-06-20",
+    "notes": [],
+    "detail": "3 BHK, Baner"
+  },
+  {
+    "id": "T9018",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Nikhil Sharma",
+    "mobile": "9646894809",
+    "status": "in_progress",
+    "priority": "medium",
+    "assignedTo": "Sakshi Mehta",
+    "value": 15000,
+    "createdAt": "2026-05-21",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9019",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Kabir Rao",
+    "mobile": "9396565787",
+    "status": "cancelled",
+    "priority": "high",
+    "assignedTo": "Diya Kulkarni",
+    "value": 15000,
+    "createdAt": "2026-05-29",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9020",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Isha Mehta",
+    "mobile": "9552538370",
+    "status": "in_progress",
+    "priority": "medium",
+    "assignedTo": "Nikhil Joshi",
+    "value": 7000,
+    "createdAt": "2026-05-24",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "3 BHK, Baner"
+  },
+  {
+    "id": "T9021",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Rahul Jain",
+    "mobile": "9272696131",
+    "status": "in_progress",
+    "priority": "high",
+    "assignedTo": "Isha Mehta",
+    "value": 17000,
+    "createdAt": "2026-06-23",
+    "notes": [
+      {
+        "at": "2026-06-29",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9022",
+    "team": "legal",
+    "service": "Property & Legal",
+    "customer": "Neha Bhosale",
+    "mobile": "9508576263",
+    "status": "cancelled",
+    "priority": "low",
+    "assignedTo": "Isha Iyer",
+    "value": 1000,
+    "createdAt": "2026-06-05",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9023",
+    "team": "legal",
+    "service": "Property & Legal",
+    "customer": "Tanvi Chavan",
+    "mobile": "9592138848",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Isha Iyer",
+    "value": 12000,
+    "createdAt": "2026-06-22",
+    "notes": [
+      {
+        "at": "2026-06-29",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9024",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Tanvi Chavan",
+    "mobile": "9592138848",
+    "status": "cancelled",
+    "priority": "low",
+    "assignedTo": "Diya Kulkarni",
+    "value": 18000,
+    "createdAt": "2026-05-28",
+    "notes": [
+      {
+        "at": "2026-06-29",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9025",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Nikhil Jain",
+    "mobile": "9411618812",
+    "status": "new",
+    "priority": "low",
+    "assignedTo": null,
+    "value": 6000,
+    "createdAt": "2026-06-19",
+    "notes": [],
+    "detail": "2 BHK, Wakad"
+  },
+  {
+    "id": "T9026",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Tanvi Deshpande",
+    "mobile": "9122040348",
+    "status": "done",
+    "priority": "low",
+    "assignedTo": "Diya Jain",
+    "value": 6000,
+    "createdAt": "2026-06-10",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9027",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Neha Sharma",
+    "mobile": "9808019141",
+    "status": "new",
+    "priority": "low",
+    "assignedTo": null,
+    "value": 6000,
+    "createdAt": "2026-06-08",
+    "notes": [],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9028",
+    "team": "valuation",
+    "service": "Property Valuation",
+    "customer": "Aditya Iyer",
+    "mobile": "9712728163",
+    "status": "new",
+    "priority": "high",
+    "assignedTo": null,
+    "value": 18000,
+    "createdAt": "2026-05-28",
+    "notes": [],
+    "detail": "Villa, Aundh"
+  },
+  {
+    "id": "T9029",
+    "team": "interior",
+    "service": "Interior & Renovation",
+    "customer": "Vivaan Shah",
+    "mobile": "9657839865",
+    "status": "in_progress",
+    "priority": "medium",
+    "assignedTo": "Diya Kulkarni",
+    "value": 11000,
+    "createdAt": "2026-06-21",
+    "notes": [
+      {
+        "at": "2026-06-26",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "3 BHK, Baner"
+  },
+  {
+    "id": "T9030",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Vikram Rao",
+    "mobile": "9318202961",
+    "status": "done",
+    "priority": "high",
+    "assignedTo": "Neha Mehta",
+    "value": 24000,
+    "createdAt": "2026-06-09",
+    "notes": [
+      {
+        "at": "2026-06-28",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "1 BHK, Hinjawadi"
+  },
+  {
+    "id": "T9031",
+    "team": "packers",
+    "service": "Packers & Movers",
+    "customer": "Aditya Sharma",
+    "mobile": "9217580334",
+    "status": "cancelled",
+    "priority": "low",
+    "assignedTo": "Diya Jain",
+    "value": 21000,
+    "createdAt": "2026-06-04",
+    "notes": [
+      {
+        "at": "2026-06-27",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9032",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Diya Deshpande",
+    "mobile": "9152892152",
+    "status": "new",
+    "priority": "high",
+    "assignedTo": null,
+    "value": 11000,
+    "createdAt": "2026-06-18",
+    "notes": [],
+    "detail": "Office, Kharadi"
+  },
+  {
+    "id": "T9033",
+    "team": "rental",
+    "service": "Rent Agreement",
+    "customer": "Vivaan Shah",
+    "mobile": "9657839865",
+    "status": "cancelled",
+    "priority": "high",
+    "assignedTo": "Rahul Joshi",
+    "value": 14000,
+    "createdAt": "2026-05-29",
+    "notes": [
+      {
+        "at": "2026-06-25",
+        "by": "System",
+        "text": "Request received and queued."
+      }
+    ],
+    "detail": "Villa, Aundh"
+  }
+]

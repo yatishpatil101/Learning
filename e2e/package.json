@@ -1,0 +1,13 @@
+{
+  "name": "punenest-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:mobile": "playwright test --project=mobile",
+    "test:list": "playwright test --list",
+    "report": "playwright show-report"
+  },
+  "devDependencies": { "@playwright/test": "^1.61.1" }
+}

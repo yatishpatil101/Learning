@@ -1,0 +1,306 @@
+{
+  "traffic": [
+    {
+      "date": "2026-06-01",
+      "visits": 1805,
+      "pageviews": 5933,
+      "signups": 39
+    },
+    {
+      "date": "2026-06-02",
+      "visits": 1767,
+      "pageviews": 5507,
+      "signups": 43
+    },
+    {
+      "date": "2026-06-03",
+      "visits": 1656,
+      "pageviews": 5272,
+      "signups": 40
+    },
+    {
+      "date": "2026-06-04",
+      "visits": 1843,
+      "pageviews": 5442,
+      "signups": 39
+    },
+    {
+      "date": "2026-06-05",
+      "visits": 1577,
+      "pageviews": 6613,
+      "signups": 38
+    },
+    {
+      "date": "2026-06-06",
+      "visits": 1516,
+      "pageviews": 4263,
+      "signups": 34
+    },
+    {
+      "date": "2026-06-07",
+      "visits": 1365,
+      "pageviews": 4469,
+      "signups": 28
+    },
+    {
+      "date": "2026-06-08",
+      "visits": 1616,
+      "pageviews": 5605,
+      "signups": 28
+    },
+    {
+      "date": "2026-06-09",
+      "visits": 1560,
+      "pageviews": 5341,
+      "signups": 35
+    },
+    {
+      "date": "2026-06-10",
+      "visits": 1612,
+      "pageviews": 5457,
+      "signups": 41
+    },
+    {
+      "date": "2026-06-11",
+      "visits": 1877,
+      "pageviews": 6042,
+      "signups": 43
+    },
+    {
+      "date": "2026-06-12",
+      "visits": 1882,
+      "pageviews": 6632,
+      "signups": 32
+    },
+    {
+      "date": "2026-06-13",
+      "visits": 1396,
+      "pageviews": 5304,
+      "signups": 32
+    },
+    {
+      "date": "2026-06-14",
+      "visits": 1451,
+      "pageviews": 4461,
+      "signups": 31
+    },
+    {
+      "date": "2026-06-15",
+      "visits": 2141,
+      "pageviews": 6656,
+      "signups": 29
+    },
+    {
+      "date": "2026-06-16",
+      "visits": 1645,
+      "pageviews": 6714,
+      "signups": 31
+    },
+    {
+      "date": "2026-06-17",
+      "visits": 2120,
+      "pageviews": 5982,
+      "signups": 30
+    },
+    {
+      "date": "2026-06-18",
+      "visits": 1956,
+      "pageviews": 6423,
+      "signups": 39
+    },
+    {
+      "date": "2026-06-19",
+      "visits": 2042,
+      "pageviews": 7112,
+      "signups": 33
+    },
+    {
+      "date": "2026-06-20",
+      "visits": 1399,
+      "pageviews": 5780,
+      "signups": 26
+    },
+    {
+      "date": "2026-06-21",
+      "visits": 1459,
+      "pageviews": 5005,
+      "signups": 22
+    },
+    {
+      "date": "2026-06-22",
+      "visits": 2140,
+      "pageviews": 6532,
+      "signups": 40
+    },
+    {
+      "date": "2026-06-23",
+      "visits": 2111,
+      "pageviews": 6261,
+      "signups": 34
+    },
+    {
+      "date": "2026-06-24",
+      "visits": 1888,
+      "pageviews": 6968,
+      "signups": 39
+    },
+    {
+      "date": "2026-06-25",
+      "visits": 2304,
+      "pageviews": 7106,
+      "signups": 19
+    },
+    {
+      "date": "2026-06-26",
+      "visits": 1864,
+      "pageviews": 6258,
+      "signups": 36
+    },
+    {
+      "date": "2026-06-27",
+      "visits": 1871,
+      "pageviews": 5087,
+      "signups": 35
+    },
+    {
+      "date": "2026-06-28",
+      "visits": 1668,
+      "pageviews": 6282,
+      "signups": 21
+    },
+    {
+      "date": "2026-06-29",
+      "visits": 1819,
+      "pageviews": 7078,
+      "signups": 24
+    },
+    {
+      "date": "2026-06-30",
+      "visits": 2236,
+      "pageviews": 7708,
+      "signups": 28
+    }
+  ],
+  "revenue": [
+    {
+      "month": "Jul",
+      "subscriptions": 107000,
+      "services": 171000,
+      "featured": 56000
+    },
+    {
+      "month": "Aug",
+      "subscriptions": 113000,
+      "services": 193000,
+      "featured": 59000
+    },
+    {
+      "month": "Sep",
+      "subscriptions": 81000,
+      "services": 188000,
+      "featured": 73000
+    },
+    {
+      "month": "Oct",
+      "subscriptions": 107000,
+      "services": 263000,
+      "featured": 52000
+    },
+    {
+      "month": "Nov",
+      "subscriptions": 112000,
+      "services": 143000,
+      "featured": 57000
+    },
+    {
+      "month": "Dec",
+      "subscriptions": 146000,
+      "services": 294000,
+      "featured": 69000
+    },
+    {
+      "month": "Jan",
+      "subscriptions": 175000,
+      "services": 207000,
+      "featured": 77000
+    },
+    {
+      "month": "Feb",
+      "subscriptions": 106000,
+      "services": 271000,
+      "featured": 41000
+    },
+    {
+      "month": "Mar",
+      "subscriptions": 144000,
+      "services": 120000,
+      "featured": 39000
+    },
+    {
+      "month": "Apr",
+      "subscriptions": 135000,
+      "services": 246000,
+      "featured": 35000
+    },
+    {
+      "month": "May",
+      "subscriptions": 132000,
+      "services": 196000,
+      "featured": 65000
+    },
+    {
+      "month": "Jun",
+      "subscriptions": 121000,
+      "services": 186000,
+      "featured": 79000
+    }
+  ],
+  "sources": [
+    {
+      "k": "Organic search",
+      "v": 38
+    },
+    {
+      "k": "Direct",
+      "v": 22
+    },
+    {
+      "k": "WhatsApp",
+      "v": 16
+    },
+    {
+      "k": "Social",
+      "v": 13
+    },
+    {
+      "k": "Paid ads",
+      "v": 11
+    }
+  ],
+  "funnel": [
+    {
+      "k": "Visitors",
+      "v": 100
+    },
+    {
+      "k": "Searched",
+      "v": 64
+    },
+    {
+      "k": "Viewed listing",
+      "v": 41
+    },
+    {
+      "k": "Enquired",
+      "v": 18
+    },
+    {
+      "k": "Visited",
+      "v": 9
+    },
+    {
+      "k": "Closed",
+      "v": 4
+    }
+  ]
+}

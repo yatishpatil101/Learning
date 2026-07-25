@@ -1,0 +1,187 @@
+{
+  "site": {
+    "name": "PuneNest",
+    "legalName": "PuneNest Realty Pvt. Ltd.",
+    "city": "Pune",
+    "tagline": "Pune's most trusted zero-brokerage platform",
+    "supportEmail": "hello@punenest.com",
+    "supportPhone": "+91 98765 43210",
+    "whatsapp": "+91 98765 43210",
+    "supportHours": "Mon–Sat, 9:00 AM – 7:00 PM",
+    "address": "PuneNest, 4th Floor, Trade Tower, Baner Road, Pune 411045",
+    "gst": "27ABCDE1234F1Z5",
+    "social": {
+      "instagram": "https://instagram.com/punenest",
+      "facebook": "https://facebook.com/punenest",
+      "linkedin": "https://linkedin.com/company/punenest",
+      "twitter": "https://x.com/punenest"
+    }
+  },
+  "fees": {
+    "ownerPlanYearly": 999,
+    "ownerProYearly": 2499,
+    "rentAgreementPlatform": 500,
+    "seekerPlusTopup": 199,
+    "featuredListing": 999,
+    "gstPercent": 18,
+    "rentPayPercent": 2
+  },
+  "movePack": {
+    "enabled": false,
+    "items": {
+      "movers": 8000,
+      "clean": 2500,
+      "agreement": 1500,
+      "paint": 6000,
+      "verify": 999,
+      "internet": 500
+    }
+  },
+  "flags": {
+    "societySaaS": false,
+    "newProjectListings": true,
+    "videoListings": false,
+    "mapSearch": true,
+    "compareProperties": true,
+    "savedListings": true,
+    "scheduleVisit": true,
+    "emiCalculator": true,
+    "reviewsEnabled": true,
+    "zeroBrokerage": true,
+    "onlineRentPayment": false,
+    "depositFinancing": false,
+    "paidFeaturedListings": true,
+    "subscriptionPlans": true,
+    "aadhaarVerification": true,
+    "ownerPhonePrivacy": true,
+    "listingVerification": true,
+    "reviewModeration": true,
+    "whatsappEnabled": true,
+    "inAppMessaging": true,
+    "emailNotifications": true,
+    "smsNotifications": true,
+    "pushNotifications": false,
+    "signupsEnabled": true,
+    "staffLoginEnabled": true,
+    "maintenanceMode": false
+  },
+  "adminFlags": {
+    "tab": {
+      "analytics": true,
+      "finance": true,
+      "reports": true,
+      "support": true,
+      "flatmates": true,
+      "services": true
+    },
+    "dash": {
+      "smartAlerts": true,
+      "sla": true,
+      "scorecard": true,
+      "glanceRevenue": true,
+      "glanceTraffic": true
+    },
+    "analytics": {
+      "traffic": true,
+      "engagement": true,
+      "anonymous": true,
+      "conversion": true,
+      "geography": true,
+      "supplyGap": true,
+      "pricing": true,
+      "sla": true,
+      "seasonal": true
+    },
+    "finance": {
+      "charts": true,
+      "transactions": true,
+      "models": true,
+      "rentPay": true
+    },
+    "properties": {
+      "bulkOps": true,
+      "csvExport": true,
+      "commsLog": true,
+      "qualityScore": true
+    },
+    "users": {
+      "enabled": true,
+      "timeline": true,
+      "bulkOps": true,
+      "csvExport": true
+    },
+    "services": {
+      "enabled": true,
+      "priority": true,
+      "teamRouting": true,
+      "staffAssignment": true
+    },
+    "enquiries": {
+      "visits": true,
+      "deals": true,
+      "funnelTime": true
+    },
+    "content": {
+      "enabled": true,
+      "cityDemand": true,
+      "banners": true,
+      "faqs": true,
+      "announcements": true,
+      "reviews": true
+    },
+    "reports": {
+      "properties": true,
+      "users": true
+    },
+    "flatmates": {
+      "seekers": true,
+      "groups": true,
+      "applications": true
+    },
+    "staffActivity": {
+      "enabled": true,
+      "kpis": true,
+      "leaderboard": true
+    }
+  },
+  "permissions": {
+    "rental": [
+      "view_dashboard",
+      "view_service_requests",
+      "update_ticket",
+      "export_csv"
+    ],
+    "legal": [
+      "view_dashboard",
+      "view_service_requests",
+      "update_ticket",
+      "export_csv"
+    ],
+    "interior": [
+      "view_dashboard",
+      "view_service_requests",
+      "update_ticket",
+      "export_csv"
+    ],
+    "packers": [
+      "view_dashboard",
+      "view_service_requests",
+      "update_ticket",
+      "export_csv"
+    ],
+    "valuation": [
+      "view_dashboard",
+      "view_service_requests",
+      "update_ticket",
+      "export_csv"
+    ],
+    "admin": [
+      "*"
+    ]
+  },
+  "customRoles": [
+    { "id": "CR_requests", "name": "Requests Desk", "modules": ["enquiries", "services", "postOnBehalf"], "teams": [] },
+    { "id": "CR_verify", "name": "Verifications Officer", "modules": ["properties:verify"], "teams": [] },
+    { "id": "CR_content", "name": "Content Manager", "modules": ["content", "localities", "societies"], "teams": [] }
+  ]
+}

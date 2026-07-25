@@ -1,0 +1,216 @@
+import { Sparkles, BadgeCheck, CheckCircle2, LayoutDashboard } from 'lucide-react';
+import useListProperty from './list-property/useListProperty';
+import AadhaarGate from './list-property/AadhaarGate';
+import ListPropertyModals from './list-property/ListPropertyModals';
+import ProgressMeter from './list-property/ProgressMeter.jsx';
+import StepNav from './list-property/StepNav.jsx';
+import EditPolicyBanner from './list-property/EditPolicyBanner.jsx';
+import ListingPaywall from './list-property/ListingPaywall.jsx';
+import PropertyDetailsStep from './list-property/PropertyDetailsStep.jsx';
+import LocationPricingStep from './list-property/LocationPricingStep.jsx';
+import PhotosDocumentsStep from './list-property/PhotosDocumentsStep.jsx';
+import FlatmateFlow from './list-property/FlatmateFlow.jsx';
+
+const ListProperty = () => {
+  const vm = useListProperty();
+  const {
+    t, navigate, showSuccess, isFlatmateMode, editId, editApproved, editChanges,
+    aadhaarVerified, progressState, aadhaarMeterPct, gateCheer, canPost,
+    activeListingCount, listingLimit, currentStep, setCurrentStep,
+    form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
+    isResidential, isLand, isCommercial, isHouse, isPg,
+    toggleInArray, toggleTenant, nextStep, prevStep, money, setDepositMonths, openResetConfirm,
+    mapSearch, onMapSearchChange, doMapSearch, runMapSearch, mapSearchStatus, onAreaSelect,
+    geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
+    photos, handlePhotoUpload, removePhoto, setPhotoCategory,
+    video, videoName, handleVideoUpload, setVideo, setVideoName,
+    documents, handleDocUpload, submitProperty, submitFlatmate,
+  } = vm;
+
+  /* ================= SUCCESS ================= */
+  if (showSuccess) {
+    return (
+      <div className="lp-page min-h-[100dvh] flex items-center justify-center p-4">
+        <div className="lp-success-card glass-card rounded-2xl p-8 sm:p-10 max-w-md w-full text-center">
+          <div className="lp-success-ring w-20 h-20 rounded-full bg-gradient-to-br from-teal-400/20 to-green-400/20 flex items-center justify-center mx-auto mb-6 border border-teal-400/30">
+            <CheckCircle2 className="lp-success-badge w-10 h-10 text-teal-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">
+            {isFlatmateMode ? t('listProperty.success.flatmateTitle') : editId ? t('listProperty.success.updatedTitle') : t('listProperty.success.postedTitle')}
+          </h2>
+          <p className="text-gray-400 text-sm leading-relaxed mb-8">
+            {editId
+              ? (editApproved && editChanges?.tierA.length
+                  ? t('listProperty.success.editApprovedBody')
+                  : t('listProperty.success.editBody'))
+              : t('listProperty.success.newBody')}
+          </p>
+          <button onClick={() => navigate('/dashboard')} className="btn-teal inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-white font-semibold text-sm">
+            <LayoutDashboard className="w-4 h-4" /> {t('listProperty.success.goToListings')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="lp-page min-h-[100dvh] pb-20">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+
+        {/* Page header */}
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-5">
+            <Sparkles className="w-4 h-4" /> {t('listProperty.page.badge')}
+          </div>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-3">{t('listProperty.page.title')}</h1>
+          <p className="text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
+        </div>
+
+        {/* Momentum meter — always present so the layout never changes when the
+           owner clears the gate. While unverified it shows Aadhaar's share of
+           progress (up to 20%); once verified it continues climbing with the
+           listing fields. This is the constant "upper part" of the flow. */}
+        {aadhaarVerified ? (
+          <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} cheer={progressState.cheer} />
+        ) : (
+          <ProgressMeter pct={aadhaarMeterPct} tierKey="warmup" label={t('listProperty.gate.verifyIdentityLabel')} cheer={gateCheer} />
+        )}
+
+        {/* ===== Aadhaar gate ===== */}
+        {!aadhaarVerified ? (
+          <AadhaarGate ctx={vm} />
+        ) : (
+          <>
+            {/* Verified banner — identity confirmation beneath the shared meter. */}
+            <div className="glass-card rounded-2xl px-5 py-3.5 mb-6 flex items-center gap-3 border border-emerald-500/20" style={{ background: 'rgba(16,185,129,.08)' }}>
+              <BadgeCheck className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              <p className="text-sm text-emerald-200">{t('listProperty.gate.verifiedBanner')}</p>
+            </div>
+
+            {editId && <EditPolicyBanner approved={editApproved} changes={editChanges} />}
+
+            {(!editId && !canPost) ? (
+              <ListingPaywall count={activeListingCount()} limit={listingLimit()} />
+            ) : (<>
+            {/* Step indicator — the same 3-phase wizard for whole-place & flatmate */}
+            <StepNav current={currentStep} onJump={(n) => { setCurrentStep(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+
+            {/* ===== Form Card ===== */}
+            <div className="glass-card rounded-2xl p-6 sm:p-8 lg:p-10">
+
+              {/* -------- STEP 1 -------- */}
+              {(currentStep === 1) && (
+                <PropertyDetailsStep
+                  form={form}
+                  set={set}
+                  onPropertyType={changePropertyType}
+                  rentMode={rentMode}
+                  setRentMode={setRentMode}
+                  isFlatmateMode={isFlatmateMode}
+                  errors={errors}
+                  isResidential={isResidential}
+                  isLand={isLand}
+                  isCommercial={isCommercial}
+                  isHouse={isHouse}
+                  isPg={isPg}
+                  toggleInArray={toggleInArray}
+                  nextStep={nextStep}
+                  money={money}
+                  onReset={openResetConfirm}
+                />
+              )}
+
+              {/* -------- STEP 2 -------- */}
+              {(currentStep === 2 && !isFlatmateMode) && (
+                <LocationPricingStep
+                  form={form}
+                  set={set}
+                  setForm={setForm}
+                  errors={errors}
+                  isLand={isLand}
+                  isCommercial={isCommercial}
+                  money={money}
+                  mapSearch={mapSearch}
+                  onMapSearchChange={onMapSearchChange}
+                  doMapSearch={doMapSearch}
+                  runMapSearch={runMapSearch}
+                  mapSearchStatus={mapSearchStatus}
+                  onAreaSelect={onAreaSelect}
+                  geoFillStatus={geoFillStatus}
+                  flyTo={flyTo}
+                  onLocalityChange={onLocalityChange}
+                  onPinMove={onPinMove}
+                  locationSet={locationSet}
+                  setDepositMonths={setDepositMonths}
+                  toggleTenant={toggleTenant}
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onReset={openResetConfirm}
+                />
+              )}
+
+              {/* -------- STEP 3 -------- */}
+              {(currentStep === 3 && !isFlatmateMode) && (
+                <PhotosDocumentsStep
+                  form={form}
+                  set={set}
+                  errors={errors}
+                  toggleInArray={toggleInArray}
+                  photos={photos}
+                  handlePhotoUpload={handlePhotoUpload}
+                  removePhoto={removePhoto}
+                  setPhotoCategory={setPhotoCategory}
+                  video={video}
+                  videoName={videoName}
+                  handleVideoUpload={handleVideoUpload}
+                  setVideo={setVideo}
+                  setVideoName={setVideoName}
+                  documents={documents}
+                  handleDocUpload={handleDocUpload}
+                  prevStep={prevStep}
+                  submitProperty={submitProperty}
+                  onReset={openResetConfirm}
+                />
+              )}
+
+              {/* -------- STEPS 2 & 3 (flatmate) -------- */}
+              {(isFlatmateMode && (currentStep === 2 || currentStep === 3)) && (
+                <FlatmateFlow
+                  form={form}
+                  set={set}
+                  errors={errors}
+                  money={money}
+                  photos={photos}
+                  handlePhotoUpload={handlePhotoUpload}
+                  removePhoto={removePhoto}
+                  setPhotoCategory={setPhotoCategory}
+                  currentStep={currentStep}
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  submitFlatmate={submitFlatmate}
+                  onReset={openResetConfirm}
+                  mapSearch={mapSearch}
+                  onMapSearchChange={onMapSearchChange}
+                  doMapSearch={doMapSearch}
+                  runMapSearch={runMapSearch}
+                  mapSearchStatus={mapSearchStatus}
+                  onAreaSelect={onAreaSelect}
+                  geoFillStatus={geoFillStatus}
+                  flyTo={flyTo}
+                  onLocalityChange={onLocalityChange}
+                  onPinMove={onPinMove}
+                  locationSet={locationSet}
+                />
+              )}
+            </div>
+            </>)}
+          </>
+        )}
+      </div>
+
+      <ListPropertyModals ctx={vm} />
+    </div>
+  );
+};
+
+export default ListProperty;

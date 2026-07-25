@@ -1,0 +1,18 @@
+[
+  {
+    "id": "AN1",
+    "title": "Zero brokerage week",
+    "body": "Promote zero-brokerage across Baner & Wakad.",
+    "audience": "All",
+    "at": "2026-06-28",
+    "active": true
+  },
+  {
+    "id": "AN2",
+    "title": "Monsoon move offer",
+    "body": "10% off Packers & Movers this month.",
+    "audience": "Tenants",
+    "at": "2026-06-21",
+    "active": true
+  }
+]

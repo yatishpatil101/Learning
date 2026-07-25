@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Content-Security-Policy: restricts scripts to self + the Google Maps SDK so an
+         injected <script src="evil"> can't run. 'unsafe-inline'/'unsafe-eval' are kept for
+         Vite HMR and the Maps loader; ws:/wss: cover the dev HMR socket. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; frame-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'" />
+    <title>PuneNest — Flats, Commercial & Plots in Pune | Zero Brokerage</title>
+    <meta name="description" content="PuneNest is Pune's broker-free real-estate marketplace. Buy, rent or list flats, villas, plots, commercial spaces and PGs — deal directly with verified owners, zero brokerage." />
+
+    <!-- Favicon — inline SVG using brand teal -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f0d1a'/><path d='M16 6 L27 15 L27 27 L20 27 L20 20 L12 20 L12 27 L5 27 L5 15 Z' fill='%2314b8a6'/><rect x='13' y='21' width='6' height='6' rx='1' fill='%230f0d1a'/></svg>" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PuneNest" />
+    <meta property="og:title" content="PuneNest — Flats, Commercial & Plots in Pune | Zero Brokerage" />
+    <meta property="og:description" content="Pune's broker-free property marketplace for flats, commercial spaces and plots. Verified owners, zero brokerage, direct contact." />
+    <meta property="og:url" content="https://punenest.com" />
+    <meta property="og:image" content="https://punenest.com/og-image.jpg" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@punenest" />
+    <meta name="twitter:title" content="PuneNest — Flats, Commercial & Plots in Pune | Zero Brokerage" />
+    <meta name="twitter:description" content="Pune's broker-free property marketplace for flats, commercial spaces and plots. Verified owners, zero brokerage, direct contact." />
+    <meta name="twitter:image" content="https://punenest.com/og-image.jpg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://images.unsplash.com" />
+    <link rel="dns-prefetch" href="https://images.unsplash.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

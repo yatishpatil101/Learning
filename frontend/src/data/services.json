@@ -1,0 +1,56 @@
+[
+  {
+    "key": "rental",
+    "name": "Rent Agreement",
+    "team": "rental",
+    "price": 999,
+    "active": true,
+    "desc": "Drafting, e-stamp & doorstep delivery.",
+    "icon": "file-signature"
+  },
+  {
+    "key": "legal",
+    "name": "Property & Legal",
+    "team": "legal",
+    "price": 2499,
+    "active": true,
+    "desc": "Title check, registration support.",
+    "icon": "scale"
+  },
+  {
+    "key": "interior",
+    "name": "Interior & Renovation",
+    "team": "interior",
+    "price": 0,
+    "active": true,
+    "desc": "Design consult to execution (quote-based).",
+    "icon": "paint-roller"
+  },
+  {
+    "key": "packers",
+    "name": "Packers & Movers",
+    "team": "packers",
+    "price": 0,
+    "active": true,
+    "desc": "Verified movers (quote-based).",
+    "icon": "truck"
+  },
+  {
+    "key": "valuation",
+    "name": "Property Valuation",
+    "team": "valuation",
+    "price": 499,
+    "active": true,
+    "desc": "Certified market valuation report.",
+    "icon": "badge-indian-rupee"
+  },
+  {
+    "key": "homeloan",
+    "name": "Home Loans & EMI",
+    "team": "legal",
+    "price": 0,
+    "active": true,
+    "desc": "Loan facilitation with partner banks.",
+    "icon": "landmark"
+  }
+]

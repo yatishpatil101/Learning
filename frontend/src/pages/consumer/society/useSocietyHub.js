@@ -1,0 +1,463 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useSearchParams, useNavigate } from 'react-router';
+import { useAuth } from '../../../context/AuthContext.jsx';
+import { useToast } from '../../../context/ToastContext.jsx';
+import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import { fmtNum } from '../../../lib/format.js';
+import { listProperties } from '../../../lib/mockApi.js';
+import { fnvHash } from '../../../lib/hash.js';
+import { listingsInSociety } from '../../../data/societies.js';
+import { commuteInfo, connectivityFor } from '../property/locationIntel.js';
+import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
+import {
+  getEntityReviews, addEntityReview, entityRating, digits,
+  isSocietyFollowed, toggleFollowSociety,
+  getSocietyQA, addSocietyQuestion, addSocietyAnswer,
+  resolveSociety, requestSocietyClaim,
+  residentStatus, isVerifiedResident, requestResidentVerification,
+  verifiedResidentForUnit, unitKeyOf,
+  isSocietyAdmin, committeeResidentReqs, setResidentStatus,
+  suggestSocietyDetails, getSocietySuggestion,
+  isAadhaarVerified,
+  getSocietyContributions,
+  addSocietyContribution, toggleContributionHelpful, removeSocietyContribution,
+  addContributionReply, removeContributionReply,
+  getSocietyBoard, addBoardItem, removeBoardItem,
+  getSocietyWhatsappJoin, hasSocietyWhatsapp, getSocietyWhatsappRaw, proposeSocietyWhatsapp,
+  reportSocietyContent,
+  getSocietyLocationFix, proposeSocietyLocation,
+} from '../../../lib/store.js';
+import { TAB_IDS, REVIEW_CATS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
+import { baselineBars, genericSociety } from './helpers.jsx';
+
+export function useSocietyHub() {
+  const rootRef = useScrollReveal();
+  const { slug: routeSlug } = useParams();
+  const [params, setParams] = useSearchParams();
+  const nav = useNavigate();
+  const { isIn, user } = useAuth();
+  const { toast } = useToast();
+  const { flagEnabled } = useAppFlags();
+  const saasOn = flagEnabled('societySaaS');
+
+  const [tick, setTick] = useState(0);
+  const activeTab = useMemo(() => {
+    const urlTab = params.get('tab');
+    return TAB_IDS.includes(urlTab) ? urlTab : 'overview';
+  }, [params]);
+  const slug = (routeSlug || params.get('s') || 'skyline-heights-baner').toLowerCase();
+  const fallbackName = params.get('name');
+  const fallbackLoc = params.get('loc') || 'Pune';
+  const soc = useMemo(() => {
+    const resolved = resolveSociety(slug);
+    if (!resolved) return genericSociety(slug, fallbackName, fallbackLoc);
+    // A "thin" community/demand-minted row carries only name + locality. We DON'T
+    // backfill fabricated specs — the hub renders only fields we actually hold,
+    // and shows an honest "add details" state for the rest.
+    const thin = resolved.units == null && !resolved.builder;
+    const community = resolved.tier === 'community';
+    return { ...resolved, _thin: thin, _community: community };
+  }, [slug, tick, fallbackName, fallbackLoc]);
+  const locName = soc._locName || titleCase(soc.localitySlug);
+
+  const [listings, setListings] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [qa, setQa] = useState([]);
+  const [followed, setFollowed] = useState(false);
+  const [rateOpen, setRateOpen] = useState(false);
+  const [pick, setPick] = useState(5);
+  const [revText, setRevText] = useState('');
+  const [qText, setQText] = useState('');
+  const [answerFor, setAnswerFor] = useState(null);
+  const [aText, setAText] = useState('');
+  const [claim, setClaim] = useState(false);
+  const [cl, setCl] = useState({ name: '', mobile: '', role: '', regNo: '', cert: null });
+  const [resStat, setResStat] = useState(null);
+  const [resOpen, setResOpen] = useState(false);
+  const [resStep, setResStep] = useState(1);
+  const [res, setRes] = useState({ flat: '', wing: '', note: '', proofType: 'maintenance', doc: null });
+  const [sugOpen, setSugOpen] = useState(false);
+  const [sug, setSug] = useState({ builder: '', year: '', towers: '', units: '', amenities: [] });
+  const [sugRec, setSugRec] = useState(null);
+  const [contribs, setContribs] = useState([]);
+  const [contribFilter, setContribFilter] = useState('all');
+  const [contribOpen, setContribOpen] = useState(false);
+  const [cKind, setCKind] = useState('tip');
+  const [cForm, setCForm] = useState({ category: '', text: '', name: '', contact: '', note: '', caption: '', photo: null });
+  const [aadhaarOpen, setAadhaarOpen] = useState(false);
+  const pendingAction = useRef(null);
+  const otp = useOtpFlow();
+  // Threaded replies + reporting
+  const [replyFor, setReplyFor] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [reportFor, setReportFor] = useState(null); // { targetType, targetId, parentId?, entityId?, snapshot }
+  const [reportReason, setReportReason] = useState('');
+  // Events & notices board
+  const [board, setBoard] = useState([]);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [calDay, setCalDay] = useState(ymd(new Date()));
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [bKind, setBKind] = useState('event');
+  const [bForm, setBForm] = useState({ title: '', body: '', category: '', date: ymd(new Date()), time: '' });
+  // WhatsApp group — invite is private (resident-only); waExists just flags it.
+  const [wa, setWa] = useState(null);
+  const [waExists, setWaExists] = useState(false);
+  const [waRaw, setWaRaw] = useState(null);
+  const [waOpen, setWaOpen] = useState(false);
+  const [waUrl, setWaUrl] = useState('');
+  // Location correction (resident-proposed → ops-approved)
+  const [locFix, setLocFix] = useState(null);
+  const [locOpen, setLocOpen] = useState(false);
+
+  useEffect(() => {
+    setReviews(getEntityReviews('society', soc.id));
+    setQa(getSocietyQA(soc.slug));
+    setFollowed(isSocietyFollowed(soc.slug));
+    setResStat(residentStatus(soc.slug));
+    setSugRec(getSocietySuggestion(soc.slug));
+    setContribs(getSocietyContributions(soc.slug));
+    setContribFilter('all');
+    setBoard(getSocietyBoard(soc.slug));
+    setWa(getSocietyWhatsappJoin(soc.slug));
+    setWaExists(hasSocietyWhatsapp(soc.slug));
+    setWaRaw(getSocietyWhatsappRaw(soc.slug));
+    setLocFix(getSocietyLocationFix(soc.slug));
+    setReplyFor(null); setReportFor(null); setBoardOpen(false); setWaOpen(false); setLocOpen(false);
+    let alive = true;
+    listProperties({}).then((all) => { if (alive) setListings(soc._generic ? [] : listingsInSociety(all, soc.id)); });
+    return () => { alive = false; };
+  }, [soc]);
+
+  useEffect(() => {
+    if (!claim && !resOpen && !boardOpen && !waOpen && !reportFor) return;
+    const onKey = (e) => { if (e.key === 'Escape') { closeClaim(); closeResident(); setBoardOpen(false); setWaOpen(false); setReportFor(null); } };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [claim, resOpen, boardOpen, waOpen, reportFor]);
+
+  const rating = entityRating('society', soc.id);
+  // Estimated (baseline-blended) ratings are only honest for societies with real,
+  // confirmed specs — i.e. NOT thin and NOT community-sourced. Everyone else shows
+  // real resident reviews only (or "Not rated yet").
+  const showEstimate = !soc._thin && !soc._community;
+  const bars = useMemo(() => {
+    const acc = {}; const cnt = {};
+    reviews.forEach((r) => Object.entries(r.categories || {}).forEach(([k, v]) => { acc[k] = (acc[k] || 0) + v; cnt[k] = (cnt[k] || 0) + 1; }));
+    if (!showEstimate) return REVIEW_CATS.filter((k) => cnt[k]).map((k) => ({ label: k, value: +(acc[k] / cnt[k]).toFixed(1) }));
+    const base = baselineBars(soc);
+    return REVIEW_CATS.map((k) => ({ label: k, value: cnt[k] ? +(((acc[k] / cnt[k]) + base[k]) / 2).toFixed(1) : base[k] }));
+  }, [soc, reviews, showEstimate]);
+  const overall = useMemo(() => {
+    if (!showEstimate) return rating.count ? +rating.avg.toFixed(1) : 0;
+    const b = bars.reduce((s, x) => s + x.value, 0) / (bars.length || 1);
+    return rating.count ? +(((rating.avg + b) / 2)).toFixed(1) : +b.toFixed(1);
+  }, [bars, rating, showEstimate]);
+
+  const priceStats = useMemo(() => {
+    const buys = listings.filter((l) => l.deal === 'buy' && l.area);
+    const rents = listings.filter((l) => l.deal === 'rent');
+    return {
+      psf: buys.length ? Math.round(buys.reduce((s, l) => s + l.price / l.area, 0) / buys.length) : null,
+      rentAvg: rents.length ? Math.round(rents.reduce((s, l) => s + l.price, 0) / rents.length) : null,
+      forSale: buys.length, forRent: rents.length,
+    };
+  }, [listings]);
+
+  const commute = commuteInfo(soc.lat, soc.lng);
+  const nearby = connectivityFor({ localitySlug: soc.localitySlug });
+  const hasCoords = soc.lat != null && soc.lng != null;
+  const dirUrl = hasCoords
+    ? 'https://www.google.com/maps/dir/?api=1&destination=' + Number(soc.lat) + ',' + Number(soc.lng) + (soc.placeId ? '&destination_place_id=' + encodeURIComponent(soc.placeId) : '')
+    : null;
+  const age = soc.year ? NOW_YEAR - soc.year : null;
+  const hero = HERO[fnvHash(soc.slug) % HERO.length];
+  const verified = soc.registration && soc.conveyance;
+  const claimed = soc.claimStatus === 'claimed';
+  const claimPending = soc.claimStatus === 'pending';
+  const iAmResident = resStat && resStat.status === 'verified';
+  const iAmAdmin = !soc._generic && isSocietyAdmin(soc.slug);
+  const committee = useMemo(() => (iAmAdmin ? committeeResidentReqs(soc.slug) : []), [iAmAdmin, soc.slug, tick]);
+  // Live warning while typing: is this exact unit already held by a verified resident?
+  const unitTaken = useMemo(() => {
+    const holder = verifiedResidentForUnit(soc.slug, unitKeyOf(res.wing, res.flat));
+    return !!holder && holder.mobile !== digits((user || {}).mobile);
+  }, [soc.slug, res.wing, res.flat, user]);
+
+  const requireLogin = () => { if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return false; } return true; };
+  const refreshCommittee = (r, status) => {
+    const out = setResidentStatus(r.slug, r.mobile, status, (user || {}).name || 'Committee');
+    if (out === 'conflict') { toast('This unit is already held by another verified resident — can\u2019t verify.', 'error'); return; }
+    setTick((t) => t + 1);
+    toast(status === 'verified' ? `Verified ${r.name} as a resident` : 'Request rejected', status === 'verified' ? 'success' : 'info');
+  };
+
+  const onFollow = () => {
+    if (!requireLogin()) return;
+    const now = toggleFollowSociety(soc.slug);
+    setFollowed(now);
+    toast(now ? `Following ${soc.name} — we'll alert you on new listings` : 'Unfollowed', now ? 'success' : 'info');
+  };
+  const submitReview = () => requireKyc(() => {
+    addEntityReview('society', soc.id, { rating: pick, text: revText.trim(), resident: isVerifiedResident(soc.slug) });
+    setReviews(getEntityReviews('society', soc.id)); setRevText(''); setPick(5); setRateOpen(false); toast('Thanks for reviewing this society!', 'success');
+  });
+  const submitQuestion = () => {
+    if (!qText.trim()) return;
+    requireKyc(() => {
+      const out = addSocietyQuestion(soc.slug, qText);
+      if (out === 'login' || out === 'kyc') return;
+      setQa(getSocietyQA(soc.slug)); setQText(''); toast('Question posted', 'success');
+    });
+  };
+  const submitAnswer = (qId) => {
+    const val = aText.trim();
+    if (!val) return;
+    requireKyc(() => {
+      const out = addSocietyAnswer(soc.slug, qId, val);
+      if (out === 'login' || out === 'kyc' || !out) return;
+      setQa(getSocietyQA(soc.slug)); setAText(''); setAnswerFor(null);
+    });
+  };
+  const closeClaim = () => { setClaim(false); setCl({ name: '', mobile: '', role: '', regNo: '', cert: null }); };
+  const submitClaim = () => {
+    if (!cl.name.trim()) { toast('Add your name', 'error'); return; }
+    if (digits(cl.mobile).length !== 10) { toast('Enter a valid 10-digit mobile', 'error'); return; }
+    if (!requireLogin()) return;
+    const c = requestSocietyClaim({
+      slug: soc.slug, society: soc.name, loc: locName, name: cl.name.trim(),
+      mobile: digits(cl.mobile), role: cl.role.trim(), regNo: cl.regNo.trim(), cert: cl.cert,
+    });
+    if (c === 'login') return;
+    if (c === 'exists') { toast('This society already has an onboarding request under review.', 'error'); return; }
+    setTick((t) => t + 1); closeClaim();
+    toast('Onboarding request received — our team will verify the committee & reach out!', 'success');
+  };
+  const closeResident = () => { setResOpen(false); setResStep(1); setRes({ flat: '', wing: '', note: '', proofType: 'maintenance', doc: null }); otp.setOtp(''); };
+  const resToStep2 = () => {
+    if (!res.flat.trim()) { toast('Add your flat / unit number', 'error'); return; }
+    if (!requireLogin()) return;
+    setResStep(2);
+    if (!otp.otpSent) otp.send();
+  };
+  const submitResident = () => {
+    if (otp.otp.length !== 6) { otp.setOtpError(true); toast('Enter the 6-digit OTP sent to your mobile', 'error'); return; }
+    if (!requireLogin()) return;
+    const r = requestResidentVerification(soc.slug, {
+      flat: res.flat.trim(), wing: res.wing.trim(), note: res.note.trim(),
+      proofType: res.proofType, doc: res.doc, otpVerified: true,
+    });
+    if (r === 'login') return;
+    setResStat(r); setTick((t) => t + 1); closeResident();
+    toast('Residence verification submitted — we\u2019ll confirm your Resident badge shortly', 'success');
+  };
+
+  const openSuggest = () => {
+    if (!requireLogin()) return;
+    const s = getSocietySuggestion(soc.slug);
+    const f = (s && s.status === 'pending' && s.fields) || {};
+    setSug({
+      builder: f.builder || (soc._community ? '' : soc.builder || ''),
+      year: f.year || (soc._community ? '' : soc.year || ''),
+      towers: f.towers || (soc._community ? '' : soc.towers || ''),
+      units: f.units || (soc._community ? '' : soc.units || ''),
+      amenities: f.amenities || (soc._community ? [] : soc.amenities || []),
+    });
+    setSugOpen(true);
+  };
+  const toggleSugAmenity = (a) => setSug((s) => ({ ...s, amenities: s.amenities.includes(a) ? s.amenities.filter((x) => x !== a) : [...s.amenities, a] }));
+  const submitSuggest = () => {
+    if (!requireLogin()) return;
+    const rec = suggestSocietyDetails(soc.slug, { ...sug, name: soc.name, localitySlug: soc.localitySlug }, (user || {}).mobile);
+    if (!rec) { toast('Add at least one detail to suggest.', 'error'); return; }
+    setSugRec(rec); setSugOpen(false);
+    toast('Thanks! Your details were sent for review.', 'success');
+  };
+
+  // Login → Aadhaar-KYC gate for community contributions. Stashes the intended
+  // action and resumes it after the modal verifies (or runs it straight away if
+  // the user is already KYC-verified).
+  const requireKyc = (fn) => {
+    if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (!isAadhaarVerified()) { pendingAction.current = fn; setAadhaarOpen(true); return; }
+    fn();
+  };
+  const refreshContribs = () => setContribs(getSocietyContributions(soc.slug));
+  const openContribute = (kind) => requireKyc(() => {
+    setCKind(kind);
+    setCForm({ category: CONTRIB_META[kind].cats[0], text: '', name: '', contact: '', note: '', caption: '', photo: null });
+    setContribOpen(true);
+  });
+  const submitContribution = () => {
+    const rec = addSocietyContribution(soc.slug, { kind: cKind, ...cForm });
+    if (rec === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (rec === 'kyc') { setContribOpen(false); pendingAction.current = () => { setContribOpen(true); }; setAadhaarOpen(true); return; }
+    if (!rec) { toast(cKind === 'pick' ? 'Add the person / service name.' : cKind === 'photo' ? 'Add a photo to share.' : 'Write your tip first.', 'error'); return; }
+    refreshContribs(); setContribOpen(false);
+    toast('Thanks for contributing to this community!', 'success');
+  };
+  const onHelpful = (id) => requireKyc(() => {
+    const out = toggleContributionHelpful(soc.slug, id);
+    if (out === 'login' || out === 'kyc') return;
+    refreshContribs();
+  });
+  const onRemoveContribution = (id) => {
+    const out = removeSocietyContribution(soc.slug, id);
+    if (out === 'forbidden' || out === 'login') { toast('You can only remove your own contribution.', 'error'); return; }
+    refreshContribs();
+    toast('Contribution removed', 'info');
+  };
+
+  // Threaded replies on a contribution (KYC-gated).
+  const openReply = (id) => requireKyc(() => { setReplyFor(id); setReplyText(''); });
+  const submitReply = (id) => {
+    const val = replyText.trim();
+    if (!val) return;
+    requireKyc(() => {
+      const out = addContributionReply(soc.slug, id, val);
+      if (out === 'login' || out === 'kyc' || !out) return;
+      refreshContribs(); setReplyFor(null); setReplyText('');
+    });
+  };
+  const onRemoveReply = (id, rid) => {
+    const out = removeContributionReply(soc.slug, id, rid);
+    if (out === 'forbidden' || out === 'login') { toast('You can only remove your own reply.', 'error'); return; }
+    refreshContribs();
+  };
+
+  // Report any hub content → ops moderation queue (KYC-gated).
+  const openReport = (target) => requireKyc(() => { setReportFor(target); setReportReason(''); });
+  const submitReport = () => {
+    if (!reportFor) return;
+    const out = reportSocietyContent({ slug: soc.slug, entityId: soc.id, reason: reportReason, ...reportFor });
+    if (out === 'login' || out === 'kyc') { setReportFor(null); pendingAction.current = null; setAadhaarOpen(true); return; }
+    if (out === 'dup') { toast('You already reported this — our team is on it.', 'info'); setReportFor(null); return; }
+    if (!out) { toast('Could not submit report.', 'error'); return; }
+    setReportFor(null); toast('Reported. Thanks — our team will review it.', 'success');
+  };
+
+  // Events & notices — posting limited to verified residents / committee.
+  const requireResident = (fn) => requireKyc(() => {
+    if (!(iAmResident || iAmAdmin)) { toast('Only verified residents or the committee can post this.', 'error'); return; }
+    fn();
+  });
+  const refreshBoard = () => setBoard(getSocietyBoard(soc.slug));
+  const openBoard = (kind) => requireResident(() => {
+    setBKind(kind);
+    setBForm({ title: '', body: '', category: BOARD_META[kind].cats[0], date: calDay || ymd(new Date()), time: '' });
+    setBoardOpen(true);
+  });
+  const submitBoard = () => {
+    const out = addBoardItem(soc.slug, { kind: bKind, ...bForm });
+    if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (out === 'kyc') { setBoardOpen(false); pendingAction.current = () => setBoardOpen(true); setAadhaarOpen(true); return; }
+    if (out === 'forbidden') { toast('Only verified residents or the committee can post events.', 'error'); return; }
+    if (!out) { toast(bKind === 'event' ? 'Add a title and date.' : 'Add a title.', 'error'); return; }
+    refreshBoard(); setBoardOpen(false);
+    if (out.kind === 'event' && out.date) { setCalMonth(new Date(+out.date.slice(0, 4), +out.date.slice(5, 7) - 1, 1)); setCalDay(out.date); }
+    toast(bKind === 'event' ? 'Event added to the calendar' : 'Notice posted', 'success');
+  };
+  const onRemoveBoard = (id) => {
+    const out = removeBoardItem(soc.slug, id);
+    if (out === 'forbidden' || out === 'login') { toast('You can only remove your own post.', 'error'); return; }
+    refreshBoard(); toast('Removed', 'info');
+  };
+
+  // Resident WhatsApp group link — proposed then ops-approved.
+  const openWa = () => requireResident(() => { setWaUrl((waRaw && waRaw.url) || ''); setWaOpen(true); });
+  const submitWa = () => {
+    const out = proposeSocietyWhatsapp(soc.slug, waUrl.trim());
+    if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (out === 'kyc') { setWaOpen(false); pendingAction.current = () => setWaOpen(true); setAadhaarOpen(true); return; }
+    if (out === 'forbidden') { toast('Only verified residents or the committee can add the group link.', 'error'); return; }
+    if (out === 'badurl') { toast('Enter a valid WhatsApp invite link (https://chat.whatsapp.com/…).', 'error'); return; }
+    setWaRaw(out); setWa(getSocietyWhatsappJoin(soc.slug)); setWaExists(hasSocietyWhatsapp(soc.slug)); setWaOpen(false);
+    toast('Sent for review — verified residents can join once our team approves it.', 'success');
+  };
+
+  // Resident-proposed location correction — pending until ops approve.
+  const openLocation = () => requireResident(() => setLocOpen(true));
+  const submitLocation = ({ lat, lng, placeId, label }) => {
+    const out = proposeSocietyLocation(soc.slug, { lat, lng, placeId, label });
+    if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
+    if (out === 'kyc') { setLocOpen(false); pendingAction.current = () => setLocOpen(true); setAadhaarOpen(true); return; }
+    if (out === 'forbidden') { toast('Only verified residents or the committee can suggest the location.', 'error'); return; }
+    if (out === 'bounds') { toast('That pin looks outside the city — drop it on the society.', 'error'); return; }
+    if (!out) { toast('Could not submit the location.', 'error'); return; }
+    setLocFix(out); setLocOpen(false);
+    toast('Sent for review — the map updates once our team approves it.', 'success');
+  };
+
+  const contribCounts = useMemo(() => ({
+    all: contribs.length,
+    tip: contribs.filter((c) => c.kind === 'tip').length,
+    pick: contribs.filter((c) => c.kind === 'pick').length,
+    photo: contribs.filter((c) => c.kind === 'photo').length,
+  }), [contribs]);
+  const shownContribs = contribFilter === 'all' ? contribs : contribs.filter((c) => c.kind === contribFilter);
+  const myMob = digits((user || {}).mobile);
+  const iAmResidentOrAdmin = iAmResident || iAmAdmin;
+  const boardEvents = useMemo(() => board.filter((b) => b.kind === 'event'), [board]);
+  const boardNotices = useMemo(() => board.filter((b) => b.kind === 'notice'), [board]);
+  const eventDots = useMemo(() => { const m = {}; boardEvents.forEach((e) => { if (e.date) m[e.date] = (m[e.date] || 0) + 1; }); return m; }, [boardEvents]);
+  const dayEvents = useMemo(() => boardEvents.filter((e) => e.date === calDay).sort((a, b) => (a.time || '').localeCompare(b.time || '')), [boardEvents, calDay]);
+
+  const stats = [
+    ['home', 'Total units', soc.units != null ? fmtNum(soc.units) : null],
+    ['building-2', 'Towers', soc.towers != null ? String(soc.towers) : null],
+    ['calendar', 'Built', soc.year ? `${soc.year} · ${age}y` : null],
+    ['users', 'Occupancy', soc.occupancy != null ? `${soc.occupancy}%` : null],
+  ].filter((s) => s[2] != null);
+  const living = [
+    ['droplets', 'Water', soc.water], ['zap', 'Power backup', soc.power], ['car', 'Parking', soc.parkingRatio != null ? `${soc.parkingRatio}/unit` : null],
+    ['move-vertical', 'Lifts', soc.lifts != null ? `${soc.lifts} total` : null], ['shield-check', 'Security', soc.security],
+    ['indian-rupee', 'Maintenance', soc.maintenancePerSqft != null ? `₹${soc.maintenancePerSqft}/sqft` : null], ['paw-print', 'Pets', soc.petPolicy], ['utensils', 'Food policy', soc.vegPolicy],
+  ].filter((l) => l[2] != null && l[2] !== '');
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: 'file-text', show: true },
+    { id: 'homes', label: 'Homes', icon: 'building-2', show: listings.length > 0, count: listings.length },
+    { id: 'reviews', label: 'Reviews & Q&A', icon: 'star', show: true, count: rating.count || 0 },
+    { id: 'community', label: 'Community', icon: 'users', show: true, count: contribCounts.all || 0 },
+    { id: 'location', label: 'Location', icon: 'map-pin', show: !soc._generic },
+  ].filter((t) => t.show);
+  const current = tabs.some((t) => t.id === activeTab) ? activeTab : 'overview';
+  const selectTab = (id) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id === 'overview') next.delete('tab'); else next.set('tab', id);
+      return next;
+    }, { replace: true });
+  };
+  const inp = 'w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-teal-400/50';
+
+  const ctx = {
+    soc, locName, living, listings, priceStats,
+    showEstimate, rating, overall, bars, reviews, openReport,
+    qText, setQText, submitQuestion, inp, qa,
+    answerFor, aText, setAText, submitAnswer, setAnswerFor,
+    iAmResidentOrAdmin, openBoard, calMonth, setCalMonth, eventDots, calDay, setCalDay,
+    dayEvents, myMob, iAmAdmin, onRemoveBoard, boardNotices,
+    contribCounts, openContribute, contribFilter, setContribFilter, shownContribs,
+    onRemoveContribution, openReply, replyFor, replyText, setReplyText, submitReply,
+    onHelpful, onRemoveReply,
+    hasCoords, dirUrl, locFix, openLocation, commute, nearby,
+    iAmResident, resStat, requireLogin, setResStep, setResOpen,
+    wa, waRaw, openWa, waExists, committee, refreshCommittee,
+    saasOn, claimed, claimPending, setClaim, followed, onFollow,
+    setRateOpen, claim, closeClaim, cl, setCl, submitClaim,
+    resOpen, closeResident, resStep, res, setRes, unitTaken, resToStep2, user, otp, submitResident,
+    sugOpen, setSugOpen, sug, setSug, toggleSugAmenity, submitSuggest,
+    contribOpen, setContribOpen, cKind, setCKind, cForm, setCForm, submitContribution,
+    boardOpen, setBoardOpen, bKind, setBKind, bForm, setBForm, submitBoard,
+    waOpen, setWaOpen, waUrl, setWaUrl, submitWa,
+    reportFor, setReportFor, reportReason, setReportReason, submitReport,
+    locOpen, submitLocation, setLocOpen,
+    aadhaarOpen, pendingAction, setAadhaarOpen,
+  };
+
+  return {
+    ...ctx,
+    rootRef, hero, verified, rateOpen, pick, setPick, revText, setRevText,
+    submitReview, sugRec, openSuggest, stats, tabs, current, selectTab,
+  };
+}

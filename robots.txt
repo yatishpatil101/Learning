@@ -1,0 +1,46 @@
+# PuneNest — robots.txt
+# NOTE: replace the Sitemap host with the real production domain before launch.
+
+User-agent: *
+Allow: /
+# Private / authenticated / internal pages (also guarded client-side):
+Disallow: /admin-
+Disallow: /ops-
+Disallow: /staff-login.html
+Disallow: /dashboard.html
+Disallow: /saved.html
+Disallow: /messages.html
+Disallow: /notifications.html
+Disallow: /signin.html
+Disallow: /signup.html
+Disallow: /list-property.html
+Disallow: /schedule-visit.html
+Disallow: /view-documents.html
+Disallow: /dev-seed.html
+Disallow: /dropdowns-demo.html
+Disallow: /graphify-out/
+Disallow: /map.html
+
+# ── AI / generative-engine crawlers ──
+# Allowed so PuneNest is eligible to be cited by AI assistants (GEO).
+# This is a business decision — switch "Allow: /" to "Disallow: /" per bot to opt out.
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-Web
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: Applebot-Extended
+Allow: /
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://www.punenest.in/sitemap.xml

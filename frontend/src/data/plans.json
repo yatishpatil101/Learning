@@ -1,0 +1,56 @@
+[
+  {
+    "id": "PL1",
+    "name": "Owner Basic",
+    "audience": "owner",
+    "price": 0,
+    "period": "forever",
+    "features": [
+      "1 active listing",
+      "Verified owner badge",
+      "Limited contacts"
+    ],
+    "popular": false
+  },
+  {
+    "id": "PL2",
+    "name": "Owner Plus",
+    "audience": "owner",
+    "price": 999,
+    "period": "year",
+    "features": [
+      "5 active listings",
+      "Featured for 7 days",
+      "Unlimited contacts",
+      "Priority support"
+    ],
+    "popular": true
+  },
+  {
+    "id": "PL3",
+    "name": "Owner Pro",
+    "audience": "owner",
+    "price": 2499,
+    "period": "year",
+    "features": [
+      "Unlimited listings",
+      "Always featured",
+      "Dedicated manager",
+      "Free rent agreement"
+    ],
+    "popular": false
+  },
+  {
+    "id": "PL4",
+    "name": "Seeker Plus",
+    "audience": "seeker",
+    "price": 199,
+    "period": "one-time",
+    "features": [
+      "Unlock 15 owner contacts",
+      "Priority visit slots",
+      "No spam guarantee"
+    ],
+    "popular": false
+  }
+]

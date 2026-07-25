@@ -1,0 +1,51 @@
+[
+  {
+    "id": "M1",
+    "threadId": "TH1",
+    "withName": "Rohan Patil",
+    "withRole": "owner",
+    "listing": "2 BHK in Baner",
+    "last": "Sure, you can visit tomorrow evening.",
+    "unread": 1,
+    "at": "2026-06-30",
+    "thread": [
+      {
+        "from": "them",
+        "text": "Hi, the flat is available.",
+        "at": "2026-06-29"
+      },
+      {
+        "from": "me",
+        "text": "Great, can I visit this weekend?",
+        "at": "2026-06-29"
+      },
+      {
+        "from": "them",
+        "text": "Sure, you can visit tomorrow evening.",
+        "at": "2026-06-30"
+      }
+    ]
+  },
+  {
+    "id": "M2",
+    "threadId": "TH2",
+    "withName": "Neha Kulkarni",
+    "withRole": "owner",
+    "listing": "3 BHK in Wakad",
+    "last": "Deposit is 2 months.",
+    "unread": 0,
+    "at": "2026-06-28",
+    "thread": [
+      {
+        "from": "me",
+        "text": "What is the deposit?",
+        "at": "2026-06-28"
+      },
+      {
+        "from": "them",
+        "text": "Deposit is 2 months.",
+        "at": "2026-06-28"
+      }
+    ]
+  }
+]

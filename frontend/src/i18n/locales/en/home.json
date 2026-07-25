@@ -1,0 +1,133 @@
+{
+  "home": {
+    "hero": {
+      "discoverLead": "Discover",
+      "discoverTail": "verified properties across {{city}}'s most sought-after localities",
+      "launchedLead": "PuneNest just launched in",
+      "launchedTail": "— be the first to list your home, broker-free",
+      "trustAadhaar": "100% Aadhaar-verified owners",
+      "trustZeroBrokerage": "Zero brokerage",
+      "trustNoSpam": "No spam calls — number stays private",
+      "trustAssured": "PuneNest Assured",
+      "exploreMap": "Explore properties on map",
+      "recent": "Recent:",
+      "popular": "Popular:",
+      "statProperties": "Properties",
+      "statVerifiedOwners": "Verified owners",
+      "statLocalities": "Localities"
+    },
+    "search": {
+      "buy": "Buy",
+      "rent": "Rent",
+      "removeArea": "Remove {{label}}",
+      "ariaSearch": "Search localities, societies or landmarks",
+      "headingEntities": "Localities, societies & landmarks",
+      "headingNearby": "Nearby localities",
+      "headingPopular": "Popular localities",
+      "placeholderAdd": "Add another area…",
+      "placeholderTry": "Try Baner, Kalyani Nagar or a society…",
+      "placeholderCity": "Search a locality in {{city}}…",
+      "typePlaceholder": "Type",
+      "bhkLabel": "BHK",
+      "roomForLabel": "Room for",
+      "sharingLabel": "Sharing",
+      "kind": {
+        "society": "Society",
+        "landmark": "Landmark"
+      },
+      "listings_one": "{{count}} listing",
+      "listings_other": "{{count}} listings",
+      "noListings": "No listings",
+      "searchBtn": "Search",
+      "done": "Done",
+      "searchAreas_one": "Search {{count}} area",
+      "searchAreas_other": "Search {{count}} areas"
+    },
+    "categories": {
+      "eyebrow": "Browse by type",
+      "title": "Explore by property type",
+      "prevAria": "Scroll to previous property types",
+      "nextAria": "Scroll to next property types",
+      "allListings": "All listings",
+      "properties": "properties"
+    },
+    "featured": {
+      "verified": "Verified",
+      "removeSaved": "Remove from saved",
+      "saveProperty": "Save property",
+      "perMonth": "/mo",
+      "title": "Featured properties",
+      "subtitle": "Handpicked properties across Pune",
+      "viewAll": "View All",
+      "viewAllProperties": "View all properties"
+    },
+    "recent": {
+      "eyebrow": "Pick up where you left off",
+      "title": "Recently viewed"
+    },
+    "shareFlat": {
+      "badge": "New · Share a Flat",
+      "headingLead": "Can't afford a whole flat?",
+      "headingHighlight": "Find a flatmate.",
+      "body": "Whole-flat rents are steep for one person. Post what you're looking for, browse genuine seekers in your locality & budget, and split the rent together — broker-free and number-protected.",
+      "featVerified": "Verified seekers",
+      "featWomen": "Women-only filter",
+      "featNoNumber": "No number sharing",
+      "ctaFind": "Find a flatmate",
+      "ctaPost": "Post your requirement",
+      "perMonthWhole": "/mo whole flat",
+      "yourShare": "Your share",
+      "perMonth": "/mo",
+      "lookingToShare": "looking to share in Pune"
+    },
+    "why": {
+      "eyebrow": "Why PuneNest",
+      "headingLine1": "Built for home-seekers,",
+      "headingLine2": "not brokers",
+      "heroTitle": "Every owner is verified before listing",
+      "heroBody": "Aadhaar identity + ownership document check on every listing. No fake posts, no brokers posing as owners. If it's on PuneNest, it's real.",
+      "statVerifiedListings": "Verified listings",
+      "statVerifiedOwners": "Verified owners",
+      "statBrokerage": "Brokerage",
+      "row1Title": "Your number stays private",
+      "row1Body": "Owners only get your contact after you approve. Zero broker spam calls — guaranteed.",
+      "row2Title": "Zero brokerage, always",
+      "row2Body": "Deal direct. Save one to two months' rent that brokers typically charge — on every transaction.",
+      "row3Title": "End-to-end services",
+      "row3Body": "Home loans, legal & registration, movers, valuation, interior design — everything for your move.",
+      "row3Link": "Explore all services"
+    },
+    "testimonials": {
+      "badge": "Loved across Pune",
+      "title": "Real stories, real homes",
+      "reviews": "reviews",
+      "verifiedReviews": "verified reviews",
+      "familiesHoused": "Families housed",
+      "aadhaarVerifiedOwners": "Aadhaar-verified owners",
+      "brokerageEver": "Brokerage, ever",
+      "verifiedRenter": "Verified renter"
+    },
+    "cta": {
+      "badge": "Free for owners",
+      "headingLead": "Own a property? Do more than",
+      "headingHighlight": "list it.",
+      "body": "Find out what it's worth, keep its papers in one private vault, and track rent with instant receipts — free. List to buyers only when you're ready.",
+      "worth": "What's my home worth?",
+      "listFree": "List for free"
+    },
+    "faq": {
+      "title": "Frequently asked questions",
+      "subtitle": "Buying, renting and listing on Pune's broker-free marketplace.",
+      "q1": "Does PuneNest charge any brokerage?",
+      "a1": "No. PuneNest is completely broker-free. You contact and deal directly with verified property owners in Pune, so there is no brokerage or commission to pay.",
+      "q2": "How are owners and properties verified on PuneNest?",
+      "a2": "Owners are verified via Aadhaar and mobile (Verified Owner), and ownership through the Index II document (Ownership Verified). Many listings also show Society Verified and Conveyance Done, plus RERA for new projects.",
+      "q3": "Which areas of Pune does PuneNest cover?",
+      "a3": "PuneNest covers Baner, Wakad, Hinjawadi, Kothrud, Koregaon Park, Viman Nagar, Hadapsar, Wagholi, Kalyani Nagar, Kharadi and more — for buying, renting and flat-sharing.",
+      "q4": "Can I create a registered rent agreement online?",
+      "a4": "Yes. PuneNest offers Maharashtra-registered online rent agreements with Aadhaar e-sign and doorstep biometrics, handled end to end.",
+      "q5": "What does an \"Under Offer\" property mean?",
+      "a5": "Under Offer means the owner is finalizing with an interested tenant or buyer but has not taken the token or signed the agreement yet. The listing stays live for backup enquiries until it is marked Rented or Sold."
+    }
+  }
+}

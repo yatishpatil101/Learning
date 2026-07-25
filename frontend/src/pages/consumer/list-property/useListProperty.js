@@ -1,0 +1,305 @@
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../../context/AuthContext';
+import { useToast } from '../../../context/ToastContext.jsx';
+import { useFormDraft } from '../../../lib/hooks';
+import {
+  getListing, isAadhaarVerified, parseAmount,
+  canPostListing, activeListingCount, listingLimit,
+} from '../../../lib/store';
+import { formatIndian } from './format.js';
+import {
+  isResidentialType, isLandType, isCommercialType, isHouseType, isPgType,
+} from './constants.js';
+import { initialForm } from './initialForm.js';
+import { classifyChanges } from './editPolicy.js';
+import { scrollToError, validateStep1, validateStep2, validateStep3, validateFlatmateStep1, validateFlatmateStep2 } from './validation.js';
+import { triggerConfetti } from './confetti.js';
+import { persistListing, persistFlatmate } from './submit.js';
+import { hashPhotos } from '../../../lib/data/imageHash.js';
+import { computeProgress } from './progress.js';
+import useListingGate from './useListingGate';
+import useListingMedia from './useListingMedia';
+import useListingLocation from './useListingLocation';
+
+export default function useListProperty() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('edit');
+  // Entry from Share-a-Flat's "List your room" — a sitting tenant looking for a
+  // replacement flatmate. Pre-selects the flatmate track + tenant host role so
+  // they land on a ready-to-fill room form instead of re-picking those choices.
+  const shareMode = searchParams.get('share') === '1';
+
+  const [currentStep, setCurrentStep] = useState(1);
+  const [rentMode, setRentMode] = useState(() => (shareMode && !editId ? 'flatmate' : 'whole')); // whole | flatmate
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  /* Edit-mode policy state (P0/P1/P2). editOrig snapshots what the listing
+     looked like when opened, so we can diff the owner's changes into tiers. */
+  const editOrigRef = useRef(null);
+  const [editApproved, setEditApproved] = useState(false);
+  const [showIdentityGuard, setShowIdentityGuard] = useState(false);
+  // Duplicate-property guard — the owner already has this unit listed.
+  const [showDupGuard, setShowDupGuard] = useState(false);
+  const [dupExistingId, setDupExistingId] = useState('');
+  // Freemium quota is fixed for this page load — a new post over the limit is
+  // paywalled; editing an existing listing never is.
+  const [canPost] = useState(() => (editId ? true : canPostListing()));
+
+  const gate = useListingGate({ user, logout, navigate, t });
+
+  const [form, setForm] = useState(initialForm);
+  // Always-fresh mirror of `form` so async callbacks (e.g. reverse-geocode auto-fill,
+  // which resolves after a network round-trip) can read the latest field values without
+  // capturing a stale render closure.
+  const formRef = useRef(form);
+  useEffect(() => { formRef.current = form; }, [form]);
+
+  const media = useListingMedia({ errors, setErrors });
+  const { photos, setPhotos, video, setVideo, documents, setDocuments } = media;
+
+  const location = useListingLocation({ setForm, formRef, errors, setErrors });
+  const { set, locationSet, setLocationSet } = location;
+
+  const { restored: draftRestored, clear: clearFormDraft, startFresh } = useFormDraft('pnDraft:list-property', form, setForm);
+
+  const isFlatmateMode = form.deal === 'rent' && rentMode === 'flatmate';
+
+  /* Live completion — every applicable field feeds the meter, so it only reads
+     100% once nothing (mandatory or optional) is left blank. Derived during
+     render (no effect) so every keystroke nudges the meter. */
+  const progressState = useMemo(
+    () => computeProgress({ form, photos, documents, video, aadhaarVerified: gate.aadhaarVerified, isFlatmateMode }),
+    [form, photos, documents, video, gate.aadhaarVerified, isFlatmateMode],
+  );
+
+  useEffect(() => {
+    // Prefill the room-listing intent when arriving from Share-a-Flat. Runs after
+    // the draft restore above so the tenant's intent wins over a stale draft, and
+    // is skipped in edit mode so it never overwrites an existing listing.
+    if (shareMode && !editId) {
+      setForm((f) => ({ ...f, deal: 'rent', propertyType: 'flat', hostRole: 'tenant' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (editId) {
+      const listing = getListing(editId);
+      if (listing) {
+        const snap = listing.form || listing;
+        setForm((prev) => ({ ...prev, ...snap }));
+        const imgs = listing.images || listing.gallery || [];
+        if (imgs.length) setPhotos(imgs.map((url) => ({ url, category: 'Other' })));
+        if (listing.video) setVideo(listing.video);
+        if (listing.documents) setDocuments(listing.documents);
+        // A saved listing already carries real coordinates, so treat it as located.
+        if (snap.propLat != null && snap.propLng != null) setLocationSet(true);
+        // Snapshot the opened state for tier diffing + remember if it's live.
+        editOrigRef.current = { form: { ...initialForm, ...snap }, photoUrls: imgs.filter(Boolean) };
+        setEditApproved(/approved|verified|live/i.test(String(listing.status || '')));
+      }
+    }
+  }, [editId]);
+
+  /* Live tier classification of the owner's in-progress edit (P1). */
+  const editChanges = useMemo(() => {
+    if (!editId || !editOrigRef.current) return null;
+    const o = editOrigRef.current;
+    return classifyChanges(o.form, form, o.photoUrls, photos.map((p) => p.url).filter(Boolean));
+  }, [editId, form, photos]);
+
+  // The submit button sits at the bottom of a long step, so the window is scrolled
+  // down when success fires. Snap back to the top so the centred success card is
+  // in view rather than empty space below it.
+  useEffect(() => {
+    if (showSuccess) window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [showSuccess]);
+
+  // Keep the PG per-occupancy rents (and the derived "from" price) in sync with the
+  // sharing types actually offered. Unchecking a sharing type in Step 1 must drop its
+  // stale rent and recompute monthlyRent as the cheapest remaining bed — otherwise a
+  // card could advertise a "from ₹X" for an occupancy no longer on offer.
+  useEffect(() => {
+    if (!isPgType(form.propertyType)) return;
+    const selected = form.sharing || [];
+    const rents = form.sharingRents || {};
+    const pruned = {};
+    selected.forEach((k) => { if (rents[k] != null && rents[k] !== '') pruned[k] = rents[k]; });
+    const vals = Object.values(pruned).map((v) => parseInt(v, 10)).filter((n) => n > 0);
+    const nextMonthly = vals.length ? String(Math.min(...vals)) : '';
+    const rentsChanged = Object.keys(pruned).length !== Object.keys(rents).length;
+    if (rentsChanged || nextMonthly !== form.monthlyRent) {
+      setForm((prev) => ({ ...prev, sharingRents: pruned, monthlyRent: nextMonthly }));
+    }
+    // Intentionally keyed only on the sharing set + type; rent edits recompute inline.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.sharing, form.propertyType]);
+
+  const toggleInArray = useCallback((field, value) => {
+    setForm((prev) => {
+      const arr = prev[field] || [];
+      return { ...prev, [field]: arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value] };
+    });
+  }, []);
+
+  const toggleTenant = useCallback((value) => {
+    setForm((prev) => {
+      let arr = prev.preferredTenants || [];
+      if (value === 'anyone') return { ...prev, preferredTenants: arr.includes('anyone') ? [] : ['anyone'] };
+      arr = arr.filter((x) => x !== 'anyone');
+      arr = arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value];
+      return { ...prev, preferredTenants: arr };
+    });
+  }, []);
+
+  // Switching property type must not leave another type's answers hiding in state.
+  // A user who filled commercial fields then picked "Flat" would otherwise silently
+  // save washrooms/shell-type/CAM etc. Reset every type-specific field back to its
+  // default so each category always starts clean (mirrors the admin cascade).
+  const TYPE_SPECIFIC_KEYS = [
+    'commercialType', 'sharing', 'sharingRents', 'pgGender', 'pgMeals',
+    'washrooms', 'shellType', 'parkingSpaces', 'powerBackup', 'pantry', 'camCharges', 'suitableFor',
+    'areaUnit', 'plotLength', 'plotWidth', 'openSides', 'roadWidth', 'cornerPlot', 'boundaryWall',
+    'plotZone', 'naSanctioned', 'waterSource', 'electricity', 'roadAccess', 'satbara',
+    'plotArea', 'floorsInHouse', 'furniture', 'monthlyRent',
+  ];
+  const changePropertyType = useCallback((v) => {
+    setForm((prev) => {
+      const next = { ...prev, propertyType: v };
+      TYPE_SPECIFIC_KEYS.forEach((k) => { next[k] = initialForm[k]; });
+      return next;
+    });
+    if (!isResidentialType(v) || isPgType(v)) setRentMode('whole');
+    setErrors((prev) => {
+      const n = { ...prev };
+      ['propertyType', 'commercialType', 'sharing', 'monthlyRent', 'plotArea', 'washrooms', 'shellType'].forEach((k) => delete n[k]);
+      return n;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isResidential = () => isResidentialType(form.propertyType);
+  const isLand = () => isLandType(form.propertyType);
+  const isCommercial = () => isCommercialType(form.propertyType);
+  const isHouse = () => isHouseType(form.propertyType);
+  const isPg = () => isPgType(form.propertyType);
+
+  /* ---------- money / deposit ---------- */
+  const money = (field) => ({
+    value: formatIndian(form[field]),
+    onChange: (e) => set(field, e.target.value.replace(/\D/g, '')),
+  });
+  const setDepositMonths = (months) => {
+    const rent = parseAmount(form.monthlyRent);
+    if (rent > 0) set('deposit', String(rent * months));
+  };
+
+  /* ---------- validation ---------- */
+  const nextStep = () => {
+    const err = isFlatmateMode
+      ? (currentStep === 1 ? validateFlatmateStep1(form) : validateFlatmateStep2(form))
+      : (currentStep === 1 ? validateStep1(form) : currentStep === 2 ? validateStep2(form) : {});
+    // Step 2 also requires the property to be placed on the map — a locality pick,
+    // a search, or a pin drag — so a listing is never geo-pinned to the default.
+    if (currentStep === 2 && !locationSet) err.location = true;
+    if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
+    setErrors({});
+    if (currentStep < 3) { setCurrentStep(currentStep + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  };
+  const prevStep = () => {
+    if (currentStep > 1) { setCurrentStep(currentStep - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  };
+
+  /* Start over — wipe the saved draft and every in-memory field, then remount
+     fresh. startFresh() clears the autosaved draft and reloads, which also
+     resets photos, documents and the step position in one clean sweep. */
+  const openResetConfirm = useCallback(() => setShowResetConfirm(true), []);
+  const confirmReset = useCallback(() => startFresh(), [startFresh]);
+
+  // A listing can never be created without a completed Aadhaar check. The gate
+  // already hides the form, but we re-check the source of truth here so posting
+  // is impossible even if the form is somehow reached unverified.
+  const requireAadhaar = () => {
+    const verified = isAadhaarVerified();
+    if (!verified) {
+      gate.setAadhaarVerifiedState(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    return verified;
+  };
+
+  const finalizeListing = async () => {
+    // Perceptual hashes of the uploaded photos let Ops catch a re-list that reuses
+    // the same photos under a different typed address. Computed here (browser) so
+    // the store stays synchronous; failures degrade to no image signal.
+    let photoHashes = [];
+    try { photoHashes = await hashPhotos(photos); } catch { photoHashes = []; }
+    const res = persistListing({ form, user, editId, documents, photos, photoHashes });
+    // Same owner already has this exact property live → stop and point them to it.
+    if (res && res.ok === false && res.blocked) {
+      setDupExistingId(res.existingId || '');
+      setShowDupGuard(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    clearFormDraft();
+    triggerConfetti();
+    setShowSuccess(true);
+    setTimeout(() => navigate('/dashboard'), 3200);
+  };
+
+  const submitProperty = () => {
+    if (!requireAadhaar()) return;
+    const err = validateStep3(form, documents, photos);
+    if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
+
+    if (!editId && !canPost) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    if (editId && editChanges?.identityChanged) { setShowIdentityGuard(true); return; }
+
+    finalizeListing();
+  };
+
+  const submitFlatmate = () => {
+    if (!requireAadhaar()) return;
+    const err = {};
+    if (!form.bhk) err.bhk = true;
+    if (!form.roomType) err.roomType = true;
+    if (!form.locality) err.locality = true;
+    if (!form.society.trim()) err.society = true;
+    if (!(Number(form.rentShare) > 0)) err.rentShare = true;
+    if (!form.availableFrom) err.availableFrom = true;
+    if (!photos.length) err.photos = true;
+    if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
+    const res = persistFlatmate({ form, user, photos });
+    if (res && res.ok === false) { toast(res.reason, 'error'); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    clearFormDraft();
+    triggerConfetti();
+    setShowSuccess(true);
+    setTimeout(() => navigate('/dashboard'), 3200);
+  };
+
+  return {
+    ...gate,
+    ...media,
+    ...location,
+    t, navigate, editId, shareMode,
+    currentStep, setCurrentStep, rentMode, setRentMode, isFlatmateMode,
+    showSuccess, showResetConfirm, setShowResetConfirm, errors,
+    editApproved, editChanges, showIdentityGuard, setShowIdentityGuard,
+    showDupGuard, setShowDupGuard, dupExistingId, canPost,
+    form, setForm, progressState,
+    toggleInArray, toggleTenant, changePropertyType,
+    isResidential, isLand, isCommercial, isHouse, isPg,
+    money, setDepositMonths,
+    nextStep, prevStep, openResetConfirm, confirmReset, submitProperty, submitFlatmate,
+    activeListingCount, listingLimit,
+  };
+}

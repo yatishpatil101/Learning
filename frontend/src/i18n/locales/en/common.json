@@ -1,0 +1,103 @@
+{
+  "nav": {
+    "buy": "Buy",
+    "rent": "Rent",
+    "shareFlat": "Share Flat",
+    "reels": "Reels",
+    "services": "Services",
+    "refer": "Refer & Earn",
+    "post": "Post",
+    "postProperty": "Post Property"
+  },
+  "dashboard": {
+    "logout": "Log Out",
+    "tabs": {
+      "overview": "Overview",
+      "properties": "My Properties",
+      "rental": "My Rental",
+      "activity": "Saved & Activity",
+      "leads": "Requests",
+      "finances": "Finances",
+      "documents": "Documents",
+      "visits": "Scheduled Visits",
+      "messages": "Messages",
+      "profile": "Profile & Settings"
+    }
+  },
+  "settings": {
+    "languageTitle": "App language",
+    "languageDesc": "Language used across the app.",
+    "preview": "Preview",
+    "seeIt": "See it →"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "unread": "unread updates",
+    "markAll": "Mark all read",
+    "today": "Today",
+    "earlier": "Earlier",
+    "emptyAll": "You're all caught up — no notifications yet.",
+    "emptyCat": "No notifications in this category.",
+    "manage": "Manage notification preferences",
+    "dismiss": "Dismiss",
+    "time": {
+      "justNow": "Just now",
+      "min": "min ago",
+      "hour": "hour ago",
+      "hours": "hours ago",
+      "day": "day ago",
+      "days": "days ago"
+    },
+    "filters": {
+      "all": "All",
+      "match": "New Matches",
+      "enquiry": "Enquiries",
+      "price": "Price Alerts",
+      "visit": "Visits",
+      "share": "Flatmates"
+    },
+    "seed": {
+      "n-match-baner": {
+        "title": "3 new properties match your search",
+        "desc": "New 3 BHK flats listed in Baner under ₹1.3 Cr."
+      },
+      "n-share-hinjawadi": {
+        "title": "A flatmate match near Hinjawadi",
+        "desc": "A verified working professional is looking to share a 2 BHK in Hinjawadi."
+      },
+      "n-enquiry-priya": {
+        "title": "Priya Kulkarni sent an enquiry",
+        "desc": "\"Is the 3 BHK in Baner still available for a weekend visit?\""
+      },
+      "n-price-kp": {
+        "title": "Price dropped on a saved property",
+        "desc": "4 BHK Villa, Koregaon Park reduced by ₹15 Lakh."
+      },
+      "n-visit-wakad": {
+        "title": "Visit confirmed for Saturday",
+        "desc": "Site visit at 11:00 AM for 2 BHK Flat, Wakad."
+      },
+      "n-match-balewadi": {
+        "title": "New project launched near you",
+        "desc": "Skyline Heights, Balewadi — pre-launch prices from ₹68 L."
+      },
+      "n-enquiry-viewed": {
+        "title": "Your enquiry was viewed",
+        "desc": "The owner of 3 BHK Flat, Baner viewed your enquiry."
+      },
+      "n-system-welcome": {
+        "title": "Welcome to PuneNest!",
+        "desc": "Complete your profile to get personalised recommendations."
+      }
+    },
+    "live": {
+      "propertyWord": "property",
+      "match_one": "{{count}} property matches \"{{label}}\"",
+      "match_other": "{{count}} properties match \"{{label}}\"",
+      "matchDesc": "New listings that fit one of your saved alerts are available now.",
+      "price": "Your saved {{bhk}} is still available",
+      "priceDesc": "{{title}} in {{locality}} — check the latest price and enquire.",
+      "priceDescNoLoc": "{{title}} — check the latest price and enquire."
+    }
+  }
+}

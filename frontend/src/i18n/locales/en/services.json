@@ -1,0 +1,1299 @@
+{
+  "services": {
+    "hub": {
+      "heroBadge": "Everything for your home journey",
+      "heroTitle1": "One platform.",
+      "heroTitleAccent": "Every home service.",
+      "heroSubtitle": "From discovering your home to loans, legal, moving and interiors — PuneNest brings every step of your property journey under one roof, broker-free.",
+      "exploreServices": "Explore Services",
+      "browseProperties": "Browse Properties",
+      "stat": {
+        "verifiedProperties": "Verified Properties",
+        "happyFamilies": "Happy Families",
+        "underOneRoof": "Under One Roof",
+        "brokerageCharged": "Brokerage Charged",
+        "servicesSuffix": "+ Services"
+      },
+      "cat": {
+        "all": "All Services",
+        "discover": "Discover & Decide",
+        "finance": "Finance & Legal",
+        "move": "Move & Setup"
+      },
+      "catBadge": {
+        "discover": "Discover",
+        "finance": "Finance & Legal",
+        "move": "Move & Setup"
+      },
+      "card": {
+        "buyHome": {
+          "name": "Buy a Home",
+          "desc": "Browse 10,000+ verified, RERA-compliant listings across Pune with genuine photos."
+        },
+        "rentHome": {
+          "name": "Rent a Home",
+          "desc": "Owner-direct rentals with zero brokerage and instant visit scheduling."
+        },
+        "rentAgreement": {
+          "name": "Rent Agreement",
+          "desc": "Hassle-free online Maharashtra rent agreements with doorstep biometric."
+        },
+        "localityInsights": {
+          "name": "Locality Insights",
+          "desc": "Price trends, livability scores and connectivity for every Pune locality."
+        },
+        "homeLoans": {
+          "name": "Home Loans & EMI",
+          "desc": "Compare rates from 25+ banks, check eligibility and plan repayments with a built-in EMI calculator."
+        },
+        "propertyLegal": {
+          "name": "Property & Legal",
+          "desc": "Title verification, due diligence and end-to-end registration assistance."
+        },
+        "packersMovers": {
+          "name": "Packers & Movers",
+          "desc": "Vetted relocation partners at negotiated, transparent, all-inclusive rates."
+        },
+        "interior": {
+          "name": "Interior & Renovation",
+          "desc": "Designed-in-3D interiors by trusted partners with a 10-year warranty."
+        },
+        "valuation": {
+          "name": "Property Valuation",
+          "desc": "Get a fair, data-backed estimate and a certified valuation report in 48 hours."
+        }
+      },
+      "step": {
+        "search": {
+          "t": "Search",
+          "d": "Filter by locality, budget, BHK, age, floor and amenities."
+        },
+        "shortlist": {
+          "t": "Shortlist",
+          "d": "Save favourites, compare side by side and view on the map."
+        },
+        "visit": {
+          "t": "Visit & Decide",
+          "d": "Book site visits and chat directly with verified owners."
+        },
+        "moveIn": {
+          "t": "Move In",
+          "d": "Close with loans, legal, movers & interiors — all sorted."
+        }
+      },
+      "testi": [
+        {
+          "role": "Bought a 3 BHK in Baner",
+          "quote": "We found our flat, got the loan and even the movers — all through PuneNest. Zero brokerage, zero stress."
+        },
+        {
+          "role": "Rented in Wakad",
+          "quote": "Chatted directly with the owner, signed the rent agreement online. The whole thing took two days."
+        },
+        {
+          "role": "Sold & relocated",
+          "quote": "The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully."
+        }
+      ],
+      "pack": {
+        "movers": "Packers & Movers",
+        "clean": "Deep Cleaning",
+        "agreement": "Rent Agreement (registered)",
+        "paint": "Painting touch-up",
+        "verify": "Tenant/Owner Verification",
+        "internet": "Wi-Fi & utilities setup"
+      },
+      "packItemDesc": {
+        "movers": "Vetted crew, transport & insurance",
+        "clean": "Sanitised deep clean before move-in",
+        "agreement": "Registered on the Maharashtra portal",
+        "paint": "Touch-ups & minor wall repairs",
+        "verify": "Police + ID background check",
+        "internet": "Broadband, electricity & gas setup"
+      },
+      "finalizeRentTitle": "Rental finalized — let's complete the paperwork!",
+      "finalizeRentSub": "Create a legally-valid rent agreement and verify your tenant, all online.",
+      "finalizeSaleTitle": "Sale finalized — let's complete the registration!",
+      "finalizeSaleSub": "Get title due-diligence, sale-deed drafting and sub-registrar assistance — end to end.",
+      "ourServices": "Our services",
+      "ourServicesSub": "Pick a category or explore everything we offer.",
+      "signInUnlock": "Sign in to unlock",
+      "learnMore": "Learn more",
+      "signInRequiredAria": "{{name}} — sign in required",
+      "howItWorksTitle": "How PuneNest works",
+      "howItWorksSub": "Four simple steps from search to settled in.",
+      "testimonialsTitle": "Loved by Pune homeowners",
+      "packBadge": "Bundle & save",
+      "packTitle": "PuneNest Move-in Pack",
+      "packDesc": "Closing a deal? Bundle everything for move-in and save. Pick what you need:",
+      "packTotal": "Pack total",
+      "packSaveNote": "You save ₹{{amount}} (12% bundle)",
+      "bookPack": "Book Move-in Pack",
+      "payAfter": "Pay after service. ₹0 brokerage.",
+      "packComingSoon": "Coming soon",
+      "packComingSoonDesc": "We're putting together the ultimate move-in bundle — packers, cleaning, agreement, painting and more, at one transparent price. Join the waitlist and we'll notify you the moment it launches.",
+      "notifyTitle": "Launching soon",
+      "notifySub": "Be the first to know when the Move-in Pack goes live in your area.",
+      "notifyNamePlaceholder": "Your name (optional)",
+      "notifyBtn": "Notify me",
+      "notifyFinePrint": "No spam. We'll only message you about the Move-in Pack.",
+      "notifyMobileErr": "Enter a valid 10-digit mobile number.",
+      "notifyToast": "You're on the waitlist! We'll notify you at launch.",
+      "notifyDoneTitle": "You're on the waitlist!",
+      "notifyDoneSub": "We'll message you the moment the Move-in Pack launches.",
+      "selectAtLeastOne": "Select at least one service for your pack.",
+      "packBookedToast": "Move-in Pack booked! Our team will call to schedule.",
+      "ctaTitle": "Ready to start your home journey?",
+      "ctaSub": "Browse verified homes or let our experts handle loans, legal, moving and interiors.",
+      "ctaBrowse": "Browse Properties",
+      "ctaList": "List Your Property"
+    },
+    "ra": {
+      "trackerTitle": "Your rent agreement requests",
+      "back": "Back",
+      "next": "Next",
+      "validationRequired": "Please complete the highlighted required fields.",
+      "declarationRequired": "Please confirm the declaration to proceed.",
+      "saveError": "We couldn't save your request — your device storage may be full. Remove large uploads and try again.",
+      "doneInviteTitle": "Request sent to the tenant!",
+      "doneOwnerTitle": "Request submitted!",
+      "doneInviteDesc": "We've asked the tenant to fill in their details & documents. Once they're done, our team prepares the draft for your approval.",
+      "doneOwnerDesc": "Our team will share the draft within a few hours and schedule biometric e-registration at your convenience.",
+      "invite": {
+        "sendTitle": "Send the invite to your tenant",
+        "sendDesc": "Request saved. Send the secure link to {{mobile}} so they can add their details & documents.",
+        "sendWhatsapp": "Send invite on WhatsApp",
+        "copyLink": "Copy invite link",
+        "copied": "Link copied",
+        "copyFail": "Couldn't copy — long-press the link to copy it.",
+        "sendNote": "Your tenant opens the link, signs in, and fills only their part. You'll be notified once they're done.",
+        "readonlyTitle": "Set up by the owner — view only",
+        "readonlyDesc": "You can review every part of this agreement, but only your Tenant details can be edited here.",
+        "editableTitle": "Your details — please complete this step",
+        "editableDesc": "Add your tenant information and documents. This is the only section you need to fill in."
+      },
+      "stepLabel": {
+        "0": "Property",
+        "1": "Owner",
+        "2": "Tenant",
+        "3": "Terms",
+        "4": "Witnesses",
+        "5": "Review"
+      },
+      "hero": {
+        "badge": "Maharashtra Leave & License",
+        "title1": "Online Rent Agreement",
+        "titleAccent": "drafted, e-registered, doorstep",
+        "subtitle": "Government-approved format, stamp duty & registration handled, optional biometric at your doorstep — fully compliant with Maharashtra registration norms.",
+        "chip1": "100% Legal Format",
+        "chip2": "Stamp Duty Included",
+        "chip3": "Biometric e-Registration",
+        "step1Title": "Share details",
+        "step1Desc": "Property, parties, rent & tenure.",
+        "step2Title": "Review & pay",
+        "step2Desc": "Draft, stamp duty & registration fee.",
+        "step3Title": "Biometric & e-register",
+        "step3Desc": "Doorstep verification & final copy."
+      },
+      "property": {
+        "title": "Property & Agreement",
+        "subtitle": "Tell us about the property being rented.",
+        "pickerQuestion": "Which property is this agreement for?",
+        "enterManually": "Or enter details manually below ↓",
+        "agreementType": "Agreement Type",
+        "typeResidential": "Residential",
+        "typeCommercial": "Commercial",
+        "propertyType": "Property Type",
+        "furnishing": "Furnishing",
+        "flatNo": "Flat / House No.",
+        "flatNoPlaceholder": "e.g. B-1204",
+        "flatNoErr": "Enter the flat / house number.",
+        "society": "Building / Society Name",
+        "societyPlaceholder": "e.g. Skyline Heights",
+        "societyErr": "Enter the building / society name.",
+        "locality": "Area / Locality",
+        "localityPlaceholder": "e.g. Baner",
+        "localityErr": "Enter the area / locality.",
+        "city": "City",
+        "pincode": "Pincode",
+        "pincodePlaceholder": "411045",
+        "pincodeErr": "Enter a valid 6-digit pincode.",
+        "builtUpArea": "Built-up Area (sq.ft.)",
+        "areaPlaceholder": "e.g. 850"
+      },
+      "owner": {
+        "title": "Owner / Licensor Details",
+        "subtitle": "The person giving the property on rent.",
+        "fullName": "Full Name",
+        "fullNamePlaceholder": "As per PAN/Aadhaar",
+        "fullNameErr": "Enter the owner's full name.",
+        "age": "Age",
+        "agePlaceholder": "e.g. 42",
+        "gender": "Gender",
+        "pan": "PAN Number",
+        "panErr": "Enter a valid PAN (e.g. ABCDE1234F).",
+        "aadhaar": "Aadhaar Number",
+        "aadhaarPlaceholder": "12-digit Aadhaar",
+        "aadhaarErr": "Enter a valid 12-digit Aadhaar number.",
+        "mobile": "Mobile",
+        "mobilePlaceholder": "10-digit mobile",
+        "mobileErr": "Enter a valid 10-digit mobile number.",
+        "email": "Email",
+        "address": "Permanent Address",
+        "addressPlaceholder": "Full permanent address",
+        "addressErr": "Enter the owner's permanent address.",
+        "uploadDocs": "Upload Documents",
+        "uploadHint": "JPG, PNG or PDF — up to 2MB each.",
+        "doc": {
+          "o-pan": "PAN Card",
+          "o-aadhaar": "Aadhaar Card",
+          "o-photo": "Passport Photo",
+          "o-own": "Ownership Proof (Index II / Bill)"
+        },
+        "vaultNote": "PAN, Aadhaar & ownership proof are saved to your dashboard Documents — no need to upload them twice.",
+        "vaultReused": "From your Documents",
+        "vaultSaved": "Saved to your Documents"
+      },
+      "tenant": {
+        "title": "Tenant / Licensee Details",
+        "count_one": "{{count}} tenant",
+        "count_other": "{{count}} tenants",
+        "subtitle": "Add the tenant details yourself, or invite the tenant to fill in their own details & documents.",
+        "fillTitle": "I'll fill the tenant details",
+        "fillDesc": "Enter the tenant's details & upload their documents.",
+        "inviteTitle": "Invite the tenant",
+        "inviteDesc": "Send a request by mobile — they fill only their part.",
+        "tenantLabel": "Tenant",
+        "remove": "Remove",
+        "fullName": "Full Name",
+        "fullNamePlaceholder": "As per PAN/Aadhaar",
+        "fullNameErr": "Enter the tenant's full name.",
+        "age": "Age",
+        "agePlaceholder": "e.g. 29",
+        "gender": "Gender",
+        "occupation": "Occupation",
+        "occupationPlaceholder": "e.g. Software Engineer",
+        "relation": "Relation to Tenant 1",
+        "relationPlaceholder": "Self / Spouse / Co-tenant",
+        "pan": "PAN Number",
+        "panErr": "Enter a valid PAN (e.g. ABCDE1234F).",
+        "aadhaar": "Aadhaar Number",
+        "aadhaarPlaceholder": "12-digit Aadhaar",
+        "aadhaarErr": "Enter a valid 12-digit Aadhaar number.",
+        "mobile": "Mobile",
+        "mobilePlaceholder": "10-digit mobile",
+        "mobileErr": "Enter a valid 10-digit mobile number.",
+        "email": "Email",
+        "address": "Permanent Address",
+        "addressPlaceholder": "Full permanent address",
+        "addressErr": "Enter the tenant's permanent address.",
+        "documents": "Documents",
+        "doc": {
+          "0": "PAN Card",
+          "1": "Aadhaar Card",
+          "2": "Passport Photo",
+          "3": "Employment / Income Proof"
+        },
+        "addAnother": "Add another tenant",
+        "inviteMobile": "Tenant's Mobile Number",
+        "inviteMobileErr": "Enter a valid 10-digit mobile number.",
+        "inviteName": "Tenant's Name (optional)",
+        "inviteNamePlaceholder": "e.g. Sneha Kulkarni",
+        "message": "Message (optional)",
+        "messagePlaceholder": "Add a short note for the tenant…",
+        "inviteInfo": "The tenant gets a request to fill only their own details & documents. You stay in control of the property, owner & rent details and the final agreement.",
+        "inviteFinishNote": "You don’t have to wait for the tenant — finish the terms and witnesses now and submit. The tenant’s step stays pending until they add their own details and documents."
+      },
+      "terms": {
+        "title": "Agreement Terms & Rent",
+        "subtitle": "These drive the stamp duty calculation.",
+        "startDate": "License Start Date",
+        "startDateAria": "License start date",
+        "startDateErr": "Select the license start date.",
+        "period": "License Period",
+        "periodMonths_one": "{{count}} Month",
+        "periodMonths_other": "{{count}} Months",
+        "rent": "Monthly Rent (₹)",
+        "rentPlaceholder": "e.g. 25000",
+        "rentErr": "Enter the monthly rent.",
+        "deposit": "Refundable Security Deposit (₹)",
+        "depositPlaceholder": "e.g. 100000",
+        "depositErr": "Enter the security deposit.",
+        "nrDeposit": "Non-refundable Deposit / Premium (₹)",
+        "increment": "Annual Rent Increment (%)",
+        "lockin": "Lock-in Period (months)",
+        "notice": "Notice Period (months)",
+        "dueDay": "Rent Due Day (of month)",
+        "payMode": "Mode of Payment",
+        "maintBy": "Maintenance charges paid by",
+        "maintOpt": {
+          "Tenant": "Tenant",
+          "Owner": "Owner"
+        },
+        "regArea": "Registration Area (affects registration fee)",
+        "regUrban": "Municipal / Urban",
+        "regRural": "Gram Panchayat / Rural",
+        "furniture": "Furniture & Amenities provided",
+        "furnitureHint": "Tap to add an item, then set its quantity. This list is shared with our staff and included in your agreement.",
+        "itemsIncluded": "Items included",
+        "customTag": "Custom",
+        "customPlaceholder": "Add a custom item (e.g. Study Table, Curtain Rods)",
+        "customQtyAria": "Quantity",
+        "add": "Add",
+        "specialClauses": "Special Clauses (optional)",
+        "clausesPlaceholder": "e.g. No subletting, pets allowed, painting at exit..."
+      },
+      "witnesses": {
+        "title": "Witnesses",
+        "subtitle": "Two witnesses are required for registration.",
+        "witness": "Witness {{n}}",
+        "fullName": "Full Name",
+        "address": "Address",
+        "optional": "Optional",
+        "biometricNote": "You can add witnesses now to pre-fill the draft, but it isn’t required here. Two witnesses with valid photo ID must be physically present for thumb/biometric and photo capture at the registration visit."
+      },
+      "review": {
+        "title": "Review & Generate",
+        "subtitle": "Verify the key details before proceeding.",
+        "rowAgreement": "Agreement",
+        "rowProperty": "Property",
+        "rowOwner": "Owner",
+        "rowTenants": "Tenant(s)",
+        "invitedPending": "Invited: {{name}} (pending)",
+        "rowTerm": "Term",
+        "termValue_one": "{{count}} month from {{date}}",
+        "termValue_other": "{{count}} months from {{date}}",
+        "rowMonthlyRent": "Monthly Rent",
+        "rowDeposit": "Security Deposit",
+        "rowMaintenance": "Maintenance by",
+        "rowFurniture": "Furniture",
+        "rowRegistration": "Registration",
+        "declaration": "I confirm the above details are correct and authorize PuneNest to draft the Leave & License agreement and assist with stamp duty payment & e-registration as per Maharashtra rules.",
+        "generate": "Generate Agreement & Proceed"
+      },
+      "upload": {
+        "clickToUpload": "Click to upload",
+        "previewAlt": "Preview"
+      },
+      "cost": {
+        "monthlyRent": "Monthly Rent",
+        "depositRefundable": "Deposit (refundable)",
+        "term": "Term",
+        "termMonths_one": "{{count}} month",
+        "termMonths_other": "{{count}} months",
+        "stampDuty": "Stamp Duty (0.25%)",
+        "registrationFee": "Registration Fee",
+        "serviceFee": "PuneNest Service Fee",
+        "estimatedTotal": "Estimated Total",
+        "title": "Cost Estimate",
+        "subtitle": "Maharashtra Leave & License (Art. 36A)",
+        "formula": "Stamp duty = 0.25% of (rent × months + non-refundable deposit + 10% of refundable deposit × years). Registration fee ₹1,000 urban / ₹500 rural. Final amount confirmed at registration.",
+        "needHelp": "Need help?",
+        "needHelpSub": "Talk to our agreement desk."
+      },
+      "docs": {
+        "title": "Documents Required",
+        "subtitle": "Keep these ready for drafting & e-registration (biometric).",
+        "ownerTitle": "Owner (Licensor)",
+        "tenantTitle": "Tenant (Licensee)",
+        "otherTitle": "Witnesses & Other",
+        "docOwner": [
+          "PAN Card",
+          "Aadhaar Card",
+          "Passport-size photograph",
+          "Ownership proof — Index II / Sale Deed",
+          "Latest Electricity Bill or Property Tax receipt"
+        ],
+        "docTenant": [
+          "PAN Card",
+          "Aadhaar Card",
+          "Passport-size photograph",
+          "Employment / Income proof (salary slip / appointment letter)",
+          "Proof of current address (if outstation)"
+        ],
+        "docOther": [
+          "Two witnesses — Aadhaar / PAN + photo",
+          "Biometric (thumb) of all parties for e-registration",
+          "Registered mobile numbers (OTP based)"
+        ]
+      },
+      "assist": {
+        "title": "We assist end-to-end",
+        "faqTitle": "Frequently Asked Questions",
+        "item": [
+          {
+            "name": "Drafting Leave & License",
+            "desc": "Legally sound, government-approved residential & commercial drafts."
+          },
+          {
+            "name": "Online e-Registration",
+            "desc": "End-to-end e-registration on the Maharashtra IGR portal."
+          },
+          {
+            "name": "Stamp Duty Calculation & Payment",
+            "desc": "Accurate Art. 36A computation and online payment."
+          },
+          {
+            "name": "Biometric Verification",
+            "desc": "Doorstep biometric (thumb) capture for all parties."
+          },
+          {
+            "name": "Agreement Renewal",
+            "desc": "Hassle-free renewal of expiring agreements."
+          },
+          {
+            "name": "Police Verification Assistance",
+            "desc": "Tenant police verification support where required."
+          }
+        ],
+        "faq": [
+          {
+            "q": "Is registration of a rent agreement mandatory in Maharashtra?",
+            "a": "Yes. Under the Maharashtra Rent Control Act, a Leave & License agreement must be registered. An unregistered agreement is not valid evidence and attracts penalties."
+          },
+          {
+            "q": "How is stamp duty calculated?",
+            "a": "For Leave & License (Article 36A), stamp duty is 0.25% of the total of: rent for the full period + any non-refundable deposit + 10% of the refundable deposit for each year of the term."
+          },
+          {
+            "q": "What is the registration fee?",
+            "a": "₹1,000 for properties in municipal / urban areas and ₹500 for properties in rural (Gram Panchayat) areas."
+          },
+          {
+            "q": "Why is the agreement usually for 11 months?",
+            "a": "An 11-month term keeps registration simpler and is the common practice, though agreements can be made for any tenure both parties agree to."
+          },
+          {
+            "q": "Do all parties need to be physically present?",
+            "a": "No. With e-registration and doorstep biometric (thumb impression), the process can be completed from home for owner, tenant and witnesses."
+          },
+          {
+            "q": "What documents do I need?",
+            "a": "PAN and Aadhaar of owner and tenant, owner's ownership proof (Index II / electricity bill), passport photos, and two witnesses with ID."
+          }
+        ]
+      },
+      "draft": {
+        "restoredTitle": "We saved your progress",
+        "restoredDesc": "Your earlier answers were restored. Continue where you left off.",
+        "startFresh": "Start fresh"
+      },
+      "pendingInvite": {
+        "title": "{{count}} pending co-fill invite(s)",
+        "desc": "Someone invited you to complete your part of a rent agreement.",
+        "from": "From {{name}}",
+        "cta": "Complete now"
+      },
+      "inviteErr": {
+        "startOwn": "Start my own agreement",
+        "expired": {
+          "title": "This invite is no longer available",
+          "desc": "The co-fill link has expired or was already used. Ask the owner to resend it, or start your own rent agreement."
+        },
+        "wrongNumber": {
+          "title": "This invite was sent to a different number",
+          "desc": "You’re signed in with a number that doesn’t match this invite (sent to {{mobile}}). Sign in with the invited number to continue."
+        },
+        "done": {
+          "title": "This part is already completed",
+          "desc": "Your details for this rent agreement were already submitted. Our team will keep you posted on the tracker."
+        }
+      },
+      "locked": {
+        "title": "Your request is already submitted",
+        "desc": "You have a rent agreement in progress. The details you submitted are now locked so they can be drafted and registered accurately.",
+        "changesHint": "Need to change something? Use the request tracker above — open Messages to talk to our team, or choose \"Request changes\" when we share the draft for your approval.",
+        "startNew": "Start a new agreement",
+        "startNewHint": "For a different property"
+      }
+    },
+    "interior": {
+      "heroBadge": "10-year warranty · 45-day move-in",
+      "heroTitle1": "Interiors that",
+      "heroTitleAccent": "feel like home",
+      "heroSubtitle": "Full home interiors, modular kitchens and renovations in Pune — designed in 3D, built by vetted partners, delivered on time at a transparent price.",
+      "bookConsult": "Book Free Consultation",
+      "viewWork": "View Our Work",
+      "stat": {
+        "homesDesigned": "Homes Designed",
+        "daysToMoveIn": "Days to Move-in",
+        "warranty": "Warranty",
+        "customerRating": "Customer Rating"
+      },
+      "servicesTitle": "What We Design & Build",
+      "servicesSub": "From a single modular kitchen to a turnkey home — end to end.",
+      "service": [
+        {
+          "name": "Full Home Interiors",
+          "desc": "Turnkey design & build for your entire home — one team, one timeline."
+        },
+        {
+          "name": "Modular Kitchen",
+          "desc": "Ergonomic, durable kitchens with smart storage and premium finishes."
+        },
+        {
+          "name": "Wardrobes & Storage",
+          "desc": "Custom wardrobes, lofts and storage that fit every inch of your space."
+        },
+        {
+          "name": "Living & Dining",
+          "desc": "TV units, false ceilings, lighting and décor that set the mood."
+        },
+        {
+          "name": "Bedroom Design",
+          "desc": "Restful bedrooms with bespoke beds, side units and ambient lighting."
+        },
+        {
+          "name": "Bathroom Renovation",
+          "desc": "Modern, waterproofed bathrooms with quality fittings and tiling."
+        }
+      ],
+      "stylesTitle": "Explore Design Styles",
+      "stylesSub": "Find a look you love — tap any style to view it larger.",
+      "style": [
+        "Modern",
+        "Scandinavian",
+        "Contemporary",
+        "Luxe",
+        "Minimalist",
+        "Indian Ethnic"
+      ],
+      "transformTitle": "See the Transformation",
+      "transformSub": "Drag the slider to reveal the before & after.",
+      "beforeAlt": "Empty home before interior work",
+      "afterAlt": "Finished, fully furnished home",
+      "before": "BEFORE",
+      "after": "AFTER",
+      "baSliderAria": "Before after slider",
+      "projectsTitle": "Recent Projects",
+      "projectsSub": "A glimpse of homes we've brought to life across Pune.",
+      "project": [
+        "3 BHK in Baner",
+        "2 BHK in Wakad",
+        "Villa in Kothrud",
+        "Studio in Hinjawadi",
+        "4 BHK in Kalyani Nagar",
+        "2 BHK in Viman Nagar"
+      ],
+      "packagesTitle": "Transparent Packages",
+      "packagesSub": "Indicative starting prices per sq.ft. — your final quote is tailored after the free consultation.",
+      "mostPopular": "MOST POPULAR",
+      "priceFrom": "from",
+      "perSqft": "/ sq.ft.",
+      "getPackage": "Get this package",
+      "package": [
+        {
+          "name": "Essentials",
+          "desc": "Smart, budget-friendly interiors for first homes.",
+          "feats": [
+            "Modular kitchen + wardrobes",
+            "Laminate finishes",
+            "Essential false ceiling & lighting",
+            "5-year warranty"
+          ]
+        },
+        {
+          "name": "Premium",
+          "desc": "Our most popular, balanced design & quality.",
+          "feats": [
+            "Full home interiors",
+            "Acrylic / membrane finishes",
+            "Designer ceilings & lighting",
+            "Custom storage solutions",
+            "10-year warranty"
+          ]
+        },
+        {
+          "name": "Luxe",
+          "desc": "Bespoke, high-end materials and detailing.",
+          "feats": [
+            "Bespoke turnkey interiors",
+            "Premium veneer / lacquered glass",
+            "Imported hardware & appliances",
+            "Dedicated design lead",
+            "10-year warranty"
+          ]
+        }
+      ],
+      "howItWorks": "How it works",
+      "step": [
+        {
+          "t": "Consultation",
+          "d": "Share your space, style and budget with our designer — free."
+        },
+        {
+          "t": "3D Design",
+          "d": "Get a photorealistic 3D design and a transparent, itemised quote."
+        },
+        {
+          "t": "Production",
+          "d": "Vetted partners manufacture and execute with quality checks."
+        },
+        {
+          "t": "Move In",
+          "d": "On-time handover with a 10-year warranty. Welcome home!"
+        }
+      ],
+      "trackerTitle": "Your interior & renovation requests",
+      "consultBadge1": "10-yr warranty",
+      "consultBadge2": "No hidden costs",
+      "consultImgAlt": "Designed living room",
+      "consultPromo": "Free 3D design + quote in 48 hours",
+      "bookConsultTitle": "Book a Free Design Consultation",
+      "bookConsultSub": "Share your details — our designer calls you back within 24 hours.",
+      "fullName": "Full Name",
+      "namePlaceholder": "Your name",
+      "mobileNumber": "Mobile Number",
+      "scopeLabel": "Scope of Work",
+      "scopePlaceholder": "Select scope",
+      "configLabel": "Home Configuration",
+      "statusLabel": "Possession Status",
+      "budgetLabel": "Budget Range",
+      "locationLabel": "Property Location",
+      "locationPlaceholder": "Search area / locality",
+      "bookMyConsult": "Book My Consultation",
+      "consentText": "By submitting, you agree to be contacted by PuneNest & its verified design partners.",
+      "errName": "Please enter your name.",
+      "errMobile": "Enter a valid 10-digit mobile number.",
+      "errScope": "Please choose a scope.",
+      "consultBookedTitle": "Consultation booked!",
+      "consultBookedDesc": "Our designer will call you back within 24 hours to understand your space and plan your free 3D design.",
+      "bookAnother": "Book another consultation",
+      "whyTitle": "Why design with PuneNest",
+      "trust": [
+        {
+          "t": "10-Year Warranty",
+          "d": "Comprehensive warranty on modular work and materials, in writing."
+        },
+        {
+          "t": "45-Day Move-in",
+          "d": "On-time delivery guarantee for standard full-home projects."
+        },
+        {
+          "t": "Transparent Pricing",
+          "d": "Itemised quotes with no hidden charges — pay in easy milestones."
+        },
+        {
+          "t": "Dedicated Designer",
+          "d": "One designer + project manager from concept to handover."
+        }
+      ],
+      "faqTitle": "Frequently asked questions",
+      "faq": [
+        {
+          "q": "How long does a full home interior take?",
+          "a": "A standard 2–3 BHK is typically designed, manufactured and installed in about 45 days from design sign-off, depending on scope and site readiness."
+        },
+        {
+          "q": "Is the 3D design really free?",
+          "a": "Yes — the consultation and 3D design concept are free. You only pay once you approve the design and quote and decide to proceed."
+        },
+        {
+          "q": "What does the 10-year warranty cover?",
+          "a": "It covers modular cabinetry, hardware and workmanship against manufacturing defects, as detailed in your written warranty card."
+        },
+        {
+          "q": "Can you work on an under-construction or occupied home?",
+          "a": "Both. We plan around possession and, for occupied homes, sequence work room-by-room to minimise disruption."
+        },
+        {
+          "q": "How is pricing calculated?",
+          "a": "Pricing is itemised by scope and finishes (indicative per-sq.ft. packages above). Your final, transparent quote is shared after the consultation and measurements."
+        }
+      ],
+      "ctaTitle": "Ready to reimagine your home?",
+      "ctaSub": "Book a free consultation and get a 3D design + transparent quote in 48 hours.",
+      "ctaBook": "Book Free Consultation",
+      "ctaCall": "Call 1800 200 0000",
+      "lightboxAlt": "Project preview"
+    },
+    "valuation": {
+      "rateBasedComparables": "≈ ₹{{rate}} / sq.ft · based on {{comps}} comparables in {{loc}}",
+      "rateBasedCityAvg": "≈ ₹{{rate}} / sq.ft · based on Pune city-average rates for {{loc}}",
+      "heroBadge": "Data-backed · IBBI-certified valuers",
+      "heroTitle1": "Know what your",
+      "heroTitleAccent": "property is really worth",
+      "heroSubtitle": "Get an instant ballpark estimate for free, then request a certified valuation report — accepted by banks, courts and tax authorities. Our valuers analyse real Pune comparables, not guesswork.",
+      "heroChip1": "Instant estimate",
+      "heroChip2": "Bank-accepted report",
+      "heroChip3": "Real local comparables",
+      "widgetTitle": "Instant Valuation Estimate",
+      "widgetSub": "A free, indicative range based on current Pune market rates.",
+      "locality": "Locality",
+      "propertyType": "Property Type",
+      "typeFlat": "Flat",
+      "typeVilla": "Villa / House",
+      "typePlot": "Plot / Land",
+      "carpetArea": "Carpet Area",
+      "sqft": "sq.ft",
+      "propertyAge": "Property Age",
+      "ageNew": "Under construction / New",
+      "age0_5": "0 – 5 years",
+      "age5_10": "5 – 10 years",
+      "age10plus": "10+ years",
+      "floorPosition": "Floor / Position",
+      "floorGround": "Ground floor",
+      "floorMid": "Lower / Mid floor",
+      "floorHigh": "Higher floor",
+      "floorTop": "Top / Penthouse",
+      "aiEstLabel": "Estimated Market Value",
+      "confidence": "Confidence",
+      "comparables": "Comparables",
+      "trendYoY": "Trend (YoY)",
+      "getCertified": "Get a Certified Report",
+      "indicativeOnly": "Indicative only. A certified valuation requires a physical inspection.",
+      "stat": {
+        "valuationsDone": "Valuations Done",
+        "puneLocalities": "Pune Localities",
+        "reportTurnaround": "Report Turnaround",
+        "certifiedValuers": "Certified Valuers"
+      },
+      "servicesTitle": "Valuation Reports We Provide",
+      "servicesSub": "A certified, purpose-specific valuation for whatever you need it for.",
+      "trend": {
+        "title": "Pune locality price trends",
+        "sub": "Indicative average rates and year-on-year growth across popular Pune micro-markets — a quick read on where prices are heading.",
+        "perSqft": "/ sq.ft",
+        "note": "Indicative averages from recent deals and ready-reckoner rates. Your actual valuation depends on the specific property, floor, condition and comparables."
+      },
+      "service": [
+        {
+          "name": "Market Value Estimate",
+          "desc": "A fair, current market value based on recent sale comparables in your micro-market."
+        },
+        {
+          "name": "Bank / Mortgage Valuation",
+          "desc": "Lender-accepted valuation for home loans, balance transfers and top-ups."
+        },
+        {
+          "name": "Capital Gains / Tax",
+          "desc": "Fair-market-value & indexation reports for capital gains and income-tax filing."
+        },
+        {
+          "name": "Legal / Dispute Valuation",
+          "desc": "Defensible valuations for court cases, partition, divorce and probate matters."
+        },
+        {
+          "name": "Insurance Valuation",
+          "desc": "Reinstatement-cost assessment so your property cover is neither short nor excess."
+        },
+        {
+          "name": "Pre-sale Pricing Advisory",
+          "desc": "Price your home right to sell faster — backed by demand and comparable data."
+        }
+      ],
+      "trackerTitle": "Your valuation requests",
+      "formTitle": "Request a Certified Valuation Report",
+      "formSub": "Share your details — our valuer calls you back within 24 hours to schedule an inspection.",
+      "fullName": "Full Name",
+      "namePlaceholder": "Your name",
+      "mobileNumber": "Mobile Number",
+      "purpose": "Valuation Purpose",
+      "purposePlaceholder": "Select a purpose",
+      "ptype": "Property Type",
+      "location": "Property Location",
+      "locationPlaceholder": "Search area / locality",
+      "carpetAreaSqft": "Carpet Area (sq.ft)",
+      "areaPlaceholder": "e.g. 850",
+      "requestValuation": "Request Valuation",
+      "consentText": "By submitting, you agree to be contacted by PuneNest & its certified valuation partners.",
+      "errName": "Please enter your name.",
+      "errMobile": "Enter a valid 10-digit mobile number.",
+      "errPurpose": "Please choose a purpose.",
+      "receivedTitle": "Request received!",
+      "receivedDesc": "Our certified valuer will call you back within 24 hours to schedule the inspection and share the fee.",
+      "submitAnother": "Submit another request",
+      "factorsTitle": "What affects your value",
+      "factor": [
+        "Location & locality",
+        "Carpet area & layout",
+        "Property age & condition",
+        "Floor, view & facing",
+        "Amenities & parking",
+        "Construction quality",
+        "Demand & recent deals"
+      ],
+      "howItWorks": "How it works",
+      "step": [
+        {
+          "t": "Share Details",
+          "d": "Try the instant estimate, then request a certified report in a minute."
+        },
+        {
+          "t": "Site Inspection",
+          "d": "An IBBI valuer visits to verify area, condition, amenities and surroundings."
+        },
+        {
+          "t": "Data Analysis",
+          "d": "We benchmark against recent comparable deals and ready-reckoner rates."
+        },
+        {
+          "t": "Certified Report",
+          "d": "You receive a signed, bank- & court-accepted valuation report."
+        }
+      ],
+      "whyTitle": "Why value with PuneNest",
+      "trust": [
+        {
+          "t": "IBBI Certified",
+          "d": "Reports are signed by registered valuers and accepted by banks, courts & tax authorities."
+        },
+        {
+          "t": "Data-backed",
+          "d": "Valuations use real recent comparables and ready-reckoner rates — not gut feel."
+        },
+        {
+          "t": "Fast Turnaround",
+          "d": "Most certified reports are ready within 48 hours of the site inspection."
+        },
+        {
+          "t": "Transparent Fees",
+          "d": "A clear, fixed valuation fee shared upfront before we begin."
+        }
+      ],
+      "faqTitle": "Frequently asked questions",
+      "faq": [
+        {
+          "q": "Is the instant estimate accurate?",
+          "a": "It's a free, indicative range from current locality rates and your inputs — great for a quick idea. For an exact, official figure you need a certified valuation with a physical inspection."
+        },
+        {
+          "q": "What is a certified valuation report?",
+          "a": "A signed report by an IBBI-registered valuer detailing the property's fair market value with methodology and comparables — accepted by banks, courts and tax authorities."
+        },
+        {
+          "q": "How is property value calculated?",
+          "a": "Mainly the comparable-sales method (recent deals nearby) cross-checked with ready-reckoner rates, adjusted for area, age, floor, amenities and condition."
+        },
+        {
+          "q": "How long does it take and what does it cost?",
+          "a": "A certified report is typically ready within 48 hours of inspection. Fees are fixed and shared upfront — the instant online estimate is always free."
+        },
+        {
+          "q": "Will banks accept this valuation?",
+          "a": "Yes — our valuers are IBBI-registered and on major bank panels, so reports are accepted for home loans and mortgages."
+        }
+      ],
+      "ctaTitle": "Need an official property valuation?",
+      "ctaSub": "Get a certified, bank-accepted report from IBBI valuers — we call you back within 24 hours.",
+      "ctaRequest": "Request Valuation",
+      "ctaCall": "Call 1800 200 0000"
+    },
+    "homeLoans": {
+      "compareTitle": "Compare Home Loan Rates",
+      "compareSub": "Indicative interest rates from our top lending partners.",
+      "onwards": "onwards",
+      "ratesNote": "*Rates are indicative and subject to lender approval based on your profile.",
+      "emiTitle": "Know your EMI first",
+      "emiSub": "Use our interactive calculator to plan repayments before you apply.",
+      "openEmi": "Open EMI Calculator",
+      "badge": "Interest rates from 8.45% p.a.",
+      "titleTop": "Home loans made",
+      "titleAccent": "simple & affordable",
+      "subtitle": "Share a few details and our loan desk compares offers from 25+ banks & NBFCs, negotiates the lowest rate for your profile, and calls you back — paperwork handled at your doorstep.",
+      "feature1": "Free eligibility check",
+      "feature2": "Zero processing-fee deals",
+      "feature3": "Doorstep documentation",
+      "quoteTitle": "Check Your Eligibility",
+      "quoteSub": "Get personalised loan offers — our expert calls you back within 24 hours.",
+      "submitLabel": "Get Loan Offers",
+      "servicesHeading": "Home Loan Products",
+      "servicesSub": "Whatever your home-financing need, we match you to the right product and lender.",
+      "trustHeading": "Why apply through PuneNest",
+      "fLoanType": "Loan Type",
+      "fLoanTypePlaceholder": "Select a loan type",
+      "fAmount": "Loan Amount Required",
+      "fAmountPlaceholder": "e.g. 50,00,000",
+      "fEmployment": "Employment Type",
+      "fIncome": "Net Monthly Income",
+      "fIncomePlaceholder": "e.g. 90,000",
+      "fCity": "City",
+      "stat": {
+        "lendingPartners": "Lending Partners",
+        "ratesStarting": "Rates Starting",
+        "loansFacilitated": "Loans Facilitated",
+        "avgApproval": "Avg. Approval Time"
+      },
+      "service": [
+        {
+          "name": "Home Purchase Loan",
+          "desc": "Finance up to 90% of a ready or under-construction flat, house or villa with tenures up to 30 years."
+        },
+        {
+          "name": "Plot / Land Loan",
+          "desc": "Buy a residential plot in an approved layout and build later, with flexible repayment options."
+        },
+        {
+          "name": "Home Construction Loan",
+          "desc": "Build on land you already own — funds disbursed in stages as construction progresses."
+        },
+        {
+          "name": "Balance Transfer",
+          "desc": "Shift your existing high-rate loan to a lower rate and cut your EMI or tenure significantly."
+        },
+        {
+          "name": "Top-up Loan",
+          "desc": "Borrow extra over your running home loan for renovation or personal needs at home-loan rates."
+        },
+        {
+          "name": "Loan Against Property",
+          "desc": "Unlock funds against your residential or commercial property for any large expense."
+        }
+      ],
+      "trust": [
+        {
+          "t": "25+ Lenders",
+          "d": "Compare offers from leading banks & NBFCs in one place — no running branch to branch."
+        },
+        {
+          "t": "Lowest Rate Negotiated",
+          "d": "Our desk negotiates the best rate and waived processing fees for your profile."
+        },
+        {
+          "t": "Free Eligibility Check",
+          "d": "Know how much you qualify for upfront — no cost, no impact, no obligation."
+        },
+        {
+          "t": "Dedicated Loan Manager",
+          "d": "One expert guides you from application to disbursal, with doorstep document pickup."
+        }
+      ],
+      "step": [
+        {
+          "t": "Share Details",
+          "d": "Tell us your loan type, amount and income — takes under a minute."
+        },
+        {
+          "t": "Compare Offers",
+          "d": "We match you with the best rates and EMIs from 25+ lenders."
+        },
+        {
+          "t": "Submit Documents",
+          "d": "Upload or hand over documents at your doorstep — we handle the file."
+        },
+        {
+          "t": "Quick Disbursal",
+          "d": "Get sanctioned and disbursed fast, with your manager tracking every step."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does PuneNest charge for loan assistance?",
+          "a": "No. Our advisory and eligibility check are completely free — you only pay the lender's standard charges on the loan you choose."
+        },
+        {
+          "q": "How much loan can I get?",
+          "a": "Most lenders fund up to 80–90% of the property value, subject to your income, obligations and credit score. Use our EMI calculator and free eligibility check to estimate your amount."
+        },
+        {
+          "q": "Which documents are required?",
+          "a": "Typically ID & address proof, PAN, income proof (salary slips/ITR & bank statements) and property papers. Your loan manager shares an exact checklist and collects them at your doorstep."
+        },
+        {
+          "q": "Can I transfer my existing home loan?",
+          "a": "Yes. With a Balance Transfer we move your loan to a lower-rate lender, which can reduce your EMI or tenure, and you can also avail a top-up."
+        },
+        {
+          "q": "How soon will someone contact me?",
+          "a": "Our loan expert calls you back within 24 hours of your request to confirm details and share matched offers."
+        }
+      ],
+      "ctaTitle": "Ready to finance your dream home?",
+      "ctaSub": "Get a free eligibility check and matched offers — our loan expert calls you back within 24 hours.",
+      "ctaPrimary": "Check Eligibility",
+      "emiCalc": {
+        "title": "Plan your EMI before you apply",
+        "sub": "Move the sliders to see your monthly EMI and total interest instantly — then get matched to the lowest-rate lender.",
+        "loanAmount": "Loan amount",
+        "interestRate": "Interest rate (p.a.)",
+        "tenure": "Tenure",
+        "years": "years",
+        "monthlyEmi": "Your monthly EMI",
+        "totalInterest": "Total interest",
+        "totalPayable": "Total payable",
+        "principal": "Principal",
+        "interest": "Interest",
+        "openFull": "Open full EMI calculator"
+      }
+    },
+    "legal": {
+      "trackerTitle": "Your legal & registration requests",
+      "regProcessTitle": "The Property Registration Process",
+      "regProcessSub": "How a sale deed gets registered in Maharashtra — and where we step in for you.",
+      "docsNeeded": "Documents you'll need",
+      "regWarning": "A sale deed must be registered within 4 months of execution to avoid penalty under the Registration Act, 1908.",
+      "timeline": [
+        {
+          "t": "Title Verification",
+          "d": "We run a 30-year title search and pull the Encumbrance Certificate to confirm a clear, marketable title."
+        },
+        {
+          "t": "Sale Deed Drafting",
+          "d": "Our advocate drafts the sale deed with correct property schedule, consideration, possession and payment terms."
+        },
+        {
+          "t": "Stamp Duty Payment",
+          "d": "Stamp duty (≈6% in Pune municipal limits) and 1% registration fee are computed and paid online; e-stamp generated."
+        },
+        {
+          "t": "Execution & Biometric",
+          "d": "Buyer, seller and two witnesses sign before the registering officer; photos & biometrics captured on site."
+        },
+        {
+          "t": "Registration at Sub-Registrar",
+          "d": "We book your IGR appointment and submit the documents at the Sub-Registrar office for registration."
+        },
+        {
+          "t": "Registered Deed Handover",
+          "d": "A unique registration number is allotted; the registered deed is collected and handed to you in 3–7 days."
+        }
+      ],
+      "doc": [
+        "Signed Sale Deed (draft prepared by us)",
+        "Previous / parent title deed",
+        "Latest property tax receipts",
+        "Encumbrance Certificate (EC)",
+        "Society NOC / builder allotment letter",
+        "Aadhaar & PAN of buyer and seller",
+        "Passport-size photos of all parties",
+        "Power of Attorney (if applicable)"
+      ],
+      "badge": "Verified advocates · IGR Maharashtra process",
+      "titleTop": "Property registration,",
+      "titleAccent": "made effortless",
+      "subtitle": "From title verification to your registered sale deed — our legal experts handle drafting, stamp duty, the Sub-Registrar appointment and every formality. Share your details and we'll call you back to get started.",
+      "feature1": "Verified advocates",
+      "feature2": "Transparent fixed fees",
+      "feature3": "End-to-end paperwork",
+      "quoteTitle": "Talk to a Legal Expert",
+      "quoteSub": "Tell us what you need — our expert calls you back within 24 hours.",
+      "submitLabel": "Request Assistance",
+      "servicesHeading": "Legal Services We Assist With",
+      "servicesSub": "End-to-end support for buying, selling and registering property in Pune & Maharashtra.",
+      "trustHeading": "Why choose PuneNest Legal",
+      "fService": "Service Needed",
+      "fServicePlaceholder": "Select a service",
+      "fRole": "You are the",
+      "fLocation": "Property Location",
+      "fLocationPlaceholder": "Search area / locality",
+      "fNote": "Brief Note (optional)",
+      "fNotePlaceholder": "Anything specific we should know?",
+      "stat": {
+        "deedsRegistered": "Deeds Registered",
+        "titleSearch": "Title Search",
+        "verifiedAdvocates": "Verified Advocates",
+        "transparentFees": "Transparent Fees",
+        "fixedValue": "Fixed"
+      },
+      "service": [
+        {
+          "name": "Sale Deed Drafting & Registration",
+          "desc": "Advocate-drafted sale deed, stamp duty payment and registration at the Sub-Registrar office — fully handled."
+        },
+        {
+          "name": "Title Search & Due Diligence",
+          "desc": "30-year title search and encumbrance check so you buy with a clear, litigation-free title."
+        },
+        {
+          "name": "Stamp Duty & Registration",
+          "desc": "Accurate stamp duty & fee computation on ready-reckoner value, e-stamping and online payment via GRAS."
+        },
+        {
+          "name": "Property Mutation",
+          "desc": "Name transfer in municipal & 7/12 records and society share-certificate transfer after registration."
+        },
+        {
+          "name": "Encumbrance Certificate",
+          "desc": "Retrieval of EC and certified copies of past documents from IGR Maharashtra records."
+        },
+        {
+          "name": "Gift Deed / POA / Will",
+          "desc": "Drafting and registration of gift deeds, power of attorney and wills for family & estate transfers."
+        }
+      ],
+      "trust": [
+        {
+          "t": "Verified Advocates",
+          "d": "Every deed is drafted and vetted by experienced, empanelled property advocates."
+        },
+        {
+          "t": "Transparent Fixed Fees",
+          "d": "Clear, all-inclusive professional fees shared upfront — no surprises later."
+        },
+        {
+          "t": "End-to-End Handling",
+          "d": "From title search to registered deed, we manage drafting, payments and the SRO visit."
+        },
+        {
+          "t": "Appointment & Updates",
+          "d": "We book your Sub-Registrar slot and keep you posted at every stage."
+        }
+      ],
+      "faq": [
+        {
+          "q": "What are the stamp duty and registration charges in Pune?",
+          "a": "Within Pune municipal limits stamp duty is about 6% (5% state duty + 1% local cess) and the registration fee is 1% of the value, capped at ₹30,000. Charges are calculated on the higher of the agreement value or the government ready-reckoner rate."
+        },
+        {
+          "q": "Is online property registration possible?",
+          "a": "You can fill details, pay stamp duty & fees and book the appointment online, but physical presence at the Sub-Registrar office for biometrics and signatures is mandatory. We handle the online steps and coordinate the visit."
+        },
+        {
+          "q": "Why is title verification important?",
+          "a": "A 30-year title search and Encumbrance Certificate confirm the seller's ownership and that the property is free of loans, disputes or charges — protecting you before you pay."
+        },
+        {
+          "q": "How long does registration take?",
+          "a": "Once documents are ready, execution and registration happen in a single appointment; the registered deed is typically available within 3–7 working days."
+        },
+        {
+          "q": "Does PuneNest charge separately for this?",
+          "a": "Yes — legal services carry a transparent, fixed professional fee (separate from government stamp duty & registration charges), shared with you upfront before you proceed."
+        }
+      ],
+      "ctaTitle": "Buying or selling soon?",
+      "ctaSub": "Get your registration and paperwork handled by verified experts — we call you back within 24 hours.",
+      "ctaPrimary": "Request Assistance",
+      "calc": {
+        "title": "Estimate your stamp duty & registration",
+        "sub": "Maharashtra government charges before you sign — adjust the value, area and buyer to see indicative stamp duty and registration fees for Pune.",
+        "propertyValue": "Agreement / property value",
+        "areaType": "Property location",
+        "buyer": "Buyer",
+        "govtCharges": "Total government charges",
+        "stampDuty": "Stamp duty",
+        "registration": "Registration fee",
+        "note": "Indicative only. Actual stamp duty follows ready-reckoner value and current Maharashtra rates; women buyers get a 1% concession on residential property. Our experts confirm exact figures before registration."
+      }
+    },
+    "packers": {
+      "badge": "Vetted & background-verified partners",
+      "titleTop": "Stress-free home shifting",
+      "titleAccent": "in & from Pune",
+      "subtitle": "Share your moving details and our relocation desk negotiates transparent, all-inclusive rates with trusted movers — then calls you back with the best quote. No haggling, no hidden charges.",
+      "trackerTitle": "Your packers & movers requests",
+      "feature1": "Transit insurance",
+      "feature2": "Transparent pricing",
+      "feature3": "Dedicated move manager",
+      "quoteTitle": "Get a Free Quote",
+      "quoteSub": "Fill in a few details — we'll call you back within 24 hours.",
+      "submitLabel": "Request Free Quote",
+      "servicesHeading": "Our Packers & Movers Services",
+      "servicesSub": "We've kept it focused on what matters most for a Pune move. Pick a service in the quote form and we handle the rest.",
+      "trustHeading": "Why move with PuneNest",
+      "fService": "Service Needed",
+      "fServicePlaceholder": "Select a service",
+      "fFrom": "Moving From",
+      "fFromPlaceholder": "Search area / city",
+      "fTo": "Moving To",
+      "fToPlaceholder": "Search area / city",
+      "fSize": "Home Size",
+      "fDate": "Preferred Move Date",
+      "successMessage": "Our relocation desk will call you back within 24 hours with the best quote from a verified partner.",
+      "stat": {
+        "verifiedPartners": "Verified Moving Partners",
+        "homesRelocated": "Homes Relocated",
+        "averageRating": "Average Rating",
+        "platformFee": "Platform Fee"
+      },
+      "service": [
+        {
+          "name": "Local Home Shifting",
+          "desc": "Door-to-door shifting anywhere within Pune — professional packing, careful loading, transport and unpacking, all in a day."
+        },
+        {
+          "name": "Intercity Relocation",
+          "desc": "Moving to or from another city? Insured, GPS-tracked transport with timely delivery to any city across India."
+        },
+        {
+          "name": "Packing & Unpacking",
+          "desc": "5-layer quality packing for fragiles, electronics and furniture — plus dismantling, reassembly and unpacking at the new home."
+        },
+        {
+          "name": "Office / Commercial",
+          "desc": "Minimal-downtime office moves — furniture, IT equipment and records relocated and set up after hours or on weekends."
+        },
+        {
+          "name": "Vehicle Transport",
+          "desc": "Safe car & bike transportation in enclosed carriers with full transit insurance and real-time tracking."
+        },
+        {
+          "name": "Storage & Warehousing",
+          "desc": "Clean, secure, CCTV-monitored short or long-term storage for when your move-in and move-out dates don't line up."
+        }
+      ],
+      "trust": [
+        {
+          "t": "Vetted Partners",
+          "d": "Every mover is background-checked, GST-registered and rated by real PuneNest customers."
+        },
+        {
+          "t": "Transparent Rates",
+          "d": "We negotiate all-inclusive quotes — no hidden labour, toll or last-minute charges."
+        },
+        {
+          "t": "Transit Insurance",
+          "d": "Optional all-risk insurance covers your belongings end to end during the move."
+        },
+        {
+          "t": "Dedicated Manager",
+          "d": "A single point of contact coordinates your move and is reachable through move day."
+        }
+      ],
+      "step": [
+        {
+          "t": "Share Details",
+          "d": "Tell us what you're moving, from and to where, and your preferred date."
+        },
+        {
+          "t": "Free Survey & Quote",
+          "d": "We arrange a quick (video or in-person) survey and share a transparent quote."
+        },
+        {
+          "t": "Confirm Partner",
+          "d": "Approve the quote — we lock in a verified mover and assign your move manager."
+        },
+        {
+          "t": "Move Day",
+          "d": "Packing, transport and unpacking are handled while you relax. Done!"
+        }
+      ],
+      "faq": [
+        {
+          "q": "Is there any charge to get a quote?",
+          "a": "No. Getting a quote and our relocation-desk assistance is completely free — you only pay the moving partner for the service you confirm."
+        },
+        {
+          "q": "How are the moving partners verified?",
+          "a": "Every partner is background-checked, GST-registered and reviewed against past PuneNest customer ratings before we recommend them."
+        },
+        {
+          "q": "Are my belongings insured during the move?",
+          "a": "Yes — optional all-risk transit insurance is available on every move and is strongly recommended for intercity relocations."
+        },
+        {
+          "q": "How soon will someone contact me?",
+          "a": "Our relocation desk calls you back within 24 hours of your request to confirm details and arrange a survey."
+        },
+        {
+          "q": "Do you move outside Pune?",
+          "a": "Yes. We handle local moves within Pune and intercity relocations to and from any major city in India."
+        }
+      ],
+      "ctaTitle": "Planning a move soon?",
+      "ctaSub": "Get a free, no-obligation quote from a verified partner — our team calls you back within 24 hours.",
+      "ctaPrimary": "Get Free Quote",
+      "estimator": {
+        "title": "Instant moving-cost estimate",
+        "sub": "Get a ballpark price in seconds — then request a free, exact quote from a verified partner.",
+        "fSize": "Home size",
+        "fDistance": "Move distance",
+        "fPacking": "Packing type",
+        "fFloor": "Floor / lift access",
+        "estLabel": "Estimated moving cost",
+        "note": "Indicative range for packing, labour and transport. Your exact, all-inclusive quote is confirmed after a quick survey.",
+        "cta": "Get an exact quote"
+      }
+    }
+  }
+}

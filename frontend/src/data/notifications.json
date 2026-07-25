@@ -1,0 +1,34 @@
+[
+  {
+    "id": "N1",
+    "kind": "visit",
+    "title": "Visit confirmed",
+    "body": "Your visit to 2 BHK in Baner is confirmed for tomorrow 5 PM.",
+    "at": "2026-06-30",
+    "read": false
+  },
+  {
+    "id": "N2",
+    "kind": "enquiry",
+    "title": "Owner responded",
+    "body": "The owner of 3 BHK in Wakad replied to your enquiry.",
+    "at": "2026-06-29",
+    "read": false
+  },
+  {
+    "id": "N3",
+    "kind": "price",
+    "title": "Price drop",
+    "body": "A saved listing in Hinjawadi dropped by ₹3,000/mo.",
+    "at": "2026-06-27",
+    "read": true
+  },
+  {
+    "id": "N4",
+    "kind": "system",
+    "title": "Welcome to PuneNest",
+    "body": "Find your home with zero brokerage.",
+    "at": "2026-06-24",
+    "read": true
+  }
+]

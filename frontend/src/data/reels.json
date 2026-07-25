@@ -1,0 +1,122 @@
+[
+  {
+    "id": "RL1",
+    "listingId": "P5000",
+    "title": "4 BHK Villa in Magarpatta",
+    "locality": "Magarpatta",
+    "price": 64000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70",
+    "likes": 263,
+    "views": 4355,
+    "tag": "Owner tour"
+  },
+  {
+    "id": "RL2",
+    "listingId": "P5006",
+    "title": "4 BHK Penthouse in Hinjawadi",
+    "locality": "Hinjawadi",
+    "price": 33000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=70",
+    "likes": 69,
+    "views": 7712,
+    "tag": "Owner tour"
+  },
+  {
+    "id": "RL3",
+    "listingId": "P5007",
+    "title": "2 BHK Studio in Balewadi",
+    "locality": "Balewadi",
+    "price": 59000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70",
+    "likes": 917,
+    "views": 216,
+    "tag": "Walkthrough"
+  },
+  {
+    "id": "RL4",
+    "listingId": "P5008",
+    "title": "2 BHK Penthouse in Baner",
+    "locality": "Baner",
+    "price": 7624400,
+    "deal": "buy",
+    "poster": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=70",
+    "likes": 827,
+    "views": 6930,
+    "tag": "Drone view"
+  },
+  {
+    "id": "RL5",
+    "listingId": "P5010",
+    "title": "3 BHK Villa in Undri",
+    "locality": "Undri",
+    "price": 4501200,
+    "deal": "buy",
+    "poster": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70",
+    "likes": 664,
+    "views": 5754,
+    "tag": "Owner tour"
+  },
+  {
+    "id": "RL6",
+    "listingId": "P5013",
+    "title": "1 BHK Flat in Baner",
+    "locality": "Baner",
+    "price": 15415400,
+    "deal": "buy",
+    "poster": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70",
+    "likes": 293,
+    "views": 6890,
+    "tag": "Walkthrough"
+  },
+  {
+    "id": "RL7",
+    "listingId": "P5014",
+    "title": "2 BHK Penthouse in Balewadi",
+    "locality": "Balewadi",
+    "price": 21000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=70",
+    "likes": 567,
+    "views": 3133,
+    "tag": "Owner tour"
+  },
+  {
+    "id": "RL8",
+    "listingId": "P5015",
+    "title": "4 BHK Row House in Wakad",
+    "locality": "Wakad",
+    "price": 38000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=70",
+    "likes": 955,
+    "views": 5205,
+    "tag": "Walkthrough"
+  },
+  {
+    "id": "RL9",
+    "listingId": "P5016",
+    "title": "4 BHK Row House in Magarpatta",
+    "locality": "Magarpatta",
+    "price": 61000,
+    "deal": "rent",
+    "poster": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70",
+    "likes": 1071,
+    "views": 4962,
+    "tag": "Society tour"
+  },
+  {
+    "id": "RL10",
+    "listingId": "P5017",
+    "title": "1 RK Villa in Koregaon Park",
+    "locality": "Koregaon Park",
+    "price": 8874000,
+    "deal": "buy",
+    "poster": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=800&q=70",
+    "likes": 1172,
+    "views": 5324,
+    "tag": "Walkthrough"
+  }
+]

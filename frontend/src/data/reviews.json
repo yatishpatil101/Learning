@@ -1,0 +1,110 @@
+[
+  {
+    "id": "R3000",
+    "user": "Gauri Rao",
+    "target": "Service: Packers & Movers",
+    "rating": 4,
+    "text": "Quick response from the team.",
+    "status": "pending",
+    "at": "2026-05-26"
+  },
+  {
+    "id": "R3001",
+    "user": "Karan Joshi",
+    "target": "Owner",
+    "rating": 3,
+    "text": "Quick response from the team.",
+    "status": "published",
+    "at": "2026-06-16"
+  },
+  {
+    "id": "R3002",
+    "user": "Riya Chavan",
+    "target": "Locality: Wakad",
+    "rating": 5,
+    "text": "Verified docs, felt safe.",
+    "status": "published",
+    "at": "2026-05-28"
+  },
+  {
+    "id": "R3003",
+    "user": "Neha Joshi",
+    "target": "Locality: Hinjawadi",
+    "rating": 4,
+    "text": "Smooth experience, no broker hassle.",
+    "status": "pending",
+    "at": "2026-05-23"
+  },
+  {
+    "id": "R3004",
+    "user": "Arjun Chavan",
+    "target": "Locality: Bavdhan",
+    "rating": 4,
+    "text": "Saved a lot on brokerage.",
+    "status": "published",
+    "at": "2026-05-26"
+  },
+  {
+    "id": "R3005",
+    "user": "Vikram Iyer",
+    "target": "Service: Property & Legal",
+    "rating": 3,
+    "text": "Smooth experience, no broker hassle.",
+    "status": "pending",
+    "at": "2026-05-25"
+  },
+  {
+    "id": "R3006",
+    "user": "Nikhil Mehta",
+    "target": "Owner",
+    "rating": 3,
+    "text": "Verified docs, felt safe.",
+    "status": "pending",
+    "at": "2026-05-22"
+  },
+  {
+    "id": "R3007",
+    "user": "Sakshi Joshi",
+    "target": "Service: Interior & Renovation",
+    "rating": 3,
+    "text": "Quick response from the team.",
+    "status": "pending",
+    "at": "2026-06-22"
+  },
+  {
+    "id": "R3008",
+    "user": "Sneha Shah",
+    "target": "Owner",
+    "rating": 5,
+    "text": "Quick response from the team.",
+    "status": "published",
+    "at": "2026-05-26"
+  },
+  {
+    "id": "R3009",
+    "user": "Nikhil Deshpande",
+    "target": "Owner",
+    "rating": 4,
+    "text": "Smooth experience, no broker hassle.",
+    "status": "published",
+    "at": "2026-06-22"
+  },
+  {
+    "id": "R3010",
+    "user": "Siddharth Deshpande",
+    "target": "Owner",
+    "rating": 5,
+    "text": "Smooth experience, no broker hassle.",
+    "status": "pending",
+    "at": "2026-06-29"
+  },
+  {
+    "id": "R3011",
+    "user": "Diya Nair",
+    "target": "Owner",
+    "rating": 5,
+    "text": "Saved a lot on brokerage.",
+    "status": "published",
+    "at": "2026-06-11"
+  }
+]

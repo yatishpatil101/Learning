@@ -1,0 +1,313 @@
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import Icon from '../../components/Icon.jsx';
+import { listLocalities, listProperties, logSearchIntent } from '../../lib/mockApi.js';
+import { useToast } from '../../context/ToastContext.jsx';
+import { addSavedSearch, setLastSearch, getLastSearch } from '../../lib/store.js';
+import { buildAlertRecord } from './listings/alertCriteria.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { useCity } from '../../context/CityContext.jsx';
+import { cityHasData } from '../../lib/geoConfig.js';
+import NewCityEmptyState from '../../components/city/NewCityEmptyState.jsx';
+import { useAppFlags } from '../../context/AppFlagsContext.jsx';
+import { enrichWithVerification } from '../../lib/data/enrichProperties.js';
+import { allLocalities } from '../../data/localities.js';
+import { allSocieties } from '../../data/societies.js';
+import { enrichRent } from './listings/matchers.js';
+import { INITIAL, serializeF, deserializeF, paramsToFilters, applyFiltersToSearchParams } from './listings/filterState.js';
+import { canonicalTypeKey } from '../../data/propertyTypes.js';
+import Filters from './listings/Filters.jsx';
+import MobileFilterDrawer from './listings/MobileFilterDrawer.jsx';
+import DealToggle from './listings/DealToggle.jsx';
+import ResultsArea from './listings/ResultsArea.jsx';
+import { computeResults } from './listings/listingsResultsPipeline.js';
+import { buildActiveChips } from './listings/listingsChips.js';
+import { parseSmartQuery } from './listings/listingsSmartQuery.js';
+
+const SORTS = ['relevance', 'price-low', 'price-high', 'newest'];
+
+export default function Listings() {
+  const { t: tr } = useTranslation();
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { toast } = useToast();
+  const { user, isIn } = useAuth();
+  const { flagEnabled } = useAppFlags();
+
+  // URL param compat: ?type= / ?ptype= accept one or more canonical type keys
+  // (comma-separated) or legacy labels; ?deal=rent|buy is honoured directly.
+  const urlTypeRaw = params.get('ptype') || params.get('type') || '';
+  const urlTypeKeys = urlTypeRaw.split(',').map(canonicalTypeKey).filter(Boolean);
+  const urlQ = (params.get('q') || params.get('locality') || '').toLowerCase();
+  const urlSharing = params.get('sharing') || '';
+  // Deal resolution: an explicit ?deal= always wins (so a PG / Hostel listed for
+  // sale opens on the Buy tab). Otherwise share-only signals (flatmates, pg,
+  // ?sharing=) default to Rent, since those products are predominantly rentals.
+  const dealParam = params.get('deal');
+  const urlDeal = dealParam === 'rent' || dealParam === 'buy'
+    ? dealParam
+    : (urlTypeKeys.includes('flatmates') || urlTypeKeys.includes('pg') || urlSharing ? 'rent' : 'buy');
+
+  // Build the full initial filter state from the URL — all filters round-trip
+  // through the address bar so a search is shareable, refresh-safe and
+  // back-button-safe (see filterState.js).
+  const buildInitial = () => paramsToFilters(params, urlDeal);
+
+  const [f, setF] = useState(buildInitial);
+  const [sort, setSort] = useState(() => (SORTS.includes(params.get('sort')) ? params.get('sort') : 'relevance'));
+  const [page, setPage] = useState(1);
+  const [view, setView] = useState(params.get('view') === 'map' ? 'map' : params.get('view') === 'list' ? 'list' : 'grid');
+  const [activeId, setActiveId] = useState(params.get('property') || null);
+  const [all, setAll] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  // Active city: we only have inventory for Pune today, so a data-less live city gets an
+  // honest empty state here instead of Pune listings mislabelled as its own.
+  const { city } = useCity();
+  const hasData = cityHasData(city);
+  const [localities, setLocalities] = useState([]);
+  const [drawer, setDrawer] = useState(false);
+  const [aiQuery, setAiQuery] = useState('');
+  const set = (patch) => startTransition(() => setF((prev) => ({ ...prev, ...patch })));
+  const clearAll = () => setF(INITIAL(f.deal));
+  // Rent/Buy switch: reset to that deal's default filter set (the two journeys have
+  // different filter shapes) and drop back to page 1 / relevance. The state->URL
+  // effect mirrors deal= to the address bar, so the switch stays shareable.
+  const switchDeal = (deal) => {
+    if (deal === f.deal) return;
+    startTransition(() => { setF(INITIAL(deal)); setSort('relevance'); setPage(1); });
+  };
+
+  // Map search can be turned off by feature flag. When it is, a `view=map` deep-link
+  // must not leave the user staring at a blank map — fall back to grid and surface a note.
+  const mapEnabled = flagEnabled('mapSearch');
+  const effView = view === 'map' && !mapEnabled ? 'grid' : view;
+
+  // Return-to-search: restore the exact prior listings view (map + areas + filters +
+  // open property + scroll) when the property page sends the user "back to map".
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    if (!location.state?.restore) return;
+    const snap = getLastSearch();
+    if (!snap) return;
+    if (snap.filters) setF(deserializeF(snap.filters));
+    if (snap.view) setView(snap.view);
+    if (snap.activeId) setActiveId(snap.activeId);
+    if (snap.scrollY != null) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, snap.scrollY)));
+  }, [location.state]);
+
+  // The canonical return URL (deal + view + areas + open property) that we mirror to
+  // the address bar and hand to the property page so its "Back to map" is one click.
+  const buildReturnSearch = () => {
+    const sp = new URLSearchParams();
+    sp.set('deal', f.deal);
+    sp.set('view', view);
+    const locs = [...f.localities];
+    if (locs.length) sp.set('loc', locs.join(','));
+    const socs = [...f.societies];
+    if (socs.length) sp.set('soc', socs.join(','));
+    if (activeId) sp.set('property', activeId);
+    return '/listings?' + sp.toString();
+  };
+
+  // Save the full context (incl. non-URL filters) so the return is lossless even after
+  // a refresh on the property page.
+  const saveReturnContext = () => setLastSearch({ search: buildReturnSearch(), filters: serializeF(f), view, activeId, scrollY: window.scrollY });
+
+  const onSelectProperty = (id) => setActiveId(id);
+  const onCloseProperty = () => setActiveId(null);
+
+  // State -> URL sync: mirror the full filter set (plus deal/view/sort/open
+  // property) to the address bar so a search is shareable, refresh-safe and
+  // back-button-safe. Only writes when the query string actually changes, to
+  // avoid redundant history churn / render loops.
+  useEffect(() => {
+    const next = applyFiltersToSearchParams(params, f);
+    next.set('deal', f.deal);
+    if (effView === 'grid') next.delete('view'); else next.set('view', effView);
+    if (sort === 'relevance') next.delete('sort'); else next.set('sort', sort);
+    if (activeId) next.set('property', activeId); else next.delete('property');
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effView, sort, f, activeId]);
+
+  // keep deal in sync with URL changes
+  useEffect(() => { setF((prev) => (prev.deal === urlDeal ? prev : INITIAL(urlDeal))); }, [urlDeal]);
+
+  useEffect(() => {
+    Promise.all([listProperties({ includeAllStatuses: false }, 'newest'), listLocalities()]).then(([ps, ls]) => {
+      setAll(ps.map((p) => enrichWithVerification(enrichRent(p))));
+      // Offer the full canonical registry (curated + community) as filter options,
+      // not just the handful of listing-derived localities — so any Pune locality is
+      // searchable here even without the Maps SDK loaded (list view). Live Places
+      // suggestions layer on top of this in the Localities filter.
+      const seen = new Set(ls.map((l) => l.slug));
+      const merged = [...ls];
+      allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
+      setLocalities(merged);
+      setLoaded(true);
+    });
+  }, []);
+
+  // A live Places pick can resolve to a locality that isn't in the option list yet;
+  // register it (slug → name) so its chip and the dropdown summary show a friendly name.
+  const addLocalityOption = useCallback(({ slug, name }) => {
+    if (!slug) return;
+    setLocalities((prev) => (prev.some((l) => l.slug === slug) ? prev : [...prev, { slug, name: name || slug }]));
+  }, []);
+
+  const locNameBySlug = useMemo(() => Object.fromEntries(localities.map((l) => [l.slug, l.name])), [localities]);
+  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), []);
+
+  // Deferred filter state — keeps inputs responsive while heavy results recompute in background
+  const deferredF = useDeferredValue(f);
+
+  const resultsData = useMemo(
+    () => computeResults({ all, df: deferredF, sort, urlQ, locNameBySlug, tr }),
+    [all, deferredF, sort, urlQ, locNameBySlug, tr],
+  );
+  const results = resultsData.list;
+  const relaxedNear = resultsData.relaxedNear;
+
+  // Client-side pagination — grid/list views page through results 9 at a time.
+  // Map view is different: plotting an entire city of markers is expensive (and, with
+  // a real API, a heavy fetch), so it is "area-first" — it only renders once the user
+  // has focused on 1–MAP_MAX_AREAS localities, and even then caps markers at
+  // MAP_MARKER_CAP. Page resets to 1 whenever the result set changes.
+  const PAGE_SIZE = 9;
+  const MAP_MARKER_CAP = 120;
+  const MAP_MAX_AREAS = 5;
+  const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const mapAreaCount = f.localities.size;
+  const mapGated = effView === 'map' && (mapAreaCount === 0 || mapAreaCount > MAP_MAX_AREAS);
+
+  // Registry centres for the selected localities. The map fits to its property
+  // markers, but a low/zero-inventory locality has none — so we hand it these
+  // coords to focus on the chosen area instead of sitting at the city default
+  // (which made a freshly-selected locality look like a broken/empty map).
+  const locSig = [...f.localities].sort().join(',');
+  const mapFocus = useMemo(() => {
+    if (!f.localities.size) return [];
+    return allLocalities()
+      .filter((l) => f.localities.has(l.slug) && l.lat != null && l.lng != null)
+      .map((l) => [l.lat, l.lng]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locSig]);
+
+  let pageResults;
+  if (effView === 'map') {
+    pageResults = mapGated ? [] : results.slice(0, MAP_MARKER_CAP);
+  } else {
+    pageResults = results.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  }
+  const activeIndex = activeId ? pageResults.findIndex((p) => p.id === activeId) : -1;
+  const activeProperty = activeIndex >= 0 ? pageResults[activeIndex] : null;
+  useEffect(() => { setPage(1); }, [deferredF, sort, urlQ]);
+  const goToPage = (n) => {
+    setPage(Math.min(Math.max(1, n), pageCount));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Passive search intent logging — fires when user changes filters
+  const intentLogged = useRef('');
+  useEffect(() => {
+    if (!loaded) return;
+    const loc = deferredF.localities.size === 1 ? [...deferredF.localities][0] : '';
+    const bhk = deferredF.bhk.size === 1 ? [...deferredF.bhk][0] : '';
+    const key = `${loc}|${deferredF.deal}|${bhk}`;
+    if (key === intentLogged.current || (!loc && !bhk)) return;
+    intentLogged.current = key;
+    const locName = loc ? (locNameBySlug[loc] || loc) : '';
+    logSearchIntent({ locality: locName, deal: deferredF.deal, bhk, userId: user?.mobile || 'anon' });
+  }, [deferredF, loaded]);
+
+  const activeChips = useMemo(
+    () => buildActiveChips(f, { tr, locNameBySlug, socNameBySlug, setF, set }),
+    [f, locNameBySlug, socNameBySlug, tr],
+  );
+
+  const smartSearch = () => {
+    const parsed = parseSmartQuery(aiQuery, { fallbackDeal: f.deal, localities, locNameBySlug });
+    if (!parsed) return;
+    setF(parsed.next);
+    navigate(`/listings?deal=${parsed.deal}`);
+    toast(tr('listings.smartSearchToast', { detail: parsed.parts.join(' · ') }), 'success');
+  };
+
+  const saveSearch = () => {
+    // Alerts live in the login-only dashboard and are keyed by mobile, so a search
+    // saved while signed out would be orphaned under 'anon' and never surface there.
+    // Gate on auth (matching the save-property flow) so alerts always reach the dashboard.
+    if (!isIn) {
+      navigate(`/signin?reason=alerts&next=${encodeURIComponent('/listings?deal=' + f.deal)}`);
+      return;
+    }
+    // If the box has a typed query, parse it so the saved criteria match the label/text
+    // (and apply it to the results) — no more "label says X but filters say Y" mismatch.
+    const typed = aiQuery.trim();
+    const parsed = typed ? parseSmartQuery(aiQuery, { fallbackDeal: f.deal, localities, locNameBySlug }) : null;
+    if (parsed) {
+      setF(parsed.next);
+      navigate(`/listings?deal=${parsed.deal}`);
+    }
+    const record = buildAlertRecord(parsed ? parsed.next : f, locNameBySlug);
+    addSavedSearch({ ...record, label: typed || record.label, query: typed });
+    toast(tr('listings.searchSavedToast'), 'success');
+  };
+  return (
+    <>
+      <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={results.length} />
+
+      <main className="pt-[72px] sm:pt-[92px] pb-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="hidden sm:flex items-center gap-2 text-sm mb-3 list-reveal" style={{ animationDelay: '0ms' }}>
+            <Link to="/" className="text-gray-500 hover:text-teal-400 t-all flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('listings.breadcrumbHome')}</Link>
+            <Icon name="chevron-right" className="w-3.5 h-3.5 text-gray-600" />
+            <span className="text-gray-300" aria-current="page">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</span>
+          </nav>
+
+          <div className="flex flex-col gap-[11px] sm:flex-row sm:gap-3 sm:items-center sm:justify-between mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '60ms' }}>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</h1>
+            {hasData ? <DealToggle deal={f.deal} onChange={switchDeal} className="shrink-0 lg:hidden" /> : null}
+          </div>
+
+          {hasData && f.deal === 'rent' && !f.types.has('flatmates') ? (
+            <Link
+              to="/share-flat"
+              className="group lg:hidden inline-flex items-center gap-2 self-start mb-[18px] sm:mb-5 pl-1.5 pr-3.5 h-9 rounded-full text-sm font-medium bg-teal-500/10 border border-teal-400/25 text-teal-100 hover:bg-teal-500/[.18] hover:border-teal-400/40 t-all list-reveal"
+              style={{ animationDelay: '80ms' }}
+            >
+              <span className="grid place-items-center w-6 h-6 rounded-full bg-teal-500/20 shrink-0"><Icon name="users" className="w-3.5 h-3.5 text-teal-300" /></span>
+              {tr('listings.shareFlatDiscover')}
+              <Icon name="arrow-right" className="w-3.5 h-3.5 text-teal-300/80 group-hover:translate-x-0.5 t-all" />
+            </Link>
+          ) : null}
+
+          {!hasData ? (
+            <div className="py-10 sm:py-16">
+              <NewCityEmptyState city={city} context="listings" />
+            </div>
+          ) : (
+          <div className="flex gap-8">
+            <aside className="hidden lg:block w-[300px] min-w-[300px] list-reveal" style={{ animationDelay: '120ms' }}>
+              <div className="glass rounded-2xl p-6 sticky top-28 max-h-[calc(100vh-9rem)] overflow-y-auto filter-scroll">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2"><Icon name="sliders-horizontal" className="w-5 h-5 text-teal-400" /> {tr('listings.filters')}</h3>
+                  <button onClick={clearAll} className="text-xs font-medium text-teal-400 hover:text-teal-300 t-all">{tr('listings.clearAll')}</button>
+                </div>
+                <Filters f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} showClear={false} />
+              </div>
+            </aside>
+
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+          </div>
+          )}
+        </div>
+      </main>
+    </>
+  );
+}

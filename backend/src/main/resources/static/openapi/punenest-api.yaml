@@ -1,0 +1,3289 @@
+openapi: 3.1.0
+info:
+  title: PuneNest API
+  version: "1.0.0"
+  summary: Pune-first real-estate marketplace backend API.
+  description: |
+    Enterprise API contract for **PuneNest**, a Pune-first real-estate marketplace
+    (broker-optional listings, rentals, deals, services and back-office operations).
+
+    This specification is reverse-engineered from the React frontend and the
+    canonical design docs:
+      - `docs/system/api-contract.md`   — endpoint catalogue (33 domains)
+      - `docs/system/domain-model.md`   — entity/enum reference
+      - `docs/system/api-architecture-review.md` — architecture-review narrative
+
+    ## Conventions
+    - Base path: `/api`
+    - Auth: Bearer JWT (`Authorization: Bearer <token>`) unless marked public.
+    - Pagination: `?page=0&size=20` (zero-indexed); responses use `PageEnvelope`.
+    - Sort: `?sort=field,direction` (e.g. `sort=createdAt,desc`).
+    - Dates: ISO-8601 UTC. Money: integer INR (paise-free rupees).
+    - Errors: `{ "error": "code", "message": "human-readable", "status": 400 }`.
+    - Soft-delete: archive/restore only — no hard DELETE for core aggregates.
+
+    Tags map to **bounded contexts** to support future microservice decomposition.
+  contact:
+    name: PuneNest Platform Engineering
+    url: https://punenest.example.com
+  license:
+    name: Proprietary
+servers:
+  - url: http://localhost:8080/api
+    description: Local development
+  - url: https://staging.punenest.example.com/api
+    description: Staging
+  - url: https://api.punenest.example.com/api
+    description: Production
+
+tags:
+  - name: Identity & Access
+    description: Authentication, sessions, current-user profile, staff onboarding.
+  - name: Catalog & Search
+    description: Public property discovery, localities, cities, reference/fee data.
+  - name: Listings
+    description: Owner listing lifecycle (create, edit, deals, offers, visits).
+  - name: Moderation
+    description: Admin property/user moderation, verification, reports, audit.
+  - name: Leads & Contact
+    description: Contact-gate requests, enquiries, finalization (maker-checker).
+  - name: Rentals & Payments
+    description: Rent payments, mandates, payouts, tenancies, tenant profiles.
+  - name: Documents
+    description: Property documents, buyer document-access requests, sharing.
+  - name: Services & Support
+    description: Service tickets, support tickets, service workflows, agreements.
+  - name: Billing & Growth
+    description: Plans, boosts, service orders, referrals, fees.
+  - name: Engagement
+    description: Saved properties/searches, reviews, notifications, share-a-flat.
+  - name: Admin & Analytics
+    description: KPIs, analytics, platform settings, content/CMS, society leads.
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ============================================================
+  # 1. IDENTITY & ACCESS
+  # ============================================================
+  /auth/login:
+    post:
+      tags: [Identity & Access]
+      summary: Login via OTP-verified mobile
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/staff-login:
+    post:
+      tags: [Identity & Access]
+      summary: Staff/admin login
+      security: []
+      operationId: staffLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffLoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/logout:
+    post:
+      tags: [Identity & Access]
+      summary: Invalidate current session
+      operationId: logout
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/me:
+    get:
+      tags: [Identity & Access]
+      summary: Get current user profile
+      operationId: getMe
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Identity & Access]
+      summary: Update own profile
+      operationId: updateMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  # ============================================================
+  # 2. CATALOG & SEARCH (public discovery + reference data)
+  # ============================================================
+  /properties:
+    get:
+      tags: [Catalog & Search]
+      summary: List / search properties
+      description: Full-text + faceted search. N+1-safe; owner contact is masked.
+      security: []
+      operationId: searchProperties
+      parameters:
+        - { name: deal, in: query, schema: { $ref: '#/components/schemas/Deal' } }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: locality, in: query, schema: { type: string } }
+        - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: furnishing, in: query, schema: { $ref: '#/components/schemas/Furnishing' } }
+        - { name: q, in: query, description: Free-text search, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/PropertyStatus' } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: Paged property summaries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/PropertySummary' }
+  /properties/featured:
+    get:
+      tags: [Catalog & Search]
+      summary: Featured listings
+      security: []
+      operationId: featuredProperties
+      responses:
+        '200':
+          description: Featured property summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PropertySummary' }
+  /properties/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    get:
+      tags: [Catalog & Search]
+      summary: Single property detail
+      security: []
+      operationId: getProperty
+      responses:
+        '200':
+          description: Property detail (owner contact masked until contact gate passed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /localities:
+    get:
+      tags: [Catalog & Search]
+      summary: All localities
+      security: []
+      operationId: listLocalities
+      responses:
+        '200':
+          description: Localities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Locality' }
+  /localities/{slug}:
+    get:
+      tags: [Catalog & Search]
+      summary: Locality detail + listings
+      security: []
+      operationId: getLocality
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Locality detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocalityDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /cities:
+    get:
+      tags: [Catalog & Search]
+      summary: Available cities
+      security: []
+      operationId: listCities
+      responses:
+        '200':
+          description: Cities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/City' }
+  /cities/waitlist:
+    post:
+      tags: [Catalog & Search]
+      summary: Join city waitlist
+      security: []
+      operationId: joinCityWaitlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CityWaitlistRequest' }
+      responses:
+        '201': { description: Added to waitlist }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /fees:
+    get:
+      tags: [Catalog & Search]
+      summary: Current fee structure
+      security: []
+      operationId: getFees
+      responses:
+        '200':
+          description: Fee structure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fees' }
+  # ============================================================
+  # 3. LISTINGS (owner listing lifecycle)
+  # ============================================================
+  /me/listings:
+    get:
+      tags: [Listings]
+      summary: My posted properties
+      operationId: myListings
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: Paged listings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Property' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Listings]
+      summary: Create new listing
+      operationId: createListing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingCreate' }
+      responses:
+        '201':
+          description: Created (status = pending)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/listings/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    get:
+      tags: [Listings]
+      summary: Single listing detail
+      operationId: getMyListing
+      responses:
+        '200':
+          description: Listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Listings]
+      summary: Update listing (foundation-field changes revert status to pending)
+      operationId: updateListing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingUpdate' }
+      responses:
+        '200':
+          description: Updated listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/deals:
+    get:
+      tags: [Listings]
+      summary: All deals for my properties
+      operationId: myDeals
+      responses:
+        '200':
+          description: Deals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Deal2' }
+  /me/deals/{propId}:
+    parameters:
+      - { $ref: '#/components/parameters/PropId' }
+    get:
+      tags: [Listings]
+      summary: Deal status for a property
+      operationId: getDeal
+      responses:
+        '200':
+          description: Deal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal2' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/deals/{propId}/reserve:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    post:
+      tags: [Listings]
+      summary: Mark property under offer
+      operationId: reserveDeal
+      responses:
+        '200': { description: Reserved }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/deals/{propId}/close:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    post:
+      tags: [Listings]
+      summary: Close deal (sold/rented)
+      operationId: closeDeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DealCloseRequest' }
+      responses:
+        '200': { description: Closed }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/deals/{propId}/reopen:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    post:
+      tags: [Listings]
+      summary: Reopen property
+      operationId: reopenDeal
+      responses:
+        '200': { description: Reopened }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/deals/{propId}/parties:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Listings]
+      summary: Under-offer parties
+      operationId: listParties
+      responses:
+        '200':
+          description: Parties
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Party' }
+    post:
+      tags: [Listings]
+      summary: Add party
+      operationId: addParty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Party' }
+      responses:
+        '201': { description: Added }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/deals/{propId}/parties/{idx}:
+    parameters:
+      - { $ref: '#/components/parameters/PropId' }
+      - { name: idx, in: path, required: true, schema: { type: integer, minimum: 0 } }
+    delete:
+      tags: [Listings]
+      summary: Remove party
+      operationId: removeParty
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/offers:
+    get:
+      tags: [Listings]
+      summary: Offers on my properties
+      operationId: offersOnMine
+      responses:
+        '200':
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Offer' }
+  /offers/mine:
+    get:
+      tags: [Listings]
+      summary: My submitted offers
+      operationId: myOffers
+      responses:
+        '200':
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Offer' }
+  /offers:
+    post:
+      tags: [Listings]
+      summary: Submit offer
+      operationId: submitOffer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfferCreate' }
+      responses:
+        '201':
+          description: Offer submitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /offers/{id}/respond:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Listings]
+      summary: Accept / decline / counter an offer
+      operationId: respondOffer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfferResponse' }
+      responses:
+        '200': { description: Responded }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /visits:
+    get:
+      tags: [Listings]
+      summary: All visits (admin)
+      operationId: listVisits
+      responses:
+        '200':
+          description: Visits
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Visit' }
+    post:
+      tags: [Listings]
+      summary: Schedule visit
+      operationId: scheduleVisit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisitCreate' }
+      responses:
+        '201':
+          description: Scheduled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Visit' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/visit-requests:
+    get:
+      tags: [Listings]
+      summary: Visit requests on my properties
+      operationId: myVisitRequests
+      responses:
+        '200':
+          description: Visit requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Visit' }
+  /visit-requests:
+    post:
+      tags: [Listings]
+      summary: Request a visit
+      operationId: requestVisit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisitCreate' }
+      responses:
+        '201':
+          description: Requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Visit' }
+  /visit-requests/{id}/status:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Listings]
+      summary: Confirm / cancel visit
+      operationId: updateVisitStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200': { description: Updated }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ============================================================
+  # 4. MODERATION (admin property/user moderation, verification, reports)
+  # ============================================================
+  /properties/{id}/status:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Approve / reject listing
+      operationId: setPropertyStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PropertyStatusUpdate' }
+      responses:
+        '200': { description: Updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/toggle-featured:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Toggle featured flag
+      operationId: toggleFeatured
+      responses:
+        '200': { description: Toggled }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/flag:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Flag listing
+      operationId: flagProperty
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { description: Flagged }
+    delete:
+      tags: [Moderation]
+      summary: Clear flag
+      operationId: clearFlag
+      responses:
+        '204': { description: Cleared }
+  /properties/{id}/archive:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Archive listing (soft-delete)
+      operationId: archiveProperty
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { description: Archived }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/restore:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Restore archived listing
+      operationId: restoreProperty
+      responses:
+        '200': { description: Restored (status reset to pending) }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/admin:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Admin update of property fields
+      description: >
+        Admin field-level update. NOTE — the source contract reuses
+        `PATCH /properties/{id}`; disambiguated here from the public getter to
+        avoid method/verb collision (documented assumption).
+      operationId: adminUpdateProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+  /users:
+    get:
+      tags: [Moderation]
+      summary: List all users (admin)
+      operationId: listUsers
+      parameters:
+        - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: archived, in: query, schema: { type: boolean, default: false } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged users
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/User' }
+  /users/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: User detail + listings
+      operationId: getUser
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Moderation]
+      summary: Update user
+      operationId: adminUpdateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+  /users/{id}/archive:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Archive user (soft-delete)
+      operationId: archiveUser
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { description: Archived }
+  /users/{id}/restore:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Restore archived user
+      operationId: restoreUser
+      responses:
+        '200': { description: Restored }
+  /users/staff:
+    post:
+      tags: [Moderation]
+      summary: Add staff member
+      operationId: addStaff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+  /me/verification/aadhaar:
+    get:
+      tags: [Moderation]
+      summary: Check own Aadhaar status
+      operationId: getAadhaarStatus
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AadhaarVerification' }
+    post:
+      tags: [Moderation]
+      summary: Submit Aadhaar verification
+      operationId: submitAadhaar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AadhaarSubmit' }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AadhaarVerification' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /properties/{id}/verification:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    get:
+      tags: [Moderation]
+      summary: Get property review thread
+      operationId: getPropertyVerification
+      responses:
+        '200':
+          description: Review thread
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
+    post:
+      tags: [Moderation]
+      summary: Initiate property review
+      operationId: initPropertyVerification
+      responses:
+        '201': { description: Initiated }
+  /properties/{id}/verification/messages:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Add message to review
+      operationId: addVerificationMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201': { description: Added }
+  /properties/{id}/verification/read:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Mark review messages read
+      operationId: markVerificationRead
+      responses:
+        '204': { description: Marked }
+  /properties/{id}/verification/decision:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Approve / reject property (admin)
+      operationId: verificationDecision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        '200': { description: Decided }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports:
+    get:
+      tags: [Moderation]
+      summary: All listing reports (admin)
+      operationId: listReports
+      responses:
+        '200':
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Report' }
+    post:
+      tags: [Moderation]
+      summary: Report a listing
+      operationId: createReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportCreate' }
+      responses:
+        '201':
+          description: Reported
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+  # ============================================================
+  # 5. LEADS & CONTACT (contact gate, enquiries, finalization)
+  # ============================================================
+  /contacts/status:
+    get:
+      tags: [Leads & Contact]
+      summary: Check contact status for a property
+      operationId: contactStatus
+      parameters:
+        - { name: propertyId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Contact status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactStatus' }
+  /contacts/request:
+    post:
+      tags: [Leads & Contact]
+      summary: Request owner's contact (Aadhaar-gated)
+      operationId: requestContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactRequestCreate' }
+      responses:
+        '200':
+          description: Requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactStatus' }
+        '403':
+          description: Aadhaar verification required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: aadhaar_required, message: Aadhaar verification required, status: 403 }
+  /me/contact-requests:
+    get:
+      tags: [Leads & Contact]
+      summary: View incoming contact requests (owner)
+      operationId: myContactRequests
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ContactRequest' }
+  /me/contact-requests/{reqId}:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    patch:
+      tags: [Leads & Contact]
+      summary: Approve / decline contact request
+      operationId: respondContactRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200': { description: Updated }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /enquiries:
+    get:
+      tags: [Leads & Contact]
+      summary: All enquiries (admin)
+      operationId: listEnquiries
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Enquiries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Enquiry' }
+  /messages:
+    get:
+      tags: [Leads & Contact]
+      summary: Current user's messages
+      operationId: myMessages
+      responses:
+        '200':
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Message' }
+  /me/finalization-requests:
+    get:
+      tags: [Leads & Contact]
+      summary: Pending finalization requests (owner)
+      operationId: myFinalizationRequests
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FinalizationRequest' }
+  /finalization/{propId}/request:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Request to finalize deal (buyer, maker step)
+      operationId: requestFinalization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinalizationCreate' }
+      responses:
+        '200':
+          description: Requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinalizationRequest' }
+  /finalization/{propId}/status:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Leads & Contact]
+      summary: My finalization status
+      operationId: finalizationStatus
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinalizationRequest' }
+    delete:
+      tags: [Leads & Contact]
+      summary: Cancel my finalization request (buyer)
+      operationId: cancelFinalization
+      responses:
+        '204': { description: Cancelled }
+  /finalization/requests/{reqId}/accept:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Accept finalization (owner, checker step)
+      description: On accept, a tenancy record is created for rent deals.
+      operationId: acceptFinalization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinalizationAccept' }
+      responses:
+        '200': { description: Accepted }
+  /finalization/requests/{reqId}/decline:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Decline finalization (owner)
+      operationId: declineFinalization
+      responses:
+        '200': { description: Declined }
+  # ============================================================
+  # 6. RENTALS & PAYMENTS (finance, rent, mandates, tenancies)
+  # ============================================================
+  /me/finances/{propId}/transactions:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Rentals & Payments]
+      summary: Transactions list (owner)
+      operationId: listTransactions
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transaction' }
+    post:
+      tags: [Rentals & Payments]
+      summary: Add transaction
+      operationId: addTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+  /me/finances/{propId}/transactions/{txnId}:
+    parameters:
+      - { $ref: '#/components/parameters/PropId' }
+      - { name: txnId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Rentals & Payments]
+      summary: Update transaction
+      operationId: updateTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionCreate' }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Rentals & Payments]
+      summary: Delete transaction
+      operationId: deleteTransaction
+      responses:
+        '204': { description: Deleted }
+  /me/finances/{propId}/basis:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Rentals & Payments]
+      summary: Ownership basis
+      operationId: getBasis
+      responses:
+        '200': { description: Basis, content: { application/json: { schema: { $ref: '#/components/schemas/OwnershipBasis' } } } }
+    put:
+      tags: [Rentals & Payments]
+      summary: Set ownership basis
+      operationId: setBasis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OwnershipBasis' }
+      responses:
+        '200': { description: Saved }
+  /me/finances/{propId}/summary:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Rentals & Payments]
+      summary: Income / expense / net summary
+      operationId: financeSummary
+      responses:
+        '200': { description: Summary, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceSummary' } } } }
+  /me/finances/{propId}/cashflow:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Rentals & Payments]
+      summary: Monthly cashflow
+      operationId: financeCashflow
+      responses:
+        '200':
+          description: Cashflow series
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CashflowPoint' }
+  /me/finances/{propId}/dues:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Rentals & Payments]
+      summary: Upcoming dues
+      operationId: financeDues
+      responses:
+        '200':
+          description: Dues
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transaction' }
+  /me/rent-payments:
+    get:
+      tags: [Rentals & Payments]
+      summary: My rent payments
+      operationId: myRentPayments
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RentPayment' }
+    post:
+      tags: [Rentals & Payments]
+      summary: Pay rent (tenant)
+      operationId: payRent
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RentPaymentCreate' }
+      responses:
+        '201':
+          description: Paid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RentPayment' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/rent-ledger:
+    get:
+      tags: [Rentals & Payments]
+      summary: Received payments (owner)
+      operationId: rentLedger
+      responses:
+        '200':
+          description: Ledger
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RentPayment' }
+  /me/rent-mandate:
+    get:
+      tags: [Rentals & Payments]
+      summary: Current autopay mandate
+      operationId: getMandate
+      responses:
+        '200': { description: Mandate, content: { application/json: { schema: { $ref: '#/components/schemas/RentMandate' } } } }
+    put:
+      tags: [Rentals & Payments]
+      summary: Set up autopay mandate
+      operationId: setMandate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RentMandate' }
+      responses:
+        '200': { description: Saved }
+  /me/payout-account:
+    get:
+      tags: [Rentals & Payments]
+      summary: Payout account (owner)
+      operationId: getPayoutAccount
+      responses:
+        '200': { description: Account, content: { application/json: { schema: { $ref: '#/components/schemas/PayoutAccount' } } } }
+    put:
+      tags: [Rentals & Payments]
+      summary: Set payout account (owner)
+      operationId: setPayoutAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PayoutAccount' }
+      responses:
+        '200': { description: Saved }
+  /me/tenancies:
+    get:
+      tags: [Rentals & Payments]
+      summary: My active tenancies (as tenant)
+      operationId: myTenancies
+      responses:
+        '200':
+          description: Tenancies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tenancy' }
+  /tenancies:
+    get:
+      tags: [Rentals & Payments]
+      summary: Tenancies in my properties (owner)
+      operationId: ownerTenancies
+      responses:
+        '200':
+          description: Tenancies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tenancy' }
+    post:
+      tags: [Rentals & Payments]
+      summary: Create tenancy (system, on deal finalization)
+      operationId: createTenancy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Tenancy' }
+      responses:
+        '201': { description: Created }
+  /me/tenant-profile:
+    get:
+      tags: [Rentals & Payments]
+      summary: My tenant profile
+      operationId: getTenantProfile
+      responses:
+        '200': { description: Profile, content: { application/json: { schema: { $ref: '#/components/schemas/TenantProfile' } } } }
+    put:
+      tags: [Rentals & Payments]
+      summary: Update tenant profile
+      operationId: updateTenantProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TenantProfile' }
+      responses:
+        '200':
+          description: Saved (returns computed score)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantProfile' }
+  /tenant-profiles/{mobile}:
+    parameters:
+      - { name: mobile, in: path, required: true, schema: { $ref: '#/components/schemas/Mobile' } }
+    get:
+      tags: [Rentals & Payments]
+      summary: View a tenant's profile (owner)
+      operationId: getTenantProfileByMobile
+      responses:
+        '200': { description: Profile, content: { application/json: { schema: { $ref: '#/components/schemas/TenantProfile' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  # ============================================================
+  # 7. DOCUMENTS
+  # ============================================================
+  /me/documents/{propId}:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Documents]
+      summary: Documents for property (owner)
+      operationId: listDocuments
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+    post:
+      tags: [Documents]
+      summary: Upload document (multipart)
+      operationId: uploadDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [category, file]
+              properties:
+                category: { type: string, example: Sale Deed }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '413': { description: Payload too large }
+        '415': { description: Unsupported media type }
+  /me/documents/{propId}/{docId}:
+    parameters:
+      - { $ref: '#/components/parameters/PropId' }
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Documents]
+      summary: Remove document (owner)
+      operationId: deleteDocument
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/documents/requests:
+    get:
+      tags: [Documents]
+      summary: Buyer document-access requests (owner inbox)
+      operationId: myDocumentRequests
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DocumentRequest' }
+  /documents/requests:
+    post:
+      tags: [Documents]
+      summary: Request document access (buyer)
+      operationId: requestDocumentAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DocumentRequestCreate' }
+      responses:
+        '201':
+          description: Requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentRequest' }
+  /me/documents/requests/{reqId}:
+    parameters: [ { $ref: '#/components/parameters/ReqId' } ]
+    patch:
+      tags: [Documents]
+      summary: Grant / decline document access (owner)
+      operationId: respondDocumentRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200': { description: Updated }
+  /documents/shared:
+    get:
+      tags: [Documents]
+      summary: View shared documents via link token
+      description: Public but token-scoped; requires a valid `token` query param.
+      security: []
+      operationId: getSharedDocuments
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Shared documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  # ============================================================
+  # 8. SERVICES & SUPPORT (tickets, support, workflows, agreements)
+  # ============================================================
+  /tickets:
+    get:
+      tags: [Services & Support]
+      summary: All service requests (admin/staff)
+      operationId: listTickets
+      parameters:
+        - { name: team, in: query, schema: { $ref: '#/components/schemas/Team' } }
+        - { name: status, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Ticket' }
+    post:
+      tags: [Services & Support]
+      summary: Create service request
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TicketCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+  /tickets/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Services & Support]
+      summary: Update ticket (admin/staff)
+      operationId: updateTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TicketUpdate' }
+      responses:
+        '200': { description: Updated }
+  /tickets/{id}/notes:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Add internal note (admin/staff)
+      operationId: addTicketNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201': { description: Added }
+  /support/tickets:
+    get:
+      tags: [Services & Support]
+      summary: My support tickets (all for admin)
+      operationId: listSupportTickets
+      responses:
+        '200':
+          description: Support tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SupportTicket' }
+    post:
+      tags: [Services & Support]
+      summary: Create support ticket
+      operationId: createSupportTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupportTicketCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportTicket' }
+  /support/tickets/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Services & Support]
+      summary: Support ticket detail with messages
+      operationId: getSupportTicket
+      responses:
+        '200':
+          description: Ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportTicket' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /support/tickets/{id}/messages:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Reply to support ticket
+      operationId: replySupportTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201': { description: Replied }
+  /support/tickets/{id}/read:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Mark support ticket read
+      operationId: markSupportTicketRead
+      responses:
+        '204': { description: Marked }
+  /service-requests:
+    get:
+      tags: [Services & Support]
+      summary: My service requests
+      operationId: listServiceRequests
+      responses:
+        '200':
+          description: Service requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ServiceRequest' }
+    post:
+      tags: [Services & Support]
+      summary: Create service request
+      operationId: createServiceRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequestCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+  /service-requests/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Services & Support]
+      summary: Service request detail with timeline
+      operationId: getServiceRequest
+      responses:
+        '200':
+          description: Service request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /service-requests/{id}/status:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Services & Support]
+      summary: Update status (staff)
+      operationId: updateServiceRequestStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200': { description: Updated }
+  /service-requests/{id}/messages:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Add message to service request
+      operationId: addServiceRequestMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201': { description: Added }
+  /service-requests/{id}/docs:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Upload / update document on request
+      operationId: addServiceRequestDoc
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                category: { type: string }
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Uploaded }
+  /service-requests/{id}/draft:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Share draft for review (staff)
+      operationId: shareServiceRequestDraft
+      responses:
+        '200': { description: Shared }
+  /service-requests/{id}/draft/decision:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Approve / reject draft
+      operationId: decideServiceRequestDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        '200': { description: Decided }
+  /service-requests/{id}/final-doc:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Upload final document (staff)
+      operationId: uploadServiceRequestFinalDoc
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Uploaded }
+  /me/rent-agreements:
+    get:
+      tags: [Services & Support]
+      summary: My rent agreements
+      operationId: myRentAgreements
+      responses:
+        '200':
+          description: Agreements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RentAgreement' }
+    post:
+      tags: [Services & Support]
+      summary: Create rent-agreement record
+      operationId: createRentAgreement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RentAgreement' }
+      responses:
+        '201': { description: Created }
+  /me/owner-kyc:
+    get:
+      tags: [Services & Support]
+      summary: Owner KYC data
+      operationId: getOwnerKyc
+      responses:
+        '200': { description: KYC, content: { application/json: { schema: { $ref: '#/components/schemas/OwnerKyc' } } } }
+    put:
+      tags: [Services & Support]
+      summary: Save owner KYC
+      operationId: saveOwnerKyc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OwnerKyc' }
+      responses:
+        '200': { description: Saved }
+  # ============================================================
+  # 9. BILLING & GROWTH (plans, boosts, orders, referrals)
+  # ============================================================
+  /plans:
+    get:
+      tags: [Billing & Growth]
+      summary: Subscription plans catalog
+      operationId: listPlans
+      security: []
+      responses:
+        '200':
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Plan' }
+  /me/subscription:
+    get:
+      tags: [Billing & Growth]
+      summary: My current subscription
+      operationId: getSubscription
+      responses:
+        '200': { description: Subscription, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+    post:
+      tags: [Billing & Growth]
+      summary: Subscribe / upgrade plan
+      operationId: subscribe
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscribeRequest' }
+      responses:
+        '201':
+          description: Subscribed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+        '402': { description: Payment required }
+  /boost-packs:
+    get:
+      tags: [Billing & Growth]
+      summary: Listing boost packs catalog
+      operationId: listBoostPacks
+      security: []
+      responses:
+        '200':
+          description: Packs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BoostPack' }
+  /me/properties/{propId}/boost:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Boost a listing
+      operationId: boostListing
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [packId]
+              properties:
+                packId: { type: string }
+      responses:
+        '201':
+          description: Boost applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Boost' }
+  /service-catalog:
+    get:
+      tags: [Billing & Growth]
+      summary: Paid services catalog (packing, painting, legal, etc.)
+      operationId: listServiceCatalog
+      security: []
+      responses:
+        '200':
+          description: Services
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ServiceOffering' }
+  /me/service-orders:
+    get:
+      tags: [Billing & Growth]
+      summary: My service orders
+      operationId: listServiceOrders
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ServiceOrder' }
+    post:
+      tags: [Billing & Growth]
+      summary: Place service order
+      operationId: createServiceOrder
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceOrderCreate' }
+      responses:
+        '201':
+          description: Ordered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+  /me/referrals:
+    get:
+      tags: [Billing & Growth]
+      summary: My referral code + rewards
+      operationId: getReferrals
+      responses:
+        '200': { description: Referrals, content: { application/json: { schema: { $ref: '#/components/schemas/ReferralSummary' } } } }
+  /referrals/redeem:
+    post:
+      tags: [Billing & Growth]
+      summary: Redeem a referral code
+      operationId: redeemReferral
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200': { description: Redeemed }
+        '409': { description: Already redeemed / invalid }
+  # ============================================================
+  # 10. ENGAGEMENT (saved, alerts, reviews, share-flat, content)
+  # ============================================================
+  /me/saved:
+    get:
+      tags: [Engagement]
+      summary: Saved properties
+      operationId: listSaved
+      responses:
+        '200':
+          description: Saved list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PropertySummary' }
+  /me/saved/{propId}:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    put:
+      tags: [Engagement]
+      summary: Save a property
+      operationId: savePropertyItem
+      responses:
+        '204': { description: Saved }
+    delete:
+      tags: [Engagement]
+      summary: Unsave a property
+      operationId: unsaveProperty
+      responses:
+        '204': { description: Removed }
+  /me/saved-searches:
+    get:
+      tags: [Engagement]
+      summary: Saved searches / alerts
+      operationId: listSavedSearches
+      responses:
+        '200':
+          description: Saved searches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SavedSearch' }
+    post:
+      tags: [Engagement]
+      summary: Create saved search / alert
+      operationId: createSavedSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SavedSearchCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedSearch' }
+  /me/saved-searches/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    delete:
+      tags: [Engagement]
+      summary: Delete saved search
+      operationId: deleteSavedSearch
+      responses:
+        '204': { description: Removed }
+  /properties/{propId}/reviews:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Engagement]
+      summary: Reviews for a property/locality
+      operationId: listReviews
+      security: []
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Review' }
+    post:
+      tags: [Engagement]
+      summary: Post a review
+      operationId: createReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+  /share-flat/posts:
+    get:
+      tags: [Engagement]
+      summary: Flatmate / share-flat posts
+      operationId: listShareFlatPosts
+      security: []
+      parameters:
+        - { name: locality, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Posts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShareFlatPost' }
+    post:
+      tags: [Engagement]
+      summary: Create share-flat post
+      operationId: createShareFlatPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShareFlatPostCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareFlatPost' }
+  /share-flat/posts/{id}/interest:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Express interest in a share-flat post
+      operationId: shareFlatInterest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201': { description: Sent }
+  /notifications:
+    get:
+      tags: [Engagement]
+      summary: My notifications
+      operationId: listNotifications
+      responses:
+        '200':
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+  /notifications/read:
+    post:
+      tags: [Engagement]
+      summary: Mark notifications read (all or by ids)
+      operationId: markNotificationsRead
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        '204': { description: Marked }
+  /announcements:
+    get:
+      tags: [Engagement]
+      summary: Active announcements (public)
+      operationId: listAnnouncements
+      security: []
+      responses:
+        '200':
+          description: Announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Announcement' }
+  /services:
+    get:
+      tags: [Engagement]
+      summary: Marketing services listing (CMS, public)
+      operationId: listCmsServices
+      security: []
+      responses:
+        '200':
+          description: Services
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CmsService' }
+  /faqs:
+    get:
+      tags: [Engagement]
+      summary: FAQs (public)
+      operationId: listFaqs
+      security: []
+      responses:
+        '200':
+          description: FAQs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Faq' }
+  /banners:
+    get:
+      tags: [Engagement]
+      summary: Homepage banners (public)
+      operationId: listBanners
+      security: []
+      responses:
+        '200':
+          description: Banners
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Banner' }
+  # ============================================================
+  # 11. ADMIN & ANALYTICS (KPIs, settings, audit, CMS, society leads)
+  # ============================================================
+  /admin/dashboard:
+    get:
+      tags: [Admin & Analytics]
+      summary: Admin KPI dashboard
+      operationId: adminDashboard
+      responses:
+        '200':
+          description: KPIs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminKpis' }
+  /admin/analytics:
+    get:
+      tags: [Admin & Analytics]
+      summary: Analytics time series
+      operationId: adminAnalytics
+      parameters:
+        - { name: metric, in: query, required: true, schema: { type: string, example: listings } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: interval, in: query, schema: { type: string, enum: [day, week, month], default: day } }
+      responses:
+        '200':
+          description: Series
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AnalyticsPoint' }
+  /admin/finance:
+    get:
+      tags: [Admin & Analytics]
+      summary: Platform finance overview (revenue, payouts)
+      operationId: adminFinance
+      responses:
+        '200':
+          description: Finance overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminFinance' }
+  /admin/settings:
+    get:
+      tags: [Admin & Analytics]
+      summary: Platform settings
+      operationId: getAdminSettings
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSettings' }
+    put:
+      tags: [Admin & Analytics]
+      summary: Update platform settings
+      operationId: updateAdminSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminSettings' }
+      responses:
+        '200': { description: Saved }
+  /admin/audit-log:
+    get:
+      tags: [Admin & Analytics]
+      summary: Audit log (maker-checker trail)
+      operationId: adminAuditLog
+      parameters:
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: entity, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditEntry' }
+  /admin/content/{type}:
+    parameters:
+      - { name: type, in: path, required: true, schema: { type: string, enum: [announcements, services, faqs, banners] } }
+    get:
+      tags: [Admin & Analytics]
+      summary: List CMS content of a type (incl. archived)
+      operationId: adminListContent
+      responses:
+        '200': { description: Content items }
+    post:
+      tags: [Admin & Analytics]
+      summary: Create CMS content item
+      operationId: adminCreateContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201': { description: Created }
+  /admin/content/{type}/{id}:
+    parameters:
+      - { name: type, in: path, required: true, schema: { type: string } }
+      - { $ref: '#/components/parameters/GenericId' }
+    patch:
+      tags: [Admin & Analytics]
+      summary: Update CMS content item
+      operationId: adminUpdateContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Updated }
+  /admin/content/{type}/{id}/archive:
+    parameters:
+      - { name: type, in: path, required: true, schema: { type: string } }
+      - { $ref: '#/components/parameters/GenericId' }
+    post:
+      tags: [Admin & Analytics]
+      summary: Archive content item (soft delete)
+      operationId: adminArchiveContent
+      responses:
+        '200': { description: Archived }
+  /admin/content/{type}/{id}/restore:
+    parameters:
+      - { name: type, in: path, required: true, schema: { type: string } }
+      - { $ref: '#/components/parameters/GenericId' }
+    post:
+      tags: [Admin & Analytics]
+      summary: Restore archived content item
+      operationId: adminRestoreContent
+      responses:
+        '200': { description: Restored }
+  /society-leads:
+    get:
+      tags: [Admin & Analytics]
+      summary: Society / builder B2B leads
+      operationId: listSocietyLeads
+      responses:
+        '200':
+          description: Leads
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SocietyLead' }
+    post:
+      tags: [Admin & Analytics]
+      summary: Submit society/builder enquiry (public)
+      operationId: createSocietyLead
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyLeadCreate' }
+      responses:
+        '201':
+          description: Submitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyLead' }
+  /society-leads/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Admin & Analytics]
+      summary: Update society lead (staff)
+      operationId: updateSocietyLead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200': { description: Updated }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token issued by the Identity & Access domain. Send as
+        `Authorization: Bearer <token>`. Short-lived (15 min); refresh via
+        `/auth/refresh`. Claims carry `sub`, `role`, and `mobileVerified`.
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://auth.punenest.in/.well-known/openid-configuration
+      description: >
+        Target-state federation. The modular monolith issues its own JWTs today;
+        an external OIDC provider (Keycloak/Auth0) can be adopted without changing
+        resource-server contracts.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Zero-based page index.
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      description: Page size (max 100).
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Sort:
+      name: sort
+      in: query
+      description: '`field,(asc|desc)`; repeatable for multi-sort.'
+      schema: { type: string, example: createdAt,desc }
+    PropertyId:
+      name: id
+      in: path
+      required: true
+      description: Property slug or id.
+      schema: { type: string, example: 3bhk-koregaon-park-xf12 }
+    PropId:
+      name: propId
+      in: path
+      required: true
+      description: Property id.
+      schema: { type: string }
+    GenericId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    ReqId:
+      name: reqId
+      in: path
+      required: true
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Client-generated UUID to make unsafe money/booking operations retry-safe.
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: bad_request, message: Invalid query parameter 'size', status: 400 }
+    Unauthorized:
+      description: Missing/invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized, message: Authentication required, status: 401 }
+    Forbidden:
+      description: Authenticated but not permitted (RBAC / contact gate).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: forbidden, message: Contact details are gated until Aadhaar verification, status: 403 }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: not_found, message: Property not found, status: 404 }
+    ValidationError:
+      description: Semantic validation failure.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds until retry is allowed. }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: rate_limited, message: Too many requests, status: 429 }
+
+  schemas:
+    # ---- Common / primitives ----
+    Error:
+      type: object
+      required: [error, message, status]
+      properties:
+        error: { type: string, description: Machine-readable code., example: not_found }
+        message: { type: string, description: Human-readable detail. }
+        status: { type: integer, description: HTTP status., example: 404 }
+        traceId: { type: string, description: Correlation id for observability. }
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            fields:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string, example: mobile }
+                  message: { type: string, example: must be a 10-digit Indian mobile }
+    PageEnvelope:
+      type: object
+      description: Envelope for paginated collections; `content` is supplied per endpoint.
+      properties:
+        page: { type: integer, example: 0 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64, example: 137 }
+        totalPages: { type: integer, example: 7 }
+        sort: { type: string, example: createdAt,desc }
+    Mobile:
+      type: string
+      pattern: '^[6-9][0-9]{9}$'
+      example: '9876543210'
+    Money:
+      type: integer
+      format: int64
+      description: Amount in whole Indian rupees (INR). No decimals/paise.
+      example: 2500000
+    Deal:
+      type: string
+      description: Transaction intent.
+      enum: [buy, rent]
+    Furnishing:
+      type: string
+      enum: [unfurnished, semi-furnished, furnished]
+    PropertyStatus:
+      type: string
+      enum: [draft, pending, active, rejected, on-hold, rented, sold, archived]
+    Role:
+      type: string
+      enum: [user, owner, tenant, staff, moderator, finance, admin, superadmin]
+    Team:
+      type: string
+      enum: [moderation, support, legal, field-ops, finance]
+    Party:
+      type: object
+      description: A counterparty (buyer/tenant) on a deal, contact gated.
+      properties:
+        name: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        role: { type: string, enum: [buyer, tenant, owner] }
+    StatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+        note: { type: string }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string }
+    DecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approve, reject] }
+        note: { type: string }
+    MessageCreate:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, maxLength: 4000 }
+        attachments:
+          type: array
+          items: { type: string, format: uri }
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        author: { type: string }
+        authorRole: { $ref: '#/components/schemas/Role' }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    # ---- Identity & Access ----
+    LoginRequest:
+      type: object
+      required: [mobile]
+      properties:
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        otp: { type: string, description: Required on the verify step., example: '123456' }
+        password: { type: string, description: Optional password path. }
+    StaffLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    AuthResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType: { type: string, default: Bearer }
+        expiresIn: { type: integer, example: 900 }
+        user: { $ref: '#/components/schemas/User' }
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        mobileVerified: { type: boolean }
+        aadhaarVerified: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    UserUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        avatar: { type: string, format: uri }
+
+    # ---- Catalog & Search ----
+    PropertySummary:
+      type: object
+      description: Lightweight card projection for search/lists (no gated contact).
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/Deal' }
+        propertyType: { type: string, example: apartment }
+        bhk: { type: number, example: 3 }
+        price: { $ref: '#/components/schemas/Money' }
+        priceUnit: { type: string, enum: [total, per-month], example: per-month }
+        area: { type: number, example: 1180 }
+        areaUnit: { type: string, example: sqft }
+        furnishing: { $ref: '#/components/schemas/Furnishing' }
+        locality: { type: string, example: Koregaon Park }
+        city: { type: string, example: Pune }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        coverImage: { type: string, format: uri }
+        verified: { type: boolean }
+        postedByType: { type: string, enum: [owner, agent, builder] }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        createdAt: { type: string, format: date-time }
+    Property:
+      allOf:
+        - $ref: '#/components/schemas/PropertySummary'
+        - type: object
+          properties:
+            description: { type: string }
+            deposit: { $ref: '#/components/schemas/Money' }
+            maintenance: { $ref: '#/components/schemas/Money' }
+            negotiable: { type: boolean }
+            reraId: { type: string }
+            carpetArea: { type: number }
+            builtUpArea: { type: number }
+            superBuiltUpArea: { type: number }
+            floor: { type: integer }
+            totalFloors: { type: integer }
+            facing: { type: string }
+            possession: { type: string, example: Ready to move }
+            amenities:
+              type: array
+              items: { type: string }
+            images:
+              type: array
+              items: { type: string, format: uri }
+            floorPlan: { type: string, format: uri }
+            video: { type: string, format: uri }
+            address: { type: string }
+            pincode: { type: string }
+    Locality:
+      type: object
+      properties:
+        slug: { type: string, example: koregaon-park }
+        name: { type: string, example: Koregaon Park }
+        city: { type: string, example: Pune }
+        listingCount: { type: integer }
+        avgRentPsf: { type: number }
+        avgBuyPsf: { type: number }
+    LocalityDetail:
+      allOf:
+        - $ref: '#/components/schemas/Locality'
+        - type: object
+          properties:
+            about: { type: string }
+            connectivity: { type: array, items: { type: string } }
+            highlights: { type: array, items: { type: string } }
+            priceTrends:
+              type: array
+              items:
+                type: object
+                properties:
+                  month: { type: string }
+                  rentPsf: { type: number }
+                  buyPsf: { type: number }
+    City:
+      type: object
+      properties:
+        slug: { type: string, example: pune }
+        name: { type: string, example: Pune }
+        live: { type: boolean }
+        listingCount: { type: integer }
+    CityWaitlistRequest:
+      type: object
+      required: [mobile, city]
+      properties:
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        city: { type: string }
+        email: { type: string, format: email }
+    Fees:
+      type: object
+      description: Transparent fee/charges breakdown for a deal.
+      properties:
+        deal: { $ref: '#/components/schemas/Deal' }
+        brokerage: { $ref: '#/components/schemas/Money' }
+        platformFee: { $ref: '#/components/schemas/Money' }
+        stampDuty: { $ref: '#/components/schemas/Money' }
+        registration: { $ref: '#/components/schemas/Money' }
+        gst: { $ref: '#/components/schemas/Money' }
+        notes: { type: string }
+    # ---- Listings (owner) ----
+    ListingCreate:
+      type: object
+      required: [title, deal, propertyType, price, locality, city]
+      properties:
+        title: { type: string }
+        deal: { $ref: '#/components/schemas/Deal' }
+        propertyType: { type: string }
+        bhk: { type: number }
+        price: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        maintenance: { $ref: '#/components/schemas/Money' }
+        negotiable: { type: boolean }
+        area: { type: number }
+        areaUnit: { type: string, default: sqft }
+        furnishing: { $ref: '#/components/schemas/Furnishing' }
+        locality: { type: string }
+        city: { type: string }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        reraId: { type: string }
+        possession: { type: string }
+        amenities: { type: array, items: { type: string } }
+        images: { type: array, items: { type: string, format: uri } }
+        description: { type: string }
+    ListingUpdate:
+      allOf:
+        - $ref: '#/components/schemas/ListingCreate'
+        - type: object
+          description: All fields optional on update (PATCH semantics).
+    PropertyStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        reason: { type: string }
+    Offer:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        from: { $ref: '#/components/schemas/Party' }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [pending, countered, accepted, rejected, withdrawn] }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+    OfferCreate:
+      type: object
+      required: [amount]
+      properties:
+        amount: { $ref: '#/components/schemas/Money' }
+        message: { type: string }
+    OfferResponse:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [accept, reject, counter] }
+        counterAmount: { $ref: '#/components/schemas/Money' }
+        message: { type: string }
+    Visit:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        visitor: { $ref: '#/components/schemas/Party' }
+        slot: { type: string, format: date-time }
+        mode: { type: string, enum: [in-person, video] }
+        status: { type: string, enum: [requested, confirmed, completed, cancelled, no-show] }
+        createdAt: { type: string, format: date-time }
+    VisitCreate:
+      type: object
+      required: [slot]
+      properties:
+        slot: { type: string, format: date-time }
+        mode: { type: string, enum: [in-person, video], default: in-person }
+        note: { type: string }
+    Deal2:
+      type: object
+      description: A closed/closing deal aggregate (owner ↔ counterparty lifecycle).
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        deal: { $ref: '#/components/schemas/Deal' }
+        counterparty: { $ref: '#/components/schemas/Party' }
+        agreedPrice: { $ref: '#/components/schemas/Money' }
+        stage: { type: string, enum: [negotiation, agreed, token-paid, agreement, registration, closed, cancelled] }
+        closedAt: { type: string, format: date-time }
+    DealCloseRequest:
+      type: object
+      required: [agreedPrice, counterpartyMobile]
+      properties:
+        agreedPrice: { $ref: '#/components/schemas/Money' }
+        counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
+        note: { type: string }
+
+    # ---- Moderation ----
+    StaffCreate:
+      type: object
+      required: [name, email, role]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        team: { $ref: '#/components/schemas/Team' }
+        password: { type: string, format: password }
+    AadhaarSubmit:
+      type: object
+      required: [aadhaarNumber]
+      properties:
+        aadhaarNumber: { type: string, pattern: '^[0-9]{12}$', description: Masked at rest; never returned in full. }
+        otp: { type: string }
+    AadhaarVerification:
+      type: object
+      properties:
+        status: { type: string, enum: [pending, verified, failed] }
+        maskedAadhaar: { type: string, example: 'XXXX XXXX 1234' }
+        verifiedAt: { type: string, format: date-time }
+    PropertyReview:
+      type: object
+      description: Moderation record for a listing under review.
+      properties:
+        propertyId: { type: string }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        reviewer: { type: string }
+        checklist:
+          type: array
+          items:
+            type: object
+            properties:
+              item: { type: string }
+              pass: { type: boolean }
+        notes: { type: string }
+        decidedAt: { type: string, format: date-time }
+    Report:
+      type: object
+      properties:
+        id: { type: string }
+        targetType: { type: string, enum: [property, user, review, post] }
+        targetId: { type: string }
+        reason: { type: string }
+        details: { type: string }
+        status: { type: string, enum: [open, reviewing, actioned, dismissed] }
+        createdAt: { type: string, format: date-time }
+    ReportCreate:
+      type: object
+      required: [targetType, targetId, reason]
+      properties:
+        targetType: { type: string, enum: [property, user, review, post] }
+        targetId: { type: string }
+        reason: { type: string }
+        details: { type: string }
+
+    # ---- Leads & Contact ----
+    ContactStatus:
+      type: object
+      description: Whether the caller may see a listing's contact (gate state).
+      properties:
+        unlocked: { type: boolean }
+        requiresAadhaar: { type: boolean }
+        remainingUnlocks: { type: integer, nullable: true }
+    ContactRequestCreate:
+      type: object
+      required: [propertyId]
+      properties:
+        propertyId: { type: string }
+        message: { type: string }
+    ContactRequest:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        requester: { $ref: '#/components/schemas/Party' }
+        status: { type: string, enum: [pending, granted, declined] }
+        contact:
+          type: object
+          nullable: true
+          description: Present only after the gate is passed & owner grants.
+          properties:
+            name: { type: string }
+            mobile: { $ref: '#/components/schemas/Mobile' }
+        createdAt: { type: string, format: date-time }
+    Enquiry:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        from: { $ref: '#/components/schemas/Party' }
+        message: { type: string }
+        status: { type: string, enum: [new, replied, closed] }
+        thread:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        createdAt: { type: string, format: date-time }
+    FinalizationRequest:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        initiator: { $ref: '#/components/schemas/Party' }
+        counterparty: { $ref: '#/components/schemas/Party' }
+        agreedPrice: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [proposed, accepted, declined, cancelled] }
+        createdAt: { type: string, format: date-time }
+    FinalizationCreate:
+      type: object
+      required: [propertyId, counterpartyMobile, agreedPrice]
+      properties:
+        propertyId: { type: string }
+        counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
+        agreedPrice: { $ref: '#/components/schemas/Money' }
+    FinalizationAccept:
+      type: object
+      properties:
+        accept: { type: boolean }
+        note: { type: string }
+    # ---- Rentals & Payments ----
+    Transaction:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        type: { type: string, enum: [income, expense] }
+        category: { type: string, example: rent }
+        amount: { $ref: '#/components/schemas/Money' }
+        date: { type: string, format: date }
+        note: { type: string }
+    TransactionCreate:
+      type: object
+      required: [type, amount, date]
+      properties:
+        type: { type: string, enum: [income, expense] }
+        category: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        date: { type: string, format: date }
+        note: { type: string }
+    OwnershipBasis:
+      type: object
+      properties:
+        purchasePrice: { $ref: '#/components/schemas/Money' }
+        purchaseDate: { type: string, format: date }
+        loanOutstanding: { $ref: '#/components/schemas/Money' }
+        emi: { $ref: '#/components/schemas/Money' }
+    FinanceSummary:
+      type: object
+      properties:
+        income: { $ref: '#/components/schemas/Money' }
+        expense: { $ref: '#/components/schemas/Money' }
+        net: { $ref: '#/components/schemas/Money' }
+        occupancyRate: { type: number, format: float }
+    CashflowPoint:
+      type: object
+      properties:
+        month: { type: string, example: 2025-01 }
+        income: { $ref: '#/components/schemas/Money' }
+        expense: { $ref: '#/components/schemas/Money' }
+        net: { $ref: '#/components/schemas/Money' }
+    RentPayment:
+      type: object
+      properties:
+        id: { type: string }
+        tenancyId: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        dueDate: { type: string, format: date }
+        paidDate: { type: string, format: date, nullable: true }
+        status: { type: string, enum: [due, paid, overdue, failed] }
+        method: { type: string, enum: [upi, netbanking, card, autopay, cash] }
+        reference: { type: string }
+    RentPaymentCreate:
+      type: object
+      required: [tenancyId, amount]
+      properties:
+        tenancyId: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        method: { type: string, enum: [upi, netbanking, card, autopay] }
+    RentMandate:
+      type: object
+      properties:
+        id: { type: string }
+        tenancyId: { type: string }
+        maxAmount: { $ref: '#/components/schemas/Money' }
+        dayOfMonth: { type: integer, minimum: 1, maximum: 28 }
+        status: { type: string, enum: [active, paused, revoked] }
+        provider: { type: string, example: razorpay }
+    PayoutAccount:
+      type: object
+      properties:
+        accountHolder: { type: string }
+        maskedAccount: { type: string, example: 'XXXXXX7890' }
+        ifsc: { type: string }
+        upiId: { type: string }
+        verified: { type: boolean }
+    Tenancy:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        tenant: { $ref: '#/components/schemas/Party' }
+        owner: { $ref: '#/components/schemas/Party' }
+        rent: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        status: { type: string, enum: [active, ended, terminated] }
+    TenantProfile:
+      type: object
+      properties:
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        name: { type: string }
+        occupation: { type: string }
+        employer: { type: string }
+        familySize: { type: integer }
+        preferredLocalities: { type: array, items: { type: string } }
+        budget: { $ref: '#/components/schemas/Money' }
+        score: { type: integer, minimum: 0, maximum: 100, description: Computed trust score. }
+        verified: { type: boolean }
+
+    # ---- Documents ----
+    Document:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        category: { type: string, example: Sale Deed }
+        fileName: { type: string }
+        url: { type: string, format: uri, description: Short-lived signed URL. }
+        sizeBytes: { type: integer, format: int64 }
+        mimeType: { type: string }
+        uploadedAt: { type: string, format: date-time }
+    DocumentRequest:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        requester: { $ref: '#/components/schemas/Party' }
+        categories: { type: array, items: { type: string } }
+        status: { type: string, enum: [pending, granted, declined, expired] }
+        shareToken: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    DocumentRequestCreate:
+      type: object
+      required: [propertyId]
+      properties:
+        propertyId: { type: string }
+        categories: { type: array, items: { type: string } }
+        message: { type: string }
+    # ---- Services & Support ----
+    Ticket:
+      type: object
+      properties:
+        id: { type: string }
+        subject: { type: string }
+        team: { $ref: '#/components/schemas/Team' }
+        priority: { type: string, enum: [low, medium, high, urgent] }
+        status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
+        propertyId: { type: string, nullable: true }
+        assignee: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    TicketCreate:
+      type: object
+      required: [subject]
+      properties:
+        subject: { type: string }
+        team: { $ref: '#/components/schemas/Team' }
+        priority: { type: string, enum: [low, medium, high, urgent], default: medium }
+        propertyId: { type: string }
+        body: { type: string }
+    TicketUpdate:
+      type: object
+      properties:
+        status: { type: string }
+        priority: { type: string }
+        assignee: { type: string }
+        team: { $ref: '#/components/schemas/Team' }
+    SupportTicket:
+      type: object
+      properties:
+        id: { type: string }
+        subject: { type: string }
+        category: { type: string }
+        status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
+        unread: { type: boolean }
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        createdAt: { type: string, format: date-time }
+    SupportTicketCreate:
+      type: object
+      required: [subject, body]
+      properties:
+        subject: { type: string }
+        category: { type: string }
+        body: { type: string }
+    ServiceRequest:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, example: rent-agreement }
+        status: { type: string, enum: [new, assigned, in-progress, draft-shared, approved, completed, cancelled] }
+        propertyId: { type: string, nullable: true }
+        assignee: { type: string, nullable: true }
+        timeline:
+          type: array
+          items:
+            type: object
+            properties:
+              at: { type: string, format: date-time }
+              event: { type: string }
+              by: { type: string }
+        documents:
+          type: array
+          items: { $ref: '#/components/schemas/Document' }
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        createdAt: { type: string, format: date-time }
+    ServiceRequestCreate:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        propertyId: { type: string }
+        details: { type: string }
+    RentAgreement:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        tenantMobile: { $ref: '#/components/schemas/Mobile' }
+        rent: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        startDate: { type: string, format: date }
+        durationMonths: { type: integer }
+        status: { type: string, enum: [draft, e-sign-pending, registered, active, expired] }
+        documentUrl: { type: string, format: uri, nullable: true }
+    OwnerKyc:
+      type: object
+      properties:
+        panMasked: { type: string, example: 'XXXXX1234X' }
+        aadhaarMasked: { type: string, example: 'XXXX XXXX 1234' }
+        bankVerified: { type: boolean }
+        status: { type: string, enum: [pending, verified, rejected] }
+
+    # ---- Billing & Growth ----
+    Plan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: Owner Pro }
+        audience: { type: string, enum: [owner, tenant, buyer, agent] }
+        price: { $ref: '#/components/schemas/Money' }
+        billingCycle: { type: string, enum: [monthly, quarterly, yearly] }
+        features: { type: array, items: { type: string } }
+    Subscription:
+      type: object
+      properties:
+        id: { type: string }
+        planId: { type: string }
+        status: { type: string, enum: [active, past-due, cancelled, expired] }
+        startedAt: { type: string, format: date-time }
+        renewsAt: { type: string, format: date-time }
+    SubscribeRequest:
+      type: object
+      required: [planId]
+      properties:
+        planId: { type: string }
+        paymentMethod: { type: string, enum: [upi, card, netbanking] }
+    BoostPack:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: 7-day Spotlight }
+        price: { $ref: '#/components/schemas/Money' }
+        durationDays: { type: integer }
+        placement: { type: string, enum: [top, featured, homepage] }
+    Boost:
+      type: object
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        packId: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [active, expired] }
+    ServiceOffering:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: Home Painting }
+        category: { type: string }
+        startingPrice: { $ref: '#/components/schemas/Money' }
+        description: { type: string }
+    ServiceOrder:
+      type: object
+      properties:
+        id: { type: string }
+        offeringId: { type: string }
+        status: { type: string, enum: [placed, scheduled, in-progress, completed, cancelled] }
+        amount: { $ref: '#/components/schemas/Money' }
+        scheduledFor: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    ServiceOrderCreate:
+      type: object
+      required: [offeringId]
+      properties:
+        offeringId: { type: string }
+        propertyId: { type: string }
+        preferredSlot: { type: string, format: date-time }
+        notes: { type: string }
+    ReferralSummary:
+      type: object
+      properties:
+        code: { type: string, example: PUNE-AB12 }
+        invited: { type: integer }
+        converted: { type: integer }
+        rewardsEarned: { $ref: '#/components/schemas/Money' }
+        rewardsPending: { $ref: '#/components/schemas/Money' }
+    # ---- Engagement ----
+    SavedSearch:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        query: { type: string, description: URL-encoded filter query string. }
+        alertFrequency: { type: string, enum: [off, instant, daily, weekly] }
+        createdAt: { type: string, format: date-time }
+    SavedSearchCreate:
+      type: object
+      required: [query]
+      properties:
+        name: { type: string }
+        query: { type: string }
+        alertFrequency: { type: string, enum: [off, instant, daily, weekly], default: daily }
+    Review:
+      type: object
+      properties:
+        id: { type: string }
+        targetType: { type: string, enum: [property, locality] }
+        targetId: { type: string }
+        author: { type: string }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        title: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    ReviewCreate:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        title: { type: string }
+        body: { type: string }
+    ShareFlatPost:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        locality: { type: string }
+        rentShare: { $ref: '#/components/schemas/Money' }
+        availableFrom: { type: string, format: date }
+        preferences:
+          type: object
+          properties:
+            gender: { type: string, enum: [any, male, female] }
+            foodPreference: { type: string, enum: [any, veg, non-veg] }
+            occupation: { type: string }
+        postedBy: { $ref: '#/components/schemas/Party' }
+        createdAt: { type: string, format: date-time }
+    ShareFlatPostCreate:
+      type: object
+      required: [title, locality, rentShare]
+      properties:
+        title: { type: string }
+        locality: { type: string }
+        rentShare: { $ref: '#/components/schemas/Money' }
+        availableFrom: { type: string, format: date }
+        preferences:
+          type: object
+          properties:
+            gender: { type: string, enum: [any, male, female] }
+            foodPreference: { type: string, enum: [any, veg, non-veg] }
+            occupation: { type: string }
+    Notification:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, example: offer.received }
+        title: { type: string }
+        body: { type: string }
+        read: { type: boolean }
+        link: { type: string }
+        createdAt: { type: string, format: date-time }
+    Announcement:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        body: { type: string }
+        severity: { type: string, enum: [info, success, warning] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+    CmsService:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        icon: { type: string }
+        description: { type: string }
+        link: { type: string }
+    Faq:
+      type: object
+      properties:
+        id: { type: string }
+        question: { type: string }
+        answer: { type: string }
+        category: { type: string }
+    Banner:
+      type: object
+      properties:
+        id: { type: string }
+        image: { type: string, format: uri }
+        link: { type: string }
+        headline: { type: string }
+        position: { type: integer }
+
+    # ---- Admin & Analytics ----
+    AdminKpis:
+      type: object
+      properties:
+        totalListings: { type: integer }
+        activeListings: { type: integer }
+        pendingModeration: { type: integer }
+        totalUsers: { type: integer }
+        newUsers7d: { type: integer }
+        dealsClosed30d: { type: integer }
+        revenue30d: { $ref: '#/components/schemas/Money' }
+    AnalyticsPoint:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        value: { type: number }
+    AdminFinance:
+      type: object
+      properties:
+        revenue: { $ref: '#/components/schemas/Money' }
+        payoutsDue: { $ref: '#/components/schemas/Money' }
+        payoutsCompleted: { $ref: '#/components/schemas/Money' }
+        refunds: { $ref: '#/components/schemas/Money' }
+        breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string, example: subscriptions }
+              amount: { $ref: '#/components/schemas/Money' }
+    AdminSettings:
+      type: object
+      properties:
+        contactUnlockLimit: { type: integer }
+        aadhaarGateEnabled: { type: boolean }
+        listingExpiryDays: { type: integer }
+        boostEnabled: { type: boolean }
+        maintenanceMode: { type: boolean }
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: string }
+        actor: { type: string }
+        actorRole: { $ref: '#/components/schemas/Role' }
+        action: { type: string, example: property.approve }
+        entity: { type: string, example: property }
+        entityId: { type: string }
+        checker: { type: string, nullable: true, description: Approver in maker-checker flows. }
+        at: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true }
+    SocietyLead:
+      type: object
+      properties:
+        id: { type: string }
+        societyName: { type: string }
+        contactName: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        units: { type: integer }
+        interest: { type: string, enum: [bulk-listing, society-services, partnership] }
+        status: { type: string, enum: [new, contacted, qualified, won, lost] }
+        createdAt: { type: string, format: date-time }
+    SocietyLeadCreate:
+      type: object
+      required: [societyName, contactName, mobile]
+      properties:
+        societyName: { type: string }
+        contactName: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        units: { type: integer }
+        interest: { type: string, enum: [bulk-listing, society-services, partnership] }

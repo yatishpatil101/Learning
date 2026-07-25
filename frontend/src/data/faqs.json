@@ -1,0 +1,26 @@
+[
+  {
+    "id": "F1",
+    "q": "Is PuneNest really zero brokerage?",
+    "a": "Yes. You deal directly with verified owners — no brokerage, ever.",
+    "cat": "General"
+  },
+  {
+    "id": "F2",
+    "q": "How are owners verified?",
+    "a": "We verify owner identity (Aadhaar) and, where possible, ownership documents.",
+    "cat": "Trust"
+  },
+  {
+    "id": "F3",
+    "q": "Can I list my property for free?",
+    "a": "Basic listing is free. Paid plans add featured placement and more contacts.",
+    "cat": "Owners"
+  },
+  {
+    "id": "F4",
+    "q": "Do you offer rent agreements?",
+    "a": "Yes — drafting, e-stamp and doorstep delivery from ₹999.",
+    "cat": "Services"
+  }
+]

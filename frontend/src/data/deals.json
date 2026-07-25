@@ -1,0 +1,146 @@
+[
+  {
+    "id": "D6000",
+    "listingId": "P5007",
+    "listing": "2 BHK Studio in Balewadi",
+    "deal": "rent",
+    "value": 59000,
+    "status": "closed",
+    "at": "2026-05-20"
+  },
+  {
+    "id": "D6001",
+    "listingId": "P5015",
+    "listing": "4 BHK Row House in Wakad",
+    "deal": "rent",
+    "value": 38000,
+    "status": "closed",
+    "at": "2026-06-15"
+  },
+  {
+    "id": "D6002",
+    "listingId": "P5021",
+    "listing": "1 BHK Penthouse in Kharadi",
+    "deal": "buy",
+    "value": 9109100,
+    "status": "closed",
+    "at": "2026-05-22"
+  },
+  {
+    "id": "D6003",
+    "listingId": "P5013",
+    "listing": "1 BHK Flat in Baner",
+    "deal": "buy",
+    "value": 15415400,
+    "status": "closed",
+    "at": "2026-06-17"
+  },
+  {
+    "id": "D6004",
+    "listingId": "P5015",
+    "listing": "4 BHK Row House in Wakad",
+    "deal": "rent",
+    "value": 38000,
+    "status": "closed",
+    "at": "2026-05-17"
+  },
+  {
+    "id": "D6005",
+    "listingId": "P5033",
+    "listing": "1 BHK Penthouse in Balewadi",
+    "deal": "rent",
+    "value": 16000,
+    "status": "closed",
+    "at": "2026-05-03"
+  },
+  {
+    "id": "D6006",
+    "listingId": "P5010",
+    "listing": "3 BHK Villa in Undri",
+    "deal": "buy",
+    "value": 4501200,
+    "status": "in_progress",
+    "at": "2026-05-21"
+  },
+  {
+    "id": "D6007",
+    "listingId": "P5033",
+    "listing": "1 BHK Penthouse in Balewadi",
+    "deal": "rent",
+    "value": 16000,
+    "status": "in_progress",
+    "at": "2026-05-17"
+  },
+  {
+    "id": "D6008",
+    "listingId": "P5015",
+    "listing": "4 BHK Row House in Wakad",
+    "deal": "rent",
+    "value": 38000,
+    "status": "closed",
+    "at": "2026-05-05"
+  },
+  {
+    "id": "D6009",
+    "listingId": "P5000",
+    "listing": "4 BHK Villa in Magarpatta",
+    "deal": "rent",
+    "value": 64000,
+    "status": "closed",
+    "at": "2026-06-11"
+  },
+  {
+    "id": "D6010",
+    "listingId": "P5032",
+    "listing": "1 RK Plot in Pimple Saudagar",
+    "deal": "rent",
+    "value": 35000,
+    "status": "closed",
+    "at": "2026-06-23"
+  },
+  {
+    "id": "D6011",
+    "listingId": "P5007",
+    "listing": "2 BHK Studio in Balewadi",
+    "deal": "rent",
+    "value": 59000,
+    "status": "closed",
+    "at": "2026-06-23"
+  },
+  {
+    "id": "D6012",
+    "listingId": "P5017",
+    "listing": "1 RK Villa in Koregaon Park",
+    "deal": "buy",
+    "value": 8874000,
+    "status": "closed",
+    "at": "2026-05-15"
+  },
+  {
+    "id": "D6013",
+    "listingId": "P5006",
+    "listing": "4 BHK Penthouse in Hinjawadi",
+    "deal": "rent",
+    "value": 33000,
+    "status": "closed",
+    "at": "2026-06-04"
+  },
+  {
+    "id": "D6014",
+    "listingId": "P5032",
+    "listing": "1 RK Plot in Pimple Saudagar",
+    "deal": "rent",
+    "value": 35000,
+    "status": "closed",
+    "at": "2026-06-15"
+  },
+  {
+    "id": "D6015",
+    "listingId": "P5016",
+    "listing": "4 BHK Row House in Magarpatta",
+    "deal": "rent",
+    "value": 61000,
+    "status": "closed",
+    "at": "2026-06-08"
+  }
+]
