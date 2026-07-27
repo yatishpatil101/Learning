@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
@@ -19,7 +19,6 @@ import {
   verifiedResidentForUnit, unitKeyOf,
   isSocietyAdmin, committeeResidentReqs, setResidentStatus,
   suggestSocietyDetails, getSocietySuggestion,
-  isAadhaarVerified,
   getSocietyContributions,
   addSocietyContribution, toggleContributionHelpful, removeSocietyContribution,
   addContributionReply, removeContributionReply,
@@ -85,8 +84,6 @@ export function useSocietyHub() {
   const [contribOpen, setContribOpen] = useState(false);
   const [cKind, setCKind] = useState('tip');
   const [cForm, setCForm] = useState({ category: '', text: '', name: '', contact: '', note: '', caption: '', photo: null });
-  const [aadhaarOpen, setAadhaarOpen] = useState(false);
-  const pendingAction = useRef(null);
   const otp = useOtpFlow();
   // Threaded replies + reporting
   const [replyFor, setReplyFor] = useState(null);
@@ -198,24 +195,24 @@ export function useSocietyHub() {
     setFollowed(now);
     toast(now ? `Following ${soc.name} — we'll alert you on new listings` : 'Unfollowed', now ? 'success' : 'info');
   };
-  const submitReview = () => requireKyc(() => {
+  const submitReview = () => requireSignedIn(() => {
     addEntityReview('society', soc.id, { rating: pick, text: revText.trim(), resident: isVerifiedResident(soc.slug) });
     setReviews(getEntityReviews('society', soc.id)); setRevText(''); setPick(5); setRateOpen(false); toast('Thanks for reviewing this society!', 'success');
   });
   const submitQuestion = () => {
     if (!qText.trim()) return;
-    requireKyc(() => {
+    requireSignedIn(() => {
       const out = addSocietyQuestion(soc.slug, qText);
-      if (out === 'login' || out === 'kyc') return;
+      if (out === 'login') return;
       setQa(getSocietyQA(soc.slug)); setQText(''); toast('Question posted', 'success');
     });
   };
   const submitAnswer = (qId) => {
     const val = aText.trim();
     if (!val) return;
-    requireKyc(() => {
+    requireSignedIn(() => {
       const out = addSocietyAnswer(soc.slug, qId, val);
-      if (out === 'login' || out === 'kyc' || !out) return;
+      if (out === 'login' || !out) return;
       setQa(getSocietyQA(soc.slug)); setAText(''); setAnswerFor(null);
     });
   };
@@ -274,16 +271,16 @@ export function useSocietyHub() {
     toast('Thanks! Your details were sent for review.', 'success');
   };
 
-  // Login → Aadhaar-KYC gate for community contributions. Stashes the intended
-  // action and resumes it after the modal verifies (or runs it straight away if
-  // the user is already KYC-verified).
-  const requireKyc = (fn) => {
+  // Sign-in gate for community contributions (badge-not-gate, ADR-019): L1
+  // mobile-verified sign-in is the only floor — identity verification is a badge,
+  // never required to participate. Resident/committee-only actions add their own
+  // check on top (see requireResident).
+  const requireSignedIn = (fn) => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    if (!isAadhaarVerified()) { pendingAction.current = fn; setAadhaarOpen(true); return; }
     fn();
   };
   const refreshContribs = () => setContribs(getSocietyContributions(soc.slug));
-  const openContribute = (kind) => requireKyc(() => {
+  const openContribute = (kind) => requireSignedIn(() => {
     setCKind(kind);
     setCForm({ category: CONTRIB_META[kind].cats[0], text: '', name: '', contact: '', note: '', caption: '', photo: null });
     setContribOpen(true);
@@ -291,14 +288,13 @@ export function useSocietyHub() {
   const submitContribution = () => {
     const rec = addSocietyContribution(soc.slug, { kind: cKind, ...cForm });
     if (rec === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    if (rec === 'kyc') { setContribOpen(false); pendingAction.current = () => { setContribOpen(true); }; setAadhaarOpen(true); return; }
     if (!rec) { toast(cKind === 'pick' ? 'Add the person / service name.' : cKind === 'photo' ? 'Add a photo to share.' : 'Write your tip first.', 'error'); return; }
     refreshContribs(); setContribOpen(false);
     toast('Thanks for contributing to this community!', 'success');
   };
-  const onHelpful = (id) => requireKyc(() => {
+  const onHelpful = (id) => requireSignedIn(() => {
     const out = toggleContributionHelpful(soc.slug, id);
-    if (out === 'login' || out === 'kyc') return;
+    if (out === 'login') return;
     refreshContribs();
   });
   const onRemoveContribution = (id) => {
@@ -308,14 +304,14 @@ export function useSocietyHub() {
     toast('Contribution removed', 'info');
   };
 
-  // Threaded replies on a contribution (KYC-gated).
-  const openReply = (id) => requireKyc(() => { setReplyFor(id); setReplyText(''); });
+  // Threaded replies on a contribution (sign-in only).
+  const openReply = (id) => requireSignedIn(() => { setReplyFor(id); setReplyText(''); });
   const submitReply = (id) => {
     const val = replyText.trim();
     if (!val) return;
-    requireKyc(() => {
+    requireSignedIn(() => {
       const out = addContributionReply(soc.slug, id, val);
-      if (out === 'login' || out === 'kyc' || !out) return;
+      if (out === 'login' || !out) return;
       refreshContribs(); setReplyFor(null); setReplyText('');
     });
   };
@@ -325,19 +321,19 @@ export function useSocietyHub() {
     refreshContribs();
   };
 
-  // Report any hub content → ops moderation queue (KYC-gated).
-  const openReport = (target) => requireKyc(() => { setReportFor(target); setReportReason(''); });
+  // Report any hub content → ops moderation queue (sign-in only).
+  const openReport = (target) => requireSignedIn(() => { setReportFor(target); setReportReason(''); });
   const submitReport = () => {
     if (!reportFor) return;
     const out = reportSocietyContent({ slug: soc.slug, entityId: soc.id, reason: reportReason, ...reportFor });
-    if (out === 'login' || out === 'kyc') { setReportFor(null); pendingAction.current = null; setAadhaarOpen(true); return; }
+    if (out === 'login') { setReportFor(null); nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
     if (out === 'dup') { toast('You already reported this — our team is on it.', 'info'); setReportFor(null); return; }
     if (!out) { toast('Could not submit report.', 'error'); return; }
     setReportFor(null); toast('Reported. Thanks — our team will review it.', 'success');
   };
 
   // Events & notices — posting limited to verified residents / committee.
-  const requireResident = (fn) => requireKyc(() => {
+  const requireResident = (fn) => requireSignedIn(() => {
     if (!(iAmResident || iAmAdmin)) { toast('Only verified residents or the committee can post this.', 'error'); return; }
     fn();
   });
@@ -350,7 +346,6 @@ export function useSocietyHub() {
   const submitBoard = () => {
     const out = addBoardItem(soc.slug, { kind: bKind, ...bForm });
     if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    if (out === 'kyc') { setBoardOpen(false); pendingAction.current = () => setBoardOpen(true); setAadhaarOpen(true); return; }
     if (out === 'forbidden') { toast('Only verified residents or the committee can post events.', 'error'); return; }
     if (!out) { toast(bKind === 'event' ? 'Add a title and date.' : 'Add a title.', 'error'); return; }
     refreshBoard(); setBoardOpen(false);
@@ -368,7 +363,6 @@ export function useSocietyHub() {
   const submitWa = () => {
     const out = proposeSocietyWhatsapp(soc.slug, waUrl.trim());
     if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    if (out === 'kyc') { setWaOpen(false); pendingAction.current = () => setWaOpen(true); setAadhaarOpen(true); return; }
     if (out === 'forbidden') { toast('Only verified residents or the committee can add the group link.', 'error'); return; }
     if (out === 'badurl') { toast('Enter a valid WhatsApp invite link (https://chat.whatsapp.com/…).', 'error'); return; }
     setWaRaw(out); setWa(getSocietyWhatsappJoin(soc.slug)); setWaExists(hasSocietyWhatsapp(soc.slug)); setWaOpen(false);
@@ -380,7 +374,6 @@ export function useSocietyHub() {
   const submitLocation = ({ lat, lng, placeId, label }) => {
     const out = proposeSocietyLocation(soc.slug, { lat, lng, placeId, label });
     if (out === 'login') { nav('/signin?next=' + encodeURIComponent('/society/' + soc.slug)); return; }
-    if (out === 'kyc') { setLocOpen(false); pendingAction.current = () => setLocOpen(true); setAadhaarOpen(true); return; }
     if (out === 'forbidden') { toast('Only verified residents or the committee can suggest the location.', 'error'); return; }
     if (out === 'bounds') { toast('That pin looks outside the city — drop it on the society.', 'error'); return; }
     if (!out) { toast('Could not submit the location.', 'error'); return; }
@@ -452,7 +445,6 @@ export function useSocietyHub() {
     waOpen, setWaOpen, waUrl, setWaUrl, submitWa,
     reportFor, setReportFor, reportReason, setReportReason, submitReport,
     locOpen, submitLocation, setLocOpen,
-    aadhaarOpen, pendingAction, setAadhaarOpen,
   };
 
   return {

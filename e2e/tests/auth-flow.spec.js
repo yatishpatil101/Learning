@@ -75,6 +75,10 @@ test('A registered number proceeds to OTP on Sign In (not bounced to Sign Up)', 
 });
 
 test('After sign-up the destination opens scrolled to the very top', async ({ page }) => {
+  // Seed cookie consent so the DPDPA banner doesn't intercept the bottom "Create Account" click.
+  await page.addInitScript(() => {
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+  });
   // Small viewport so the tall auth form is scrollable.
   await page.setViewportSize({ width: 480, height: 700 });
   await page.goto(`${BASE}/signup?mobile=9876500044&new=1`);

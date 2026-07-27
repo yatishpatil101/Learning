@@ -2,7 +2,6 @@ import Icon from '../../../components/Icon.jsx';
 import EvidenceUpload from '../../../components/ui/EvidenceUpload.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import OtpBoxes from '../../../components/auth/OtpBoxes.jsx';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import SocietyLocationModal from '../../../components/society/SocietyLocationModal.jsx';
 import { PROOF_TYPES, SOC_AMEN, CONTRIB_META, BOARD_META } from './constants.js';
 
@@ -17,7 +16,6 @@ export default function SocietyModals({ ctx }) {
     waOpen, setWaOpen, waUrl, setWaUrl, submitWa,
     reportFor, setReportFor, reportReason, setReportReason, submitReport,
     locOpen, soc, hasCoords, submitLocation, setLocOpen,
-    aadhaarOpen, pendingAction, setAadhaarOpen,
   } = ctx;
   return (
     <>
@@ -236,15 +234,6 @@ export default function SocietyModals({ ctx }) {
           initial={hasCoords ? { lat: soc.lat, lng: soc.lng } : null}
           onSubmit={submitLocation}
           onClose={() => setLocOpen(false)}
-        />
-      )}
-
-      {aadhaarOpen && (
-        <AadhaarVerifyModal
-          subtitle="Only Aadhaar-verified members can contribute to a society community."
-          note="We verify the mobile linked to your Aadhaar via OTP. It keeps every contribution genuine — your number is never shown publicly."
-          onClose={() => { setAadhaarOpen(false); pendingAction.current = null; }}
-          onVerified={() => { setAadhaarOpen(false); const fn = pendingAction.current; pendingAction.current = null; if (fn) fn(); }}
         />
       )}
     </>

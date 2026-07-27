@@ -6,7 +6,7 @@ a flow doc mentions auth, an approval/verification step, the contact or Aadhaar 
 audit, pagination, the provider seam, or notifications, it points back to the relevant section
 below.
 
-Two hard truths frame everything here (see [`./architecture.md`](./architecture.md)):
+Two hard truths frame everything here (see [`./app-architecture.md`](./app-architecture.md)):
 
 - **The mock layer is the business logic today.** All of the rules below are currently enforced
   in browser JavaScript over `localStorage`. Every rule marked "MUST be server-enforced" is a
@@ -15,9 +15,9 @@ Two hard truths frame everything here (see [`./architecture.md`](./architecture.
   editable `localStorage`. They shape the experience; they do not protect data.
 
 Related docs:
-- [`./domain-model.md`](./domain-model.md) - canonical entities.
-- [`./api-contract.md`](./api-contract.md) - REST endpoints the future backend must expose.
-- [`./architecture.md`](./architecture.md) - overall system shape and the provider seam.
+- [`./data-model.md`](./data-model.md) - ER map + persistence design (field shapes → OpenAPI schemas).
+- [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API contract the future backend must expose.
+- [`./app-architecture.md`](./app-architecture.md) - overall system shape and the provider seam.
 
 ---
 
@@ -25,16 +25,17 @@ Related docs:
 
 ### Roles
 
-The session user carries a `role`, and internal (back-office) users additionally carry a `team`
-(and `teams[]`). Roles seen in code:
+The session user carries a `role`. The **canonical auth roles are defined by the `Role` schema in the
+[OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)**: `buyer`,
+`owner`, `staff`, `admin`. This section only explains how they behave; it does not redefine the enum.
 
-- `buyer` - property seekers (the default; also covers tenants). Label: "Buyer / Tenant".
+- `buyer` - property seekers (the default; also covers tenants — "Buyer / Tenant").
 - `owner` - property owners / landlords.
 - `admin` - platform super-admin; bypasses team scoping and module scoping.
-- `staff` - internal ops team member, scoped to one or more `teams` (for example `rental`,
-  `legal`, `interior`, `packers`, `valuation`).
-- `manager` / `member` - additional internal role labels used by admin RBAC (see
-  `roleLabel` in `src/lib/auth.js`).
+- `staff` - internal ops team member, scoped to one or more `teams` (`rental`, `legal`, `interior`,
+  `packers`, `valuation` — the `Team` schema in the spec).
+- `manager` / `member` are **admin-RBAC permission labels, not auth roles** (see `roleLabel` in
+  `src/lib/auth.js`); they never appear in the JWT `role` claim.
 
 `isInternal(user)` (in `src/lib/auth.js`) treats `admin`, `manager`, and `staff` as back-office.
 
@@ -80,7 +81,7 @@ desks are `TeamRoute team="rental|legal|interior|packers|valuation"`; consumer-o
 `AppFlagRoute`.
 
 > **MUST be server-enforced later.** Every guard above is cosmetic. The future backend must
-> authenticate via Bearer JWT (see [`./api-contract.md`](./api-contract.md)) and authorize every
+> authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)) and authorize every
 > request by role and team server-side. The client role/team is a hint, never a grant.
 
 ---
@@ -209,7 +210,7 @@ number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`). Status pr
 > **MUST be server-enforced later.** The Aadhaar verification, the mask, and the approval check all
 > run client-side today. The backend must own KYC/Aadhaar verification, return the number **only**
 > after it confirms an approved request (see `POST /contacts/request` returning
-> `403 { "error": "aadhaar_required" }` in [`./api-contract.md`](./api-contract.md)), and never
+> `403 { "error": "aadhaar_required" }` in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)), and never
 > ship the raw number to an unapproved client.
 
 ---
@@ -240,7 +241,7 @@ state with a `flagReason` instead of removing anything.
 Records carry `created_at` / `createdAt` and `updated_at` / `updatedAt` (the review record stamps
 `updatedAt` on every mutation; `addListing` stamps `createdAt` and `freshenedAt`). Archive/restore
 add `archivedAt` / `restoredAt`. The future schema standardizes on `created_at` / `updated_at`
-(see [`./domain-model.md`](./domain-model.md)).
+(see [`./data-model.md`](./data-model.md)).
 
 ### Audit trail (who / when / what)
 
@@ -263,14 +264,15 @@ edit, bulk approve/reject, pipeline move) - see `src/pages/admin/AdminProperties
 
 ## 5. Pagination, sorting, and filtering
 
-These conventions align with [`./api-contract.md`](./api-contract.md) and are what the mock layer
-approximates today.
+The exact query params, the `PageEnvelope` wrapper, and the `?sort=`/`?page=&size=` conventions are
+defined in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)
+(`info.description` + `PageEnvelope`/parameter schemas). This section only notes the *behaviour* the
+mock layer approximates today.
 
-- **Pagination:** `?page=&size=` (zero-indexed). Paginated responses use the wrapper
-  `{ content: [...], page, size, totalElements, totalPages }`.
-- **Sorting:** `?sort=field,direction`, for example `sort=createdAt,desc`.
-- **Filtering:** flat query params per resource. For property search:
-  `deal, type, locality, bhk, minPrice, maxPrice, furnishing, q (text), sort, status, page, size`.
+- **Pagination & sorting:** zero-indexed `page/size`; `sort=field,direction`. Responses use the
+  spec's `PageEnvelope`.
+- **Filtering:** flat query params per resource (e.g. property search filters on deal, type,
+  locality, bhk, price range, furnishing, free text) — see the spec for the authoritative list.
 - **Archived filtering:** list endpoints exclude soft-deleted rows by default
   (`archived=false`); an explicit `archived=true` surfaces them for admin views.
 
@@ -306,15 +308,10 @@ Domains wired today: `property`, `auth`, `deal`, `contact`, `finance` (barrel:
 
 ### Error shape
 
-The HTTP provider must surface failures in the canonical shape
-(see [`./api-contract.md`](./api-contract.md)):
-
-```json
-{ "error": "code", "message": "human-readable", "status": 400 }
-```
-
-`error` is a stable machine code (for example `aadhaar_required`), `message` is user-facing, and
-`status` is the HTTP status. Callers branch on `error`; UIs show `message`.
+The HTTP provider must surface failures in the canonical shape defined by the `Error` schema in the
+[OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml): a stable machine
+`error` code (for example `aadhaar_required`), a user-facing `message`, and the HTTP `status`.
+Callers branch on `error`; UIs show `message`.
 
 ### Loading / empty / error UI states
 

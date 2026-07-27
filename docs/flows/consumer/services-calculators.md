@@ -47,7 +47,7 @@
   here). No consumer route here is a `ProtectedRoute`; the sign-in gate is in-handler.
 
 ## 4. Entities touched
-Link to [`../../system/domain-model.md`](../../system/domain-model.md).
+Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service ticket** - `createServiceRequest({ team, service, customer, mobile, detail, value, ref })`
   in `mockApi` -> admin/ops services queue. Created by every lead form (legal/packers/valuation/
   interior/rent-agreement/move-in-pack + waitlist).
@@ -200,7 +200,7 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   `PropertyValuation.jsx` (`submit` -> `createServiceRequest` + `createFlowRequest`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
 - `GET /services` (public service catalog) - section 30.
 - `GET /fees` (fee structure incl. `rentAgreementPlatform`, `gstPercent`, `rentPayPercent`) -
   section 33.

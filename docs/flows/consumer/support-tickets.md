@@ -37,7 +37,7 @@
 - No Aadhaar/contact gate applies; support is intentionally low-friction.
 
 ## 4. Entities touched
-Links go to [`../../system/domain-model.md`](../../system/domain-model.md).
+Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `support_tickets` + `ticket_messages` (runtime `src/lib/data/support.js`, localStorage key
   `puneNestSupport = { tickets: [], seq: 10000 }`) - created, replied-to, read-tracked. Ids
   `SUP-<seq>` where `seq` increments from 10000.
@@ -152,7 +152,7 @@ create -> new
   FAQs come from `getFaqs()`. Not to be confused with `src/data/tickets.json` (ops service requests).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) section 14 (Support Tickets):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
 - `GET /support/tickets` (mine, or all for admin), `GET /support/tickets/:id` (detail + messages),
   `POST /support/tickets` (create -> `{ id, status, createdAt }`),
   `POST /support/tickets/:id/messages` (reply), `POST /support/tickets/:id/read` (mark read).

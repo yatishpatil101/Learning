@@ -53,7 +53,7 @@ test('owner sees photo requests card with Add-photos CTA', async ({ page }) => {
   await page.goto('/dashboard#enquiries', { waitUntil: 'networkidle' });
 
   // Leads is now split into sub-tabs; open the "Photo requests" sub-tab.
-  await page.getByRole('button', { name: /Photo requests/i }).click();
+  await page.getByRole('tab', { name: /Photo requests/i }).click();
 
   const card = page.locator('text=Photo requests').first();
   await card.waitFor({ state: 'visible', timeout: 15000 });

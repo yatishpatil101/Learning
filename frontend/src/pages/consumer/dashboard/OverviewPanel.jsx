@@ -1,13 +1,24 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
+import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import { isAadhaarVerified } from '../../../lib/store.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, setStatus, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
+  const { t } = useTranslation();
   const { flagEnabled } = useAppFlags();
+  // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
+  // landing surface as a trust prompt — never a wall. Auto-hides once earned; the
+  // modal itself persists the badge (setAadhaarVerified) and government-grade
+  // DigiLocker consent happens in production.
+  const [badgeOpen, setBadgeOpen] = useState(false);
+  const [verified, setVerified] = useState(() => isAadhaarVerified());
   // Online rent payment isn't live yet — surface it as "Coming soon". The links
   // point to /pay-rent, which now renders an honest coming-soon page.
   const payEnabled = flagEnabled('onlineRentPayment');
@@ -20,6 +31,40 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
       {/* Action Center — the single "what's waiting on you" triage, pinned at the
           very top so no request goes stale in a sub-tab. */}
       <ActionCenter items={actionItems} />
+
+      {/* Verified badge nudge — an opt-in trust prompt (badge-not-gate). Sits high
+          on the landing surface so it's easy to find, but it never blocks anything
+          and disappears the moment the badge is earned. */}
+      {!verified && (
+        <Card className="relative overflow-hidden p-5 sm:p-6" data-testid="verify-badge-cta">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent" />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+                <Icon name="shield-check" className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
+                  {t('verify.overviewTitle')}
+                  <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('verify.overviewOptional')}</span>
+                </p>
+                <p className="mt-1 text-xs text-gray-400 sm:text-sm">{t('verify.overviewBody')}</p>
+              </div>
+            </div>
+            <button onClick={() => setBadgeOpen(true)} data-testid="verify-badge-btn" className="btn-teal inline-flex flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold">
+              <Icon name="shield-check" className="h-4 w-4" /> {t('verify.overviewCta')}
+            </button>
+          </div>
+        </Card>
+      )}
+      {badgeOpen && (
+        <AadhaarVerifyModal
+          source="overview_dashboard"
+          subtitle={t('verify.subtitleProfile')}
+          onClose={() => setBadgeOpen(false)}
+          onVerified={() => { setVerified(true); toast(t('verify.badgeEarnedToast'), 'success'); }}
+        />
+      )}
 
       {/* Continue your search — a returning seeker's #1 job is to resume the hunt.
           Built only from the user's OWN recent searches (persistent, per-user), so

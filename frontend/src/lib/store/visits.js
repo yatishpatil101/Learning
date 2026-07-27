@@ -14,7 +14,7 @@ export const addVisitRequest = (ownerMobile, req) => {
   if (!u) return null;
   const mine = digits(u.mobile);
   const reqs = getVisitReqs(ownerMobile);
-  const existing = reqs.filter((r) => r.propId === (req.propId || '') && r.visitorMobile === mine && r.status === 'requested')[0];
+  const existing = reqs.filter((r) => r.propId === (req.propId || '') && r.visitorMobile === mine && r.status === 'scheduled')[0];
   if (existing) {
     existing.date = req.date || existing.date;
     existing.time = req.time || existing.time;
@@ -23,7 +23,7 @@ export const addVisitRequest = (ownerMobile, req) => {
     saveVisitReqs(ownerMobile, reqs);
     return existing;
   }
-  const rec = { id: 'v' + Date.now(), propId: req.propId || '', propTitle: req.propTitle || '', visitorName: req.visitorName || u.name || 'Visitor', visitorMobile: mine, phone: req.phone || '', date: req.date || '', time: req.time || '', mode: req.mode || '', note: req.note || '', status: 'requested', createdAt: Date.now(), completedAt: 0 };
+  const rec = { id: 'v' + Date.now(), propId: req.propId || '', propTitle: req.propTitle || '', visitorName: req.visitorName || u.name || 'Visitor', visitorMobile: mine, phone: req.phone || '', date: req.date || '', time: req.time || '', mode: req.mode || '', note: req.note || '', status: 'scheduled', createdAt: Date.now(), completedAt: 0 };
   reqs.unshift(rec);
   saveVisitReqs(ownerMobile, reqs);
   return rec;
@@ -38,7 +38,7 @@ export const setVisitStatus = (ownerMobile, id, status) => {
   });
   saveVisitReqs(ownerMobile, reqs);
 };
-export const pendingVisitCount = (ownerMobile) => getVisitReqs(ownerMobile).filter((r) => r.status === 'requested').length;
+export const pendingVisitCount = (ownerMobile) => getVisitReqs(ownerMobile).filter((r) => r.status === 'scheduled').length;
 export const hasCompletedVisit = (ownerMobile, propId, visitorMobile) => {
   const u = readUser();
   const mob = digits(visitorMobile || (u ? u.mobile : ''));
@@ -51,7 +51,7 @@ export const myVisitStatus = (ownerMobile, propId) => {
   const rs = getVisitReqs(ownerMobile).filter((r) => r.propId === (propId || '') && r.visitorMobile === mob);
   if (!rs.length) return 'none';
   if (rs.some((r) => r.status === 'completed')) return 'completed';
-  if (rs.some((r) => r.status === 'requested')) return 'requested';
+  if (rs.some((r) => r.status === 'scheduled')) return 'scheduled';
   return rs[0].status;
 };
 

@@ -45,24 +45,18 @@ test.describe('Tenant profile', () => {
     await expect(page.getByText('+20%')).toHaveCount(0);
   });
 
-  test('Aadhaar OTP flow verifies and persists a masked id', async ({ page }) => {
+  test('DigiLocker verification earns a Verified badge and persists a masked id', async ({ page }) => {
     await login(page, TENANT);
     await page.goto(`${BASE}/tenant-profile`, { waitUntil: 'networkidle' });
 
     await page.getByRole('button', { name: /^Verify now$/i }).click();
-    const dialog = page.getByRole('dialog');
+    // Verification is now the opt-in DigiLocker badge earn (badge-not-gate, ADR-019).
+    // Identity is proven natively on DigiLocker, so there is no in-app Aadhaar field or OTP.
+    const dialog = page.getByRole('dialog', { name: 'Get your Verified badge' });
     await expect(dialog).toBeVisible();
-
-    // Signed-in mobile is pinned as the Aadhaar-linked number — no Aadhaar field.
-    await expect(dialog.getByText('9700055010')).toBeVisible();
     await expect(dialog.locator('#kyc-aadhaar')).toHaveCount(0);
-    await dialog.getByRole('button', { name: /send otp/i }).click();
-
-    // OTP step: 6 boxes, any 6 digits accepted in the prototype
-    const box1 = dialog.getByLabel('OTP digit 1');
-    await box1.click();
-    await box1.pressSequentially('123456');
-    await dialog.getByRole('button', { name: /verify.*continue/i }).click();
+    await dialog.getByRole('button', { name: /continue with digilocker/i }).click();
+    // The mock DigiLocker round-trip resolves after ~1.7s and records the badge.
 
     // verified: badge + masked-mobile reference appear, full number never shown
     await expect(page.getByText('Verified ✓')).toBeVisible();

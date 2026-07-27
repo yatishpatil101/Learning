@@ -2,8 +2,8 @@
 
 This matrix is the traceability map for the docs set: it connects each product
 feature to its flow doc, the primary role(s) that use it, the numbered API
-domain(s) in [`system/api-contract.md`](./system/api-contract.md), the key
-entities from [`system/domain-model.md`](./system/domain-model.md), and whether
+domain(s) (defined in the [OpenAPI spec](../backend/src/main/resources/static/openapi/punenest-api.yaml)), the key
+entities (field shapes in the OpenAPI schemas; ER map + persistence in [`system/data-model.md`](./system/data-model.md)), and whether
 the flow is governed by a maker-checker (propose -> approve) loop as defined in
 [`system/cross-cutting.md`](./system/cross-cutting.md). Read it as: feature ->
 flow doc -> API domain -> entities.
@@ -12,7 +12,7 @@ There is one row per flow doc (27 total): 16 consumer, 9 admin, 2 ops.
 
 ## Consumer flows
 
-| Feature | Flow doc | Primary role(s) | API domain(s) in api-contract.md | Key entities | Maker-checker? |
+| Feature | Flow doc | Primary role(s) | API domain(s) | Key entities | Maker-checker? |
 |---------|----------|-----------------|----------------------------------|--------------|----------------|
 | Authentication (Sign In / Sign Up / Session) | [auth.md](./flows/consumer/auth.md) | buyer, owner | 1 Auth | users, aadhaar_verifications, referrals | No |
 | Contact Reveal & Leads (Enquiries) | [contact-gate-leads.md](./flows/consumer/contact-gate-leads.md) | buyer/tenant (maker), owner (checker) | 6 Verification & KYC, 7 Contacts | contact_requests, aadhaar_verifications, enquiries | Yes |
@@ -33,7 +33,7 @@ There is one row per flow doc (27 total): 16 consumer, 9 admin, 2 ops.
 
 ## Admin flows
 
-| Feature | Flow doc | Primary role(s) | API domain(s) in api-contract.md | Key entities | Maker-checker? |
+| Feature | Flow doc | Primary role(s) | API domain(s) | Key entities | Maker-checker? |
 |---------|----------|-----------------|----------------------------------|--------------|----------------|
 | Admin Analytics | [analytics.md](./flows/admin/analytics.md) | admin, manager | 29 Admin Analytics & Settings, 24 Localities, 25 Reports | listings, enquiries, visits, deals, tickets, users, localities | No |
 | Admin Content, Localities & Societies | [content-localities-societies.md](./flows/admin/content-localities-societies.md) | admin, manager | 30 Content/CMS, 24 Localities, 32 Society Leads, 23 Reviews & Ratings | banners, faqs, announcements, reviews, localities, societies | Yes |
@@ -47,7 +47,7 @@ There is one row per flow doc (27 total): 16 consumer, 9 admin, 2 ops.
 
 ## Ops flows
 
-| Feature | Flow doc | Primary role(s) | API domain(s) in api-contract.md | Key entities | Maker-checker? |
+| Feature | Flow doc | Primary role(s) | API domain(s) | Key entities | Maker-checker? |
 |---------|----------|-----------------|----------------------------------|--------------|----------------|
 | Ops Service Queues (shared back-office work queues) | [service-queues.md](./flows/ops/service-queues.md) | staff, admin, manager | 13 Service Requests/Tickets, 27 Service Workflows, 28 Rent Agreements, 21 Plans/Boosts/Service Orders | tickets, serviceFlow, serviceRequest, audit_log, notifications | Yes |
 | Ops Referral Verification (fraud-review queue) | [referrals-fraud.md](./flows/ops/referrals-fraud.md) | staff, admin | 22 Referrals, 29 Admin Analytics & Settings | referrals, audit_log | Yes |

@@ -1,11 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-/* "Is this the mobile number linked to your Aadhaar?" confirmation, mirrored from the
-   List Property gate, must appear on every Aadhaar identity gate:
-   - the shared AadhaarVerifyModal (contact owners / share-flat supply gate), and
-   - the share-flat "Become a verified seeker" modal.
-   Answering "No, it's a different number" must route the user to sign in with their
-   Aadhaar-linked number, and "Back" must return to the confirmation. */
+/* The optional "Verified Seeker" badge (share-flat) is earned via a separate
+   Aadhaar-OTP flow — distinct from the DigiLocker badge and never a gate to
+   posting (see share-flat-no-gate.spec.js). This verifies that opt-in flow:
+   the signed-in number is confirmed before OTP, and "No, it's a different
+   number" routes the seeker to re-sign-in with their Aadhaar-linked number. */
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9812340000';
@@ -13,25 +12,9 @@ const MOBILE = '9812340000';
 async function seedUnverified(page, mobile = MOBILE) {
   await page.addInitScript((m) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Host', mobile: m, role: 'owner', loginAt: Date.now() }));
-    // No puneNestAadhaar / seeker key → neither identity- nor seeker-verified.
+    // No seeker-verified key → not yet a Verified Seeker.
   }, mobile);
 }
-
-test('shared Aadhaar gate: confirm the signed-in number, and "No" routes to re-sign-in', async ({ page }) => {
-  await seedUnverified(page);
-  await page.goto(`${BASE}/share-flat?post=1`);
-
-  const gate = page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i });
-  await expect(gate).toBeVisible({ timeout: 10000 });
-  await expect(page.getByText('Is this the mobile number linked to your Aadhaar?')).toBeVisible();
-
-  await page.getByRole('button', { name: /a different number/i }).click();
-  await expect(page.getByRole('heading', { name: 'Sign in with your Aadhaar-linked number' })).toBeVisible();
-  await expect(gate.getByText(`+91 ${MOBILE}`)).toBeVisible();
-
-  await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByText('Is this the mobile number linked to your Aadhaar?')).toBeVisible();
-});
 
 test('seeker verify modal: "Yes, send OTP" completes the verification', async ({ page }) => {
   await seedUnverified(page);

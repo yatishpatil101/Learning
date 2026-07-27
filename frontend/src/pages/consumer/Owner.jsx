@@ -112,7 +112,7 @@ export default function Owner() {
       return;
     }
     const res = requestContact(owner.mobile, '');
-    if (res === 'aadhaar_required') { toast('Please verify your identity with Aadhaar OTP before contacting owners. Go to List Property to complete verification.', 'error'); return; }
+    if (res === 'verification_required') { toast('This owner accepts verified contacts only. Get the Verified badge from your profile to reach them.', 'info'); return; }
     setStatus(contactStatus(owner.mobile, ''));
     if (res === 'pending') toast("Request sent — you'll get the number once the owner approves.", 'success');
     else if (res === 'approved') toast('Owner has shared their number with you.', 'success');

@@ -4,12 +4,11 @@ import Icon from '../Icon.jsx';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
-import { isSavedProp, toggleSavedProp, isAadhaarVerified } from '../../lib/store.js';
+import { isSavedProp, toggleSavedProp } from '../../lib/store.js';
 import { cityLabelFor } from '../../lib/geoConfig.js';
 import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
-import AadhaarVerifyModal from '../auth/AadhaarVerifyModal.jsx';
 
 const titleOf = (p) => {
   if (p.shareType === 'pg') return 'PG / Hostel';
@@ -49,7 +48,6 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   const [shot, setShot] = useState(0);
   const [saved, setSaved] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
-  const [aadhaarOpen, setAadhaarOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
 
   const gallery = p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]) : [];
@@ -58,14 +56,14 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
 
   useEffect(() => {
     const onKey = (e) => {
-      if (contactOpen || visitOpen || aadhaarOpen) return;
+      if (contactOpen || visitOpen) return;
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowLeft' && gallery.length > 1) setShot((i) => (i - 1 + gallery.length) % gallery.length);
       else if (e.key === 'ArrowRight' && gallery.length > 1) setShot((i) => (i + 1) % gallery.length);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [gallery.length, onClose, contactOpen, visitOpen, aadhaarOpen]);
+  }, [gallery.length, onClose, contactOpen, visitOpen]);
 
   if (!p) return null;
 
@@ -87,15 +85,14 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
     const next = activeIndex + delta;
     if (next >= 0 && next < total) onSelect(list[next].id);
   };
-  // "Contact Owner" mirrors the property-detail page: sign-in + Aadhaar gates, then
-  // queue a pending in-app chat request (owner accepts in Messages) and open the
-  // thread — no duplicating enquiry popup. Falls back to the popup when in-app
-  // messaging is disabled.
+  // "Contact Owner" mirrors the property-detail page: L1 contact (badge-not-gate) —
+  // any signed-in user may reach the owner. Queue a pending in-app chat request
+  // (owner accepts in Messages) and open the thread. Falls back to the enquiry
+  // popup when in-app messaging is disabled.
   const startChatRequest = () => { queueOwnerChat(p); navigate(messagesLinkForProp(p)); };
   const contact = () => {
     if (!isIn) { toast('Please sign in to contact owner', 'info'); return; }
     if (!chatEnabled) { setContactOpen(true); return; }
-    if (!isAadhaarVerified()) { setAadhaarOpen(true); return; }
     startChatRequest();
   };
   const schedule = () => { if (!isIn) { toast('Please sign in to schedule a visit', 'info'); return; } setVisitOpen(true); };
@@ -189,12 +186,6 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
       </aside>
 
       {contactOpen ? <ContactOwnerModal p={p} isIn={isIn} onClose={() => setContactOpen(false)} toast={toast} /> : null}
-      {aadhaarOpen ? (
-        <AadhaarVerifyModal
-          onClose={() => setAadhaarOpen(false)}
-          onVerified={() => { setAadhaarOpen(false); toast('Identity verified — you can now contact owners.', 'success'); startChatRequest(); }}
-        />
-      ) : null}
       {visitOpen && scheduleEnabled ? <ScheduleVisitModal p={p} isIn={isIn} onClose={() => setVisitOpen(false)} toast={toast} /> : null}
     </>
   );

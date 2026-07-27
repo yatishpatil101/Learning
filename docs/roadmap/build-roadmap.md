@@ -1,13 +1,13 @@
 # PuneNest - Backend Build Roadmap
 
-> A phased, dependency-ordered build order for the PuneNest backend (Spring Boot + PostgreSQL)
+> A phased, dependency-ordered build order for the PuneNest backend (Spring Boot 4.1.0 / Java 21 + PostgreSQL)
 > that replaces the current localStorage mock. Each phase is executable by a small team and ends
 > with concrete exit criteria.
 >
 > Read alongside:
-> - [`../system/api-contract.md`](../system/api-contract.md) - the 33 numbered REST domains this
->   plan sequences.
-> - [`../system/domain-model.md`](../system/domain-model.md) - canonical PostgreSQL entities.
+> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API
+>   contract this plan sequences (single source of truth).
+> - [`../system/data-model.md`](../system/data-model.md) - ER map + PostgreSQL persistence design.
 > - [`../system/cross-cutting.md`](../system/cross-cutting.md) - auth, maker-checker, contact/Aadhaar
 >   gate, soft-delete/audit, pagination, provider seam, notifications.
 >
@@ -209,7 +209,7 @@
 
 ## 3. Domain-to-phase mapping
 
-Every one of the 33 api-contract domains maps to a primary phase. A few domains are split because
+Every one of the 33 API domains maps to a primary phase. A few domains are split because
 the contract groups a user-facing capability with an admin/checker capability; the "Notes" column
 records the secondary phase.
 

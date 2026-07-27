@@ -52,7 +52,7 @@
     "depositFinancing": false,
     "paidFeaturedListings": true,
     "subscriptionPlans": true,
-    "aadhaarVerification": true,
+    "kycBadgeEnabled": true,
     "ownerPhonePrivacy": true,
     "listingVerification": true,
     "reviewModeration": true,

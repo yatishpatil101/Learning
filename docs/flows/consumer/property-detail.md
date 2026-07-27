@@ -2,7 +2,7 @@
 
 > The single-listing page: gallery, key details, insights, trust, similar homes, and the
 > entry point into the contact-reveal gate.
-> **Status:** documented from React source - **Primary role(s):** buyer / tenant (public view, with owner/admin preview of non-approved listings)
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer / tenant (public view, with owner/admin preview of non-approved listings)
 
 ---
 
@@ -32,7 +32,8 @@
 - **Owner / admin preview:** a non-approved listing renders an "under review" state for everyone
   **except** the owner (`p.ownerMobile === user.mobile`) or an admin/staff viewer, who see it in
   full (`useProperty.js`: `isOwner`, `isAdmin`, `isApproved` -> `underReview`).
-- **Contact actions** are gated by sign-in + Aadhaar + owner approval - see
+- **Contact actions** are gated by **sign-in (L1) + owner approval** — no Aadhaar gate; a
+  `verification_required` step appears only if the owner accepts "verified contacts only". See
   [contact-gate-leads.md](./contact-gate-leads.md) and
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 3).
 
@@ -89,10 +90,11 @@
 ### Contact entry point (the gate lives elsewhere)
 - **Number reveal** (`ContactBox.jsx` inside `OwnerCard`): reads `contactStatus(ownerMobile, id)`.
   `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber)`. Masked otherwise;
-  `requestContact` returns `'login' | 'aadhaar_required' | 'pending' | 'approved' | 'declined'`,
-  and `'aadhaar_required'` opens `AadhaarVerifyModal`.
-- **Contact / chat CTA** (`useProperty.handleContact`): sign-in required; when `inAppMessaging` is
-  on it Aadhaar-gates then queues an owner chat request and opens Messages; when off it opens
+  `requestContact` returns `'login' | 'verification_required' | 'pending' | 'approved' | 'declined'`,
+  and `'verification_required'` (only when the owner accepts verified contacts only) opens the opt-in
+  Verified-badge `AadhaarVerifyModal`.
+- **Contact / chat CTA** (`useProperty.handleContact`): sign-in (L1) required; when `inAppMessaging`
+  is on it queues an owner chat request and opens Messages (no Aadhaar); when off it opens
   `ContactOwnerModal` (enquiry). `contactApproved` (approved/owner) swaps the sticky mobile CTA to a
   chat/WhatsApp action. Full rules: [contact-gate-leads.md](./contact-gate-leads.md).
 

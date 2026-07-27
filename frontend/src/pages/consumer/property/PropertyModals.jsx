@@ -1,26 +1,19 @@
 import Icon from '../../../components/Icon.jsx';
-import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import { ContactOwnerModal } from './ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from './ScheduleVisitModal.jsx';
 import { ReportModal } from './ReportModal.jsx';
 
 export default function PropertyModals({ ctx }) {
   const {
-    contactOpen, setContactOpen, aadhaarOpen, setAadhaarOpen,
+    contactOpen, setContactOpen,
     visitOpen, setVisitOpen, reportOpen, setReportOpen,
     lightbox, setLightbox, tourOpen, setTourOpen,
-    p, isIn, toast, tr, flagEnabled, startChatRequest,
+    p, isIn, toast, tr, flagEnabled,
     gallery, active, setActive, title, lbTouchX,
   } = ctx;
   return (
     <>
       {contactOpen ? <ContactOwnerModal p={p} isIn={isIn} onClose={() => setContactOpen(false)} toast={toast} /> : null}
-      {aadhaarOpen ? (
-        <AadhaarVerifyModal
-          onClose={() => setAadhaarOpen(false)}
-          onVerified={() => { setAadhaarOpen(false); toast(tr('property.identityVerifiedToast'), 'success'); startChatRequest(); }}
-        />
-      ) : null}
       {visitOpen && flagEnabled('scheduleVisit') ? <ScheduleVisitModal p={p} isIn={isIn} onClose={() => setVisitOpen(false)} toast={toast} /> : null}
       {reportOpen ? <ReportModal p={p} onClose={() => setReportOpen(false)} toast={toast} /> : null}
 

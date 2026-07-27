@@ -3,8 +3,10 @@ import { lazy, Suspense, useEffect, useRef } from 'react';
 
 import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
 import AdminLayout from './components/layout/AdminLayout.jsx';
+import PreviewBanner from './components/pmf/PreviewBanner.jsx';
 import { ProtectedRoute, RoleRoute, TeamRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
 import { applyAppPrefs } from './lib/store.js';
+import { track } from './lib/pmf.js';
 
 /* ─── Synchronous imports (critical path — needed immediately) ─── */
 import Home from './pages/consumer/Home.jsx';
@@ -105,6 +107,8 @@ function ScrollToTop() {
     prevPath.current = pathname;
     if (navType !== 'POP') window.scrollTo(0, 0);
   }, [pathname, navType]);
+  // PMF funnel: log a page_view on every route change (no-op unless flag on).
+  useEffect(() => { track('page_view', { path: pathname }); }, [pathname]);
   return null;
 }
 
@@ -122,6 +126,7 @@ export default function App() {
   useEffect(() => { applyAppPrefs(); }, []);
   return (
     <>
+      <PreviewBanner />
       <ScrollToTop />
       <Suspense fallback={<LoadingFallback />}>
       <Routes>

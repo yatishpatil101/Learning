@@ -3,7 +3,7 @@
 > The signed-in user's home base at `/dashboard`: a tabbed hub that becomes an owner
 > control panel (listings, leads, visits, finances) the moment the user has real
 > inventory, and stays a seeker account hub (saved, activity, alerts) otherwise.
-> **Status:** documented from React source - **Primary role(s):** owner (control panel) + buyer/tenant (account hub)
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** owner (control panel) + buyer/tenant (account hub)
 
 ---
 
@@ -51,7 +51,7 @@
 
 ## 4. Entities touched
 All read-heavy; mutations happen inside the sub-flows this hub links to. Links go to
-[`../../system/domain-model.md`](../../system/domain-model.md).
+[`../../system/data-model.md`](../../system/data-model.md).
 - `properties` / listings - read (owner listings via `loadMyListings`, catalog via `listProperties`).
 - `enquiries` - read (seed, `listEnquiries().slice(0,8)`; see contact-gate doc for the seed-only gap).
 - `visits` - read + updated (`listVisits`, `updateVisit` via `mutateVisit`).
@@ -61,7 +61,8 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 - `property_review` - read (verification status per listing) + reply (`addPropReviewReply`).
 - `saved_properties`, `saved_searches`, followed societies, recent props/searches - read (counts + nudges).
 - `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge).
-- `users` (profile), `aadhaar_verification` - read (profile-completion meter).
+- `users` (profile), `aadhaar_verification` - read (profile-completion meter + the opt-in Verified
+  badge state; the badge is a trust signal, never a posting/contact gate — ADR-019).
 - `pnPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -121,10 +122,18 @@ pending ids together, then re-reads shared state.
 - **Alert matches:** for each active saved search (`s.alerts !== false`), `countMatches(s, approved)`
   counts live approved listings matching deal + locality + BHK; only searches with `count > 0` show,
   capped at 3, each linking to `searchHref(s)` (see saved-alerts doc for `countMatches`).
-- **Profile completion (`profileCompletion`):** 4 equal steps at 25% each - name, email, city,
-  Aadhaar verification. `percent = round(done / 4 * 100)`; `next` = first unfinished step. Mobile is
-  deliberately excluded (always present after login). The Overview meter renders only when
-  `percent < 100`.
+- **Profile completion (`profileCompletion`):** 4 equal steps at 25% each - name, email, city, and
+  the **opt-in Verified badge** (step label "Verify your identity with Aadhaar"). This is a completion
+  *nudge*, not a gate — the account works fully without it. `percent = round(done / 4 * 100)`; `next`
+  = first unfinished step. Mobile is deliberately excluded (always present after login). The Overview
+  meter renders only when `percent < 100`.
+- **Opt-in Verified-badge nudge (`OverviewPanel.jsx`):** a dismissible card offering the DigiLocker
+  Verified badge (badge-not-gate, ADR-019) — verified owners rank higher and get faster responses; it
+  is never required to post or contact. Mirrored by `myListings/VerifyListingsBanner.jsx`.
+- **Owner contact preferences (`components/dashboard/ProfileTab.jsx`, owner only):** "**Accept
+  verified contacts only**" (`verifiedContactOnly`, **off by default**) — only then is an unverified
+  buyer prompted to earn the badge before contacting; and "**Keep my number private**" (`hideNumber`)
+  — the number stays masked even after approval, routing approved buyers to in-app chat.
 
 ### Rental nudge
 `rental = getManagedProps().find(p => p.rented && p.monthlyRent) || null` - a real rented managed
@@ -188,7 +197,7 @@ contact decision) does not remount and wipe the active panel; React remounts onl
   `src/lib/photoRequests.js`, `src/lib/serviceFlow.js`, `src/lib/groupApplications.js`.
 
 ## 10. Target API endpoints
-The Overview aggregates several domains; map to [`../../system/api-contract.md`](../../system/api-contract.md):
+The Overview aggregates several domains; map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml):
 - A single **dashboard summary** endpoint is implied (not yet in the contract): counts for listings,
   total views, enquiries, pending number requests, saved/searches/followed, and the action queue -
   computed server-side rather than reassembled from N client calls.

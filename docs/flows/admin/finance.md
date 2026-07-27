@@ -38,10 +38,10 @@
 - Guards are UX-only (mock RBAC) - see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1.
 
 ## 4. Entities touched
-- [`settings.fees`](../../system/domain-model.md) - **read** (fee schedule + `gstPercent`, `rentPayPercent`).
-- [`analytics.revenue`](../../system/domain-model.md) - **read** (per-month subscriptions/services/featured series).
-- [`deals`](../../system/domain-model.md), [`tickets`](../../system/domain-model.md) (status `done`),
-  [`listings`](../../system/domain-model.md) (`featured`), `rentFeeLedger`, `users` - **read** to synthesise the transaction ledger and ARPU.
+- [`settings.fees`](../../system/data-model.md) - **read** (fee schedule + `gstPercent`, `rentPayPercent`).
+- [`analytics.revenue`](../../system/data-model.md) - **read** (per-month subscriptions/services/featured series).
+- [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md) (status `done`),
+  [`listings`](../../system/data-model.md) (`featured`), `rentFeeLedger`, `users` - **read** to synthesise the transaction ledger and ARPU.
 - Nothing is written here - Finance is entirely read/aggregate today (no audit rows, no mutations).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -176,7 +176,7 @@ A synthetic ledger built from existing collections, newest-first (sorted by `dat
   domain - the *owner's* per-property finance tracker (`lib/data/finances.js`), not this admin console.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Admin & Analytics):
 - `GET /admin/finance/revenue-series` (section 29) - the monthly subscriptions/services/featured series.
 - `GET /admin/finance/transactions` (section 29) - the real transaction ledger with filters.
 - `GET /admin/kpis` (section 29) - dashboard-level revenue figure (kept consistent with `monthTotal`).

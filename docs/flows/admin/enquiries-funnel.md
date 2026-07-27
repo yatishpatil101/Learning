@@ -30,12 +30,12 @@
   visits; deals closed on properties). Guards are UX-only (cross-cutting section 1).
 
 ## 4. Entities touched
-- [`enquiries`](../../system/domain-model.md) - **read** and **updated** (`status`).
-- [`visits`](../../system/domain-model.md) - **read** and **updated** (`status`, `when`). Gated by
+- [`enquiries`](../../system/data-model.md) - **read** and **updated** (`status`).
+- [`visits`](../../system/data-model.md) - **read** and **updated** (`status`, `when`). Gated by
   the `enquiries.visits` flag.
-- [`deals`](../../system/domain-model.md) (analytics/admin feed) - **read** only (value + status).
+- [`deals`](../../system/data-model.md) (analytics/admin feed) - **read** only (value + status).
   Gated by the `enquiries.deals` flag.
-- [`audit_log`](../../system/domain-model.md) - **created** on each enquiry/visit mutation.
+- [`audit_log`](../../system/data-model.md) - **created** on each enquiry/visit mutation.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -137,7 +137,7 @@ Computed client-side over the (deal + date) filtered sets:
   `kind`, `status`, `at`), `src/data/visits.json`, `src/data/deals.json`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Leads & Contact, Admin & Analytics):
 - `GET /enquiries` - admin enquiries list.
 - `GET /visits` - admin visits list; `PATCH /visit-requests/:id/status` - confirm/cancel (upstream).
 - `GET /me/deals` / analytics deals feed - closed/in-progress deals for GMV.

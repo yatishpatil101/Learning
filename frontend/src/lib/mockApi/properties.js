@@ -1,7 +1,59 @@
 // ---------------- Properties ----------------
 import { rawLoad, rawSave, delay } from './core.js';
 import { isDormant, createdMs } from '../freshness.js';
+import { isFeaturedActive } from '../featured.js';
 import { logStaffActivity } from './staff.js';
+
+const last10 = (m) => String(m || '').replace(/\D/g, '').slice(-10);
+const FIRST_FEATURE_PERK_MS = 7 * 24 * 60 * 60 * 1000; // 7-day free Featured boost
+
+/* Growth lever (ADR-019): earning the opt-in Verified badge must actually pay off, or the
+   "verified listings rank higher" promise is hollow. On badge earn we (1) flip `ownerVerified`
+   on every listing this user owns — lighting up the +250 ranking boost and the buyer-facing
+   Verified badge — and (2) the FIRST time only, grant a free 7-day Featured slot on their newest
+   approved listing (reuses the existing `featured` flag / +1000 boost, with an expiry so it lapses
+   honestly). Idempotent: safe to call on every verification; the perk is guarded to fire once. */
+export function applyVerifiedBadgeToListings(mobile) {
+  const mine = last10(mobile);
+  if (!mine) return null;
+  const db = rawLoad();
+  let changed = false;
+  const owned = db.listings.filter((l) => last10(l.ownerMobile) === mine && !l.archived);
+  owned.forEach((l) => { if (!l.ownerVerified) { l.ownerVerified = true; changed = true; } });
+
+  let featuredTitle = null;
+  const perkKey = 'puneNestFirstFeaturePerk:' + mine;
+  const alreadyGranted = (() => { try { return !!localStorage.getItem(perkKey); } catch { return false; } })();
+  if (!alreadyGranted) {
+    const candidate = owned
+      .filter((l) => l.status === 'approved' && !isFeaturedActive(l))
+      .sort((a, b) => createdMs(b.createdAt) - createdMs(a.createdAt))[0];
+    if (candidate) {
+      candidate.featured = true;
+      candidate.featuredUntil = Date.now() + FIRST_FEATURE_PERK_MS;
+      candidate.featuredReason = 'first-verify';
+      featuredTitle = candidate.title;
+      changed = true;
+    }
+    try { localStorage.setItem(perkKey, String(Date.now())); } catch { /* ignore */ }
+  }
+
+  if (changed) rawSave(db);
+  return { verifiedCount: owned.length, featuredTitle };
+}
+
+/* Social-proof stats (E1/E2, ADR-019). Mock-computed from the catalogue today; moves to a
+   backend aggregate later. Counts only live (approved, non-archived) listings so the numbers
+   are honest. `localitySlug` narrows to a locality for the "N verified homes in <area>" line. */
+export function verifiedStats(localitySlug) {
+  const db = rawLoad();
+  const live = (db.listings || []).filter(
+    (l) => l.status === 'approved' && !l.archived && (!localitySlug || l.localitySlug === localitySlug),
+  );
+  const verifiedListings = live.filter((l) => l.ownerVerified || l.ownershipVerified).length;
+  const owners = new Set(live.filter((l) => l.ownerVerified).map((l) => last10(l.ownerMobile)));
+  return { verifiedListings, totalListings: live.length, verifiedOwners: owners.size };
+}
 
 function matchesFilters(p, f = {}) {
   if (!f.includeArchived && p.archived) return false;
@@ -61,8 +113,8 @@ export function getProperty(id) {
 export function featuredProperties(limit = 6) {
   const db = rawLoad();
   const live = db.listings.filter((p) => p.status === 'approved' && !p.archived && !(p.real && isDormant(p)));
-  const feat = live.filter((p) => p.featured);
-  const rest = live.filter((p) => !p.featured);
+  const feat = live.filter((p) => isFeaturedActive(p));
+  const rest = live.filter((p) => !isFeaturedActive(p));
   return delay([...feat, ...rest].slice(0, limit));
 }
 

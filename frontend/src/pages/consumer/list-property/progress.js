@@ -1,12 +1,10 @@
 /* ---------------------------------------------------------------------------
    Listing completion model.
-   Aadhaar verification is the required first step and is worth a fixed 20% of
-   the meter — it's the first fifth of the journey, done the moment the owner
-   clears the identity gate. The remaining 80% is shared field-by-field across
-   every field that applies to the chosen flow (property type + deal), mandatory
-   and optional alike. The bar reads 100% only when identity is verified AND
-   every applicable field is filled in. Leaving optional fields blank keeps it
-   shy of 100% — but it never blocks submission (validation gates only the
+   The meter is shared field-by-field across every field that applies to the
+   chosen flow (property type + deal), mandatory and optional alike. The bar
+   reads 100% only when every applicable field is filled in. Leaving optional
+   fields blank keeps it shy of 100% — but it never blocks submission
+   (validation gates only the
    mandatory fields). Fields with sensible defaults (BHK, possession, lease
    terms…) start already "done". Pure booleans/toggles have no empty state, so
    they're excluded.
@@ -19,12 +17,7 @@ import {
 
 export const MILESTONES = [20, 40, 60, 80, 100];
 
-// Aadhaar identity verification is worth this share of the whole meter; the
-// listing fields split the rest. Keeping it explicit makes "20% once Aadhaar is
-// done" a single source of truth shared by the meter and the gate.
-export const AADHAAR_WEIGHT = 20;
-
-const filled = (v) => v != null && String(v).trim() !== '';
+const filled= (v) => v != null && String(v).trim() !== '';
 const nonEmptyArr = (v) => Array.isArray(v) && v.length > 0;
 const validPin = (v) => /^[1-9]\d{5}$/.test(String(v || ''));
 
@@ -161,14 +154,13 @@ const tierFor = (pct) => {
   return { key: tier.key, label: tier.label, cheer: tier.cheer };
 };
 
-export const computeProgress = ({ form, photos = [], documents = {}, video = null, aadhaarVerified = false, isFlatmateMode = false }) => {
+export const computeProgress = ({ form, photos = [], documents = {}, video = null, isFlatmateMode = false }) => {
   const items = isFlatmateMode
     ? flatmateItems(form, photos)
     : wholePlaceItems(form, photos, documents, video);
   const total = items.reduce((s, it) => s + (it.weight ?? 1), 0);
   const earned = items.reduce((s, it) => s + (it.weight ?? 1) * fracOf(it), 0);
   const fieldFrac = total ? earned / total : 0;
-  // Aadhaar is the first 20%; the listing fields fill the remaining 80%.
-  const pct = Math.round(AADHAAR_WEIGHT * (aadhaarVerified ? 1 : 0) + (100 - AADHAAR_WEIGHT) * fieldFrac);
+  const pct = Math.round(100 * fieldFrac);
   return { pct: Math.min(100, pct), ...tierFor(pct) };
 };

@@ -29,14 +29,24 @@ const FLAT = 'B-1204';
 const PIN = '411045';
 
 function seed(page) {
-  return page.addInitScript(({ mobile, society, flat, pin }) => {
+  return page.addInitScript((mobile) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Guard Owner', mobile, role: 'owner', loginAt: Date.now() }));
     localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
-    // An existing, active listing by THIS owner at the exact address we'll re-enter.
+    // Seed cookie consent so the DPDPA banner doesn't intercept the bottom Submit button.
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+  }, MOBILE);
+}
+
+// Merge the existing listing into the FULL default DB *after* the app has booted.
+// Seeding puneNestDB_v5 before boot would write a partial DB (only `listings`) and
+// crash the app on load, so the '.lp-meter' selector would never appear.
+function seedExistingListing(page) {
+  return page.evaluate(({ mobile, society, flat, pin }) => {
     const KEY = 'puneNestDB_v5';
     let db = {};
     try { db = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { db = {}; }
     db.listings = db.listings || [];
+    if (db.listings.some((l) => l.id === 'GUARD-EXISTING-1')) return; // idempotent
     db.listings.unshift({
       id: 'GUARD-EXISTING-1',
       title: '2 BHK Flat in Baner',
@@ -62,6 +72,10 @@ async function pickOption(page, dataErr, label) {
 test('Re-listing the same unit shows the duplicate guard modal and blocks the post', async ({ page }) => {
   await seed(page);
   await page.goto(`${BASE}/list-property`);
+  await page.waitForSelector('.lp-meter', { timeout: 10000 });
+  // App booted and seeded the full default DB — now merge our existing listing and reload.
+  await seedExistingListing(page);
+  await page.reload();
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
 
   // Step 1 â€” rent flat.

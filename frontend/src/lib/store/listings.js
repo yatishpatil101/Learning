@@ -55,7 +55,23 @@ export const isAadhaarVerified = () => {
   return !!(v && v.verified);
 };
 export const getAadhaarVerification = () => get(aadhaarKey(), null);
-export const setAadhaarVerified = (aadhaarMobile) => set(aadhaarKey(), { verified: true, aadhaarMobile: aadhaarMobile || '', at: Date.now() });
+/* Record the opt-in Verified badge (L2) earned via DigiLocker consent.
+   Accepts a details object; still tolerates a bare mobile string for any
+   legacy caller. `mobileMatch` is a soft signal only at MVP (ADR-009a). */
+export const setAadhaarVerified = (details = {}) => {
+  const d = typeof details === 'string' ? { aadhaarMobile: details } : (details || {});
+  return set(aadhaarKey(), {
+    verified: true,
+    source: d.source || 'digilocker',
+    aadhaarMobile: d.aadhaarMobile || '',
+    name: d.name || '',
+    dob: d.dob || '',
+    gender: d.gender || '',
+    maskedAadhaar: d.maskedAadhaar || '',
+    mobileMatch: d.mobileMatch === undefined ? null : d.mobileMatch,
+    at: Date.now(),
+  });
+};
 
 /* =========================================================================
    Find-a-flatmate room listings. Uses the SAME key as the static app

@@ -2,7 +2,6 @@ import { readUser } from '../auth.js';
 import { digits } from '../contact.js';
 import { getActiveCityGeo, withinBounds } from '../geoConfig.js';
 import { get, set } from './internals.js';
-import { isAadhaarVerified } from './listings.js';
 import { ENTITY_KEY, allEntityReviews } from './reviews.js';
 import { BOARD_KEY, CONTRIB_KEY, QA_KEY, allSocietyBoard, allSocietyContributions, allSocietyQA, isOps, isResidentOrAdmin, uid } from './society.js';
 import { resolveSociety, setSocietyOverlay } from './societyAdmin.js';
@@ -54,7 +53,6 @@ export const getSocietyWhatsappJoin = (slug) => {
 export const proposeSocietyWhatsapp = (slug, url) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const mob = digits(u.mobile);
   if (!isResidentOrAdmin(slug, mob)) return 'forbidden';
   const clean = String(url || '').trim();
@@ -102,7 +100,6 @@ export const getSocietyReports = (status) => {
 export const reportSocietyContent = (o = {}) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   if (!REPORT_TYPES.includes(o.targetType) || !o.targetId) return null;
   const mob = digits(u.mobile);
   const list = allReports();
@@ -189,7 +186,6 @@ export const getSocietyLocationFix = (slug) => allLocationFixes()[slug] || null;
 export const proposeSocietyLocation = (slug, o = {}) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const mob = digits(u.mobile);
   if (!isResidentOrAdmin(slug, mob)) return 'forbidden';
   const lat = Number(o.lat);

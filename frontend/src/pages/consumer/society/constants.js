@@ -26,7 +26,7 @@ const SOC_AMEN = {
 const REVIEW_CATS = ['Safety', 'Maintenance', 'Management', 'Amenities', 'Connectivity'];
 const TAB_IDS = ['overview', 'homes', 'reviews', 'community', 'location'];
 
-// Community contributions (KYC-gated). One model, three kinds.
+// Community contributions (sign-in only). One model, three kinds.
 const CONTRIB_META = {
   tip: { label: 'Tip', icon: 'lightbulb', cats: ['Water', 'Parking', 'Safety', 'Amenities', 'Move-in', 'General'] },
   pick: { label: 'Local pick', icon: 'shopping-bag', cats: ['Maid', 'Cook / Tiffin', 'Milk / Grocery', 'Plumber', 'Electrician', 'Other'] },

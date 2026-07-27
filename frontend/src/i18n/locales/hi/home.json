@@ -59,7 +59,8 @@
       "title": "फ़ीचर्ड संपत्तियाँ",
       "subtitle": "पुणे भर की चुनिंदा संपत्तियाँ",
       "viewAll": "सभी देखें",
-      "viewAllProperties": "सभी संपत्तियाँ देखें"
+      "viewAllProperties": "सभी संपत्तियाँ देखें",
+      "verifiedProof": "{{listings}} सत्यापित घर · {{owners}} सत्यापित मालिक अभी लाइव"
     },
     "recent": {
       "eyebrow": "जहाँ छोड़ा था वहीं से जारी रखें",

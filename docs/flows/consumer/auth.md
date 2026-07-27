@@ -1,8 +1,9 @@
 # Flow: Authentication (Sign In / Sign Up / Session)
 
 > Mobile + OTP authentication for consumers, with a role stamped at sign-up, a
-> localStorage-backed session, and UX-only route guards.
-> **Status:** documented from React source - **Primary role(s):** buyer, owner (consumer door); staff/admin use a separate door
+> localStorage-backed session, and UX-only route guards. Mobile-OTP sign-in is **L1** — the trust
+> ladder's floor for posting and contacting (ADR-019); the DigiLocker Verified badge (L2) is opt-in.
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer, owner (consumer door); staff/admin use a separate door
 
 ---
 
@@ -46,9 +47,10 @@
 - [`users`](../../system/domain-model.md) - the session user object
   (`{ name, mobile, role, loginAt }`) written to storage; on sign-up also appended to the local
   account registry (`puneNestUsers`).
-- [`aadhaar_verifications`](../../system/domain-model.md) - not written here, but Aadhaar/KYC is a
-  separate gate that layers on top of auth for contacting owners and listing (see
-  [contact-gate-leads.md](./contact-gate-leads.md)).
+- [`aadhaar_verifications`](../../system/domain-model.md) - not written here. The DigiLocker Verified
+  badge (L2) is an **opt-in trust signal** that layers on top of auth — it is **not** a gate for
+  posting or contacting (mobile-OTP sign-in / L1 is the only floor; see
+  [contact-gate-leads.md](./contact-gate-leads.md) and ADR-019).
 - [`referrals`](../../system/domain-model.md) - a `?ref=` code present at sign-up is stored via
   `setReferredBy(ref)`.
 
@@ -104,9 +106,9 @@
 > The session is a plain, user-editable JSON blob in `localStorage`.
 
 ## 6. Maker-checker / approval
-- **Not applicable.** Sign in / sign up have no proposer-approver step. (The Aadhaar/KYC gate and
-  owner contact-approval that sit downstream of auth follow the maker-checker pattern - see
-  [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 and
+- **Not applicable.** Sign in / sign up have no proposer-approver step. (The opt-in Verified-badge
+  flow and the owner contact-approval that sit downstream of auth follow the maker-checker pattern -
+  see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 and
   [contact-gate-leads.md](./contact-gate-leads.md).)
 
 ## 7. State machine

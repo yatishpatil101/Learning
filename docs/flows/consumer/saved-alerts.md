@@ -41,7 +41,7 @@
 - No approval/checker involved; this is a private, per-user store.
 
 ## 4. Entities touched
-Links go to [`../../system/domain-model.md`](../../system/domain-model.md).
+Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `saved_properties` (runtime `src/lib/store/notifications.js`, key `pnSavedProps:<mobile|anon>`) -
   created/removed by heart toggle. Just an array of property ids.
 - `saved_searches` (runtime `src/lib/store/search.js`, key `pnSavedSearches:<mobile|anon>`) -
@@ -168,7 +168,7 @@ Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet ho
   `NotifyMeCard.jsx`/`ShareAlertCard.jsx` (`addSavedSearch({ ...record, channel, mobile })`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) section 20 (Saved) + section 26 (Notifications):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Engagement):
 - `GET /me/saved-properties`, `POST /me/saved-properties/:id/toggle`.
 - `GET /me/saved-searches`, `POST /me/saved-searches`, `DELETE /me/saved-searches/:id`,
   `PATCH /me/saved-searches/:id/alert`.

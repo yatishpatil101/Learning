@@ -4,6 +4,7 @@ import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../../lib/contact.js';
+import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactBox({ p, isIn, toast }) {
   const { t } = useTranslation();
@@ -21,9 +22,11 @@ export function ContactBox({ p, isIn, toast }) {
       toast(t('property.signInRequestNumber'), 'info');
       return;
     }
+    track('contact_click', { action: 'request_number', id: propId });
+    captureLead({ context: 'request_number', property: String(propId) });
     const res = requestContact(ownerMobile, propId);
-    // Blanket Aadhaar gate — unverified users get the verification popup, not a request.
-    if (res === 'aadhaar_required') {
+    // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
+    if (res === 'verification_required') {
       setVerifyOpen(true);
       return;
     }
@@ -74,6 +77,8 @@ export function ContactBox({ p, isIn, toast }) {
       )}
       {verifyOpen && (
         <AadhaarVerifyModal
+          source="contact_box"
+          subtitle={t('verify.subtitleVerifiedOnly')}
           onClose={() => setVerifyOpen(false)}
           onVerified={() => { toast(t('property.identityVerifiedToast'), 'success'); request(); }}
         />

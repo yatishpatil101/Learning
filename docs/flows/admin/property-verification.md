@@ -2,7 +2,11 @@
 
 > The canonical maker-checker flow: an owner submits a listing, an admin/manager reviews the
 > documents and either approves (listing goes live) or rejects (owner fixes and resubmits).
-> **Status:** documented from React source - **Primary role(s):** admin / manager (checker), owner (maker)
+> This is **listing moderation** (verifying the listing's ownership documents to publish it), and it
+> also drives listing trust/ranking — it is **not** an identity gate on the owner. Under
+> **badge-not-gate (ADR-019)** the owner posts at L1 with no Aadhaar; the opt-in Verified badge is a
+> separate trust signal (see [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md)).
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** admin / manager (checker), owner (maker)
 
 ---
 
@@ -12,9 +16,11 @@
   who wants their property live.
 - **Job-to-be-done:** "Check every new listing against its ownership documents and only publish the
   genuine ones." For the owner: "Get my property verified and live."
-- **Why it matters:** verification is PuneNest's core trust gate. A listing is invisible to buyers
-  until a checker approves it, so this queue is the single choke point that decides platform supply
-  quality. It is the reference implementation of the shared maker-checker pattern
+- **Why it matters:** listing verification is PuneNest's core **supply-quality** gate. A listing is
+  invisible to buyers until a checker approves it, so this queue is the single choke point that
+  decides platform supply quality. Note this gates the **listing** (its documents), not the owner's
+  identity — posting itself is L1-only (ADR-019); the owner's opt-in Verified badge is a separate
+  ranking/trust signal. It is the reference implementation of the shared maker-checker pattern
   (see [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2).
 
 ## 2. Entry points
@@ -43,16 +49,16 @@
   server-side.
 
 ## 4. Entities touched
-- [`properties` / listings](../../system/domain-model.md) - **read** (queue), **updated** (`status`,
+- [`properties` / listings](../../system/data-model.md) - **read** (queue), **updated** (`status`,
   `pipelineStage`, `flagReason`, `featured`, edited fields), **soft-deleted** (`archived`).
-- [`property_reviews` + `review_messages`](../../system/domain-model.md) - **created** on demand
+- [`property_reviews` + `review_messages`](../../system/data-model.md) - **created** on demand
   (`ensureReview`), **updated** (doc checklist, thread, decision). Stored in
   `db.propertyReviews[listingId]`.
-- [`internalNotes`](../../system/domain-model.md) (`internalNotes["listing:<id>"]`) - **created**
+- [`internalNotes`](../../system/data-model.md) (`internalNotes["listing:<id>"]`) - **created**
   (reviewer notes; never deleted).
-- [`audit_log`](../../system/domain-model.md) - **created** on every mutation via `logAudit`.
-- `aadhaar_verifications` - **read** indirectly (owner must clear the Aadhaar gate before posting;
-  see cross-cutting section 3).
+- [`audit_log`](../../system/data-model.md) - **created** on every mutation via `logAudit`.
+- `aadhaar_verifications` - **read** only as the owner's **optional** Verified badge (a ranking/trust
+  signal), never as a posting prerequisite; posting is L1-only (ADR-019).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -65,7 +71,8 @@
      (`src/lib/mockApi/properties.js`) stamps `status: 'pending'`, `real: true`, and
      `pipelineStage: postedByAdmin ? 'listed' : 'info_collected'`.
   2. **Concierge / post-on-behalf** (`postedByAdmin`) - same `pending`, plus completion trackers
-     (`claimLinkSent`, `photosUploaded: false`, `aadhaarVerified: false`).
+     (`claimLinkSent`, `photosUploaded: false`, `aadhaarVerified: false`). The `aadhaarVerified`
+     tracker reflects the owner's **optional** Verified badge, not a posting prerequisite.
   3. **Re-verification** - an approved listing whose owner edits a **foundation field** reverts to
      `pending` (see 5.5); a restored archived listing also returns to `pending`.
 
@@ -185,8 +192,8 @@ owner replies after a rejection re-open the thread).
 - **Edit validation** (`submitEdit`): title required, price a positive number, area non-negative,
   locality required.
 - **Stale / awaiting follow-up:** listings pending > 48h are "stale"; concierge listings missing
-  photos or Aadhaar are "awaiting owner" (Needs Follow-up tab). Reminder / WhatsApp templates nudge
-  the owner without deciding.
+  photos or the Verified badge are "awaiting owner" (Needs Follow-up tab). Reminder / WhatsApp
+  templates nudge the owner without deciding.
 - **Duplicates:** clusters of >= 2 listings that share identity keys or matching photo hashes surface
   in the Duplicates tab; `resolveDuplicate(keepId, dropId)` archives the drop, `dismissDuplicate`
   clears a false positive.
@@ -214,7 +221,7 @@ owner replies after a rejection re-open the thread).
   reviews are created on demand, not seeded.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Moderation):
 - `GET /properties?status=pending&archived=false&page=&size=` - the queue.
 - `POST /properties/:id/verification` - initiate the review record (`ensureReview`).
 - `GET /properties/:id/verification` - review thread + doc checklist.
@@ -239,8 +246,9 @@ Map to [`../../system/api-contract.md`](../../system/api-contract.md):
   visibility + `flagReason` clear + owner notification + audit, all in one transaction. Reject is the
   symmetric transaction. Prevent double-decision on an already-decided listing.
 - **Enforce visibility:** never return non-`approved`/archived listings to public/buyer callers.
-- **Own the doc checklist and Aadhaar/KYC gate:** verification status and per-doc state are trust
-  data; the client cannot self-mark verified.
+- **Own the listing doc checklist:** the listing's verification status and per-doc state are trust
+  data; the client cannot self-mark verified. (The owner's Verified badge is a separate **opt-in**
+  signal, not a posting gate.)
 - **Enforce foundation-change re-verification:** detect foundation edits server-side and revert to
   `pending`; do not let the client keep a materially changed listing live.
 - **Write audit + internal notes server-side** with a trusted actor identity (client-supplied `who`

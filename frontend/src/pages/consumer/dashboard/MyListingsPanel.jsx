@@ -15,6 +15,7 @@ import EmptyState from './myListings/EmptyState.jsx';
 import PrivateListingCard from './myListings/PrivateListingCard.jsx';
 import ListingCard from './myListings/ListingCard.jsx';
 import FinalizeDealModal from './myListings/FinalizeDealModal.jsx';
+import VerifyListingsBanner from './myListings/VerifyListingsBanner.jsx';
 
 export default function MyListingsPanel({ listings, user, toast, openReview }) {
   /* Full My Listings tab with lifecycle actions: Mark Under Offer, Finalize, Reopen, Edit, Delete */
@@ -53,6 +54,15 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     listingsState.forEach((l) => c[catOf(l)]++);
     return c;
   }, [listingsState]);
+
+  // C2 (ADR-019): total enquiries across this owner's live properties. When they already
+  // have real interest, the verify nudge attaches to that value moment ("verified owners get
+  // 3× more genuine enquiries") instead of a generic pitch. Mock uses the per-listing count;
+  // moves to a backend aggregate later.
+  const totalEnquiries = useMemo(
+    () => listingsState.reduce((s, l) => (catOf(l) === 'property' ? s + (Number(l.enquiries) || 0) : s), 0),
+    [listingsState],
+  );
 
   const [typeFilter, setTypeFilter] = useState('all');
   // Only surface filter options the user actually has something in.
@@ -198,6 +208,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
         {attentionListings.length > 0 && (
           <AttentionBanner attentionListings={attentionListings} dormantCount={dormantCount} onConfirmAll={handleConfirmAll} />
         )}
+        {counts.property > 0 && <VerifyListingsBanner enquiryCount={totalEnquiries} onVerified={refreshListings} />}
         {listingsState.length === 0 ? (
           <EmptyState />
         ) : visibleListings.length === 0 ? (

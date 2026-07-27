@@ -1,5 +1,6 @@
 import { createdMs, freshnessState } from '../../../lib/freshness.js';
 import { computeQualityScore } from '../../../lib/qualityScore.js';
+import { isFeaturedActive } from '../../../lib/featured.js';
 import { societyForListing } from '../../../data/societies.js';
 import { sectionVisible } from './filterRelevance.js';
 import { matchRentType, matchBuyType, bhkMatch, commercialTypeMatch, offersSharing } from './matchers.js';
@@ -12,7 +13,7 @@ import { propLatLng } from './geo.js';
 const FRESH_WEIGHT = { active: 200, aging: 120, stale: 40, dormant: 0 };
 const relevanceScore = (p) => {
   let s = 0;
-  if (p.featured) s += 1000;
+  if (isFeaturedActive(p)) s += 1000;
   if (p.ownerVerified) s += 250;
   if (p.ownershipVerified) s += 200;
   if (p.rera) s += 80;

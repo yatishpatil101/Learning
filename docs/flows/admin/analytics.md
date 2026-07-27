@@ -35,10 +35,10 @@
 - Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- **Read only** (no writes; analytics is pure aggregation): [`listings`](../../system/domain-model.md),
-  [`enquiries`](../../system/domain-model.md), [`visits`](../../system/domain-model.md),
-  [`deals`](../../system/domain-model.md), [`tickets`](../../system/domain-model.md),
-  [`users`](../../system/domain-model.md), [`localities`](../../system/domain-model.md),
+- **Read only** (no writes; analytics is pure aggregation): [`listings`](../../system/data-model.md),
+  [`enquiries`](../../system/data-model.md), [`visits`](../../system/data-model.md),
+  [`deals`](../../system/data-model.md), [`tickets`](../../system/data-model.md),
+  [`users`](../../system/data-model.md), [`localities`](../../system/data-model.md),
   `analytics.sources`, and runtime signals (`searchIntents`, `propertyViews`, `demandAlerts`, `demandPosts`,
   `staffActivity`) plus localStorage (`pnCityRequests`, dismissed alerts).
 - `analytics.traffic` / `analytics.revenue` seed rows feed Dashboard tiles.
@@ -127,9 +127,10 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
 
 ### 5.9 Dashboard KPIs (adjacent, `AdminDashboard.jsx`)
 - **Needs-attention tiles** (live counts): Pending Verification (`status==='pending'`), Needs Follow-up
-  (stale >48h pending + concierge owners missing photos/Aadhaar, deduped), Flagged (`status==='flagged'`),
+  (stale >48h pending + concierge owners missing photos or the Verified badge, deduped), Flagged (`status==='flagged'`),
   New Enquiries (`status==='new'`), Scheduled Visits (`status==='scheduled'`), New Service Requests (`status==='new'`),
-  Deals in Progress (`status==='in_progress'`), Owner KYC Pending (`role==='owner' && !verified`).
+  Deals in Progress (`status==='in_progress'`), Owner KYC Pending (`role==='owner' && !verified` — owners
+  without the **opt-in** Verified badge; a growth nudge, not a posting/contact gate, per ADR-019).
 - **At-a-glance:** Total Users (buyer+owner), Active Listings (`approved`) / total, Revenue this month
   (`subscriptions+services+featured` of last `analytics.revenue` row, MoM via `pct`), Total Deals, Signups today
   (last traffic row), Visits today + `visits30` (sum).
@@ -181,7 +182,7 @@ Pune-specific monthly multipliers (12 each): `rentMultiplier` (peak Jun-Aug), `b
   (`traffic[]`, `revenue[]`, `sources[]`); localities/listings/tickets/deals seeds; localStorage `pnCityRequests`, `pn_dismissed_alerts`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Admin & Analytics):
 - `GET /admin/analytics` (section 29) - full analytics payload.
 - `GET /admin/analytics/traffic` (section 29) - the traffic series (with `days` param).
 - `GET /admin/analytics/funnel` (section 29) - conversion funnel.

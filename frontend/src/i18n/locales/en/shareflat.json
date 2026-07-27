@@ -358,7 +358,6 @@
     "smartSearchToast": "Smart search · {{detail}}",
     "searchingQuery": "Searching “{{query}}”",
     "ownerConsentConfirmedToast": "Owner consent confirmed — your replacement post now shows it.",
-    "identityVerified": "Identity verified — you can now post, list a room, or create a group.",
     "partWithin15Days": "Within 15 days",
     "partWithinMonth": "Within a month",
 
@@ -377,8 +376,6 @@
     "nearChip": "Near {{label}} · {{radius}} {{unit}}",
     "placeWord": "place",
     "changeAreas": "Change areas",
-    "aadhaarGateSubtitle": "Only Aadhaar-verified users can post a request, list a room, or create a group on PuneNest.",
-    "aadhaarGateNote": "We verify the mobile number linked to your Aadhaar via OTP. It keeps every listing genuine and every host accountable — your number stays private.",
     "reportTitle": "Report this post",
     "reportSuccess": "Thanks — our team will review this post."
   }

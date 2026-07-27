@@ -1,17 +1,34 @@
 openapi: 3.1.0
 info:
   title: PuneNest API
-  version: "1.0.0"
+  version: "1.2.0"
   summary: Pune-first real-estate marketplace backend API.
   description: |
     Enterprise API contract for **PuneNest**, a Pune-first real-estate marketplace
     (broker-optional listings, rentals, deals, services and back-office operations).
 
-    This specification is reverse-engineered from the React frontend and the
-    canonical design docs:
-      - `docs/system/api-contract.md`   — endpoint catalogue (33 domains)
-      - `docs/system/domain-model.md`   — entity/enum reference
-      - `docs/system/api-architecture-review.md` — architecture-review narrative
+    **This specification is the single source of truth for the PuneNest HTTP API.**
+    Endpoints, request/response shapes, and enums are defined here and nowhere else.
+    Companion docs describe *behaviour and data*, not the wire contract:
+      - `docs/system/data-model.md`     — ER map / DB persistence design (field shapes are the schemas below)
+      - `docs/system/cross-cutting.md`  — auth, contact gate, maker-checker, audit rules
+      - `docs/system/platform-architecture.md` — component/vendor decisions & ADRs (KYC, payments, verification posture)
+      - `docs/system/backend-api-architecture-review.md` — architecture-review narrative
+      - `docs/flows/**`                 — per-feature behavioural specs
+
+    ### Changelog
+    - 1.2.0 — **Verification is a badge, not a gate** (ADR-019): browsing and contacting
+      owners require only a signed-in mobile-OTP account (L1); identity verification is an
+      **opt-in "Verified" badge** (L2) and is hard-required only at the deal step (L3).
+      KYC moved to the **Cashfree Secure ID DigiLocker** consent flow (ADR-009/017): the
+      submit endpoint now *starts* a redirect and resolves via webhook (no Aadhaar number is
+      ever received); dedup is a composite `identity_hash` (ADR-009b) and mobile-match is a
+      soft signal at MVP (ADR-009a). Contact `403 aadhaar_required` is replaced by
+      `403 verification_required`, returned **only** when the target owner opted into
+      "verified contact only".
+    - 1.1.0 — Reconciled the role model to the canonical `buyer/owner/staff/admin`
+      set (`staff` scoped by `team`); aligned `Team` to the ops teams; made this
+      spec the sole API source of truth (retired the duplicate markdown catalogue).
 
     ## Conventions
     - Base path: `/api`
@@ -60,6 +77,13 @@ tags:
   - name: Admin & Analytics
     description: KPIs, analytics, platform settings, content/CMS, society leads.
 
+externalDocs:
+  description: >
+    Behavioural flow specs (actors, screens, sequence) and the architecture / ADRs that
+    this wire contract implements. Swagger documents the request/response of each call;
+    these docs document the end-to-end journey across calls, actors and time.
+  url: docs/system/platform-architecture.md
+
 security:
   - bearerAuth: []
 
@@ -73,6 +97,14 @@ paths:
       summary: Login via OTP-verified mobile
       security: []
       operationId: login
+      description: >
+        Step 2 of the mobile-OTP flow (L1): submit mobile + OTP to receive access/refresh
+        tokens. L1 sign-in is the only floor for participating (posting, enquiring,
+        contacting owners) — identity verification is an opt-in badge on top (ADR-019).
+        On success, call `getMe`.
+      externalDocs:
+        description: Auth / OTP sign-in flow (actors + screens)
+        url: docs/flows/consumer/auth.md
       requestBody:
         required: true
         content:
@@ -80,10 +112,12 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: Authenticated
+          description: Authenticated — tokens issued.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
+          links:
+            currentUser: { $ref: '#/components/links/GetCurrentUser' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -154,7 +188,7 @@ paths:
       security: []
       operationId: searchProperties
       parameters:
-        - { name: deal, in: query, schema: { $ref: '#/components/schemas/Deal' } }
+        - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
         - { name: type, in: query, schema: { type: string } }
         - { name: locality, in: query, schema: { type: string } }
         - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
@@ -237,6 +271,79 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LocalityDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /societies:
+    get:
+      tags: [Catalog & Search]
+      summary: Browse societies (curated + MahaRERA + community)
+      security: []
+      operationId: listSocieties
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Free-text name/builder search }
+        - { name: locality, in: query, schema: { type: string }, description: Filter by locality slug }
+        - { name: sort, in: query, schema: { type: string }, description: 'e.g. occupancy,desc' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Societies
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Society' }
+  /societies/{slug}:
+    get:
+      tags: [Catalog & Search]
+      summary: Society hub detail (curated + community merged)
+      security: []
+      operationId: getSociety
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Society detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/societies/{slug}/follow:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Engagement]
+      summary: Follow a society
+      operationId: followSociety
+      responses:
+        '204': { description: Followed }
+    delete:
+      tags: [Engagement]
+      summary: Unfollow a society
+      operationId: unfollowSociety
+      responses:
+        '204': { description: Unfollowed }
+  /reels:
+    get:
+      tags: [Catalog & Search]
+      summary: Short-video property reels feed
+      security: []
+      operationId: listReels
+      parameters:
+        - { name: locality, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Reels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reel' }
   /cities:
     get:
       tags: [Catalog & Search]
@@ -363,7 +470,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Deal2' }
+                items: { $ref: '#/components/schemas/Deal' }
   /me/deals/{propId}:
     parameters:
       - { $ref: '#/components/parameters/PropId' }
@@ -376,7 +483,7 @@ paths:
           description: Deal
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Deal2' }
+              schema: { $ref: '#/components/schemas/Deal' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/deals/{propId}/reserve:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
@@ -384,8 +491,16 @@ paths:
       tags: [Listings]
       summary: Mark property under offer
       operationId: reserveDeal
+      description: >
+        Marks the property under offer (deal state: available → reserved → closed/reopened).
+      externalDocs:
+        description: Deals, offers & finalization flow
+        url: docs/flows/consumer/deals-offers-finalization.md
       responses:
-        '200': { description: Reserved }
+        '200':
+          description: Reserved
+          links:
+            closeThisDeal: { $ref: '#/components/links/CloseThisDeal' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/deals/{propId}/close:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
@@ -479,6 +594,12 @@ paths:
       tags: [Listings]
       summary: Submit offer
       operationId: submitOffer
+      description: >
+        Buyer submits a price offer on a listing. The owner then accepts / declines /
+        counters via `respondOffer` (negotiation loop).
+      externalDocs:
+        description: Deals, offers & finalization flow
+        url: docs/flows/consumer/deals-offers-finalization.md
       requestBody:
         required: true
         content:
@@ -490,6 +611,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Offer' }
+          links:
+            respondToOffer: { $ref: '#/components/links/RespondToOffer' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /offers/{id}/respond:
@@ -758,30 +881,107 @@ paths:
   /me/verification/aadhaar:
     get:
       tags: [Moderation]
-      summary: Check own Aadhaar status
+      summary: Get own verification badge status
       operationId: getAadhaarStatus
+      description: >
+        Returns the caller's **opt-in** identity-verification badge (L2). Absence of a
+        badge never blocks browsing, posting or contacting owners (ADR-019).
       responses:
         '200':
-          description: Status
+          description: Badge status
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AadhaarVerification' }
     post:
       tags: [Moderation]
-      summary: Submit Aadhaar verification
+      summary: Start DigiLocker verification (earn the Verified badge)
       operationId: submitAadhaar
+      description: >
+        Starts the **Cashfree Secure ID DigiLocker** consent flow (ADR-009/017). The
+        server returns a short-lived `verificationUrl`; the user completes Aadhaar + OTP +
+        consent **on DigiLocker** (never on PuneNest), and the result is delivered
+        asynchronously to the Cashfree webhook below. We never receive the raw Aadhaar
+        number; dedup uses a composite `identity_hash` (ADR-009b). This is opt-in and only
+        awards a trust badge + ranking boost — it is **not** required to use the platform.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KycStartRequest' }
+      responses:
+        '202':
+          description: Verification started — redirect the user to `verificationUrl`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KycStart' }
+              examples:
+                started:
+                  summary: Redirect the user to DigiLocker consent
+                  value: { ref: kyc_9f2a, verificationUrl: 'https://verification.cashfree.com/dl/9f2a', expiresAt: '2026-07-26T20:10:00Z' }
+          links:
+            pollBadgeStatus: { $ref: '#/components/links/PollKycBadge' }
+        '409':
+          description: >
+            This identity is already linked to another account (one Aadhaar = one badge,
+            ADR-009b). Fires only inside this opt-in flow; never blocks posting/contact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: aadhaar_already_registered, message: This Aadhaar is already verified on another account, status: 409 }
+        '422': { $ref: '#/components/responses/ValidationError' }
+      externalDocs:
+        description: Aadhaar-badge (DigiLocker) sequence & ADRs
+        url: docs/system/platform-architecture.md
+      callbacks:
+        verificationResult: { $ref: '#/components/callbacks/DigilockerVerificationResult' }
+  /webhooks/cashfree/digilocker:
+    post:
+      tags: [Moderation]
+      summary: Cashfree DigiLocker verification webhook (provider → backend)
+      operationId: cashfreeDigilockerWebhook
+      security: []
+      description: >
+        Server-to-server callback from Cashfree Secure ID delivering
+        `DIGILOCKER_VERIFICATION_SUCCESS` / failure. Authenticity is verified via the
+        HMAC-SHA256 signature over `x-webhook-timestamp + rawBody` (ADR-017); the outbound
+        prod call itself is signed with an RSA public-key signature (`X-Cf-Signature`,
+        ADR-018). The success payload additionally carries the Aadhaar-linked `mobile`,
+        used for the soft mobile-match signal (ADR-009a). Handlers must verify the
+        signature, be idempotent, and always return 200.
+      parameters:
+        - { name: x-webhook-signature, in: header, required: true, schema: { type: string } }
+        - { name: x-webhook-timestamp, in: header, required: true, schema: { type: string } }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/AadhaarSubmit' }
+            schema: { $ref: '#/components/schemas/DigilockerWebhook' }
       responses:
-        '200':
-          description: Verified
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AadhaarVerification' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '200': { description: Acknowledged (always 200 on receipt) }
+  /webhooks/cashfree/payment:
+    post:
+      tags: [Rentals & Payments]
+      summary: Cashfree Payment Gateway webhook (provider → backend)
+      operationId: cashfreePaymentWebhook
+      security: []
+      description: >
+        Server-to-server callback from the Cashfree PG delivering the **terminal** payment
+        outcome (`PAYMENT_SUCCESS_WEBHOOK` / failure) for rent, subscription, boost and
+        service-order payments (ADR-017). This is the source of truth for payment state —
+        the synchronous `201` on the initiating call is only `pending`. Authenticity is
+        verified via the HMAC-SHA256 signature over `x-webhook-timestamp + rawBody`.
+        Handlers must verify the signature, be idempotent (dedupe on `orderId`), and always
+        return 200.
+      parameters:
+        - { name: x-webhook-signature, in: header, required: true, schema: { type: string } }
+        - { name: x-webhook-timestamp, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentWebhook' }
+      responses:
+        '200': { description: Acknowledged (always 200 on receipt) }
   /properties/{id}/verification:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     get:
@@ -882,25 +1082,43 @@ paths:
   /contacts/request:
     post:
       tags: [Leads & Contact]
-      summary: Request owner's contact (Aadhaar-gated)
+      summary: Request owner's contact (requires sign-in)
       operationId: requestContact
+      description: >
+        Requires only a signed-in mobile-OTP account (L1) — identity verification is **not**
+        a prerequisite (ADR-019). Returns `401` if unauthenticated. Returns
+        `403 verification_required` **only** when the target owner has opted into
+        "verified contact only" and the caller has no Verified badge (L2).
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ContactRequestCreate' }
+      externalDocs:
+        description: Contact-gate & leads flow (badge-not-gate)
+        url: docs/flows/consumer/contact-gate-leads.md
       responses:
         '200':
-          description: Requested
+          description: Requested — the owner is notified; contact unlocks now or on approval.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ContactStatus' }
+              examples:
+                approved:
+                  summary: Contact approved
+                  value: { status: approved, verifiedContactOnly: false, verificationRequired: false }
+                pendingOwner:
+                  summary: Awaiting owner approval
+                  value: { status: pending, verifiedContactOnly: false, verificationRequired: false }
+          links:
+            checkStatus: { $ref: '#/components/links/CheckContactStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
-          description: Aadhaar verification required
+          description: Owner accepts verified contacts only — earn the Verified badge to proceed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { error: aadhaar_required, message: Aadhaar verification required, status: 403 }
+              example: { error: verification_required, message: This owner only accepts verified contacts, status: 403 }
   /me/contact-requests:
     get:
       tags: [Leads & Contact]
@@ -952,16 +1170,69 @@ paths:
   /messages:
     get:
       tags: [Leads & Contact]
-      summary: Current user's messages
+      summary: Current user's conversations (in-app inbox)
       operationId: myMessages
       responses:
         '200':
-          description: Messages
+          description: Conversations
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Message' }
+                items: { $ref: '#/components/schemas/Conversation' }
+    post:
+      tags: [Leads & Contact]
+      summary: Start a conversation (e.g. owner-buyer chat after contact-gate)
+      operationId: startConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConversationCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+  /messages/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Leads & Contact]
+      summary: Conversation detail with message thread
+      operationId: getConversation
+      responses:
+        '200':
+          description: Conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /messages/{id}/reply:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Send a message in a conversation
+      operationId: replyConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201':
+          description: Sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+  /messages/{id}/read:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Mark a conversation as read
+      operationId: readConversation
+      responses:
+        '204': { description: Marked read }
   /me/finalization-requests:
     get:
       tags: [Leads & Contact]
@@ -981,6 +1252,13 @@ paths:
       tags: [Leads & Contact]
       summary: Request to finalize deal (buyer, maker step)
       operationId: requestFinalization
+      description: >
+        Maker step of the maker-checker finalization (buyer). The owner then accepts
+        (checker step) — the deal-verified moment (L3) where hard KYC / mobile-match may be
+        required of both parties (ADR-009a/019). Track via `finalizationStatus`.
+      externalDocs:
+        description: Deals, offers & finalization flow
+        url: docs/flows/consumer/deals-offers-finalization.md
       requestBody:
         required: true
         content:
@@ -992,6 +1270,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FinalizationRequest' }
+          links:
+            trackStatus: { $ref: '#/components/links/FinalizationStatus' }
   /finalization/{propId}/status:
     parameters: [ { $ref: '#/components/parameters/PropId' } ]
     get:
@@ -1157,6 +1437,14 @@ paths:
       tags: [Rentals & Payments]
       summary: Pay rent (tenant)
       operationId: payRent
+      description: >
+        Initiates a rent payment via the Cashfree Payment Gateway (ADR-017). The `201`
+        records the payment as **pending**; its terminal state (`success` / `failed`) is
+        confirmed asynchronously by Cashfree via the payment webhook (see `callbacks`).
+        Treat the returned record as pending until the webhook confirms.
+      externalDocs:
+        description: Rent & tenancy payment flow
+        url: docs/flows/consumer/rent-tenancy.md
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
@@ -1165,11 +1453,13 @@ paths:
             schema: { $ref: '#/components/schemas/RentPaymentCreate' }
       responses:
         '201':
-          description: Paid
+          description: Payment initiated (pending until the webhook confirms).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RentPayment' }
         '422': { $ref: '#/components/responses/ValidationError' }
+      callbacks:
+        paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
   /me/rent-ledger:
     get:
       tags: [Rentals & Payments]
@@ -1718,6 +2008,13 @@ paths:
       tags: [Billing & Growth]
       summary: Subscribe / upgrade plan
       operationId: subscribe
+      description: >
+        Subscribes to / upgrades a plan, collected via the Cashfree Payment Gateway
+        (ADR-017). `402` means payment is required to proceed; on gateway success the
+        subscription is activated by the payment webhook (see `callbacks`).
+      externalDocs:
+        description: Plans, billing & referrals flow
+        url: docs/flows/consumer/plans-billing-refer.md
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
@@ -1731,6 +2028,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Subscription' }
         '402': { description: Payment required }
+      callbacks:
+        paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
   /boost-packs:
     get:
       tags: [Billing & Growth]
@@ -1751,6 +2050,13 @@ paths:
       tags: [Billing & Growth]
       summary: Boost a listing
       operationId: boostListing
+      description: >
+        Purchases a boost pack for a listing, collected via the Cashfree Payment Gateway
+        (ADR-017). The boost activates on gateway success, confirmed by the payment webhook
+        (see `callbacks`).
+      externalDocs:
+        description: Plans, billing & referrals flow
+        url: docs/flows/consumer/plans-billing-refer.md
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
@@ -1767,6 +2073,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Boost' }
+      callbacks:
+        paymentResult: { $ref: '#/components/callbacks/PaymentResult' }
   /service-catalog:
     get:
       tags: [Billing & Growth]
@@ -1834,6 +2142,73 @@ paths:
       responses:
         '200': { description: Redeemed }
         '409': { description: Already redeemed / invalid }
+  /referrals:
+    get:
+      tags: [Billing & Growth]
+      summary: Referral review queue (admin/ops fraud desk)
+      operationId: listReferrals
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, qualified, rewarded, rejected] } }
+        - { name: risk, in: query, schema: { type: string, enum: [low, medium, high] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Referrals
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Referral' }
+  /referrals/{id}/approve:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Approve a referral (checker) - credits the referrer's reward ledger
+      operationId: approveReferral
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referral' }
+  /referrals/{id}/reject:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Reject a referral (checker)
+      operationId: rejectReferral
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referral' }
+  /referrals/{id}/clawback:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Claw back a released referral reward - debits the ledger
+      operationId: clawbackReferral
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Clawed back
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referral' }
   # ============================================================
   # 10. ENGAGEMENT (saved, alerts, reviews, share-flat, content)
   # ============================================================
@@ -1919,6 +2294,38 @@ paths:
       tags: [Engagement]
       summary: Post a review
       operationId: createReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+  /reviews/{entityType}/{entityId}:
+    parameters:
+      - { name: entityType, in: path, required: true, schema: { type: string, enum: [society, locality, owner] } }
+      - { name: entityId, in: path, required: true, schema: { type: string }, description: Slug or id of the target entity }
+    get:
+      tags: [Engagement]
+      summary: Reviews for a society / locality / owner
+      operationId: listEntityReviews
+      security: []
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Review' }
+    post:
+      tags: [Engagement]
+      summary: Post a review for a society / locality / owner
+      operationId: createEntityReview
       requestBody:
         required: true
         content:
@@ -2262,7 +2669,9 @@ components:
       description: >
         JWT access token issued by the Identity & Access domain. Send as
         `Authorization: Bearer <token>`. Short-lived (15 min); refresh via
-        `/auth/refresh`. Claims carry `sub`, `role`, and `mobileVerified`.
+        `/auth/refresh`. Claims carry `sub`, `role`, `mobileVerified`, and
+        `aadhaarVerified` (an opt-in trust **badge**, not a gate — participation only
+        needs `mobileVerified`); `staff` tokens also carry `team`.
     oidc:
       type: openIdConnect
       openIdConnectUrl: https://auth.punenest.in/.well-known/openid-configuration
@@ -2330,11 +2739,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: unauthorized, message: Authentication required, status: 401 }
     Forbidden:
-      description: Authenticated but not permitted (RBAC / contact gate).
+      description: Authenticated but not permitted (RBAC, or owner accepts verified contacts only).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: forbidden, message: Contact details are gated until Aadhaar verification, status: 403 }
+          example: { error: forbidden, message: You do not have permission to perform this action, status: 403 }
     NotFound:
       description: Resource not found.
       content:
@@ -2355,6 +2764,56 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: rate_limited, message: Too many requests, status: 429 }
 
+  links:
+    GetCurrentUser:
+      operationId: getMe
+      description: Fetch the freshly authenticated user's profile.
+    PollKycBadge:
+      operationId: getAadhaarStatus
+      description: Poll the opt-in badge until `status` is `verified` or `failed`.
+    CheckContactStatus:
+      operationId: contactStatus
+      description: Re-read the gate state for the property just requested.
+      parameters:
+        propertyId: $request.body#/propertyId
+    CloseThisDeal:
+      operationId: closeDeal
+      description: After reserving, close the deal (sold/rented) for the same property.
+      parameters:
+        propId: $request.path.propId
+    FinalizationStatus:
+      operationId: finalizationStatus
+      description: Track the maker-checker finalization for this property.
+      parameters:
+        propId: $request.path.propId
+    RespondToOffer:
+      operationId: respondOffer
+      description: Owner accepts / declines / counters the submitted offer.
+      parameters:
+        id: $response.body#/id
+  callbacks:
+    DigilockerVerificationResult:
+      'https://api.punenest.example/api/webhooks/cashfree/digilocker':
+        post:
+          summary: Cashfree posts the DigiLocker verification result here (async continuation).
+          description: See `POST /webhooks/cashfree/digilocker` for signature verification and full semantics.
+          requestBody:
+            content:
+              application/json:
+                schema: { $ref: '#/components/schemas/DigilockerWebhook' }
+          responses:
+            '200': { description: Acknowledged }
+    PaymentResult:
+      'https://api.punenest.example/api/webhooks/cashfree/payment':
+        post:
+          summary: Cashfree posts the terminal payment result here (async continuation).
+          description: See `POST /webhooks/cashfree/payment` for signature verification and full semantics.
+          requestBody:
+            content:
+              application/json:
+                schema: { $ref: '#/components/schemas/PaymentWebhook' }
+          responses:
+            '200': { description: Acknowledged }
   schemas:
     # ---- Common / primitives ----
     Error:
@@ -2395,7 +2854,7 @@ components:
       format: int64
       description: Amount in whole Indian rupees (INR). No decimals/paise.
       example: 2500000
-    Deal:
+    DealIntent:
       type: string
       description: Transaction intent.
       enum: [buy, rent]
@@ -2404,20 +2863,26 @@ components:
       enum: [unfurnished, semi-furnished, furnished]
     PropertyStatus:
       type: string
-      enum: [draft, pending, active, rejected, on-hold, rented, sold, archived]
+      enum: [pending, approved, rejected, flagged, archived]
     Role:
       type: string
-      enum: [user, owner, tenant, staff, moderator, finance, admin, superadmin]
+      description: >
+        Canonical auth role carried in the JWT `role` claim. Property seekers
+        (buyers and tenants) share the single `buyer` role. `staff` are scoped
+        further by `team`. Admin RBAC labels (e.g. manager/member) are
+        permissions, not roles, and are not modelled here.
+      enum: [buyer, owner, staff, admin]
     Team:
       type: string
-      enum: [moderation, support, legal, field-ops, finance]
+      description: Ops team a staff member belongs to; scopes service-request and ticket routing.
+      enum: [rental, legal, loans, interior, packers, valuation]
     Party:
       type: object
       description: A counterparty (buyer/tenant) on a deal, contact gated.
       properties:
         name: { type: string }
         mobile: { $ref: '#/components/schemas/Mobile' }
-        role: { type: string, enum: [buyer, tenant, owner] }
+        role: { type: string, enum: [buyer, owner] }
     StatusUpdate:
       type: object
       required: [status]
@@ -2451,6 +2916,30 @@ components:
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
+    Conversation:
+      type: object
+      description: In-app chat thread between two parties, optionally about a listing.
+      properties:
+        id: { type: string }
+        counterpartyName: { type: string }
+        counterpartyRole: { $ref: '#/components/schemas/Role' }
+        counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
+        propertyId: { type: string, nullable: true }
+        propertyTitle: { type: string, nullable: true }
+        lastMessage: { type: string, description: Preview of the most recent message }
+        unread: { type: integer, description: Unread message count for the current user }
+        updatedAt: { type: string, format: date-time }
+        messages:
+          type: array
+          description: Full thread; present on detail, omitted on list.
+          items: { $ref: '#/components/schemas/Message' }
+    ConversationCreate:
+      type: object
+      required: [counterpartyMobile, body]
+      properties:
+        counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
+        propertyId: { type: string, description: Listing the chat is about, if any }
+        body: { type: string, maxLength: 4000 }
 
     # ---- Identity & Access ----
     LoginRequest:
@@ -2480,10 +2969,18 @@ components:
         id: { type: string }
         name: { type: string }
         mobile: { $ref: '#/components/schemas/Mobile' }
-        email: { type: string, format: email }
+        email: { type: string, format: email, nullable: true }
         role: { $ref: '#/components/schemas/Role' }
-        mobileVerified: { type: boolean }
-        aadhaarVerified: { type: boolean }
+        team: { $ref: '#/components/schemas/Team' }
+        status: { type: string, enum: [active, suspended, archived] }
+        verified: { type: boolean, description: Opt-in identity Verified badge (L2, ADR-019) — not required to participate. }
+        city: { type: string, example: Pune }
+        mobileVerified: { type: boolean, description: Mobile-OTP (L1) — the floor for posting/enquiring/contacting. }
+        aadhaarVerified: { type: boolean, description: Alias of the Verified badge (DigiLocker). A trust signal, never a gate. }
+        verifiedContactOnly: { type: boolean, description: Owner preference — accept contact requests from verified (L2) users only. }
+        listingsCount: { type: integer, description: Active listings (owners) }
+        joinedAt: { type: string, format: date-time }
+        lastActive: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
     UserUpdate:
       type: object
@@ -2500,7 +2997,7 @@ components:
         id: { type: string }
         slug: { type: string }
         title: { type: string }
-        deal: { $ref: '#/components/schemas/Deal' }
+        deal: { $ref: '#/components/schemas/DealIntent' }
         propertyType: { type: string, example: apartment }
         bhk: { type: number, example: 3 }
         price: { $ref: '#/components/schemas/Money' }
@@ -2544,6 +3041,34 @@ components:
             video: { type: string, format: uri }
             address: { type: string }
             pincode: { type: string }
+            views: { type: integer, description: Denormalized view counter }
+            enquiries: { type: integer, description: Denormalized enquiry counter }
+            featured: { type: boolean }
+            flagReason: { type: string, nullable: true, description: Admin moderation flag; empty when unflagged }
+            ownerVerified: { type: boolean }
+            ownershipVerified: { type: boolean }
+            societyVerified: { type: boolean }
+            conveyanceDone: { type: boolean }
+            docsCount: { type: integer }
+            owner:
+              type: object
+              description: Owner summary; contact number masked until the contact-gate is passed.
+              properties:
+                id: { type: string }
+                name: { type: string }
+                mobile: { type: string, description: Masked (e.g. 98XXXXX210) until unlocked }
+                verified: { type: boolean }
+            adminPipeline:
+              type: object
+              description: Admin post-on-behalf onboarding pipeline (staff-created listings).
+              properties:
+                postedByAdmin: { type: boolean }
+                postedByStaff: { type: string, nullable: true }
+                pipelineStage: { type: string, enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed] }
+                claimLinkSent: { type: boolean }
+                photosUploaded: { type: boolean }
+                aadhaarVerified: { type: boolean }
+                reminderCount: { type: integer }
     Locality:
       type: object
       properties:
@@ -2553,6 +3078,13 @@ components:
         listingCount: { type: integer }
         avgRentPsf: { type: number }
         avgBuyPsf: { type: number }
+        ratePerSqft: { type: number, description: Avg buy rate (INR/sqft) }
+        avgRent: { type: integer, description: Absolute avg monthly rent (INR) }
+        demand: { type: integer, description: Demand index (0-100) }
+        focus: { type: string, enum: [Buy, Rent, Both] }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        active: { type: boolean, description: Shown on site }
     LocalityDetail:
       allOf:
         - $ref: '#/components/schemas/Locality'
@@ -2569,6 +3101,64 @@ components:
                   month: { type: string }
                   rentPsf: { type: number }
                   buyPsf: { type: number }
+    Society:
+      type: object
+      properties:
+        id: { type: string, example: S01 }
+        slug: { type: string, example: kumar-pinnacle }
+        name: { type: string }
+        builder: { type: string }
+        localitySlug: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        year: { type: integer, description: Year built / possession }
+        towers: { type: integer }
+        units: { type: integer }
+        occupancy: { type: number, description: Occupancy percentage (0-100) }
+        maintenancePerSqft: { type: number }
+        parkingRatio: { type: number }
+        lifts: { type: integer }
+        security: { type: boolean }
+        water: { type: string }
+        power: { type: string }
+        petPolicy: { type: string }
+        vegPolicy: { type: string }
+        rera: { type: string, nullable: true, description: MahaRERA registration id; empty if none }
+        registration: { type: boolean, description: Society registered }
+        conveyance: { type: boolean, description: Conveyance deed done }
+        amenities: { type: array, items: { type: string } }
+        source: { type: string, enum: [curated, rera, community], description: Origin of the record }
+        claimStatus: { type: string, enum: [unclaimed, pending, claimed], description: Community claim state }
+        listingCount: { type: integer }
+        followerCount: { type: integer }
+        followedByMe: { type: boolean }
+    SocietyDetail:
+      allOf:
+        - $ref: '#/components/schemas/Society'
+        - type: object
+          properties:
+            avgRating: { type: number }
+            reviewCount: { type: integer }
+            homes:
+              type: array
+              items: { $ref: '#/components/schemas/PropertySummary' }
+            reviews:
+              type: array
+              items: { $ref: '#/components/schemas/Review' }
+    Reel:
+      type: object
+      properties:
+        id: { type: string, example: RL1 }
+        listingId: { type: string, description: FK to a property }
+        title: { type: string }
+        locality: { type: string }
+        price: { $ref: '#/components/schemas/Money' }
+        deal: { $ref: '#/components/schemas/DealIntent' }
+        poster: { type: string, description: Poster / thumbnail image url }
+        video: { type: string, description: Video url }
+        likes: { type: integer }
+        views: { type: integer }
+        tag: { type: string }
     City:
       type: object
       properties:
@@ -2587,7 +3177,7 @@ components:
       type: object
       description: Transparent fee/charges breakdown for a deal.
       properties:
-        deal: { $ref: '#/components/schemas/Deal' }
+        deal: { $ref: '#/components/schemas/DealIntent' }
         brokerage: { $ref: '#/components/schemas/Money' }
         platformFee: { $ref: '#/components/schemas/Money' }
         stampDuty: { $ref: '#/components/schemas/Money' }
@@ -2600,7 +3190,7 @@ components:
       required: [title, deal, propertyType, price, locality, city]
       properties:
         title: { type: string }
-        deal: { $ref: '#/components/schemas/Deal' }
+        deal: { $ref: '#/components/schemas/DealIntent' }
         propertyType: { type: string }
         bhk: { type: number }
         price: { $ref: '#/components/schemas/Money' }
@@ -2637,9 +3227,18 @@ components:
         propertyId: { type: string }
         from: { $ref: '#/components/schemas/Party' }
         amount: { $ref: '#/components/schemas/Money' }
-        status: { type: string, enum: [pending, countered, accepted, rejected, withdrawn] }
+        status: { type: string, enum: [pending, countered, accepted, declined, withdrawn] }
         message: { type: string }
         createdAt: { type: string, format: date-time }
+        history:
+          type: array
+          description: Negotiation trail.
+          items:
+            type: object
+            properties:
+              amount: { $ref: '#/components/schemas/Money' }
+              by: { type: string, enum: [buyer, owner] }
+              at: { type: string, format: date-time }
     OfferCreate:
       type: object
       required: [amount]
@@ -2650,7 +3249,7 @@ components:
       type: object
       required: [action]
       properties:
-        action: { type: string, enum: [accept, reject, counter] }
+        action: { type: string, enum: [accept, decline, counter] }
         counterAmount: { $ref: '#/components/schemas/Money' }
         message: { type: string }
     Visit:
@@ -2661,7 +3260,7 @@ components:
         visitor: { $ref: '#/components/schemas/Party' }
         slot: { type: string, format: date-time }
         mode: { type: string, enum: [in-person, video] }
-        status: { type: string, enum: [requested, confirmed, completed, cancelled, no-show] }
+        status: { type: string, enum: [scheduled, confirmed, completed, cancelled, no-show] }
         createdAt: { type: string, format: date-time }
     VisitCreate:
       type: object
@@ -2670,16 +3269,16 @@ components:
         slot: { type: string, format: date-time }
         mode: { type: string, enum: [in-person, video], default: in-person }
         note: { type: string }
-    Deal2:
+    Deal:
       type: object
       description: A closed/closing deal aggregate (owner ↔ counterparty lifecycle).
       properties:
         id: { type: string }
         propertyId: { type: string }
-        deal: { $ref: '#/components/schemas/Deal' }
+        deal: { $ref: '#/components/schemas/DealIntent' }
         counterparty: { $ref: '#/components/schemas/Party' }
         agreedPrice: { $ref: '#/components/schemas/Money' }
-        stage: { type: string, enum: [negotiation, agreed, token-paid, agreement, registration, closed, cancelled] }
+        status: { type: string, enum: [active, reserved, closed] }
         closedAt: { type: string, format: date-time }
     DealCloseRequest:
       type: object
@@ -2699,18 +3298,58 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
         password: { type: string, format: password }
-    AadhaarSubmit:
+    KycStartRequest:
       type: object
-      required: [aadhaarNumber]
+      description: >
+        Optional parameters when starting the DigiLocker badge flow. No Aadhaar number is
+        ever sent — verification happens on DigiLocker.
       properties:
-        aadhaarNumber: { type: string, pattern: '^[0-9]{12}$', description: Masked at rest; never returned in full. }
-        otp: { type: string }
+        redirectUrl: { type: string, format: uri, description: Where DigiLocker returns the user after consent. }
+    KycStart:
+      type: object
+      description: Handle to an in-progress DigiLocker verification (ADR-009/017).
+      required: [verificationUrl, ref]
+      properties:
+        ref: { type: string, description: Server-side verification reference (correlates with the webhook). }
+        verificationUrl: { type: string, format: uri, description: Short-lived Cashfree/DigiLocker consent URL to redirect the user to. }
+        expiresAt: { type: string, format: date-time }
     AadhaarVerification:
       type: object
+      description: >
+        The caller's opt-in identity-verification badge (L2). A badge boosts ranking and
+        trust but is never required to browse, post or contact (ADR-019).
       properties:
-        status: { type: string, enum: [pending, verified, failed] }
-        maskedAadhaar: { type: string, example: 'XXXX XXXX 1234' }
-        verifiedAt: { type: string, format: date-time }
+        badge: { type: boolean, description: True once the Verified badge is earned. }
+        status: { type: string, enum: [none, pending, verified, failed] }
+        source: { type: string, enum: [digilocker], description: Verification source (Cashfree Secure ID DigiLocker). }
+        maskedAadhaar: { type: string, example: 'XXXX XXXX 1234', description: Last-4 only; the full number is never stored. }
+        mobileMatch: { type: boolean, nullable: true, description: Soft signal — whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
+        verifiedAt: { type: string, format: date-time, nullable: true }
+    DigilockerWebhook:
+      type: object
+      description: Cashfree Secure ID DigiLocker callback payload (provider → backend).
+      properties:
+        type: { type: string, example: DIGILOCKER_VERIFICATION_SUCCESS }
+        ref: { type: string, description: Correlates with the `ref` returned by KycStart. }
+        status: { type: string, enum: [SUCCESS, FAILED] }
+        data:
+          type: object
+          description: Verified identity fields (masked); raw Aadhaar is never delivered.
+          properties:
+            maskedAadhaar: { type: string, example: 'XXXX XXXX 1234' }
+            mobile: { $ref: '#/components/schemas/Mobile' }
+            identityHash: { type: string, description: Server-computed composite dedup key (ADR-009b); not stored raw here. }
+    PaymentWebhook:
+      type: object
+      description: Cashfree Payment Gateway callback payload (provider → backend), ADR-017.
+      properties:
+        type: { type: string, example: PAYMENT_SUCCESS_WEBHOOK }
+        orderId: { type: string, description: Cashfree order id; the idempotency / dedup key. }
+        referenceId: { type: string, description: Our internal payment / transaction id. }
+        purpose: { type: string, enum: [rent, subscription, boost, service_order], description: What the payment settles. }
+        status: { type: string, enum: [SUCCESS, FAILED, PENDING] }
+        amount: { $ref: '#/components/schemas/Money' }
+        paidAt: { type: string, format: date-time, nullable: true }
     PropertyReview:
       type: object
       description: Moderation record for a listing under review.
@@ -2749,11 +3388,11 @@ components:
     # ---- Leads & Contact ----
     ContactStatus:
       type: object
-      description: Whether the caller may see a listing's contact (gate state).
+      description: Whether the caller may see a listing's contact, under the badge-not-gate model (ADR-019).
       properties:
-        unlocked: { type: boolean }
-        requiresAadhaar: { type: boolean }
-        remainingUnlocks: { type: integer, nullable: true }
+        status: { type: string, enum: [owner, approved, pending, declined, none], description: 'Gate state for this caller vs this listing: owner (viewer owns it), approved, pending, declined, or none (no request yet).' }
+        verifiedContactOnly: { type: boolean, description: True when the owner accepts verified contacts only — caller needs the L2 badge (ADR-019). }
+        verificationRequired: { type: boolean, description: True when this specific request is blocked pending the caller's Verified badge. }
     ContactRequestCreate:
       type: object
       required: [propertyId]
@@ -2766,7 +3405,7 @@ components:
         id: { type: string }
         propertyId: { type: string }
         requester: { $ref: '#/components/schemas/Party' }
-        status: { type: string, enum: [pending, granted, declined] }
+        status: { type: string, enum: [pending, approved, declined] }
         contact:
           type: object
           nullable: true
@@ -2777,6 +3416,8 @@ components:
         createdAt: { type: string, format: date-time }
     Enquiry:
       type: object
+      deprecated: true
+      description: Legacy pre-ADR-019 contact model; superseded by ContactRequest. Retained for back-compat.
       properties:
         id: { type: string }
         propertyId: { type: string }
@@ -2795,7 +3436,7 @@ components:
         initiator: { $ref: '#/components/schemas/Party' }
         counterparty: { $ref: '#/components/schemas/Party' }
         agreedPrice: { $ref: '#/components/schemas/Money' }
-        status: { type: string, enum: [proposed, accepted, declined, cancelled] }
+        status: { type: string, enum: [pending, accepted, declined, cancelled] }
         createdAt: { type: string, format: date-time }
     FinalizationCreate:
       type: object
@@ -2820,6 +3461,7 @@ components:
         amount: { $ref: '#/components/schemas/Money' }
         date: { type: string, format: date }
         note: { type: string }
+        recurring: { type: string, enum: [none, monthly, quarterly, yearly], default: none }
     TransactionCreate:
       type: object
       required: [type, amount, date]
@@ -2829,6 +3471,7 @@ components:
         amount: { $ref: '#/components/schemas/Money' }
         date: { type: string, format: date }
         note: { type: string }
+        recurring: { type: string, enum: [none, monthly, quarterly, yearly], default: none }
     OwnershipBasis:
       type: object
       properties:
@@ -2836,6 +3479,7 @@ components:
         purchaseDate: { type: string, format: date }
         loanOutstanding: { $ref: '#/components/schemas/Money' }
         emi: { $ref: '#/components/schemas/Money' }
+        currentValue: { $ref: '#/components/schemas/Money' }
     FinanceSummary:
       type: object
       properties:
@@ -2931,6 +3575,7 @@ components:
         categories: { type: array, items: { type: string } }
         status: { type: string, enum: [pending, granted, declined, expired] }
         shareToken: { type: string, nullable: true }
+        acknowledgedDisclaimer: { type: boolean, description: Buyer accepted the sensitive-docs disclaimer }
         createdAt: { type: string, format: date-time }
     DocumentRequestCreate:
       type: object
@@ -2950,6 +3595,20 @@ components:
         status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
         propertyId: { type: string, nullable: true }
         assignee: { type: string, nullable: true }
+        service: { type: string, description: Service catalogue display name }
+        customer: { type: string, description: Requester name }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        value: { $ref: '#/components/schemas/Money' }
+        detail: { type: string, description: Free-text request detail }
+        notes:
+          type: array
+          description: Internal staff notes.
+          items:
+            type: object
+            properties:
+              by: { type: string }
+              text: { type: string }
+              at: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
     TicketCreate:
       type: object
@@ -3110,6 +3769,28 @@ components:
         converted: { type: integer }
         rewardsEarned: { $ref: '#/components/schemas/Money' }
         rewardsPending: { $ref: '#/components/schemas/Money' }
+    Referral:
+      type: object
+      description: A single referral record with anti-fraud signals (admin/ops view).
+      properties:
+        id: { type: string, example: RF3000 }
+        referrer: { type: string }
+        referrerMobile: { $ref: '#/components/schemas/Mobile' }
+        referred: { type: string }
+        referredMobile: { $ref: '#/components/schemas/Mobile' }
+        channel: { type: string, enum: [seeker, owner] }
+        reward: { type: string, description: "Human label, e.g. '+15 owner contacts'" }
+        status: { type: string, enum: [pending, qualified, rewarded, rejected] }
+        risk: { type: string, enum: [low, medium, high] }
+        aadhaarVerified: { type: boolean }
+        aadhaarUnique: { type: boolean }
+        sameDevice: { type: boolean }
+        sameIp: { type: boolean }
+        velocityHigh: { type: boolean }
+        activated: { type: boolean }
+        at: { type: string, format: date-time }
+        handledBy: { type: string, nullable: true }
+        handledAt: { type: string, format: date-time, nullable: true }
     # ---- Engagement ----
     SavedSearch:
       type: object
@@ -3117,7 +3798,10 @@ components:
         id: { type: string }
         name: { type: string }
         query: { type: string, description: URL-encoded filter query string. }
-        alertFrequency: { type: string, enum: [off, instant, daily, weekly] }
+        filters: { type: object, additionalProperties: true, description: Structured filter object (alternative to the query string). }
+        alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
+        channel: { type: string, enum: [whatsapp, email, push], default: whatsapp }
+        newCount: { type: integer, description: New matches since last viewed }
         createdAt: { type: string, format: date-time }
     SavedSearchCreate:
       type: object
@@ -3125,12 +3809,14 @@ components:
       properties:
         name: { type: string }
         query: { type: string }
-        alertFrequency: { type: string, enum: [off, instant, daily, weekly], default: daily }
+        filters: { type: object, additionalProperties: true }
+        alertFrequency: { type: string, enum: ["off", instant, daily, weekly], default: daily }
+        channel: { type: string, enum: [whatsapp, email, push], default: whatsapp }
     Review:
       type: object
       properties:
         id: { type: string }
-        targetType: { type: string, enum: [property, locality] }
+        targetType: { type: string, enum: [property, locality, society, owner] }
         targetId: { type: string }
         author: { type: string }
         rating: { type: integer, minimum: 1, maximum: 5 }
@@ -3249,12 +3935,50 @@ components:
               amount: { $ref: '#/components/schemas/Money' }
     AdminSettings:
       type: object
+      description: Platform configuration document (SSOT for fees, feature flags and RBAC).
       properties:
         contactUnlockLimit: { type: integer }
-        aadhaarGateEnabled: { type: boolean }
+        kycBadgeEnabled: { type: boolean, description: Whether the opt-in DigiLocker Verified-badge flow is available (ADR-019). Replaces the retired global Aadhaar gate. }
         listingExpiryDays: { type: integer }
         boostEnabled: { type: boolean }
         maintenanceMode: { type: boolean }
+        site:
+          type: object
+          description: Branding / support contact block.
+          additionalProperties: true
+        fees:
+          type: object
+          description: Platform fee configuration (INR); read by the billing layer.
+          properties:
+            ownerPlanYearly: { type: integer }
+            ownerProYearly: { type: integer }
+            rentAgreementPlatform: { type: integer }
+            seekerPlusTopup: { type: integer }
+            featuredListing: { type: integer }
+            gstPercent: { type: number, example: 18 }
+            rentPayPercent: { type: number, example: 2 }
+          additionalProperties: true
+        movePack:
+          type: object
+          additionalProperties: true
+        flags:
+          type: object
+          description: Feature toggles.
+          additionalProperties: { type: boolean }
+        adminFlags:
+          type: object
+          additionalProperties: { type: boolean }
+        permissions:
+          type: object
+          description: Per-team permission map (team -> capability -> allowed).
+          additionalProperties: true
+        customRoles:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              permissions: { type: array, items: { type: string } }
     AuditEntry:
       type: object
       properties:

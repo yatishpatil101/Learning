@@ -8,10 +8,10 @@ lives in `src/data/*.json` and is loaded into `localStorage` through a mock API 
 Full system design and per-feature specs live in [`docs/`](./docs/README.md) — the authoritative
 reference for building the backend. Start there:
 
-- [`docs/system/architecture.md`](./docs/system/architecture.md) — context, tech stack, mock→http seam.
-- [`docs/system/domain-model.md`](./docs/system/domain-model.md) — canonical entities (schema SSOT).
+- [`docs/system/app-architecture.md`](./docs/system/app-architecture.md) — context, tech stack, mock→http seam.
+- [`docs/system/data-model.md`](./docs/system/data-model.md) — ER map + persistence design (field shapes → OpenAPI schemas).
 - [`docs/system/cross-cutting.md`](./docs/system/cross-cutting.md) — auth, contact/Aadhaar gate, **maker-checker**, audit.
-- [`docs/system/api-contract.md`](./docs/system/api-contract.md) — REST endpoints (33 domains).
+- [`OpenAPI spec`](./backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; served at `/openapi/punenest-api.yaml`, Swagger UI at `/docs`).
 - [`docs/flows/`](./docs/flows/) — minute-detail business logic per feature/tile (consumer, admin, ops).
 - [`docs/roadmap/build-roadmap.md`](./docs/roadmap/build-roadmap.md) — phased backend build order.
 

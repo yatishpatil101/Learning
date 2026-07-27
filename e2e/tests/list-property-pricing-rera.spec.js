@@ -51,12 +51,12 @@ async function toStep3(page, type = 'Flat / Apartment') {
   await page.waitForSelector('text=/Property Documents & Verification/i', { timeout: 10000 });
 }
 
-test('P1: â‚¹/sq.ft caption appears under Expected Price for a sale once price + area are set', async ({ page }) => {
+test('P1: ₹/sq.ft caption appears under Expected Price for a sale once price + area are set', async ({ page }) => {
   await toStep2(page, 'Flat / Apartment');
   await page.locator('input[data-err="price"]').fill('12500000');
   await page.waitForTimeout(150);
   // 1,25,00,000 / 1000 = 12,500 per sq.ft
-  await expect(page.getByText(/â‚¹\s*12,500\s*\/\s*sq\.ft/)).toBeVisible();
+  await expect(page.getByText(/₹\s*12,500\s*\/\s*sq\.ft/)).toBeVisible();
 });
 
 test('P2: MahaRERA field is shown for a flat sale and accepts an ID', async ({ page }) => {

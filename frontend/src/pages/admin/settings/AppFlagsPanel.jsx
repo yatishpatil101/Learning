@@ -36,7 +36,7 @@ const APP_FLAG_SECTIONS = [
     icon: Building2,
     flags: [
       { key: 'listingVerification', label: 'Listing verification', desc: 'Require admin approval before publishing new listings' },
-      { key: 'aadhaarVerification', label: 'Aadhaar verification', desc: 'Require owner identity verification (Aadhaar)' },
+      { key: 'kycBadgeEnabled', label: 'Verified badge (DigiLocker)', desc: 'Offer the opt-in DigiLocker Verified badge — a trust signal, not a posting or contact gate' },
       { key: 'ownerPhonePrivacy', label: 'Owner phone privacy', desc: 'Mask owner phone numbers from non-verified buyers' },
       { key: 'paidFeaturedListings', label: 'Paid featured listings', desc: 'Owners can pay to feature/boost their listing' },
       { key: 'zeroBrokerage', label: 'Zero brokerage', desc: 'Advertise zero-brokerage model on platform' },

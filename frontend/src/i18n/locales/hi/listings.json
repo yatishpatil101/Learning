@@ -86,6 +86,8 @@
     "showing": "दिखा रहे हैं",
     "propertyNoun_one": "प्रॉपर्टी",
     "propertyNoun_other": "प्रॉपर्टीज़",
+    "verifiedCount_one": "{{count}} सत्यापित",
+    "verifiedCount_other": "{{count}} सत्यापित",
     "searchingCity": "पुणे खोज रहे हैं…",
     "viewLabel": "व्यू:",
     "gridView": "ग्रिड व्यू",

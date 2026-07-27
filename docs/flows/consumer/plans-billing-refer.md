@@ -2,7 +2,7 @@
 
 > The monetisation and growth surface: subscription tiers (owner + seeker), a simulated checkout, the
 > per-user billing view, platform fees, and a two-track referral program with non-monetary rewards.
-> **Status:** documented from React source - **Primary role(s):** owner + seeker (buyer/tenant)
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** owner + seeker (buyer/tenant)
 
 ---
 
@@ -38,7 +38,7 @@
   invites/joins/listings and never self-awards across devices.
 
 ## 4. Entities touched
-Links go to [`../../system/domain-model.md`](../../system/domain-model.md).
+Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `plans` (seed `plans.json`, `PL1..PL4`) - read (catalog metadata).
 - User plan (runtime `pnPlan:<mobile>`, ids `free`/`owner-free`/`owner2`/`owner5`) - read + written
   by Checkout (`setPlan`).
@@ -61,7 +61,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 - The active plan (`getPlan().id`) is marked "Current plan"; a **paid** current plan locks its CTA
   against re-purchase; a free current plan keeps the CTA actionable (default id is `free` for all).
 - `plans.json` (`PL1 Owner Basic`, `PL2 Owner Plus`, `PL3 Owner Pro`, `PL4 Seeker Plus`) is the
-  domain-model catalog; note prices there (999/2499/199) match the fee defaults but the runtime plan
+  data-model catalog; note prices there (999/2499/199) match the fee defaults but the runtime plan
   ids differ (`owner2`/`owner5`/`seeker-plus`).
 
 ### Platform fees (`store/billing.js`)
@@ -69,7 +69,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   `puneNestAdminDB_v7` fallback, over `FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499,
   rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18,
   rentPayPercent: 2 }`. `fee(key)` formats as `Rs N` (`en-IN`).
-- (Note: `domain-model.md`/`api-contract.md` show a different sample `ownerPlanYearly` value; the
+- (Note: `data-model.md` shows a different sample `ownerPlanYearly` value; the
   authoritative default in code is 999, overridable by admin settings.)
 
 ### Entitlements / gating (`store/billing.js`)
@@ -129,7 +129,9 @@ Each seeded referral carries the fields an ops fraud queue scores on: `risk` (lo
 (owner/seeker), `reward`, `aadhaarVerified`, `aadhaarUnique`, `sameDevice`, `sameIp`, `velocityHigh`,
 `activated`, and `status` (`qualified` -> `rewarded`, or `pending`/`flagged`/`rejected`), plus
 `handledBy`/`handledAt`. These drive the admin/ops referrals-fraud review (self-clone, duplicate
-Aadhaar, same-device/IP, high velocity = flagged/rejected).
+Aadhaar, same-device/IP, high velocity = flagged/rejected). The Aadhaar check here is a **reward-payout
+uniqueness** guard (`identity_hash`), part of the opt-in reward flow (L2/L3) — **not** a browse/post/
+contact gate, which stay at L1 mobile (ADR-019).
 
 ## 6. Maker-checker / approval
 - **Plans/checkout:** no maker-checker (self-serve purchase).
@@ -182,8 +184,7 @@ Referral:       (per RF row) pending -> qualified -> rewarded
 - **Data/seed:** `src/data/plans.json`, `src/data/referrals.json`, `constants.js` `BILLING_HISTORY`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) sections 21 (Plans/Boosts/Service
-Orders) and 22 (Referrals):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Billing & Growth):
 - `GET /plans` (catalog), `GET /me/plan`, `PUT /me/plan` (subscribe/upgrade).
 - Service orders / boosts create endpoints (checkout success + featuring), and a real pay endpoint to
   replace the simulated `setTimeout`.

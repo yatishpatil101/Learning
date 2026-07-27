@@ -42,10 +42,10 @@
 - Guards are UX-only mock RBAC ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`tickets`](../../system/domain-model.md) - **read** and **updated** (`status`, `assignedTo`, appended `notes`).
-- [`users`](../../system/domain-model.md) - **read** (staff filtered by `role === 'staff'` and `team`) to populate the assignee dropdown.
-- [`services`](../../system/domain-model.md) catalog + `settings.movePack` / `settings.fees` - **read** (pricing context; edited on the Settings page, see [`settings-team-staff.md`](./settings-team-staff.md)).
-- [`audit_log`](../../system/domain-model.md) - **created** on start / resolve / save via `logAudit('Service request', ...)`.
+- [`tickets`](../../system/data-model.md) - **read** and **updated** (`status`, `assignedTo`, appended `notes`).
+- [`users`](../../system/data-model.md) - **read** (staff filtered by `role === 'staff'` and `team`) to populate the assignee dropdown.
+- [`services`](../../system/data-model.md) catalog + `settings.movePack` / `settings.fees` - **read** (pricing context; edited on the Settings page, see [`settings-team-staff.md`](./settings-team-staff.md)).
+- [`audit_log`](../../system/data-model.md) - **created** on start / resolve / save via `logAudit('Service request', ...)`.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -134,7 +134,7 @@ onto `ticket.status` so the admin desk never shows a request stuck at "new" afte
   `priority`, `assignedTo`, `value`, `createdAt`, `notes[]`, `detail`, optional `ref`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
 - `GET /services` (section 30) - the public service catalog.
 - Service Requests / Tickets (section 13): `GET /tickets`, `PATCH /tickets/:id` (status/assignee), `POST /tickets/:id/notes`.
 - Service Workflows (section 27) and Rent Agreements (section 28) - the linked ops flows `syncServiceTicket` mirrors.

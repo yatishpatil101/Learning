@@ -5,17 +5,19 @@ Authoritative documentation set for PuneNest (Pune-first real-estate marketplace
 these docs capture that logic in detail so it can be re-implemented server-side.
 
 ## Reading order
-1. [`system/architecture.md`](./system/architecture.md) — context, tech stack, mock→http seam, deployment shape.
-2. [`system/domain-model.md`](./system/domain-model.md) — canonical entities (SSOT for the PostgreSQL schema).
+1. [`system/app-architecture.md`](./system/app-architecture.md) — context, tech stack, mock→http seam, deployment shape.
+2. [`system/data-model.md`](./system/data-model.md) — data model & persistence design (ER map, DB conventions, migration; entity field shapes → OpenAPI schemas).
 3. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact + Aadhaar gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
-4. [`system/api-contract.md`](./system/api-contract.md) — REST endpoints (33 domains).
-5. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases). Start from [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md).
+4. [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; Swagger UI at `/docs`).
+5. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: components, diagrams, ADRs, scoring (living doc).
+   - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
+6. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases). Start from [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md).
 6. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
 
 ## Map
 ```
 docs/
-  system/     architecture, domain-model, cross-cutting, api-contract, design-system
+  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, design-system
   flows/      _TEMPLATE.md + consumer/ admin/ ops/ per-feature docs
   roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
   misc/       packing-plan
@@ -23,7 +25,7 @@ docs/
 
 ## Conventions
 - **Maker-checker** is defined once in [`system/cross-cutting.md`](./system/cross-cutting.md); flow docs reference it.
-- Entities are defined once in [`system/domain-model.md`](./system/domain-model.md); flow docs link, not re-define.
+- Entity **field shapes** are defined once in the [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) (component schemas); [`system/data-model.md`](./system/data-model.md) owns the ER map + persistence design. Flow docs link, not re-define.
 - Every flow doc follows [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md) so each reads as a drop-in API spec.
 
 ## Traceability

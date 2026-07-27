@@ -37,15 +37,15 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`deals` (owner deal-state)](../../system/domain-model.md) - `puneNestDeals:<ownerDigits>`, one
+- [`deals` (owner deal-state)](../../system/data-model.md) - `puneNestDeals:<ownerDigits>`, one
   record per property: `{ status: active|reserved|closed, deal, at, parties[], closedWith }`.
-- [`offers`](../../system/domain-model.md) - `pnOffers:<ownerDigits>`: `{ id, propId, buyerName,
+- [`offers`](../../system/data-model.md) - `pnOffers:<ownerDigits>`: `{ id, propId, buyerName,
   buyerMobile, amount, status, from, at, updatedAt, history[] }`.
-- [`finalization_requests`](../../system/domain-model.md) - `puneNestDealReq:<ownerDigits>`: `{ id,
+- [`finalization_requests`](../../system/data-model.md) - `puneNestDealReq:<ownerDigits>`: `{ id,
   propId, deal, buyerName, buyerMobile, status, at }`.
-- [`tenancies`](../../system/domain-model.md) - `pnTenancies:<tenantMobile>`, **created** cross-actor
+- [`tenancies`](../../system/data-model.md) - `pnTenancies:<tenantMobile>`, **created** cross-actor
   when an owner accepts a **rent** finalization.
-- [`deals` (analytics seed)](../../system/domain-model.md) - `src/data/deals.json` (ids `D6###`),
+- [`deals` (analytics seed)](../../system/data-model.md) - `src/data/deals.json` (ids `D6###`),
   a separate closed/in-progress feed for admin analytics (not written by this flow).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -158,7 +158,7 @@ Finalization request (per buyer+property):
   `FinalizeDealModal` (dashboard) collects buyer name/mobile/final price/date explicitly.
 - **Analytics seed mismatch:** `src/data/deals.json` (D6###, `value` + `at`) is a **different
   representation** from the owner deal-state store and is not written by this flow - reconcile
-  server-side (see domain-model inconsistency #4).
+  server-side (see data-model inconsistency #4).
 
 ## 9. Current mock implementation
 - **Service:** `src/services/dealService.js` (deals, finalization, offers - all Promises).
@@ -176,7 +176,7 @@ Finalization request (per buyer+property):
 - **Data/seed:** `src/data/deals.json` (analytics feed only).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Listings, Leads & Contact):
 - **Deals (section 8):** `GET /me/deals`, `GET /me/deals/:propId`, `POST /me/deals/:propId/reserve`,
   `POST /me/deals/:propId/close`, `POST /me/deals/:propId/reopen`, `.../parties` CRUD.
 - **Finalization (section 9):** `POST /finalization/:propId/request` (buyer),
@@ -200,6 +200,6 @@ Map to [`../../system/api-contract.md`](../../system/api-contract.md):
 - **Preserve history on reopen** as an auditable transition instead of deleting the deal record;
   write an audit entry for every state change (cross-cutting section 4).
 - **Reconcile the two deal representations** (analytics seed vs owner deal-state) into one `deals`
-  table with a `deal_parties` child (domain-model migration note).
+  table with a `deal_parties` child (data-model migration note).
 - **Generate notifications** for offer responses and finalization outcomes (cross-cutting section 7);
   never trust the client to flip a `status` to `accepted`/`closed`.

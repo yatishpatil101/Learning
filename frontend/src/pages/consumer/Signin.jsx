@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArrowRight, BadgeCheck, CheckCircle2, Home, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
+import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { userExists, findUser } from '../../lib/auth.js';
 import { useMobileInput } from '../../lib/hooks.js';
@@ -20,6 +20,13 @@ import { STATS, popularFor } from '../../data/homeData.js';
 // stats and testimonial reflect the active city instead of hardcoding Pune. Cities
 // we don't have inventory for yet ("launched-empty" / coming-soon) get honest
 // "launching soon" copy and generic-but-true claims instead of Pune numbers.
+// The three claims that make PuneNest hard to copy — stated plainly, not sold.
+const MOAT = [
+  [IndianRupee, 'Zero brokerage'],
+  [ShieldCheck, 'RERA-verified'],
+  [Users, 'Owner-direct'],
+];
+
 function LeftPanel() {
   const { city } = useCity();
   const hasData = cityHasData(city);
@@ -30,23 +37,30 @@ function LeftPanel() {
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-10">
-        <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-2xl flex items-center justify-center">
-          <Home className="w-6 h-6 text-white" />
-        </div>
-        <span className="text-3xl font-bold text-white">PuneNest</span>
+      <div className="inline-flex items-center gap-2 rounded-full border border-teal-400/25 bg-teal-400/[.08] px-3.5 py-1.5 mt-6 mb-6">
+        <span className="auth-live-dot inline-block w-1.5 h-1.5 rounded-full bg-teal-300" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-200">
+          {hasData ? `${city}'s owner-direct marketplace` : `Launching in ${city} soon`}
+        </span>
       </div>
       <h1 className="text-4xl font-extrabold text-white leading-tight mb-4">
         Find Your Perfect{' '}
         <RotatingNoun wordClassName="gradient-text" />{' '}
         <span className="gradient-text">in {city}</span>
       </h1>
-      <p className="text-gray-400 text-lg mb-10 leading-relaxed">
+      <p className="text-gray-400 text-lg mb-6 leading-relaxed">
         {hasData
-          ? `Join thousands of buyers, tenants and owners who trust PuneNest for homes, commercial spaces and plots across ${city}.`
-          : `PuneNest is launching in ${city} soon — sign in to get first access to verified, zero-brokerage homes.`}
+          ? `Deal directly with verified owners across ${city}. Every listing is RERA-checked, and you never pay a rupee in brokerage.`
+          : `PuneNest is coming to ${city}. Sign in for first access to verified, owner-direct homes — with zero brokerage, always.`}
       </p>
-      <div className="glass-card rounded-2xl p-6 mb-10">
+      <div className="flex flex-wrap gap-2 mb-8">
+        {MOAT.map(([Ic, label]) => (
+          <span key={label} className="inline-flex items-center gap-1.5 rounded-full border border-white/[.08] bg-white/[.04] px-3 py-1.5 text-[13px] font-medium text-gray-200">
+            <Ic className="w-4 h-4 text-teal-300" /> {label}
+          </span>
+        ))}
+      </div>
+      <div className="glass-card rounded-2xl p-6 mb-8">
         <div className="flex items-center gap-1 mb-3">
           {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="w-4 h-4 text-yellow-400 fill-yellow-400" />)}
         </div>

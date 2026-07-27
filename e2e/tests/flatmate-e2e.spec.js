@@ -9,6 +9,7 @@ async function seed(page) {
   await page.addInitScript((mobile) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'E2E Owner', mobile, role: 'owner', loginAt: Date.now() }));
     localStorage.setItem('puneNestAadhaar:' + mobile, JSON.stringify({ verified: true, aadhaarMobile: mobile, at: Date.now() }));
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
   }, MOBILE);
 }
 

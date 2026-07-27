@@ -35,13 +35,13 @@
   ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`banners`](../../system/domain-model.md), [`faqs`](../../system/domain-model.md),
-  [`announcements`](../../system/domain-model.md) - **read / created / updated / archived / restored**.
-- [`reviews`](../../system/domain-model.md) - **read / updated** (`status` publish/reject) / **archived / restored**.
-- [`localities`](../../system/domain-model.md) - **read** (curated + community); community records **updated** (`tier`) or **removed**.
+- [`banners`](../../system/data-model.md), [`faqs`](../../system/data-model.md),
+  [`announcements`](../../system/data-model.md) - **read / created / updated / archived / restored**.
+- [`reviews`](../../system/data-model.md) - **read / updated** (`status` publish/reject) / **archived / restored**.
+- [`localities`](../../system/data-model.md) - **read** (curated + community); community records **updated** (`tier`) or **removed**.
 - Societies: static `societies.js` catalog (**read**) plus localStorage-backed overlays (claims, resident
   requests, candidates, suggestions, reports, WhatsApp/location fixes) - **read / updated**.
-- [`audit_log`](../../system/domain-model.md) - **created** on every content/locality/society action; `addInternalNote` on archive/restore.
+- [`audit_log`](../../system/data-model.md) - **created** on every content/locality/society action; `addInternalNote` on archive/restore.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -158,7 +158,7 @@ Each decision logs `Societies` audit and re-reads via a `bump` counter.
   `rating`, `text`, `status`, `at`), `localities.json` / `localities.js`, `societies.js` / `societies-rera.js`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Admin & Analytics, Catalog & Search, Engagement):
 - Content/CMS (section 30): `GET /banners`, `GET /faqs`, `GET /announcements`,
   `PATCH /content/:collection/:id/archive`, `PATCH /content/:collection/:id/restore` (collections: banners, faqs, announcements, reviews).
 - Reviews (section 23): review list + moderation (`PATCH` publish/reject).

@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { timeAgo, avatarFor } from '../../../lib/format.js';
 import { myMobile } from '../../../lib/contact.js';
+import { isSeriousBuyer } from '../../../lib/seriousBuyer.js';
 import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
 import { Card, SectionHead, StatusBadge, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
 import LeadSheet from './LeadSheet.jsx';
@@ -67,6 +69,7 @@ function SummaryStat({ icon, tint, value, label }) {
 }
 
 export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], shareFlatReqs = [], decideShareFlatReq, docReqs = [], decideDocReqs, listings = [] }) {
+  const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
      Number requests, Photo requests, Documents, Flat-share, and general Enquiries.
      Rows share one borderless "quiet list" treatment (RequestList/RequestRow) so
@@ -235,6 +238,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={item.id}
                 avatar={avatarFor(item.name)}
                 title={item.name}
+                badge={isSeriousBuyer(item.contactMobile) ? t('verify.seriousBuyer') : undefined}
                 meta={`${item.typeLabel}${item.propLabel ? ' · ' + item.propLabel : ''}`}
                 time={item.requestedAt ? timeAgo(item.requestedAt) : undefined}
                 urgency={item.attention ? waitPill(item.requestedAt) : undefined}
@@ -429,6 +433,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={e.id}
                 avatar={avatarFor(e.customer)}
                 title={e.customer}
+                badge={isSeriousBuyer(e.mobile) ? t('verify.seriousBuyer') : undefined}
                 meta={`${e.listing} · ${e.mobile}`}
                 onOpen={() => setSheetLead(itemEnquiry(e))}
               >

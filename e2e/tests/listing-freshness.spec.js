@@ -23,7 +23,7 @@ const base = (over) => ({
   status: 'approved', statusClass: 'pill-approved', real: true, featured: false, views: 3,
   enquiries: 0, photoCount: 0, furnishing: 'unfurnished', facing: '', floor: 0, age: '',
   construction: 'ready', amenities: [], img: '', image: '', gallery: [], desc: '',
-  type: 'Flat', area: 1500, price: 8000000, priceStr: 'â‚¹80 Lacs', createdAt: dISO(40), ...over,
+  type: 'Flat', area: 1500, price: 8000000, priceStr: '₹80 Lacs', createdAt: dISO(40), ...over,
 });
 
 async function seed(page) {

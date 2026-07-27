@@ -54,6 +54,17 @@ export const isOwnerViewer = (ownerMobile) => {
   return !!m && m === digits(ownerMobile);
 };
 
+// True when the given signed-in user carries the opt-in "Verified" identity badge.
+// Reads the same flag the DigiLocker/OTP verification writes ('puneNestAadhaar:<mobile>').
+function isViewerVerified(u) {
+  try {
+    const v = JSON.parse(localStorage.getItem('puneNestAadhaar:' + (digits(u && u.mobile) || 'anon')));
+    return !!(v && v.verified);
+  } catch {
+    return false;
+  }
+}
+
 function findContactReq(ownerMobile, propId) {
   const mine = myMobile();
   if (!mine) return null;
@@ -74,14 +85,10 @@ export function contactStatus(ownerMobile, propId) {
 export function requestContact(ownerMobile, propId) {
   const u = readUser();
   if (!u) return 'login';
-  // Aadhaar OTP verification gate: user must verify identity before requesting owner contact
-  const aadhaarKey = 'puneNestAadhaar:' + (digits(u.mobile) || 'anon');
-  try {
-    const v = JSON.parse(localStorage.getItem(aadhaarKey));
-    if (!v || !v.verified) return 'aadhaar_required';
-  } catch {
-    return 'aadhaar_required';
-  }
+  // Badge-not-gate (ADR-019): contact is L1-only — any signed-in user may enquire.
+  // The ONLY exception is when the owner has opted into "accept verified contacts
+  // only": an unverified requester is then asked to earn the Verified badge first.
+  if (ownerVerifiedOnly(ownerMobile) && !isViewerVerified(u)) return 'verification_required';
   const existing = findContactReq(ownerMobile, propId);
   if (existing) return existing.status;
   const reqs = getContactReqs(ownerMobile);
@@ -129,3 +136,6 @@ export function setOwnerPrefs(patch) {
 }
 // True when this owner has opted to keep their number masked from approved buyers.
 export const ownerHidesNumber = (mobile) => !!getOwnerPrefsFor(mobile).hideNumber;
+// True when this owner accepts contact requests ONLY from Verified-badge users.
+// This is the sole path that can turn a contact request into 'verification_required'.
+export const ownerVerifiedOnly = (mobile) => !!getOwnerPrefsFor(mobile).verifiedContactOnly;

@@ -11,6 +11,12 @@ Suite size at audit time: **121 spec files / 758 tests**. After Phase 2 authorin
 **150 spec files / 919 tests** (chromium; `mobile-*` run on the mobile project). All Phase 2
 gap specs pass together (`159 passed` in the combined Phase-2 batch run).
 
+**KYC badge-not-gate migration (ADR-019):** the old Aadhaar *gate* specs were replaced by
+badge-not-gate specs — `list-property-no-gate`, `contact-badge-not-gate`, `share-flat-no-gate`,
+`share-flat-seeker-verify` (opt-in seeker badge) — plus a new `kyc-growth-levers` spec covering the
+DigiLocker Verified-badge funnel on the dashboard. Society community/location specs updated so a
+signed-in (unverified) member contributes directly. Suite: **151 spec files**.
+
 ---
 
 ## Consumer
@@ -20,7 +26,7 @@ gap specs pass together (`159 passed` in the combined Phase-2 batch run).
 | `/` Home (search, featured, popular, property-types, share-flat rail) | search-listings | home-entity-search, home-featured, home-popular-places, home-property-types, home-search-combobox, home-share-flat | ✅ |
 | `/listings` search + filters + map | search-listings | listings-locality-filter(-registry), type-aware-filters, search-property-types, commercial-type-filter, filter-slider-manual-entry, near-a-place-*, location-recovery, qa-location-search, map-popup, map-panel-contact | ✅ |
 | `/property/:id` detail | property-detail | property-detail-improvements, property-detail-sale, property-infotips, property-chat-owner, property-dedup, property-dup-modal | ✅ |
-| Contact reveal + Aadhaar gate | contact-gate-leads | contact-owner-gate, contact-aadhaar-gate, aadhaar-gate-mismatch | ✅ |
+| Contact reveal + badge-not-gate | contact-gate-leads | contact-owner-gate, contact-badge-not-gate | ✅ |
 | `/owner/:id` public owner profile | dashboard-owner-hub | owner-profile | ✅ |
 | `/compare` | (search-listings) | compare | ✅ |
 | `/signin` `/signup` auth + OTP | auth | auth-flow, auth-improvements | ✅ |

@@ -201,8 +201,8 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
                     <span className="text-slate-200 text-sm font-semibold">{fmtOffer(o.amount)}</span>
                     <span className="text-[11px]">
                       {o.status === 'accepted' ? <span className="text-emerald-300">{t('property.statusAccepted')}</span>
-                        : o.status === 'countered' ? <span className="text-amber-300">{t('property.statusYouCountered')}</span>
-                        : o.status === 'countered_by_buyer' ? <span className="text-indigo-300">{t('property.statusBuyerCountered')}</span>
+                        : (o.status === 'countered' && o.from === 'owner') ? <span className="text-amber-300">{t('property.statusYouCountered')}</span>
+                        : (o.status === 'countered' && o.from === 'buyer') ? <span className="text-indigo-300">{t('property.statusBuyerCountered')}</span>
                         : <span className="text-slate-300">{t('property.statusPending')}</span>}
                     </span>
                   </div>

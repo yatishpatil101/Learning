@@ -57,7 +57,7 @@ test('switching property type clears the previous type-specific answers (cascade
 const buyFlat = {
   id: 'RC-flat-buy', title: '3 BHK Flat in Baner', type: 'Flat', bhk: '3', bhkNum: 3,
   bath: 3, area: 1200, locality: 'Baner', localitySlug: 'baner', loc: 'Baner, Pune',
-  society: 'Skyline Heights', deal: 'buy', price: 12000000, priceStr: 'â‚¹1,20,00,000',
+  society: 'Skyline Heights', deal: 'buy', price: 12000000, priceStr: '₹1,20,00,000',
   owner: 'Seed Owner', ownerMobile: '9000000000', status: 'approved', statusClass: 'pill-approved',
   real: true, featured: false, views: 12, enquiries: 3, photoCount: 3,
   furnishing: 'semi', facing: 'East', floor: 5, totalFloors: 12, age: '1-5', construction: 'ready',
@@ -82,7 +82,7 @@ test('detail page shows the ownerâ€™s real bathrooms, furnishing, facing, a
 
 const rentFlat = {
   ...buyFlat, id: 'RC-flat-rent', title: '2 BHK Flat in Baner', bhk: '2', bhkNum: 2, bath: 2,
-  deal: 'rent', price: 20000, priceStr: 'â‚¹20,000/mo', deposit: 45000, available: '',
+  deal: 'rent', price: 20000, priceStr: '₹20,000/mo', deposit: 45000, available: '',
   viewUrl: '/property/RC-flat-rent',
 };
 
@@ -90,7 +90,7 @@ test('detail page shows the ownerâ€™s real deposit for a rental (not price 
   await injectStock(page, [rentFlat]);
   await page.goto(`${BASE}/property/RC-flat-rent`);
   await expect(page.getByRole('heading', { name: /Key Details/i })).toBeVisible({ timeout: 15000 });
-  // The Deposit stat tile reflects the saved â‚¹45,000, not the â‚¹40,000 fallback.
-  await expect(page.getByText('â‚¹45,000').first()).toBeVisible();
+  // The Deposit stat tile reflects the saved ₹45,000, not the ₹40,000 fallback.
+  await expect(page.getByText('₹45,000').first()).toBeVisible();
 });
 

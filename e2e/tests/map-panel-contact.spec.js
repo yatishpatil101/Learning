@@ -2,8 +2,9 @@
 import { readFileSync } from 'node:fs';
 
 /* Map-view detail panel "Contact Owner" must match the property-detail page:
-   it starts an in-app chat (sign-in + Aadhaar gates, then a pending request routed
-   into /messages) â€” NOT the old number-reveal enquiry popup. */
+   an L1 signed-in buyer starts an in-app chat (a pending request routed into
+   /messages) — NOT the old number-reveal enquiry popup. Verification is an opt-in
+   badge (badge-not-gate, ADR-019), never a wall on contact. */
 
 const SEED_DB = JSON.parse(readFileSync(new URL('../../frontend/src/data/db.json', import.meta.url), 'utf-8'));
 const BUYER = '9876543210';
@@ -11,7 +12,7 @@ const BUYER = '9876543210';
 const saleListing = {
   id: 'MAP-villa', title: '3 BHK Villa in Baner', type: 'Villa', bhk: '3 BHK', bhkNum: 3, bath: 3,
   area: 1885, locality: 'Baner', localitySlug: 'baner', loc: 'Baner, Pune', society: '', deal: 'buy',
-  price: 27300000, priceStr: 'â‚¹2.73 Cr', owner: 'Seed Owner', ownerMobile: '9000000000',
+  price: 27300000, priceStr: '₹2.73 Cr', owner: 'Seed Owner', ownerMobile: '9000000000',
   status: 'approved', statusClass: 'pill-approved', real: true, featured: false, views: 0, enquiries: 0,
   photoCount: 0, furnishing: 'furnished', facing: '', floor: 0, age: '', construction: 'ready',
   amenities: [], img: '', image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=70',
@@ -34,7 +35,7 @@ async function seed(page, { aadhaar = true, signedIn = true } = {}) {
 
 async function openDrawer(page) {
   await page.goto('/listings?deal=buy&view=map&loc=Baner');
-  const marker = page.locator('.price-marker', { hasText: 'â‚¹2.73Cr' }).first();
+  const marker = page.locator('.price-marker', { hasText: '₹2.73Cr' }).first();
   await marker.waitFor({ timeout: 20000 });
   await marker.click();
   const drawer = page.locator('.pn-mdp');
@@ -53,14 +54,17 @@ test('verified buyer: Contact Owner opens the in-app chat with a pending request
   await expect(page.getByText(/Waiting for the owner to accept/i)).toBeVisible({ timeout: 10000 });
 });
 
-test('unverified buyer: Contact Owner hits the Aadhaar gate (no popup, no navigation yet)', async ({ page }) => {
+test('unverified buyer: Contact Owner still opens the in-app chat (badge-not-gate, ADR-019)', async ({ page }) => {
+  // Verification is now an opt-in badge, never a wall. This owner has NOT opted into
+  // "verified contacts only", so an L1 signed-in buyer reaches the owner without any
+  // Aadhaar/DigiLocker prompt — same pending-request chat as the verified buyer.
   await seed(page, { aadhaar: false });
   const drawer = await openDrawer(page);
 
   await drawer.getByRole('button', { name: /Contact Owner/i }).click();
 
-  // The Aadhaar verification modal appears; we stay on listings (no chat until verified).
-  await expect(page.getByText(/Aadhaar/i).first()).toBeVisible({ timeout: 10000 });
-  await expect(page).toHaveURL(/\/listings/);
+  // Routes straight into the thread — no gate, no verification modal.
+  await expect(page).toHaveURL(/\/messages\?openProp=MAP-villa/);
+  await expect(page.getByText(/Waiting for the owner to accept/i)).toBeVisible({ timeout: 10000 });
 });
 

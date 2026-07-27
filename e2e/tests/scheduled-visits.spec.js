@@ -58,8 +58,8 @@ test.describe('Scheduled Visits', () => {
   test('Requests tab no longer carries a Visit-requests sub-tab (deduped)', async ({ page }) => {
     await loginOwner(page);
     await page.goto(`${BASE}/dashboard#leads`, { waitUntil: 'networkidle' });
-    await expect(page.getByRole('button', { name: /Number requests/ }).first()).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('button', { name: /^Visit requests$/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /Number requests/ }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('tab', { name: /^Visit requests$/ })).toHaveCount(0);
   });
 
   test('a confirmed visit persists across a full reload (saved to the DB, not local-only)', async ({ page }) => {

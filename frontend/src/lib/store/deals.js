@@ -165,7 +165,7 @@ export const myOffer = (ownerMobile, propId) => {
 export const offersFor = (ownerMobile, propId) =>
   getOffers(ownerMobile).filter((r) => propId == null || r.propId === propId);
 export const pendingOfferCount = (ownerMobile) =>
-  getOffers(ownerMobile).filter((r) => r.status === 'pending' || r.status === 'countered_by_buyer').length;
+  getOffers(ownerMobile).filter((r) => r.status === 'pending' || (r.status === 'countered' && r.from === 'buyer')).length;
 export const respondOffer = (ownerMobile, id, action, amount) => {
   const arr = getOffers(ownerMobile);
   let tgt = null;
@@ -177,7 +177,7 @@ export const respondOffer = (ownerMobile, id, action, amount) => {
     if (action === 'accept') r.status = 'accepted';
     else if (action === 'decline') r.status = 'declined';
     else if (action === 'counter') { r.amount = amount; r.from = 'owner'; r.status = 'countered'; }
-    else if (action === 'buyer_counter') { r.amount = amount; r.from = 'buyer'; r.status = 'countered_by_buyer'; }
+    else if (action === 'buyer_counter') { r.amount = amount; r.from = 'buyer'; r.status = 'countered'; }
     r.updatedAt = Date.now();
   });
   saveOffers(ownerMobile, arr);

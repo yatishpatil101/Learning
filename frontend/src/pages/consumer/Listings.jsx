@@ -171,6 +171,11 @@ export default function Listings() {
   );
   const results = resultsData.list;
   const relaxedNear = resultsData.relaxedNear;
+  // E2 (ADR-019): verified-supply social proof across the full result set (not just the page).
+  const verifiedCount = useMemo(
+    () => results.filter((p) => p.ownerVerified || p.ownershipVerified).length,
+    [results],
+  );
 
   // Client-side pagination — grid/list views page through results 9 at a time.
   // Map view is different: plotting an entire city of markers is expensive (and, with
@@ -303,7 +308,7 @@ export default function Listings() {
               </div>
             </aside>
 
-            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
           </div>
           )}
         </div>

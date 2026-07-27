@@ -8,8 +8,12 @@ import { CityProvider } from './context/CityContext.jsx';
 import { CompareProvider } from './context/CompareContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
+import { initPmf } from './lib/pmf.js';
 import './i18n';
 import './styles/index.css';
+
+// Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
+initPmf();
 
 // Bootstrap the Google Maps JS API once, app-wide, so every locality/area search
 // box (the hero, the Listings filter, and every LocalitySelect) can use Places on

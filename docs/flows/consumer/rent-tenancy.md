@@ -42,7 +42,7 @@
   ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-Link to [`../../system/domain-model.md`](../../system/domain-model.md).
+Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Rent payment (tenant history)** - `pnRentPayments:<tenantMobile>` via `addRentPayment`
   (`{ month:'YYYY-MM', amount, fee, gst, total, propId, ownerMobile, ts, receiptId }`).
 - **Rent ledger (owner credit)** - `pnRentLedger:<ownerMobile>` via `addRentLedger` (the owner's
@@ -171,7 +171,7 @@ Payment record: created (immutable) -> receipt generated
   `pnTenancies:<mobile>`, `pnRentMandate:<mobile>`, `pnPayout:<mobile>`, `pnTenantProfile:<mobile>`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Rentals & Payments):
 - Rent payments (section 17): `POST /me/rent-payments` (make a payment -> returns breakdown + receipt),
   `GET /me/rent-payments` (history), `GET /me/rent-payments/:id/receipt` (HRA receipt).
 - Tenancies (section 18): `GET /me/tenancies`, `GET /me/tenancies/:id` (status/dues), owner view of

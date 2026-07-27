@@ -27,7 +27,7 @@ function pageItems(current, total) {
   return items;
 }
 
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
@@ -80,7 +80,9 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   );
 
   const countLine = loaded ? (
-    <p className="text-gray-400 text-sm">{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}</p>
+    <p className="text-gray-400 text-sm">{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
+      {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
+    </p>
   ) : (
     <p className="text-gray-400 text-sm inline-flex items-center gap-2" aria-live="polite">
       <span className="w-3.5 h-3.5 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /> {t('listings.searchingCity')}

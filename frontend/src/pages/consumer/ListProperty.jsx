@@ -1,6 +1,5 @@
-import { Sparkles, BadgeCheck, CheckCircle2, LayoutDashboard } from 'lucide-react';
+import { Sparkles, CheckCircle2, LayoutDashboard } from 'lucide-react';
 import useListProperty from './list-property/useListProperty';
-import AadhaarGate from './list-property/AadhaarGate';
 import ListPropertyModals from './list-property/ListPropertyModals';
 import ProgressMeter from './list-property/ProgressMeter.jsx';
 import StepNav from './list-property/StepNav.jsx';
@@ -10,12 +9,13 @@ import PropertyDetailsStep from './list-property/PropertyDetailsStep.jsx';
 import LocationPricingStep from './list-property/LocationPricingStep.jsx';
 import PhotosDocumentsStep from './list-property/PhotosDocumentsStep.jsx';
 import FlatmateFlow from './list-property/FlatmateFlow.jsx';
+import PostSuccessVerifyNudge from './list-property/PostSuccessVerifyNudge.jsx';
 
 const ListProperty = () => {
   const vm = useListProperty();
   const {
     t, navigate, showSuccess, isFlatmateMode, editId, editApproved, editChanges,
-    aadhaarVerified, progressState, aadhaarMeterPct, gateCheer, canPost,
+    progressState, canPost,
     activeListingCount, listingLimit, currentStep, setCurrentStep,
     form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
     isResidential, isLand, isCommercial, isHouse, isPg,
@@ -48,6 +48,10 @@ const ListProperty = () => {
           <button onClick={() => navigate('/dashboard')} className="btn-teal inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-white font-semibold text-sm">
             <LayoutDashboard className="w-4 h-4" /> {t('listProperty.success.goToListings')}
           </button>
+
+          {/* C1 growth lever: offer the opt-in Verified badge only for a brand-new property
+              post — at the value moment (listing is already live), never as a gate. */}
+          {(!editId && !isFlatmateMode) && <PostSuccessVerifyNudge t={t} />}
         </div>
       </div>
     );
@@ -66,32 +70,16 @@ const ListProperty = () => {
           <p className="text-gray-400 text-lg">{t('listProperty.page.subtitle')}</p>
         </div>
 
-        {/* Momentum meter — always present so the layout never changes when the
-           owner clears the gate. While unverified it shows Aadhaar's share of
-           progress (up to 20%); once verified it continues climbing with the
-           listing fields. This is the constant "upper part" of the flow. */}
-        {aadhaarVerified ? (
-          <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} cheer={progressState.cheer} />
-        ) : (
-          <ProgressMeter pct={aadhaarMeterPct} tierKey="warmup" label={t('listProperty.gate.verifyIdentityLabel')} cheer={gateCheer} />
-        )}
+        {/* Momentum meter — reflects listing-field completion. Posting requires
+           only a signed-in (mobile-verified) account; identity verification is an
+           opt-in "Verified" badge, never a wall (ADR-019). */}
+        <ProgressMeter pct={progressState.pct} tierKey={progressState.key} label={progressState.label} cheer={progressState.cheer} />
 
-        {/* ===== Aadhaar gate ===== */}
-        {!aadhaarVerified ? (
-          <AadhaarGate ctx={vm} />
-        ) : (
-          <>
-            {/* Verified banner — identity confirmation beneath the shared meter. */}
-            <div className="glass-card rounded-2xl px-5 py-3.5 mb-6 flex items-center gap-3 border border-emerald-500/20" style={{ background: 'rgba(16,185,129,.08)' }}>
-              <BadgeCheck className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-              <p className="text-sm text-emerald-200">{t('listProperty.gate.verifiedBanner')}</p>
-            </div>
+        {editId && <EditPolicyBanner approved={editApproved} changes={editChanges} />}
 
-            {editId && <EditPolicyBanner approved={editApproved} changes={editChanges} />}
-
-            {(!editId && !canPost) ? (
-              <ListingPaywall count={activeListingCount()} limit={listingLimit()} />
-            ) : (<>
+        {(!editId && !canPost) ? (
+          <ListingPaywall count={activeListingCount()} limit={listingLimit()} />
+        ) : (<>
             {/* Step indicator — the same 3-phase wizard for whole-place & flatmate */}
             <StepNav current={currentStep} onJump={(n) => { setCurrentStep(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
 
@@ -204,8 +192,6 @@ const ListProperty = () => {
               )}
             </div>
             </>)}
-          </>
-        )}
       </div>
 
       <ListPropertyModals ctx={vm} />

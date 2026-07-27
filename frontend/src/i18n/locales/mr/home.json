@@ -59,7 +59,8 @@
       "title": "वैशिष्ट्यीकृत मालमत्ता",
       "subtitle": "पुण्यातील निवडक मालमत्ता",
       "viewAll": "सर्व पाहा",
-      "viewAllProperties": "सर्व मालमत्ता पाहा"
+      "viewAllProperties": "सर्व मालमत्ता पाहा",
+      "verifiedProof": "{{listings}} पडताळलेली घरे · {{owners}} पडताळलेले मालक आता लाइव्ह"
     },
     "recent": {
       "eyebrow": "जिथे थांबलात तिथून पुढे सुरू करा",

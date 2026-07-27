@@ -5,7 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
 import {
-  getListing, isAadhaarVerified, parseAmount,
+  getListing, parseAmount,
   canPostListing, activeListingCount, listingLimit,
 } from '../../../lib/store';
 import { formatIndian } from './format.js';
@@ -19,14 +19,13 @@ import { triggerConfetti } from './confetti.js';
 import { persistListing, persistFlatmate } from './submit.js';
 import { hashPhotos } from '../../../lib/data/imageHash.js';
 import { computeProgress } from './progress.js';
-import useListingGate from './useListingGate';
 import useListingMedia from './useListingMedia';
 import useListingLocation from './useListingLocation';
 
 export default function useListProperty() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
@@ -53,8 +52,6 @@ export default function useListProperty() {
   // paywalled; editing an existing listing never is.
   const [canPost] = useState(() => (editId ? true : canPostListing()));
 
-  const gate = useListingGate({ user, logout, navigate, t });
-
   const [form, setForm] = useState(initialForm);
   // Always-fresh mirror of `form` so async callbacks (e.g. reverse-geocode auto-fill,
   // which resolves after a network round-trip) can read the latest field values without
@@ -76,8 +73,8 @@ export default function useListProperty() {
      100% once nothing (mandatory or optional) is left blank. Derived during
      render (no effect) so every keystroke nudges the meter. */
   const progressState = useMemo(
-    () => computeProgress({ form, photos, documents, video, aadhaarVerified: gate.aadhaarVerified, isFlatmateMode }),
-    [form, photos, documents, video, gate.aadhaarVerified, isFlatmateMode],
+    () => computeProgress({ form, photos, documents, video, isFlatmateMode }),
+    [form, photos, documents, video, isFlatmateMode],
   );
 
   useEffect(() => {
@@ -224,18 +221,6 @@ export default function useListProperty() {
   const openResetConfirm = useCallback(() => setShowResetConfirm(true), []);
   const confirmReset = useCallback(() => startFresh(), [startFresh]);
 
-  // A listing can never be created without a completed Aadhaar check. The gate
-  // already hides the form, but we re-check the source of truth here so posting
-  // is impossible even if the form is somehow reached unverified.
-  const requireAadhaar = () => {
-    const verified = isAadhaarVerified();
-    if (!verified) {
-      gate.setAadhaarVerifiedState(false);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-    return verified;
-  };
-
   const finalizeListing = async () => {
     // Perceptual hashes of the uploaded photos let Ops catch a re-list that reuses
     // the same photos under a different typed address. Computed here (browser) so
@@ -257,7 +242,6 @@ export default function useListProperty() {
   };
 
   const submitProperty = () => {
-    if (!requireAadhaar()) return;
     const err = validateStep3(form, documents, photos);
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
 
@@ -268,7 +252,6 @@ export default function useListProperty() {
   };
 
   const submitFlatmate = () => {
-    if (!requireAadhaar()) return;
     const err = {};
     if (!form.bhk) err.bhk = true;
     if (!form.roomType) err.roomType = true;
@@ -287,7 +270,6 @@ export default function useListProperty() {
   };
 
   return {
-    ...gate,
     ...media,
     ...location,
     t, navigate, editId, shareMode,

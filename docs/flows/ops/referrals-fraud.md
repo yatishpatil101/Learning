@@ -2,8 +2,11 @@
 
 > The ops desk that keeps the refer-a-friend program honest. Every referral lands here as a
 > record with background-check signals; a reviewer approves (release reward), rejects, or claws
-> back - gated on mandatory Aadhaar verification + uniqueness.
-> **Status:** documented from React source - **Primary role(s):** ops staff / admin (any ops user)
+> back - the **reward payout** is gated on Aadhaar verification + uniqueness. Under **ADR-019
+> (badge-not-gate)** this identity/uniqueness check is legitimate here because it guards **money at
+> risk (a reward payout)** inside the opt-in reward flow (L2/L3) — it is **not** a browse/post/contact
+> gate (those stay at L1 mobile; see [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md)).
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** ops staff / admin (any ops user)
 
 ---
 
@@ -36,7 +39,7 @@
   As with all ops guards, this is UX-only and MUST be re-enforced server-side (section 11).
 
 ## 4. Entities touched
-Link definitions: [`../../system/domain-model.md`](../../system/domain-model.md).
+Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 
 - **Referral** (`db.referrals`) - read (list) and updated (status + `handledAt`). Never
   hard-deleted; state is a status flag. Fields:
@@ -79,6 +82,11 @@ unique. When `canQualify` is false the Approve button is replaced by a disabled 
 (tooltip: "Aadhaar verify + uniqueness required"); attempting approve anyway shows the error toast
 "Blocked - needs Aadhaar verification + uniqueness". The other signals (device/IP/velocity) inform
 `risk` and the flagged bucket but do not by themselves block approval in code.
+
+This gate applies **only to releasing a referral reward** — it never affects anyone's ability to
+browse, post, or contact (those stay at L1 mobile, ADR-019). The Aadhaar uniqueness check is the same
+composite `identity_hash` invariant (ADR-009b) that caps one Verified badge per human, applied here
+at the reward/deal layer where money is at risk.
 
 ### 5.3 Buckets, tabs & stats
 - **Stat cards / tabs:** Pending, Flagged, Qualified, Rejected, plus an "All" tab.
@@ -175,7 +183,7 @@ Applicable - this queue is a checker gate. See
   `stats`, `rows` (tab filter), `doExport`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) section 22 (Referrals).
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Billing & Growth).
 
 - `GET /referrals` (admin/staff) - list for the review queue. Delta: add `status` / `risk` filters
   and pagination; return the signal fields.

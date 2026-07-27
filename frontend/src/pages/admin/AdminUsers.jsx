@@ -65,10 +65,10 @@ export default function AdminUsers() {
     for (const id of ids) {
       const rec = await updateUser(id, { verified: true });
       patch(rec);
-      submitNote('user', id, '', 'Bulk verified');
+      submitNote('user', id, '', 'Verified badge granted (bulk)');
     }
-    logAudit('User', `Bulk verified ${ids.length} users`);
-    toast(`${ids.length} user(s) verified`, 'success');
+    logAudit('User', `Granted Verified badge to ${ids.length} users`);
+    toast(`Verified badge granted to ${ids.length} user(s)`, 'success');
     setSelected(new Set());
   };
 
@@ -96,7 +96,7 @@ export default function AdminUsers() {
     setSelected(new Set());
   };
 
-  const bulkVerify = () => setBulkConfirm({ type: 'verify', label: `Verify ${selected.size} user(s)?`, action: runBulkVerify });
+  const bulkVerify = () => setBulkConfirm({ type: 'verify', label: `Grant Verified badge to ${selected.size} user(s)?`, action: runBulkVerify });
   const bulkSuspend = () => setBulkConfirm({ type: 'suspend', label: `Suspend ${selected.size} user(s)?`, action: runBulkSuspend });
   const bulkArchive = () => setBulkConfirm({ type: 'archive', label: `Archive ${selected.size} user(s)?`, action: runBulkArchive });
 
@@ -114,9 +114,9 @@ export default function AdminUsers() {
       case 'verify': {
         const rec = await updateUser(u.id, { verified: !u.verified });
         patch(rec);
-        submitNote('user', u.id, noteText, rec.verified ? 'Verified' : 'Unverified');
-        logAudit('User', `${rec.verified ? 'Verified' : 'Unverified'} ${u.name} (${u.id})`);
-        toast(rec.verified ? 'User verified' : 'Verification removed');
+        submitNote('user', u.id, noteText, rec.verified ? 'Verified badge granted' : 'Verified badge removed');
+        logAudit('User', `${rec.verified ? 'Granted Verified badge to' : 'Removed Verified badge from'} ${u.name} (${u.id})`);
+        toast(rec.verified ? 'Verified badge granted' : 'Verified badge removed');
         break;
       }
       case 'flag': {
@@ -175,7 +175,7 @@ export default function AdminUsers() {
           <Eye className="h-4 w-4" />
         </button>
       )}
-      <button onClick={() => openAction(u, 'verify', u.verified ? 'Remove verification' : 'Verify user')} title={u.verified ? 'Remove verification' : 'Verify'} className={classNames('rounded-lg border p-1.5', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
+      <button onClick={() => openAction(u, 'verify', u.verified ? 'Remove Verified badge' : 'Grant Verified badge')} title={u.verified ? 'Remove Verified badge' : 'Grant Verified badge'} className={classNames('rounded-lg border p-1.5', u.verified ? 'border-brand-teal/40 bg-brand-teal/15 text-brand-teal' : 'border-white/10 text-gray-400 hover:bg-white/5')}>
         <ShieldCheck className="h-4 w-4" />
       </button>
       <button onClick={() => openAction(u, 'suspend', u.status === 'suspended' ? 'Reactivate user' : 'Suspend user')} title={u.status === 'suspended' ? 'Reactivate' : 'Suspend'} className={classNames('rounded-lg border p-1.5', u.status === 'suspended' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-red-400/30 bg-red-500/15 text-red-300')}>
@@ -296,7 +296,7 @@ export default function AdminUsers() {
           <span className="text-sm font-semibold text-teal-300">{selected.size} selected</span>
           <div className="flex flex-wrap items-center gap-2 ml-auto">
             <button onClick={bulkVerify} className="pn-btn pn-btn-ghost text-sm inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" /> Verify all
+              <ShieldCheck className="h-3.5 w-3.5" /> Grant badge
             </button>
             <button onClick={bulkSuspend} className="pn-btn pn-btn-ghost text-sm inline-flex items-center gap-1.5 text-rose-300 hover:text-rose-200">
               <Ban className="h-3.5 w-3.5" /> Suspend all

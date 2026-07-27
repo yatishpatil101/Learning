@@ -1,8 +1,10 @@
 # Flow: Users Management & KYC / Verification
 
-> The admin users desk: list and filter every account, verify (KYC) owners and buyers, suspend / ban
-> and flag bad actors, archive/restore, and keep a full activity timeline and audit trail.
-> **Status:** documented from React source - **Primary role(s):** admin / manager (staff with the Users module)
+> The admin users desk: list and filter every account, grant/remove the opt-in Verified badge for
+> owners and buyers, suspend / ban and flag bad actors, archive/restore, and keep a full activity
+> timeline and audit trail. Verification is a **badge, not a gate** (ADR-019): granting it is a
+> trust/ranking signal, never a prerequisite to post or contact.
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** admin / manager (staff with the Users module)
 
 ---
 
@@ -31,11 +33,11 @@
 - Guards are UX-only (cross-cutting section 1); real authorization must be server-side.
 
 ## 4. Entities touched
-- [`users`](../../system/domain-model.md) - **read** (list/filter), **updated** (`verified`,
+- [`users`](../../system/data-model.md) - **read** (list/filter), **updated** (`verified`,
   `status`, `flagged`), **soft-deleted** (`archived`, `archivedAt`, `archiveReason`).
-- [`internalNotes`](../../system/domain-model.md) (`internalNotes["user:<id>"]`) - **created**;
+- [`internalNotes`](../../system/data-model.md) (`internalNotes["user:<id>"]`) - **created**;
   never deleted.
-- [`audit_log`](../../system/domain-model.md) - **created** on every action.
+- [`audit_log`](../../system/data-model.md) - **created** on every action.
 - **Timeline (read-only join):** `enquiries`, `visits`, `tickets`, `listings`, and `internalNotes`
   are aggregated by the user's mobile/id to build the activity feed (`getUserTimeline`).
 
@@ -50,17 +52,19 @@
   - **Text** search over `name + mobile + id` (lowercased substring).
 - Selection is cleared whenever a filter changes so bulk actions never hit invisible rows.
 
-### 5.2 Verification / KYC (the approval action)
+### 5.2 Grant the Verified badge (the approval action)
 - A single toggle: `updateUser(id, { verified: !u.verified })`. Setting `verified: true` grants the
-  BadgeCheck trust badge shown in the table and on public surfaces; unsetting removes it.
-- Every toggle records context: `submitNote('user', id, note, verified ? 'Verified' : 'Unverified')`
-  and `logAudit('User', '<Verified|Unverified> <name> (<id>)')`.
-- **KYC is admin-decided, not self-service.** The user (maker) presents identity (e.g. Aadhaar OTP at
-  the consumer gate, or offline docs); the admin (checker) confirms and flips `verified`. There is no
-  second-approver step today - a single admin both reviews and grants.
-- Related identity gate: owners must clear the Aadhaar gate (`puneNestAadhaar:<mobile>`,
-  cross-cutting section 3) before they can post a listing; that is a separate, consumer-side check
-  from this admin `verified` flag.
+  BadgeCheck trust badge shown in the table and on public surfaces; unsetting removes it. The
+  per-user action button reads **"Grant Verified badge"** / **"Remove Verified badge"**.
+- Every toggle records context: `submitNote('user', id, note, verified ? 'Verified badge granted' :
+  'Verified badge removed')` and `logAudit('User', '<Granted|Removed> Verified badge ... <name> (<id>)')`.
+- **Badge grant is admin-decided, not self-service.** The user (maker) opts in and presents identity
+  (DigiLocker via the consumer badge flow, or offline docs); the admin (checker) confirms and flips
+  `verified`. There is no second-approver step today - a single admin both reviews and grants.
+- **Badge-not-gate (ADR-019):** this `verified` flag is an **opt-in trust/ranking badge**. Owners do
+  **not** need to clear any Aadhaar gate to post — posting and contact stay at L1 mobile. Uniqueness
+  is enforced as **one identity → one badge** via the composite `identity_hash` (ADR-009b), inside the
+  opt-in badge flow only.
 
 ### 5.3 Moderation actions (single)
 `confirmAction` in `AdminUsers.jsx` switches on the action type; each writes an internal note and an
@@ -79,7 +83,8 @@ audit entry, and patches local state:
 ### 5.4 Bulk actions
 Gated by the `users.bulkOps` admin flag. Each iterates the selected ids, writes a per-user note, then
 one audit entry:
-- `runBulkVerify` -> `updateUser(id, { verified: true })` + note "Bulk verified".
+- `runBulkVerify` (bulk button **"Grant badge"**) -> `updateUser(id, { verified: true })` + note
+  "Verified badge granted (bulk)".
 - `runBulkSuspend` -> `updateUser(id, { status: 'suspended' })` + note "Bulk suspended".
 - `runBulkArchive` -> `archiveRecord('users', id, 'Bulk archive')` + note "Bulk archived".
 Each is confirmed via a modal (`bulkConfirm`) before running.
@@ -140,7 +145,7 @@ Gated by the `users.timeline` flag; opened via the Eye action.
   `verified`, `city`, `joinedAt`, `listings`, `lastActive`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Moderation):
 - `GET /users?role=&status=&q=&archived=true` - list/filter.
 - `GET /users/:id` - detail (+ owned listings via `getOwner`).
 - `PATCH /users/:id` - `{ verified }`, `{ status: 'suspended'|'active' }`, `{ flagged }`.

@@ -77,15 +77,16 @@ test('KYC-verified member can add a tip, a local pick and a photo — each shown
   expect(store[SLUG].map((c) => c.kind).sort()).toEqual(['photo', 'pick', 'tip']);
 });
 
-test('a logged-in non-KYC member is blocked by the Aadhaar gate before contributing', async ({ page }) => {
-  await seedUser(page, '9811111111'); // logged in, but NOT Aadhaar-verified
+test('a logged-in member contributes directly — sign-in is the only floor (badge-not-gate)', async ({ page }) => {
+  await seedUser(page, '9811111111'); // logged in, NOT Aadhaar-verified — still allowed
   await gotoHub(page);
 
   await page.getByRole('button', { name: 'Add tip' }).click();
 
-  // The contribution modal must NOT open; the Aadhaar identity gate appears instead.
-  await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toBeVisible({ timeout: 8000 });
-  await expect(page.getByRole('dialog', { name: /Add a community contribution/i })).toHaveCount(0);
+  // Badge-not-gate (ADR-019): the contribution modal opens straight away and the
+  // old Aadhaar identity wall never appears for a signed-in user.
+  await expect(page.getByRole('dialog', { name: /Add a community contribution/i })).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toHaveCount(0);
 });
 
 test('filter chips narrow the feed, and Helpful toggles once per user and re-sorts most-helpful first', async ({ page }) => {

@@ -2,7 +2,9 @@
 
 > The owner-facing multi-step wizard that turns a property into a pending listing, and the flatmate
 > "list your room" variant, then hands the submission to the admin verification maker-checker queue.
-> **Status:** documented from React source - **Primary role(s):** owner (maker), admin/manager (checker)
+> Posting is **L1-only** under the **badge-not-gate** model (ADR-019): any signed-in user posts
+> immediately — **no Aadhaar/identity gate**; the Verified badge is an optional, post-success nudge.
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** owner (maker), admin/manager (checker)
 
 ---
 
@@ -11,8 +13,9 @@
   PuneNest.
 - **Job-to-be-done:** "Describe my property, price it, add photos/documents, and publish it."
 - **Why it matters:** this is the **supply side** of the marketplace. Listing quality and the
-  ownership/verification gate are what make the "verified owners, zero brokerage" promise real.
-  Every listing enters as `pending` and only goes live after admin verification.
+  admin listing-verification maker-checker are what make the "zero brokerage" promise real. Every
+  listing enters as `pending` and only goes live after admin verification. Posting itself is never
+  identity-gated — an owner signs in (L1) and posts; verification is an **optional Verified badge**.
 
 ## 2. Entry points
 - **Routes:** `/list-property` (`ProtectedRoute`). Query params:
@@ -21,18 +24,20 @@
     `hostRole: 'tenant'`).
 - **Tiles / triggers:** "Post Property" nav/CTA, dashboard "Add listing", Share-a-Flat "List a room".
 - **Source components:** `src/pages/consumer/ListProperty.jsx` (shell) + `list-property/*`:
-  `useListProperty.js` (orchestrator), `AadhaarGate.jsx`, `ProgressMeter.jsx`, `StepNav.jsx`,
-  `ListingPaywall.jsx`, `EditPolicyBanner.jsx`, `PropertyDetailsStep.jsx`, `LocationPricingStep.jsx`,
-  `PhotosDocumentsStep.jsx`, `FlatmateFlow.jsx`, plus `validation.js`, `submit.js`, `editPolicy.js`,
-  `constants.js`, `initialForm.js`.
+  `useListProperty.js` (orchestrator), `PostSuccessVerifyNudge.jsx` (optional post-success badge
+  nudge), `ProgressMeter.jsx`, `StepNav.jsx`, `ListingPaywall.jsx`, `EditPolicyBanner.jsx`,
+  `PropertyDetailsStep.jsx`, `LocationPricingStep.jsx`, `PhotosDocumentsStep.jsx`, `FlatmateFlow.jsx`,
+  plus `validation.js`, `submit.js`, `editPolicy.js`, `constants.js`, `initialForm.js`.
 
 ## 3. Actors & roles
-- **Maker = owner** (signed in + Aadhaar-verified) fills and submits the wizard.
+- **Maker = owner** (signed in at **L1** — `ProtectedRoute`; no Aadhaar needed) fills and submits the
+  wizard.
 - **Checker = admin / manager** reviews the resulting `pending` listing in
   `src/pages/admin/AdminProperties.jsx` (`RoleRoute roles={['admin','manager']}`).
-- **Gate:** the whole form is hidden behind the shared Aadhaar identity gate
-  (`list-property/AadhaarGate.jsx`) - an owner MUST verify Aadhaar before posting. See
-  [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 3.
+- **Floor (not a gate):** posting requires only being signed in (L1, `ProtectedRoute`) — there is
+  **no** Aadhaar/identity gate on the form under ADR-019. The Verified badge is offered *after* the
+  listing goes live (`PostSuccessVerifyNudge`), never as a wall. See
+  [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md).
 
 ## 4. Entities touched
 - [`listings` / `properties`](../../system/domain-model.md) - **created** as `status: 'pending'` in
@@ -40,7 +45,8 @@
   (`puneNestListings:<mobile>`, via `addListing`). Edited in place via `updateListing` + `mutateDb`.
 - [`rooms` / `share_flat_requests`](../../system/domain-model.md) - the flatmate track **creates** a
   room in `puneNestRoomListings` via `addRoom` (`status: 'pending'`).
-- [`aadhaar_verifications`](../../system/domain-model.md) - **read** as the prerequisite gate.
+- [`aadhaar_verifications`](../../system/domain-model.md) - **read** only for the **optional** Verified
+  badge (post-success nudge); **not** a prerequisite to post.
 - [`property_reviews`](../../system/domain-model.md) - `ensureOwnerReview` opens a review thread on a
   material edit or a duplicate flag; `addPropReviewAdminNote` writes the system message.
 - [`documents`](../../system/domain-model.md) - sale listings persist uploaded docs via
@@ -50,10 +56,10 @@
 
 ## 5. Business rules & logic  *(the meat)*
 
-### Gate + paywall (before any step)
-- **Aadhaar gate:** while `!aadhaarVerified` the form is replaced by `AadhaarGate`; the progress
-  meter shows Aadhaar's share (up to 20%). `requireAadhaar()` re-checks `isAadhaarVerified()` at
-  submit time, so posting is impossible even if the form is somehow reached unverified.
+### Optional badge + paywall (before any step)
+- **No posting gate (ADR-019):** the form is **not** hidden behind any identity check — a signed-in
+  (L1) owner posts immediately. The Verified badge is offered *after* the listing goes live via
+  `PostSuccessVerifyNudge` (at the value moment, never before it), and is fully dismissible.
 - **Freemium quota (`src/lib/store/billing.js`):** `PLAN_LISTING_LIMITS = { free: 1, 'owner-free':
   1, owner2: 2, owner5: 5 }`. `activeListingCount()` counts non-flatmate, non-deleted/archived
   listings. `canPostListing()` = `activeListingCount() < listingLimit()`. A **new** post over the
@@ -104,7 +110,7 @@ advance on any error (scrolling to the first error via `scrollToError`).
   restore banner + "start fresh" let the owner resume or wipe. There is **no explicit "save draft"
   status** - a listing only exists once submitted; the draft is client-only.
 - **Submit (`submitProperty` -> `finalizeListing` -> `persistListing`):**
-  1. `requireAadhaar()` and `validateStep3` must pass.
+  1. `validateStep3` must pass (no identity/Aadhaar precondition — posting is L1-only).
   2. New post over quota is blocked; edit with an identity change opens the identity guard modal.
   3. `hashPhotos(photos)` computes perceptual hashes (browser) for duplicate detection.
   4. `persistListing` builds the record with `status: 'pending'`, `statusClass: 'pill-pending'`,
@@ -184,7 +190,6 @@ live listing + identity edit-> identity guard + quota interaction
   `pending -> ...` shape plus a separate Ops share-review for tenant/flagged posts.
 
 ## 8. Edge cases, validation & error states
-- **Unverified Aadhaar:** form hidden; `requireAadhaar` blocks submit and scrolls back to the gate.
 - **Over quota (new only):** `ListingPaywall` replaces the form until the owner upgrades.
 - **Duplicate (same owner):** hard block + duplicate guard modal pointing to the existing listing.
 - **Duplicate (different owner / same photos):** posts but is `duplicateFlag`ged and opens an Ops
@@ -221,15 +226,16 @@ Map to [`../../system/api-contract.md`](../../system/api-contract.md):
 - `GET /properties/:id/verification` / `POST /properties/:id/verification` /
   `.../verification/decision` (section 6) -> the maker-checker queue side-effects.
 - `POST /share-flat/rooms` (section 26) -> the flatmate/room track.
-- **Missing but implied:** an Aadhaar verify endpoint (`POST /me/verification/aadhaar`), a dedup
-  pre-check endpoint, a document upload endpoint bound to the listing, a locality-mint endpoint, and
-  the freemium quota check on `POST /me/listings` (return `403` when over limit).
+- **Missing but implied:** an **opt-in** badge verify endpoint (`POST /me/verification/aadhaar`,
+  DigiLocker — not a posting prerequisite), a dedup pre-check endpoint, a document upload endpoint
+  bound to the listing, a locality-mint endpoint, and the freemium quota check on `POST /me/listings`
+  (return `403` when over limit).
 
 ## 11. Backend responsibilities
 - **Own the verification gate:** a new listing must be persisted as `pending` and made live **only**
   by an authorized admin decision; the client cannot set `status: 'approved'`.
-- **Enforce the Aadhaar prerequisite** and the freemium quota server-side (reject over-limit `POST`s;
-  editing never consumes quota).
+- **Enforce the freemium quota server-side** (reject over-limit `POST`s; editing never consumes
+  quota). Posting must **not** be identity-gated — L1 (authenticated) is the only floor (ADR-019).
 - **Run dedup and photo-hash matching server-side** (block same-owner duplicates, flag cross-owner
   claims) - the client hash is a hint, not a decision.
 - **Apply the edit policy server-side:** classify Tier A vs Tier B, keep the listing live on a

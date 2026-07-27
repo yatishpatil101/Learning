@@ -80,7 +80,7 @@ export default function CommunityTab({ ctx }) {
               ) : null}
             </section>
 
-            {/* Community insights — KYC-gated resident contributions */}
+            {/* Community insights — resident contributions (sign-in only) */}
             <section className="reveal">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="users" className="w-5 h-5 text-teal-400" /> Community insights</h2>

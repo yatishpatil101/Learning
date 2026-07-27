@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { getProperty, logPropertyView } from '../../../lib/mockApi.js';
+import { track } from '../../../lib/pmf.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
@@ -10,7 +11,7 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { contactStatus } from '../../../lib/contact.js';
 import { requestMorePhotos } from '../../../lib/photoRequests.js';
 import { queueOwnerChat, messagesLinkForProp } from '../../../lib/chat.js';
-import { isSavedProp, pushRecentProp, getLastSearch, isAadhaarVerified } from '../../../lib/store.js';
+import { isSavedProp, pushRecentProp, getLastSearch } from '../../../lib/store.js';
 import { AMEN_LABEL, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
@@ -26,7 +27,6 @@ export default function useProperty() {
   const [tourOpen, setTourOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
-  const [aadhaarOpen, setAadhaarOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
   const { isIn, user } = useAuth();
   const { toast } = useToast();
@@ -50,6 +50,7 @@ export default function useProperty() {
         setP(r);
         logPropertyView(r.locality, r.id);
         pushRecentProp(r.id);
+        track('view_listing', { id: r.id, locality: r.locality, deal: r.deal });
       }
     });
     return () => { alive = false; };
@@ -79,15 +80,14 @@ export default function useProperty() {
   const contactApproved = contactStatus(ownerMob, p.id) === 'approved' || contactStatus(ownerMob, p.id) === 'owner';
   const canChat = flagEnabled('inAppMessaging');
 
-  // "Contact Owner" starts an in-app chat: sign-in + Aadhaar gates, then queue a
-  // pending request (owner accepts in Messages) and open the thread. The number-
-  // reveal channel lives separately in the OwnerCard, so no duplicating popup.
-  // When in-app messaging is off, fall back to the enquiry popup.
+  // "Contact Owner" starts an in-app chat. It's L1 contact (badge-not-gate): any
+  // signed-in user may reach the owner — queue a pending request (owner accepts in
+  // Messages) and open the thread. The number-reveal channel lives separately in
+  // the OwnerCard. When in-app messaging is off, fall back to the enquiry popup.
   const startChatRequest = () => { queueOwnerChat(p); navigate(messagesLinkForProp(p)); };
   const handleContact = () => {
     if (!isIn) { toast(tr('property.signInContact'), 'info'); return; }
     if (!canChat) { setContactOpen(true); return; }
-    if (!isAadhaarVerified()) { setAadhaarOpen(true); return; }
     startChatRequest();
   };
 
@@ -248,7 +248,7 @@ export default function useProperty() {
   return {
     tr, p, active, setActive, saved, setSaved, ovOpen, setOvOpen, lightbox, setLightbox,
     tourOpen, setTourOpen, reportOpen, setReportOpen, contactOpen, setContactOpen,
-    aadhaarOpen, setAadhaarOpen, visitOpen, setVisitOpen,
+    visitOpen, setVisitOpen,
     isIn, user, toast, flagEnabled, rootRef, lbTouchX, gallery, activeTab,
     startChatRequest, handleContact, ownerMob, contactApproved, canChat, isOwner, isAdmin, isApproved,
     isRent, kind, isLand, baths, furnishLabel, parkingLabel, emi, possessionLabel, title, priceStr,

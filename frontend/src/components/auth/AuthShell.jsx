@@ -2,8 +2,18 @@
    signin/signup.html main layout). `left` is the desktop panel content; `children`
    is the form card. `mobileIntro` is a compact brand/trust block shown ONLY below
    `lg` (above the card) so mobile users still get PuneNest branding and trust cues
-   that the desktop left panel carries. */
-export default function AuthShell({ left, children, mobileIntro }) {
+   that the desktop left panel carries.
+
+   `align` controls desktop vertical placement of the form card:
+   - 'center' (default): vertically centered within the area *below* the fixed
+     navbar. Best for short cards (e.g. Sign In).
+   - 'top': pinned just below the navbar. Use for tall cards (e.g. Sign Up) that
+     would otherwise get clipped by the fixed navbar when centered. */
+export default function AuthShell({ left, children, mobileIntro, align = 'center' }) {
+  // Fixed navbar is ~72px on desktop; reserve it so the card never tucks under it.
+  const colAlign = align === 'top'
+    ? 'lg:justify-start lg:pt-[88px] lg:pb-12'
+    : 'lg:justify-center lg:pt-[72px] lg:pb-12';
   return (
     <div className="auth-page min-h-[100dvh] flex pt-16 lg:pt-0">
       {/* Mobile-only ambient backdrop: teal aurora + fine tech grid so the auth
@@ -16,8 +26,8 @@ export default function AuthShell({ left, children, mobileIntro }) {
         <div className="floating-shape w-40 h-40 bg-teal-300" style={{ top: '35%', right: '30%' }} />
         <div className="relative z-10 max-w-md slide-right">{left}</div>
       </div>
-      {/* Mobile top-aligns to sit just under the navbar (no dead gap); desktop centers. */}
-      <div className="relative z-10 w-full lg:w-1/2 flex flex-col items-center justify-start lg:justify-center px-5 pt-6 pb-8 sm:px-8 lg:p-12 lg:min-h-[100dvh]">
+      {/* Mobile always top-aligns just under the navbar; desktop uses `align`. */}
+      <div className={'relative z-10 w-full lg:w-1/2 flex flex-col items-center justify-start px-5 pt-6 pb-8 sm:px-8 lg:px-12 lg:min-h-[100dvh] ' + colAlign}>
         <div className="w-full max-w-md">
           {mobileIntro ? <div className="lg:hidden">{mobileIntro}</div> : null}
           {children}

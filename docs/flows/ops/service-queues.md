@@ -12,7 +12,7 @@
 > shared queue components, not one:
 > - `OpsQueue.jsx` - a simple ticket board backed by `db.tickets`. Only `/ops/requests` renders it.
 > - `OpsServiceQueue.jsx` - a config-driven workflow board backed by the `serviceFlow` engine
->   (per-customer `localStorage`). All five team desks (rental, legal, interior, packers,
+>   (per-customer `localStorage`). All six team desks (rental, legal, loans, interior, packers,
 >   valuation) render it, differing only by a `type` prop into `SVC_CONFIG`.
 >
 > Both are "one component parameterized per team", but they are different engines with different
@@ -68,7 +68,7 @@
   re-enforced server-side (section 11).
 
 ## 4. Entities touched
-Link definitions: [`../../system/domain-model.md`](../../system/domain-model.md).
+Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 
 - **Ticket** (`db.tickets`) - the `OpsQueue` record. Read (list), updated (status / assignee /
   notes). Never hard-deleted (status flips to `cancelled` on sync). Fields: `id`, `team`, `service`,
@@ -231,7 +231,7 @@ any active state --(cancel)--> cancelled
   HTTP equivalents. See [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 6.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md).
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support).
 
 - **Tickets (section 13):**
   - `GET /tickets` - list; MUST accept/enforce a team scope for staff (server derives team from

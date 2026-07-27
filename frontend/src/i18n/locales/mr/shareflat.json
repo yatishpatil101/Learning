@@ -358,7 +358,6 @@
     "smartSearchToast": "स्मार्ट शोध · {{detail}}",
     "searchingQuery": "“{{query}}” शोधत आहे",
     "ownerConsentConfirmedToast": "मालक संमती पुष्ट — तुमची बदली पोस्ट आता ती दाखवते.",
-    "identityVerified": "ओळख पडताळली — तुम्ही आता पोस्ट करू शकता, खोली सूचीबद्ध करू शकता किंवा गट तयार करू शकता.",
     "partWithin15Days": "१५ दिवसांत",
     "partWithinMonth": "एका महिन्यात",
 
@@ -377,8 +376,6 @@
     "nearChip": "{{label}} जवळ · {{radius}} {{unit}}",
     "placeWord": "ठिकाण",
     "changeAreas": "भाग बदला",
-    "aadhaarGateSubtitle": "फक्त Aadhaar-पडताळलेले वापरकर्ते PuneNest वर विनंती पोस्ट करू शकतात, खोली सूचीबद्ध करू शकतात किंवा गट तयार करू शकतात.",
-    "aadhaarGateNote": "आम्ही तुमच्या Aadhaar शी जोडलेला मोबाइल नंबर OTP द्वारे पडताळतो. हे प्रत्येक सूची खरी आणि प्रत्येक होस्ट जबाबदार ठेवते — तुमचा नंबर खाजगी राहतो.",
     "reportTitle": "ही पोस्ट तक्रार करा",
     "reportSuccess": "धन्यवाद — आमची टीम या पोस्टचे पुनरावलोकन करेल."
   }

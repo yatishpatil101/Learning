@@ -86,6 +86,8 @@
     "showing": "दाखवत आहे",
     "propertyNoun_one": "मालमत्ता",
     "propertyNoun_other": "मालमत्ता",
+    "verifiedCount_one": "{{count}} पडताळलेली",
+    "verifiedCount_other": "{{count}} पडताळलेली",
     "searchingCity": "पुणे शोधत आहे…",
     "viewLabel": "दृश्य:",
     "gridView": "ग्रिड दृश्य",

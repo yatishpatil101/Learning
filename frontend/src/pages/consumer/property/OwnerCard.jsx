@@ -21,12 +21,21 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerMob, onContact
         <div>
           <div className="flex items-center gap-1.5">
             <span className="font-semibold text-white group-hover:text-brand-teal-3 transition-smooth">{p.owner}</span>
-            <Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" />
+            {(p.ownerVerified || p.ownershipVerified) && <Icon name="badge-check" className="w-4 h-4 text-brand-teal-2" />}
           </div>
-          <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {t('property.verifiedOwnerOwnership')}</span>
+          {(p.ownerVerified || p.ownershipVerified) ? (
+            <span className="text-xs text-emerald-300 flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {t('property.verifiedOwnerOwnership')}</span>
+          ) : (
+            <span className="text-xs text-gray-400">{t('listings.owner')}</span>
+          )}
         </div>
       </Link>
       <ContactBox p={p} isIn={isIn} toast={toast} />
+      {(p.ownerVerified || p.ownershipVerified) && (
+        <div className="mb-3 -mt-1 flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+          <Icon name="zap" className="w-3.5 h-3.5" /> {t('property.verifiedRespondsFaster')}
+        </div>
+      )}
       <div className="flex gap-2">
         {contactApproved && canChat ? (
           <div className="hidden lg:flex flex-1">

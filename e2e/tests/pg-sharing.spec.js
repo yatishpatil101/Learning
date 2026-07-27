@@ -43,7 +43,7 @@ const pgListing = (id, sharing, deal = 'rent') => ({
   room: 'shared', bhk: '', bhkNum: 0, bath: 0, area: 120, locality: 'Baner', localitySlug: 'baner',
   loc: 'Baner, Pune', society: '', deal,
   price: deal === 'buy' ? 4500000 : 9000,
-  priceStr: deal === 'buy' ? 'â‚¹45,00,000' : 'â‚¹9,000/mo',
+  priceStr: deal === 'buy' ? '₹45,00,000' : '₹9,000/mo',
   owner: 'Seed Owner', ownerMobile: '9000000000', status: 'approved', statusClass: 'pill-approved',
   real: true, featured: true, views: 0, enquiries: 0, photoCount: 0, furnishing: 'furnished',
   facing: '', floor: 0, age: '', construction: 'ready', amenities: [], img: '', image: '',

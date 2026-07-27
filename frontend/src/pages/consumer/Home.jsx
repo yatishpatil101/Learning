@@ -20,6 +20,7 @@ import WhyChooseUs from './home/WhyChooseUs.jsx';
 import Testimonials from './home/Testimonials.jsx';
 import CtaSection from './home/CtaSection.jsx';
 import FaqSection from './home/FaqSection.jsx';
+import NotifyMe from '../../components/pmf/NotifyMe.jsx';
 
 export default function Home() {
   const { t } = useTranslation();
@@ -161,6 +162,9 @@ export default function Home() {
 
       {/* CTA */}
       <CtaSection navigate={navigate} />
+
+      {/* PMF early-access capture (renders only when VITE_PMF_MODE=on) */}
+      <NotifyMe />
 
       {/* FAQ */}
       <FaqSection />

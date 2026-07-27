@@ -102,6 +102,11 @@ export default function TenantProfile() {
           <h1 className="text-2xl sm:text-3xl font-extrabold">{t('misc.tpTitle')}</h1>
           <p className="text-gray-400 text-sm">{t('misc.tpSubtitle')}</p>
         </div>
+        {form.idVerified && (
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-3 py-1 text-xs font-bold text-emerald-300 whitespace-nowrap">
+            <Icon name="shield-check" className="w-3.5 h-3.5" /> {t('misc.tpSeriousBuyer')}
+          </span>
+        )}
       </div>
 
       {/* Mobile-only progress header — puts the payoff and live feedback above the form
@@ -229,8 +234,8 @@ export default function TenantProfile() {
 
       {kycOpen && (
         <AadhaarVerifyModal
+          source="tenant_profile"
           subtitle={t('misc.tpKycModalSubtitle')}
-          note={t('misc.tpKycModalNote')}
           onClose={() => setKycOpen(false)}
           onVerified={onVerified}
         />

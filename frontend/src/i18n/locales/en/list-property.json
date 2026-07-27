@@ -453,39 +453,6 @@
       "comparePlans": "Compare plans"
     },
 
-    "gate": {
-      "verifyIdentityLabel": "Verify your identity",
-      "cheer1": "Confirm your Aadhaar-linked mobile to unlock the listing form.",
-      "cheer2": "Enter the 6-digit OTP to finish verifying.",
-      "cheer3": "Confirming your identity…",
-      "stepRequired": "Step 1 · Required to post",
-      "verifyTitle": "Verify your identity to start",
-      "verifySub": "You'll verify once with an Aadhaar OTP before you can post — it keeps every PuneNest listing genuine. Your number is never shown publicly.",
-      "mismatchTitle": "Sign in with your Aadhaar-linked number",
-      "mismatchBodyPre": "Your Aadhaar is linked to exactly one mobile number, and that has to be the number you sign in with — it's how we keep every listing genuine and duplicate-free. You're signed in as",
-      "mismatchBodyPost": "Sign in again with your Aadhaar-linked mobile to verify and post.",
-      "signInAadhaar": "Sign in with Aadhaar-linked number",
-      "yourAadhaarMobile": "Your Aadhaar-linked mobile",
-      "signedIn": "Signed in",
-      "otpSentHere": "This is the number you signed in with. The Aadhaar OTP will be sent here.",
-      "isThisAadhaar": "Is this the mobile number linked to your Aadhaar?",
-      "sending": "Sending…",
-      "yesSendOtp": "Yes, send OTP",
-      "noDifferent": "No, it's a different number",
-      "aadhaarMobileReq": "Aadhaar-registered Mobile Number *",
-      "aadhaarLinkedMobilePh": "Aadhaar-linked mobile",
-      "sendOtp": "Send OTP",
-      "enterOtp": "Enter OTP",
-      "otpSentTo": "We've sent a 6-digit code to +91 {{mobile}}.",
-      "enterValidMobile": "Please enter a valid 10-digit mobile number.",
-      "enter6Otp": "Please enter the 6-digit OTP.",
-      "verifying": "Verifying…",
-      "verifyContinue": "Verify & Continue",
-      "didntGet": "Didn't get it?",
-      "resend": "Resend",
-      "verifiedBanner": "Aadhaar verified — your identity's confirmed. Fill in the details below to complete your listing."
-    },
-
     "success": {
       "flatmateTitle": "Flatmate Listing Posted!",
       "updatedTitle": "Listing Updated!",
@@ -494,6 +461,15 @@
       "editBody": "Your changes are saved and live. Everything you updated is now visible to buyers and tenants.",
       "newBody": "Our team will verify and publish your listing within 24 hours. You'll receive a notification once it's live.",
       "goToListings": "Go to My Listings"
+    },
+
+    "verifyNudge": {
+      "title": "Stand out — get your Verified badge",
+      "body": "Verified owners rank higher in search and earn buyer trust. As a thank-you, your first verified listing gets a free 7-day Featured boost. It's optional and takes about a minute via DigiLocker.",
+      "cta": "Get Verified",
+      "later": "Maybe later",
+      "modalSubtitle": "Verify with DigiLocker to earn your badge — your listing ranks higher and your first one gets a free 7-day Featured boost.",
+      "done": "You're Verified — your listings now rank higher."
     },
 
     "modal": {

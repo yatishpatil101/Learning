@@ -6,6 +6,7 @@ import { featuredProperties } from '../../../services/propertyService.js';
 import { priceLabel } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
+import { verifiedStats } from '../../../lib/mockApi.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
 const specs = (p) => {
@@ -82,12 +83,16 @@ export default function Featured({ navigate }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  // E1 (ADR-019): honest verified-supply social proof. Mock-computed today; a backend
+  // aggregate later. Best-effort — if the mock isn't reachable (http mode) we just hide it.
+  const [vstats, setVstats] = useState(null);
 
   useEffect(() => {
     let alive = true;
     featuredProperties(6)
       .then((rows) => { if (alive) { setItems(rows); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
+    try { const s = verifiedStats(); if (s && s.verifiedListings > 0) setVstats(s); } catch { /* mock unavailable */ }
     return () => { alive = false; };
   }, []);
 
@@ -102,6 +107,12 @@ export default function Featured({ navigate }) {
           <div>
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">{t('home.featured.title')}</h2>
             <p className="text-gray-400 text-sm sm:text-base">{t('home.featured.subtitle')}</p>
+            {vstats && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-emerald-300/90">
+                <Icon name="shield-check" className="w-4 h-4" />
+                {t('home.featured.verifiedProof', { listings: vstats.verifiedListings, owners: vstats.verifiedOwners })}
+              </p>
+            )}
           </div>
           <button onClick={() => navigate('/listings')} className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-[#14b8a6] hover:text-[#2dd4bf] transition-colors group">
             {t('home.featured.viewAll')} <Icon name="arrow-right" className="w-4 h-4 transition-transform group-hover:translate-x-1" />

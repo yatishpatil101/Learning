@@ -218,7 +218,7 @@ test.describe('Admin Post on Behalf', () => {
 
     // Search filter
     await page.getByPlaceholder('Search...').fill('Activity Test');
-    await expect(page.getByText('Activity Test')).toBeVisible();
+    await expect(page.getByRole('table').getByText('Activity Test')).toBeVisible();
 
     // Date range pills exist
     await expect(page.getByRole('button', { name: '7d' })).toBeVisible();

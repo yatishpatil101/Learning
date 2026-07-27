@@ -45,6 +45,6 @@ export const CONTACT_STATUS = {
   APPROVED: 'approved',
   DECLINED: 'declined',
   OWNER: 'owner',
-  AADHAAR_REQUIRED: 'aadhaar_required',
+  VERIFICATION_REQUIRED: 'verification_required',
   LOGIN: 'login',
 };

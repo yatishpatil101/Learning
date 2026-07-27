@@ -234,7 +234,7 @@ test('selecting a row shows bulk action bar', async ({ page }) => {
   await page.waitForTimeout(500);
   await page.locator('tbody input[type="checkbox"]').first().click();
   await expect(page.getByText(/1 selected/)).toBeVisible({ timeout: 3000 });
-  await expect(page.getByRole('button', { name: /Verify all/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Grant badge/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Suspend all/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Archive all/i })).toBeVisible();
 });
@@ -248,7 +248,7 @@ test('bulk action shows modal confirmation (not browser confirm)', async ({ page
   await page.goto(`${BASE}/admin/users`);
   await page.waitForTimeout(500);
   await page.locator('tbody input[type="checkbox"]').first().click();
-  await page.getByRole('button', { name: /Verify all/i }).click();
+  await page.getByRole('button', { name: /Grant badge/i }).click();
 
   // Should show a modal dialog, NOT a browser confirm
   await expect(page.getByRole('dialog')).toBeVisible({ timeout: 3000 });
@@ -267,7 +267,7 @@ test('bulk modal shows selected user count', async ({ page }) => {
   const boxes = page.locator('tbody input[type="checkbox"]');
   await boxes.nth(0).click();
   await boxes.nth(1).click();
-  await page.getByRole('button', { name: /Verify all/i }).click();
+  await page.getByRole('button', { name: /Grant badge/i }).click();
   await expect(page.getByText(/2 selected user/i)).toBeVisible({ timeout: 3000 });
   await page.getByRole('button', { name: 'Cancel' }).click();
 });

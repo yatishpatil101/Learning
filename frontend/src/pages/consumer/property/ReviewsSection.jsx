@@ -51,7 +51,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
     if (!isIn) { toast(t('property.signInRate'), 'info'); return; }
     if (isOwner) { toast(t('property.cantReviewOwn'), 'info'); return; }
     if (!eligible) {
-      if (myVisitStatus(owner, p.id) === 'requested') toast(t('property.visitBookedReview'), 'info');
+      if (myVisitStatus(owner, p.id) === 'scheduled') toast(t('property.visitBookedReview'), 'info');
       else toast(t('property.bookVisitFirst'), 'info');
       return;
     }

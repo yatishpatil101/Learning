@@ -86,6 +86,8 @@
     "showing": "Showing",
     "propertyNoun_one": "property",
     "propertyNoun_other": "properties",
+    "verifiedCount_one": "{{count}} verified",
+    "verifiedCount_other": "{{count}} verified",
     "searchingCity": "Searching Pune…",
     "viewLabel": "View:",
     "gridView": "Grid view",

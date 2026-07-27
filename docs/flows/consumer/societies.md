@@ -3,7 +3,11 @@
 > How buyers/tenants discover Pune residential societies and localities, read curated + community
 > intelligence, follow/alert on them, contribute content, and how residents claim & manage a society
 > (the Society-OS SaaS surface).
-> **Status:** documented from React source - **Primary role(s):** buyer/tenant (default), owner,
+> Under **badge-not-gate (ADR-019)** the only floor is **L1 mobile sign-in**: any signed-in user can
+> add/upvote community info — **no Aadhaar KYC**. Posting notices is limited to a **verified resident**,
+> which is a separate **resident-of-unit** verification (flat + OTP / committee approval,
+> `status:'verified'`), not identity KYC.
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer/tenant (default), owner,
 > verified resident, society admin (claimant), ops/admin (checker)
 
 ---
@@ -44,22 +48,22 @@
 
 ## 3. Actors & roles
 - **Guest / buyer / tenant:** browse index, hub, locality dashboards; read all curated + community
-  content. Following, reviewing, Q&A, contributions and alerts require sign-in (and most community
-  writes require Aadhaar KYC - section 5).
+  content. Following, reviewing, Q&A, contributions and alerts require **sign-in only** (L1; no
+  Aadhaar KYC - section 5).
 - **Verified resident:** a signed-in user with a `verified` resident record for the society; may post
   events/notices, propose the WhatsApp group link and a location correction, and their reviews carry
-  a `resident: true` badge.
+  a `resident: true` badge. ("Verified resident" is **resident-of-unit** verification, not identity KYC.)
 - **Society admin (approved claimant):** the user whose society claim was approved becomes
   `adminMobile`; unlocks committee-side resident review (`committeeResidentReqs` / `setResidentStatus`).
 - **Ops / admin (checker):** approve/deny claims, verify community societies, apply detail
   suggestions, merge duplicates, approve WhatsApp/location proposals (admin flows, out of scope here).
 - **Guards:** none of the consumer routes are `ProtectedRoute`; gating is done in-handler
-  (`requireLogin`, `requireKyc`, `requireResident`). `/society` (slug-less) and `/emi`-style extras
+  (`requireLogin`, `requireSignedIn`, `requireResident`). `/society` (slug-less) and `/emi`-style extras
   sit behind `AppFlagRoute`. All guards are UX-only - see
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1.
 
 ## 4. Entities touched
-Link to [`../../system/domain-model.md`](../../system/domain-model.md).
+Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Society** - curated static catalogue (`src/data/societies.js`, 28 rows `S01..S28`) + MahaRERA
   bulk import (`societies-rera.js`) + user-minted **community** societies (localStorage). **Read**
   everywhere; **created** by `mintDemandSociety` / supply-side auto-mint; **updated** via an overlay
@@ -134,13 +138,15 @@ pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound
   & Q&A (count = rating.count), community (count = contributions), location (hidden for a generic
   society). Active tab is URL-synced (`?tab=`).
 
-### 5.5 Community writes & the KYC gate (`requireKyc`)
+### 5.5 Community writes & the sign-in floor (`requireSignedIn`)
 - `requireLogin()` bounces guests to `/signin?next=/society/<slug>`.
-- `requireKyc(fn)`: signed-in + `isAadhaarVerified()` runs `fn`; otherwise it stashes `fn` in
-  `pendingAction` and opens the Aadhaar modal, resuming after verify. Gated actions: **reviews,
-  Q&A, contributions (tip/pick/photo), replies, helpful votes, reports**.
-- `requireResident(fn)` = `requireKyc` + must be a verified resident or the society admin; gates
-  **events/notices, WhatsApp link, location correction**. Server messages: "Only verified residents
+- `requireSignedIn(fn)`: mobile-verified **sign-in (L1) is the only floor** — identity verification is
+  a badge, never required to participate; a signed-in user runs `fn` directly. Gated actions:
+  **reviews, Q&A, contributions (tip/pick/photo), replies, helpful votes, reports**. (No Aadhaar
+  KYC — ADR-019.)
+- `requireResident(fn)` = `requireSignedIn` + must be a verified resident or the society admin; gates
+  **events/notices, WhatsApp link, location correction**. This "verified resident" is a **resident-of-unit**
+  check (flat + OTP / committee approval), not identity KYC. Server messages: "Only verified residents
   or the committee can post this."
 - **Contributions** carry `kind` in {tip, pick, photo}; validation requires the kind-specific field
   (person/service name for pick, a photo for photo, text for tip). Users may remove only their own
@@ -198,7 +204,7 @@ Covered localities key off `LOC[name]`. All figures are curated/deterministic (n
 
 ### 5.8 Must move server-side
 - Society/locality identity resolution, merge redirects, tier/verified derivation, claim & resident
-  uniqueness, KYC/OTP gating, and all price/yield/trend math. The client currently computes
+  uniqueness, sign-in / resident-OTP gating, and all price/yield/trend math. The client currently computes
   ratings blends, yields and trends and enforces gates over editable localStorage.
 
 ## 6. Maker-checker / approval
@@ -214,7 +220,7 @@ Applicable - multiple maker-checker loops all following
   (`verifyCommunitySociety`, `mergeSocieties`).
 - **WhatsApp link / location correction:** maker = verified resident; checker = ops (pending until
   approved).
-- **Content reports:** maker = any KYC user; checker = ops moderation queue.
+- **Content reports:** maker = any signed-in (L1) user; checker = ops moderation queue.
 
 ## 7. State machine
 ```
@@ -236,8 +242,8 @@ WhatsApp / location: (none) --propose--> pending --ops--> approved(live) | (stay
   - pending review".
 - **Empty states:** Societies index "No societies match your filters" with reset; Society homes tab
   hidden when 0 listings; Locality inventory bar handles a locality with no live listings.
-- **Not signed in / no KYC:** review/Q&A/contribution/follow/alert actions bounce to sign-in or open
-  the Aadhaar modal (resumed after verify).
+- **Not signed in:** review/Q&A/contribution/follow/alert actions bounce to sign-in
+  (`/signin?next=...`); once signed in (L1) they proceed — there is no Aadhaar step.
 - **Resident flat conflict:** live warning while typing (`unitTaken`), server refusal on
   verify (`'conflict'`).
 - **Claim contention:** a second user's claim on an already pending/approved society returns
@@ -265,7 +271,7 @@ WhatsApp / location: (none) --propose--> pending --ops--> approved(live) | (stay
   modules); listings come through `listProperties` (mockApi). No dedicated `societyService` yet.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Catalog & Search, Engagement):
 - `GET /localities` and `GET /localities/:slug` (detail + listings) - section 24.
 - `POST /reviews/:entityType/:entityId` with `entityType` in {society, locality} - section 23.
 - `POST /society-leads` (mint demand / follow interest) and `GET /society-leads` (admin) - section 32.
@@ -281,8 +287,8 @@ Map to [`../../system/api-contract.md`](../../system/api-contract.md):
 - **Enforce uniqueness/authorization:** one active claim per society; flat uniqueness on resident
   verification; only the society admin or ops may verify residents; only verified residents may post
   events/whatsapp/location.
-- **Own KYC/OTP:** Aadhaar verification and resident-OTP must be server-verified; the gate is a trust
-  boundary, not a UX nicety.
+- **Own sign-in & resident-OTP:** mobile sign-in (L1) and resident-of-unit OTP must be server-verified;
+  the resident gate is a trust boundary, not a UX nicety. Participation needs **no** Aadhaar KYC (ADR-019).
 - **Compute the numbers:** ratings blend, price/psf/rent aggregates, livability, yield and price-trend
   series should be computed and returned by the server so the same figures render everywhere.
 - **Moderation & audit:** route suggestions/claims/reports/whatsapp/location proposals into ops

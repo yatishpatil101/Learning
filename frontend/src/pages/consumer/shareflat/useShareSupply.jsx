@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors, useMobileInput } from '../../../lib/hooks.js';
 import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
-import { updateRoom, isAadhaarVerified } from '../../../lib/store.js';
+import { updateRoom } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
 import { saveShareRequest, updateShareRequest, deleteShareRequest, saveShareGroup, updateShareGroup, deleteShareGroup, isSeekerVerified, setSeekerVerified, hasInterest as hasInterestDB, addInterest as addInterestDB, evaluateHostEligibility, enqueueShareReview, addShareFlatRequest } from '../../../lib/data/shareFlat.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, SHARE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
@@ -15,12 +15,7 @@ export function useShareSupply({ refresh, setRooms, user, toast, t, nav: navigat
   const [postOpen, setPostOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
-  // Aadhaar identity gate for supply-side actions (listing a room / creating a
-  // group). Unverified users get the shared Aadhaar OTP popup; the intended
-  // action is parked in a ref and resumed on successful verification.
-  const [aadhaarGateOpen, setAadhaarGateOpen] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
-  const pendingSupplyAction = useRef(null);
   const [editingId, setEditingId] = useState(null);
   const [post, setPost] = useState({ name: '', gender: 'female', age: '', occupation: '', budget: '', moveIn: 'now', flatPref: 'any', roomPref: 'any', localities: [], tags: [], note: '', verifiedContactOnly: false });
   const [grp, setGrp] = useState({ title: '', locality: 'Baner', policy: 'women', rent: '', seats: '2', seatsOpen: '1', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false });
@@ -42,19 +37,18 @@ export function useShareSupply({ refresh, setRooms, user, toast, t, nav: navigat
   const verifyFormRef = useRef(null);
   const [verifying, setVerifying] = useState(false);
 
-  // Supply-side eligibility gate. Listing a room or creating a group are
-  // owner/host actions, so they require a verified identity — not just a login.
-  // Order: sign in → Aadhaar OTP verified → run the action. Unverified users see
-  // the shared Aadhaar popup and the action resumes once they pass.
-  const requireAadhaar = (action) => {
+  // Supply-side floor (badge-not-gate, ADR-019): listing a room, creating a group
+  // or posting a request only needs an L1 mobile-verified sign-in — the same floor
+  // as the main List Property flow. Identity verification is an opt-in badge, never
+  // a wall to reach genuine owners/tenants. Unsigned users are sent to sign-in.
+  const requireSignedIn = (action) => {
     if (!user) { navigate('/signin?next=' + encodeURIComponent(window.location.pathname + window.location.search)); return; }
-    if (!isAadhaarVerified()) { pendingSupplyAction.current = action; setAadhaarGateOpen(true); return; }
     action();
   };
-  const listRoom = () => requireAadhaar(() => navigate('/list-property?share=1'));
-  const createGroup = () => requireAadhaar(() => setGroupOpen(true));
+  const listRoom = () => requireSignedIn(() => navigate('/list-property?share=1'));
+  const createGroup = () => requireSignedIn(() => setGroupOpen(true));
   const openPostModal = (id = null) => {
-    requireAadhaar(() => {
+    requireSignedIn(() => {
       // One live request per person: if someone starts a fresh post while they
       // already have one, take them to edit the existing request instead of
       // silently creating a duplicate.
@@ -194,7 +188,7 @@ export function useShareSupply({ refresh, setRooms, user, toast, t, nav: navigat
     // reopen/close seats without re-verifying the group.
     const seatsOpen = Math.max(1, Math.min(seats, parseInt(grp.seatsOpen, 10) || 1));
     // Derive the host eligibility tier from the declared role + proof signal.
-    // Aadhaar identity is already guaranteed by the gate, so it's the floor.
+    // Sign-in (L1) is the floor; the Verified badge is an optional trust signal.
     const role = grp.role === 'owner' ? 'owner' : 'tenant';
     const propertyId = role === 'owner' ? (grp.propertyId || '') : '';
     // A tenant only claims the Tenant tier if they both declare AND attach the
@@ -353,7 +347,6 @@ export function useShareSupply({ refresh, setRooms, user, toast, t, nav: navigat
     prefillGroupFromListing, prefillGroupFromTenancy,
     openConsent, consentOpen, setConsentOpen,
     setGroupSeats, setRoomSeats, deleteGroup, onJoin, listRoom, createGroup,
-    aadhaarGateOpen, setAadhaarGateOpen, pendingSupplyAction,
     verifyOpen, setVerifyOpen, openVerify, submitVerify, verifyFormRef,
     mobile, mobileErr, setMobileErr, otp, verifying, isVerified,
   };

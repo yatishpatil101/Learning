@@ -68,11 +68,21 @@ const VerifiedChip = ({ label }) => (
     <Icon name="badge-check" className="w-3 h-3" /> {label}
   </span>
 );
-const PendingChip = ({ label }) => (
-  <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/12 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
-    <Icon name="shield-alert" className="w-3 h-3" /> {label}
-  </span>
-);
+const PendingChip = ({ label, onClick }) => {
+  const cls = 'inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/12 px-2 py-0.5 text-[11px] font-semibold text-amber-300';
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={cls + ' transition-colors hover:bg-amber-500/20 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40'} title="Get your Verified badge">
+        <Icon name="shield-alert" className="w-3 h-3" /> {label}
+      </button>
+    );
+  }
+  return (
+    <span className={cls}>
+      <Icon name="shield-alert" className="w-3 h-3" /> {label}
+    </span>
+  );
+};
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -175,7 +185,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
             </div>
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <VerifiedChip label="Mobile verified" />
-              {aadhaarVerified ? <VerifiedChip label="ID verified" /> : <PendingChip label="ID not verified" />}
+              {aadhaarVerified ? <VerifiedChip label="ID verified" /> : <PendingChip label="ID not verified" onClick={() => setAadhaarOpen(true)} />}
             </div>
           </div>
         </div>
@@ -199,13 +209,13 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           <div className="flex items-start gap-3 min-w-0">
             <Icon name="shield-check" className={(aadhaarVerified ? 'text-emerald-400' : 'text-amber-400') + ' w-5 h-5 flex-shrink-0 mt-0.5'} />
             <div className="min-w-0">
-              <p className="text-sm text-white font-medium">Identity verification</p>
-              <p className="text-xs text-gray-500 mt-0.5">{aadhaarVerified ? 'Your Aadhaar-linked number is verified — owners trust your enquiries.' : 'Verify once to contact owners directly and get faster approvals.'}</p>
+              <p className="text-sm text-white font-medium">Verified badge</p>
+              <p className="text-xs text-gray-500 mt-0.5">{aadhaarVerified ? 'Your identity is verified via DigiLocker — the Verified badge builds trust and lifts your ranking.' : 'Optional: verify with DigiLocker to earn a Verified badge that builds trust and helps you stand out. You can do this anytime.'}</p>
             </div>
           </div>
           {aadhaarVerified
             ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 flex-shrink-0"><Icon name="badge-check" className="w-4 h-4" /> Verified</span>
-            : <button onClick={() => setAadhaarOpen(true)} className="pn-control pn-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Verify now</button>}
+            : <button onClick={() => setAadhaarOpen(true)} className="pn-control pn-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
         </div>
       </Card>
 
@@ -256,10 +266,15 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       </CollapsibleCard>
 
       {isOwner && (
-        <CollapsibleCard icon="phone-off" iconCls="text-sky-400" title="Owner phone privacy" sub="Choose how buyers reach you after you approve a request.">
-          <PrefRow title="Keep my number private" desc="Even after you approve a request, your number stays masked — approved buyers connect through in-app chat instead.">
-            <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Keep my number private" />
+        <CollapsibleCard icon="phone-off" iconCls="text-sky-400" title="Owner contact preferences" sub="Choose who can reach you and how buyers connect after you approve.">
+          <PrefRow title="Accept verified contacts only" desc="Only buyers with a Verified badge can request your number or start a chat. Others are prompted to get verified first. Off by default — verification is a badge, not a wall.">
+            <Switch checked={!!owner.verifiedContactOnly} onChange={(v) => changeOwner({ verifiedContactOnly: v })} label="Accept verified contacts only" />
           </PrefRow>
+          <div className="mt-2 border-t border-white/5 pt-2">
+            <PrefRow title="Keep my number private" desc="Even after you approve a request, your number stays masked — approved buyers connect through in-app chat instead.">
+              <Switch checked={!!owner.hideNumber} onChange={(v) => changeOwner({ hideNumber: v })} label="Keep my number private" />
+            </PrefRow>
+          </div>
         </CollapsibleCard>
       )}
 
@@ -324,9 +339,10 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
 
       {aadhaarOpen && (
         <AadhaarVerifyModal
-          subtitle="Verify your Aadhaar-linked number to contact owners directly and earn a trusted badge."
+          source="profile_tab"
+          subtitle={t('verify.subtitleProfile')}
           onClose={() => setAadhaarOpen(false)}
-          onVerified={() => { setAadhaarVerified(true); toast('Identity verified', 'success'); }}
+          onVerified={() => { setAadhaarVerified(true); toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
     </div>

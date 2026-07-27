@@ -41,6 +41,6 @@ Then open http://localhost:8080/docs.
 ## Next steps
 
 Implement controllers/entities per bounded context (see
-[`../docs/system/api-architecture-review.md`](../docs/system/api-architecture-review.md) and
-[`../docs/system/api-contract.md`](../docs/system/api-contract.md)). Keep the spec in sync — it is
+[`../docs/system/backend-api-architecture-review.md`](../docs/system/backend-api-architecture-review.md) and
+[the OpenAPI spec](../src/main/resources/static/openapi/punenest-api.yaml)). Keep the spec in sync — it is
 the machine-readable source of truth.

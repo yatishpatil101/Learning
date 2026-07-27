@@ -38,11 +38,11 @@
 - **Map view** is behind the `mapSearch` app flag (`AppFlagRoute`-style `flagEnabled('mapSearch')`).
 
 ## 4. Entities touched
-- [`properties`](../../system/domain-model.md) - read-only; only `status === 'approved'` and the
+- [`properties`](../../system/data-model.md) - read-only; only `status === 'approved'` and the
   active `deal` are shown to searchers.
-- [`localities`](../../system/domain-model.md) - read for filter options and map focus.
-- [`societies`](../../system/domain-model.md) - read for the society filter (`societyForListing`).
-- [`saved_searches`](../../system/domain-model.md) - created by "Save search" (`addSavedSearch`).
+- [`localities`](../../system/data-model.md) - read for filter options and map focus.
+- [`societies`](../../system/data-model.md) - read for the society filter (`societyForListing`).
+- [`saved_searches`](../../system/data-model.md) - created by "Save search" (`addSavedSearch`).
 - Passive analytics: `logSearchIntent(...)` records `{ locality, deal, bhk, userId }` on filter
   change (demand signal, not a core entity).
 
@@ -169,7 +169,7 @@ result set; see cross-cutting soft-delete/status (section 4).
   option lists), `ResultsArea.jsx` (pagination `pageItems`, empty-state broadeners).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) and the pagination/filter
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Catalog & Search) and the pagination/filter
 contract in [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 5):
 - `GET /properties?deal=&type=&locality=&bhk=&minPrice=&maxPrice=&furnishing=&q=&sort=&status=&page=&size=`
   -> paginated `{ content, page, size, totalElements, totalPages }`.

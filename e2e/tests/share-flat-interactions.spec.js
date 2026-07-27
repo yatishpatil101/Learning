@@ -16,6 +16,7 @@ async function seedUser(page, mobile = MOBILE) {
   await page.addInitScript((m) => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Share Tester', mobile: m, role: 'owner', loginAt: Date.now() }));
     localStorage.setItem('puneNestAadhaar:' + m, JSON.stringify({ verified: true, aadhaarMobile: m, at: Date.now() }));
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
   }, mobile);
 }
 

@@ -38,7 +38,7 @@
 ## 4. Entities touched
 There are **two parallel visit stores** (a known duplication - see section 8):
 
-- [`visits`](../../system/domain-model.md) - the global visits collection (seed
+- [`visits`](../../system/data-model.md) - the global visits collection (seed
   `src/data/visits.json`, ids `V8###`), read/written by `scheduleVisit` / `updateVisit` in
   `src/lib/mockApi/staff.js`. This feeds the owner dashboard calendar and the admin visits view.
   Statuses: `scheduled | confirmed | completed | cancelled | no-show`. **Created** on booking,
@@ -47,7 +47,7 @@ There are **two parallel visit stores** (a known duplication - see section 8):
   `src/lib/store/visits.js`. Statuses: `requested | completed` (plus whatever `setVisitStatus`
   writes). **Created** by `addVisitRequest`, read by the review-eligibility gate. This is what
   unlocks the "Visited" review.
-- [`properties`](../../system/domain-model.md) - read to render the property summary (title, price,
+- [`properties`](../../system/data-model.md) - read to render the property summary (title, price,
   owner, image) via `getProperty(listingId)`.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -169,7 +169,7 @@ property_visit_requests (review gate):
   `dashboard/useDashboardData.js` (`mutateVisit`), `property/ReviewsSection.jsx` (review gate).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) section 11:
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Listings):
 - `POST /visits { listingId, listing, customer, mobile, when }` -> create a visit (dashboard/admin
   feed). `GET /visits` (admin) lists all.
 - `POST /visit-requests { propertyId, ... }` (buyer) -> create the owner-facing request.

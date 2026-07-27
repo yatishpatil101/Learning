@@ -147,7 +147,7 @@ const URGENCY_TINTS = {
    Layout: the identity block is `basis-full` on phones so the actions/badges passed via
    `children` wrap onto their own thumb-friendly row (indented under the content, never
    squeezing the name/meta); from `sm` up they sit inline on the right. */
-export function RequestRow({ icon, tint = 'teal', avatar, title, meta, time, urgency, attention = false, onOpen, children }) {
+export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, time, urgency, attention = false, onOpen, children }) {
   const chip = CHIP_TINTS[tint] || CHIP_TINTS.teal;
   const urgent = urgency?.level === 'hot';
   const identity = (
@@ -162,6 +162,11 @@ export function RequestRow({ icon, tint = 'teal', avatar, title, meta, time, urg
       <span className="block min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{title}</span>
+          {badge ? (
+            <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+              <Icon name="shield-check" className="h-2.5 w-2.5" />{badge}
+            </span>
+          ) : null}
           {urgency ? (
             <span className={'inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ' + (URGENCY_TINTS[urgency.level] || URGENCY_TINTS.warm)}>
               <Icon name="timer" className="h-2.5 w-2.5" />{urgency.label}

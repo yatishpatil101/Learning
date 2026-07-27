@@ -100,7 +100,7 @@ test('Content Reviews tab shows reviews with correct author names', async ({ pag
   await page.getByRole('button', { name: 'Reviews' }).click();
   await expect(page.getByText('Moderate user reviews')).toBeVisible({ timeout: 5000 });
   // Reviews should show actual user names from data (not 'User' fallback)
-  await expect(page.getByText('Gauri Rao')).toBeVisible();
+  await expect(page.getByRole('table').getByText('Gauri Rao')).toBeVisible();
   // Approve/Reject buttons should exist for pending reviews
   await expect(page.getByRole('button', { name: 'Approve' }).first()).toBeVisible();
 });
@@ -227,7 +227,7 @@ test('admin flatmates page loads with KPIs and seeded data', async ({ page }) =>
   await expect(page.getByRole('button', { name: 'Groups' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Group Applications' })).toBeVisible();
   // Seeded data appears in seekers table
-  await expect(page.getByText('Riya').first()).toBeVisible();
+  await expect(page.getByRole('table').getByText('Riya').first()).toBeVisible();
   expect(errors).toHaveLength(0);
 });
 
@@ -241,7 +241,7 @@ test('flatmates Groups tab shows groups with moderation buttons', async ({ page 
   });
   await page.goto(`${BASE}/admin/flatmates`);
   await page.getByRole('button', { name: 'Groups' }).click();
-  await expect(page.getByText('TestGroup Baner 2BHK')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('table').getByText('TestGroup Baner 2BHK')).toBeVisible({ timeout: 5000 });
   await expect(page.getByRole('button', { name: 'Flag' }).first()).toBeVisible();
 });
 
@@ -257,5 +257,5 @@ test('flatmates Applications tab shows applications', async ({ page }) => {
   });
   await page.goto(`${BASE}/admin/flatmates`);
   await page.getByRole('button', { name: 'Group Applications' }).click();
-  await expect(page.getByText('2 BHK Flat in Baner')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('table').getByText('2 BHK Flat in Baner')).toBeVisible({ timeout: 5000 });
 });

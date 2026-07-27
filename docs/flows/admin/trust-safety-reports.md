@@ -32,13 +32,13 @@
 - Guards are UX-only (cross-cutting section 1).
 
 ## 4. Entities touched
-- [`reports`](../../system/domain-model.md) - **created** by `submitReport`, **updated** (`status`,
+- [`reports`](../../system/data-model.md) - **created** by `submitReport`, **updated** (`status`,
   `actionTaken`, `handledAt`) by the moderator.
-- [`properties` / `users`](../../system/domain-model.md) - the report's **target** (`targetId`,
+- [`properties` / `users`](../../system/data-model.md) - the report's **target** (`targetId`,
   `kind`); acted on indirectly (take down / suspend) via their own admin flows.
-- [`internalNotes`](../../system/domain-model.md) (`internalNotes["report:<id>"]`) - **created**
+- [`internalNotes`](../../system/data-model.md) (`internalNotes["report:<id>"]`) - **created**
   from the action prompt.
-- [`audit_log`](../../system/domain-model.md) - **created** on every action.
+- [`audit_log`](../../system/data-model.md) - **created** on every action.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -52,7 +52,7 @@
 - **Reasons** come from `REPORT_REASONS` on the consumer side (`sold`, `fake`, `unavailable`,
   `pricing`, `spam`, `broker`, `other`); the admin filter also lists moderation reasons
   (`fake`, `inaccurate`, `fraud`, `impersonation`, `offensive`, `spam`). (Reason enums differ between
-  intake and admin filter - see domain-model inconsistency #7.)
+  intake and admin filter - see data-model inconsistency #7.)
 - Every new report starts `status: 'open'` with no action taken.
 
 ### 5.2 Triage states & moderator actions
@@ -140,7 +140,7 @@ actioned|resolved|dismissed --(reopen)--> open   (clears actionTaken)
   `reporterMobile`, `url`, `at`, `status`, `actionTaken`, `resolution`, `handledBy`, `handledAt`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Moderation):
 - `POST /reports` - reporter files a report (`submitReport`).
 - `GET /reports?kind=&status=&reason=&q=&page=&size=` - moderation queue.
 - **Deltas implied but not in the contract yet:**

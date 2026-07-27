@@ -57,6 +57,8 @@ test('home Rent search offers share types plus posted types', async ({ page }) =
 });
 
 test('each home Buy type deep-links to listings with the matching filter pre-selected', async ({ page }) => {
+  // Six sequential full search flows — grant extra time so it survives parallel-load contention.
+  test.slow();
   const errors = trackErrors(page);
   for (const [label, key] of BUY_TYPES) {
     await openHomeType(page);
@@ -110,9 +112,9 @@ test('posted properties (Independent House / Open Plot / Farm Land) are searchab
   // featured:true only pins these to page 1 under the real relevance sort (it has no
   // visual effect on tiles) so the type-filter assertions are deterministic.
   db.listings = [
-    base({ id: 'SEED-house', title: '3 BHK Independent House in Baner', type: 'Independent House', bhk: '3 BHK', bhkNum: 3, bath: 2, area: 1500, price: 8000000, priceStr: 'â‚¹80 Lacs', viewUrl: '/property/SEED-house', featured: true }),
-    base({ id: 'SEED-plot', title: 'Open Plot in Baner', type: 'Open Plot', area: 2400, price: 4500000, priceStr: 'â‚¹45 Lacs', viewUrl: '/property/SEED-plot', featured: true }),
-    base({ id: 'SEED-farm', title: 'Farm Land in Baner', type: 'Farm Land', area: 5000, price: 3000000, priceStr: 'â‚¹30 Lacs', viewUrl: '/property/SEED-farm', featured: true }),
+    base({ id: 'SEED-house', title: '3 BHK Independent House in Baner', type: 'Independent House', bhk: '3 BHK', bhkNum: 3, bath: 2, area: 1500, price: 8000000, priceStr: '₹80 Lacs', viewUrl: '/property/SEED-house', featured: true }),
+    base({ id: 'SEED-plot', title: 'Open Plot in Baner', type: 'Open Plot', area: 2400, price: 4500000, priceStr: '₹45 Lacs', viewUrl: '/property/SEED-plot', featured: true }),
+    base({ id: 'SEED-farm', title: 'Farm Land in Baner', type: 'Farm Land', area: 5000, price: 3000000, priceStr: '₹30 Lacs', viewUrl: '/property/SEED-farm', featured: true }),
     ...(SEED_DB.listings || []),
   ];
 

@@ -35,10 +35,10 @@
   the real enforcement must be server-side (section 11).
 
 ## 4. Entities touched
-- [`settings`](../../system/domain-model.md) - **read / updated**: `site`, `fees`, `movePack`, `geo`,
+- [`settings`](../../system/data-model.md) - **read / updated**: `site`, `fees`, `movePack`, `geo`,
   `flags` (app), `adminFlags` (admin modules, via `AdminFlagsContext`), `customRoles`.
-- [`team`](../../system/domain-model.md) (internal accounts, separate from consumer `users`) - **read / created / updated / deleted**.
-- [`audit_log`](../../system/domain-model.md) - **read / created / cleared** (Settings audit tab; every save/toggle logs).
+- [`team`](../../system/data-model.md) (internal accounts, separate from consumer `users`) - **read / created / updated / deleted**.
+- [`audit_log`](../../system/data-model.md) - **read / created / cleared** (Settings audit tab; every save/toggle logs).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -154,7 +154,7 @@ for assignment, and the staff portal (`TeamRoute`) only shows tickets for the me
   internal accounts live in `db.team` (runtime, seeded via `db.json`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Admin & Analytics):
 - `GET /admin/settings`, `PATCH /admin/settings` (section 29) - site/fees/movePack/geo/flags/adminFlags/customRoles.
 - `GET /admin/audit-log`, `POST /admin/audit-log`, `DELETE /admin/audit-log` (section 29).
 - `GET /fees` (section 33) - public fee read consistent with `settings.fees`.

@@ -90,22 +90,25 @@ test('a non-resident KYC user sees no Suggest-location control and the store ref
   expect(out).toBe('forbidden');
 });
 
-// ─── AC4: a resident who hasn't done KYC is Aadhaar-gated ───
-test('a resident without KYC is Aadhaar-gated on Suggest location (store returns kyc)', async ({ page }) => {
-  await seedUser(page, RES_MOBILE);      // logged in, NOT Aadhaar-verified
+// ─── AC4: a resident without a badge still contributes (badge-not-gate) ───
+test('a signed-in resident opens Suggest-location directly — no Aadhaar gate (store accepts it)', async ({ page }) => {
+  await seedUser(page, RES_MOBILE);      // logged in, NOT identity-verified
   await seedResident(page, RES_MOBILE);  // but a verified resident → sees the control
   await gotoHub(page);
 
   const section = page.locator('section', { has: page.getByRole('heading', { name: /Location & connectivity/i }) });
   await section.getByRole('button', { name: /Suggest correct location/i }).click();
-  await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toBeVisible({ timeout: 8000 });
-  await expect(page.getByRole('dialog', { name: 'Suggest society location' })).toHaveCount(0);
+  // Badge-not-gate: the suggest dialog opens straight away; no identity wall.
+  await expect(page.getByRole('dialog', { name: 'Suggest society location' })).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toHaveCount(0);
 
   const out = await page.evaluate(async ([s]) => {
     const m = await import('/src/lib/store.js');
     return m.proposeSocietyLocation(s, { lat: 18.56, lng: 73.79 });
   }, [SLUG]);
-  expect(out).toBe('kyc');
+  // The store accepts the proposal (pending record), never returns the removed 'kyc'.
+  expect(out).not.toBe('kyc');
+  expect(out.status).toBe('pending');
 });
 
 // ─── AC5: out-of-bounds pin is rejected ───

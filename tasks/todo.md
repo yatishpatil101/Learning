@@ -1,0 +1,402 @@
+# Tasks
+
+## PMF test overlay — public mockup deploy with demand capture (DONE)
+
+Temporary, non-invasive overlay to test product-market fit before backend/company.
+Everything gated behind `VITE_PMF_MODE` (off by default → dev flow untouched).
+Stack: Netlify (host) + Netlify Forms (capture) + GA4 (analytics).
+
+- [x] `src/lib/pmf.js` — flag read, `track()` (GA4), `captureLead()` (Netlify POST); no-ops when off.
+- [x] `PreviewBanner.jsx` — one-line honest "early preview" banner (App-level).
+- [x] `NotifyMe.jsx` — gate-free email/WhatsApp capture on Home (top-of-funnel signal).
+- [x] Instrumented existing contact actions (ContactOwnerModal + ContactBox) + `view_listing` + `page_view`.
+- [x] `index.html` — hidden Netlify `pmf-lead` form + widened CSP for GA4.
+- [x] `netlify.toml` + `public/_redirects` (SPA fallback); `.env.example` documents the flags.
+- [x] Verify: lint clean on touched files (0 errors); build passes flag-off AND flag-on; overlay artifacts present in flag-on dist; contact/property e2e (6 specs) green.
+- Kept existing sign-in + Aadhaar contact gate as-is (user decision).
+- Pre-existing (not mine): `src/components/Header.jsx` is a broken placeholder file → 1 lint parse error; unused/unimported, build unaffected. Flagged to user.
+- PENDING (needs user credentials): create Netlify site + set `VITE_PMF_MODE=on` & `VITE_GA_ID`; deploy; share URL.
+
+## OpenAPI as the single source of truth for API design (DONE)
+
+Goal: make `backend/src/main/resources/static/openapi/punenest-api.yaml` the one
+authoritative API design; remove duplicated API design from every other doc.
+
+### Phase 1 - Make the OpenAPI solid
+- [x] Canonical `Role` enum -> `[buyer, owner, staff, admin]`; align `Party.role -> [buyer, owner]`.
+- [x] `Team` enum -> `[rental, legal, interior, packers, valuation]`.
+- [x] `bearerAuth` description: JWT claims `sub, role, mobileVerified, aadhaarVerified` + staff `team`.
+- [x] `info` block: version `1.0.0 -> 1.1.0`; declared spec as SSOT + changelog note.
+- [x] Validate: YAML parses, 403 `$ref`s / 0 unresolved.
+
+### Phase 2 - Remove duplicated API design
+- [x] `docs/system/api-contract.md` -> gutted 25KB catalogue; now a ~2KB pointer stub.
+- [x] `docs/system/cross-cutting.md` -> removed literal error/pagination/role JSON; point to spec.
+- [x] All 27 `docs/flows/**` -> "Target API endpoints" lead-ins repointed to the OpenAPI spec.
+- [x] `README.md`, `docs/README.md`, `docs/coverage-matrix.md` -> repointed to spec.
+- [x] `docs/roadmap/build-roadmap.md` -> repointed refs + added "Spring Boot 4.1.0 / Java 21".
+- [x] `docs/system/backend-api-architecture-review.md` -> role list `-> [buyer, owner, staff, admin]`;
+      rewrote "API Catalog" from "maintained in two places to avoid drift" to single-source.
+- [x] `docs/system/app-architecture.md`, `docs/system/domain-model.md`, `backend/README.md` -> repointed.
+
+### Phase 3 - Verify
+- [x] OpenAPI re-parsed: 403 refs / 0 unresolved; role/team/party enums correct.
+- [x] Grep sweep: no endpoint tables / request-response JSON remain in `docs/system/*.md`.
+- [x] Remaining `api-contract.md` references are all legitimate (pointer-stub self-refs +
+      one flow prose note about a sample-value discrepancy).
+- [x] Temp validation scripts removed.
+- [ ] `mvn -q verify` -- BLOCKED (pre-existing, not caused by this work): local JDK is **17**,
+      but backend `pom.xml` targets **Java 21** (`release version 21 not supported`). Docs/OpenAPI
+      changes touched zero Java. To build the backend, install a JDK 21+ toolchain.
+
+## Mature OpenAPI to cover all React needs (retire path for domain-model.md) (DONE)
+
+Goal: verify `docs/system/domain-model.md` captures everything React needs, then extend the
+OpenAPI spec to cover it entirely so domain-model.md can eventually be retired.
+
+- [x] Deleted `docs/system/api-contract.md`, `_audit_openapi.py`, `_oapi_check.py`; repointed links.
+- [x] Gap analysis (domain-model 33 entities vs OpenAPI vs React). Verdict: domain-model was more
+      complete; flow docs already flagged the gaps as "missing but implied".
+- [x] Phase A - Societies (`Society`/`SocietyDetail` + `/societies`, `/societies/{slug}`, follow),
+      Reels (`Reel` + `/reels`), entity reviews (`Review.targetType` += society|owner,
+      `/reviews/{entityType}/{entityId}`).
+- [x] Phase B - Messaging: `Conversation`/`ConversationCreate` + `/messages` (list/start),
+      `/messages/{id}` (thread/reply/read).
+- [x] Phase C - Referrals+fraud (`Referral` + admin `/referrals`, approve/reject/clawback);
+      enriched `AdminSettings` (site/fees/movePack/flags/permissions/customRoles), `User`
+      (team/status/verified/city/counters), `Property` (views/enquiries/featured/verification flags/
+      owner{}/adminPipeline{}).
+- [x] Phase D - field closers: `Transaction.recurring`, `OwnershipBasis.currentValue`,
+      `Offer.history[]`, `Ticket` (customer/mobile/value/service/notes[]), `Locality`
+      (demand/avgRent/focus/lat/lng/active), `DocumentRequest.acknowledgedDisclaimer`,
+      `SavedSearch`/`SavedSearchCreate` (filters/channel/newCount) + **fixed YAML `off` bool bug**
+      (unquoted `off` -> `"off"`).
+- [x] Phase E - parity verified: 138 paths, 107 schemas, 452 refs, 0 unresolved, 0 unused. All 33
+      domain-model entities now map to a schema.
+
+### Retire path for domain-model.md (DONE - user chose the ADR path)
+- Created `docs/system/data-model.md` (ADR): entity->OpenAPI-schema map + the DB-only truth that a
+  wire contract can't hold (ER overview, ID/timestamp/money/soft-delete conventions, mobile-key->FK
+  migration, the 10 seed-vs-contract reconciliations, migration strategy).
+- Repointed every `domain-model.md` reference across 33 docs + root `README.md` + the OpenAPI header
+  to `data-model.md`; reworded doc-map descriptions ("canonical entities" -> "ER map + persistence
+  design; field shapes -> OpenAPI schemas").
+- Deleted `docs/system/domain-model.md`. Repo-wide grep: no dangling `domain-model.md` links
+  (only an intentional "Supersedes" mention inside data-model.md).
+- Open decision still pending: delete the 2 stale `VERIFICATION_*.md` QA reports (reference a
+  deleted `HTML_APP_MIGRATION_SPEC.md`; nothing links them)? Defaulted to KEEP.
+
+## Notes / follow-ups
+- `AGENTS.md:57` still says "Spring Boot 3" (skill description). Left unedited: it is instruction
+  config, not API design. Flag for the user if they want it corrected to Boot 4.
+- Non-auth enums intentionally keep `user`/`tenant` tokens: moderation `targetType`
+  `[property, user, review, post]` and content `audience` `[owner, tenant, buyer, agent]`.
+
+
+## Platform & solution architecture (MVP pass) (DONE)
+
+Iterative, one-question-at-a-time design in `docs/system/platform-architecture.md`.
+Criteria every decision: Performance / Security / Cost / Ops simplicity. Founder constraint:
+free-tier-first ($0 until real usage forces it). 16 ADRs ratified:
+
+- [x] ADR-005 Platform/compute = Cloud Run (Mumbai) + managed Postgres + Cloudflare Pages/R2 + FCM
+- [x] ADR-006 Rejected Firestore/BaaS core; FCM push only
+- [x] ADR-007 DB = Supabase Postgres (Mumbai), pure Postgres, PgBouncer pooler; India residency
+- [x] ADR-008 Session = httpOnly+Secure+SameSite cookies, short access JWT + rotating refresh + CSRF
+- [x] ADR-009 KYC = paid aggregator Aadhaar OKYC/OTP behind KycClient seam (first paid prod dep)
+- [x] ADR-010 Notifications = WhatsApp Cloud API + Brevo + Postgres in-app, transactional outbox
+- [x] ADR-011 Jobs = Cloud Scheduler -> internal endpoint + warming ping + startup CPU boost
+- [x] ADR-012 Search = PostgreSQL (indexes + FTS + pg_trgm + PostGIS) behind swap seam
+- [x] ADR-013 Media = pre-signed direct-to-R2, split public/private buckets
+- [x] ADR-014 Payments = Razorpay, fee-only at MVP (rent off-platform)
+- [x] ADR-015 Cache/limits = defer Redis; CDN + Postgres + in-process + Cloudflare edge/Turnstile
+- [x] ADR-016 Ops = Secret Manager + GitHub Actions + Cloud Logging/Monitoring/Sentry; DR pg_dump->R2
+
+Diagrams added: system context, high-level (full), deployment, + sequences (OTP login, contact
+gate/OKYC, scheduled alert/outbox). Open (non-blocking): A-Q2 MVP scale, A-Q4 team size.
+Two unavoidable paid prod deps: SMS OTP (DLT/TRAI) + Aadhaar KYC; free in dev via seams.
+
+## KYC identity model refinement (ADR-009a) (DONE)
+
+Clarified the Aadhaar/KYC design in `docs/system/platform-architecture.md` (§6.4):
+- [x] Two OTPs, two proofs: login OTP secures registration mobile (A); Aadhaar OKYC OTP proves genuine
+      unique identity (B). Aadhaar OTP is mandatory for every gated user.
+- [x] No "mobile -> identity" lookup exists; aggregator releases data only on Aadhaar/VID + OTP consent.
+- [x] Uniqueness via entity-scoped **UID token** stored as UNIQUE dedup anchor; **never store raw Aadhaar**.
+- [x] Mobile-match policy (Option 1): buyers soft-flag on A!=B (no block); owners posting a listing
+      hard-require A==B (403 mobile_match_required).
+- [x] `kyc_verification` schema: user_id, uid_token UNIQUE, verified, name, dob, gender, aadhaar_masked,
+      mobile_match, source, verified_at.
+- [x] Updated contact-gate sequence diagram; added ADR-009a; aggregator must expose a stable UID token.
+
+## Payment gateway free-tier clarification (ADR-014 refined) (DONE)
+
+- [x] Clarified: no India gateway has a "free usage tier"; all are ₹0 fixed cost + free sandbox +
+      pay-per-successful-transaction (fits $0-until-revenue). Razorpay/Cashfree/PhonePe PG/PayU/Stripe.
+- [x] Key nuance: zero-MDR (govt-mandated 0% on UPI/RuPay) zeroes only the network cost, NOT the
+      aggregator's service fee -> UPI through Razorpay is typically NOT free.
+- [x] GPay/PhonePe are payer-side UPI apps, not merchant integrations; you accept UPI, any app pays.
+- [x] Two routes recorded: Route A aggregator (Razorpay, chosen MVP - webhooks/reconciliation worth the
+      tiny fee); Route B direct UPI collection (QR/deep-link, near-0% but manual reconciliation, UPI-only)
+      as a documented future cost-reduction path behind the PaymentClient seam.
+- [x] Added payments row to §4.1 cost map; enriched §6.8 + ADR-014. Flag: confirm live per-txn rates.
+
+## Production prerequisites & legal dependencies (India) (DONE)
+
+Added §9 to `docs/system/platform-architecture.md`:
+- [x] 9.1 Needs a registered entity: Payments (Razorpay), Aadhaar KYC aggregator, SMS OTP (DLT/TRAI),
+      WhatsApp (Meta Business verification) + cross-cutting: money collection (current a/c, GST) & DPDP.
+- [x] 9.2 Personal-signup OK: Cloud Run/GCP, Google Maps, Supabase, Cloudflare, FCM, email, Sentry/
+      UptimeRobot/GitHub Actions, Upstash.
+- [x] 9.3 Go-live sequencing: build on mocks now; incorporate; start DLT + Meta first (slowest);
+      then gateway/KYC KYC; GST+DPDP; flip seams mock->real with no code change.
+- [x] Flagged as engineering map, not legal advice (confirm GST/DPDP/entity type with a CA).
+## Architecture diagrams completed (platform-architecture.md §5)
+- [x] 5.3 Component Diagram - modular-monolith internals: cross-cutting filter chain, feature modules, provider seams -> Postgres/external.
+- [x] 5.4 API Interaction Flow - request lifecycle through edge + CSRF/JWT/role/gate filters -> controller/service/repo, audit+outbox in-txn.
+- [x] 5.5 Data Flow Diagram - PII residency (Mumbai DB), R2 public/private buckets, minimum-data-out to seams; raw Aadhaar never stored.
+- All seven views (5.1-5.7) now drawn; status header + §5 intro updated.
+## Legal entity & compliance advisory (DONE)
+- [x] Created docs/system/legal-entity-and-compliance.md (Pvt Ltd recommendation, SPICe+ roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP flags, 30-day plan)
+- [x] Cross-linked from platform-architecture.md 9 and registered in docs/README.md
+
+## Cashfree provider consolidation persisted (platform-architecture.md)
+- [x] ADR-017 - Cashfree as primary vendor: Secure ID (DigiLocker KYC) + PG (fee collection); Payouts deferred behind PayoutClient seam; Razorpay = documented fallback.
+- [x] ADR-018 - Cloud Run prod 2FA for Secure ID/Payouts = RSA public-key signature (X-Cf-Signature), not IP-whitelist (dynamic egress IP).
+- [x] ADR-009 amended - Aadhaar is Cashfree DigiLocker-only (no standalone OTP OKYC product); webhook-driven, no GET /status.
+- [x] ADR-009a revived - DigiLocker success webhook returns `mobile`, so owner hard mobile-match IS feasible; buyers soft-flag.
+- [x] ADR-009b - dedup via composite identity_hash = SHA256(name|dob|gender|care_of|uid_last4) UNIQUE; never raw Aadhaar; 409 on duplicate; admin transfer for re-registration.
+- [x] Rewrote 6.4 (KYC) and 6.8 (Payments); added 2 sequence diagrams (DigiLocker KYC, Cashfree PG); updated contact-gate diagram + data-flow labels + component inventory for coherence.
+- [x] 9.4 added - pricing-verification checklist (skill has NO pricing): per-verify price, monthly floor, live MDR, instant-settlement fee, festive-0% applicability, TDS 194-O, payout fee.
+- Verified: 11 mermaid blocks, 22 fences balanced; no stale uid_token/OKYC refs (ADR-014 marked superseded).
+- PENDING (user): obtain written Cashfree quote before commercial sign-off of ADR-017.
+## Feature/business-model reviews documented (docs/feature review/)
+- [x] Created "docs/feature review/" folder with README index.
+- [x] 01-business-model-kyc-thesis.md - skeptical VC review of "mandatory KYC everywhere" thesis for buy/rent; verdict PIVOT; incumbents keep spam because brokers=paying customers + liquidity>purity; includes scorecard, 3 failure/3 win scenarios, steel-man, implementation checklist.
+- [x] 02-share-a-flat-market-and-feature-review.md - flatmate market sizing (Pune SAM ~600-900k, high churn every 8-14mo) + feature review; verdict WEDGE-lead-with-it; KYC becomes an asset here; GrabHouse=monetization graveyard; corridor GTM (Hinjewadi-Wakad-Baner), women-safety hook, move-in-services monetization, MVP scope trims.
+- Both docs are advisory (for founder review + later implementation), each ends with a lift-into-todo checklist.
+- Note: market numbers are reasoned estimates (informal market, no audited data) - flagged as assumptions in-doc.
+## Trust model pivot: "verification as a badge, not a gate" (docs/system/trust-and-verification-model.md)
+- [x] Reframed thesis: PuneNest = structured, trustworthy home for the market now living in Pune Facebook/Telegram groups (free, direct, broker-optional) minus their spam/staleness/no-trust.
+- [x] Defined 4-tier Trust Ladder (L0 anon -> L1 mobile -> L2 DigiLocker badge -> L3 deal-verified).
+- [x] "When to offer KYC" matrix for owner/buyer/broker: offer/nudge at intent, REQUIRE only at L3 (token/agreement).
+- [x] Anti-spam WITHOUT gates: freshness "still available?" ping + auto-expiry (top priority), duplicate collapse, verified+fresh ranking boost, reputation signals, community reporting, masked-contact request/approve.
+- [x] Business model: free discovery/posting; revenue at deal layer (agreement/e-stamp/token/escrow/KYC), verified boosts, broker subscriptions, ancillary.
+- [x] Phased build: P0 50-owner validation gate -> P1 MVP (listings+search+freshness+direct contact) -> P2 badge/ranking -> P3 deal room+both-side KYC -> P4 scale.
+- [x] Proposed ADR-019 (badge-not-gate) + amend ADR-009a (mobile-match soft at MVP, hard only at L3) + ADR-009b (identity_hash soft signal at MVP, hard UNIQUE deferred).
+- [x] Persisted ADR-019 + amended ADR-009a/009b + A-Q5/A-Q15 + status header + 6.4 enforcement bullets in platform-architecture.md (fences balanced).
+- [ ] PENDING: 4 open questions (freshness cadence, L1 contact-reveal vs chat-only, broker-lane timing, first 5 localities).
+- [ ] NEXT GATE: Phase 0 - hand-recruit 50 real Pune owners/listings before any new backend code.
+## OpenAPI badge-not-gate KYC update (ADR-009a/009b/017/018/019) - DONE
+- Bumped punenest-api.yaml -> 1.2.0 with changelog note.
+- /me/verification/aadhaar: POST now STARTS Cashfree DigiLocker consent flow (202 + verificationUrl, no Aadhaar number); GET returns opt-in badge. Added 409 aadhaar_already_registered (identity_hash dedup, badge-flow only).
+- Added POST /webhooks/cashfree/digilocker (HMAC-verified provider callback; RSA-signed egress per ADR-018; carries mobile for soft mobile-match).
+- /contacts/request: removed blanket 403 aadhaar_required; now L1 sign-in only (401 if unauth); 403 verification_required ONLY when owner opted "verified contact only".
+- Schemas: replaced AadhaarSubmit -> KycStartRequest/KycStart; expanded AadhaarVerification (badge/status/source/mobileMatch); added DigilockerWebhook; ContactStatus requiresAadhaar -> verifiedContactOnly + verificationRequired; User gains verifiedContactOnly + reworded badge fields; AdminSettings aadhaarGateEnabled -> kycBadgeEnabled.
+- Auth note + Forbidden example de-gated. Validated: openapi-spec-validator (OpenAPI 3.1) PASS; all $refs resolve.
+- NOTE: security-reviewer not spawned (contract/doc change only; change reduces surface by removing raw-Aadhaar intake and documents webhook HMAC). Re-review at backend implementation.
+## OpenAPI end-to-end functionality annotations (links/callbacks/externalDocs/examples) - DONE
+- Added root externalDocs -> platform-architecture.md (explains docs carry the cross-call journey).
+- components/links (6, reusable): GetCurrentUser, PollKycBadge, CheckContactStatus, CloseThisDeal, FinalizationStatus, RespondToOffer.
+- components/callbacks (2, reusable): DigilockerVerificationResult, PaymentResult.
+- New PaymentWebhook schema + POST /webhooks/cashfree/payment path (parallels DigiLocker webhook; HMAC-verified, idempotent on orderId).
+- Flow-entry ops annotated (narrative description + externalDocs + links, callbacks where a provider calls back):
+  login->getMe; submitAadhaar (callbacks + examples + poll link); requestContact (status link + 2 examples); reserveDeal->closeDeal; submitOffer->respondOffer; requestFinalization->finalizationStatus; payRent/subscribe/boostListing (PaymentResult callback + pending-state narrative).
+- Scope note: applied only to genuine multi-step/stateful/async flows, NOT plain CRUD GETs (links there would be noise) - matches "do it for all [flows]".
+- Validated: openapi-spec-validator (3.1) PASS; all $refs resolve; all 6 link operationId targets exist. paths=140, schemas=110, links=6, callbacks=2.
+## React badge-not-gate — Page 1: List Property (DONE)
+- Removed the Aadhaar posting gate: deleted useListingGate.js + AadhaarGate.jsx.
+- useListProperty.js: dropped requireAadhaar() guard from submitProperty/submitFlatmate; removed gate hook, isAadhaarVerified import, logout.
+- progress.js: removed AADHAAR_WEIGHT; meter now = listing-field completion only.
+- ListProperty.jsx: always render the form (no gate branch/verified banner).
+- Build: PASS. i18n listProperty.gate.* strings now orphaned -> deferred to Page 8 sweep.
+
+## React badge-not-gate — Page 2: Property contact de-gate (DONE)
+- contact.js: removed blanket aadhaar gate in requestContact(); now L1-only, returns 'verification_required' ONLY when owner opted into verified-contacts-only. Added isViewerVerified() + ownerVerifiedOnly() helpers (verifiedContactOnly owner pref).
+- ContactBox.jsx: aadhaar_required -> verification_required branch.
+- ContactOwnerModal.jsx: request() -> verification_required; sendEnquiry() de-gated to L1-only (removed isAadhaarVerified block); simplified verify state to bool.
+- Owner.jsx: aadhaar_required -> verification_required, message reframed to Verified-badge.
+- constants.js: CONTACT_STATUS.AADHAAR_REQUIRED -> VERIFICATION_REQUIRED (was unused).
+- Owner verified-only TOGGLE (to SET the pref) comes on Page 4; defaults false so contact is ungated meanwhile. Build: PASS.
+
+## React badge-not-gate — Page 2 FIX: property-page 'Contact Owner' chat gate (DONE)
+- Root cause: the popup came from a THIRD gate I'd missed — the in-app CHAT path, not requestContact. useProperty.js handleContact() blocked chat on isAadhaarVerified() -> opened AadhaarVerifyModal.
+- useProperty.js: removed the isAadhaarVerified gate from handleContact; dropped aadhaarOpen state, isAadhaarVerified import, and the aadhaarOpen/setAadhaarOpen exports.
+- PropertyModals.jsx: removed dead AadhaarVerifyModal block + import + unused props.
+- MapDetailPanel.jsx: same de-gate on contact(); removed aadhaarOpen state, keydown dep, modal block, and 2 unused imports.
+- Chat/contact is now L1-only across property detail + map panel. Build: PASS.
+
+## React badge-not-gate — Page 3: Verify modal -> opt-in DigiLocker badge (DONE)
+- AadhaarVerifyModal.jsx: reframed gate->badge. Title 'Verify your identity to continue' -> 'Get your Verified badge'; aria-label updated.
+- Default subtitle/note reframed to opt-in trust + DigiLocker (govt-backed Aadhaar consent); removed false 'only verified users can contact owners' gate copy.
+- Kept mobile-match/mismatch (ADR-009a) but softened 'verify and continue' -> 'earn your Verified badge'. Submit btn 'Verify & continue' -> 'Verify & earn badge'. Rewrote doc comment to badge-not-gate.
+- ContactBox.jsx + ContactOwnerModal.jsx: pass context subtitle 'This owner accepts verified contacts only...' so the opt-in modal explains WHY it appeared.
+- Mechanism unchanged (mock OTP stands in for DigiLocker consent) — deeper redirect mock deferred. Build: PASS.
+
+## React badge-not-gate — Page 4: Profile badge + owner verified-only toggle (DONE)
+- ProfileTab.jsx identity card: 'Identity verification' -> 'Verified badge'; gate copy ('Verify once to contact owners directly') -> optional DigiLocker badge/trust copy; button 'Verify now' -> 'Get verified'.
+- Modal subtitle it passes reframed to opt-in DigiLocker badge; success toast 'Identity verified' -> 'Verified badge earned'.
+- Added owner 'Accept verified contacts only' Switch (verifiedContactOnly pref) in the owner section; retitled 'Owner phone privacy' -> 'Owner contact preferences'. Kept 'Keep my number private'.
+- Verified wiring: store.js re-exports getOwnerPrefs/setOwnerPrefs from contact.js -> same pnOwnerPrefs:<mobile> key ownerVerifiedOnly() reads (Page 2). Toggle now END-TO-END drives the verification_required contact case. Build: PASS.
+
+## Page 5 — Society community actions (badge-not-gate) — DONE
+- Store layer (society.js, societyMod.js): removed all 9 'kyc' blocks + isAadhaarVerified imports.
+- useSocietyHub.js: renamed requireKyc -> requireSignedIn (login-only, no Aadhaar wall); updated all call sites; removed dead === 'kyc' conditions/branches; removed aadhaarOpen state + pendingAction ref, isAadhaarVerified import, unused useRef import, ctx exports. Kept resident/committee orbidden guards intact per user decision.
+- SocietyModals.jsx: removed dead AadhaarVerifyModal import, props, render block.
+- Updated stale "KYC-gated" comments (society.js, society/constants.js, tabs/CommunityTab.jsx) to "sign-in only".
+- Build PASS. Grep confirms zero lingering 'kyc'/isAadhaarVerified/aadhaarOpen/pendingAction in society files.
+- User decision: KYC gates removed; resident-only actions held as-is.
+## Page 6 — Admin Settings flag (badge-not-gate) — DONE
+- Renamed feature flag adhaarVerification -> kycBadgeEnabled to match OpenAPI AdminSettings schema (ADR-019).
+- AppFlagsPanel.jsx: label "Aadhaar verification" -> "Verified badge (DigiLocker)"; desc reframed from "Require owner identity verification" -> "Offer the opt-in DigiLocker Verified badge — a trust signal, not a posting or contact gate".
+- Renamed the key in settings.json and data/db.json defaults.
+- Flag is display/config only (not consumed to gate any flow) — no logic change needed.
+- Build PASS. Grep confirms only the 3 expected kycBadgeEnabled refs, zero adhaarVerification left.
+## Page 7 — Admin Users (badge-not-gate vocabulary) — DONE
+- Finding: AdminUsers.jsx had NO "Aadhaar verified" wording — the erified flag already renders as a generic Verified badge (BadgeCheck icon). Contract confirms User.verified = the opt-in Verified badge (L2, ADR-019). No dedup/unique columns present.
+- Change = vocabulary alignment only, matching SoT term "Verified badge":
+  - Row action tooltip/label: "Verify user"/"Remove verification" -> "Grant Verified badge"/"Remove Verified badge".
+  - Single verify toast/note/audit: "User verified"/"Verification removed" -> "Verified badge granted"/"Verified badge removed".
+  - Bulk: confirm label "Verify N user(s)?" -> "Grant Verified badge to N user(s)?"; toast/note/audit reworded; toolbar button "Verify all" -> "Grant badge".
+  - CSV export "Verified" column left as-is (clear data column).
+- No logic change (verified toggle unchanged). Build PASS.
+## Page 8 — Consistency sweep (badge-not-gate) — DONE
+Live gates removed:
+- ShareFlat supply gate (useShareSupply.jsx): requireAadhaar -> requireSignedIn (L1 sign-in only, matches List Property). Removed isAadhaarVerified import, aadhaarGateOpen state, pendingSupplyAction ref, return exports; updated comments.
+- ShareFlat.jsx: removed dead <AadhaarVerifyModal> supply-gate block, destructured props (aadhaarGateOpen/pendingSupplyAction/setAadhaarGateOpen), and now-unused AadhaarVerifyModal import (fixed an accidental dup import).
+Stale copy/comment:
+- society.js header comment reworded from "Only Aadhaar-OTP KYC-verified users can add" -> "Any signed-in (L1) user can add".
+Orphaned i18n removed (en/hi/mr):
+- list-property.json: entire gate block (~30 keys, dead since Page 1).
+- shareflat.json: identityVerified, aadhaarGateSubtitle, aadhaarGateNote (dead after supply de-gate). All 6 files re-validated as parseable JSON.
+- Build PASS. Final grep: zero live gate logic (requireAadhaar/aadhaar_required/if(!isAadhaarVerified)) remains in app.
+
+FLAGGED for founder decision (intentionally NOT changed):
+- OpsReferrals.jsx: referral payout still requires aadhaarVerified + aadhaarUnique. KEPT — this is anti-fraud at a MONEY moment (L3-like), legitimate under the model, not a participation gate. Recommend keep.
+- Marketing trust copy still says "Aadhaar-verified owners": home.json trustAadhaar ("100% Aadhaar-verified owners"), home.testimonials.aadhaarVerifiedOwners, homeData.js verifiedOwners stat, Testimonials.jsx line ~67, ActivityTicker.jsx. Under badge-not-gate not all owners are verified, so "100%" may be inaccurate — but this is founder marketing positioning, not a gate. Left for user to reword.
+- Dashboard profileCompletion() still counts the Verified badge toward profile % — a nudge, not a gate. Left as-is.
+
+## Migration status: all 8 pages COMPLETE (build PASS each).
+Pending: (a) react-reviewer + security-reviewer on gate-bearing pages (1,2,3,5,8); (b) flow-doc re-sync (docs/flows/**) AFTER user signs off all pages.
+## Add second "Get verified" entry point — DONE
+- User request: only one "Get verified" existed (Profile & Settings). Add a more visible one.
+- Chosen spot (user-approved): Dashboard Overview tab — dedicated opt-in "Get your Verified badge" trust card.
+- OverviewPanel.jsx: added self-contained card just below Action Center. Shows only when !isAadhaarVerified(); "Optional" pill; DigiLocker trust/ranking copy; "Get verified" btn opens the shared AadhaarVerifyModal (which persists the badge). Auto-hides after earning; toast "Verified badge earned". data-testids: verify-badge-cta, verify-badge-btn.
+- Non-blocking, badge-not-gate aligned. Build PASS. toast prop confirmed passed from Dashboard.jsx.
+## Make "ID not verified" chip clickable — DONE
+- ProfileTab.jsx: PendingChip now renders as a <button> when an onClick is passed (keeps <span> otherwise for backward compat). Hover/focus states + title "Get your Verified badge".
+- Header chip "ID not verified" wired to open the existing AadhaarVerifyModal (setAadhaarOpen(true)) — same flow as the "Get verified" card below it. Verified users still see the static "ID verified" VerifiedChip.
+- Build PASS.
+## KYC rework — native DigiLocker consent flow (DONE)
+Reworked the shared `AadhaarVerifyModal` from the mock "enter Aadhaar mobile + our OTP" flow to
+the ratified **native DigiLocker** model (SoT `platform-architecture.md` §5.6; ADR-009a/019).
+Because this modal is the single KYC surface, the change updates **all 5 entry points at once**
+(ContactBox, ContactOwnerModal, ProfileTab, OverviewPanel, TenantProfile).
+- Modal is now an explainer + consent screen: **Why** (trust, ranking, optional), **How it works**
+  (redirect to DigiLocker -> enter Aadhaar+OTP *on DigiLocker* -> approve one-time consent), and a
+  **Privacy** panel (we receive name/DOB/gender/address/photo + last-4 only; never the full Aadhaar
+  or OTP; DPDP consent, withdraw anytime). Single **"Continue with DigiLocker"** CTA.
+- Mock simulates the redirect->consent->success round-trip (production returns a DigiLocker consent
+  URL + webhook). Records the badge via enriched `setAadhaarVerified` (source=digilocker,
+  maskedAadhaar, mobileMatch soft signal).
+- Dropped the on-page OTP/MobileField/mismatch UI and the stale `note` prop (removed the OTP-worded
+  `misc.tpKycModalNote` usage from TenantProfile; backward-compatible record keeps aadhaarMobile/at).
+- `cd frontend; npm run build` -> PASS (13.72s). Files: components/auth/AadhaarVerifyModal.jsx
+  (rewrite), lib/store/listings.js (setAadhaarVerified enrich), pages/consumer/TenantProfile.jsx.
+## KYC growth levers — Phase 1 (React only) — DONE 2026-07-27
+Badge-not-gate (ADR-019). All 5 verify entry points share ONE AadhaarVerifyModal; wiring the
+growth mechanism into its success handler covers everything. Build green after each step.
+
+- [x] kyc-mech: applyVerifiedBadgeToListings(mobile) in mockApi/properties.js — flips ownerVerified
+      on all owner listings (+250 rank) + FIRST-time free 7-day Featured (featuredUntil, featuredReason
+      ='first-verify', +1000 rank). isFeaturedActive() shared in lib/featured.js; ranking pipeline
+      (listingsResultsPipeline.js) + featuredProperties() switched to isFeaturedActive so the free
+      perk expires honestly while paid/owner-set featuring stays.
+- [x] kyc-modal: AadhaarVerifyModal accepts source + subtitle props; fires trackKyc funnel events
+      (badge_cta_impression/click, digilocker_start/success/fail, badge_earned); calls
+      applyVerifiedBadgeToListings(signedMobile) on success; passes perk to onVerified.
+- [x] kyc-c1: PostSuccessVerifyNudge wired into ListProperty.jsx success card (new, unverified posts
+      only) — i18n via listProperty.verifyNudge.* (en/hi/mr, 6 keys each).
+- [x] kyc-a1: VerifyListingsBanner (panel-level, dismissible) in MyListingsPanel — shown only when
+      owner has >=1 property and is unverified. One badge lifts ALL listings. source='my_listings'.
+- [x] kyc-d1: "Featured · free Nd left" chip in ListingCard when featuredReason==='first-verify' &&
+      isFeaturedActive(l). Paid featured path untouched.
+- [x] kyc-i18n: C1 keys present + parity across en/hi/mr. A1/D1 live in the English-only dashboard
+      area (matches surrounding ListingCard/MyListingsPanel house style) — no i18n gap introduced.
+
+Guardrails verified: nothing gates browse/post/contact; C1 fires only AFTER listing goes live;
+A1 dismissible; D1 is a reward. No nudge precedes a value moment.
+Data plumbing: perk writes to mock DB -> loadMyListings reads mock DB -> cards reflect badge + chip.
+
+PENDING (deferred, not blocking): react-reviewer + security-reviewer pass on the KYC-touched files;
+Playwright coverage for the new nudges/chip. Flow-diagram/doc updates intentionally SKIPPED per user
+(will update manually).
+## KYC growth levers — review + i18n hardening (2026-07-27)
+- [x] react-reviewer + security-reviewer run on KYC/badge-not-gate + growth-lever React changes. Verdict: both APPROVE. 0 Critical, 0 High blocking the mock phase.
+- [x] i18n: new erify namespace (en/hi/mr erify.json); localized AadhaarVerifyModal (WHY/HOW/PRIVACY via <Trans>), VerifyListingsBanner (C2 plural headline), OverviewPanel badge card, EnquiriesPanel "Serious Buyer" x2, ContactOwnerModal buyer nudge, all AadhaarVerifyModal caller subtitles + "badge earned" toasts.
+- [x] security M-1: kycTrack.js now strips PII-looking keys (mobile/phone/aadhaar/otp/name/email/token/address/dob) from extra before console/localStorage.
+- [x] Build green (exit 0); en/hi/mr verify.json validated.
+
+### Deferred — enforce server-side when backend lands (tracked, acceptable for localStorage-mock phase)
+- [ ] SEC H-1: pplyVerifiedBadgeToListings sets ownerVerified client-side (forgeable). Backend must own verified state; only a DigiLocker webhook may set erified=true; frontend reads only.
+- [ ] SEC H-2: replace isSeriousBuyer(mobile) with backend enquirer.verified flag; stop deriving trust from phone numbers; update call sites in EnquiriesPanel.
+- [ ] SEC M-2: backend erifiedStats should COUNT(DISTINCT owner_id), not mobile numbers.
+- [ ] i18n (pre-existing, out of KYC scope): ProfileTab identity chips ("Mobile verified" / "ID verified" / "ID not verified" + PendingChip title tooltip) are still hardcoded — localize in a dedicated ProfileTab i18n pass.
+- [ ] Verification: no Playwright coverage yet for the verify funnel (modal → DigiLocker mock → badge earned → listings update). Add e2e spec.
+## e2e — KYC badge-not-gate migration + mojibake fix (2026-07-28)
+- [x] Rewrote 4 obsolete gate specs -> badge-not-gate: list-property-no-gate, contact-badge-not-gate, share-flat-no-gate, share-flat-seeker-verify.
+- [x] Fixed 3 society specs (community, community-v2, location) from 'kyc' block to L1-allow.
+- [x] New kyc-growth-levers.spec.js (dashboard DigiLocker verify funnel). COVERAGE.md updated.
+- [x] tenant-profile.spec.js:48 rewritten OTP -> DigiLocker badge earn. 6/6 pass.
+- [x] map-panel-contact.spec.js test2 rewritten to badge-not-gate (owner has no verifiedContactOnly). Both tests pass.
+- [x] Root-caused map/price failures: mojibake rupee (U+00E2 U+201A U+00B9) instead of the real sign in 7 specs (22 occurrences). App/map are correct. Repaired all; re-run 35/35 green, KYC set 44/44 green.
+- [ ] PRE-EXISTING, NON-KYC (out of scope, flagged to user): qa-location-search (x13) + admin-* (x9) time out for a different (non-rupee) reason; predate this session (no source changed by e2e work). Not investigated per user scope decision.
+- [ ] Cosmetic: residual mojibake (em-dash/ellipsis/apostrophe) remains only in comments + test titles of those 7 specs (no assertion impact); left as-is per tight scope.
+## e2e full-suite green + flows re-sync (session cont.)
+- [x] Whole chromium e2e suite triaged (was 41 fail). Fixed the "pre-existing non-KYC" cluster after all:
+  - qa-location-search (x15): shownCount() grabbed hidden mobile dup of countLine -> scope to `main p:visible`.
+  - admin-consolidation/post-on-behalf (dual-render strict-mode) -> scope to `getByRole('table')`.
+  - admin-users: bulk button renamed "Verify all" -> "Grant badge" (KYC migration) -> updated 3 regexes.
+  - admin-reports "table shows report data": rows.count() is a NON-retrying snapshot taken before async listReports() populated -> wait for first row, then count.
+  - admin-duplicates + property-dup-modal: addInitScript wrote a PARTIAL puneNestDB_v5 (only listings) before boot -> app boots on a 1-of-25-collections DB -> white-screen crash -> selector timeouts. Fixed by seeding the listing AFTER boot (merge into the full default DB), keeping only non-DB keys in addInitScript.
+  - Cookie-consent banner (fixed bottom-0 z-[1400]) intercepts bottom-of-page clicks + hides the Nestor FAB (max-sm:hidden) on mobile when consent unset -> seed pn_cookie_consent_v1 (established pattern) in auth-flow, flatmate-e2e, share-flat-interactions, assistant, photo-requests, property-dup-modal.
+  - Dashboard sub-tabs migrated button -> role="tab" -> photo-requests + scheduled-visits use getByRole('tab').
+  - feature-flags Map view + view-documents filenames: dual-render -> [title=...]:visible / .first().
+  - search-property-types: test.slow() (6 sequential search flows starved under max parallel load).
+- [x] Final: full chromium suite 911 passed; residual hard-fails are stochastic parallel-load browser crashes that each PASS in isolation (not app/test bugs). Verified no frontend/src edits (e2e-only).
+- [x] PHASE 2 - Re-synced docs/flows/** (14 files) to ADR-019 badge-not-gate FROM current source. Core rewrite: contact-gate-leads.md (contact = L1 + owner-approval + masked number; opt-in DigiLocker badge; verification_required only when owner sets verifiedContactOnly). Kept legit gates: L3 deal-KYC (rent-agreement), referral reward uniqueness, society resident-of-unit verification. Residual grep = intentional negations only.
+- [ ] FYI (source, out of docs scope): frontend/src/pages/consumer/list-property/submit.js ~L366 has a stale comment "Identity is guaranteed by the Aadhaar gate" - real floor is L1 sign-in. Flag for future source cleanup.
+
+
+## 3-way sync: platform-architecture.md (SOT) -> OpenAPI -> React (DONE)
+Precedence SOT > Swagger > React. Full cross-domain enum/shape audit; drift report + per-decision approval.
+
+### OpenAPI (punenest-api.yaml) - DONE, YAML validated
+- [x] PropertyStatus -> [pending, approved, rejected, flagged, archived]
+- [x] Team enum + `loans`
+- [x] ContactRequest.status granted->approved; ContactStatus reshaped to badge (dropped remainingUnlocks/unlocked, added status enum)
+- [x] FinalizationRequest.status proposed->pending
+- [x] Offer.status rejected->declined; OfferResponse.action reject->decline
+- [x] Deal rename: intent Deal->DealIntent; aggregate Deal2->Deal with status [active,reserved,closed]
+- [x] Enquiry marked deprecated
+- [x] Visit.status canonical -> [scheduled, confirmed, completed, cancelled, no-show]
+
+### React (frontend/src) - DONE for decided items
+- [x] deals.js pendingOfferCount + buyer_counter -> countered (+ from)
+- [x] DealPanel.jsx disambiguate countered by o.from (You/Buyer countered)
+- [x] visits.js requested->scheduled (5x); ReviewsSection.jsx scheduled check
+- [x] A7/A8 ops/ticket vocab: DOCUMENTED mapping only (mock-only, never hits wire)
+
+### Docs - DONE
+- [x] service-queues.md five->six teams (+loans)
+- [x] data-model.md Deal2->Deal/DealIntent; added "Status vocabulary - UI<->wire mapping" section
+
+### Verification
+- [x] OpenAPI parses (yaml.safe_load OK); orphan scan clean
+- [x] eslint changed files: 0 errors (pre-existing warnings only)
+- [x] e2e deals-offers.spec.js + scheduled-visits.spec.js: 15 passed
+- [x] e2e contact/tickets/admin-properties regression: passed
+- [ ] PRE-EXISTING FAILURE (NOT caused by this task): e2e services-loans-team.spec.js
+      fails at line 33 filling input[type="tel"] on /home-loans (form UI/harness issue).
+      Not in my change set; the loans-team routing my A9 change touched is never reached.
+      Flagged to user; needs separate investigation.

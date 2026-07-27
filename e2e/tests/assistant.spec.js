@@ -57,6 +57,10 @@ test.describe('Nestor assistant', () => {
 
   test('does not overlap the city waitlist bar on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 720 });
+    // Seed cookie consent so the DPDPA banner doesn't keep the Nestor FAB max-sm:hidden on mobile.
+    await page.addInitScript(() => {
+      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+    });
     // Force a non-live city so CityChrome shows its bottom waitlist bar.
     await page.goto(`${BASE}/`);
     await page.evaluate(() => localStorage.setItem('puneNestCity', 'Nagpur'));

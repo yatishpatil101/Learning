@@ -45,7 +45,7 @@ test.describe('mapSearch flag', () => {
     await page.goto(`${BASE}/listings?deal=buy`);
     await setAppFlag(page, 'mapSearch', true);
     await page.waitForTimeout(300);
-    await expect(page.getByTitle('Map view')).toBeVisible();
+    await expect(page.locator('[title="Map view"]:visible')).toBeVisible();
   });
 
   test('map view button hidden when disabled', async ({ page }) => {

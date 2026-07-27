@@ -1,17 +1,15 @@
-# PuneNest — API Architecture Review
+# PuneNest — Backend API Architecture Review
 
 > **Audience:** Architecture Review Board / backend implementation team.
 > **Scope:** Reverse-engineered backend architecture for the PuneNest real-estate
 > marketplace, derived from the React frontend prototype and the existing system docs.
 > **Companion artifacts:**
-> - [`api-contract.md`](./api-contract.md) — the endpoint catalog (33 domains, SSOT for routes).
-> - [`domain-model.md`](./domain-model.md) — canonical entities / Postgres schema source.
-> - [`architecture.md`](./architecture.md), [`cross-cutting.md`](./cross-cutting.md) — auth, roles, gates, audit.
+> - [`data-model.md`](./data-model.md) — ER map + persistence design (field shapes live in the OpenAPI schemas).
+> - [`app-architecture.md`](./app-architecture.md), [`cross-cutting.md`](./cross-cutting.md) — auth, roles, gates, audit.
 > - **OpenAPI 3.1 spec:** [`backend/src/main/resources/static/openapi/punenest-api.yaml`](../../backend/src/main/resources/static/openapi/punenest-api.yaml)
 >   (served at `/openapi/punenest-api.yaml`; Swagger UI at `/docs`).
 
-This review does **not** restate every endpoint — that is the job of `api-contract.md` and
-the OpenAPI file. It provides the architectural narrative an ARB needs: domain boundaries,
+This review does **not** restate every endpoint — that is the job of the OpenAPI spec. It provides the architectural narrative an ARB needs: domain boundaries,
 performance and security posture, a microservice roadmap, and platform recommendations.
 
 ---
@@ -63,7 +61,7 @@ stage and team size.
 ## 2. Domain Analysis
 
 ### Business capabilities → bounded contexts
-The 33 domains enumerated in `api-contract.md` collapse into the **11 bounded contexts** above.
+The 33 domains enumerated in the OpenAPI spec collapse into the **11 bounded contexts** above.
 The consolidation removes UI-driven duplication (e.g. the frontend's separate "finance",
 "rent payments", "tenancies", and "tenant profile" screens are one **Rentals & Payments**
 context; "announcements/services/faqs/banners" are one **Engagement/CMS** capability with a
@@ -98,7 +96,7 @@ independently scalable, eventually consistent). Owner writes go to **Listings**;
 search index is updated via `listing.published` / `listing.updated` events.
 
 ### Entity relationships
-Canonical entities and fields live in [`domain-model.md`](./domain-model.md). The high-level map:
+Entity **field shapes** live in the OpenAPI component schemas; the ER map + persistence design live in [`data-model.md`](./data-model.md). The high-level map:
 
 - **User** (1)─(N) **Property**; a Property has (N) **Offer**, (N) **Visit**, (0..1) **Deal**.
 - **Deal** (1)─(N) **DealParty**; a closed Deal may spawn a **Tenancy** and **RentAgreement**.
@@ -117,12 +115,9 @@ relationships are traversable by whom.
 ## 3. API Catalog
 
 The **authoritative, per-endpoint catalog** (URL, method, purpose, request/response schema,
-validation, errors, security) is maintained in two places to avoid drift:
-
-- **Human-readable:** [`api-contract.md`](./api-contract.md) ? 33 domains, grouped by capability.
-- **Machine-readable:** the OpenAPI 3.1 spec ? **126 paths / 160 operations / 101 schemas**,
-  grouped by the 11 bounded-context `tags`. Render it at `/docs` (Swagger UI) or read the raw
-  YAML at `/openapi/punenest-api.yaml`.
+validation, errors, security) lives in exactly one place, the OpenAPI 3.1 spec — **126 paths /
+160 operations / 101 schemas**, grouped by the 11 bounded-context `tags`. Render it at `/docs`
+(Swagger UI) or read the raw YAML at `/openapi/punenest-api.yaml`.
 
 Rather than duplicate ~160 rows here, this section records the **design standards** every
 endpoint in the catalog conforms to:
@@ -250,7 +245,7 @@ unresolved `$ref`s, no duplicate `operationId`s) and boots on Java 21 / Spring B
   is pre-declared in the spec).
 
 ### Authorization model (RBAC)
-Roles: `user`, `owner`, `tenant`, `staff`, `moderator`, `finance`, `admin`, `superadmin`
+Roles: `buyer`, `owner`, `staff`, `admin`
 (+ staff `team` for functional scoping). Enforcement layers:
 1. **Gateway** ? coarse auth (valid token, not revoked) + rate limiting.
 2. **Resource server** ? per-endpoint role checks (method security) + ownership filters.
@@ -346,7 +341,7 @@ not silent decisions:
 5. **ID scheme** is assumed to standardize on opaque UUIDs in Postgres (prototype uses mixed
    prefixes) ? see inconsistency #1.
 6. The **10 schema inconsistencies** catalogued in
-   [`domain-model.md` ?"Schema inconsistencies"](./domain-model.md) must be reconciled during
+   [`data-model.md` ?"Schema inconsistencies"](./data-model.md) must be reconciled during
    schema authoring: (1) ID prefixes, (2) `rera` boolean vs string, (3) `desc`/`description` +
    missing detail fields, (4) two `deals` shapes, (5) `transactions` field names, (6) reviews
    modeled twice, (7) `report.reason` enums, (8) `localities` fields, (9) nullable `users.email`,
@@ -356,5 +351,5 @@ not silent decisions:
 ---
 
 *Generated as part of the PuneNest backend reverse-engineering effort. Endpoint truth lives in
-`api-contract.md` + the OpenAPI spec; entity truth lives in `domain-model.md`; this document is
+the OpenAPI spec; entity ER + persistence truth lives in `data-model.md`; this document is
 the architectural narrative binding them.*

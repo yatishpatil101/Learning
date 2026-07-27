@@ -1,7 +1,6 @@
 import { readUser } from '../auth.js';
 import { digits } from '../contact.js';
 import { get, set } from './internals.js';
-import { isAadhaarVerified } from './listings.js';
 import { isSocietyAdmin, isVerifiedResident } from './societyAdmin.js';
 
 /* =========================================================================
@@ -28,7 +27,6 @@ export const getSocietyQA = (slug) => allSocietyQA()[slug] || [];
 export const addSocietyQuestion = (slug, text) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const all = allSocietyQA();
   all[slug] = all[slug] || [];
   const q = { id: 'q' + Date.now(), user: u.name || 'User', text: String(text || '').trim(), at: Date.now(), answers: [], resident: isVerifiedResident(slug) };
@@ -39,7 +37,6 @@ export const addSocietyQuestion = (slug, text) => {
 export const addSocietyAnswer = (slug, qId, text) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const all = allSocietyQA();
   const list = all[slug] || [];
   const q = list.find((x) => x.id === qId);
@@ -51,11 +48,12 @@ export const addSocietyAnswer = (slug, qId, text) => {
 };
 
 /* =========================================================================
-   Society Hub — community contributions (KYC-gated)
+   Society Hub — community contributions (sign-in only, badge-not-gate)
    The living community layer: practical tips, trusted local vendor picks, and
-   real photos. Only Aadhaar-OTP KYC-verified users can add or upvote — the
-   identity gate keeps the community genuine and spam-free. Verified residents
-   carry a Resident badge; other KYC users carry a Verified badge.
+   real photos. Any signed-in (L1 mobile-verified) user can add or upvote — the
+   sign-in floor keeps the community accountable without walling it off. Verified
+   residents carry a Resident badge; users with the opt-in identity badge carry a
+   Verified badge.
    Shape: { pnSocietyContributions: { [slug]: Contribution[] } }
    Contribution: { id, kind:'tip'|'pick'|'photo', category, text?, name?, contact?,
      note?, photo?, caption?, user, mobile, resident, at, helpful:[mobile] }
@@ -83,7 +81,6 @@ export const getSocietyContributionCounts = (slug) => {
 export const addSocietyContribution = (slug, o = {}) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const kind = CONTRIB_KINDS.includes(o.kind) ? o.kind : 'tip';
   const category = String(o.category || '').trim().slice(0, 40);
   const text = String(o.text || '').trim().slice(0, 600);
@@ -113,7 +110,6 @@ export const addSocietyContribution = (slug, o = {}) => {
 export const toggleContributionHelpful = (slug, id) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const mob = digits(u.mobile);
   const all = allSocietyContributions();
   const rec = (all[slug] || []).find((c) => c.id === id);
@@ -147,11 +143,10 @@ export const uid = (p) => p + Date.now().toString(36) + Math.random().toString(3
 export const isResidentOrAdmin = (slug, mob) => isVerifiedResident(slug, mob) || isSocietyAdmin(slug, mob);
 export const isOps = (u) => !!u && (u.role === 'admin' || u.role === 'staff');
 
-/* ---- Threaded replies on a contribution (KYC-gated) -------------------- */
+/* ---- Threaded replies on a contribution (sign-in only) ---------------- */
 export const addContributionReply = (slug, id, text) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const body = String(text || '').trim().slice(0, 500);
   if (!body) return null;
   const all = allSocietyContributions();
@@ -203,7 +198,6 @@ export const getSocietyBoard = (slug) => {
 export const addBoardItem = (slug, o = {}) => {
   const u = readUser();
   if (!u) return 'login';
-  if (!isAadhaarVerified()) return 'kyc';
   const mob = digits(u.mobile);
   if (!isResidentOrAdmin(slug, mob)) return 'forbidden';
   const kind = BOARD_KINDS.includes(o.kind) ? o.kind : 'notice';

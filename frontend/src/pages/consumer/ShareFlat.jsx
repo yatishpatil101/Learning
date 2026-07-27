@@ -7,7 +7,6 @@ import Results from './shareflat/Results.jsx';
 import PostModal from './shareflat/PostModal.jsx';
 import GroupModal from './shareflat/GroupModal.jsx';
 import VerifyModal from './shareflat/VerifyModal.jsx';
-import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
 import OwnerConsentModal from '../../components/auth/OwnerConsentModal.jsx';
 import Empty from './shareflat/Empty.jsx';
 import ReportModal, { SHARE_REPORT_REASONS } from '../../components/ReportModal.jsx';
@@ -28,8 +27,8 @@ export default function ShareFlat() {
     setPostOpen, submitPost, postFormRef, postDraft, post, setPost,
     postErr, editingId, groupOpen, setGroupOpen, submitGroup, grpFormRef, grpDraft,
     grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
-    prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen, aadhaarGateOpen, pendingSupplyAction,
-    setAadhaarGateOpen, verifyOpen, submitVerify, verifyFormRef, mobile, mobileErr,
+    prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
+    verifyOpen, submitVerify, verifyFormRef, mobile, mobileErr,
     setMobileErr, otp, verifying, setVerifyOpen, reportTarget, setReportTarget,
   } = useShareFlat();
   return (
@@ -117,22 +116,6 @@ export default function ShareFlat() {
           byMobile={user ? user.mobile : ''}
           onClose={() => setConsentOpen(false)}
           onVerified={() => { setGrp((g) => ({ ...g, consentVerified: true })); toast(t('shareFlat.ownerConsentConfirmedToast'), 'success'); }}
-        />
-      )}
-
-      {/* Aadhaar identity gate for listing a room / creating a group */}
-      {aadhaarGateOpen && (
-        <AadhaarVerifyModal
-          subtitle={t('shareFlat.aadhaarGateSubtitle')}
-          note={t('shareFlat.aadhaarGateNote')}
-          onClose={() => { pendingSupplyAction.current = null; setAadhaarGateOpen(false); }}
-          onVerified={() => {
-            setAadhaarGateOpen(false);
-            toast(t('shareFlat.identityVerified'), 'success');
-            const action = pendingSupplyAction.current;
-            pendingSupplyAction.current = null;
-            action?.();
-          }}
         />
       )}
 

@@ -67,7 +67,10 @@ async function gotoHome(page) {
 }
 
 async function shownCount(page) {
-  const p = page.locator('main p', { hasText: /Showing/ }).first();
+  // The count line is rendered twice (mobile `sm:hidden` + desktop `hidden sm:flex`);
+  // only one is visible per viewport, so scope to the visible one — a plain .first()
+  // would grab the hidden mobile copy on a desktop viewport and never resolve.
+  const p = page.locator('main p:visible', { hasText: /Showing/ }).first();
   await p.waitFor({ timeout: 10000 });
   return num(await p.locator('span.text-teal-400').first().textContent());
 }

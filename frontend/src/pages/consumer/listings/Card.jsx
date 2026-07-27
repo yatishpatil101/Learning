@@ -11,6 +11,7 @@ import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
 import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL, SHARING_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
+import { isFeaturedActive } from '../../../lib/featured.js';
 
 const Card = memo(function Card({ p, locName, index = 0, list = false, linkState, onOpen }) {
   const { t } = useTranslation();
@@ -95,6 +96,9 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 <Icon name="shield-check" />
               </span>
             ) : null}
+            {isFeaturedActive(p) && (
+              <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
+            )}
             <div className="absolute top-3 right-3 flex flex-col gap-2">
               <span className={'heart-btn w-9 h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
                 <Icon name="heart" className="w-4 h-4" />
@@ -165,6 +169,9 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           ) : null}
         </div>
         <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
+          {isFeaturedActive(p) && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
+          )}
           {isRent ? (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-teal-600/50 text-teal-50">{t('listings.badgeRent')}</span>
           ) : (

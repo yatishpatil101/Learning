@@ -1,9 +1,11 @@
 # Flow: Share a Flat (Flatmates, Rooms & Groups)
 
 > The flatmate marketplace: seekers post requirements, hosts list rooms or create flat-share groups,
-> everyone discovers via filters/map, and interest is gated behind identity, seeker-verification and
-> anti-broker guardrails.
-> **Status:** documented from React source - **Primary role(s):** buyer/tenant (seeker + host), admin/ops (moderation)
+> everyone discovers via filters/map, and interest is shaped by an **L1 sign-in floor**, an optional
+> seeker-verification badge, and anti-broker guardrails.
+> Under **badge-not-gate (ADR-019)** posting and interest need only being signed in (L1); there is
+> **no Aadhaar posting/contact gate** — verification is an optional trust badge.
+> **Status:** documented from React source · re-synced to ADR-019 (badge-not-gate) - **Primary role(s):** buyer/tenant (seeker + host), admin/ops (moderation)
 
 ---
 
@@ -14,7 +16,8 @@
   **(host):** "List my room / group, find flatmates, and manage who joins."
 - **Why it matters:** flat-sharing is a distinct, high-frequency demand segment (students, young
   professionals). Trust is the product here - the whole flow is built around anti-broker guardrails,
-  identity gates and Ops moderation so the shares are genuine.
+  the L1 sign-in floor (`requireSignedIn`), optional Verified badges and Ops moderation so the shares
+  are genuine.
 
 ## 2. Entry points
 - **Routes:** `/share-flat` (public browse; posting/interest require sign-in). Query params:
@@ -33,19 +36,20 @@
 - **Seeker (demand):** browses, saves, and expresses interest / requests to join. Sign-in required to
   act; a "verified seeker" badge is earned via OTP.
 - **Host (supply):** posts a flatmate requirement, lists a room, or creates a group. Host actions
-  require the **Aadhaar identity gate**. A host is `owner` (lists their own flat) or `tenant` (a
-  sitting tenant seeking a replacement, needs a registered agreement + owner consent).
+  require only an **L1 sign-in** (`requireSignedIn`) — **no Aadhaar gate**; identity is an optional
+  badge. A host is `owner` (lists their own flat) or `tenant` (a sitting tenant seeking a
+  replacement, needs a registered agreement + owner consent).
 - **Admin/Ops:** moderates tenant-tier and flagged posts via the Ops share-review queue.
 - **Ownership match** (`ownsGroup` / `ownsRoom`): last-10 mobile digits (exact) or name fallback, so
   owner controls never appear on seed posts.
 
 ## 4. Entities touched
-- [`share_flat_requests` (seeker posts)](../../system/domain-model.md) - `puneNestShareRequests`,
+- [`share_flat_requests` (seeker posts)](../../system/data-model.md) - `puneNestShareRequests`,
   created/edited/deleted by `saveShareRequest` / `updateShareRequest` / `deleteShareRequest`. One
   live request per person (`getMyRequest`).
 - **Share groups** - `puneNestShareGroups`, `saveShareGroup` / `updateShareGroup` /
   `deleteShareGroup`. Seed groups (from `constants.js`) stay out of storage.
-- [`rooms`](../../system/domain-model.md) - `puneNestRoomListings` (via `addRoom` / `updateRoom` in
+- [`rooms`](../../system/data-model.md) - `puneNestRoomListings` (via `addRoom` / `updateRoom` in
   the property wizard), `status: 'pending'`, carries `seatsTotal`/`seatsOpen`/`verificationTier`.
 - **Host inbox requests** - `puneNestShareFlatReq:<hostDigits>` (`addShareFlatRequest` /
   `decideShareFlatRequest`) - the host-facing incoming requests shown in Dashboard -> Requests.
@@ -62,7 +66,7 @@
   with open seats). Each has its own card, interest key and matching rules.
 
 ### Posting a flatmate requirement (`useShareSupply.submitPost`)
-- Gated by `requireAadhaar` (sign-in -> Aadhaar OTP -> action). **One live request per person:** if
+- Gated by `requireSignedIn` (L1 sign-in only; no Aadhaar). **One live request per person:** if
   `myPost` exists, a fresh post redirects to editing it.
 - Validation: `name`, `budget`, at least one `localities` entry.
 - Fields: `name, gender (female default), age, occupation, budget, localities[], moveIn (now), flatPref,
@@ -71,12 +75,12 @@
   `onInterest`).
 
 ### Listing a room (`listRoom`)
-- `requireAadhaar(() => navigate('/list-property?share=1'))` - routes into the property wizard's
+- `requireSignedIn(() => navigate('/list-property?share=1'))` - routes into the property wizard's
   flatmate track (documented in the list-property wizard doc), which creates a `room` with
   `verificationTier`, `seatsTotal`/`seatsOpen`, and enqueues an Ops review for tenant/flagged posts.
 
 ### Creating a group (`submitGroup`)
-- Gated by `requireAadhaar`. Validation: `title`, `rent`, member `name`.
+- Gated by `requireSignedIn` (L1). Validation: `title`, `rent`, member `name`.
 - **Seats:** `seatsTotal = grp.seats` (default 2); `seatsOpen = clamp(1, seats, grp.seatsOpen)` -
   honest for a tenant backfilling one seat in an occupied flat.
 - **Policy:** `women` / `any` (and others) - `policy === 'any'` means open-join.
@@ -142,8 +146,8 @@ The single decision point both group + room create flows call:
 
 ### Seeker verification (`submitVerify`)
 - OTP flow (mock: any 6 digits). On success `setSeekerVerified(userKey)` and, if the seeker has a
-  live post, flips it to `verified: true`. This is a lighter, seeker-side badge - separate from the
-  Aadhaar identity gate that hosts must clear.
+  live post, flips it to `verified: true`. This is a lighter, seeker-side **opt-in badge** (a trust
+  signal); posting/interest never require it — the floor is L1 sign-in (ADR-019).
 
 ### Seat backfill lifecycle
 - `setGroupSeats` / `setRoomSeats` let the owner reopen/close seats as flatmates come and go
@@ -181,8 +185,8 @@ Host eligibility:  evaluateHostEligibility -> blocked (cap/duplicate) | flagForR
 
 ## 8. Edge cases, validation & error states
 - **Guest acting:** interest/join/post redirect to `/signin` (contact reason preserved).
-- **Aadhaar unverified host:** the Aadhaar modal opens and the intended action resumes on success
-  (`pendingSupplyAction` ref).
+- **Guest host acting:** listing/grouping/posting redirects to `/signin` (next-URL preserved); the
+  action is retried after sign-in. There is no Aadhaar step.
 - **Cap hit / self-duplicate address:** hard block with a reason toast; no post created.
 - **Cross-host address collision:** posts but `flagForReview` -> Ops queue.
 - **`verifiedContactOnly` seeker:** unverified actors are blocked and shown the verify modal.
@@ -201,7 +205,7 @@ Host eligibility:  evaluateHostEligibility -> blocked (cap/duplicate) | flagForR
 - **Orchestrator:** `shareflat/useShareFlat.jsx` (collections, tabs, interest handlers).
 - **Discovery:** `shareflat/useShareDiscovery.jsx` (`emptyFilters`, filters/sort, `seekerList` /
   `roomList` / `groupList`).
-- **Supply:** `shareflat/useShareSupply.jsx` (`requireAadhaar`, `submitPost`, `submitGroup`,
+- **Supply:** `shareflat/useShareSupply.jsx` (`requireSignedIn`, `submitPost`, `submitGroup`,
   `listRoom`, `createGroup`, `onJoin`, `setGroupSeats`/`setRoomSeats`, `openConsent`, `submitVerify`).
 - **Core data:** `src/lib/data/shareFlat.js` - requests/groups CRUD, `evaluateHostEligibility`
   (`MAX_ACTIVE_HOST_SHARES`, `addressFingerprint`, `findAddressClaims`), Ops reviews
@@ -210,13 +214,13 @@ Host eligibility:  evaluateHostEligibility -> blocked (cap/duplicate) | flagForR
   (`addShareFlatRequest` / `decideShareFlatRequest` / `shareFlatReqPendingCount`).
 - **Rooms store:** `src/lib/store/listings.js` (`addRoom` / `updateRoom` / `getRooms`,
   `puneNestRoomListings`).
-- **Key components:** `PostModal`, `GroupModal`, `VerifyModal`, `AgreementUpload`,
-  `components/auth/AadhaarVerifyModal.jsx`, `components/auth/OwnerConsentModal.jsx`,
+- **Key components:** `PostModal`, `GroupModal`, `VerifyModal` (opt-in seeker-badge OTP),
+  `AgreementUpload`, `components/auth/OwnerConsentModal.jsx`,
   `SeekerCard`/`RoomCard`/`GroupCard`, `dashboard/useDashboardData.js` (`decideShareFlatReq`).
 - **Data/seed:** seekers/rooms/groups seeds in `shareflat/constants.js`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) section 26:
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Engagement):
 - `GET /share-flat/requests`, `POST /share-flat/requests`, `PATCH /share-flat/requests/:id`,
   `DELETE /share-flat/requests/:id`, `GET /share-flat/rooms`, `POST /share-flat/rooms`.
 - **Missing but implied:** groups CRUD, a host-inbox endpoint (`GET /me/share-flat/requests` +

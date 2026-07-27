@@ -3,7 +3,11 @@
 > The owner-driven (or co-filled) Maharashtra Leave & License agreement wizard: capture property,
 > owner, tenant(s), terms, witnesses; compute statutory + platform cost; submit into the ops
 > workflow; then track drafting, approval, e-registration and download.
-> **Status:** documented from React source - **Primary role(s):** owner (maker/initiator), tenant
+> This is the **L3 deal-verified** step of the trust ladder: hard KYC (both parties' PAN/Aadhaar +
+> the registered agreement) legitimately applies **here**, at the money/agreement moment — the one
+> place ADR-019 permits a hard identity requirement (browse/post/contact stay at L1). See
+> [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md).
+> **Status:** documented from React source · re-synced to ADR-019 (L3 deal-verified) - **Primary role(s):** owner (maker/initiator), tenant
 > (co-filler / invitee), ops "rental" team (checker/drafter)
 
 ---
@@ -48,7 +52,7 @@
   real bearer token.
 
 ## 4. Entities touched
-Link to [`../../system/domain-model.md`](../../system/domain-model.md).
+Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service workflow request** - `puneNestServiceReq:<ownerMobile>` via `serviceFlow.create` /
   `createCoFill`. Holds `details`, `docs`, `draft`, `draftDecision`, `finalDoc`, `messages`,
   `timeline`, `parties`, `coFill`, `ticketRef`, `status`. Created here; advanced by ops.
@@ -222,7 +226,7 @@ Request (serviceFlow):
   the exact stamp-duty rule).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Services & Support):
 - Service workflow (section 27): `POST /service-requests` (create), `GET /service-requests` /
   `:id` (tracker + timeline), `POST /service-requests/:id/docs`, `POST /service-requests/:id/draft`
   (staff), `POST /service-requests/:id/draft/decision` (customer accept/reject),
@@ -245,8 +249,10 @@ Map to [`../../system/api-contract.md`](../../system/api-contract.md):
 - **Authorize transitions:** only the assigned rental staff may verify docs / share draft / register /
   upload final; only the customer may accept/reject the draft; only the request owner (or invited
   tenant for their section) may write their half. Apply the co-fill merge transactionally.
-- **KYC & documents:** verify owner/tenant KYC and store documents securely (not base64 in
-  localStorage); enforce the required-doc checklist before drafting.
+- **KYC & documents (L3 deal-verified):** this is the ladder's one hard-KYC gate — verify owner/tenant
+  KYC (both parties) and store documents securely (not base64 in localStorage); enforce the
+  required-doc checklist before drafting. Hard mobile-match (`403 mobile_match_required`, ADR-009a)
+  legitimately applies **here** at the deal step, not on posting or contact.
 - **Audit & notify:** write an audit row and cross-party notification on every transition, and keep
   the linked admin ticket status in sync (cross-cutting sections 4 & 7).
 - **Feed downstream:** on completion, create/register the tenancy that

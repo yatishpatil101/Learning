@@ -59,7 +59,8 @@
       "title": "Featured properties",
       "subtitle": "Handpicked properties across Pune",
       "viewAll": "View All",
-      "viewAllProperties": "View all properties"
+      "viewAllProperties": "View all properties",
+      "verifiedProof": "{{listings}} verified homes · {{owners}} verified owners live now"
     },
     "recent": {
       "eyebrow": "Pick up where you left off",

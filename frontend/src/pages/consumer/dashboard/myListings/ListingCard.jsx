@@ -6,6 +6,7 @@ import { getPropReview, propReviewUnread, isDealClosed, isDealReserved } from '.
 import { listingFreshness } from '../../../../lib/freshness.js';
 import StatChip from './StatChip.jsx';
 import { renderOverflow } from './OverflowActions.jsx';
+import { isFeaturedActive } from '../../../../lib/featured.js';
 import {
   FALLBACK_IMG, FURNISH_LABEL, LISTING_STATUS_CLS, STATUS_LABEL, STATUS_ICON,
   FRESHNESS_ICON, primaryCls, quietCls,
@@ -54,6 +55,8 @@ export default function ListingCard({
   const StatusTag = statusPill.onClick ? 'button' : 'span';
   const editHref = l.shareGroup ? '/share-flat?view=groups' : l.shareRequest ? '/share-flat' : l.flatmate ? '/list-property?share=1' : `/list-property?edit=${l.id}`;
   const viewHref = l.shareGroup ? '/share-flat?view=groups' : l.flatmate ? '/share-flat' : `/property/${l.id}`;
+  // Days remaining on the free first-verify Featured perk, for the badge tooltip/label.
+  const featuredDaysLeft = l.featuredUntil ? Math.max(0, Math.ceil((l.featuredUntil - Date.now()) / 86400000)) : 0;
 
   // One prominent primary action, chosen by what the owner most needs to do next.
   let primary = null;
@@ -134,6 +137,14 @@ export default function ListingCard({
             {l.priceReduced && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold inline-flex items-center gap-1">
                 <Icon name="trending-down" className="w-3 h-3" /> Price reduced
+              </span>
+            )}
+            {l.featuredReason === 'first-verify' && isFeaturedActive(l) && (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 font-semibold inline-flex items-center gap-1"
+                title={`Free 7-day Featured boost for getting Verified${featuredDaysLeft ? ` — ${featuredDaysLeft} day${featuredDaysLeft > 1 ? 's' : ''} left` : ''}. Featured listings appear at the top of search.`}
+              >
+                <Icon name="star" className="w-3 h-3" /> Featured · free{featuredDaysLeft ? ` · ${featuredDaysLeft}d left` : ''}
               </span>
             )}
           </div>

@@ -1,0 +1,18 @@
+# Netlify deploy config for the PuneNest PMF-test build.
+# Build the Vite app; publish the static bundle; SPA-fallback all routes to
+# index.html so client-side routing works on refresh/deep links.
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# Set these in the Netlify UI (Site settings → Environment) for the PMF build:
+#   VITE_PMF_MODE = on
+#   VITE_GA_ID    = G-XXXXXXXXXX
+# (Both are safe to expose; they only gate the temporary test overlay.)
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

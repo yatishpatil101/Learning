@@ -68,9 +68,9 @@ test('KYC member replies to a contribution — reply shows with a badge and pers
   expect(store[SLUG][0].replies[0].text).toContain('terrace tank');
 });
 
-// ─── AC2: logged-in non-KYC user is gated on reply / report / review / ask ───
-test('non-KYC member is blocked by the Aadhaar gate on reply, report, review and ask', async ({ page }) => {
-  await seedUser(page, '9811111111'); // logged in, NOT Aadhaar verified
+// ─── AC2: a logged-in member replies / reports directly (badge-not-gate) ───
+test('a logged-in member replies and reports directly — no Aadhaar gate', async ({ page }) => {
+  await seedUser(page, '9811111111'); // logged in, NOT Aadhaar verified — still allowed
   await seedContribs(page, [contrib()]);
   await gotoHub(page, 'community');
 
@@ -78,17 +78,16 @@ test('non-KYC member is blocked by the Aadhaar gate on reply, report, review and
   const feed = page.locator('section', { has: page.getByRole('heading', { name: 'Community insights' }) });
   const card = feed.locator('div.glass.rounded-xl', { hasText: 'Water tanker fills the sump' });
 
-  // Reply → gate, no inline composer.
+  // Reply → inline composer opens directly, no gate.
   await card.getByRole('button', { name: /^Reply/ }).click();
-  await expect(gate).toBeVisible({ timeout: 8000 });
-  await expect(card.getByPlaceholder('Write a reply…')).toHaveCount(0);
+  await expect(card.getByPlaceholder('Write a reply…')).toBeVisible({ timeout: 8000 });
+  await expect(gate).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await expect(gate).toBeHidden();
 
-  // Report → gate, no report dialog.
+  // Report → report dialog opens directly, no gate.
   await card.getByRole('button', { name: 'Report contribution' }).click();
-  await expect(gate).toBeVisible({ timeout: 8000 });
-  await expect(page.getByRole('dialog', { name: 'Report content' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Report content' })).toBeVisible({ timeout: 8000 });
+  await expect(gate).toHaveCount(0);
 });
 
 // ─── AC3: residents post events/notices; non-residents cannot ───
@@ -263,13 +262,31 @@ test('ops Remove deletes the reported contribution and closes the report; Dismis
 });
 
 // ─── AC6: retro-gate Reviews & Q&A store-side ───
-test('addSocietyQuestion / addSocietyAnswer refuse a non-KYC user (store-side kyc guard)', async ({ page }) => {
-  await seedUser(page, '9811111111'); // logged in, not verified
+test('addSocietyQuestion / addSocietyAnswer succeed for a signed-in user, and refuse a guest (login)', async ({ page }) => {
+  await seedUser(page, '9811111111'); // logged in, not identity-verified — sign-in is the floor
   await gotoHub(page);
   const out = await page.evaluate(async () => {
     const m = await import('/src/lib/store.js');
-    return { q: m.addSocietyQuestion('skyline-heights-baner', 'Is visitor parking available?'), a: m.addSocietyAnswer('skyline-heights-baner', 'anyid', 'yes') };
+    const q = m.addSocietyQuestion('skyline-heights-baner', 'Is visitor parking available?');
+    const a = q && q.id ? m.addSocietyAnswer('skyline-heights-baner', q.id, 'Yes, near gate B.') : null;
+    return {
+      qIsGate: q === 'kyc' || q === 'login', qHasId: !!(q && q.id),
+      aIsGate: a === 'kyc' || a === 'login', aHasAnswer: !!(a && a.answers && a.answers.length),
+    };
   });
-  expect(out.q).toBe('kyc');
-  expect(out.a).toBe('kyc');
+  // Badge-not-gate: a signed-in user posts directly — a record, never a gate string.
+  expect(out.qIsGate).toBe(false);
+  expect(out.qHasId).toBe(true);
+  expect(out.aIsGate).toBe(false);
+  expect(out.aHasAnswer).toBe(true);
+});
+
+test('addSocietyQuestion refuses a signed-out guest with "login"', async ({ page }) => {
+  await page.goto(`${BASE}/society/skyline-heights-baner`);
+  await expect(page.getByRole('heading', { level: 1, name: /Skyline Heights/i })).toBeVisible({ timeout: 10000 });
+  const out = await page.evaluate(async () => {
+    const m = await import('/src/lib/store.js');
+    return m.addSocietyQuestion('skyline-heights-baner', 'Is visitor parking available?');
+  });
+  expect(out).toBe('login');
 });

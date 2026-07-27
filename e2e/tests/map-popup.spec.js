@@ -15,7 +15,7 @@ const SEED_DB = JSON.parse(readFileSync(new URL('../../frontend/src/data/db.json
 const saleListing = {
   id: 'MAP-villa', title: '3 BHK Villa in Baner', type: 'Villa', bhk: '3 BHK', bhkNum: 3, bath: 3,
   area: 1885, locality: 'Baner', localitySlug: 'baner', loc: 'Baner, Pune', society: '', deal: 'buy',
-  price: 27300000, priceStr: 'â‚¹2.73 Cr', owner: 'Seed Owner', ownerMobile: '9000000000',
+  price: 27300000, priceStr: '₹2.73 Cr', owner: 'Seed Owner', ownerMobile: '9000000000',
   status: 'approved', statusClass: 'pill-approved', real: true, featured: false, views: 0, enquiries: 0,
   photoCount: 0, furnishing: 'furnished', facing: '', floor: 0, age: '', construction: 'ready',
   amenities: [], img: '', image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=70',
@@ -40,9 +40,9 @@ test('clicking a map marker opens the detail drawer, not a leaflet popup', async
   // deep-link the villa's locality (?loc=Baner) to un-gate it before asserting.
   await page.goto('/listings?deal=buy&view=map&loc=Baner');
 
-  // Target the villa's distinctive marker (â‚¹2.73Cr) rather than .first() â€” markers can
+  // Target the villa's distinctive marker (₹2.73Cr) rather than .first() â€” markers can
   // overlap on the map and an adjacent pin would intercept the click.
-  const marker = page.locator('.price-marker', { hasText: 'â‚¹2.73Cr' }).first();
+  const marker = page.locator('.price-marker', { hasText: '₹2.73Cr' }).first();
   await marker.waitFor({ timeout: 20000 });
   await marker.click();
 
@@ -54,7 +54,7 @@ test('clicking a map marker opens the detail drawer, not a leaflet popup', async
 
   // Same building blocks as the standard tile, richer.
   await expect(drawer.locator('.pn-mdp-deal')).toHaveText(/For Rent|For Sale/);
-  await expect(drawer.locator('.pn-mdp-price')).toContainText('â‚¹');
+  await expect(drawer.locator('.pn-mdp-price')).toContainText('₹');
   await expect(drawer.locator('.pn-mdp-loc')).toContainText('Pune');
   // "Open full page" links to a real property page.
   await expect(drawer.locator('.pn-mdp-full')).toHaveAttribute('href', /^\/property\//);
@@ -63,8 +63,8 @@ test('clicking a map marker opens the detail drawer, not a leaflet popup', async
 test('map drawer reflects the marked property (title, price + facts match the pin)', async ({ page }) => {
   await injectStock(page, [saleListing]);
   await page.goto('/listings?deal=buy&view=map&loc=Baner');
-  // The injected villa's marker label is â‚¹2.73Cr (27300000 / 1e7, sale â‰¥ 1 Cr).
-  const marker = page.locator('.price-marker', { hasText: 'â‚¹2.73Cr' }).first();
+  // The injected villa's marker label is ₹2.73Cr (27300000 / 1e7, sale â‰¥ 1 Cr).
+  const marker = page.locator('.price-marker', { hasText: '₹2.73Cr' }).first();
   await marker.waitFor({ timeout: 20000 });
   await marker.click();
 
@@ -73,7 +73,7 @@ test('map drawer reflects the marked property (title, price + facts match the pi
 
   await expect(drawer.locator('.pn-mdp-full')).toHaveAttribute('href', '/property/MAP-villa');
   await expect(drawer.locator('.pn-mdp-title')).toHaveText('3 BHK Villa');
-  await expect(drawer.locator('.pn-mdp-price')).toContainText('â‚¹2.73 Cr');
+  await expect(drawer.locator('.pn-mdp-price')).toContainText('₹2.73 Cr');
 
   // Facts come from the real listing fields â€” 3 bedrooms, real baths (3), area.
   const facts = drawer.locator('.pn-mdp-fact');

@@ -97,6 +97,7 @@ test.describe('Admin Reports page redesign', () => {
   test('table shows report data', async ({ page }) => {
     // Should have at least one row with report data
     const rows = page.locator('table tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 5000 });
     const count = await rows.count();
     expect(count).toBeGreaterThan(0);
   });

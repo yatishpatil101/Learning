@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArrowRight, BadgeCheck, Bell, CalendarCheck, CheckCircle2, Home, Loader2, Mail, Send, ShieldCheck, User, UserCircle } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Bell, CalendarCheck, CheckCircle2, Loader2, Mail, Send, ShieldCheck, User, UserCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useMobileInput } from '../../lib/hooks.js';
 import MobileField from '../../components/MobileField.jsx';
@@ -22,13 +22,14 @@ const BENEFITS = [
 
 function LeftPanel() {
   const { city } = useCity();
+  const hasData = cityHasData(city);
   return (
     <>
-      <div className="flex items-center gap-3 mb-10">
-        <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-2xl flex items-center justify-center">
-          <Home className="w-6 h-6 text-white" />
-        </div>
-        <span className="text-3xl font-bold text-white">PuneNest</span>
+      <div className="inline-flex items-center gap-2 rounded-full border border-teal-400/25 bg-teal-400/[.08] px-3.5 py-1.5 mt-6 mb-6">
+        <span className="auth-live-dot inline-block w-1.5 h-1.5 rounded-full bg-teal-300" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-200">
+          {hasData ? `${city}'s owner-direct marketplace` : `Launching in ${city} soon`}
+        </span>
       </div>
       <h1 className="text-4xl font-extrabold text-white leading-tight mb-4">
         Create your account &amp;{' '}
@@ -111,7 +112,7 @@ export default function Signup() {
   };
 
   return (
-    <AuthShell left={<LeftPanel />} mobileIntro={mobileIntro}>
+    <AuthShell left={<LeftPanel />} mobileIntro={mobileIntro} align="top">
       <div className="auth-card glass-card rounded-2xl p-6 sm:p-8 lg:p-10 slide-up">
         <div className="text-center mb-6 sm:mb-8 slide-up slide-up-delay-1">
           <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-teal-400/20 to-teal-600/20 rounded-2xl flex items-center justify-center mx-auto mb-3.5 sm:mb-4 border border-teal-400/20">

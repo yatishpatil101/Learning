@@ -19,13 +19,13 @@ async function loginAsAdmin(page) {
   await page.waitForURL('**/admin');
 }
 
-function seedCluster(page) {
-  return page.addInitScript((society) => {
+async function seedCluster(page) {
+  await page.evaluate((society) => {
     const KEY = 'puneNestDB_v5';
     let db = {};
     try { db = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { db = {}; }
     db.listings = db.listings || [];
-    if ((db.listings || []).some((l) => l.id === 'MERGE-A')) return; // idempotent across navigations
+    if ((db.listings || []).some((l) => l.id === 'MERGE-A')) return; // idempotent
     const base = {
       deal: 'rent', society, flatNumber: 'A-707', pincode: '411057', locality: 'Wakad',
       status: 'approved', price: '\u20b925,000/mo',
@@ -42,8 +42,11 @@ test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', as
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  await seedCluster(page);
+  // Log in first so the app boots and seeds the FULL default DB into puneNestDB_v5,
+  // then merge our two listings into it. Seeding before boot would write a partial
+  // DB (only `listings`) and crash the app on load.
   await loginAsAdmin(page);
+  await seedCluster(page);
   await page.goto(`${BASE}/admin/properties`);
   await page.waitForTimeout(1000);
 
