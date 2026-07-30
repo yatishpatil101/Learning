@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { jsPDF } from 'jspdf';
 import Icon from '../../components/Icon.jsx';
-import { listProperties } from '../../lib/mockApi.js';
+import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
@@ -71,23 +71,43 @@ const ROWS = [
 export default function Compare() {
   const { t } = useTranslation();
   const { ids, toggle, clear } = useCompare();
-  const [all, setAll] = useState(null);
+  const [compared, setCompared] = useState(null);
+  const [pickable, setPickable] = useState([]);
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState('');
 
-  useEffect(() => { listProperties({}, 'newest').then(setAll); }, []);
+  // Resolve exactly the compared ids (at most a handful) rather than downloading the catalogue to
+  // find them. Ids that no longer resolve stay in the list as `available: false` — see below.
+  useEffect(() => {
+    let alive = true;
+    if (!ids.length) { setCompared([]); return () => { alive = false; }; }
+    getPropertiesByIds(ids).then((list) => { if (alive) setCompared(list); });
+    return () => { alive = false; };
+  }, [ids]);
 
-  const loading = all === null;
+  // The "add a property" picker is a search, so let the server do it. Debounced because this now
+  // costs a request per keystroke instead of a filter over an in-memory array.
+  useEffect(() => {
+    let alive = true;
+    const timer = setTimeout(() => {
+      listProperties({ q: q.trim() || undefined }, 'newest').then((list) => {
+        if (alive) setPickable(list.filter((p) => !ids.includes(p.id)));
+      });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [q, ids]);
+
+  const loading = compared === null;
   // Keep a column for every compared id — even ones no longer in the active dataset —
   // so a removed/expired listing shows an honest "No longer available" card instead of
   // silently vanishing.
   const items = useMemo(() => {
-    if (!all) return [];
+    if (!compared) return [];
     return ids.map((id) => {
-      const p = all.find((x) => x.id === id);
+      const p = compared.find((x) => x.id === id);
       return p ? metric(p, t) : { id, available: false };
     });
-  }, [ids, all, t]);
+  }, [ids, compared, t]);
   const liveItems = useMemo(() => items.filter((m) => m.available), [items]);
 
   const bestIds = (row) => {
@@ -103,8 +123,6 @@ export default function Compare() {
     if (max === 0) return [];
     return liveItems.filter((m) => amenityCount(m) === max).map((m) => m.id);
   }, [liveItems]);
-
-  const pickable = (all || []).filter((p) => !ids.includes(p.id) && (`${p.title} ${p.locality || ''}, Pune`.toLowerCase().includes(q.toLowerCase())));
 
   const contactHref = (m) => `/contact?ref=${encodeURIComponent(m.id)}&subject=${encodeURIComponent('Enquiry about ' + m.title)}`;
 

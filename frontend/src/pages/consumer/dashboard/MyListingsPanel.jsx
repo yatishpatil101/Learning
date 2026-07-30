@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
-import { setListingStatus, toggleFeatured, confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
+import { setListingStatus, toggleFeatured } from '../../../services/propertyService.js';
+import { confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
 import { closeDeal, reopenDeal, markUnderOffer, deleteRoom, isPaidOwnerPlan } from '../../../lib/store.js';
 import { deleteShareRequest, deleteShareGroup } from '../../../lib/data/shareFlat.js';
 import { getContactReqs } from '../../../lib/contact.js';

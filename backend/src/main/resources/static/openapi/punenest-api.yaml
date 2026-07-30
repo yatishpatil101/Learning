@@ -98,10 +98,12 @@ paths:
       security: []
       operationId: login
       description: >
-        Step 2 of the mobile-OTP flow (L1): submit mobile + OTP to receive access/refresh
-        tokens. L1 sign-in is the only floor for participating (posting, enquiring,
-        contacting owners) — identity verification is an opt-in badge on top (ADR-019).
-        On success, call `getMe`.
+        Dual-mode. Posting `mobile` **without** `otp` is the *send* step: a code is dispatched and
+        the response is only `{ "otpSent": true }`. Posting `mobile` **with** `otp` is step 2 (L1):
+        it verifies the code and returns access/refresh tokens. First-time mobiles are provisioned
+        as `buyer` on successful verification, so no separate sign-up call exists. L1 sign-in is the
+        only floor for participating (posting, enquiring, contacting owners) — identity verification
+        is an opt-in badge on top (ADR-019). On success, call `getMe`.
       externalDocs:
         description: Auth / OTP sign-in flow (actors + screens)
         url: docs/flows/consumer/auth.md
@@ -112,7 +114,9 @@ paths:
             schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: Authenticated — tokens issued.
+          description: >
+            Either the OTP-send acknowledgement (`{ "otpSent": true }`) or, when `otp` was supplied
+            and verified, the issued token pair.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -135,6 +139,31 @@ paths:
       responses:
         '200':
           description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/refresh:
+    post:
+      tags: [Identity & Access]
+      summary: Rotate the refresh token
+      security: []
+      operationId: refreshSession
+      description: >
+        Exchange a valid refresh token for a new access token and a new refresh token. Refresh
+        tokens are **single-use**: the presented token is revoked and a replacement is returned, so
+        a client must persist the new value. Replaying a spent token fails with 401 — clients should
+        treat that as session loss and send the user back to sign-in. Because the refresh token is
+        itself the credential, this endpoint takes no bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Rotated — new token pair issued.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -190,11 +219,17 @@ paths:
       parameters:
         - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
         - { name: type, in: query, schema: { type: string } }
-        - { name: locality, in: query, schema: { type: string } }
+        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug* (matches PropertySummary.localitySlug, not the display name)' }
         - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
         - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
         - { name: furnishing, in: query, schema: { $ref: '#/components/schemas/Furnishing' } }
+        - name: possession
+          in: query
+          description: >
+            Exact match on possession state. Listings with no recorded possession are
+            never returned by this facet.
+          schema: { $ref: '#/components/schemas/PropertyPossession' }
         - { name: q, in: query, description: Free-text search, schema: { type: string } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/PropertyStatus' } }
         - { $ref: '#/components/parameters/Page' }
@@ -2861,6 +2896,14 @@ components:
     Furnishing:
       type: string
       enum: [unfurnished, semi-furnished, furnished]
+    PropertyPossession:
+      type: string
+      description: >
+        When the property can be occupied. Absent/null means "not stated", which is
+        deliberately distinct from all three values — an unrecorded possession must not
+        satisfy a `ready-to-move` search. Land and plot listings have no meaningful
+        possession state and stay unset.
+      enum: [ready-to-move, new-launch, under-construction]
     PropertyStatus:
       type: string
       enum: [pending, approved, rejected, flagged, archived]
@@ -2888,7 +2931,7 @@ components:
       required: [status]
       properties:
         status: { type: string }
-        note: { type: string }
+        note: { type: string, maxLength: 500 }
     ReasonRequest:
       type: object
       required: [reason]
@@ -2955,14 +2998,27 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string, description: The rotating single-use refresh token issued by the previous auth call. }
     AuthResponse:
       type: object
+      description: >
+        Dual-shape response. `POST /auth/login` without an `otp` is the *send* step and returns
+        only `{ "otpSent": true }` — no tokens. A completed verify / staff-login / refresh returns
+        the token pair plus `user`. Absent fields are omitted, not null.
       properties:
         accessToken: { type: string }
         refreshToken: { type: string }
         tokenType: { type: string, default: Bearer }
         expiresIn: { type: integer, example: 900 }
         user: { $ref: '#/components/schemas/User' }
+        otpSent:
+          type: boolean
+          description: Present and `true` only on the OTP-send step; omitted on token-bearing responses.
+          example: true
     User:
       type: object
       properties:
@@ -3005,7 +3061,17 @@ components:
         area: { type: number, example: 1180 }
         areaUnit: { type: string, example: sqft }
         furnishing: { $ref: '#/components/schemas/Furnishing' }
+        possession: { $ref: '#/components/schemas/PropertyPossession' }
         locality: { type: string, example: Koregaon Park }
+        localitySlug:
+          type: string
+          example: koregaon-park
+          description: >-
+            Curated locality key (FK to Locality.slug) and the value the `locality` search filter
+            matches on. `locality` above is the human display name and is NOT unique or stable —
+            never key off it. Absent when the listing's locality could not be resolved to a curated
+            locality (owner free-text that matched nothing); such listings are invisible to locality
+            filters until curated during moderation.
         city: { type: string, example: Pune }
         lat: { type: number, format: double }
         lng: { type: number, format: double }
@@ -3030,7 +3096,6 @@ components:
             floor: { type: integer }
             totalFloors: { type: integer }
             facing: { type: string }
-            possession: { type: string, example: Ready to move }
             amenities:
               type: array
               items: { type: string }
@@ -3205,7 +3270,7 @@ components:
         lat: { type: number, format: double }
         lng: { type: number, format: double }
         reraId: { type: string }
-        possession: { type: string }
+        possession: { $ref: '#/components/schemas/PropertyPossession' }
         amenities: { type: array, items: { type: string } }
         images: { type: array, items: { type: string, format: uri } }
         description: { type: string }
@@ -3398,7 +3463,7 @@ components:
       required: [propertyId]
       properties:
         propertyId: { type: string }
-        message: { type: string }
+        message: { type: string, maxLength: 1000 }
     ContactRequest:
       type: object
       properties:

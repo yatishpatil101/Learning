@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { userExists, findUser } from '../../lib/auth.js';
+import { sendOtp as sendOtpSvc } from '../../services/authService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { useMobileInput } from '../../lib/hooks.js';
 import MobileField from '../../components/MobileField.jsx';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
@@ -91,6 +93,7 @@ function LeftPanel() {
 
 export default function Signin() {
   const { login } = useAuth();
+  const authIsLive = isHttpDomain('auth');
   const { flagEnabled } = useAppFlags();
   const signupsOn = flagEnabled('signupsEnabled');
   const navigate = useNavigate();
@@ -101,7 +104,8 @@ export default function Signin() {
   const [remember, setRemember] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [done, setDone] = useState(false);
-  const otp = useOtpFlow();
+  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
+  const [verifyError, setVerifyError] = useState(null);
 
   const sendOtp = () => {
     if (!mobile.valid) { setMobileErr(true); return; }
@@ -110,29 +114,45 @@ export default function Signin() {
     // over to Sign Up so the visitor finishes registering instead of hitting a dead
     // end. When sign-ups are turned off there's no Sign Up screen to send them to, so
     // we just proceed with OTP here (mock auth — any number is allowed to sign in).
-    if (signupsOn && !userExists(mobile.value)) {
+    //
+    // Only meaningful on mocks: the live API provisions an account on first verified
+    // login, and has deliberately no "does this mobile exist?" endpoint — answering
+    // that publicly would be a user-enumeration oracle.
+    if (!authIsLive && signupsOn && !userExists(mobile.value)) {
       const qs = new URLSearchParams({ mobile: mobile.value, new: '1' });
       if (params.get('next')) qs.set('next', params.get('next'));
       if (params.get('reason')) qs.set('reason', params.get('reason'));
       navigate(`/signup?${qs.toString()}`);
       return;
     }
-    otp.send();
+    otp.send(mobile.value);
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!mobile.valid) { setMobileErr(true); return; }
     if (!otp.otpSent) { sendOtp(); return; }
     if (otp.otp.length < 6) { otp.setOtpError(true); return; }
     setVerifying(true);
-    setTimeout(() => {
-      setVerifying(false);
+    setVerifyError(null);
+    try {
+      // On mocks the account details come from the local registry; against the live API the
+      // server owns the profile and returns it, so these hints are simply ignored.
+      const acct = authIsLive ? null : findUser(mobile.value);
+      await login({
+        name: acct?.name || 'PuneNest Member',
+        mobile: mobile.value,
+        role: acct?.role || 'buyer',
+        otp: otp.otp,
+        remember,
+      });
       setDone(true);
-      const acct = findUser(mobile.value);
-      login({ name: acct?.name || 'PuneNest Member', mobile: mobile.value, role: acct?.role || 'buyer', remember });
       setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
-    }, 1400);
+    } catch (err) {
+      setVerifyError(err?.message || 'That code did not work. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const { city } = useCity();
@@ -166,21 +186,26 @@ export default function Signin() {
           </div>
 
           {!otp.otpSent ? (
-            <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
-              <Send className="w-4 h-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
-            </button>
+            <>
+              <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
+                <Send className="w-4 h-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
+              </button>
+              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+            </>
           ) : (
             <div className="space-y-4">
               <div className="text-center">
                 <label className="block text-sm font-medium text-gray-300 mb-1">Enter OTP</label>
                 <p className="text-xs text-gray-500 mb-4">We've sent a 6-digit code via SMS to <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
               </div>
-              <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
+              <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); setVerifyError(null); }} error={otp.otpError || !!verifyError} />
               {otp.otpError ? <p className="text-red-400 text-xs text-center">Please enter the complete 6-digit OTP</p> : null}
-              <p className="text-[11px] text-gray-600 text-center">Demo mode — enter any 6 digits to continue.</p>
+              {verifyError ? <p className="text-red-400 text-xs text-center">{verifyError}</p> : null}
+              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+              {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">Demo mode — enter any 6 digits to continue.</p>}
               <div className="flex items-center justify-center gap-2 text-sm">
                 <span className="text-gray-500">Didn't receive it?</span>
-                <button type="button" onClick={otp.resend} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                   {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
                 </button>
               </div>

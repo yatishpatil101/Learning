@@ -25,16 +25,22 @@ The contract lives at `src/main/resources/static/openapi/punenest-api.yaml`.
 
 ## Build & run
 
-Requires JDK 21. On a corporate network you may also need a truststore + a Maven settings file that
+Requires JDK 25. On a corporate network you may also need a truststore + a Maven settings file that
 points `central` at public Maven Central:
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
+$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-25'
 $env:MAVEN_OPTS = '-Djavax.net.ssl.trustStoreType=Windows-ROOT'   # corporate TLS interception
 
 mvn -DskipTests package        # add -s <settings.xml> if your ~/.m2 mirror is internal
-java -jar target\punenest-api-0.0.1-SNAPSHOT.jar
+java -jar target-cli\punenest-api-0.0.1-SNAPSHOT.jar
 ```
+
+> **Why `target-cli`?** Command-line Maven builds write there instead of `target`, via
+> `-DbuildDirName=target-cli` in `.mvn/maven.config` (applied automatically). `target` is left to the
+> VS Code Java language server, which compiles the project with its own bundled JDK 21 and would
+> otherwise overwrite Maven's Java 25 bytecode mid-build — producing `NoClassDefFoundError` or
+> `Unresolved compilation problems` at test runtime. See `docs/system/api-standards.md` §8.1.
 
 Then open http://localhost:8080/docs.
 

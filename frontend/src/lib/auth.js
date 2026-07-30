@@ -55,16 +55,7 @@ export function registerUser({ name, mobile, email = '', role = 'buyer' }) {
 }
 
 export function readUser() {
-  // Prefer the persistent (remembered) session, then fall back to a tab-scoped one.
-  try {
-    const v = localStorage.getItem(KEY);
-    if (v) return JSON.parse(v);
-  } catch { /* ignore */ }
-  try {
-    const v = sessionStorage.getItem(KEY);
-    if (v) return JSON.parse(v);
-  } catch { /* ignore */ }
-  return null;
+  return readKeyed(KEY);
 }
 
 // Persist the current user. `remember` (default true) picks the storage tier:
@@ -72,13 +63,67 @@ export function readUser() {
 // always clear the other tier so exactly one session exists. Passing a falsy user
 // clears both (logout).
 export function writeUser(user, remember = true) {
+  writeKeyed(KEY, user, remember);
+}
+
+/* ── Tokens ────────────────────────────────────────────────────────────────
+   Real API sessions carry an access/refresh pair. They are stored under their
+   own key rather than inside the user object because `user` is spread into
+   component props and PATCHed back via updateMe — folding credentials into it
+   would leak them into places that only ever wanted a display name.
+
+   Tokens deliberately reuse the same tier rule as the user: callers pass the
+   same `remember` flag to both, so "remember this device" governs the whole
+   session and a logout clears every trace of it from both tiers. */
+const TOKENS_KEY = 'puneNestTokens';
+
+export function readTokens() {
+  return readKeyed(TOKENS_KEY);
+}
+
+export function writeTokens(tokens, remember = true) {
+  writeKeyed(TOKENS_KEY, tokens, remember);
+}
+
+export const readAccessToken = () => readTokens()?.accessToken || null;
+export const readRefreshToken = () => readTokens()?.refreshToken || null;
+
+// Which tier the current session lives in. Lets a token refresh re-persist into the same tier
+// instead of silently demoting a "remember this device" session to a tab-scoped one.
+//
+// The error fallback is `false` on purpose: if localStorage is unreadable (private mode, blocked
+// storage) it is almost certainly unwritable too, so claiming "remembered" would send the refreshed
+// tokens to a store that throws — silently destroying a working session. sessionStorage still works
+// in those environments, so downgrading keeps the user signed in for the tab, which is also the
+// safer of the two failure modes.
+export function tokensRemembered() {
+  try {
+    return localStorage.getItem(TOKENS_KEY) != null;
+  } catch {
+    return false;
+  }
+}
+
+// Shared storage-tier plumbing. Reads prefer the persistent (remembered) tier,
+// then fall back to a tab-scoped one. Writes land in exactly one tier and purge
+// the other so the two can never disagree; a falsy value clears both.
+function readKeyed(key) {
+  for (const s of stores()) {
+    try {
+      const v = s.getItem(key);
+      if (v) return JSON.parse(v);
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function writeKeyed(key, value, remember) {
   const primary = remember ? localStorage : sessionStorage;
-  if (user) {
-    try { primary.setItem(KEY, JSON.stringify(user)); } catch { /* ignore */ }
-    // Drop any copy in the other tier so the two never disagree.
-    stores().forEach((s) => { if (s !== primary) { try { s.removeItem(KEY); } catch { /* ignore */ } } });
+  if (value) {
+    try { primary.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+    stores().forEach((s) => { if (s !== primary) { try { s.removeItem(key); } catch { /* ignore */ } } });
   } else {
-    stores().forEach((s) => { try { s.removeItem(KEY); } catch { /* ignore */ } });
+    stores().forEach((s) => { try { s.removeItem(key); } catch { /* ignore */ } });
   }
 }
 
@@ -106,6 +151,7 @@ export function staffLoginUser({ name, mobile, role = 'staff', team, teams, role
 
 export function logoutUser() {
   writeUser(null);
+  writeTokens(null);
 }
 
 export const roleLabel = (r) => (r === 'owner' ? 'Owner' : r === 'admin' ? 'Admin' : r === 'manager' ? 'Manager' : r === 'staff' ? 'Staff' : r === 'member' ? 'Member' : 'Buyer / Tenant');

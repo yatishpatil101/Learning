@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { NEARBY, TYPE_OPTS, PG_SHARING, popularFor } from '../../../data/homeData.js';
 import { pushRecentSearch } from '../../../lib/store.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
 import { buildEntityIndex, searchEntities, paramsFromTokens, KIND_ICON } from '../../../lib/searchEntities.js';
 import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails } from '../../../lib/places.js';

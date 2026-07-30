@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { localityBySlug } from '../../../data/localities.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
@@ -39,7 +39,18 @@ export function SimilarProperties({ p }) {
   useEffect(() => {
     let alive = true;
     // Same deal only (never mix buy with rent) — buyers/renters want like-for-like.
-    listProperties({ deal: p.deal }).then((list) => {
+    //
+    // Ask for the listing's own locality first: that is where almost every genuinely "similar
+    // nearby" home is, and it keeps the request proportional to one area rather than the whole
+    // market. The tiers below deliberately fall back to *nearest overall* when an area is thin, so
+    // the second, unscoped fetch runs only when the locality alone cannot fill the strip.
+    const candidates = async () => {
+      if (!p.localitySlug) return listProperties({ deal: p.deal });
+      const local = await listProperties({ deal: p.deal, locality: p.localitySlug });
+      if (local.filter((x) => x.id !== p.id).length >= LIMIT) return local;
+      return listProperties({ deal: p.deal });
+    };
+    candidates().then((list) => {
       if (!alive) return;
       const origin = coordsOf(p);
       const cands = list

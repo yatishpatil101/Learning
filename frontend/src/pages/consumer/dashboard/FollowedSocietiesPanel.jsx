@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { getFollowedSocieties, toggleFollowSociety, resolveSociety } from '../../../lib/store.js';
 import { listingsInSociety } from '../../../data/societies.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { Card, SectionHead } from './components.jsx';
 import SocietyFinder from './SocietyFinder.jsx';
 

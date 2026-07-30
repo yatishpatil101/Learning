@@ -33,7 +33,12 @@ test.describe('Notifications — desktop', () => {
     await page.goto('/notifications');
     await expect(page).toHaveURL(/\/signin/);
     await expect(page).toHaveURL(/next=/);
-    await expect(page.getByRole('heading', { name: 'Notifications' })).toHaveCount(0);
+    // Wait for the sign-in card to actually render before asserting the inbox is absent —
+    // otherwise `toHaveCount(0)` passes trivially against a page React hasn't drawn yet.
+    await expect(page.getByRole('button', { name: /Send OTP|Continue|Sign in/i }).first()).toBeVisible();
+    // Exact match: the intent copy "Sign in to view notifications" is a *sign-in* heading and
+    // legitimately contains the word, so a substring match would flag correct behaviour.
+    await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toHaveCount(0);
   });
 
   test('renders the seeded inbox: header, filters, grouped items', async ({ page, login }) => {

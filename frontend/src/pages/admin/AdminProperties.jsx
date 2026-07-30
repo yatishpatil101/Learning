@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
-import { listProperties, setListingStatus, toggleFeatured, logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
-import { flagListing, clearFlag, archiveListing, restoreListing, updateListingFields, ensureReview, getReview, markReviewRead, decideReview, findDuplicateClusters } from '../../lib/data/properties-admin.js';
+import { listProperties, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
+import { logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
+import { ensureReview, getReview, markReviewRead, decideReview, findDuplicateClusters } from '../../lib/data/properties-admin.js';
 import { submitNote } from '../../components/ui/InternalNote.jsx';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -218,8 +219,8 @@ export default function AdminProperties() {
   const doFeature = async (id) => { const rec = await toggleFeatured(id); if (rec) logAudit('Listing', `${rec.featured ? 'Featured' : 'Unfeatured'} "${rec.title}"`); toast(rec && rec.featured ? 'Marked as featured' : 'Removed from featured'); refresh(); };
   const doClearFlag = (l) => { if (!window.confirm(`Clear the flag on "${l.title}"?`)) return; clearFlag(l.id); setPipelineStage(l.id, 'live'); logAudit('Listing', `Cleared flag & published "${l.title}"`); toast('Flag cleared — listing published', 'success'); refresh(); };
   const doArchive = (l) => { setArchiveFor(l); setArchiveReason(''); setInternalNote(''); };
-  const submitArchive = () => { archiveListing(archiveFor.id, archiveReason.trim() || undefined); submitNote('listing', archiveFor.id, internalNote, 'Archived'); logAudit('Listing', `Archived "${archiveFor.title}"${archiveReason.trim() ? ' — ' + archiveReason.trim() : ''}`); setArchiveFor(null); toast('Listing archived'); refresh(); };
-  const doRestore = (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; restoreListing(l.id); logAudit('Listing', `Restored "${l.title}" from archive`); toast('Listing restored — moved to pending review', 'success'); refresh(); };
+  const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); logAudit('Listing', `Archived "${archiveFor.title}"${archiveReason.trim() ? ' — ' + archiveReason.trim() : ''}`); setArchiveFor(null); toast('Listing archived'); refresh(); };
+  const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } logAudit('Listing', `Restored "${l.title}" from archive`); toast('Listing restored — moved to pending review', 'success'); refresh(); };
   const openFlag = (l) => { setFlagFor(l); setFlagReason(''); setInternalNote(''); };
   const submitFlag = () => { const r = flagReason.trim(); if (!r) { toast('Add a reason before flagging', 'error'); return; } flagListing(flagFor.id, r); submitNote('listing', flagFor.id, internalNote, 'Flagged'); logAudit('Listing', `Flagged "${flagFor.title}" — ${r}`); setFlagFor(null); toast('Listing flagged'); refresh(); };
   const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhk || '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
@@ -231,7 +232,10 @@ export default function AdminProperties() {
 
   // ---- bulk ----
   const bulkFeature = () => { if (!selAllIds.length) return; if (!window.confirm(`Toggle featured for ${selAllIds.length} listing(s)?`)) return; selAllIds.forEach((id) => toggleFeatured(id)); logAudit('Listings', `Toggled featured for ${selAllIds.length} listing(s)`); toast(`${selAllIds.length} listing(s) updated`); setSelAll(new Set()); refresh(); };
-  const bulkArchive = () => { if (!selAllIds.length) return; if (!window.confirm(`Archive ${selAllIds.length} listing(s)?`)) return; selAllIds.forEach((id) => archiveListing(id, 'Bulk archive')); logAudit('Listings', `Bulk archived ${selAllIds.length} listing(s)`); toast(`${selAllIds.length} listing(s) archived`); setSelAll(new Set()); refresh(); };
+  // `allSettled`, not `all`: a partial failure still archived some listings, and reporting "12
+  // archived" when 3 failed — or throwing away the 9 that succeeded — are both lies. Report what
+  // actually happened and refresh either way, since the table is now out of date regardless.
+  const bulkArchive = async () => { if (!selAllIds.length) return; if (!window.confirm(`Archive ${selAllIds.length} listing(s)?`)) return; const results = await Promise.allSettled(selAllIds.map((id) => archiveListing(id, 'Bulk archive'))); const failed = results.filter((r) => r.status === 'rejected').length; const done = results.length - failed; if (done) logAudit('Listings', `Bulk archived ${done} listing(s)`); if (failed) toast(`${done} archived, ${failed} failed`, 'error'); else toast(`${done} listing(s) archived`); setSelAll(new Set()); refresh(); };
   const bulkApprove = () => { if (!selVerIds.length) return; if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return; selVerIds.forEach((id) => { const l = findListing(id); if (!l) return; ensureReview(l); decideReview(id, 'approved'); setListingStatus(id, 'approved'); updateListingFields(id, { flagReason: '' }); }); logAudit('Listings', `Bulk approved ${selVerIds.length} listing(s)`); toast(`${selVerIds.length} listing(s) approved`, 'success'); setSelVer(new Set()); refresh(); };
   const submitBulkReject = () => { const reason = bulkReason.trim(); if (!reason) { toast('Add a reason before rejecting', 'error'); return; } selVerIds.forEach((id) => { const l = findListing(id); if (!l) return; ensureReview(l); decideReview(id, 'rejected', reason); setListingStatus(id, 'rejected'); }); logAudit('Listings', `Bulk rejected ${selVerIds.length} listing(s)`); toast(`${selVerIds.length} listing(s) rejected`, 'error'); setBulkRejectOpen(false); setBulkReason(''); setSelVer(new Set()); refresh(); };
 

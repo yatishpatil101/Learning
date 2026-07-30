@@ -1,82 +1,206 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-<modelVersion>4.0.0</modelVersion>
-<parent>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-parent</artifactId>
-<version>4.1.0</version>
-<relativePath/> <!-- lookup parent from repository -->
-</parent>
-<groupId>com.punenest</groupId>
-<artifactId>punenest-api</artifactId>
-<version>0.0.1-SNAPSHOT</version>
-<name>punenest-api</name>
-<description/>
-<url/>
-<licenses>
-<license/>
-</licenses>
-<developers>
-<developer/>
-</developers>
-<scm>
-<connection/>
-<developerConnection/>
-<tag/>
-<url/>
-</scm>
-<properties>
-<java.version>21</java.version>
-</properties>
-<dependencies>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-validation</artifactId>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-webmvc</artifactId>
-</dependency>
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.punenest</groupId>
+    <artifactId>punenest-api</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>punenest-api</name>
+    <description/>
+    <url/>
+    <licenses>
+        <license/>
+    </licenses>
+    <developers>
+        <developer/>
+    </developers>
+    <scm>
+        <connection/>
+        <developerConnection/>
+        <tag/>
+        <url/>
+    </scm>
+    <properties>
+        <java.version>25</java.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
+        <!--
+          Build output directory, overridable from the CLI.
 
-<!-- Swagger UI (static webjar) to render the hand-authored OpenAPI 3.1 spec.
-    springdoc is intentionally NOT used: it targets Spring Boot 3.x / Spring 6
-    and is incompatible with Boot 4.x / Spring 7. Serving the static YAML plus
-    the Swagger UI webjar keeps documentation version-agnostic. -->
-<dependency>
-<groupId>org.webjars</groupId>
-<artifactId>swagger-ui</artifactId>
-<version>5.25.3</version>
-</dependency>
+          Why: the VS Code Java language server (redhat.java / m2e) continuously compiles this
+          project into `target/classes` using its own bundled JDK 21 and the Eclipse compiler. When
+          a command-line Maven build shares that directory, the two race: the IDE overwrites Maven's
+          Java 25 bytecode, producing "NoClassDefFoundError: <Type>" (a descriptor that lost its
+          package) or "java.lang.Error: Unresolved compilation problems" at test runtime. This is
+          NOT a MapStruct or javac bug - a copy of this project built outside the workspace is
+          always green.
 
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-actuator-test</artifactId>
-<scope>test</scope>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-validation-test</artifactId>
-<scope>test</scope>
-</dependency>
-<dependency>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-starter-webmvc-test</artifactId>
-<scope>test</scope>
-</dependency>
-</dependencies>
+          Fix: keep `target` for the IDE and give CLI builds their own directory. Always run
+              mvn -DbuildDirName=target-cli clean verify
+          (see .mvn/maven.config, which applies this automatically).
+        -->
+        <buildDirName>target</buildDirName>
+    </properties>
+    <dependencies>
+        <!-- MapStruct annotation processor wired via the compiler plugin's annotationProcessorPaths
+             (the MapStruct-recommended setup). Kept off the runtime classpath automatically. -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${mapstruct.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
 
-<build>
-<plugins>
-<plugin>
-<groupId>org.springframework.boot</groupId>
-<artifactId>spring-boot-maven-plugin</artifactId>
-</plugin>
-</plugins>
-</build>
+        <!-- Persistence: JPA/Hibernate + PostgreSQL driver + Flyway migrations.
+            Versions are managed by the Spring Boot BOM (parent) except where noted. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Boot 4 split auto-configuration out of the starters into per-technology modules.
+            Without spring-boot-flyway, flyway-core is on the classpath but FlywayAutoConfiguration
+            never loads, so migrations silently never run at boot. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Stateless JWT auth (ADR-008). JJWT is not in the Boot BOM, so it is pinned. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Swagger UI (static webjar) to render the hand-authored OpenAPI 3.1 spec.
+            springdoc is intentionally NOT used: it targets Spring Boot 3.x / Spring 6
+            and is incompatible with Boot 4.x / Spring 7. Serving the static YAML plus
+            the Swagger UI webjar keeps documentation version-agnostic. -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>swagger-ui</artifactId>
+            <version>5.25.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <directory>${project.basedir}/${buildDirName}</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <!--
+                  MapStruct processor wiring - deliberately minimal.
+
+                  Build note: if a build fails with "NoClassDefFoundError: BigDecimal" (a descriptor
+                  that lost its package), the cause is NOT MapStruct and NOT this config. It is the
+                  VS Code Java language server (redhat.java, which runs on its own bundled JDK 21)
+                  auto-compiling the project into the same target/classes and clobbering Maven's
+                  Java 25 output. Proven by bisection: a copy of this project built outside the
+                  workspace is always green. The repo ships "java.autobuild.enabled": false in
+                  .vscode/settings.json to prevent it - keep that setting.
+
+                  useIncrementalCompilation=true is REQUIRED, and the flag's name is inverted from
+                  what it reads like (MCOMPILER-209). true = "recompile every source when anything
+                  changed"; false = "hand javac only the sources the plugin thinks are stale".
+
+                  With false, editing a DTO record recompiled that record but did NOT re-run the
+                  annotation processor over PropertyMapper, leaving a PropertyMapperImpl.class that
+                  still called the old constructor - green build, NoSuchMethodError at runtime, 18
+                  tests failing with HTTP 500. Worse, a follow-up `mvn compile` printed BUILD SUCCESS
+                  while skipping compilation entirely. Verified by experiment: adding an unmappable
+                  field to PropertySummary is silently ignored under false, and fails the compile
+                  under true with "Unmapped target property" - which is the whole point of
+                  unmappedTargetPolicy=ERROR on PropertyMapper. Do not flip this back.
+                -->
+                <configuration>
+                    <useIncrementalCompilation>true</useIncrementalCompilation>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+                <executions>
+                    <!-- Tests contain no mappers; skip processing there (pure overhead). -->
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <proc>none</proc>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

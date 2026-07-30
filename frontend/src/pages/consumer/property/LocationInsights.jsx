@@ -6,7 +6,7 @@ import Tip from '../../../components/ui/Tip.jsx';
 import { commuteInfo, connectivityFor, livabilityFor } from './locationIntel.js';
 import { propertyKind } from './derivations.js';
 import { LOC } from '../../../data/localityIntel.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { countProperties } from '../../../services/propertyService.js';
 
 // Rich Location-tab content: commute-to-work, nearby landmarks and livability.
 // Commute is served from the cache-at-write flow (traffic-aware "live" times when
@@ -30,9 +30,9 @@ export default function LocationInsights({ p, lat, lng }) {
   const [homes, setHomes] = useState(null);
   useEffect(() => {
     let alive = true;
-    listProperties({ includeAllStatuses: false }, 'newest').then((ps) => {
-      if (alive) setHomes(ps.filter((x) => x.status === 'approved' && x.localitySlug === slug).length);
-    });
+    // Only the number is rendered, so ask the server to count rather than shipping the catalogue
+    // here to measure it — `countProperties` stays exact once Pune outgrows a single page.
+    countProperties({ locality: slug }).then((n) => { if (alive) setHomes(n); });
     return () => { alive = false; };
   }, [slug]);
   // A commercial unit IS the workplace, so "commute to work" is the wrong frame —

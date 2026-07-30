@@ -8,7 +8,7 @@ import { getEntityReviews, addEntityReview, addSavedSearch } from '../../lib/sto
 import { localityBySlug, localityByName } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
 import { LOC } from '../../data/localityIntel.js';
-import { listProperties } from '../../lib/mockApi.js';
+import { listProperties } from '../../services/propertyService.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import Tabs from '../../components/ui/Tabs.jsx';
 import Select from '../../components/ui/Select.jsx';
@@ -72,29 +72,28 @@ export default function Locality() {
     return r ? [r.lat, r.lng] : null;
   }, [emerging, reg, current]);
 
-  // Live inventory for the funnel bridge: load the public catalogue once and index
-  // it by locality slug (count + cheapest price + buy/rent split).
+  // Live inventory for the funnel bridge: the count, cheapest price and buy/rent split for the
+  // locality being viewed. Scoped server-side — the previous version indexed the entire catalogue
+  // by slug and then read exactly one entry out of that map.
   useEffect(() => {
     let alive = true;
-    listProperties({ includeAllStatuses: false }, 'newest').then((ps) => {
+    if (!activeSlug) { setProps([]); return () => { alive = false; }; }
+    listProperties({ locality: activeSlug, includeAllStatuses: false }, 'newest').then((ps) => {
       if (alive) setProps(ps.filter((p) => p.status === 'approved'));
     });
     return () => { alive = false; };
-  }, []);
-  const invMap = useMemo(() => {
-    const m = {};
+  }, [activeSlug]);
+  const inv = useMemo(() => {
+    if (!props.length) return null;
+    const e = { count: 0, from: Infinity, buy: 0, rent: 0 };
     props.forEach((p) => {
-      const s = p.localitySlug;
-      if (!s) return;
-      const e = m[s] || (m[s] = { count: 0, from: Infinity, buy: 0, rent: 0 });
       e.count++;
       if (p.deal === 'rent') e.rent++; else e.buy++;
       if (p.price && p.price < e.from) e.from = p.price;
     });
-    return m;
+    return e;
   }, [props]);
-  const inv = invMap[activeSlug] || null;
-  const locProps = useMemo(() => props.filter((p) => p.localitySlug === activeSlug), [props, activeSlug]);
+  const locProps = props;
 
   // Nearest covered localities — an honest benchmark proxy for an emerging area
   // whose own dashboard isn't ready yet.

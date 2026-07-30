@@ -105,7 +105,7 @@ test.describe('Item 4 � contextual gate copy', () => {
 test('Item 5 � Sign In lands on the dashboard (consistent with Sign Up)', async ({ page }) => {
   await seedUser(page, '9876500055');
   await page.goto(`${BASE}/signin`);
-  await page.locator('input[type="tel"]').fill('9876500055');
+  await page.locator('#signin-mobile').fill('9876500055');
   await page.getByRole('button', { name: /Send OTP/i }).click();
   await fillOtp(page);
   await page.getByRole('button', { name: /Verify & Sign In/i }).click();
@@ -118,7 +118,7 @@ test.describe('Item 5 � signupsEnabled flag', () => {
     await page.goto(`${BASE}/signin`);
     await expect(page.getByRole('link', { name: 'Sign Up' })).toHaveCount(0);
     // An unknown number must NOT bounce to /signup � it proceeds to OTP here.
-    await page.locator('input[type="tel"]').fill('9811122233');
+    await page.locator('#signin-mobile').fill('9811122233');
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByLabel('OTP digit 1')).toBeVisible();
     await expect(page).toHaveURL(/\/signin/);
@@ -134,7 +134,7 @@ test.describe('Item 6 � polish', () => {
   test('"Remember this device" unchecked keeps the session tab-scoped', async ({ page }) => {
     await seedUser(page, '9876500066');
     await page.goto(`${BASE}/signin`);
-    await page.locator('input[type="tel"]').fill('9876500066');
+    await page.locator('#signin-mobile').fill('9876500066');
     await page.getByRole('checkbox').uncheck();
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await fillOtp(page);
@@ -148,7 +148,7 @@ test.describe('Item 6 � polish', () => {
 
   test('mobile field is autofocused on Sign In', async ({ page }) => {
     await page.goto(`${BASE}/signin`);
-    await expect(page.locator('input[type="tel"]')).toBeFocused();
+    await expect(page.locator('#signin-mobile')).toBeFocused();
   });
 
   test('name field is autofocused on Sign Up', async ({ page }) => {
@@ -159,7 +159,7 @@ test.describe('Item 6 � polish', () => {
   test('OTP step shows a demo hint', async ({ page }) => {
     await seedUser(page, '9876500077');
     await page.goto(`${BASE}/signin`);
-    await page.locator('input[type="tel"]').fill('9876500077');
+    await page.locator('#signin-mobile').fill('9876500077');
     await page.getByRole('button', { name: /Send OTP/i }).click();
     await expect(page.getByText(/enter any 6 digits/i)).toBeVisible();
   });

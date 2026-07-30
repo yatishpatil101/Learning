@@ -123,13 +123,17 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   // Mobile is the account's primary key: every stored key is suffixed with it
   // (prefs, tenant profile, listings, saved, Aadhaar). It can't be edited inline
   // without orphaning that data, so it's shown read-only and Save omits it.
-  const save = () => {
+  const save = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
     if (!name) { toast('Please enter your name', 'error'); return; }
     if (email && !EMAIL_RE.test(email)) { toast('Enter a valid email address', 'error'); return; }
-    update({ name, email, city: form.city });
-    toast('Profile saved', 'success');
+    try {
+      await update({ name, email, city: form.city });
+      toast('Profile saved', 'success');
+    } catch (err) {
+      toast(err?.message || 'Could not save your profile. Please try again.', 'error');
+    }
   };
 
   // Only enable Save once an editable field actually changed.

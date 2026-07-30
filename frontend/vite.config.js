@@ -64,9 +64,10 @@ function persistPlugin() {
   };
 }
 
+const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
+
 export default defineConfig({
-  plugins: [react(), persistPlugin()],
-  build: {
+  plugins: [react(), persistPlugin()],build: {
     rollupOptions: {
       output: {
         // Peel heavy, self-contained vendor libraries into their own long-lived
@@ -91,6 +92,32 @@ export default defineConfig({
     host: true,
     port: 5173,
     open: false,
+    // Forward API calls to the local Spring Boot backend. Going through the dev server keeps the
+    // browser on one origin, so the browser never preflights and the page's CSP (`connect-src
+    // 'self'`) is satisfied without loosening it for a dev-only concern.
+    //
+    // That is only half the story, and the missing half costs an hour to diagnose: the browser
+    // still sends `Origin: http://localhost:<devport>` on POSTs even when they are same-origin, the
+    // proxy forwards it verbatim, and the backend's CORS filter judges it. The backend allows
+    // `http://localhost:5173` by default, so this works — *by coincidence of port*. Run the dev
+    // server on any other port and every POST returns a bare 403 with no CORS wording anywhere,
+    // which reads like an auth bug.
+    //
+    // So rewrite `Origin` to the proxy target. The proxy is the origin server from the backend's
+    // point of view, and this makes the "same-origin in dev" promise actually true regardless of
+    // which port Vite picks. Dev-only: `server.proxy` does not exist in a production build.
+    // (`changeOrigin` only rewrites `Host`, which is why it is not sufficient on its own.)
+    proxy: {
+      '/api': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        headers: { origin: PROXY_TARGET },
+        // The backend serves `/auth/login`, not `/api/auth/login` — `/api` exists only as a
+        // same-origin marker for the proxy, so strip it before forwarding.
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        bypass: (req) => (req.url?.startsWith('/api/__persist/') ? req.url : undefined),
+      },
+    },
     watch: {
       // This project often lives under a OneDrive-synced folder on Windows.
       // OneDrive locks files mid-sync, which makes Chokidar's native

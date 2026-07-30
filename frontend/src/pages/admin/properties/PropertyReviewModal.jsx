@@ -9,8 +9,9 @@ import {
   ensureReview, getReview, markReviewRead, setDocStatus,
   addReviewMessage, decideReview,
 } from '../../../lib/data/properties-admin.js';
-import { setListingStatus, setPipelineStage, getOwnerCommsLog, getWhatsappTemplates, sendWhatsappTemplate } from '../../../lib/mockApi.js';
-import { updateListingFields } from '../../../lib/data/properties-admin.js';
+import { setListingStatus } from '../../../services/propertyService.js';
+import { setPipelineStage, getOwnerCommsLog, getWhatsappTemplates, sendWhatsappTemplate } from '../../../lib/mockApi.js';
+import { updateListingFields } from '../../../services/propertyService.js';
 import { submitNote } from '../../../components/ui/InternalNote.jsx';
 import { logAudit } from '../../../lib/mockApi.js';
 import { fmtINR, classNames } from '../../../lib/format.js';

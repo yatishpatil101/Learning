@@ -1,0 +1,53 @@
+package com.punenest.api.identity.user;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import java.time.Instant;
+
+/**
+ * Public projection of a {@link User} (contract {@code User} schema). This is the entity↔wire
+ * boundary for the identity slice: controllers never serialize the JPA entity directly, so internal
+ * columns (notably {@code password_hash} and the soft-delete triplet) can never leak, and the JSON
+ * stays pinned to the contract regardless of entity changes.
+ *
+ * <p>{@code aadhaarVerified} is exposed as the contract defines it but is only ever a trust
+ * <em>signal</em>, never a gate (ADR-019).
+ *
+ * <p>Populated by {@code UserMapper} (MapStruct) at the edge; the record itself carries no mapping
+ * logic so the wire shape stays a pure contract declaration.
+ *
+ * @param id                 opaque user id
+ * @param name               display name
+ * @param mobile             10-digit mobile (natural identity)
+ * @param email              contact email, nullable
+ * @param role               {@code buyer|owner|staff|admin}
+ * @param team               staff ops team, else null
+ * @param status             {@code active|suspended|archived}
+ * @param verified           opt-in identity "Verified" badge (L2)
+ * @param city               home city
+ * @param mobileVerified     L1 trust floor — the participation gate
+ * @param aadhaarVerified    DigiLocker badge (alias of {@code verified}) — signal, not a gate
+ * @param verifiedContactOnly owner preference: accept contact only from L2-verified users
+ * @param listingsCount      active listings (owners)
+ * @param joinedAt           first sign-up time
+ * @param lastActive         last activity time, nullable
+ * @param createdAt          row creation time
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record UserResponse(
+        String id,
+        String name,
+        String mobile,
+        String email,
+        String role,
+        String team,
+        String status,
+        boolean verified,
+        String city,
+        boolean mobileVerified,
+        boolean aadhaarVerified,
+        boolean verifiedContactOnly,
+        int listingsCount,
+        Instant joinedAt,
+        Instant lastActive,
+        Instant createdAt) {
+}

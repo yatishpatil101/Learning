@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { fmtINR } from '../../../lib/format.js';
 import { getSavedProps } from '../../../lib/store.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { Card, SectionHead } from './components.jsx';
 
 export default function SavedPanel() {

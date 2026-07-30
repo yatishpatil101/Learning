@@ -28,6 +28,9 @@ data/persist/
 
 .vite
 target/
+# CLI Maven builds here (backend/.mvn/maven.config) so they never collide with the
+# VS Code Java language server, which owns target/.
+target-cli/
 test-results/
 playwright-report/
 playwright/.cache/
@@ -40,3 +43,7 @@ playwright/.cache/
 *.rollback
 _rollback/
 .rollback/
+
+
+# Local, machine-specific DB status snapshot (durable setup docs live in docs/LOCAL_DEV.md).
+backend/LOCAL_DB_STATUS.md

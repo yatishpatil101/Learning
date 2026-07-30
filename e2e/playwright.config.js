@@ -40,8 +40,11 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      /* Desktop project runs everything except the mobile-specific specs. */
-      testIgnore: /mobile-.*\.spec\.js/,
+      /* Desktop project runs everything except the mobile-specific specs, and never the `live-*`
+         specs — those require a running backend and a seeded database, which this suite must not
+         depend on (it has to pass with the backend switched off). Run them via
+         `playwright.live.config.js`. */
+      testIgnore: [/mobile-.*\.spec\.js/, /live-.*\.spec\.js/],
     },
     {
       /* Mobile viewport project — only the mobile-* specs. Run all projects by

@@ -11,13 +11,14 @@ these docs capture that logic in detail so it can be re-implemented server-side.
 4. [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; Swagger UI at `/docs`).
 5. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: components, diagrams, ADRs, scoring (living doc).
    - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
-6. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases). Start from [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md).
-6. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+6. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
+7. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases). Start from [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md).
+8. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
 
 ## Map
 ```
 docs/
-  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, design-system
+  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, frontend-data-seam, design-system
   flows/      _TEMPLATE.md + consumer/ admin/ ops/ per-feature docs
   roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
   misc/       packing-plan

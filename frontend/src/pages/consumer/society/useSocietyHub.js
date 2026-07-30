@@ -5,7 +5,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { fmtNum } from '../../../lib/format.js';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { fnvHash } from '../../../lib/hash.js';
 import { listingsInSociety } from '../../../data/societies.js';
 import { commuteInfo, connectivityFor } from '../property/locationIntel.js';

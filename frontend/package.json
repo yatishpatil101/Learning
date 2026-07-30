@@ -9,6 +9,8 @@
     "lint": "eslint \"src/**/*.{js,jsx}\"",
     "preview": "vite preview",
     "seed": "node scripts/generate-seed.mjs",
+    "parity:auth": "node scripts/contract-parity.mjs",
+    "parity:property": "node scripts/property-parity.mjs",
     "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },

@@ -15,7 +15,7 @@ test.describe('Auth: SSO ("or continue with") removed', () => {
     await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0);
     // Core mobile+OTP entry is still present.
-    await expect(page.locator('input[type="tel"]')).toBeVisible();
+    await expect(page.locator('#signin-mobile')).toBeVisible();
   });
 
   test('Sign Up page shows no Google/Apple SSO', async ({ page }) => {
@@ -28,12 +28,12 @@ test.describe('Auth: SSO ("or continue with") removed', () => {
 
 test('Sign In with an unknown number routes to Sign Up with the mobile carried over', async ({ page }) => {
   await page.goto(`${BASE}/signin`);
-  await page.locator('input[type="tel"]').fill('9876500011');
+  await page.locator('#signin-mobile').fill('9876500011');
   await page.getByRole('button', { name: /Send OTP/i }).click();
   await expect(page).toHaveURL(/\/signup\?/);
   await expect(page).toHaveURL(/mobile=9876500011/);
   // Mobile is prefilled on the sign-up form and the new-visitor banner is shown.
-  await expect(page.locator('input[type="tel"]')).toHaveValue('9876500011');
+  await expect(page.locator('#signup-mobile')).toHaveValue('9876500011');
   await expect(page.getByText(/new to PuneNest/i)).toBeVisible();
 });
 
@@ -67,7 +67,7 @@ test('A registered number proceeds to OTP on Sign In (not bounced to Sign Up)', 
     ]));
   });
   await page.goto(`${BASE}/signin`);
-  await page.locator('input[type="tel"]').fill('9876500033');
+  await page.locator('#signin-mobile').fill('9876500033');
   await page.getByRole('button', { name: /Send OTP/i }).click();
   // Stays on Sign In and reveals the OTP entry.
   await expect(page.getByLabel('OTP digit 1')).toBeVisible();

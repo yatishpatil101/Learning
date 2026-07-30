@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { addListing, logAudit, logStaffActivity } from '../../lib/mockApi.js';
+import { addListing } from '../../services/propertyService.js';
+import { logAudit, logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';

@@ -2,7 +2,13 @@
    Ports the flag / edit / delete / document-verification / owner-messaging
    behaviour from admin-properties.html + admin-data.js. New module so it never
    conflicts with mockApi.js. Reviews are kept in db.propertyReviews keyed by
-   listing id (self-contained seed — created on demand). */
+   listing id (self-contained seed — created on demand).
+
+   SEAM NOTE: flagListing / clearFlag / deleteListing / updateListingFields are re-exported by
+   services/propertyService.js and must be imported from there by pages/components — never from
+   here. When the property domain flips to http (Phase 2b), this module should only export the
+   admin-specific helpers that are NOT in the service's public API (archiveListing, restoreListing,
+   the review functions, duplicate detection). See docs/system/frontend-data-seam.md. */
 import { rawDb, mutateDb, archiveRecord, restoreRecord } from '../mockApi.js';
 import { keysForListing, listingActive } from './propertyIdentity.js';
 import { photoSetsMatch } from './imageHash.js';

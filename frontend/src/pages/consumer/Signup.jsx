@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useMobileInput } from '../../lib/hooks.js';
 import MobileField from '../../components/MobileField.jsx';
 import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
+import { sendOtp as sendOtpSvc } from '../../services/authService.js';
+import { isHttpDomain } from '../../services/config.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import AuthShell from '../../components/auth/AuthShell.jsx';
 import MobileAuthIntro from '../../components/auth/MobileAuthIntro.jsx';
@@ -55,6 +57,7 @@ function LeftPanel() {
 
 export default function Signup() {
   const { register } = useAuth();
+  const authIsLive = isHttpDomain('auth');
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const intent = resolveAuthIntent(params);
@@ -68,7 +71,8 @@ export default function Signup() {
   const [terms, setTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(false);
-  const otp = useOtpFlow();
+  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
+  const [createError, setCreateError] = useState(null);
   const { city } = useCity();
   const cityKnown = cityHasData(city);
   const mobileIntro = (
@@ -92,23 +96,33 @@ export default function Signup() {
 
   const sendOtp = () => {
     if (!validateBase()) return;
-    otp.send();
+    otp.send(mobile.value);
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!validateBase()) return;
-    if (!otp.otpSent) { otp.send(); return; }
+    if (!otp.otpSent) { otp.send(mobile.value); return; }
     if (otp.otp.length < 6) { otp.setOtpError(true); return; }
     setCreating(true);
-    setTimeout(() => {
-      setCreating(false);
+    setCreateError(null);
+    try {
+      await register({
+        name: name.trim() || 'PuneNest User',
+        mobile: mobile.value,
+        email: email.trim(),
+        role,
+        otp: otp.otp,
+      });
       setDone(true);
-      register({ name: name.trim() || 'PuneNest User', mobile: mobile.value, email: email.trim(), role });
       const ref = params.get('ref');
       if (ref) setReferredBy(ref);
       setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
-    }, 1400);
+    } catch (err) {
+      setCreateError(err?.message || 'We could not create your account. Please try again.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -174,9 +188,12 @@ export default function Signup() {
           </div>
 
           {!otp.otpSent ? (
-            <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
-              <Send className="w-4 h-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
-            </button>
+            <>
+              <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
+                <Send className="w-4 h-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
+              </button>
+              {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+            </>
           ) : (
             <>
               <div className="space-y-4">
@@ -184,12 +201,14 @@ export default function Signup() {
                   <label className="block text-sm font-medium text-gray-300 mb-1">Enter OTP</label>
                   <p className="text-xs text-gray-500 mb-4">We've sent a 6-digit code via SMS to <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
                 </div>
-                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); }} error={otp.otpError} />
+                <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); setCreateError(null); }} error={otp.otpError || !!createError} />
                 {otp.otpError ? <p className="text-red-400 text-xs text-center">Please enter the complete 6-digit OTP</p> : null}
-                <p className="text-[11px] text-gray-600 text-center">Demo mode — enter any 6 digits to continue.</p>
+                {createError ? <p className="text-red-400 text-xs text-center">{createError}</p> : null}
+                {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
+                {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">Demo mode — enter any 6 digits to continue.</p>}
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <span className="text-gray-500">Didn't receive it?</span>
-                  <button type="button" onClick={otp.resend} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                     {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
                   </button>
                 </div>

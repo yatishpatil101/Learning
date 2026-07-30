@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { getSavedProps, toggleSavedProp, addSavedSearch } from '../../lib/store.js';
-import { listProperties } from '../../lib/mockApi.js';
+import { getPropertiesByIds } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -37,8 +37,10 @@ export default function Saved() {
   useEffect(() => {
     const savedIds = getSavedProps();
     if (savedIds.length) {
-      listProperties({}).then((allProps) => {
-        const matched = allProps.filter((p) => savedIds.includes(p.id)).map((p) => {
+      // Resolve the saved ids directly — the page only ever renders these, so downloading the
+      // catalogue to filter it down to them scaled with the market rather than with the user.
+      getPropertiesByIds(savedIds).then((matched) => {
+        const cardsFromStore = matched.map((p) => {
           const isRent = p.deal === 'rent';
           return {
             id: p.id,
@@ -60,7 +62,7 @@ export default function Saved() {
             fromStore: true,
           };
         });
-        setDynamicSaved(matched);
+        setDynamicSaved(cardsFromStore);
       });
     }
   }, []);

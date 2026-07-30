@@ -1,4 +1,9 @@
-import { listProperties } from '../mockApi.js';
+/* SEAM NOTE: this `lib/` module imports from `services/` — the one place that direction is taken.
+   It is safe and deliberate: the provider registry reaches `lib/mockApi.js` and
+   `lib/data/properties-admin.js`, neither of which imports this file, so there is no cycle (verified).
+   The alternative was threading owner listings through two callers, a larger diff for no gain. */
+import { listProperties, myListings } from '../../services/propertyService.js';
+import { isHttpDomain } from '../../services/config.js';
 import { getRooms, roomToListing, hasListings } from '../store.js';
 import { getShareRequests, getShareGroups } from './shareFlat.js';
 import { digits } from '../contact.js';
@@ -99,17 +104,16 @@ export function getMyRooms(user) {
    posts. Falls back to a few demo listings only for pre-seeded owner accounts
    with nothing of their own yet. */
 export async function loadMyListings(user) {
-  const props = await listProperties({ includeAllStatuses: true }, 'newest');
-  const mine10 = digits(user?.mobile).slice(-10);
-  const mine = props.filter((p) => {
-    if (!p.real) return false;
-    const owner = digits(p.ownerMobile).slice(-10);
-    return !owner || !mine10 || owner === mine10;
-  });
+  const mine = await myListings(user);
   const rooms = getMyRooms(user);
   const shareReqs = getMyShareRequests(user);
   const shareGroups = getMyShareGroups(user);
   const hasAny = mine.length > 0 || rooms.length > 0 || shareReqs.length > 0 || shareGroups.length > 0;
-  const demo = user?.role === 'owner' && !hasListings() && !hasAny ? props.slice(0, 3) : [];
+  // Demo top-up exists so a seeded owner account never opens an empty dashboard in a walkthrough.
+  // It is mock-only on purpose: against the live API these would be *other people's* listings shown
+  // under "My Listings", which is worse than an honest empty state.
+  const demo = user?.role === 'owner' && !hasListings() && !hasAny && !isHttpDomain('property')
+    ? (await listProperties({}, 'newest')).slice(0, 3)
+    : [];
   return [...shareReqs, ...shareGroups, ...rooms, ...(mine.length ? mine : demo)];
 }

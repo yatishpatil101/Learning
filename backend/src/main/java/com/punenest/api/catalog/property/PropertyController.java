@@ -1,0 +1,119 @@
+package com.punenest.api.catalog.property;
+
+import com.punenest.api.catalog.listing.ListingService;
+import com.punenest.api.catalog.listing.ReasonRequest;
+import com.punenest.api.common.trust.ContactGate;
+import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Routes;
+import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.CurrentUser;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * The public catalogue surface at {@code /properties}: anonymous search, the featured strip, and
+ * single-listing detail (contract {@code security: []}), plus the authenticated archive/restore
+ * moderation actions on a listing. Thin by design — it binds the request, delegates to the read
+ * ({@link PropertyService}) or write ({@link ListingService}) service, and maps entities to the
+ * contract records at the edge so the JPA entity never crosses the wire.
+ *
+ * <p>The public reads are opened in {@code SecurityConfig}; the archive/restore {@code PATCH}es stay
+ * behind the default-authenticated posture and are authorized (owner-or-staff/admin) in the service.
+ */
+@RestController
+public class PropertyController {
+
+    private final PropertyService propertyService;
+    private final ListingService listingService;
+    private final PropertyMapper propertyMapper;
+    private final ContactGate contactGate;
+
+    public PropertyController(PropertyService propertyService, ListingService listingService,
+            PropertyMapper propertyMapper, ContactGate contactGate) {
+        this.propertyService = propertyService;
+        this.listingService = listingService;
+        this.propertyMapper = propertyMapper;
+        this.contactGate = contactGate;
+    }
+
+    /**
+     * {@code GET /properties} — faceted public search. Every facet is optional; results are always
+     * approved + non-archived (enforced in the service), owner contact is never in the card shape.
+     */
+    @GetMapping(Routes.Properties.BASE)
+    public PageResponse<PropertySummary> search(
+            @RequestParam(required = false) String deal,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String locality,
+            @RequestParam(required = false) Integer bhk,
+            @RequestParam(required = false) Long minPrice,
+            @RequestParam(required = false) Long maxPrice,
+            @RequestParam(required = false) String furnishing,
+            @RequestParam(required = false) String possession,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        PropertySearchQuery filters = new PropertySearchQuery(
+                deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status);
+        return PageResponse.of(propertyService.search(filters, pageable), propertyMapper::toSummary);
+    }
+
+    /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */
+    @GetMapping(Routes.Properties.FEATURED)
+    public List<PropertySummary> featured() {
+        return propertyService.featured().stream().map(propertyMapper::toSummary).toList();
+    }
+
+    /**
+     * {@code GET /properties/{id}} — single listing detail by slug-or-id. {@code 404} when missing or
+     * not publicly visible (non-approved / archived).
+     *
+     * <p><strong>The contact gate's payoff.</strong> The owner's mobile is masked for everyone except
+     * a caller whose gate status for this listing is {@code owner} or {@code approved} — decided by
+     * the {@link ContactGate} port, which the contacts feature implements. The route stays public, so
+     * {@code principal} is {@code null} for an anonymous reader, and a {@code null} viewer always
+     * masks.
+     */
+    @GetMapping(Routes.Properties.BY_ID)
+    public PropertyResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        Property property = propertyService.getPublic(id);
+        UUID viewerId = principal != null ? principal.userId() : null;
+        UUID ownerId = property.getOwner() != null ? property.getOwner().getId() : null;
+        return propertyMapper.toResponse(property,
+                contactGate.visibilityFor(viewerId, property.getId(), ownerId));
+    }
+
+    /**
+     * {@code PATCH /properties/{id}/archive} — soft-delete a listing (owner or staff/admin). Returns
+     * the updated listing; the reason body is optional.
+     *
+     * <p>Masked contact: this is a moderation response, not a contact surface, and a staff archiver is
+     * not a gate-approved counterparty.
+     */
+    @PatchMapping(Routes.Properties.ARCHIVE)
+    public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @RequestBody(required = false) ReasonRequest body) {
+        String reason = body != null ? body.reason() : null;
+        return propertyMapper.toResponse(
+                listingService.archive(principal, id, reason), ContactVisibility.MASKED);
+    }
+
+    /**
+     * {@code PATCH /properties/{id}/restore} — un-archive a listing (owner or staff/admin); status is
+     * reset to {@code pending} for re-moderation. Masked contact, as for archive.
+     */
+    @PatchMapping(Routes.Properties.RESTORE)
+    public PropertyResponse restore(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return propertyMapper.toResponse(
+                listingService.restore(principal, id), ContactVisibility.MASKED);
+    }
+}

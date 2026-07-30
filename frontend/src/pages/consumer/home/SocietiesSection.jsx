@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { listProperties } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { allSocieties, listingsInSociety } from '../../../data/societies.js';
 import { resolveSociety, entityRating } from '../../../lib/store.js';
 

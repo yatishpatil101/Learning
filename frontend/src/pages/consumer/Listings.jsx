@@ -2,7 +2,8 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, use
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
-import { listLocalities, listProperties, logSearchIntent } from '../../lib/mockApi.js';
+import { listLocalities, logSearchIntent } from '../../lib/mockApi.js';
+import { listProperties } from '../../services/propertyService.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { addSavedSearch, setLastSearch, getLastSearch } from '../../lib/store.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';

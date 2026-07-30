@@ -5,7 +5,7 @@ import Select from '../../components/ui/Select.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
-import { listProperties } from '../../lib/mockApi.js';
+import { listProperties } from '../../services/propertyService.js';
 import { allSocieties, listingsInSociety } from '../../data/societies.js';
 import {
   resolveSociety, entityRating,

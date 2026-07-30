@@ -74,7 +74,7 @@ export default function StaffLogin() {
     otp.send();
   };
 
-  const verify = () => {
+  const verify = async () => {
     if (otp.otp.length !== 6) {
       otp.setOtpError(true);
       return;
@@ -90,22 +90,22 @@ export default function StaffLogin() {
       const label = role === 'admin' ? 'Administrator' : (TEAM_LABEL[teamVal] || 'Team member') + ' team';
       who = { name: label, role, team: teamVal, teams: teamVal ? [teamVal] : [], mobile: mobile.value };
     }
-    staffLogin(who);
+    await staffLogin(who);
     navigate(safeNext(who.role, homeFor(who)), { replace: true });
   };
 
   // Demo quick-access for a seeded scoped internal account (skips OTP).
-  const quickTeam = (m) => {
+  const quickTeam = async (m) => {
     const rec = getTeamMemberByMobile(m);
     if (!rec) return;
     const who = { name: rec.name, role: rec.role, roleId: rec.roleId, moduleAccess: rec.moduleAccess, team: rec.teams?.[0] || null, teams: rec.teams || [], mobile: rec.mobile };
-    staffLogin(who);
+    await staffLogin(who);
     navigate(safeNext(who.role, homeFor(who)), { replace: true });
   };
 
-  const quickLogin = (qRole, qTeam) => {
+  const quickLogin = async (qRole, qTeam) => {
     if (qRole === 'admin') {
-      staffLogin({ name: 'Administrator', role: 'admin', team: null, teams: [], mobile: '9000000000' });
+      await staffLogin({ name: 'Administrator', role: 'admin', team: null, teams: [], mobile: '9000000000' });
       navigate(safeNext('admin', '/admin'), { replace: true });
     } else {
       const who = {
@@ -115,7 +115,7 @@ export default function StaffLogin() {
         teams: [qTeam],
         mobile: '9000000000',
       };
-      staffLogin(who);
+      await staffLogin(who);
       navigate(safeNext('staff', homeFor(who)), { replace: true });
     }
   };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGroupApplications } from '../../../lib/groupApplications.js';
-import { listEnquiries, listProperties, listVisits, updateVisit } from '../../../lib/mockApi.js';
+import { listEnquiries, listVisits, updateVisit } from '../../../lib/mockApi.js';
+import { listProperties } from '../../../services/propertyService.js';
 import { getContactReqs, setContactStatus } from '../../../lib/contact.js';
 import { getPhotoReqs } from '../../../lib/photoRequests.js';
 import { getShareFlatRequests, decideShareFlatRequest } from '../../../lib/data/shareFlat.js';

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
-import { listProperties } from '../../lib/mockApi.js';
+import { listProperties } from '../../services/propertyService.js';
 import { countMatches } from './listings/alertCriteria.js';
 import {
   getNotifications,
