@@ -1,4 +1,5 @@
 import { MOVE_RANK, MOVE_LBL, LOCALITIES, LOCALITY_COORDS } from './constants.js';
+import { bestPerPersonRent } from './model.js';
 
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 const avatarGrad = (g) => (g === 'female' ? 'from-pink-500 to-rose-400' : g === 'male' ? 'from-blue-500 to-indigo-400' : 'from-teal-500 to-indigo-500');
@@ -42,7 +43,6 @@ const HOST_TIERS = {
   tenant: { label: 'Tenant-verified', icon: 'file-check', cls: 'text-teal-300' },
 };
 const hostTierMeta = (item) => (item && HOST_TIERS[item.verificationTier]) || null;
-const hostVerified = (item) => !!(item && (item.verificationTier === 'owner' || item.verificationTier === 'tenant'));
 // Whether a card may show its host trust badge. Tenant tier is a self-claim, so its
 // badge is withheld until Ops approves the uploaded agreement (reviewStatus). Owner
 // tier is backed by an already-verified property — each card decides when that proof
@@ -193,28 +193,28 @@ const hasAgreementEvidence = (doc) => !!(doc && (doc.dataUrl || doc.tooLarge));
 
 // Preview images the Saved page (and pending-chat cards) use for people/groups,
 // which don't carry a photo of their own. Rooms bring their own `img`.
-const SHARE_FLATMATE_IMG = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80';
-const SHARE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
+const FLATMATE_IMG = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80';
+const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
 
-// Rich card payload the Saved page renders for a bookmarked share post. Every
-// save writes this so saved flat-shares show a real title/price/preview instead
-// of the bare storage key ("s:s1"). Shape mirrors Saved.jsx's share cards:
+// Rich card payload the Saved page renders for a bookmarked flatmate post. Every
+// save writes this so saved flatmate posts show a real title/price/preview instead
+// of the bare storage key ("s:s1"). Shape mirrors Saved.jsx's flatmate cards:
 // { kind, title, loc, price, badge, sub, img }.
 const savePayload = (kind, item) => {
   if (kind === 'room') {
     const loc = item.localities?.[0] || '';
-    return { kind: 'room', title: item.society, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Room', sub: [item.flatType, item.roomType].filter(Boolean).join(' · '), img: item.img || SHARE_FLATMATE_IMG };
+    return { kind: 'room', title: item.society, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Room', sub: [item.flatType, item.roomType].filter(Boolean).join(' · '), img: item.img || FLATMATE_IMG };
   }
   if (kind === 'group') {
     const left = seatsLeft(item);
-    return { kind: 'group', title: item.title, loc: item.locality ? item.locality + ', Pune' : 'Pune', price: inr(perHead(item)) + '/mo', badge: 'Flat-share group', sub: item.members.length + ' member' + (item.members.length > 1 ? 's' : '') + ' · ' + left + ' spot' + (left === 1 ? '' : 's') + ' open', img: SHARE_GROUP_IMG };
+    return { kind: 'group', title: item.title, loc: item.locality ? item.locality + ', Pune' : 'Pune', price: inr(perHead(item)) + '/mo', badge: 'Flatmate group', sub: item.members.length + ' member' + (item.members.length > 1 ? 's' : '') + ' · ' + left + ' spot' + (left === 1 ? '' : 's') + ' open', img: FLATMATE_GROUP_IMG };
   }
   const loc = item.localities?.[0] || '';
-  return { kind: 'flatmate', title: item.name, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Flatmate', sub: [genderLabel(item.gender), item.age, item.occupation].filter(Boolean).join(' · '), img: SHARE_FLATMATE_IMG };
+  return { kind: 'flatmate', title: item.name, loc: loc ? loc + ', Pune' : 'Pune', price: inr(item.budget) + '/mo', badge: 'Flatmate', sub: [genderLabel(item.gender), item.age, item.occupation].filter(Boolean).join(' · '), img: FLATMATE_IMG };
 };
 
 // --- Geo: per-post coordinates (standardised, like a listing) ----------------
-// Share-flat posts historically carried only locality NAMES. To match the
+// Flatmate posts historically carried only locality NAMES. To match the
 // normalized listing model — and to power a precise "Near a Place" radius filter
 // and a decluttered map — every post is given per-post lat/lng. A post that
 // already has real coords (e.g. a room geocoded via the list-property flow) keeps
@@ -264,7 +264,7 @@ const nearMatches = (post, f) => {
 };
 
 // --- Filter predicates (single source of truth) -----------------------------
-// The Share-a-Flat list memos AND the empty-state "raise your budget" hint both
+// The Flatmates list memos AND the empty-state "raise your budget" hint both
 // need to know whether a post passes the active filters. Keeping the rule in one
 // tested place stops the two from drifting. Each takes the raw filters object; the
 // budget sentinel 40000 means "Any". Rooms/groups also take the host's Ops review
@@ -286,7 +286,12 @@ const roomMatches = (r, f, reviewStatus) => {
   if (f.q && !matchText(r, f.q)) return false;
   if (f.locality && !r.localities.includes(f.locality)) return false;
   if (!nearMatches(r, f)) return false;
-  if (f.budget < 40000 && r.budget > f.budget) return false;
+  // Budget is what ONE person can pay. A room priced per-room can be split, so it
+  // qualifies when its best achievable per-person price fits — otherwise the
+  // cheapest genuine way into a good society (sharing a room) would be filtered
+  // out of exactly the low budgets it exists for. The card states the split price
+  // so the match is never a surprise.
+  if (f.budget < 40000 && bestPerPersonRent(r) > f.budget) return false;
   if (f.gender && r.gender !== 'any' && r.gender !== f.gender) return false;
   if (f.verifiedOnly && !r.verified && !hostVerifiedFor(r, reviewStatus)) return false;
   if (f.attachedBath && r.attachedBath !== 'attached') return false;
@@ -309,4 +314,17 @@ const groupMatches = (g, f, reviewStatus) => {
   return true;
 };
 
-export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, hostVerified, showHostBadge, hostVerifiedFor, HOST_TIERS, matchText, matchTextGroup, recencyMins, matchScore, matchTier, isVerifiedPost, sortPosts, seekerMatches, roomMatches, groupMatches, isFresh, moveInThreshold, moveInDays, moveInLabel, readAgreementDoc, hasAgreementEvidence, savePayload, SHARE_GROUP_IMG, haversineKm, withCoords, nearMatches, primaryLocality };
+// One predicate for a MERGED feed. Each tab now shows more than one record type
+// (a place-tab holds rooms and groups that already have a flat; a people-tab holds
+// solo seekers and groups still hunting), so filtering dispatches on the `kind`
+// tag applied at the merge boundary. Record-specific filters simply don't apply to
+// the other kinds — a solo seeker has no flat size, so a "3 sharing" filter leaves
+// them in rather than silently emptying the list.
+const postMatches = (item, f, reviewStatus) => {
+  if (!item) return false;
+  if (item.kind === 'room') return roomMatches(item, f, reviewStatus);
+  if (item.kind === 'group') return groupMatches(item, f, reviewStatus);
+  return seekerMatches(item, f);
+};
+
+export { inr, avatarGrad, initials, genderLabel, genderPref, foodLabel, perHead, seatsLeft, allVerified, policyAvatar, deriveLocality, replacementTitle, hostTierMeta, showHostBadge, hostVerifiedFor, matchTier, isVerifiedPost, sortPosts, seekerMatches, roomMatches, groupMatches, postMatches, isFresh, moveInLabel, readAgreementDoc, hasAgreementEvidence, savePayload, FLATMATE_IMG, FLATMATE_GROUP_IMG, withCoords };

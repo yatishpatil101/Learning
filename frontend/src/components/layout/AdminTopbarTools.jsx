@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Handshake, Mail, Compass } from 'lucide-react';
+import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Handshake, Mail, Compass, BookOpen } from 'lucide-react';
 import { rawDb } from '../../lib/mockApi.js';
 import { fmtINR } from '../../lib/format.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -16,11 +16,12 @@ const NAV_INDEX_FULL = [
   { label: 'Content', keywords: 'content cms pages blog posts manage text', path: '/admin/content', icon: FileText, flag: null },
   { label: 'Reports', keywords: 'reports flagged abuse spam moderation', path: '/admin/reports', icon: Flag, flag: 'reports' },
   { label: 'Support', keywords: 'support help tickets complaints issues', path: '/admin/support', icon: LifeBuoy, flag: 'support' },
-  { label: 'Flatmates', keywords: 'flatmates share flat roommate matching seekers', path: '/admin/flatmates', icon: Users, flag: 'flatmates' },
+  { label: 'Flatmates', keywords: 'flatmates roommate matching seekers', path: '/admin/flatmates', icon: Users, flag: 'flatmates' },
   { label: 'Societies', keywords: 'societies society claim resident verification rwa committee gated community buildings', path: '/admin/societies', icon: Building2, flag: null },
   { label: 'Localities', keywords: 'localities locality area neighbourhood neighborhood registry pending mint verify curated community pune', path: '/admin/localities', icon: Compass, flag: null },
   { label: 'Settings', keywords: 'settings configuration preferences site general email notifications sms seo', path: '/admin/settings', icon: Settings, flag: null },
   { label: 'Referrals (Ops)', keywords: 'referrals ops refer bonus', path: '/ops/referrals', icon: Gift, flag: null },
+  { label: 'Help & Runbooks', keywords: 'help runbook runbooks docs documentation guide guides knowledge base handbook playbook ops internal how to', path: '/help/c/ops-playbook', icon: BookOpen, flag: null },
 ];
 
 const FEATURES_INDEX = [
@@ -66,7 +67,7 @@ const FEATURES_INDEX = [
   { label: 'Reported Users', keywords: 'reported impersonation abuse spam', path: '/admin/reports?tab=users', parent: 'Reports', flag: 'reports' },
 
   { label: 'Flatmate Seekers', keywords: 'seekers flatmate share roommate posts', path: '/admin/flatmates?tab=seekers', parent: 'Flatmates', flag: 'flatmates' },
-  { label: 'Flatmate Groups', keywords: 'groups flat-share community', path: '/admin/flatmates?tab=groups', parent: 'Flatmates', flag: 'flatmates' },
+  { label: 'Flatmate Groups', keywords: 'groups flatmate community', path: '/admin/flatmates?tab=groups', parent: 'Flatmates', flag: 'flatmates' },
   { label: 'Group Applications', keywords: 'applications join group flatmate', path: '/admin/flatmates?tab=apps', parent: 'Flatmates', flag: 'flatmates' },
 
   { label: 'Society Claims', keywords: 'society claims rwa committee onboard manage', path: '/admin/societies?tab=claims', parent: 'Societies', flag: null },
@@ -86,6 +87,15 @@ const FEATURES_INDEX = [
   { label: 'Team Routing', keywords: 'team routing assign tickets', path: '/admin/services', parent: 'Services', flag: 'services.teamRouting' },
   { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/services', parent: 'Services', flag: 'services.priority' },
   { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/services', parent: 'Services', flag: 'services.staffAssignment' },
+
+  /* Staff runbooks. Indexed here so the answer to "what is the SLA on this queue?"
+     is one ⌘K away from the queue itself, rather than something you have to know
+     the help centre exists to find. These are the same articles gated by role in
+     lib/help.js — only internal accounts can reach the back-office at all. */
+  { label: 'Verification SLAs', keywords: 'sla slas turnaround target verification kyc queue breach escalation runbook internal ops deadline', path: '/help/a/verification-sla', parent: 'Runbooks', flag: null },
+  { label: 'Ticket Handling & Escalation', keywords: 'ticket handling escalation priority p0 p1 p2 p3 support refund approval ladder runbook internal ops', path: '/help/a/ticket-escalation', parent: 'Runbooks', flag: null },
+  { label: 'Ops Playbook', keywords: 'ops playbook runbook internal staff procedures guide index', path: '/help/c/ops-playbook', parent: 'Runbooks', flag: null },
+  { label: 'Product Changelog', keywords: 'changelog release notes shipped whats new version updates', path: '/help/changelog', parent: 'Runbooks', flag: null },
 ];
 
 function useOutside(refs, onOutside, active) {

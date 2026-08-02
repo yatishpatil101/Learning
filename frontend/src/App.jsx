@@ -14,6 +14,7 @@ import Signin from './pages/consumer/Signin.jsx';
 import Signup from './pages/consumer/Signup.jsx';
 import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
+import HelpLangRoute from './components/help/HelpLangRoute.jsx';
 
 /* ─── Lazy consumer pages (loaded on navigation) ─── */
 const Listings = lazy(() => import('./pages/consumer/Listings.jsx'));
@@ -46,9 +47,15 @@ const Saved = lazy(() => import('./pages/consumer/Saved.jsx'));
 const PayRent = lazy(() => import('./pages/consumer/PayRent.jsx'));
 const ViewDocuments = lazy(() => import('./pages/consumer/ViewDocuments.jsx'));
 const Messages = lazy(() => import('./pages/consumer/Messages.jsx'));
-const ShareFlat = lazy(() => import('./pages/consumer/ShareFlat.jsx'));
+const Flatmates = lazy(() => import('./pages/consumer/Flatmates.jsx'));
 const Locality = lazy(() => import('./pages/consumer/Locality.jsx'));
 const Support = lazy(() => import('./pages/consumer/Support.jsx'));
+const HelpHome = lazy(() => import('./pages/consumer/help/HelpHome.jsx'));
+const HelpCategory = lazy(() => import('./pages/consumer/help/HelpCategory.jsx'));
+const HelpArticle = lazy(() => import('./pages/consumer/help/HelpArticle.jsx'));
+const HelpSearchResults = lazy(() => import('./pages/consumer/help/HelpSearchResults.jsx'));
+const HelpFaq = lazy(() => import('./pages/consumer/help/HelpFaq.jsx'));
+const HelpChangelog = lazy(() => import('./pages/consumer/help/HelpChangelog.jsx'));
 const Privacy = lazy(() => import('./pages/consumer/Privacy.jsx'));
 const Terms = lazy(() => import('./pages/consumer/Terms.jsx'));
 const RefundPolicy = lazy(() => import('./pages/consumer/RefundPolicy.jsx'));
@@ -82,7 +89,7 @@ const OpsInterior = lazy(() => import('./pages/ops/OpsInterior.jsx'));
 const OpsPackers = lazy(() => import('./pages/ops/OpsPackers.jsx'));
 const OpsValuation = lazy(() => import('./pages/ops/OpsValuation.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
-const OpsShareReview = lazy(() => import('./pages/ops/OpsShareReview.jsx'));
+const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -164,14 +171,47 @@ export default function App() {
           <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Society /></AppFlagRoute>} />
           <Route path="/society/:slug" element={<Society />} />
           <Route path="/reels" element={<Reels />} />
-          <Route path="/saved" element={<AppFlagRoute flag="savedListings"><ProtectedRoute><Saved /></ProtectedRoute></AppFlagRoute>} />
+          {/* Saves live in localStorage and several surfaces (Reels, Compare, the map
+              detail panel) already write them while signed out, so a hard auth wall on
+              /saved turned the bottom nav's Saved tab into a dead end for exactly those
+              users. The page renders the on-device shortlist and prompts for sign-in
+              itself — see the signed-out banner in Saved.jsx. */}
+          <Route path="/saved" element={<AppFlagRoute flag="savedListings"><Saved /></AppFlagRoute>} />
           <Route path="/pay-rent" element={<ProtectedRoute><PayRent /></ProtectedRoute>} />
           <Route path="/locality" element={<Locality />} />
           <Route path="/locality/:slug" element={<Locality />} />
           <Route path="/map" element={<Navigate to="/listings?view=map" replace />} />
           <Route path="/messages" element={<AppFlagRoute flag="inAppMessaging"><ProtectedRoute><Messages /></ProtectedRoute></AppFlagRoute>} />
-          <Route path="/share-flat" element={<ShareFlat />} />
+          <Route path="/flatmates" element={<Flatmates />} />
+          {/* Legacy path kept as a permanent redirect: this was the public URL before
+              the feature was renamed to Flatmates, so external links and search results
+              still point at it. Only remaining use of the old name in the app. */}
+          <Route path="/share-flat" element={<Navigate to="/flatmates" replace />} />
           <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
+          {/* Help centre — public and indexable. Staff runbooks live under the same
+              routes but are filtered out of the tree for non-staff accounts by
+              lib/help.js, so a direct link to one 404s for everyone else. */}
+          {/* Registered once per language: unprefixed (English, canonical) plus a
+              `/hi` and `/mr` prefix. Serving three languages from one URL would
+              let a crawler index only one of them, making the Hindi and Marathi
+              articles unreachable by search for exactly the people most likely to
+              want them. HelpLangRoute binds the prefix to the active language;
+              lib/helpUrl.js owns the prefix rule and must stay in step with this
+              list. Written out rather than built from a regex param because
+              React Router 7 has no pattern syntax for path segments. */}
+          {['', '/hi', '/mr'].map((prefix) => (
+            <Route key={prefix || 'en'} element={<HelpLangRoute />}>
+              <Route path={`${prefix}/help`} element={<HelpHome />} />
+              <Route path={`${prefix}/help/search`} element={<HelpSearchResults />} />
+              <Route path={`${prefix}/help/faq`} element={<HelpFaq />} />
+              <Route path={`${prefix}/help/changelog`} element={<HelpChangelog />} />
+              <Route path={`${prefix}/help/c/:categoryId`} element={<HelpCategory />} />
+              <Route path={`${prefix}/help/a/:slug`} element={<HelpArticle />} />
+            </Route>
+          ))}
+          {/* Legacy/guessable aliases so /docs and /help-center land somewhere useful. */}
+          <Route path="/docs" element={<Navigate to="/help" replace />} />
+          <Route path="/help-center" element={<Navigate to="/help" replace />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
@@ -249,7 +289,7 @@ export default function App() {
           <Route path="/ops/packers" element={<TeamRoute team="packers"><OpsPackers /></TeamRoute>} />
           <Route path="/ops/valuation" element={<TeamRoute team="valuation"><OpsValuation /></TeamRoute>} />
           <Route path="/ops/referrals" element={<OpsReferrals />} />
-          <Route path="/ops/share-review" element={<OpsShareReview />} />
+          <Route path="/ops/flatmate-review" element={<OpsFlatmateReview />} />
         </Route>
 
         <Route element={<ConsumerLayout />}>
