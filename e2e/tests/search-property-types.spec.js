@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 const BASE = 'http://localhost:5173';
@@ -209,7 +209,7 @@ test('home free-typed non-registry text falls back to a q= search query', async 
   expect(errors).toHaveLength(0);
 });
 
-test('home Rent Shared Room search carries locality + gender into the share-flat filters', async ({ page }) => {
+test('home Rent Shared Room search carries locality + gender into the flatmates filters', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto(`${BASE}/`);
   await page.getByRole('button', { name: 'Rent', exact: true }).click();
@@ -223,12 +223,12 @@ test('home Rent Shared Room search carries locality + gender into the share-flat
   await page.getByRole('button', { name: 'Women', exact: true }).click();
   await page.getByRole('button', { name: 'Search' }).click();
 
-  await page.waitForURL(/\/share-flat\?/);
+  await page.waitForURL(/\/flatmates\?/);
   const url = decodeURIComponent(page.url());
   expect(url).toContain('loc=Baner');
   expect(url).toContain('g=female');
 
-  // The share-flat page pre-applies both: the "Women" pill is active and the
+  // The flatmates page pre-applies both: the "Women" pill is active and the
   // locality dropdown shows Baner. The filter controls render twice (desktop grid
   // + mobile drawer), so target the visible desktop instance to avoid a
   // strict-mode match on the off-screen drawer copy.

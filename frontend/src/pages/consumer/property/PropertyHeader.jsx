@@ -112,7 +112,7 @@ export default function PropertyHeader({ ctx }) {
                       <p className="text-lg font-bold text-emerald-400">₹{(p.price / 3 / 1000).toFixed(0)}k</p>
                     </div>
                   </div>
-                  <Link to={`/share-flat?startGroup=1&title=${encodeURIComponent(title)}&rent=${p.price}&loc=${encodeURIComponent(p.locality)}`} className="mt-3.5 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl border border-brand-teal-2/30 bg-brand-teal-1/10 text-brand-teal-3 text-sm font-medium hover:bg-brand-teal-1/20 transition-smooth"><Icon name="users-round" className="w-4 h-4" /> {tr('property.findFlatmates')}</Link>
+                  <Link to={`/flatmates?startGroup=1&title=${encodeURIComponent(title)}&rent=${p.price}&loc=${encodeURIComponent(p.locality)}`} className="mt-3.5 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl border border-brand-teal-2/30 bg-brand-teal-1/10 text-brand-teal-3 text-sm font-medium hover:bg-brand-teal-1/20 transition-smooth"><Icon name="users-round" className="w-4 h-4" /> {tr('property.findFlatmates')}</Link>
                 </div>
               ) : null}
 

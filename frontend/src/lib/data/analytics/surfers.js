@@ -21,7 +21,7 @@ export function anonymousSurfers(days = 30, precomputedTraffic) {
     { page: 'Services', views: Math.round(anonSessions * 0.22), signupRate: 1.9 },
     { page: 'Locality insights', views: Math.round(anonSessions * 0.18), signupRate: 1.4 },
     { page: 'EMI calculator', views: Math.round(anonSessions * 0.15), signupRate: 4.1 },
-    { page: 'Share a flat', views: Math.round(anonSessions * 0.09), signupRate: 6.8 },
+    { page: 'Flatmates', views: Math.round(anonSessions * 0.09), signupRate: 6.8 },
   ];
 
   // Weekly trend: anon vs signed-in
@@ -40,7 +40,7 @@ export function anonymousSurfers(days = 30, precomputedTraffic) {
     { page: 'Property detail (contact wall)', pct: 34 },
     { page: 'Listings (after 3+ views)', pct: 22 },
     { page: 'Services (quote form)', pct: 18 },
-    { page: 'Share a flat (post)', pct: 12 },
+    { page: 'Flatmates (post)', pct: 12 },
     { page: 'EMI calculator (results)', pct: 8 },
     { page: 'Other', pct: 6 },
   ];

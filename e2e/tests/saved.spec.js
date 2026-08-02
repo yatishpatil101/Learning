@@ -3,8 +3,7 @@ import { test, expect } from '../fixtures/base.js';
 // Desktop coverage for the consumer Saved page (/saved).
 // Behaviour verified from: pages/consumer/Saved.jsx, lib/store/notifications.js
 // (pnSavedProps:<mobile>), lib/mockApi/properties.js (listProperties), App.jsx
-// (AppFlagRoute flag="savedListings" -> ProtectedRoute), RouteGuards.jsx
-// (ProtectedRoute -> /signin?next=), and en/compare-saved.json labels.
+// (AppFlagRoute flag="savedListings"), and en/compare-saved.json labels.
 //
 // An existing mobile-inbox-saved.spec.js covers the ≤767px layout only; this
 // spec exercises the desktop surface: tabs, cards, remove/unsave, the
@@ -36,14 +35,23 @@ async function seedSavedProps(page, ids) {
 }
 
 test.describe('Saved properties — desktop', () => {
-  test('guards /saved: an unauthenticated visitor is redirected to /signin', async ({ page }) => {
+  test('a signed-out visitor gets the on-device shortlist and a sign-in prompt', async ({ page }) => {
+    // /saved is no longer behind ProtectedRoute: saves are written to localStorage
+    // by Reels/Compare/the map panel while signed out, so the page renders and
+    // prompts instead of redirecting.
     await page.goto('/saved');
-    // AppFlagRoute (savedListings on) passes through to ProtectedRoute, which
-    // redirects a signed-out user to /signin?next=/saved (see RouteGuards.jsx).
-    await expect(page).toHaveURL(/\/signin/);
-    await expect(page).toHaveURL(/next=/);
-    // The saved surface must not render for a signed-out user.
-    await expect(page.getByRole('heading', { name: 'Saved properties' })).toHaveCount(0);
+    await expect(page).not.toHaveURL(/\/signin/);
+    await expect(page.getByRole('heading', { name: 'Saved properties', exact: true })).toBeVisible();
+    await expect(page.getByText('Saved on this device')).toBeVisible();
+    // Scoped to the prompt: the navbar has its own "Sign In" link.
+    await expect(page.locator('a[href="/signin?reason=saved&next=%2Fsaved"]')).toBeVisible();
+  });
+
+  test('the sign-in prompt is gone once authenticated', async ({ page, login }) => {
+    await login.asBuyer();
+    await seedConsent(page);
+    await page.goto('/saved');
+    await expect(page.getByText('Saved on this device')).toHaveCount(0);
   });
 
   test('renders the category tabs and the saved cards for the active tab', async ({ page, login }) => {
@@ -54,12 +62,12 @@ test.describe('Saved properties — desktop', () => {
 
     await expect(page.getByRole('heading', { name: 'Saved properties', exact: true })).toBeVisible();
 
-    // Three category tabs: For Sale / For Rent / Flatmates & Flat-shares.
+    // Three category tabs: For Sale / For Rent / Flatmates & Rooms.
     const tabs = page.locator('.saved-tabs .saved-tab');
     await expect(tabs).toHaveCount(3);
     await expect(page.locator('.saved-tabs')).toContainText('For Sale');
     await expect(page.locator('.saved-tabs')).toContainText('For Rent');
-    await expect(page.locator('.saved-tabs')).toContainText('Flatmates & Flat-shares');
+    await expect(page.locator('.saved-tabs')).toContainText('Flatmates & Rooms');
 
     // Default tab is "For Sale" — both seeded buy listings resolve into cards.
     await expect(page.locator('.property-card')).toHaveCount(BUY_IDS.length);

@@ -63,9 +63,9 @@ const ADMIN_FLAG_SECTIONS = [
     { key: 'properties', label: 'Reported properties', desc: 'Property abuse reports', cost: 'low' },
     { key: 'users', label: 'Reported users', desc: 'User abuse reports', cost: 'low' },
   ] },
-  { section: 'flatmates', title: 'Flatmates', desc: 'Flat-share community moderation', hasTabFlag: true, options: [
+  { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [
     { key: 'seekers', label: 'Seekers', desc: 'Flatmate seeker posts', cost: 'low' },
-    { key: 'groups', label: 'Groups', desc: 'Flat-share groups', cost: 'low' },
+    { key: 'groups', label: 'Groups', desc: 'Flatmate groups', cost: 'low' },
     { key: 'applications', label: 'Applications', desc: 'Group applications to listings', cost: 'low' },
   ] },
   { section: 'support', title: 'Support', desc: 'Standalone support ticket view (overlaps with Services)', hasTabFlag: true, options: [] },

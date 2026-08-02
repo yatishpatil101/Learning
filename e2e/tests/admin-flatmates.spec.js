@@ -1,6 +1,6 @@
 import { test, expect } from '../fixtures/base.js';
 
-// Admin Flat-Share moderation — /admin/flatmates
+// Admin Flatmate moderation — /admin/flatmates
 // Guarded by RoleRoute roles=['admin','manager'] + ModuleRoute moduleKey="flatmates"
 // + FlagRoute flag="flatmates". Source: frontend/src/pages/admin/AdminFlatmates.jsx.
 //
@@ -10,11 +10,11 @@ import { test, expect } from '../fixtures/base.js';
 
 const DB_KEY = 'puneNestDB_v5';
 
-test('admin loads the Flat-Share desk with KPIs, tabs and the seekers table', async ({ page, login, consoleErrors }) => {
+test('admin loads the Flatmate desk with KPIs, tabs and the seekers table', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await page.goto('/admin/flatmates');
 
-  await expect(page.getByRole('heading', { name: 'Flat-Share' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Flatmate' })).toBeVisible();
   await expect(page.getByText('Moderate flatmate seekers, groups & applications.')).toBeVisible();
 
   // Tabs (desktop labels) for each moderation queue.
@@ -91,15 +91,15 @@ test('flagging a live seeker prompts for a note and marks it Flagged', async ({ 
 test('shows empty states for every queue when there is nothing to moderate', async ({ page, login }) => {
   await login.asAdmin();
   await page.goto('/admin/flatmates');
-  await expect(page.getByRole('heading', { name: 'Flat-Share' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Flatmate' })).toBeVisible();
 
   // Clear the seeded collections in the mock DB, then reload so the tables render
   // their empty states. seedFlatmatesDemo() will not re-seed (its run-once flag is
   // already set from the first boot).
   await page.evaluate((key) => {
     const db = JSON.parse(localStorage.getItem(key) || '{}');
-    db.shareSeekers = [];
-    db.shareGroups = [];
+    db.flatmateSeekers = [];
+    db.flatmateGroups = [];
     db.groupApplications = [];
     localStorage.setItem(key, JSON.stringify(db));
   }, DB_KEY);
@@ -119,14 +119,14 @@ test('unauthenticated visitor is redirected to staff-login', async ({ page }) =>
 
   await page.waitForURL('**/staff-login**');
   expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Flat-Share' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Flatmate' })).toHaveCount(0);
 });
 
-test('a buyer cannot open the admin Flat-Share desk', async ({ page, login }) => {
+test('a buyer cannot open the admin Flatmate desk', async ({ page, login }) => {
   await login.asBuyer();
   await page.goto('/admin/flatmates');
 
   await page.waitForURL('**/staff-login**');
   expect(new URL(page.url()).pathname).toBe('/staff-login');
-  await expect(page.getByRole('heading', { name: 'Flat-Share' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Flatmate' })).toHaveCount(0);
 });

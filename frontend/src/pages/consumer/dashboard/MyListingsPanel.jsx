@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
 import { setListingStatus, toggleFeatured, confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
 import { closeDeal, reopenDeal, markUnderOffer, deleteRoom, isPaidOwnerPlan } from '../../../lib/store.js';
-import { deleteShareRequest, deleteShareGroup } from '../../../lib/data/shareFlat.js';
+import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
 import { getContactReqs } from '../../../lib/contact.js';
 import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
 import { publishManagedProp, deleteManagedProp } from '../../../lib/data/managedProperty.js';
+import { splitFlat, unsplitFlat } from '../../../lib/data/flatSplit.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { Card, SectionHead } from './components.jsx';
@@ -16,11 +17,14 @@ import PrivateListingCard from './myListings/PrivateListingCard.jsx';
 import ListingCard from './myListings/ListingCard.jsx';
 import FinalizeDealModal from './myListings/FinalizeDealModal.jsx';
 import VerifyListingsBanner from './myListings/VerifyListingsBanner.jsx';
+import SplitFlatModal from '../flatmates/SplitFlatModal.jsx';
 
 export default function MyListingsPanel({ listings, user, toast, openReview }) {
   /* Full My Listings tab with lifecycle actions: Mark Under Offer, Finalize, Reopen, Edit, Delete */
   const [listingsState, setListingsState] = useState(listings);
   const [showDealModal, setShowDealModal] = useState(null);
+  // The rent listing the owner is carving into rooms, if any.
+  const [splitTarget, setSplitTarget] = useState(null);
   const [dealForm, setDealForm] = useState({ buyerName: '', buyerMobile: '', finalPrice: '', date: new Date().toISOString().slice(0, 10) });
   const { flagEnabled } = useAppFlags();
   const navigate = useNavigate();
@@ -47,8 +51,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
   useEffect(() => { refreshListings(); }, [refreshListings]);
 
   // Categorize each item so the type filter can group properties, flatmate rooms,
-  // flat-share requests and flat-share groups — the things a user can post.
-  const catOf = (l) => (l.shareGroup ? 'group' : l.shareRequest ? 'request' : l.flatmate ? 'room' : 'property');
+  // flatmate requests and flatmate groups — the things a user can post.
+  const catOf = (l) => (l.flatmateGroup ? 'group' : l.flatmatePost ? 'request' : l.flatmate ? 'room' : 'property');
   const counts = useMemo(() => {
     const c = { all: listingsState.length, property: 0, room: 0, request: 0, group: 0 };
     listingsState.forEach((l) => c[catOf(l)]++);
@@ -71,8 +75,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
       { value: 'all', label: 'All types', icon: 'layout-grid', badge: counts.all },
       { value: 'property', label: 'Properties', icon: 'building-2', badge: counts.property, n: counts.property },
       { value: 'room', label: 'Flatmate rooms', icon: 'bed-double', badge: counts.room, n: counts.room },
-      { value: 'request', label: 'Flat-share requests', icon: 'user-search', badge: counts.request, n: counts.request },
-      { value: 'group', label: 'Flat-share groups', icon: 'users-round', badge: counts.group, n: counts.group },
+      { value: 'request', label: 'Flatmate requests', icon: 'user-search', badge: counts.request, n: counts.request },
+      { value: 'group', label: 'Flatmate groups', icon: 'users-round', badge: counts.group, n: counts.group },
     ];
     return defs.filter((o) => o.value === 'all' || o.n > 0);
   }, [counts]);
@@ -122,8 +126,37 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     refreshListings();
   };
 
-  const handleToggleFeature = async (l) => {
-    const rec = await toggleFeatured(l.id);
+  /* Carve a live rent listing into per-room supply. The rooms inherit this
+     listing's propertyId, which is what makes them owner-verified; the whole-flat
+     listing stays live until somebody actually moves in. */
+  const handleSplitConfirm = ({ maxOccupants, rooms }) => {
+    const res = splitFlat(splitTarget, {
+      maxOccupants,
+      rooms,
+      ownerMobile: user?.mobile || '',
+      ownerName: user?.name || '',
+    });
+    if (!res.ok) { toast(res.message || 'Could not list the rooms — please check the details.', 'error'); return; }
+    setSplitTarget(null);
+    // An unapproved parent listing means the rooms are live but unbadged until Ops
+    // confirms the flat — say so, rather than implying they're verified.
+    toast(
+      res.pending
+        ? `${res.count} room${res.count > 1 ? 's' : ''} listed — they'll show as owner-verified once this property is approved.`
+        : `${res.count} room${res.count > 1 ? 's' : ''} listed in Flatmates`,
+      'success',
+    );
+    refreshListings();
+  };
+
+  const handleUnsplit = (l) => {
+    const res = unsplitFlat(l.id);
+    if (!res.ok) { toast('Someone has already moved in, so these rooms can\'t be withdrawn.', 'error'); return; }
+    toast(`${l.title} is no longer let room by room`, 'info');
+    refreshListings();
+  };
+
+  const handleToggleFeature = async (l) => {    const rec = await toggleFeatured(l.id);
     const nowFeatured = rec.featured;
     toast(nowFeatured ? `${l.title} is now featured` : `${l.title} removed from featured`, nowFeatured ? 'success' : 'info');
     refreshListings();
@@ -165,8 +198,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     if (!window.confirm(`Delete "${l.title}"? This cannot be undone.`)) return;
 
     if (l.private) deleteManagedProp(l.managedId);
-    else if (l.shareGroup) deleteShareGroup(l.id);
-    else if (l.shareRequest) deleteShareRequest(l.id);
+    else if (l.flatmateGroup) deleteFlatmateGroup(l.id);
+    else if (l.flatmatePost) deleteFlatmatePost(l.id);
     else if (l.flatmate) deleteRoom(l.id);
     else setListingStatus(l.id, 'deleted');
 
@@ -188,7 +221,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
         <SectionHead
           icon="building-2"
           title="My properties"
-          sub="Everything you own or posted — private tools, live listings, flatmate rooms and flat-share posts, all in one place."
+          sub="Everything you own or posted — private tools, live listings, flatmate rooms and flatmate posts, all in one place."
           action={
             filterOptions.length > 1 && (
               <div className="w-full sm:w-[13rem]" style={{ '--dd-sm-w': '100%' }}>
@@ -241,6 +274,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
                   onToggleFeature={handleToggleFeature}
                   onWaReminder={handleWaReminder}
                   onDelete={handleDelete}
+                  onSplit={setSplitTarget}
+                  onUnsplit={handleUnsplit}
                 />
               )
             ))}
@@ -256,6 +291,15 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
           setDealForm={setDealForm}
           onFinalize={handleFinalize}
           onClose={() => setShowDealModal(null)}
+        />
+      )}
+
+      {/* Let this flat room by room */}
+      {splitTarget && (
+        <SplitFlatModal
+          listing={splitTarget}
+          onClose={() => setSplitTarget(null)}
+          onConfirm={handleSplitConfirm}
         />
       )}
     </>

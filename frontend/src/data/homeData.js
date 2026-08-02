@@ -2,13 +2,15 @@
 
 /* Property-type options for the hero search mirror the canonical browse
    taxonomy (and thus the "Post a property" types), so a search maps 1:1 to
-   the listings filter. */
-export { HOME_TYPE_OPTS as TYPE_OPTS, PG_SHARING } from './propertyTypes.js';
+   the listings filter. The type-specific sub-filters (PG sharing, commercial
+   subtype, land use) travel with them so the hero's third dropdown offers the
+   same choices the Listings filter panel does for that type. */
+export { HOME_TYPE_OPTS as TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
 import { localityNames } from './localities.js';
 
 /* The searchable locality universe is owned by the canonical registry
    (data/localities.js) — one source of truth across Home, List-Property and
-   Share-Flat. CITY_POPULAR and NEARBY below stay editorial (curated adjacency the
+   Flatmate. CITY_POPULAR and NEARBY below stay editorial (curated adjacency the
    registry doesn't model), keyed so each city surfaces only its own localities. */
 export const ALL_LOCS = localityNames();
 
@@ -60,12 +62,12 @@ export const STATS = {
 };
 
 /* Property-type tiles. The five *property* tiles reconcile to STATS.properties
-   (4,490 + 2,100 + 1,200 + 900 + 2,550 = 11,240). "Share Flat" is a separate
+   (4,490 + 2,100 + 1,200 + 900 + 2,550 = 11,240). "Flatmates" is a separate
    inventory (flatmate seekers, not whole properties) so it is excluded from that
    total. TODO(API): replace hardcoded counts with real per-type counts. */
 export const CATEGORIES = [
   { href: '/listings?type=flat', icon: 'building', color: '#14b8a6', title: 'Flats', count: '4,490+' },
-  { href: '/share-flat', icon: 'user-plus', color: '#f59e0b', title: 'Share Flat', count: '3,100+' },
+  { href: '/flatmates', icon: 'user-plus', color: '#f59e0b', title: 'Flatmates', count: '3,100+' },
   { href: '/listings?type=pg', icon: 'users', color: '#06b6d4', title: 'PG / Co-living', count: '2,100+' },
   { href: '/listings?type=commercial', icon: 'briefcase', color: '#a78bfa', title: 'Commercial', count: '1,200+' },
   { href: '/listings?type=plot', icon: 'map', color: '#f472b6', title: 'Plots / Land', count: '900+' },

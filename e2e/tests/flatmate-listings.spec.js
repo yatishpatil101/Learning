@@ -23,10 +23,10 @@ async function seedOwnerWithRoom(page) {
   }, MOBILE);
 }
 
-test('Share a Flat page opens without runtime errors', async ({ page }) => {
+test('Flatmates page opens without runtime errors', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${BASE}/share-flat`);
+  await page.goto(`${BASE}/flatmates`);
   // The three view tabs render once the page mounts successfully.
   await expect(page.getByRole('button', { name: /Flatmates/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Rooms available/i })).toBeVisible();

@@ -1,7 +1,7 @@
 /* Property identity & duplicate detection for whole-property listings.
  *
- * Mirrors the anti-broker fingerprint pattern already used for flat-share
- * (`shareFlat.js`), but generalised for sale/rent/PG/commercial listings so the
+ * Mirrors the anti-broker fingerprint pattern already used for flatmate
+ * (`flatmates.js`), but generalised for sale/rent/PG/commercial listings so the
  * same physical unit can't be published twice.
  *
  * A property is identified by a set of keys, strongest -> weakest:

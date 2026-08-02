@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 /* "Explore by property type" tiles on the home page must route to the Listings
    page with the matching type applied as an ACTIVE filter (correct deal tab and
-   a removable active-filter chip) — or, for Share Flat, to the dedicated
-   Share-a-Flat finder. Property Type is now a dropdown, so the presentation-
+   a removable active-filter chip) — or, for Flatmates, to the dedicated
+   Flatmates finder. Property Type is now a dropdown, so the presentation-
    agnostic active-filter chip is the source of truth for what is selected. */
 
 const BASE = 'http://localhost:5173';
@@ -34,10 +34,10 @@ for (const [title, deal, chips] of TILES) {
   });
 }
 
-test('"Share Flat" tile routes to the Share-a-Flat finder', async ({ page }) => {
+test('"Flatmates" tile routes to the Flatmates finder', async ({ page }) => {
   await page.goto(`${BASE}/`);
-  await page.getByRole('button', { name: 'Share Flat' }).first().click();
-  await expect(page).toHaveURL(/\/share-flat/);
+  await page.getByRole('button', { name: 'Flatmates' }).first().click();
+  await expect(page).toHaveURL(/\/flatmates/);
 });
 
 test('"Flats" tile actually filters results to matching types', async ({ page }) => {

@@ -75,7 +75,7 @@ export const setAadhaarVerified = (details = {}) => {
 
 /* =========================================================================
    Find-a-flatmate room listings. Uses the SAME key as the static app
-   (`puneNestRoomListings`) so Share a Flat surfaces freshly-posted rooms.
+   (`puneNestRoomListings`) so Flatmates surfaces freshly-posted rooms.
    ========================================================================= */
 const ROOMS_KEY = 'puneNestRoomListings';
 export const getRooms = () => {
@@ -91,7 +91,7 @@ export const deleteRoom = (id) => {
   const arr = getRooms().filter((r) => r.id !== id);
   return set(ROOMS_KEY, arr);
 };
-// Patch a stored room in place (mirrors updateShareGroup). Used by the owner
+// Patch a stored room in place (mirrors updateFlatmateGroup). Used by the owner
 // backfill stepper to adjust seatsOpen without a re-list / re-verification.
 export const updateRoom = (id, patch) => {
   const arr = getRooms().map((r) => (r.id === id ? { ...r, ...patch } : r));
@@ -99,7 +99,7 @@ export const updateRoom = (id, patch) => {
 };
 
 /* Normalize a flatmate/room record into the shape the dashboard "My Listings"
-   panel renders. Rooms live in their own store (Share a Flat) but the owner
+   panel renders. Rooms live in their own store (Flatmates) but the owner
    still expects to manage them alongside property listings. */
 const ROOM_FALLBACK_IMG = 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=600&q=80';
 export const roomToListing = (room) => {

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import Icon from '../Icon.jsx';
 import OtpBoxes from './OtpBoxes.jsx';
 import { useOtpFlow } from './useOtpFlow.js';
-import { setOwnerConsent } from '../../lib/data/shareFlat.js';
+import { setOwnerConsent } from '../../lib/data/flatmates.js';
 import { fmtPhone } from '../../lib/contact.js';
 
 /* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate can't

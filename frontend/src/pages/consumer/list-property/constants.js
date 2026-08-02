@@ -96,8 +96,13 @@ export const pgAmenitiesList = [
   { label: 'Study Table', Icon: BookOpen }, { label: 'AC', Icon: Snowflake }, { label: 'Co-Working Space', Icon: Briefcase },
 ];
 
+/* ---------- ownership documents ----------
+   Every document is OPTIONAL to post. The ownership proof is flagged `verifies`
+   rather than `required`: it's what earns the Verified Owner badge, not a gate on
+   publishing. A listing without it goes live unverified, so a genuine owner who
+   can't find their Index II today isn't blocked from listing. */
 export const saleDocs = [
-  { key: 'Index II', label: 'Index II — Property Ownership Proof *', cta: 'Upload Index II', required: true },
+  { key: 'Index II', label: 'Index II — Property Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge — listings with it get noticeably more serious enquiries.', verifies: true },
   { key: 'Agreement to Sale', label: 'Registered Agreement for Sale', cta: 'Upload Agreement for Sale' },
   { key: 'Sale Deed', label: 'Registered Sale Deed', cta: 'Upload Sale Deed' },
   { key: 'Occupancy Certificate', label: 'Occupancy Certificate', cta: 'Upload Occupancy Certificate' },
@@ -111,7 +116,7 @@ export const saleDocs = [
   { key: 'Builder Payment Receipts', label: 'Payment Receipts from Builder', cta: 'Upload Payment Receipts' },
 ];
 export const rentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof *', cta: 'Upload Index II / Tax Receipt / Electricity Bill', hint: 'Any document in your name proving you own the property. Earns a Verified Owner badge.', required: true },
+  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt / Electricity Bill', hint: 'Any document in your name proving you own the property. Earns a Verified Owner badge.', verifies: true },
   { key: 'Society NOC', label: 'Society NOC (optional)', cta: 'Upload Society NOC', hint: 'No-objection certificate to rent out, shown as a Society Approved badge.' },
 ];
 
@@ -119,12 +124,12 @@ export const rentDocs = [
    proof the differentiator is the trade / Gumasta licence (and, for a sale, the
    usual building records). Kept lean so a genuine owner can list in minutes. */
 export const pgRentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof *', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the building. Earns a Verified Owner badge.', required: true },
+  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the building. Earns a Verified Owner badge.', verifies: true },
   { key: 'PG Trade License', label: 'PG Trade / Gumasta License (optional)', cta: 'Upload Trade License', hint: 'Shown as a Licensed PG badge — reassures tenants the PG runs legally.' },
   { key: 'Society NOC', label: 'Society NOC (optional)', cta: 'Upload Society NOC', hint: 'No-objection certificate to run a PG, shown as a Society Approved badge.' },
 ];
 export const pgSaleDocs = [
-  { key: 'Index II', label: 'Index II — Property Ownership Proof *', cta: 'Upload Index II', required: true },
+  { key: 'Index II', label: 'Index II — Property Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge.', verifies: true },
   { key: 'PG Trade License', label: 'PG Trade / Gumasta License', cta: 'Upload Trade License', hint: 'Confirms the building already runs as a licensed PG — a strong signal for investors.' },
   { key: 'Occupancy Certificate', label: 'Occupancy Certificate', cta: 'Upload Occupancy Certificate' },
   { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
@@ -147,7 +152,7 @@ export const PROPERTY_TYPES = [
 
 /* PG / Hostel occupancy options, sourced from the canonical taxonomy so the
    authored `sharing` key always matches what the home search + listings filter
-   read. Kept separate from Share-a-Flat's Private/Shared roommate concept. */
+   read. Kept separate from Flatmates's Private/Shared roommate concept. */
 export { PG_SHARING, PG_SHARING_OPTS, PG_SHARING_HELP } from '../../../data/propertyTypes.js';
 
 export const COMMERCIAL_SUBTYPES = [
@@ -236,7 +241,7 @@ export const commercialProfileFromType = (valueOrLabel) => {
    type so validation + progress weighting remain in sync; only the label and the
    supplementary optional documents change by property type. */
 export const commercialSaleDocs = [
-  { key: 'Index II', label: 'Index II — Ownership Proof *', cta: 'Upload Index II', required: true },
+  { key: 'Index II', label: 'Index II — Ownership Proof', cta: 'Upload Index II', hint: 'Earns your Verified Owner badge.', verifies: true },
   { key: 'Occupancy Certificate', label: 'Occupancy / Completion Certificate', cta: 'Upload OC' },
   { key: 'Sanctioned Building Plan', label: 'Sanctioned Building Plan', cta: 'Upload Approved Plan' },
   { key: 'Fire NOC', label: 'Fire / Trade NOC', cta: 'Upload NOC', hint: 'Required for most commercial usage — reassures serious tenants and buyers.' },
@@ -244,7 +249,7 @@ export const commercialSaleDocs = [
   { key: 'Electricity Bill', label: 'Electricity Bill', cta: 'Upload Electricity Bill' },
 ];
 export const commercialRentDocs = [
-  { key: 'Ownership Proof', label: 'Ownership Proof *', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the unit. Earns a Verified Owner badge.', required: true },
+  { key: 'Ownership Proof', label: 'Ownership Proof', cta: 'Upload Index II / Tax Receipt', hint: 'Any document in your name proving you own the unit. Earns a Verified Owner badge.', verifies: true },
   { key: 'Fire NOC', label: 'Fire / Trade NOC (optional)', cta: 'Upload NOC', hint: 'Shown as a Compliance Ready badge to business tenants.' },
 ];
 /* Extra, profile-specific compliance documents appended to the commercial base set. */
@@ -269,25 +274,25 @@ const commercialProfileDocs = {
    ownership; a Sale Deed / Index II only exists when the current owner acquired
    the land through a registered sale, so it is optional (inherited land has none). */
 export const plotSaleDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof *', cta: 'Upload 7/12 Extract', required: true, hint: 'The core Maharashtra land record and primary proof of ownership.' },
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core Maharashtra land record and primary proof of ownership. Earns a Verified Owner badge.' },
   { key: 'Index II', label: 'Sale Deed / Index II (if purchased)', cta: 'Upload Index II', hint: 'Only if you acquired the plot through a registered sale.' },
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   { key: 'NA Order', label: 'NA Order / Zone Certificate', cta: 'Upload NA Order', hint: 'Confirms the plot is sanctioned for non-agricultural use.' },
   { key: 'Property Tax Receipt', label: 'Property Tax Receipt', cta: 'Upload Tax Receipt' },
 ];
 export const plotRentDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof *', cta: 'Upload 7/12 Extract', required: true, hint: 'The core Maharashtra land record and primary proof of ownership. Earns a Verified Owner badge.' },
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core Maharashtra land record and primary proof of ownership. Earns a Verified Owner badge.' },
   { key: 'Property Tax Receipt', label: 'Property Tax Receipt (optional)', cta: 'Upload Tax Receipt' },
 ];
 export const farmSaleDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof *', cta: 'Upload 7/12 Extract', required: true, hint: 'The core agricultural land record and primary proof of ownership.' },
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core agricultural land record and primary proof of ownership. Earns a Verified Owner badge.' },
   { key: '8A Extract', label: '8A Extract (Holding Record)', cta: 'Upload 8A Extract', hint: 'Village holding record confirming the cultivator’s account.' },
   { key: 'Index II', label: 'Sale Deed / Index II (if purchased)', cta: 'Upload Index II', hint: 'Only if you acquired the land through a registered sale.' },
   { key: 'Mutation Entry', label: 'Mutation Entry (Ferfar)', cta: 'Upload Mutation Extract' },
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt', cta: 'Upload Revenue Receipt' },
 ];
 export const farmRentDocs = [
-  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof *', cta: 'Upload 7/12 Extract', required: true, hint: 'The core agricultural land record and primary proof of ownership. Earns a Verified Owner badge.' },
+  { key: '7/12 Extract', label: '7/12 Extract (Satbara) — Ownership Proof', cta: 'Upload 7/12 Extract', verifies: true, hint: 'The core agricultural land record and primary proof of ownership. Earns a Verified Owner badge.' },
   { key: 'Land Revenue Receipt', label: 'Land Revenue / Tax Receipt (optional)', cta: 'Upload Revenue Receipt' },
 ];
 
@@ -304,11 +309,12 @@ export const docsFor = (deal, propertyType, commercialType) => {
   return rentDocs;
 };
 
-/* The single mandatory ownership document per flow. Land is proven by the 7/12
-   Extract (Satbara) for both sale and rent; built property uses Index II (sale)
-   or a generic Ownership Proof (rent). Validation + the progress meter read this
-   one key so they never drift from the document list shown to the owner. */
-export const requiredDocKeyFor = (deal, propertyType) => {
+/* The one document that earns the Verified Owner badge per flow. Land is proven by
+   the 7/12 Extract (Satbara) for both sale and rent; built property uses Index II
+   (sale) or a generic Ownership Proof (rent). It is NOT required to publish — the
+   progress meter reads this key so it stays in sync with the document list shown to
+   the owner, but validation never blocks on it. */
+export const ownershipDocKeyFor = (deal, propertyType) => {
   if (isLandType(propertyType)) return '7/12 Extract';
   return deal === 'buy' ? 'Index II' : 'Ownership Proof';
 };

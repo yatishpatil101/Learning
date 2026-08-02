@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outPath = path.join(__dirname, '..', 'tasks', 'code-freeze-checklist.xlsx');
 
 const consumer = [
-  ['Home', '/', 'Hero search, categories, featured, recently-viewed, activity ticker, testimonials, FAQ, CTA, share-flat section'],
+  ['Home', '/', 'Hero search, categories, featured, recently-viewed, activity ticker, testimonials, FAQ, CTA, flatmates section'],
   ['Listings', '/listings', 'Filters, filter drawer (mobile), sort, map view (?view=map), cards, save, notify-me, pagination/empty'],
   ['Property detail', '/property/:id', 'Gallery, floor plan, rent details, price insights, owner card, contact modal, schedule-visit modal, reviews, report, similar, compare toggle, deal panel, verification'],
   ['Owner profile', '/owner/:id', 'Owner info, listings by owner, contact'],
@@ -36,7 +36,7 @@ const consumer = [
   ['Pay Rent', '/pay-rent', 'Rent payment flow (mock), flag+auth-gated'],
   ['Locality', '/locality, /locality/:slug', 'Locality list + detail, insights, links'],
   ['Messages', '/messages', 'Threads, send message, flag+auth-gated'],
-  ['Share a Flat', '/share-flat', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],
+  ['Flatmates', '/flatmates', 'Search/filter, room/seeker/group cards, post modal, verify modal, map'],
   ['Support', '/support', 'Ticket list, new ticket form, thread modal, FAQ, lightbox, auth-gated'],
   ['View Documents', '/view-documents', 'Secure full-screen viewer (own chrome), auth-gated'],
   ['List Property', '/list-property', '3-step wizard (details→location/pricing→photos/docs), map picker, paywall, progress, auth-gated'],

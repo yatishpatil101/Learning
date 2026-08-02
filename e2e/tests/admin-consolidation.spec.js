@@ -206,12 +206,12 @@ test('admin flatmates page loads with KPIs and seeded data', async ({ page }) =>
   await page.evaluate(() => {
     const raw = localStorage.getItem('puneNestDB_v1');
     const db = raw ? JSON.parse(raw) : {};
-    if (!db.shareSeekers || db.shareSeekers.length === 0) {
-      db.shareSeekers = [
+    if (!db.flatmateSeekers || db.flatmateSeekers.length === 0) {
+      db.flatmateSeekers = [
         { id: 'SK1', name: 'Riya', gender: 'female', budget: 16000, localities: ['Baner'], verified: true, seed: true },
         { id: 'SK2', name: 'Sneha', gender: 'female', budget: 18000, localities: ['Hinjawadi'], verified: true, seed: true },
       ];
-      db.shareGroups = [
+      db.flatmateGroups = [
         { id: 'SG1', title: '2 girls need 1 more for Baner', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true },
       ];
       db.groupApplications = [
@@ -221,7 +221,7 @@ test('admin flatmates page loads with KPIs and seeded data', async ({ page }) =>
     }
   });
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Flat-Share' })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('heading', { name: 'Flatmate' })).toBeVisible({ timeout: 5000 });
   // Tab buttons
   await expect(page.getByRole('button', { name: 'Seekers' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Groups' })).toBeVisible();
@@ -236,7 +236,7 @@ test('flatmates Groups tab shows groups with moderation buttons', async ({ page 
   await page.evaluate(() => {
     const raw = localStorage.getItem('puneNestDB_v5');
     const db = raw ? JSON.parse(raw) : {};
-    db.shareGroups = [{ id: 'SG1', title: 'TestGroup Baner 2BHK', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true }];
+    db.flatmateGroups = [{ id: 'SG1', title: 'TestGroup Baner 2BHK', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true }];
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
   });
   await page.goto(`${BASE}/admin/flatmates`);

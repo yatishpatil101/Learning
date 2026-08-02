@@ -38,7 +38,7 @@ const BY_KEY = Object.fromEntries(SEARCH_TYPES.map((t) => [t.key, t]));
    Single source of truth for how a PG/Hostel room's occupancy is authored
    (Post a property + admin post-on-behalf) and searched (home + listings filter).
    Standard Indian PG market model (single → dormitory). Deliberately separate
-   from Share-a-Flat's Private/Shared roommate concept. `[key, label]` pairs. */
+   from Flatmates's Private/Shared roommate concept. `[key, label]` pairs. */
 export const PG_SHARING = [
   ['single', 'Single (No Sharing)'],
   ['double', 'Double Sharing'],
@@ -130,3 +130,17 @@ export const matchCommercialKey = (key, typeStr) => {
   const x = (typeStr || '').toLowerCase();
   return def.matches.some((m) => x.includes(m));
 };
+
+/* ---------- land use / zone ----------
+   Open Plot & Farm Land are zoned, not measured in bedrooms. Mirrors the
+   "Post a property" plotZoneOptions so a land listing is searchable by the same
+   zoning the owner declared, and lives here (not in the listings page) because
+   the home hero search offers it too. `[key, label]` pairs. */
+export const LAND_USE = [
+  ['residential', 'Residential'],
+  ['commercial', 'Commercial'],
+  ['industrial', 'Industrial'],
+  ['agricultural', 'Agricultural'],
+  ['mixed', 'Mixed-Use'],
+];
+export const LANDUSE_LBL = Object.fromEntries(LAND_USE);

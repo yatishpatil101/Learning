@@ -46,7 +46,7 @@ export function buildActionItems({
       actionItems.push({
         id: 'app:' + a.id, tone: 'teal', icon: 'users-round',
         title: `Group wants to rent ${a.listingTitle || 'your flat'}`,
-        sub: `${a.groupTitle || 'Flat-share group'} · ${a.members}/${a.seatsTotal} members`,
+        sub: `${a.groupTitle || 'Flatmate group'} · ${a.members}/${a.seatsTotal} members`,
         at: null, atText: a.at || null,
         actions: [
           { label: 'Accept', icon: 'check', onClick: () => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); } },

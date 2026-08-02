@@ -62,16 +62,17 @@ function SummaryStat({ icon, tint, value, label }) {
       </div>
       <div className="min-w-0">
         <p className="text-lg font-bold leading-none text-white">{value}</p>
-        <p className="mt-1 text-[11px] leading-tight text-gray-500">{label}</p>
+        {/* 11px is below the mobile secondary-text floor; desktop keeps the tighter size. */}
+        <p className="mt-1 text-[13px] sm:text-[11px] leading-tight text-gray-500">{label}</p>
       </div>
     </div>
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], shareFlatReqs = [], decideShareFlatReq, docReqs = [], decideDocReqs, listings = [] }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [] }) {
   const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
-     Number requests, Photo requests, Documents, Flat-share, and general Enquiries.
+     Number requests, Photo requests, Documents, Flatmate, and general Enquiries.
      Rows share one borderless "quiet list" treatment (RequestList/RequestRow) so
      every tab reads as the same system. A summary strip on top turns the inbox into
      a triage tool — showing what's waiting, how many leads are open, and a fast-reply
@@ -84,10 +85,10 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
 
   // Attention math — what needs a decision now vs. total open leads.
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending');
-  const pendingShareFlat = shareFlatReqs.filter((r) => r.status === 'pending');
-  const waitingItems = [...pendingContacts, ...pendingShareFlat, ...photoReqs, ...pendingDocGroups];
+  const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending');
+  const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...photoReqs, ...pendingDocGroups];
   const waitingOnYou = waitingItems.length;
-  const totalLeads = contactReqs.length + photoReqs.length + shareFlatReqs.length + docGroups.length + enquiries.length;
+  const totalLeads = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length + enquiries.length;
 
   // Age of the oldest thing awaiting a reply — powers the urgency chip + nudge.
   const oldestAt = waitingItems.reduce((min, r) => {
@@ -102,7 +103,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     { key: 'numbers', label: 'Number requests', icon: 'lock-keyhole', count: pendingContacts.length },
     { key: 'photos', label: 'Photo requests', icon: 'image', count: photoReqs.length },
     { key: 'documents', label: 'Documents', icon: 'folder-check', count: pendingDocGroups.length },
-    { key: 'flatshare', label: 'Flat-share', icon: 'users', count: pendingShareFlat.length },
+    { key: 'flatmate', label: 'Flatmate', icon: 'users', count: pendingFlatmateReqs.length },
     { key: 'enquiries', label: 'Enquiries', icon: 'messages-square', count: enquiries.length },
   ];
 
@@ -114,9 +115,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const btnTeal = 'px-3 min-h-[44px] rounded-lg bg-brand-teal/15 text-brand-teal text-xs font-semibold hover:bg-brand-teal/25 flex items-center gap-1';
 
   const orderedContacts = attentionFirst(contactReqs, (r) => r.status === 'pending');
-  const orderedShareFlat = attentionFirst(shareFlatReqs, (r) => r.status === 'pending');
+  const orderedFlatmateReqs = attentionFirst(flatmateReqs, (r) => r.status === 'pending');
 
-  // Flat-share request kinds → icon/tint/label, shared by the filter tab and the
+  // Flatmate request kinds → icon/tint/label, shared by the filter tab and the
   // unified queue so a room/group/flatmate request reads the same in both.
   const flatMeta = (r) => ({
     icon: r.kind === 'room' ? 'bed-double' : r.kind === 'group' ? 'users' : 'hand-heart',
@@ -162,11 +163,11 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const itemFlat = (r) => {
     const m = flatMeta(r);
     return {
-      id: 'flatshare:' + r.id, type: 'flatshare', typeLabel: m.label, typeIcon: m.icon, tint: m.tint,
+      id: 'flatmate:' + r.id, type: 'flatmate', typeLabel: m.label, typeIcon: m.icon, tint: m.tint,
       name: r.requesterName, propLabel: r.targetTitle || '',
       detail: r.locality || '', requestedAt: r.requestedAt, status: r.status,
       attention: r.status === 'pending', canApprove: true,
-      approve: () => decideShareFlatReq(r.id, 'accepted'), decline: () => decideShareFlatReq(r.id, 'declined'),
+      approve: () => decideFlatmateReq(r.id, 'accepted'), decline: () => decideFlatmateReq(r.id, 'declined'),
       approveLabel: 'Accept', declineLabel: 'Decline',
     };
   };
@@ -182,7 +183,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     ...contactReqs.map(itemNumber),
     ...photoReqs.map(itemPhoto),
     ...docGroups.map(itemDoc),
-    ...shareFlatReqs.map(itemFlat),
+    ...flatmateReqs.map(itemFlat),
     ...enquiries.map(itemEnquiry),
   ].sort((a, b) => {
     if (a.attention !== b.attention) return a.attention ? -1 : 1;
@@ -221,7 +222,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
         ) : null}
       </Card>
 
-      <div className="sticky top-16 z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur md:top-[72px]">
+      <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur">
         <SubNav items={items} active={sub} onChange={setSub} variant="underline" />
       </div>
 
@@ -378,15 +379,15 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       </Card>
       )}
 
-      {/* Flat-share requests — seekers who reached out on your share-a-flat posts */}
-      {sub === 'flatshare' && (
+      {/* Flatmate requests — seekers who reached out on your flatmates posts */}
+      {sub === 'flatmate' && (
       <Card className="p-4 sm:p-6">
-        <SectionHead icon="users" title="Flat-share requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
-        {shareFlatReqs.length === 0 ? (
-          <RequestEmpty icon="users" text="No flat-share requests yet." cta={{ to: '/list-property?share=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />
+        <SectionHead icon="users" title="Flatmate requests" sub="Seekers interested in your flatmate posts, rooms, and groups. Accept to connect in Messages." />
+        {flatmateReqs.length === 0 ? (
+          <RequestEmpty icon="users" text="No flatmate requests yet." cta={{ to: '/list-property?flatmate=1', label: 'List a room or flatmate', icon: 'plus-circle' }} />
         ) : (
           <RequestList>
-            {orderedShareFlat.map((r) => {
+            {orderedFlatmateReqs.map((r) => {
               const kindIcon = r.kind === 'room' ? 'bed-double' : r.kind === 'group' ? 'users' : 'hand-heart';
               const kindTint = r.kind === 'room' ? 'sky' : r.kind === 'group' ? 'violet' : 'teal';
               const kindLabel = r.kind === 'room' ? 'Room enquiry' : r.kind === 'group' ? (r.action === 'join' ? 'Group join' : 'Group request') : 'Flatmate interest';
@@ -404,8 +405,8 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 >
                   {r.status === 'pending' ? (
                     <>
-                      <button onClick={() => decideShareFlatReq(r.id, 'accepted')} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> Accept</button>
-                      <button onClick={() => decideShareFlatReq(r.id, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline</button>
+                      <button onClick={() => decideFlatmateReq(r.id, 'accepted')} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> Accept</button>
+                      <button onClick={() => decideFlatmateReq(r.id, 'declined')} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> Decline</button>
                     </>
                   ) : r.status === 'accepted' ? (
                     <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium"><Icon name="badge-check" className="w-3.5 h-3.5" /> Accepted</span>
