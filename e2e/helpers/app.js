@@ -1,0 +1,255 @@
+import { expect } from '@playwright/test';
+
+/* Shared fixtures for the Flatmates e2e suite.
+
+   PuneNest is a localStorage-backed prototype: there is no server state to set
+   up, so a test "logs in" and "owns a listing" by writing the same keys the app
+   writes. Seeding happens in an init script so it lands BEFORE React boots —
+   writing after navigation would race the first render. */
+
+export const OWNER = { name: 'Test Owner', mobile: '9800000001', role: 'owner' };
+export const SEEKER = { name: 'Test Seeker', mobile: '9800000002', role: 'buyer' };
+export const OTHER = { name: 'Other Person', mobile: '9800000003', role: 'owner' };
+/* Back-office session shape written by staffLoginUser() — `moduleAccess: ['*']`
+   is what ModuleRoute checks before rendering an admin page. */
+export const ADMIN = { name: 'Administrator', mobile: '9000000000', role: 'admin', team: null, teams: [], roleId: null, moduleAccess: ['*'] };
+
+const KEYS = {
+  user: 'puneNestUser',
+  users: 'puneNestUsers',
+  rooms: 'puneNestRoomListings',
+  posts: 'puneNestFlatmatePosts',
+  groups: 'puneNestFlatmateGroups',
+  reviews: 'puneNestFlatmateReviews',
+  interests: 'puneNestFlatmateInterests',
+  saved: 'puneNestFlatmateSaved',
+};
+
+/** A rent listing in the shape `getListings()` returns. */
+export const rentListing = (over = {}) => ({
+  id: 'L-e2e-1',
+  deal: 'rent',
+  title: '3 BHK in Test Society',
+  locality: 'Baner',
+  society: 'Test Society',
+  bhk: '3',
+  price: 45000,
+  status: 'pending',
+  statusClass: 'pill-pending',
+  ownerMobile: OWNER.mobile,
+  image: '',
+  real: true,
+  createdAt: new Date().toISOString(),
+  ...over,
+});
+
+/* A 1x1 transparent GIF. Real listings carry a photo URL; an empty `src` makes
+   React warn and the browser re-request the page, which pollutes any spec that
+   asserts on a clean console. A data URI keeps the fixture offline. */
+const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+/**
+ * A listing in the fuller shape the property DETAIL page needs.
+ *
+ * `rentListing()` is deliberately minimal — enough for the dashboard's listing
+ * cards. The detail page derives copy from fields like `type` and `bhkNum` and
+ * will throw on a card-shaped record, so specs that navigate to /property/:id
+ * must seed this instead.
+ */
+export const propertyListing = (over = {}) => ({
+  id: 'P-e2e-1',
+  deal: 'rent',
+  title: '2 BHK in Test Society',
+  type: 'Apartment',
+  bhk: '2 BHK',
+  bhkNum: 2,
+  locality: 'Baner',
+  localitySlug: 'baner',
+  society: 'Test Society',
+  area: 950,
+  price: 32000,
+  status: 'approved',
+  owner: OWNER.name,
+  ownerId: 'U-e2e-owner',
+  ownerMobile: OWNER.mobile,
+  ownerVerified: true,
+  ownershipVerified: true,
+  furnishing: 'semi',
+  construction: 'ready',
+  rera: false,
+  featured: false,
+  amenities: [],
+  docsCount: 3,
+  flagReason: '',
+  views: 10,
+  enquiries: 0,
+  image: BLANK_IMG,
+  gallery: [BLANK_IMG],
+  lat: 18.5590,
+  lng: 73.7868,
+  desc: 'E2E fixture listing.',
+  createdAt: new Date().toISOString(),
+  ...over,
+});
+
+/**
+ * Seed localStorage before the app boots.
+ * Pass `user` to sign in, `listings` for owner-side property state, `rooms` /
+ * `posts` / `groups` for flatmate supply, and `aadhaar` to grant the KYC badge.
+ *
+ * Commercial state (`contactsUsed`, `referralStats`, `plan`, `referredBy`) lives
+ * in separate mobile-keyed stores, so it is seeded here too — the quota gates
+ * read it synchronously during the first render.
+ */
+export async function seed(page, {
+  user = null, listings = [], rooms = [], posts = [], groups = [], aadhaar = false,
+  contactsUsed = null, referralStats = null, plan = null, referredBy = null,
+} = {}) {
+  await page.addInitScript(([k, data]) => {
+    /* addInitScript runs on EVERY navigation, so this must be idempotent: a
+       second run would wipe whatever the test just did (publish a listing, split
+       a flat) the moment the page navigates. The marker makes seeding a
+       once-per-test operation. */
+    if (sessionStorage.getItem('__e2eSeeded')) return;
+    sessionStorage.setItem('__e2eSeeded', '1');
+
+    // A previous spec's state must never leak into this one.
+    Object.values(k).forEach((key) => localStorage.removeItem(key));
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('puneNestListings:') || key.startsWith('puneNestAadhaar:')
+        || key.startsWith('pnContactsUsed:') || key.startsWith('pnReferralStats:')
+        || key.startsWith('pnReferredBy:') || key.startsWith('pnPlan:'))
+      .forEach((key) => localStorage.removeItem(key));
+
+    if (data.user) {
+      localStorage.setItem(k.user, JSON.stringify(data.user));
+      localStorage.setItem(k.users, JSON.stringify([data.user]));
+      localStorage.setItem('puneNestListings:' + data.user.mobile, JSON.stringify(data.listings));
+      if (data.aadhaar) {
+        localStorage.setItem('puneNestAadhaar:' + data.user.mobile, JSON.stringify({
+          verified: true, source: 'digilocker', at: Date.now(),
+        }));
+      }
+      if (data.contactsUsed != null) localStorage.setItem('pnContactsUsed:' + data.user.mobile, JSON.stringify(data.contactsUsed));
+      if (data.referralStats) localStorage.setItem('pnReferralStats:' + data.user.mobile, JSON.stringify(data.referralStats));
+      if (data.plan) localStorage.setItem('pnPlan:' + data.user.mobile, JSON.stringify(data.plan));
+      if (data.referredBy) localStorage.setItem('pnReferredBy:' + data.user.mobile, JSON.stringify(data.referredBy));
+    }
+    if (data.rooms.length) localStorage.setItem(k.rooms, JSON.stringify(data.rooms));
+    if (data.posts.length) localStorage.setItem(k.posts, JSON.stringify(data.posts));
+    if (data.groups.length) localStorage.setItem(k.groups, JSON.stringify(data.groups));
+  }, [KEYS, { user, listings, rooms, posts, groups, aadhaar, contactsUsed, referralStats, plan, referredBy }]);
+}
+
+/** Read a localStorage key back out as JSON (assertions on persisted state). */
+export const readStore = (page, key) =>
+  page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
+
+/**
+ * Publish a rent listing for the signed-in owner.
+ *
+ * A posted property lands in TWO stores and the dashboard needs both: the mock
+ * marketplace DB (`puneNestDB_v5`, what "My Listings" renders) and the per-user
+ * listing key (what `hasListings()` / `isListingApproved()` read). The DB seeds
+ * itself from db.json on first boot, so this must run after a page has loaded —
+ * hence a real navigation first rather than an init script.
+ */
+export async function publishListing(page, listing) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!localStorage.getItem('puneNestDB_v5'), null, { timeout: 30_000 });
+  await page.evaluate((l) => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    db.listings = [l, ...db.listings.filter((p) => p.id !== l.id)];
+    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+    const key = 'puneNestListings:' + l.ownerMobile;
+    const mine = JSON.parse(localStorage.getItem(key) || '[]');
+    localStorage.setItem(key, JSON.stringify([l, ...mine.filter((p) => p.id !== l.id)]));
+  }, listing);
+}
+
+/** Flip a published listing's status, as an Ops approval would. */
+export async function approveListing(page, id, ownerMobile) {
+  await page.evaluate(([listingId, mobile]) => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    const hit = db.listings.find((p) => p.id === listingId);
+    if (hit) hit.status = 'approved';
+    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+    const key = 'puneNestListings:' + mobile;
+    const mine = JSON.parse(localStorage.getItem(key) || '[]');
+    mine.forEach((l) => { if (l.id === listingId) l.status = 'approved'; });
+    localStorage.setItem(key, JSON.stringify(mine));
+  }, [id, ownerMobile]);
+}
+
+/** Rooms the app persisted, for asserting what a split actually wrote. */
+export const readRooms = (page) => readStore(page, KEYS.rooms);
+export const readReviews = (page) => readStore(page, KEYS.reviews);
+
+/**
+ * Patch admin feature flags (`settings.flags` in the mock DB).
+ *
+ * The DB self-seeds from db.json on first boot, so — like publishListing — this
+ * needs a real page first. AppFlagsProvider reads flags synchronously at mount,
+ * so callers must navigate again afterwards for the change to take effect.
+ */
+export async function setFlags(page, flags) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => !!localStorage.getItem('puneNestDB_v5'), null, { timeout: 30_000 });
+  await page.evaluate((f) => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    db.settings.flags = { ...db.settings.flags, ...f };
+    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+  }, flags);
+}
+
+/** Free owner contacts the signed-in seeker has spent. */
+export const readContactsUsed = (page, mobile) => readStore(page, 'pnContactsUsed:' + mobile);
+/** Referral counters ({ invited, joined, listed }) for a user. */
+export const readReferralStats = (page, mobile) => readStore(page, 'pnReferralStats:' + mobile);
+/** Unclaimed + claimed referral credits sitting in the mock DB ledger. */
+export const readReferralCredits = (page) =>
+  page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}').referralCredits || []);
+
+/**
+ * Open a page and wait for the lazy route to actually render. Every consumer
+ * route mounts behind Suspense, so `networkidle` fires while a spinner is still
+ * on screen — specs must wait for real content instead.
+ */
+export async function open(page, path) {
+  await page.goto(path, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** The Flatmates page, with the lazy chunk resolved. */
+export async function openFlatmates(page, query = '') {
+  await open(page, '/flatmates' + query);
+  await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible();
+}
+
+/**
+ * A property detail page. It renders no `h1`, so `open()`'s heading wait never
+ * settles here — wait on the owner contact box instead, which is the last thing
+ * the page mounts.
+ */
+export async function openProperty(page, id) {
+  await page.goto(`/property/${id}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('button', { name: /Request number/i }).first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** Card ids currently rendered, e.g. ['r:rm1', 's:s2', 'g:g1']. */
+export const cardIds = (page) =>
+  page.locator('[data-sf-id]').evaluateAll((els) => els.map((e) => e.dataset.sfId));
+
+/** Drive the budget range input (React needs a native setter + input event). */
+export async function setBudget(page, value) {
+  await page.evaluate((v) => {
+    const slider = document.querySelector('input[type="range"]');
+    if (!slider) throw new Error('budget slider not found');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(slider, String(v));
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
+  // Let the filter memos settle before asserting on the list.
+  await page.waitForTimeout(400);
+}

@@ -42,7 +42,10 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 | tickets / support | `Ticket`, `TicketCreate`, `TicketUpdate`, `SupportTicket`, `SupportTicketCreate` |
 | reports | `Report`, `ReportCreate` |
 | reels | `Reel` |
-| share-a-flat / rooms | `ShareFlatPost`, `ShareFlatPostCreate` |
+| flatmate_requests (seeker posts) | `FlatmateSeekerPost`, `FlatmateSeekerPostCreate` |
+| rooms (spare room + owner flat-split) | `FlatmateRoom`, `FlatmateRoomCreate`, `FlatSplitRequest`, `FlatSplitResult` |
+| flatmate_groups | `FlatmateGroup`, `FlatmateGroupCreate`, `GroupApplication` |
+| flatmate host inbox / reviews | `FlatmateRequest`, `FlatmateReview`, `AgreementDoc`, `HostEligibility` |
 | messages / conversations | `Conversation`, `ConversationCreate`, `Message`, `MessageCreate` |
 | plans / subscriptions / boosts | `Plan`, `Subscription`, `Boost`, `BoostPack`, `Fees` |
 | settings | `AdminSettings` |

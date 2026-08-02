@@ -4,7 +4,7 @@
 - Before responding to ANY task in this repo (plan, build, review, debug, or answer), first consult these three skills and apply their guidance: `punenest-frontend` (implementation), `real-estate-expert` (domain model), `senior-product-manager-realestate` (scope/priority). Required even for questions and clearly scoped bug fixes — for a trivial mechanical change it is a fast internal check, not a reason to pause.
 - For every implementation (writing, adding, refactoring, or fixing code), apply the `ponytail` skill (default `full`): climb the laziness ladder, prefer stdlib/native/existing code over new abstractions, and ship the shortest diff that fully solves the problem. It governs how code is built; the three skills above still govern scope, domain, and conventions.
 - On conflict between them, prefer `punenest-frontend` for implementation, `real-estate-expert` for domain, `senior-product-manager-realestate` for scope. Note the conflict in your session summary.
-- If any of these `SKILL.md` files cannot be read, stop and report the missing file to the user.
+- If a skill you actually need cannot be read, report the missing file to the user.
 
 ### Rule Precedence
 Order when rules conflict: (1) safety/correctness, (2) task-type routing (bug vs. feature), (3) planning/check-in, (4) elegance/simplicity, (5) lessons capture.

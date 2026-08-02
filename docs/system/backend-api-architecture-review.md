@@ -5,7 +5,7 @@
 > marketplace, derived from the React frontend prototype and the existing system docs.
 > **Companion artifacts:**
 > - [`data-model.md`](./data-model.md) — ER map + persistence design (field shapes live in the OpenAPI schemas).
-> - [`app-architecture.md`](./app-architecture.md), [`cross-cutting.md`](./cross-cutting.md) — auth, roles, gates, audit.
+> - [`platform-architecture.md`](./platform-architecture.md), [`cross-cutting.md`](./cross-cutting.md) — auth, roles, gates, audit.
 > - **OpenAPI 3.1 spec:** [`backend/src/main/resources/static/openapi/punenest-api.yaml`](../../backend/src/main/resources/static/openapi/punenest-api.yaml)
 >   (served at `/openapi/punenest-api.yaml`; Swagger UI at `/docs`).
 
@@ -44,7 +44,7 @@ cross-cutting invariants, not per-screen features, and they shape the API and se
 | 7 | **Documents** | Property documents, access requests, secure share links |
 | 8 | **Services & Support** | Service requests/workflows, support tickets, rent agreements, owner KYC |
 | 9 | **Billing & Growth** | Plans/subscriptions, boosts, paid services, referrals |
-| 10 | **Engagement** | Saved searches/alerts, reviews, share-a-flat, notifications, CMS content |
+| 10 | **Engagement** | Saved searches/alerts, reviews, flatmates, notifications, CMS content |
 | 11 | **Admin & Analytics** | KPIs, analytics, platform settings, audit log, CMS admin, society leads |
 
 ### Recommended architecture

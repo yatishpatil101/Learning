@@ -24,6 +24,13 @@
 
 ## 2. Entry points
 - **Routes:** `/services/rent-agreement` (`services/RentAgreement.jsx` -> `useRentAgreement()`).
+  - `?flat=<propertyId|roomId>&reissue=1` - the **joint-agreement reissue** entry, produced by an
+    owner's occupied room card in Flatmates (`useFlatmateSupply.reissueAgreement`). One rent
+    agreement covers the owner and every flatmate in the flat, so any change to who lives there is
+    the moment to reissue it.
+    > **Gap (as of this writing):** `useRentAgreement.js` reads only `invite` and `listing`; `flat`
+    > and `reissue` are inert, so this link opens the wizard with no flat binding and no supersede
+    > context. Either the hook must consume them, or the CTA should be gated until it can.
   Query params:
   - `?listing=<id>` - owner pre-fills property + terms from one of their listings.
   - `?invite=<inviteId>` - a bearer-token deep link that switches the page into **invite mode** for
@@ -162,6 +169,15 @@ regArea label, and `_state` = the full form snapshot for co-fill/resume).
   cross-party notification.
 - **Ticket sync:** `TICKET_STATUS` maps workflow status -> admin ticket (`new`/`in_progress`/`done`/
   `cancelled`) so the linked `ticketRef` never shows a stale "new".
+
+### 5.8 Joint agreement for a split flat
+A flat let room by room is covered by **one** agreement naming the owner and every current flatmate,
+not one agreement per room - which is why rooms carved from the same listing all share a `propertyId`
+(the key that ties them into one flat for both the occupancy ledger and the agreement). When
+occupancy changes (`setRoomOccupants`, via the room card's +/- stepper in Flatmates), the existing
+document no longer names the people actually living there, so the owner is offered a reissue at that
+exact moment. See [`flatmates.md`](./flatmates.md) section 5 and the entry-point gap noted in
+section 2.
 
 ## 6. Maker-checker / approval
 Yes - two nested loops (see [`../../system/cross-cutting.md`](../../system/cross-cutting.md)

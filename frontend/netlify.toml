@@ -16,3 +16,22 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security headers. index.html also carries a <meta> CSP so `vite preview` and any
+# non-Netlify host stay covered, but a meta CSP cannot express frame-ancestors or
+# form-action — those (and every header below) only work when served as real headers.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Cross-Origin-Opener-Policy = "same-origin"
+    # Deltas vs the meta CSP: frame-ancestors + form-action added (meta can't do either),
+    # ws:/wss: dropped (dev-only HMR), data: dropped from frame-src (a data: iframe is a
+    # script-execution primitive this app never needs).
+    # TODO(prod): drop 'unsafe-inline' from script-src once Maps + GA are re-tested — it is
+    # the one control that actually contains XSS, and Vite emits no inline scripts.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

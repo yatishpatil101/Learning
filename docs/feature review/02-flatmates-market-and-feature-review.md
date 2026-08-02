@@ -1,10 +1,10 @@
-# 02 — Share-a-Flat: Market Sizing & Feature Review
+# 02 — Flatmates: Market Sizing & Feature Review
 
-> **Question reviewed:** *"Features like Share-a-Flat will drive the IT/young crowd to our platform.
+> **Question reviewed:** *"Features like Flatmates will drive the IT/young crowd to our platform.
 > Review the total market volume (online + offline) and how we can take our share."*
 >
 > **Lens:** PropTech Business Strategist + Indian Market Analyst + Skeptical VC.
-> **Feature source of truth:** [`../flows/consumer/share-a-flat.md`](../flows/consumer/share-a-flat.md)
+> **Feature source of truth:** [`../flows/consumer/flatmates.md`](../flows/consumer/flatmates.md)
 > (read in full for this review).
 >
 > **Verdict:** **This is your wedge — lead with it.** Details at the end.
@@ -27,7 +27,7 @@ The earlier review (doc `01`) said KYC friction is business-suicidal because it 
 > Aadhaar-verified. Demand for trust is genuinely high and unmet.
 
 So the KYC + anti-broker guardrails — a *liability* on the rent side — become a **genuine
-differentiator** on the flat-share side. **This is the one place the original thesis actually
+differentiator** on the flatmate side. **This is the one place the original thesis actually
 holds.** The instinct about the IT/young crowd is correct and is the strongest thing in the product.
 
 ---
@@ -48,10 +48,10 @@ holds.** The instinct about the IT/young crowd is correct and is the strongest t
 |---|---|---|
 | IT/ITeS workforce | **~1.2-1.5M** | Hinjewadi (Rajiv Gandhi Infotech Park) ~250k+; + Kharadi/EON, Magarpatta, Baner-Balewadi, Viman Nagar |
 | Students (higher-ed) | **~600k-800k** | "Oxford of the East"; large migrant student base |
-| **Young migrants who flat-share (SAM)** | **~600k-900k active** | ~40-50% of the above are non-local and share vs. live with family |
+| **Young migrants who flatmate (SAM)** | **~600k-900k active** | ~40-50% of the above are non-local and share vs. live with family |
 | Annual "moves" (churn) | **~35-50% p.a.** | Job change, lease-end, upgrade — demand is **high-frequency** |
 
-**Critical property = velocity.** A buyer transacts once in 7-10 years; a flat-sharer re-enters
+**Critical property = velocity.** A buyer transacts once in 7-10 years; a flatmate re-enters
 **every 8-14 months.** That churn is **fuel**: repeat usage, word-of-mouth in tight IT/college
 networks, a reason to keep the app installed. A far better **retention engine** than buy/rent.
 
@@ -90,7 +90,7 @@ monetize. Being "better at matching" without cracking monetization just makes a 
 
 ## 3. Feature review (what's good vs. what will bite)
 
-Verdict on the current `share-a-flat.md` flow: **well-designed — arguably over-built for MVP.**
+Verdict on the current `flatmates.md` flow: **well-designed — arguably over-built for MVP.**
 
 **Genuinely strong (keep, lead with these):**
 - **Anti-broker guardrails** (`MAX_ACTIVE_HOST_SHARES=3`, address-fingerprint dedup, cross-host
@@ -150,12 +150,12 @@ Discovery is free bait. Money comes from **adjacent, higher-intent moments:**
 
 **Reality check:** flatmate ARPU is low. This feature's real job is **top-of-funnel + retention +
 brand**: acquire the young IT user **cheaply and repeatedly**, then monetize when they graduate to
-renting a whole flat or buying. **Flat-share = acquisition wedge; rent/buy = monetization.** A
+renting a whole flat or buying. **Flatmate = acquisition wedge; rent/buy = monetization.** A
 coherent, genuinely good strategy.
 
-## 6. Scorecard (flat-share vs. the buy/rent thesis)
+## 6. Scorecard (flatmate vs. the buy/rent thesis)
 
-| Dimension | Buy/Rent (doc 01) | **Flat-share (this doc)** |
+| Dimension | Buy/Rent (doc 01) | **Flatmate (this doc)** |
 |---|---|---|
 | Trust/KYC = feature or friction? | Friction ❌ | **Feature ✅** |
 | Differentiation | 4 | **7** |
@@ -169,7 +169,7 @@ coherent, genuinely good strategy.
 
 ## VERDICT — **This is your wedge. Lead with it.**
 
-Flat-share is materially more defensible than the buy/rent thesis: under-served, high-velocity, and
+Flatmate is materially more defensible than the buy/rent thesis: under-served, high-velocity, and
 **the one place the KYC/anti-broker obsession is an asset, not a tax.** The feature design is strong
 — arguably *too* strong (trim the Ops-heavy bits for MVP).
 
@@ -177,10 +177,10 @@ Flat-share is materially more defensible than the buy/rent thesis: under-served,
 > Can you get **100 verified flatmate listings live in the Hinjewadi-Wakad-Baner corridor in 60
 > days, by hand**, and convert even a handful into **one paid move-in service** (agreement/movers)?
 > - **Yes** → you've beaten GrabHouse's fatal flaw → scale the corridor playbook.
-> - **Listings come but nobody pays** → treat flat-share purely as a **cheap acquisition funnel**
+> - **Listings come but nobody pays** → treat flatmate purely as a **cheap acquisition funnel**
 >   for rent/buy monetization, and price your spend accordingly — don't expect it to pay its own way.
 
-**Reframe:** *Flat-share is not just a feature that "drives the IT crowd" — it's the
+**Reframe:** *Flatmate is not just a feature that "drives the IT crowd" — it's the
 **customer-acquisition engine and trust brand**, monetized indirectly via move-in services and
 later rent/buy graduation.*
 
@@ -209,5 +209,5 @@ later rent/buy graduation.*
 - [ ] **Explicitly do NOT** hold deposits or become the tenancy principal (Nestaway trap).
 
 **Framing**
-- [ ] Treat flat-share as the **acquisition wedge feeding rent/buy monetization**; set CAC
+- [ ] Treat flatmate as the **acquisition wedge feeding rent/buy monetization**; set CAC
       expectations accordingly (don't demand it pay its own way early).

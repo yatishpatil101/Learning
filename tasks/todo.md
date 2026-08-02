@@ -173,7 +173,7 @@ Added §9 to `docs/system/platform-architecture.md`:
 ## Feature/business-model reviews documented (docs/feature review/)
 - [x] Created "docs/feature review/" folder with README index.
 - [x] 01-business-model-kyc-thesis.md - skeptical VC review of "mandatory KYC everywhere" thesis for buy/rent; verdict PIVOT; incumbents keep spam because brokers=paying customers + liquidity>purity; includes scorecard, 3 failure/3 win scenarios, steel-man, implementation checklist.
-- [x] 02-share-a-flat-market-and-feature-review.md - flatmate market sizing (Pune SAM ~600-900k, high churn every 8-14mo) + feature review; verdict WEDGE-lead-with-it; KYC becomes an asset here; GrabHouse=monetization graveyard; corridor GTM (Hinjewadi-Wakad-Baner), women-safety hook, move-in-services monetization, MVP scope trims.
+- [x] 02-flatmates-market-and-feature-review.md - flatmate market sizing (Pune SAM ~600-900k, high churn every 8-14mo) + feature review; verdict WEDGE-lead-with-it; KYC becomes an asset here; GrabHouse=monetization graveyard; corridor GTM (Hinjewadi-Wakad-Baner), women-safety hook, move-in-services monetization, MVP scope trims.
 - Both docs are advisory (for founder review + later implementation), each ends with a lift-into-todo checklist.
 - Note: market numbers are reasoned estimates (informal market, no audited data) - flagged as assumptions in-doc.
 ## Trust model pivot: "verification as a badge, not a gate" (docs/system/trust-and-verification-model.md)
@@ -262,13 +262,13 @@ Added §9 to `docs/system/platform-architecture.md`:
 - No logic change (verified toggle unchanged). Build PASS.
 ## Page 8 — Consistency sweep (badge-not-gate) — DONE
 Live gates removed:
-- ShareFlat supply gate (useShareSupply.jsx): requireAadhaar -> requireSignedIn (L1 sign-in only, matches List Property). Removed isAadhaarVerified import, aadhaarGateOpen state, pendingSupplyAction ref, return exports; updated comments.
-- ShareFlat.jsx: removed dead <AadhaarVerifyModal> supply-gate block, destructured props (aadhaarGateOpen/pendingSupplyAction/setAadhaarGateOpen), and now-unused AadhaarVerifyModal import (fixed an accidental dup import).
+- Flatmates supply gate (useFlatmateSupply.jsx): requireAadhaar -> requireSignedIn (L1 sign-in only, matches List Property). Removed isAadhaarVerified import, aadhaarGateOpen state, pendingSupplyAction ref, return exports; updated comments.
+- Flatmates.jsx: removed dead <AadhaarVerifyModal> supply-gate block, destructured props (aadhaarGateOpen/pendingSupplyAction/setAadhaarGateOpen), and now-unused AadhaarVerifyModal import (fixed an accidental dup import).
 Stale copy/comment:
 - society.js header comment reworded from "Only Aadhaar-OTP KYC-verified users can add" -> "Any signed-in (L1) user can add".
 Orphaned i18n removed (en/hi/mr):
 - list-property.json: entire gate block (~30 keys, dead since Page 1).
-- shareflat.json: identityVerified, aadhaarGateSubtitle, aadhaarGateNote (dead after supply de-gate). All 6 files re-validated as parseable JSON.
+- flatmates.json: identityVerified, aadhaarGateSubtitle, aadhaarGateNote (dead after supply de-gate). All 6 files re-validated as parseable JSON.
 - Build PASS. Final grep: zero live gate logic (requireAadhaar/aadhaar_required/if(!isAadhaarVerified)) remains in app.
 
 FLAGGED for founder decision (intentionally NOT changed):
@@ -344,7 +344,7 @@ Playwright coverage for the new nudges/chip. Flow-diagram/doc updates intentiona
 - [ ] i18n (pre-existing, out of KYC scope): ProfileTab identity chips ("Mobile verified" / "ID verified" / "ID not verified" + PendingChip title tooltip) are still hardcoded — localize in a dedicated ProfileTab i18n pass.
 - [ ] Verification: no Playwright coverage yet for the verify funnel (modal → DigiLocker mock → badge earned → listings update). Add e2e spec.
 ## e2e — KYC badge-not-gate migration + mojibake fix (2026-07-28)
-- [x] Rewrote 4 obsolete gate specs -> badge-not-gate: list-property-no-gate, contact-badge-not-gate, share-flat-no-gate, share-flat-seeker-verify.
+- [x] Rewrote 4 obsolete gate specs -> badge-not-gate: list-property-no-gate, contact-badge-not-gate, flatmates-no-gate, flatmates-seeker-verify.
 - [x] Fixed 3 society specs (community, community-v2, location) from 'kyc' block to L1-allow.
 - [x] New kyc-growth-levers.spec.js (dashboard DigiLocker verify funnel). COVERAGE.md updated.
 - [x] tenant-profile.spec.js:48 rewritten OTP -> DigiLocker badge earn. 6/6 pass.
@@ -359,7 +359,7 @@ Playwright coverage for the new nudges/chip. Flow-diagram/doc updates intentiona
   - admin-users: bulk button renamed "Verify all" -> "Grant badge" (KYC migration) -> updated 3 regexes.
   - admin-reports "table shows report data": rows.count() is a NON-retrying snapshot taken before async listReports() populated -> wait for first row, then count.
   - admin-duplicates + property-dup-modal: addInitScript wrote a PARTIAL puneNestDB_v5 (only listings) before boot -> app boots on a 1-of-25-collections DB -> white-screen crash -> selector timeouts. Fixed by seeding the listing AFTER boot (merge into the full default DB), keeping only non-DB keys in addInitScript.
-  - Cookie-consent banner (fixed bottom-0 z-[1400]) intercepts bottom-of-page clicks + hides the Nestor FAB (max-sm:hidden) on mobile when consent unset -> seed pn_cookie_consent_v1 (established pattern) in auth-flow, flatmate-e2e, share-flat-interactions, assistant, photo-requests, property-dup-modal.
+  - Cookie-consent banner (fixed bottom-0 z-[1400]) intercepts bottom-of-page clicks + hides the Nestor FAB (max-sm:hidden) on mobile when consent unset -> seed pn_cookie_consent_v1 (established pattern) in auth-flow, flatmate-e2e, flatmates-interactions, assistant, photo-requests, property-dup-modal.
   - Dashboard sub-tabs migrated button -> role="tab" -> photo-requests + scheduled-visits use getByRole('tab').
   - feature-flags Map view + view-documents filenames: dual-render -> [title=...]:visible / .first().
   - search-property-types: test.slow() (6 sequential search flows starved under max parallel load).
@@ -400,3 +400,673 @@ Precedence SOT > Swagger > React. Full cross-domain enum/shape audit; drift repo
       fails at line 33 filling input[type="tel"] on /home-loans (form UI/harness issue).
       Not in my change set; the loans-team routing my A9 change touched is never reached.
       Flagged to user; needs separate investigation.
+
+---
+
+## Rename: "Share Flat" -> "Flatmates" (DONE)
+
+Product-wide rename of the flat-sharing feature. Functionality unchanged; only names,
+copy, files, routes and identifiers moved. Driven by a reviewed 119-entry replacement
+map (session `files/rename-map.tsv`) - explicit tokens only, no blanket `share` ->
+`flatmate` rule, so social sharing, document sharing, PG occupancy ("2-sharing"),
+"your share of the rent" and society share certificates were deliberately left alone.
+
+- [x] Route: `/flatmates` is now canonical; `/share-flat` kept as a permanent
+      redirect (`App.jsx`). This is the only remaining occurrence of the old name.
+- [x] Query param `?share=1` -> `?flatmate=1` on the list-property deep link.
+- [x] Ops route `/ops/share-review` -> `/ops/flatmate-review`.
+- [x] Files/folders renamed (52): `pages/consumer/shareflat/` -> `flatmates/`,
+      `ShareFlat.jsx` -> `Flatmates.jsx`, `ShareFlatSection.jsx` ->
+      `FlatmatesSection.jsx`, `lib/data/shareFlat.js` -> `flatmates.js`,
+      `OpsShareReview.jsx` -> `OpsFlatmateReview.jsx`, `ShareMap`/`ShareMapGate`/
+      `ShareAlertCard` -> `FlatmateMap`/`FlatmateMapGate`/`FlatmateAlertCard`,
+      `useShareFlat`/`useShareSupply`/`useShareDiscovery` -> `useFlatmates`/
+      `useFlatmateSupply`/`useFlatmateDiscovery`, i18n `shareflat.json` ->
+      `flatmates.json` (x3), 21 e2e specs, 2 docs.
+- [x] Identifiers: two request families disambiguated - seeker's own post is now
+      `FlatmatePost*` (`getFlatmatePosts`, `saveFlatmatePost`, ...), the host's
+      inbound queue is `FlatmateRequest*` (`getFlatmateRequests`,
+      `decideFlatmateRequest`, ...). They previously differed only by the word "Flat".
+- [x] localStorage keys `puneNestShare*` -> `puneNestFlatmate*`.
+- [x] i18n root key `shareFlat` -> `flatmates`; copy translated in en, hi and mr
+      (Devanagari product-name strings were rewritten too, not just the English).
+- [x] Backend OpenAPI: `/share-flat/posts` -> `/flatmates/posts`, `ShareFlatPost`
+      -> `FlatmatePost`, operationIds updated.
+- [x] Docs re-synced (`docs/flows/consumer/flatmates.md`, feature review, data-model,
+      coverage matrix, e2e COVERAGE.md).
+
+### Deliberately NOT renamed (judgement calls - raise if you disagree)
+- [ ] Natural verb/adjective copy that is not the product name: "your share of the
+      rent", "shared flats", "Share your flat & split the rent", "Sharing this flat?",
+      "Flatmate / Shared".
+- [ ] Internal enum values still spelled `'share'`: notification `type: 'share'`,
+      Saved-page `cat: 'share'`, the notifications filter key, and `linkCls('share')`.
+      Renaming these would orphan already-persisted localStorage notifications and saved
+      cards for zero user-visible gain.
+- [ ] PG occupancy vocabulary ("2-sharing", "3-sharing", "Shared / common", "Alone").
+
+### Known caveat
+Renaming the localStorage keys means any data a user already had under
+`puneNestShare*` is not read anymore. Acceptable for the mock/prototype data layer,
+but worth a migration shim if this ships to real users.
+
+---
+
+## Mobile-only design improvements — Phase 2 (all remaining `mobile-design-review.md` items)
+
+Scope: every §F roadmap item not already shipped in Phase 1. Same hard constraint —
+desktop (≥`lg`, or ≥`sm` where the change is layout-shape) renders identically. Every
+mobile rule is either inside a `max-width` / `hover: none` media query or paired with an
+explicit `sm:`/`lg:` reset.
+
+### Systems built (consumed everywhere, never hand-tuned)
+- [x] **Overlays → bottom sheets below 640px.** One `@media (max-width: 639.98px)` block on the
+      shared `.pn-modal-backdrop` / `.pn-modal` classes converts all 7 consumer overlays at once
+      (ContactOwner, ScheduleVisit, AadhaarVerify, OwnerConsent, Report, ServiceTracker, Review)
+      with zero markup changes: bottom-docked, full-bleed, `88dvh` cap, top-rounded, grab handle,
+      `pnSheetUp` entry, safe-area bottom padding. Added to `prefers-reduced-motion`.
+- [x] **`components/ui/Modal.jsx`** (23 importers) does the same via base classes + `sm:` resets,
+      with a flex header/scroll-body/sticky-footer so the action row survives the keyboard.
+- [x] **`.reveal-on-hover`** utility under `@media (hover: none)` — kills hover-only affordances
+      on touch. Fine-pointer devices never match the query.
+- [x] **`.lp-step-actions`** — `position: sticky` (not `fixed`) wizard action row under
+      `@media (max-width: 1023.98px)`, docked to `--pn-bottom-inset`. Sticky keeps the row in
+      flow so it reserves its own space and can never cover the last field.
+- [x] **`lib/imgSrcSet.js`** — `srcSetFor()` rewrites the host's `w=` param into a srcset;
+      returns `undefined` for any URL it can't prove is resizable, so it is a pure enhancement.
+
+### Per-item
+- [x] **F#4 tap targets → 44px.** `Card` heart/compare, `ResultsArea` filters + view toggles,
+      `DealToggle`, `MobileFilterDrawer` close, `MobileField`, `ReviewsSection` chips,
+      `DocumentsSection` consent, `Signup` terms, `Saved` remove, `LocationPricingStep` deposit
+      quick-picks, `PriceInsights` EMI inputs, `PhotoUploader` delete, `MapGate` chips + inline
+      links, smart-search inline icons. All `base + sm:` reset.
+- [x] **F#5 wizard.** Sticky action row on all 6 steps; camera-capture "Take photo"; address
+      `autoComplete` tokens (`address-line1..3`, `postal-code`, `organization`); owner-consent
+      mobile → `type="tel"` + `autoComplete="tel-national"`.
+      Scroll-to-first-error was **already implemented** (`list-property/validation.js`).
+- [x] **F#9 listings filters.** Floating `Filters · N` pill in the thumb arc, docked to
+      `--pn-bottom-inset`, `lg:hidden`. The old in-bar `filtersBtn` was `lg:hidden` too, so it
+      was **deleted** — one control per width instead of two identical ones.
+- [x] **F#12 gallery.** Full-bleed 4:3 mobile hero (`-mx-4 sm:mx-0`), arrows `hidden sm:flex`,
+      tappable dot rail replacing the desktop thumbnail strip, `fetchPriority="high"` on the hero.
+- [x] **F#13 responsive images.** `srcSet` + `sizes` on listing cards and featured cards.
+- [x] **F#14 hover / `title=` sweep.** `CompareToggleBar`'s 4 icon-only controls had `title=` as
+      their **only** label — invisible on touch; now `aria-label` (+ `aria-pressed` on toggles).
+      Also `ResultsArea` view toggles, `ListingCard`, `InteriorRenovation`.
+- [x] **F#16 Saved.** Horizontally-scrolling 3-tab strip (third tab off-screen with no
+      affordance) → 3-up grid on phones, `sm:` restores the centred wrap.
+- [x] **F#20 footer accordion.** Columns 2–4 collapse below 640px via a local `FooterCol`
+      mirroring `ProfileTab`'s `CollapsibleCard`; `sm:block` panel + `sm:hidden` chevron.
+- [x] **F#11 progressive disclosure** — verified **already satisfied**: `PropertyTabs.jsx`
+      renders exactly one section at a time.
+
+### Bug found by the new tests (not in the review)
+- [x] The Nestor FAB (`.pn-assistant-slot`) **physically intercepted taps** on the new filters
+      pill — both were bottom-right. Pill moved to bottom-left. A real user could not have
+      opened filters on a phone.
+
+### Deferred, with reasons
+- [ ] **F#17 service worker** — manifest shipped in Phase 1; no SW. Listing freshness is the
+      trust signal in a marketplace; cache-invalidation risk outweighs the offline win.
+- [ ] **F#19 swipe-to-dismiss on sheets** — the grab handle is present and sheets close via
+      backdrop/X. Touch-drag gesture handling is real state machinery for a P2 win.
+- [ ] **F#22 CSS split** — `index.css` is large but bundled/minified; splitting is a build-level
+      change with no mobile-visible effect.
+- [ ] **F#23 mobile ops back-office** — explicitly out of scope.
+- [ ] **F#24 landscape sweep** — needs a fourth Playwright project; no landscape-specific
+      finding is currently open.
+
+### Verification
+- [x] `npm run build` green.
+- [x] `npx eslint` on all changed files — **0 errors**, 6 warnings, all pre-existing.
+- [x] New spec `e2e/tests/mobile-sheets-and-actions.spec.js` (sheets, filters pill, wizard
+      sticky row, gallery hero + dot rail).
+- [x] New desktop non-leak assertions in `desktop-noleak-guardrails.spec.js` — overlays stay
+      centred dialogs, filters pill absent, wizard actions `static`, footer chevron hidden,
+      gallery thumbnails visible / dot rail hidden, saved tabs `flex` not `grid`.
+- [x] **`mobile` + `mobile-small`: 84/84 passed.**
+- [x] `chromium` compared against the ~58-failure pre-existing baseline.
+
+### Test-harness fixes made along the way
+- `mobile-bottom-inset.spec.js` — `clear >= 0` → `> -1`. Measured value was **-0.140625**:
+  fractional layout rounding, not an overlap. Documented in the assertion.
+- Duplicate-link collision (the Phase-1 failure mode) recurred: the pill's accessible name
+  collided with the in-bar Filters button in `mobile-space-optimization.spec.js`. Fixed at the
+  root by removing the redundant control, not by loosening the locator.
+
+---
+
+## Home Phase 3 — Mobile: featured-first, search-on-demand (PLAN — awaiting approval)
+
+Mobile-only. Desktop (>= lg) untouched. Builds on Phase 1 (`--pn-bottom-inset`, BottomNav)
+and Phase 2 (sheet system, 44px ramp) — no new z-index values, no hand-tuned offsets.
+
+### The measured problem (dev server, real DOM)
+
+| viewport | first Featured card top | screens of scroll |
+|---|---|---|
+| 412x915  | y=1406 | 1.5 |
+| 360x640  | y=1446 | 2.3 |
+| 1440x900 | y=1292 | 1.4 (desktop — unchanged) |
+
+Mobile hero budget above the 915px fold: h1 92, sub 170 (52h), trust chips 246 (110h),
+search panel 386 (286h), map row ~672, chips ~720, stats 844 (52h), ticker, hero ends 990.
+The search panel alone is 286px — 31% of the first screen. And `section.hero-bg` carries
+`min-h-[100dvh]`, so even emptying it cannot shrink it below one full viewport. That
+min-height is the actual blocker, not the content.
+
+### Target mobile order
+
+Hero (h1 + one-line inventory proof + search trigger)
+-> **Featured properties**
+-> Trust chips + stats
+-> Browse by type (Categories)
+-> Societies -> Recently viewed -> Flatmates -> WhyChooseUs -> ... (unchanged)
+
+Projected first card top: ~400px on 412x915 — one full card plus part of a second visible
+without scrolling. Desktop order stays Categories -> Featured.
+
+### Work items
+
+- [ ] **P0-1 Release the hero height.** `section.hero-bg` `min-h-[100dvh]` -> mobile auto,
+      `lg:min-h-[100dvh]` restores desktop. Verify the decorative `.shape-*` layers and the
+      bottom gradient still read correctly at the shorter height.
+- [ ] **P0-2 Featured above Categories on mobile via CSS `order`.** Wrap the two sections in
+      `flex flex-col`; `order-1`/`order-2` below lg, `lg:order-none`. DOM order is left
+      untouched, so desktop DOM + visuals + every existing desktop spec are unaffected.
+      Trade-off: on mobile the screen-reader order stays Categories->Featured while the
+      visual order flips. One section's divergence — see Q6.
+- [ ] **P0-3 Remove the inline search panel on mobile.** `HeroSearch` gets
+      `hidden lg:block`... — decision pending Q1. It stays mounted for desktop; nothing about
+      its internals, its `#hero-search-input`, its combobox a11y or its sticky "I'm done" bar
+      changes. Every desktop spec that drives `.hero-search-wrap`
+      (`home-entity-search`, `location-recovery`, `qa-location-search`,
+      `search-property-types`, `home-search-combobox`) runs in the `chromium` project at
+      1440 wide and is therefore unaffected.
+- [ ] **P0-4 Search sheet + bottom-nav wiring.** Reuse the Phase 2 `ui/Modal.jsx` sheet
+      variant; render `HeroSearch` inside it. BottomNav's Search slot on Home opens the
+      sheet instead of focusing `#hero-search-input`; on every other route it keeps
+      navigating to `/listings`. BottomNav lives outside the Home tree, so the trigger uses
+      the codebase's existing cross-component channel — a `window` CustomEvent, same
+      pattern as the `pn:store` badge bus — rather than a new context provider.
+      `aria-current` on `/listings` is unchanged; the Home trigger gets `aria-expanded`.
+- [ ] **P0-5 Relocate the trust chips + stats.** `.hero-trust` (4 chips) and `.hero-stats`
+      (11,240+ / verified owners / localities) move below Featured on mobile, `lg:` restores
+      them to the hero. Placement rationale: the "is this real?" objection fires *after* a
+      user has seen listings, not before. WhyChooseUs already covers the same ground much
+      further down — duplicating there would be weaker, not stronger.
+- [ ] **P0-6 Keep the inventory count in the hero.** `p.hero-sub`'s "11,240+ verified
+      properties" is inventory proof, not marketing — it stays, compressed to one line on
+      mobile. (`city-propagation.spec.js` asserts on `p.hero-sub`; it must keep rendering.)
+- [ ] **P1-7 Fix eager loading of the first Featured image.** `Featured.jsx:40` sets
+      `loading="lazy"` on every card. Once card 1 is above the fold that is actively
+      harmful — it delays the one image the 3-second rule depends on. First card ->
+      `loading="eager"` + `fetchPriority="high"`, rest stay lazy.
+- [ ] **P1-8 Trim the skeleton on mobile.** `featuredProperties(6)` renders 6 skeleton cards
+      while loading. Above the fold that is a wall of grey. Show 2 on mobile, 6 at `sm:`.
+- [ ] **P1-9 Move "Explore properties on map" + the popular/recent chip row into the search
+      sheet** on mobile — they are query starters and a search modality, meaningless
+      detached from the search context. `lg:` keeps them in the hero. See Q4.
+- [ ] **P2-10 i18n** for any new label in `en`, `hi`, `mr`. 44px minimum on the search
+      trigger and every new control.
+
+### Verification
+- [ ] Update `mobile-bottom-nav.spec.js:65` — "Search on Home focuses the hero search" is
+      the exact behaviour being replaced; it becomes "opens the search sheet".
+- [ ] New mobile assertions: first `.property-card` top < viewport height on 412x915 **and**
+      360x640; `.hero-search-wrap` not visible on Home; sheet opens from the Search slot and
+      still runs a real search; trust chips render below Featured.
+- [ ] New desktop assertions in `desktop-noleak-guardrails.spec.js`: inline search panel
+      present, Categories before Featured visually, chips in the hero, hero >= 100dvh.
+- [ ] Run `mobile`, `mobile-small`, `chromium`. Baseline: 84/84 mobile green; ~58
+      pre-existing `chromium` failures (`list-property-*`, map/geocode, `auth-*`) — flag
+      only NEW ones.
+
+### Open questions — need your call before I write code
+
+- **Q1 (the big one). Does a slim search trigger stay in the hero?** Your ask was to remove
+  the panel and reach search only from the bottom nav. My recommendation is to remove the
+  286px *panel* but keep a single-row search *pill* (~56px, looks like a field, is a button)
+  that opens the same sheet. Reason: a property site with no visible search box on home
+  reads as broken to a first-time visitor, and the bottom-nav magnifier is an unlabelled
+  second-guess. It costs ~56px of the ~546px we reclaim. **Pill (recommended) / bottom-nav
+  only (your literal ask)?**
+- **Q2. Trust chips destination** — directly below Featured (recommended), or folded into
+  the existing WhyChooseUs section further down?
+- **Q3. The `.hero-stats` trio** duplicates the count already in `hero-sub`. Drop it on
+  mobile entirely, or move it down with the chips (recommended)?
+- **Q4. Recent searches.** For a returning visitor the recent-search chips are a strong
+  one-tap re-entry hook and cost ~50px. Move them into the sheet with everything else
+  (simpler), or keep that row above the fold only when recent searches exist?
+- **Q5. `ActivityTicker`** (live "someone just enquired in Baner" social proof, ~60px, end of
+  the hero) — keep in the mobile hero, or move below Featured with the other proof?
+- **Q6. `order` a11y trade-off.** P0-2 keeps DOM order and flips visual order on mobile, so
+  the mobile screen-reader order stays Categories->Featured. The alternative is to reorder
+  the DOM (Featured first, correct for mobile SR) and use `lg:order-*` to restore desktop
+  visuals — but that changes the desktop DOM, which your constraint 1 discourages. I
+  recommend keeping the DOM as-is. Confirm?
+- **Q7. Does the sheet stay Home-only this phase?** Page-by-page discipline says yes.
+  Promoting it to `ConsumerLayout` so Search opens a sheet on *every* route is a bigger,
+  better change — but it is a separate phase.
+
+
+---
+
+# Mobile-only design improvements — Phase 3 (cross-cutting sweep)
+
+Source: `mobile-design-review.md` §B/§D/§F, re-audited against the tree after Phase 2.
+Several review rows were already satisfied and were struck rather than re-implemented:
+F#21 (h-scroll arrows already hidden on `pointer: coarse`), §B row 55 (Categories already
+has an `sm:hidden` "View All"), §B row 125 and J2 (`autoComplete` tokens already present).
+
+Desktop evidence for every item lives in `e2e/tests/desktop-noleak-guardrails.spec.js`;
+mobile evidence in `e2e/tests/mobile-phase3.spec.js` and `mobile-topbar-scroll.spec.js`.
+
+## Wave H — finish the bottom-widget stack
+- [x] `FinancesTab` "Add transaction" FAB docked to `--pn-bottom-inset` and moved to the
+      left, out of the Nestor FAB's corner (it was at `z-40`, under the `z-70` tab bar).
+- [x] `LegalPage` "Back to top" FAB docked the same way, via an arbitrary-value Tailwind
+      class so the `lg:` reset can still win. Repo-wide sweep found no other offenders.
+      `ToastContext` left alone deliberately — at `z-1600` it cannot be intercepted.
+
+## Wave P — top navbar hide-on-scroll (user-approved)
+- [x] Mirrored the bottom-inset system at the top: `--pn-nav-h` / `--pn-top-inset`, a
+      `.pn-topbar` transform and a `.pn-nav-hidden` root class, all inside
+      `@media (max-width: 1023.98px)` so the class is inert on desktop.
+- [x] Five sticky sub-headers (`Property`, `Society`, `EnquiriesPanel`, `EmiCalculator`,
+      `ResultsArea`) gained `.pn-docks-under-nav` and rise with the bar.
+
+## Wave I — pickers and control sizing
+- [x] `DatePickerDialog` / `TimePickerDialog` become bottom sheets below 640px; both
+      `place()` helpers bail at that width and clear their inline anchor styles first.
+- [x] Select/MultiSelect sheet conversion **rejected** in favour of ramping `--control-h`
+      40px -> 44px on mobile: one line lifts all 12 consumers, including every dropdown
+      option, which was the actual sub-minimum target.
+
+## Wave J — forms and keyboards
+- [x] `enterKeyHint` on `MobileField`, Signin, Signup, HeroSearch, flatmate search,
+      Messages search and the chat composer. Not added to textareas, where Enter inserts
+      a newline and "send" would lie.
+
+## Wave K — auth
+- [x] `.pn-auth-submit` pins the Signin/Signup submit below the `lg` breakpoint so the
+      software keyboard cannot bury the primary action.
+
+## Wave L — wizard
+- [x] Mobile compaction of the (already sticky) `.lp-meter`: tier icon, encouragement line
+      and milestone scale hidden, padding tightened, docked to `--pn-top-inset`.
+- [ ] `l2` map-pin full-screen sheet — NOT STARTED. `LocationPicker` sits inside the
+      `list-property-*` cluster that has ~36 pre-existing desktop failures, so a change
+      there cannot be verified against a trustworthy baseline. Needs the baseline fixed first.
+- [ ] `l3` autosave draft survival across a mobile tab eviction — NOT STARTED.
+
+## Wave M — property owner card
+- [x] Profile link, WhatsApp button and tenant-badge link all clear 44px on mobile and
+      drop the sub-13px interactive type, with `sm:` resets restoring desktop.
+
+## Wave Q — touch feedback
+- [x] `-webkit-tap-highlight-color: transparent` plus an explicit `:active` opacity for
+      interactive elements, inside `@media (hover: none)`.
+
+## Wave R — drag to dismiss
+- [x] New `frontend/src/lib/useSwipeDismiss.js`, consumed by the shared `Modal` sheet
+      (drag down) and `MobileFilterDrawer` (drag left). Pointer capture is taken on the
+      first qualifying move, never on pointerdown, so taps on controls inside still work.
+- [ ] `n1` swipe-to-remove on Saved — DEFERRED. Destructive-by-gesture needs an undo
+      affordance to be safe, and the existing remove button already does the job.
+
+## Declined by the user
+- Signed-out Saved empty state (keep the sign-in redirect).
+- Dashboard mobile hub (finish cross-cutting work first).
+
+## Verification
+- `npm run build` green; `eslint` on all changed files: 0 errors.
+- `mobile` + `mobile-small`: **112 passed, 4 skipped, 0 failed**.
+- `chromium` full suite: 66 failed / 856 passed. The 11 failures outside the known
+  `list-property-*` / map / `auth-*` clusters were re-run against a `git stash`ed clean
+  tree and failed **identically**, so there are no new desktop regressions.
+- `desktop-noleak-guardrails` + `feature-flags`: 40 passed, 4 skipped.
+
+### Two real leaks the guardrails caught (and how they were resolved)
+1. `.lp-meter` was already `position: sticky` at every width — my mobile block re-declared
+   it, and the redundant declaration masked that fact. Removed; the mobile block now only
+   compacts.
+2. A desktop assertion on `-webkit-tap-highlight-color` was dropped: Chrome computes it as
+   `rgba(0, 0, 0, 0)` by default on pointer devices, so it cannot distinguish "our rule
+   applied" from "browser default". The `@media (hover: none)` bound is the real guarantee.
+
+## Phase 4 — remaining `mobile-design-review.md` items
+
+### §F #24 — Landscape phones + dynamic type ✅ DONE
+
+- [x] **Root cause found by measurement, not by reading the review.** A rotated phone was
+      spending **31–34% of its height on chrome** (measured on the running app: 128px of a
+      412px viewport, 121px of a 360px one). The cause was *not* the bottom bar — the top
+      navbar's height bump keys off `min-width: 768px`, and a landscape handset is ~915px
+      wide, so it was being served the **72px desktop navbar on a 412px-tall screen**.
+- [x] **Bar height moved off an inline style onto the token.** `BottomNav.jsx` had
+      `const NAV_H = 56` applied as `style={{ height: NAV_H }}` on every slot. An inline
+      style outranks any stylesheet, so shrinking `--pn-bottom-nav-h` would have shrunk the
+      bar while leaving the tabs at 56px. Replaced with `.pn-bottom-nav__tab { height:
+      var(--pn-bottom-nav-h) }` — the bar's height is now genuinely token-owned, which is
+      what `--pn-bottom-inset` has always reserved against.
+- [x] **Landscape block** `@media (orientation: landscape) and (max-height: 500px) and
+      (max-width: 1023.98px)`: `--pn-nav-h: 52px`, `--pn-bottom-nav-h: 44px`, labels hidden
+      (icon-only), raised FAB drops 56→44px so it stops overhanging a shorter bar.
+- [x] **Navbar height and the docking token move together.** The navbar's real height is
+      `h-16 md:h-[72px]` on an inner div; `--pn-nav-h` only tells sticky sub-headers where
+      to dock. Changing one alone would have slid every sub-header *under* the navbar.
+      Added a `pn-topbar__row` hook and set both. Needed a two-class selector
+      (`.pn-topbar .pn-topbar__row`) — measured that a one-class rule beat `h-16` at 640px
+      but *lost* to `md:h-[72px]` at 915px.
+- [x] **Dynamic type.** The bottom-bar label was `text-[10px]`. A px font-size is immune to
+      the browser/OS font setting — that reads as "safe" because nothing ever overflows,
+      but it *is* the accessibility failure. Converted to `0.625rem` (identical at default)
+      so it scales, plus `nowrap` + `text-overflow: ellipsis` so it degrades gracefully.
+- [x] **Fixed a latent clipping bug the new test exposed.** `leading-none` (line-height: 1)
+      is shorter than the font's ascent+descent, so all five labels clipped their glyph
+      extents. Invisible at 10px, obvious at 20px. Now `line-height: 1.2`.
+
+**Results (measured, before → after)**
+
+| Viewport | Chrome before | Chrome after | Content gained |
+|---|---|---|---|
+| 915×412 landscape | 128px (31%) | 96px (23%) | +33px |
+| 640×360 landscape | 121px (34%) | 96px (27%) | +25px |
+| 412×915 portrait | 120px (13%) | **unchanged** | — |
+| 1440×900 desktop | 72px | **unchanged** | — |
+| 1024×768 tablet landscape | 72px | **unchanged** | — |
+
+**Verification**
+- `npm run build` green; eslint 0 errors (4 pre-existing `Navbar.jsx` warnings at 375/438).
+- New `e2e/tests/mobile-landscape.spec.js` — 7 tests × 2 projects = **14 passed**.
+- 4 new desktop guardrails in `desktop-noleak-guardrails.spec.js`, each proving one guard
+  of the media query independently (short-desktop, landscape-tablet, 1440×900, bar absent).
+- `mobile` + `mobile-small`: **124 passed, 0 failed**.
+- `chromium` guardrails + feature-flags + bottom-nav: **44 passed, 0 failed**.
+
+**Known limitation — needs a design decision (NOT a bug to silently fix)**
+- [ ] At 200% font scale the **raised centre "Post" slot** cannot fit its 56px circle plus a
+      24px label inside a 56px bar (needs ~74px), so that one label is squeezed. The other
+      four tabs are clean. The fix is a design call — drop the redundant text under an
+      already `aria-label`led FAB, the way Instagram/YouTube do — so it is left visible at
+      default type and the spec documents the exemption rather than asserting a false pass.
+      **Awaiting user decision.**
+
+### §F #17 — PWA / service worker ✅ DONE (`vite-plugin-pwa` 1.3.0, devDependency)
+
+Decision: use `vite-plugin-pwa` rather than a hand-rolled `sw.js` — it gives update
+handling and precache revisioning that would otherwise be hand-maintained. Configured in
+`frontend/vite.config.js` as a named `pwaPlugin()` alongside the existing `persistPlugin()`.
+
+- [x] **Data is never cached.** `/api/*` is `NetworkOnly` and is the *first* runtime rule, so
+      no later rule can claim it; `navigateFallbackDenylist` stops a navigation to `/api/*`
+      being answered with `index.html`. Matched on `url.pathname`, not a regex over the
+      whole URL — a bare `/^\/api\//` never matches `http://host/api/...` and would fail
+      **open**. Also covers the dev-only `/api/__persist/` endpoint by the same prefix.
+      **Proven, not assumed:** fetched `/api/__persist/probe_key`, then walked every Cache
+      Storage entry — `leaked: false`.
+- [x] **Established now, while it is cheap.** The app is still on mock data, so there is no
+      data layer to cache wrongly yet. The `/api/*` boundary is written and tested *before*
+      the real backend exists, so when it lands the correct behaviour is already in place.
+- [x] **Selective precache, not all 7 MB.** `globPatterns` allowlists the initial load
+      graph only (9 entries, 2.45 MB). Lazy route chunks are `CacheFirst` on first use —
+      safe because Vite filenames are content-hashed, so a URL can never point at different
+      bytes.
+- [x] **Unsplash listing photography** `CacheFirst`, capped at 80 entries / 14 days so a
+      long browsing session cannot fill the device storage quota.
+- [x] **`manifest: false`** — `public/manifest.webmanifest` already existed and `index.html`
+      already linked it. Generating a second one would create two sources of truth.
+- [x] **`registerType: 'autoUpdate'`** — the shell must never lag the deployed API contract,
+      and a reload loses nothing, so update silently rather than nagging.
+- [x] **`orientation: portrait-primary` → `any`** (user decision). The lock would have made
+      the landscape CSS dead code for installed users — exactly the audience the PWA targets.
+- [x] **`devOptions.enabled: false`** — a worker on the dev server would serve stale chunks
+      after an edit and make all ~900 specs nondeterministic. Verified empirically: dev
+      reports `regs: 0, controlled: false, caches: []`.
+
+**Measured against a production build (`npm run build && npm run preview`)**
+
+| Check | Result |
+|---|---|
+| SW registers + controls page | ✅ scope `/`, active, controlled |
+| Precache | 9 entries, 2.45 MB |
+| `/api/*` in any cache | ✅ **never** |
+| Offline reload after 1 visit | ✅ h1 + bottom nav render (4.4 kB text) |
+| Offline deep link to an unvisited route | ⚠️ blank — chunk was never fetched |
+| Dev server service workers | ✅ 0 registrations |
+
+**Fixed along the way:** the first offline attempt rendered a *blank white screen* — worse
+than a browser offline page, because it reads as "broken app". Traced with a request-failure
+log (not guesswork) to three uncached chunks. `home-*` was an oversight; `vendor-charts` and
+`vendor-jspdf` turned out to be **static** imports of the entry chunk.
+
+**Verification:** build green · new `e2e/tests/mobile-pwa.spec.js` **10/10** (both mobile
+projects) · full mobile suites **149 passed, 0 failed** · desktop guardrails + chart/PDF
+consumers **75 passed, 0 failed**.
+
+**Harness lesson:** a first run showed *16 failed / 9 flaky in 14.2 min*. Cause was three
+orphaned Vite dev servers (one on port 3322) all polling the tree at 300 ms — not a
+regression. After killing them: **149 passed / 0 failed in 3.8 min**. Check for orphaned
+servers before believing a broad, scattered failure set.
+
+- [ ] **NEW FINDING — bundle bug, not shipped as part of this.** The entry chunk *statically*
+      imports `vendor-charts` (189 KB) and `vendor-jspdf` (382 KB) through
+      `services/providers/mock/financeProvider.js → lib/data/finances.js → jspdf`, and both
+      are `modulepreload`ed in `index.html`. **Every mobile visitor downloads 571 KB of
+      charting and PDF code before the Home page paints.** Making that provider chain lazy
+      would cut first-paint payload by ~571 KB and shrink the precache from 2.45 MB to
+      ~1.9 MB. Not done here: it touches the services layer and needs its own verification
+      pass against the ~58–66 failure desktop baseline. Tracked as `bundle-eager-vendors`.
+
+## Bundle — eager vendor chunks (571 KB off first paint)
+
+- [x] **Root cause was NOT the import chain alone.** Two distinct bugs, one shared mechanism:
+  `manualChunks` left shared runtime modules unassigned, so Rollup folded them into a
+  vendor chunk, which then dragged that whole chunk into the entry.
+  - `react/jsx-runtime` -> `vendor-charts` (189 KB). The `vendor-react` rule matched
+    `react-dom`/`react-router`/`scheduler` but **not plain `react`**.
+  - `vite/preload-helper` -> `vendor-jspdf` (382 KB). Not under `node_modules`, so the
+    `if (!id.includes('node_modules')) return;` guard skipped it entirely.
+- [x] `frontend/vite.config.js` — pin both to `vendor-react`; match `react` via
+  `/node_modules\/react\//` (precise, so `react-chartjs-2` is unaffected); chart rule kept
+  before the react rule.
+- [x] `frontend/src/lib/data/finances.js` — `exportStatementPDF` now `async` with
+  `await import('jspdf')`. This module is in the eager graph via the mock provider registry
+  (`import.meta.glob(..., { eager: true })`), so a static import put jsPDF in front of first paint.
+- [x] `frontend/src/components/dashboard/FinancesTab.jsx` — `doExportPDF` awaits, so the
+  "PDF downloaded" toast stays truthful.
+- [x] PWA precache: dropped `vendor-charts-*` / `vendor-jspdf-*` from `globPatterns`
+  (they are genuinely lazy now, so precaching them would cost a real 571 KB on install).
+
+### Measured
+
+| Metric | Before | After |
+|---|---|---|
+| Entry static imports | vendor-react, vendor-charts, vendor-jspdf | **vendor-react only** |
+| `modulepreload` tags in `dist/index.html` | 3 | **1** |
+| charts/jspdf requested on Home | yes | **none** |
+| PWA precache | 2508 KB (9 entries) | **1938 KB (7 entries)** |
+
+### Verification
+- Traced with Rollup's real module graph (`getModuleInfo` importers), not grep. After the fix
+  jspdf/chart.js/react-chartjs-2 all report "reachable dynamically only".
+- Offline-after-one-visit still OK against a production preview (h1 renders, 170 KB HTML).
+- chromium chart/PDF specs: 88 passed, 1 flaky, **1 failed**.
+- mobile + mobile-small: 142 passed, 4 skipped, **0 failed**.
+- desktop-noleak-guardrails + feature-flags: 48 passed.
+
+### Pre-existing failure (proven, not absorbed)
+`dashboard-owner-finances.spec.js:59` — `getByText(/days? overdue/)` not found. Proven
+pre-existing by `git stash`-ing only the three changed files and re-running: identical
+failure without the changes. Date-dependent due seeding; unrelated to this work.
+
+### Known gap — PENDING VERIFICATION
+No automated guard against this regressing. `manualChunks` only applies to `vite build`, so
+it is invisible to the Playwright dev-server suites. Re-check manually after dependency or
+chunking changes:
+`cd frontend && npm run build` then confirm `dist/index.html` has exactly one
+`modulepreload` (vendor-react).
+
+### Phase 3 (Home: featured-first, search-on-demand) � SHIPPED
+
+- [x] Hero `min-h-[100dvh]` -> `lg:min-h-[100dvh]` (the actual blocker)
+- [x] `HeroSearchPanel.jsx` extracted � one source of truth for hero + sheet
+- [x] `TrustProof.jsx` � chips/stats relocated below the Featured rail on mobile
+- [x] `MobileSearchSheet.jsx` � full-height portal at z-1500, opened by bottom-nav Search via `pn:open-search`
+- [x] Categories/Featured reordered with CSS `order` (DOM untouched, desktop identical)
+- [x] First featured image eager + 2 skeletons on phones
+- [x] `HeroSearch` gained `idPrefix` so the sheet copy cannot collide with the hero's ids
+- [x] i18n `home.search.sheetTitle` / `closeSheet` in en/hi/mr
+
+Measured first `.property-card` top: 412x915 1406 -> 436; 360x640 1446 -> 436; 1440x900 1292 -> 1292 (unchanged).
+
+Verification: mobile + mobile-small full suite 148 passed / 1 fixed flake; chromium
+`desktop-noleak-guardrails` + `home-search-combobox` + `home-entity-search` + `feature-flags` 55 passed.
+Full chromium suite not re-run end-to-end (~23 min, ~58 known pre-existing failures) � the
+specs that could plausibly regress from this change were run and are green.
+
+## Home � mobile vertical rhythm (done)
+- [x] Hero: marketing sentence swapped for the 4 proof chips below lg ( + "hidden lg:block" +  on  + "p.hero-sub" + ).
+- [x] Chips redesigned as a borderless 2x2 checklist (tinted icon disc + short label), after
+      pills-scatter and ruled-panel attempts were both rejected. New  + "*Short" +  i18n keys in en/hi/mr.
+- [x] Featured subtitle hidden below lg (restates the rail beneath it).
+- [x] Standardised the rhythm on two tokens, mobile-only (@media max-width 639.98px):
+       + "--section-gap" +  2.5rem -> 1.75rem, new  + "--section-head-gap" +  1.25rem via  + ".section-head" + .
+      Replaced four ad-hoc header margins (mb-3/6/8/10) across Categories, Societies,
+      RecentlyViewed, Featured, Testimonials, WhyChooseUs, FaqSection; each keeps its exact
+      desktop value as a paired  + "sm:mb-*" + .  + ".section-y-m" +  pulls FaqSection's hard-coded py-16 onto
+      the token. Hero pb-12 -> pb-7, CTA/Flatmates inner gaps ramped with sm: resets.
+- Verified: mobile + mobile-small full suite 151 passed / 1 flaky (pre-existing touch-feedback
+  cluster) / 4 skipped. chromium desktop-noleak + city-propagation + home: 31 passed, 4 skipped,
+  including a new guard that desktop header gaps stay varied at 12/24/32/40px and --section-gap
+  stays 2.5rem. eslint clean.
+
+## Fix � Flatmates section rendered raw i18n keys (done)
+- [x] Renamed  + "home.shareFlat" +  ->  + "home.flatmates" +  and  + "lookingToShare" +  ->  + "lookingForFlatmate" +  in
+      en/hi/mr  + "home.json" + ; refreshed the badge copy that still said "Share a Flat".
+- [x] Added  + "
+pm run check:i18n" +  static checker + a runtime raw-key guard on Home.
+- Pre-existing: introduced by the flatmates rename, not by the mobile spacing work.
+
+## Re-sync docs + OpenAPI to the flatmates redesign & mobile-first UI (DONE)
+
+Docs-only pass. Zero source changes; `docs/flows/**` are documented FROM React source, so they were
+re-derived from the current code rather than written to a target model.
+
+### Audit (3 parallel read-only subagents)
+- [x] `docs/system/design-system.md` vs `styles/index.css` + `components/ui/*`.
+- [x] OpenAPI vs the whole flatmates domain (model/hooks/data/admin/ops).
+- [x] Every other `docs/flows/**` doc vs its source.
+
+### Consumer flows
+- [x] `flows/consumer/flatmates.md` - rewritten. Three tabs (Flatmates/Rooms/Groups) -> two feeds
+      `move-in` / `team-up` split by "is there an address yet?"; `PostChooser` single posting entry;
+      `roomKind` / `priceBasis` / `occupancy` + the flat occupancy ledger; the owner flat-split;
+      `ShareIntent` (solo/bring/match) on room enquiries; the Verified pill is now the shared
+      DigiLocker badge (`AadhaarVerifyModal`), not a seeker OTP; alerts, reporting, raiseHint,
+      cross-tab rescue, joint-agreement reissue, vacant-home disclosure.
+- [x] `list-property-wizard.md` - `share=1` -> `flatmate=1` (and it does **not** preset
+      `hostRole: 'tenant'`); success screen no longer always auto-navigates; per-step flatmate
+      validation is two-tier; added the `PostSuccessSplitNudge` -> `splitFlat` section.
+- [x] `dashboard-owner-hub.md` - panel inventory; the unified Requests inbox + `LeadSheet`;
+      My Listings type filter and the "Let room by room" / "Stop letting room by room" controls.
+- [x] `saved-alerts.md` - alert tabs `move-in`/`team-up` (+ legacy aliases), `normalizeTab` on
+      "View matches", Saved category `share` -> `flatmates`, swipe-to-remove with undo.
+- [x] `search-listings.md` - the "Discover flatmates" pill is gone (bottom-nav slot replaced it);
+      mobile filter FAB; component list.
+- [x] `property-detail.md` - component list + shared ReportModal adapter; the flat-share teaser
+      (`/flatmates?startGroup=1&...`); mobile sticky CTA / docked tab rail.
+- [x] `rent-agreement.md` - the joint-agreement reissue entry + a new 5.8; flagged that
+      `useRentAgreement.js` reads only `invite`/`listing`, so `flat` + `reissue` are **inert today**.
+
+### Admin / ops
+- [x] NEW `flows/admin/flatmates-moderation.md` - `/admin/flatmates` had no doc at all. Records the
+      honest gap: rooms (now the primary Move-in supply) live in localStorage and are invisible there.
+- [x] `flows/ops/service-queues.md` - four queues, not three; `/ops/flatmate-review` route + no
+      TeamRoute **and** no data narrowing; new 5.3 for the flatmate verification desk.
+- [x] `flows/admin/trust-safety-reports.md` - intake is the shared `components/ReportModal.jsx` with
+      per-surface reason sets; `REPORT_REASONS` in `lib/data/reports.js` is now an unused export.
+
+### System docs
+- [x] `system/design-system.md` - `--control-radius` is 10px not a pill; `--control-h` ramps to 44px
+      below 640px; documented the 3-tier button system; added the whole mobile-first section
+      (bottom/top chrome tokens, the four sheet shells, tap-target rules, hover-is-not-an-affordance,
+      sticky action rows, floating-glass bottom nav, landscape height budget, safe areas, `dvh`,
+      dual-render, rhythm/type, reduced motion, Devanagari, route-scoped CSS, primitives inventory).
+- [x] `system/data-model.md` - flatmate entity -> schema map split into four rows.
+
+### OpenAPI (1.2.0 -> 1.3.0)
+- [x] `FlatmatePost`/`FlatmatePostCreate` -> `FlatmateSeekerPost`/`Create` (they modelled a room, the
+      store holds a seeker requirement - semantically inverted).
+- [x] New: `FlatmateTab`(+`Legacy`), `RoomKind`, `PriceBasis`, `Occupancy`, `HostRole`,
+      `VerificationTier`, `ShareIntent`, `FlatmateMoveIn`, `FlatmateModStatus`, `FlatmateRoom`(+Create),
+      `FlatmateGroup`(+Create), `AgreementDoc`, `FlatSplitRequest`/`Result`, `FlatmateInterestCreate`,
+      `FlatmateRequest`, `FlatmateReview`, `FlatmateAlertCriteria`, `GroupApplication`, `HostEligibility`.
+- [x] `SavedSearch`/`Create` gain `kind`/`criteria`/`label`/`mobile` + an `sms` channel;
+      `Notification.type` documents the `share`/`listing`/`service` surface tags.
+- [x] 28 new/changed operations: the tab-aware `/flatmates/feed`, seeker post CRUD, rooms + groups
+      supply, seats/occupants/agreement-reissue, owner consent, interest/join, the host inbox
+      (`/me/flatmate-requests`), the flat split under Listings, and the ops/admin moderation desks.
+- [x] Validated: 161 paths / 133 schemas / 596 refs / **0 unresolved, 0 unused**, no YAML-1.1 boolean
+      enums, no new duplicate operationIds.
+
+### Index + link hygiene
+- [x] `docs/README.md` + `docs/coverage-matrix.md`: 27 -> 28 flow docs (16 consumer, 10 admin, 2 ops).
+- [x] Fixed 25 **pre-existing** dead links (`system/app-architecture.md`, `system/domain-model.md`,
+      `system/api-contract.md`, `flows/_TEMPLATE.md` - all deleted in earlier sessions). Link check
+      across `docs/**` is now 0 broken.
+
+### Verification
+- No source files changed, so no lint/build/Playwright run is applicable to this task. Checks run:
+  OpenAPI parse + ref/unused/enum/opId audit, and a full relative-link check over `docs/**`.
+
+### Findings handed back (source-side, NOT fixed here)
+- [ ] `/services/rent-agreement?flat=&reissue=1` params are never read - the CTA opens a blank wizard.
+- [ ] Room `share` intent is dropped by `addFlatmateRequest`; it survives only in the chat opener.
+- [ ] `occupancyOf` collapses a stored `'filling'` to `occupied` (enum is `empty|occupied` at rest).
+- [ ] `AdminFlatmates` reads `rawDb()` while the consumer flows write localStorage - rooms are
+      invisible to admin moderation.
+- [ ] Dead artefacts: `list-property/step1/FlatmateFields.jsx` (no importers),
+      `listings/QuickFilters.jsx` (empty file), `REPORT_REASONS` in `lib/data/reports.js` (no importers).
+- [ ] `useFlatmateDiscovery.jsx` "Unified sizing scale" comment claims `h-9`/`rounded-xl`; the next
+      line emits `h-10`/`rounded-full`.
+- [ ] Spec-wide: `openapi: 3.1.0` but ~23 uses of the 3.0-only `nullable` keyword (silently ignored
+      in 3.1). Fix globally or drop to 3.0.3 - do not fix only the new schemas.
+
+
+## Mobile gallery rail redesign (property detail) — DONE
+
+Fixes the dead band under the phone hero: the dot strip and the "Request more photos"
+dashed slab used to stack as two rows (~90px, mostly empty).
+
+Attempt 1 (rejected by user): merged both onto one 44px line — dots left, request pill right.
+Attempt 2 (shipped): the ask became the LAST SLIDE of the carousel; dots re-centred.
+
+- [x] `Gallery.jsx` — `ask` local state renders a `[data-photo-ask]` panel over the hero
+      (`absolute inset-0 z-20 bg-ink-2`, `sm:hidden`). Reached by swiping past the last photo
+      or tapping the trailing dot; only a back-swipe leaves it (terminus, never wraps).
+      Kept out of `active` on purpose — `active` also indexes the lightbox and the desktop
+      thumbnails, where a `count`-th value would read `gallery[count]` as undefined.
+- [x] Touch handlers moved from the `<img>` to the wrapper so the ask panel is swipeable too.
+- [x] Dot rail: `justify-center`, 6 photo dots + a hollow ring dot for the ask. Each dot is a
+      24x44 box (WCAG 2.5.8 AA, non-overlapping centres). Desktop still `sm:hidden`.
+- [x] Gap fix (round 3): the rail's 44px touch box was stacking on top of the section's own
+      `mb-6`, painting ~73px of dead air between the photo and the badges. `-mb-6 sm:mb-0`
+      cancels one against the other -> 18px clear above and below the dot, symmetric, targets
+      unchanged, and the two boxes meet exactly (no overlap, so the badges row can't swallow
+      taps aimed at the bottom of a dot). Measured 73px -> 42px.
+- [x] Removed the full-width dashed mobile button; desktop thumbnail tile untouched.
+- [x] New i18n keys `property.requestPhotosShort` / `requestPhotosSlideTitle` / `requestPhotosSlideSub`
+      in en/hi/mr. Side effect: the mobile control no longer collides with the desktop tile under
+      `getByRole(/More photos/i)` (latent strict-mode ambiguity in `photo-requests.spec.js`).
+- [x] Verified by probe at 430px: swipe-in / terminus / swipe-out / trailing-dot tap all correct,
+      request toast fires. 39 passed across `property-detail`, `photo-requests`,
+      `desktop-noleak-guardrails`, `dashboard-action-center`.
+- [ ] PENDING AGENT REVIEW — `react-reviewer` / `code-reviewer` / `/simplify` not run (agents not
+      available in this session).
+- [ ] Pre-existing failure (NOT caused by this change; identical before and after): `photo-requests.spec.js`
+      hardcodes `OWNER_MOBILE = '9530047855'`, but P5000's `ownerMobile` in
+      `frontend/src/data/properties.json` is `9999047855`, so the localStorage assertion reads an
+      empty key. One-line constant fix; flagged to the user, not changed unasked.

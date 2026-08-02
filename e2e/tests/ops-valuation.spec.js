@@ -30,9 +30,12 @@ test('Valuation staff land on their desk with the queue tiles and search', async
   await expect(page.getByRole('button', { name: /Needs action/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Completed/i })).toBeVisible();
   await expect(page.getByPlaceholder(/Search customer/i)).toBeVisible();
-  // Seeded demo rows are present.
-  await expect(page.getByText('Deepak Shah')).toBeVisible();
-  await expect(page.getByText('Kavita Menon')).toBeVisible();
+  /* Seeded demo rows are present. Scoped to the table because OpsServiceQueue now
+     also renders an `sm:hidden` stacked card per row — both copies sit in the DOM
+     at every width. */
+  const table = page.getByRole('table');
+  await expect(table.getByText('Deepak Shah')).toBeVisible();
+  await expect(table.getByText('Kavita Menon')).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
 
@@ -84,6 +87,7 @@ test('the queue shows an empty state when a search matches nothing', async ({ pa
   await expect(page.getByRole('heading', { name: 'Property Valuation' })).toBeVisible();
 
   await page.getByPlaceholder(/Search customer/i).fill('zzz-no-such-request');
-  await expect(page.getByText('No Property Valuation requests')).toBeVisible();
+  await expect(page.getByRole('table').getByText('No Property Valuation requests')).toBeVisible();
+  // Unscoped on purpose: a filtered-out request must leave neither copy behind.
   await expect(page.getByText('Deepak Shah')).toHaveCount(0);
 });

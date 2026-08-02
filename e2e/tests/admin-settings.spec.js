@@ -80,7 +80,10 @@ test('the Audit log tab shows the empty state for a fresh workspace', async ({ p
 
   await expect(page.getByRole('heading', { name: 'Audit log' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
-  await expect(page.getByText('No changes logged yet.')).toBeVisible();
+  /* Table.jsx renders the empty state twice — once in the table and once in the
+     `sm:hidden` stacked-card column that the audit log now supplies for phones —
+     so scope the desktop assertion to the table. */
+  await expect(page.getByRole('table').getByText('No changes logged yet.')).toBeVisible();
 });
 
 test('unauthenticated visitor is redirected to staff-login', async ({ page }) => {

@@ -20,13 +20,20 @@
 ## 2. Entry points
 - **Routes:** `/list-property` (`ProtectedRoute`). Query params:
   - `edit=<listingId>` - edit an existing listing (never consumes quota; see section 5).
-  - `share=1` - arrived from Share-a-Flat "List your room" (pre-selects the flatmate track +
-    `hostRole: 'tenant'`).
-- **Tiles / triggers:** "Post Property" nav/CTA, dashboard "Add listing", Share-a-Flat "List a room".
+  - `flatmate=1` - arrived from the Flatmates `PostChooser` ("I have a place") or from a room
+    card's Edit action. Pre-selects the flatmate track via `rentMode = 'flatmate'`; `hostRole` still
+    defaults to `owner` and the host picks owner/tenant on Step 1.
+- **Tiles / triggers:** "Post Property" nav/CTA, dashboard "Add listing", and the Flatmates
+  `PostChooser` - a single posting entry point that asks "Do you have a place?" and routes only the
+  *yes* branch into this wizard (`?flatmate=1`); the *no* branches stay on Flatmates as a seeker
+  request or a group.
 - **Source components:** `src/pages/consumer/ListProperty.jsx` (shell) + `list-property/*`:
   `useListProperty.js` (orchestrator), `PostSuccessVerifyNudge.jsx` (optional post-success badge
-  nudge), `ProgressMeter.jsx`, `StepNav.jsx`, `ListingPaywall.jsx`, `EditPolicyBanner.jsx`,
-  `PropertyDetailsStep.jsx`, `LocationPricingStep.jsx`, `PhotosDocumentsStep.jsx`, `FlatmateFlow.jsx`,
+  nudge), `PostSuccessSplitNudge.jsx` (post-success "let it room by room" offer), `ProgressMeter.jsx`,
+  `StepNav.jsx`, `ListingPaywall.jsx`, `EditPolicyBanner.jsx`,
+  `PropertyDetailsStep.jsx` (shell -> `PropertyDetailsWhole.jsx` / `PropertyDetailsFlatmate.jsx`,
+  with `step1/*` field groups), `LocationPricingStep.jsx`, `PhotosDocumentsStep.jsx`,
+  `FlatmateFlow.jsx` (flatmate steps 2 & 3),
   plus `validation.js`, `submit.js`, `editPolicy.js`, `constants.js`, `initialForm.js`.
 
 ## 3. Actors & roles
@@ -40,16 +47,16 @@
   [`../../system/trust-and-verification-model.md`](../../system/trust-and-verification-model.md).
 
 ## 4. Entities touched
-- [`listings` / `properties`](../../system/domain-model.md) - **created** as `status: 'pending'` in
+- [`listings` / `properties`](../../system/data-model.md) - **created** as `status: 'pending'` in
   both the mock DB (`db.listings`, via `mutateDb`) and the per-user store
   (`puneNestListings:<mobile>`, via `addListing`). Edited in place via `updateListing` + `mutateDb`.
-- [`rooms` / `share_flat_requests`](../../system/domain-model.md) - the flatmate track **creates** a
+- [`rooms` / `flatmate_requests`](../../system/data-model.md) - the flatmate track **creates** a
   room in `puneNestRoomListings` via `addRoom` (`status: 'pending'`).
-- [`aadhaar_verifications`](../../system/domain-model.md) - **read** only for the **optional** Verified
+- [`aadhaar_verifications`](../../system/data-model.md) - **read** only for the **optional** Verified
   badge (post-success nudge); **not** a prerequisite to post.
-- [`property_reviews`](../../system/domain-model.md) - `ensureOwnerReview` opens a review thread on a
+- [`property_reviews`](../../system/data-model.md) - `ensureOwnerReview` opens a review thread on a
   material edit or a duplicate flag; `addPropReviewAdminNote` writes the system message.
-- [`documents`](../../system/domain-model.md) - sale listings persist uploaded docs via
+- [`documents`](../../system/data-model.md) - sale listings persist uploaded docs via
   `addDocument(mobile, listingId, ...)`. `localities` - an unmatched real locality **mints** a
   community-tier locality via `addCommunityLocality`. `notifications` - a "under review" notification
   is pushed on create.
@@ -116,7 +123,9 @@ advance on any error (scrolling to the first error via `scrollToError`).
   4. `persistListing` builds the record with `status: 'pending'`, `statusClass: 'pill-pending'`,
      writes to `db.listings` (`mutateDb`) and the per-user store (`addListing`), pushes an "under
      review" notification, and (sale only) stores docs via `addDocument`.
-  5. Confetti + success screen, then navigate to `/dashboard`.
+  5. Confetti + success screen. A brand-new **rent** listing stays on the success screen, because
+     the split-flat offer (`PostSuccessSplitNudge`) lives there; everything else auto-navigates to
+     `/dashboard` after 3.2s.
 
 ### Derivations in `persistListing`
 - **Title:** `[BHK|sharing prefix] + typeLabel + " in " + locality` (PG multi-occupancy advertises a
@@ -154,17 +163,49 @@ Editing a **live** listing classifies every changed field into two tiers (`class
   (capped 20) records each edit's tier counts + price swing.
 
 ### Flatmate / room track (`submitFlatmate` -> `persistFlatmate`)
-- **Lean validation:** `bhk`, `roomType`, `locality`, `society`, `rentShare` (>0), `availableFrom`,
-  at least one photo.
+- **Lean validation, two tiers.** Step advance uses `validateFlatmateStep1` (`bhk`, `roomType`) and
+  `validateFlatmateStep2` (`locality`, `society`, `rentShare` > 0, `availableFrom`) - note the
+  flatmate Step 2 does **not** require a map placement, unlike the whole-place track. `submitFlatmate`
+  re-checks all six **plus** at least one photo before persisting.
 - **Host verification tier:** `hostRole` = `owner` or `tenant`. Owner -> tier `owner`. Tenant who
   both declares AND uploads a registered rent agreement (`hasAgreementEvidence`) -> tier `tenant`;
   declared-without-upload stays tier `identity` (still lists, no host badge, no review queue).
 - **Anti-broker guardrails (`evaluateHostEligibility`):** hard block on cap hit or same host
   re-claiming an address; soft flag when a different host already claimed the address (still posts,
-  routed to Ops). See share-a-flat doc for the full guardrail model.
+  routed to Ops). See flatmates doc for the full guardrail model.
 - **Seats:** `seatsTotal` = 2 for a "Shared room", else 1; `seatsOpen` starts equal.
 - Creates a `room` with `status: 'pending'`; tenant-tier or flagged posts also call
-  `enqueueShareReview(...)`. Pushes an "under review" notification.
+  `enqueueFlatmateReview(...)`. Pushes an "under review" notification.
+
+### Split a rent listing into rooms (`PostSuccessSplitNudge` -> `splitFlat`)
+A **second** room-creation path that does not go through the flatmate track at all, but is offered
+from this wizard's success screen (and later from Dashboard -> My Listings).
+
+A brand-new **rent** listing's success screen carries a dismissible offer to let the flat room by
+room; sale listings and edits are never splittable (`postedListing` is only set when
+`!editId && deal === 'rent'`). Accepting opens `SplitFlatModal`, which asks only what the owner is
+entitled to decide: **which rooms exist** (`roomKind` = `master | bedroom | living`), **the rent for
+each**, and **how many people may live in the flat** (`maxOccupants`, the society's rule). Per-room
+occupancy is never declared - tenants decide that.
+
+Rules (`src/lib/data/flatSplit.js`):
+- `canSplitIntoRooms` = the listing is `deal === 'rent'` and has an id, so the whole-flat listing
+  keeps existing and the share market never cannibalises core rental inventory.
+- `maxRoomsForBhk(bhk)` = bedrooms + hall; the "4" pill means "4+", so its room count is unbounded.
+- `ROOM_SHARE_MAX = 3` per room; `capBoundsFor(n)` = `[n, n * 3]`.
+- Only the listing's own owner may split it (last-10-digit mobile compare), and only **once**
+  (`isFlatSplit` guard).
+- Each created room inherits the parent's address/BHK/photo and carries `propertyId`,
+  `priceBasis: 'room'`, `occupancy: 'empty'`, `occupants: 0`, `maxOccupants`, `roomKind`, and an
+  implied `attachedBath: 'attached'` for a master.
+- **The Verified badge is earned, not asserted:** rooms start at `identity` tier and unbadged while
+  the parent listing is `pending`; `reconcileSplitVerification()` promotes them to `owner` tier once
+  Ops approves the flat. An unapproved parent (or a flagged address) enqueues **one** Ops review per
+  flat via `enqueueFlatmateReview`.
+- The same anti-broker guardrails (`evaluateHostEligibility`) apply as on every other supply path.
+- Reversible only while empty: `canUnsplit` / `unsplitFlat` refuse once anyone has moved in.
+
+Full model: [`flatmates.md`](./flatmates.md) section 5.
 
 ## 6. Maker-checker / approval
 - **Yes - the canonical listing-verification maker-checker.** Maker = owner (submits `pending`);
@@ -213,19 +254,19 @@ live listing + identity edit-> identity guard + quota interaction
 - **Store/API:** `src/lib/store/listings.js` (`addListing`, `updateListing`, `getListing`,
   `isListingApproved`), `src/lib/store/billing.js` (quota), `src/lib/mockApi` (`mutateDb`),
   `src/lib/data/documents.js` (`addDocument`), `src/lib/data/propertyIdentity.js`
-  (`evaluateListingDedup`), `src/lib/data/shareFlat.js` (`evaluateHostEligibility`,
-  `enqueueShareReview`), `src/lib/data/imageHash.js` (`hashPhotos`).
+  (`evaluateListingDedup`), `src/lib/data/flatmates.js` (`evaluateHostEligibility`,
+  `enqueueFlatmateReview`), `src/lib/data/imageHash.js` (`hashPhotos`).
 - **Provider seam:** consumer listing reads/writes flow through `propertyService` /
   `listingProvider` (mock). `src/services/config.js` selects mock vs http.
 - **Data/seed:** `src/data/properties.json` (seed listings), `src/data/db.json`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml):
 - `POST /me/listings` (owner) -> create a `pending` listing (section 3). `PATCH /me/listings/:id` ->
   edit (server must apply Tier A/B classification + re-review scheduling).
 - `GET /properties/:id/verification` / `POST /properties/:id/verification` /
   `.../verification/decision` (section 6) -> the maker-checker queue side-effects.
-- `POST /share-flat/rooms` (section 26) -> the flatmate/room track.
+- `POST /flatmates/rooms` (section 26) -> the flatmate/room track.
 - **Missing but implied:** an **opt-in** badge verify endpoint (`POST /me/verification/aadhaar`,
   DigiLocker — not a posting prerequisite), a dedup pre-check endpoint, a document upload endpoint
   bound to the listing, a locality-mint endpoint, and the freemium quota check on `POST /me/listings`

@@ -8,17 +8,21 @@
 
 ---
 
-> **Reality check (honest gap vs. the "one shared OpsQueue" framing).** The repo has **two**
-> shared queue components, not one:
+> **Reality check (honest gap vs. the "one shared OpsQueue" framing).** The repo has **four** ops
+> queues on three different data stores, not one:
 > - `OpsQueue.jsx` - a simple ticket board backed by `db.tickets`. Only `/ops/requests` renders it.
 > - `OpsServiceQueue.jsx` - a config-driven workflow board backed by the `serviceFlow` engine
 >   (per-customer `localStorage`). All six team desks (rental, legal, loans, interior, packers,
 >   valuation) render it, differing only by a `type` prop into `SVC_CONFIG`.
+> - `OpsReferrals` - the referral fraud-review desk, documented separately in
+>   [`referrals-fraud.md`](./referrals-fraud.md).
+> - `OpsFlatmateReview` - the flatmate host-verification desk (section 5.3). It shares no engine
+>   with the other three: it reads and writes the same `localStorage` review store the consumer
+>   supply flows enqueue into, with no ticket mirror, no assignment and no SLA.
 >
-> Both are "one component parameterized per team", but they are different engines with different
-> data stores and different state machines. This doc covers both and where they join
-> (`syncServiceTicket`). The referrals desk is a third queue, documented separately in
-> [`referrals-fraud.md`](./referrals-fraud.md).
+> The first two are "one component parameterized per team", but they are different engines with
+> different data stores and different state machines. This doc covers both and where they join
+> (`syncServiceTicket`).
 
 ## 1. Purpose & user problem
 - **Persona:** an ops staff member on a vertical team (Rent Agreement, Legal, Interior, Packers,
@@ -40,6 +44,8 @@
   - `/ops/interior` - `TeamRoute team="interior"` -> `OpsInterior` -> `OpsServiceQueue type="interior"`.
   - `/ops/packers` - `TeamRoute team="packers"` -> `OpsPackers` -> `OpsServiceQueue type="packers"`.
   - `/ops/valuation` - `TeamRoute team="valuation"` -> `OpsValuation` -> `OpsServiceQueue type="valuation"`.
+  - `/ops/flatmate-review` - `OpsFlatmateReview` (flatmate host verification; **no** `TeamRoute`,
+    and no team narrowing of its data either - see the trust caveat in section 3).
 - **Tiles / triggers:** the ops sidebar (`AdminLayout` nav), the `OpsDashboard` team tile
   (routes to the team's workflow page via `WORKFLOW_ROUTE`, or falls back to `/ops/requests`),
   and the "All tickets" link on the dashboard. Login (`/staff-login`) redirects a staffer to
@@ -50,6 +56,7 @@
   - `src/pages/ops/service-queue/{Stepper,DocViewer,constants,helpers}.js(x)` - workflow sub-parts.
   - `src/pages/ops/{OpsRequests,OpsRentAgreement,OpsLegal,OpsInterior,OpsPackers,OpsValuation}.jsx`
     - thin per-team wrappers.
+  - `src/pages/ops/OpsFlatmateReview.jsx` - flatmate host-verification desk (section 5.3).
   - `src/pages/ops/OpsDashboard.jsx` - team-scoped landing.
 
 ## 3. Actors & roles
@@ -61,8 +68,9 @@
     `type`, and its route is already team-gated.
 - **admin / manager** - bypasses `TeamRoute` (`user.role === 'admin'` short-circuit) and sees every
   team. In `OpsQueue`, admins on `/ops/requests` also get an extra **Team** column (`showTeam`).
-- **Note:** `/ops/requests` and `/ops/referrals` have **no** `TeamRoute`, so any staffer can open
-  the route; `OpsQueue` still narrows the *data* to `myTeam`. See
+- **Note:** `/ops/requests`, `/ops/referrals` and `/ops/flatmate-review` have **no** `TeamRoute`, so
+  any staffer can open the route; `OpsQueue` still narrows the *data* to `myTeam`, but
+  `OpsFlatmateReview` does **not** - `getFlatmateReviews()` is read unfiltered. See
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1 for the role/team model.
 - **Trust caveat:** guards are UX-only over editable `localStorage`. Team scoping MUST be
   re-enforced server-side (section 11).
@@ -143,11 +151,37 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
   `syncServiceTicket(ticketRef, TICKET_STATUS[status])` so a linked `db.tickets` row tracks the
   workflow (`new / in_progress / done / cancelled`). Unlinked requests no-op.
 
-### 5.3 Must move server-side
+### 5.3 Flatmate verification queue (`OpsFlatmateReview`, `/ops/flatmate-review`)
+A sitting tenant's "I have a registered rent agreement" is self-declared, so tenant-tier flatmate
+posts - and any address a **different** host already claimed, and any owner flat-split whose parent
+listing is not yet approved - land here before they earn a trust cue. Owner-tier posts are vetted
+through the listing's own docs and never appear.
+
+- **Intake:** `enqueueFlatmateReview(...)`, called from `persistFlatmate` (tenant tier or
+  `guard.flagForReview`) and from `splitFlat` (unapproved parent listing or flagged address -
+  **one review per flat**, not per room).
+- **Buckets / tabs:** `pending`, `flagged` (`flagForReview && status === 'pending'`), `approved`
+  ("Ops-verified"), `rejected`, `all`. The four KPI tiles are the same buckets and are clickable.
+- **Row content:** host + masked mobile (last 4) + created date; flat/address with a Room/Group chip;
+  the claimed `tier`; signals (View agreement / Agreement on file / **No document** for a tenant-tier
+  row with nothing attached); status; actions.
+- **Decisions:** approve -> `decideFlatmateReview(id, 'approved')` and the host shows **Ops-verified**.
+  Reject **requires a non-empty reason** (`decideFlatmateReview(id, 'rejected', reason)`), and the
+  host is told why.
+- **Documents** open through the shared `lib/openDoc.js` scheme allowlist, the same rule every other
+  document surface uses.
+- **Store:** the consumer-side `localStorage` review store (`lib/data/flatmates.js`) - **not**
+  `db.tickets` and **not** `serviceFlow`. There is no ticket mirror, no assignment and no SLA, and
+  no team narrowing on read.
+- Consumer-side model: [`../consumer/flatmates.md`](../consumer/flatmates.md) section 5.
+
+### 5.4 Must move server-side
 - Team scoping of both list reads (never send other teams' rows to the client).
 - Auto-assign, status transitions, and doc verification (authorization + valid-transition checks).
 - The ticket <-> service-request mirroring (a transactional server join, not a client re-write).
 - Notification/WhatsApp dispatch on transitions.
+- The flatmate review store, its agreement blobs (today inline data URLs in `localStorage`) and the
+  reason-required-on-reject rule.
 
 ## 6. Maker-checker / approval
 Applicable to the **service-workflow queue** (the draft approval step). See the shared pattern in

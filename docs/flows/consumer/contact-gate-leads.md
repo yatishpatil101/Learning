@@ -42,13 +42,13 @@
   (section 3); this doc is the flow-level detail.
 
 ## 4. Entities touched
-- [`contact_requests`](../../system/domain-model.md) - created by the buyer, decided by the owner.
+- [`contact_requests`](../../system/data-model.md) - created by the buyer, decided by the owner.
   Runtime store, key `puneNestContactReq:<ownerDigits>` (shared with the HTML prototype).
-- [`aadhaar_verifications`](../../system/domain-model.md) - read **only** as the opt-in Verified
+- [`aadhaar_verifications`](../../system/data-model.md) - read **only** as the opt-in Verified
   badge, and used solely by the owner "verified contacts only" path; written by `AadhaarVerifyModal`
   on DigiLocker success (key `puneNestAadhaar:<mobile>`, `{ verified: true, source: 'digilocker', … }`).
   It is **never** a prerequisite for the contact gate itself.
-- [`enquiries`](../../system/domain-model.md) - the owner's "Enquiries" tab is **seed-only** today
+- [`enquiries`](../../system/data-model.md) - the owner's "Enquiries" tab is **seed-only** today
   (`src/data/enquiries.json`); the buyer contact flow does **not** create rows here (see edge cases).
 - Owner privacy prefs (`pnOwnerPrefs:<mobile>`, `hideNumber`) and lead annotations
   (`leadNotes`, private note + follow-up date) are read/written on the owner side.
@@ -127,8 +127,8 @@ Once past the floor (and the exception, if any), `requestContact`:
   - **Number requests** (`contact_requests`) - approve = "Share", decline; approved reveals the
     buyer's mobile for Call/WhatsApp.
   - **Photo requests**, **Document requests** (grouped per buyer+property; grant/decline all),
-    **Flat-share requests** (accept/decline), and **Enquiries** (seed).
-- **Triage math:** `waitingOnYou` = pending contacts + pending share-flat + photo reqs + pending doc
+    **Flatmate requests** (accept/decline), and **Enquiries** (seed).
+- **Triage math:** `waitingOnYou` = pending contacts + pending flatmates + photo reqs + pending doc
   groups; `totalLeads` = all requests + enquiries; oldest-waiting age drives an urgency chip and a
   "reply within an hour" nudge. Per-row `waitPill`: `>=24h`/`>=1h` -> hot, fresh -> "new".
 - **LeadSheet.jsx:** per-lead detail with a private note and a follow-up date
@@ -196,7 +196,7 @@ Contact request (per buyer+property):
   `dashboard/useDashboardData.js` (`decideContact`), `src/lib/leadNotes.js`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) (sections 6 & 7):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tags: Verification & KYC, Leads & Contact):
 - `POST /me/verification/aadhaar` -> DigiLocker consent URL; a `DIGILOCKER_VERIFICATION_SUCCESS`
   webhook confirms -> `{ verified, source: 'digilocker', maskedAadhaar, … }`;
   `GET /me/verification/aadhaar` -> badge status. **(Opt-in L2 Verified badge — never required to

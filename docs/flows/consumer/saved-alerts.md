@@ -8,7 +8,7 @@
 
 ## 1. Purpose & user problem
 - **Persona:** a seeker comparing homes over days/weeks; a flatmate seeker doing the same on
-  Share-a-Flat; a signed-out lead who leaves their number to be alerted.
+  Flatmates; a signed-out lead who leaves their number to be alerted.
 - **Job-to-be-done:** "Keep the homes I like in one place, and tell me when a new listing fits what
   I'm hunting for so I don't have to keep re-searching."
 - **Why it matters:** Pune inventory moves fast; saved searches + alerts are the core re-engagement
@@ -20,22 +20,22 @@
 - **Save a search / create an alert:**
   - Listings results toolbar "Save search" (`ResultsArea.jsx` -> `Listings.saveSearch`).
   - Listings empty/notify card `NotifyMeCard.jsx` (lets a signed-out lead enter a mobile + channel).
-  - Share-a-Flat toolbar + empty-state `ShareAlertCard.jsx`.
+  - Flatmates toolbar + empty-state `FlatmateAlertCard.jsx`.
   - Locality page "get alerted" (`Locality.jsx`).
   - The Saved page's per-card "bell-plus" button (`Saved.createAlert`) - turns a saved home into an
     alert for similar homes.
 - **Routes:** `/saved` (`ProtectedRoute`, and feature-flag gated via `AppFlagsContext`),
-  `/listings`, `/share-flat`, `/notifications`, and the Dashboard "Saved & Activity" tab
+  `/listings`, `/flatmates`, `/notifications`, and the Dashboard "Saved & Activity" tab
   (`#activity`, sub `saved` / `alerts`).
 - **Source components:** `src/pages/consumer/Saved.jsx`,
   `src/pages/consumer/dashboard/SavedPanel.jsx`, `src/pages/consumer/dashboard/AlertsPanel.jsx`,
   `src/pages/consumer/Notifications.jsx`,
   `src/pages/consumer/listings/{alertCriteria.js,NotifyMeCard.jsx,ResultsArea.jsx}`,
-  `src/pages/consumer/shareflat/{alertCriteria.js,ShareAlertCard.jsx}`.
+  `src/pages/consumer/flatmates/{alertCriteria.js,FlatmateAlertCard.jsx}`.
 
 ## 3. Actors & roles
 - Any signed-in user can save properties and searches (stored under their mobile). A **signed-out
-  lead** can create an alert via `NotifyMeCard` / `ShareAlertCard` by supplying a mobile - the record
+  lead** can create an alert via `NotifyMeCard` / `FlatmateAlertCard` by supplying a mobile - the record
   is keyed by THAT mobile so it "lands under that user and surfaces in their dashboard after they sign
   in - instead of being orphaned under `anon`".
 - No approval/checker involved; this is a private, per-user store.
@@ -45,11 +45,11 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `saved_properties` (runtime `src/lib/store/notifications.js`, key `pnSavedProps:<mobile|anon>`) -
   created/removed by heart toggle. Just an array of property ids.
 - `saved_searches` (runtime `src/lib/store/search.js`, key `pnSavedSearches:<mobile|anon>`) -
-  created, removed, alert-toggled. Also holds Share-a-Flat alerts (`kind: 'shareflat'`).
+  created, removed, alert-toggled. Also holds Flatmates alerts (`kind: 'flatmates'`).
 - `notifications` (runtime `src/lib/store/notifications.js`, key `pnNotifications:<mobile>`) - read +
   merged: live match/price notifications are derived from the two stores above.
 - Notification/comm preferences (`pnNotifPrefs:<mobile>`) - read to gate live alerts.
-- Share-flat saved items also use a separate `puneNestShareSaved` localStorage map (kind/title/loc).
+- Flatmate saved items also use a separate `puneNestFlatmateSaved` localStorage map (kind/title/loc).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -58,9 +58,13 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `getSavedProps()` -> array of ids; `isSavedProp(id)` -> membership; `toggleSavedProp(id)` pushes or
   splices and **returns `true` if now saved**. Idempotent per id (no duplicates).
 - The Saved page resolves ids against the live catalog (`listProperties`) and classifies each into
-  `buy` vs `rent` by `p.deal === 'rent'`; flat-share saves come from `puneNestShareSaved` and are
-  category `share`. Counts per category drive the tab badges; sort options: `newest` (by `createdAt`),
-  `price-desc`, `price-asc` (by `priceNum`).
+  `buy` vs `rent` by `p.deal === 'rent'`; flatmate saves come from `puneNestFlatmateSaved` and are
+  category `flatmates` ("Flatmates & Rooms"). Counts per category drive the tab badges; sort options:
+  `newest` (by `createdAt`), `price-desc`, `price-asc` (by `priceNum`).
+- **Swipe to remove (mobile only):** a saved card can be swiped left to remove (`useSwipeDismiss`,
+  `axis: 'x'`, never armed above 640px; `touchAction: 'pan-y'` keeps vertical scrolling with the
+  browser). A swipe is easy to fire by accident on a hand-curated list, so the removal is staged: the
+  card renders as an undo row for `UNDO_WINDOW_MS = 5000` before it commits.
 
 ### Saving a search / alert (`store/search.js`)
 - `addSavedSearch(o)` creates `{ id: 'ss'+Date.now(), alerts: true, channel: 'whatsapp', at:
@@ -96,15 +100,26 @@ It "fails safe to 0 on any mismatch - it never fabricates matches". Note this us
 locality + BHK (a subset of the captured criteria); price/furnishing/amenities are captured for
 display but not applied to the count.
 
-### Share-a-Flat alerts (`shareflat/alertCriteria.js`)
-- `buildShareAlertRecord(filters, tab)` produces `{ kind: 'shareflat', tab, q, locality, budget,
+### Flatmates alerts (`flatmates/alertCriteria.js`)
+- `buildFlatmateAlertRecord(filters, tab)` produces `{ kind: 'flatmates', tab, q, locality, budget,
   moveIn, gender, sharing, attachedBath, verifiedOnly, habits[], label }`, tab-gated so a stale value
-  for an inactive tab never rides along. `BUDGET_MAX = 40000` is "any". Tabs: `flatmates`, `rooms`,
-  `groups`. `shareCriteriaChips` renders these; the Alerts panel routes "View matches" to
-  `/share-flat?view=<tab>`.
+  for an inactive tab never rides along: `sharing` is captured only on `team-up`, `attachedBath` only
+  on `move-in`. `BUDGET_MAX = 40000` is "any" and is omitted rather than stored.
+- **Tabs: `move-in` ("Move in now") and `team-up` ("Team up")** - the two live share intents. The
+  legacy `rooms` / `flatmates` / `groups` values survive as read-only aliases (`normalizeTab`), so an
+  alert saved before the redesign still resolves to a real tab instead of silently falling back;
+  `tabMeta` normalizes before labelling, so it is never mislabelled either.
+- `flatmateCriteriaChips` renders these - on the alert card, in the dashboard Alerts panel, and as
+  the "why is this empty" chips in the Flatmates empty state. The Alerts panel routes "View matches"
+  to `` /flatmates?view=${normalizeTab(a.tab)} ``.
+- **Where the card appears (`FlatmateAlertCard`):** whenever the active list is empty **or** the
+  seeker has narrowed with 2+ filters (`activeFilterCount >= 2`) - enough intent to want a ping.
+  Its invitation copy swaps on the active tab and uses a plural noun for the subject ("the moment
+  *homes* match" / "*flatmates* match") rather than the tab label, so the sentence stays grammatical
+  after the two-tab rename. Channels offered are WhatsApp and SMS.
 
 ### Alerts panel (dashboard, `AlertsPanel.jsx`)
-- Lists all saved searches (property + share-flat). Header sub = `${activeCount} active` where
+- Lists all saved searches (property + flatmates). Header sub = `${activeCount} active` where
   `activeCount = alerts.filter(a => a.alerts).length`.
 - Per row: criteria chips, delivery channel chip (`whatsapp` -> WhatsApp/message-circle, `sms` ->
   SMS/smartphone), created date, a `newCount` "N new" badge when `> 0`, a "View matches" link, an
@@ -160,12 +175,12 @@ Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet ho
 - **Stores:** `src/lib/store/notifications.js` (saved properties + notifications + prefs),
   `src/lib/store/search.js` (saved searches, recent props/searches).
 - **Criteria helpers:** `src/pages/consumer/listings/alertCriteria.js`,
-  `src/pages/consumer/shareflat/alertCriteria.js`.
+  `src/pages/consumer/flatmates/alertCriteria.js`.
 - **Data/seed:** no dedicated saved-seed JSON - saved data is purely runtime/localStorage. The
   Notifications page seeds a default notification set (`SEED` in `Notifications.jsx`).
 - **Key components/handlers:** `Saved.jsx` (`createAlert` +/-15% band, `remove`),
   `AlertsPanel.jsx` (`onToggle`/`onDelete`), `Notifications.jsx` (derive + `mergeNotifs`),
-  `NotifyMeCard.jsx`/`ShareAlertCard.jsx` (`addSavedSearch({ ...record, channel, mobile })`).
+  `NotifyMeCard.jsx`/`FlatmateAlertCard.jsx` (`addSavedSearch({ ...record, channel, mobile })`).
 
 ## 10. Target API endpoints
 Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Engagement):
@@ -173,7 +188,7 @@ Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/pun
 - `GET /me/saved-searches`, `POST /me/saved-searches`, `DELETE /me/saved-searches/:id`,
   `PATCH /me/saved-searches/:id/alert`.
 - `GET /notifications` (+ mark-read / dismiss). **Deltas implied:** the create endpoint should accept
-  the full criteria payload (`deal, types, bhk, localities, budget/rent, channel`, share-flat variant)
+  the full criteria payload (`deal, types, bhk, localities, budget/rent, channel`, flatmates variant)
   and, for signed-out leads, an explicit `mobile`; the response should carry a real `newCount` and a
   server-computed live-match count.
 

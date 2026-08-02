@@ -76,10 +76,13 @@ test('Rent Agreement staff land on their desk with the queue tiles, search and s
   await expect(page.getByRole('button', { name: /Needs action/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Completed/i })).toBeVisible();
   await expect(page.getByPlaceholder(/Search customer/i)).toBeVisible();
-  // Seeded demo rows across the lifecycle are present.
-  await expect(page.getByText('Rahul Deshpande')).toBeVisible();
-  await expect(page.getByText('Aarti Joshi')).toBeVisible();
-  await expect(page.getByText('Karan Mehta')).toBeVisible();
+  /* Seeded demo rows across the lifecycle are present. Scoped to the table because
+     Table.jsx now also renders a `sm:hidden` stacked card per row for the field-ops
+     phone view — both copies are in the DOM at every width, only one is displayed. */
+  const table = page.getByRole('table');
+  await expect(table.getByText('Rahul Deshpande')).toBeVisible();
+  await expect(table.getByText('Aarti Joshi')).toBeVisible();
+  await expect(table.getByText('Karan Mehta')).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
 
@@ -158,6 +161,10 @@ test('the queue shows an empty state when a search matches nothing', async ({ pa
   await expect(page.getByRole('heading', { name: 'Rent Agreement queue' })).toBeVisible();
 
   await page.getByPlaceholder(/Search customer/i).fill('zzz-no-such-request');
-  await expect(page.getByText('No Rent Agreement queue requests')).toBeVisible();
+  // The empty state is rendered twice too — once in the table, once in the
+  // `sm:hidden` card column — so scope to the table for the desktop assertion.
+  await expect(page.getByRole('table').getByText('No Rent Agreement queue requests')).toBeVisible();
+  // Counts both the table row and its card twin — a filtered-out request must
+  // leave neither behind.
   await expect(page.getByText('Aarti Joshi')).toHaveCount(0);
 });

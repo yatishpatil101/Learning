@@ -32,6 +32,16 @@ test-results/
 playwright-report/
 playwright/.cache/
 
+# Eclipse/IDE compiled output — backend/bin is a full duplicate of backend/src
+# plus .class files, produced by the IDE. Never commit it.
+backend/bin/
+*.class
+
+# Playwright run artifacts (regenerated on every run)
+e2e/after-fails.xml
+e2e/baseline.json
+e2e/*-results.xml
+
 # Editor / scratch artifacts (never commit temp duplicates)
 *.jsx.new
 *.new
@@ -40,3 +50,6 @@ playwright/.cache/
 *.rollback
 _rollback/
 .rollback/
+
+# Generated patches — share them out-of-band, never commit them
+*.patch

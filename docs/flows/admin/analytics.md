@@ -65,7 +65,7 @@ Static illustrative series over `WK12`: avg session minutes `3.2..4.5`, bounce `
 - `signedInSessions = min(totalSignups * 12, totalVisits)` (assume each signup visits ~12x); `anonSessions = totalVisits - signedInSessions`.
 - **KPIs:** `anonPct = round(anonSessions/totalVisits*100)`; `conversionRate = (totalSignups/totalVisits*100).toFixed(1)`;
   Anonymous visits = `anonSessions`; Signups in period = `totalSignups`.
-- `anonPages`: 8 pages, `views = round(anonSessions * factor)` (Home 0.92 ... Share a flat 0.09) with per-page `signupRate`.
+- `anonPages`: 8 pages, `views = round(anonSessions * factor)` (Home 0.92 ... Flatmates 0.09) with per-page `signupRate`.
 - Weekly split (8 buckets): `signedIn = min(wSignups * (11 + rng()*3), wVisits)`, `anon = wVisits - signedIn`.
 - `dropOff`: fixed exit-point percentages (contact wall 34%, etc.).
 

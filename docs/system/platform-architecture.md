@@ -11,7 +11,7 @@
 > Remaining open items are non-blocking (§8).
 >
 > **Companion docs (do not duplicate):**
-> - [`app-architecture.md`](./app-architecture.md) — the React app as-built + the mock→http seam.
+> - [`backend-api-architecture-review.md`](./backend-api-architecture-review.md) — the React app as-built + the mock→http seam.
 > - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact + Aadhaar gate, maker-checker, audit.
 > - [`data-model.md`](./data-model.md) — ER map + persistence design.
 > - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST contract (SSOT for wire shapes).

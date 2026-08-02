@@ -29,7 +29,7 @@ test('home loan requests route to a dedicated Loans team and are managed end-to-
   await page.locator('.pn-dropdown__trigger').first().click();
   await page.getByRole('option', { name: 'Home Purchase Loan' }).click();
   await page.locator('input[type="text"][inputmode="numeric"]').first().fill('5000000');
-  const mob = page.locator('input[type="tel"]').first();
+  const mob = page.locator('#root input[type="tel"]').first();
   if (!(await mob.inputValue())) await mob.fill(BUYER.mobile);
   await page.getByRole('button', { name: /Get Loan Offers|Submit|Request/i }).first().click();
 

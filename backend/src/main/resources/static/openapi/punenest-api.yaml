@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PuneNest API
-  version: "1.2.0"
+  version: "1.3.0"
   summary: Pune-first real-estate marketplace backend API.
   description: |
     Enterprise API contract for **PuneNest**, a Pune-first real-estate marketplace
@@ -17,6 +17,17 @@ info:
       - `docs/flows/**`                 — per-feature behavioural specs
 
     ### Changelog
+    - 1.3.0 — **Flatmates re-modelled around seeker intent.** The flatmates/rooms/groups triple is
+      replaced by two feeds, `move-in` and `team-up` (`FlatmateTab`; the old values survive as
+      deprecated read aliases). `FlatmatePost` is renamed `FlatmateSeekerPost` and re-shaped to what
+      a seeker actually posts; `FlatmateRoom`, `FlatmateGroup`, `FlatmateRequest`, `FlatmateReview`,
+      `GroupApplication`, `AgreementDoc`, `FlatmateAlertCriteria` and `HostEligibility` are new.
+      New supply model: `RoomKind`, `PriceBasis` (per-room vs per-person rent), `Occupancy` and the
+      flat occupancy ledger, plus the owner **flat split** (`POST|DELETE /properties/{id}/split`).
+      Room enquiries carry a `ShareIntent`. The flatmates "Verified" pill is the **same** DigiLocker
+      L2 badge as the rest of the app (ADR-009a), not a separate seeker OTP. `SavedSearch` gains
+      `kind`/`criteria`/`label`/`mobile` and an `sms` channel for flatmate alerts. Moderation adds
+      the ops flatmate-verification queue and the admin flatmate/group-application desks.
     - 1.2.0 — **Verification is a badge, not a gate** (ADR-019): browsing and contacting
       owners require only a signed-in mobile-OTP account (L1); identity verification is an
       **opt-in "Verified" badge** (L2) and is hard-required only at the deal step (L3).
@@ -73,7 +84,7 @@ tags:
   - name: Billing & Growth
     description: Plans, boosts, service orders, referrals, fees.
   - name: Engagement
-    description: Saved properties/searches, reviews, notifications, share-a-flat.
+    description: Saved properties/searches, reviews, notifications, flatmates.
   - name: Admin & Analytics
     description: KPIs, analytics, platform settings, content/CMS, society leads.
 
@@ -769,6 +780,60 @@ paths:
       responses:
         '200': { description: Restored (status reset to pending) }
         '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/rooms:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    get:
+      tags: [Listings]
+      summary: Rooms this flat is split into
+      description: Returns the per-room supply plus the flat's occupancy ledger.
+      operationId: listPropertyRooms
+      responses:
+        '200':
+          description: Rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlatmateRoom' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/split:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Listings]
+      summary: Let this flat room by room
+      description: >
+        Owner-only, rent-only, once-only. The whole-flat listing keeps existing. Rooms start at
+        `identity` tier and unbadged while the parent listing is pending; they are promoted to
+        `owner` tier when Ops approves the flat — the badge is earned from the parent's approval,
+        never asserted by the act of splitting.
+      operationId: splitFlat
+      externalDocs: { description: Behaviour, url: docs/flows/consumer/list-property-wizard.md }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatSplitRequest' }
+      responses:
+        '201':
+          description: Split created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatSplitResult' }
+        '403': { description: Caller is not the listing's owner (`not_owner`) }
+        '409':
+          description: '`already_split`, `not_splittable` (sale listing), or blocked by the host-eligibility guardrails.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostEligibility' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Listings]
+      summary: Stop letting this flat room by room
+      description: Refused once anyone has moved in — deleting the rooms would erase a live tenancy.
+      operationId: unsplitFlat
+      responses:
+        '204': { description: Split withdrawn }
+        '409': { description: Someone has already moved in (`occupied`) }
   /properties/{id}/admin:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     patch:
@@ -1063,6 +1128,104 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Report' }
+  /admin/flatmate-reviews:
+    get:
+      tags: [Moderation]
+      summary: Flatmate host-verification queue (ops)
+      description: >
+        Tenant-tier posts, contested addresses and flat splits whose parent listing is still
+        pending. Owner-tier posts are vetted through the listing's own documents and never appear.
+      operationId: listFlatmateReviews
+      externalDocs: { description: Behaviour, url: docs/flows/ops/service-queues.md }
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } }
+        - { name: flagged, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlatmateReview' }
+  /admin/flatmate-reviews/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Decide a flatmate host verification
+      description: A rejection requires a reason — the host is always told why.
+      operationId: decideFlatmateReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateReview' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/flatmates/{id}/moderation:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Moderate a flatmate seeker post, room or group
+      description: >
+        Admin moderation axis only. It must never write a group application's owner decision, and
+        a `flagged` / `removed` post must disappear from every consumer feed, the map and the alert
+        matcher — not merely change a label.
+      operationId: moderateFlatmatePost
+      externalDocs: { description: Behaviour, url: docs/flows/admin/flatmates-moderation.md }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modStatus]
+              properties:
+                modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+                note: { type: string, description: Internal note, never exposed to consumers. Expected on flag/remove. }
+      responses:
+        '200': { description: Moderated }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/group-applications:
+    get:
+      tags: [Moderation]
+      summary: Flatmate group applications
+      operationId: listGroupApplications
+      responses:
+        '200':
+          description: Applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GroupApplication' }
+  /admin/group-applications/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Moderate a group application
+      operationId: decideGroupApplication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modStatus]
+              properties:
+                modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+                note: { type: string }
+      responses:
+        '200':
+          description: Moderated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupApplication' }
   # ============================================================
   # 5. LEADS & CONTACT (contact gate, enquiries, finalization)
   # ============================================================
@@ -2210,7 +2373,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Referral' }
   # ============================================================
-  # 10. ENGAGEMENT (saved, alerts, reviews, share-flat, content)
+  # 10. ENGAGEMENT (saved, alerts, reviews, flatmates, content)
   # ============================================================
   /me/saved:
     get:
@@ -2337,11 +2500,57 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Review' }
-  /share-flat/posts:
+  /flatmates/feed:
     get:
       tags: [Engagement]
-      summary: Flatmate / share-flat posts
-      operationId: listShareFlatPosts
+      summary: Flatmates feed (tab-aware, mixed)
+      description: >
+        One feed per tab. `move-in` returns rooms plus groups that already hold an address;
+        `team-up` returns solo seeker posts plus address-less groups. The list is sorted as one
+        list — merging two pre-sorted lists would stack every room above every group.
+      operationId: listFlatmateFeed
+      security: []
+      externalDocs: { description: Behaviour, url: docs/flows/consumer/flatmates.md }
+      parameters:
+        - { name: tab, in: query, schema: { $ref: '#/components/schemas/FlatmateTab' } }
+        - { name: view, in: query, deprecated: true, description: Legacy tab alias; resolved to `tab`., schema: { $ref: '#/components/schemas/FlatmateTabLegacy' } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: locality, in: query, schema: { type: string } }
+        - { name: budget, in: query, description: Per-head ceiling. Rooms are matched on their best achievable per-person price, so a shareable room can surface under a lower budget., schema: { type: integer } }
+        - { name: moveIn, in: query, schema: { $ref: '#/components/schemas/FlatmateMoveIn' } }
+        - { name: gender, in: query, schema: { type: string, enum: [male, female] } }
+        - { name: sharing, in: query, description: '`team-up` only.', schema: { type: string } }
+        - { name: attachedBath, in: query, description: '`move-in` only.', schema: { type: boolean } }
+        - { name: verifiedOnly, in: query, schema: { type: boolean } }
+        - { name: habits, in: query, schema: { type: array, items: { type: string } } }
+        - { name: near, in: query, description: 'Proximity centre as `lat,lng`.', schema: { type: string, example: '18.5590,73.7868' } }
+        - { name: nearRadius, in: query, schema: { type: number, default: 5 } }
+        - { name: nearMode, in: query, schema: { type: string, enum: [km, min], default: km } }
+        - { name: sort, in: query, schema: { type: string, enum: [verified, match, budget-low, budget-high, new], default: verified } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Feed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items:
+                          oneOf:
+                            - $ref: '#/components/schemas/FlatmateSeekerPost'
+                            - $ref: '#/components/schemas/FlatmateRoom'
+                            - $ref: '#/components/schemas/FlatmateGroup'
+  /flatmates/posts:
+    get:
+      tags: [Engagement]
+      summary: Flatmate seeker posts
+      operationId: listFlatmateSeekerPosts
       security: []
       parameters:
         - { name: locality, in: query, schema: { type: string } }
@@ -2359,35 +2568,341 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/ShareFlatPost' }
+                        items: { $ref: '#/components/schemas/FlatmateSeekerPost' }
     post:
       tags: [Engagement]
-      summary: Create share-flat post
-      operationId: createShareFlatPost
+      summary: Create a flatmate seeker post
+      description: Requires only an L1 signed-in account (ADR-019). One live post per identity.
+      operationId: createFlatmateSeekerPost
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ShareFlatPostCreate' }
+            schema: { $ref: '#/components/schemas/FlatmateSeekerPostCreate' }
       responses:
         '201':
           description: Created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ShareFlatPost' }
-  /share-flat/posts/{id}/interest:
+              schema: { $ref: '#/components/schemas/FlatmateSeekerPost' }
+        '409': { description: A live post already exists for this identity (`already_live`) }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /flatmates/posts/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    post:
+    patch:
       tags: [Engagement]
-      summary: Express interest in a share-flat post
-      operationId: shareFlatInterest
+      summary: Update my flatmate seeker post
+      operationId: updateFlatmateSeekerPost
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/MessageCreate' }
+            schema: { $ref: '#/components/schemas/FlatmateSeekerPostCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateSeekerPost' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Engagement]
+      summary: Remove my flatmate seeker post
+      description: Backs both "Delete" and "Mark filled".
+      operationId: deleteFlatmateSeekerPost
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /flatmates/posts/{id}/interest:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Express interest in a flatmate seeker post
+      operationId: flatmatePostInterest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateInterestCreate' }
       responses:
         '201': { description: Sent }
+        '403': { description: The target opted into verified-only contact (`verification_required`) }
+        '409': { description: Interest already expressed (`already_interested`) }
+  /flatmates/rooms:
+    get:
+      tags: [Engagement]
+      summary: Flatmate rooms
+      operationId: listFlatmateRooms
+      security: []
+      parameters:
+        - { name: locality, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Rooms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateRoom' }
+    post:
+      tags: [Engagement]
+      summary: Post a spare room
+      description: L1 signed-in. Runs the anti-broker guardrails; a hard block returns `409` with the eligibility result.
+      operationId: createFlatmateRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateRoomCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRoom' }
+        '409':
+          description: Blocked by the host-eligibility guardrails
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostEligibility' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /flatmates/rooms/{id}/seats:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Engagement]
+      summary: Reopen or close a room seat
+      description: Seat-model rooms only. The verification tier is preserved, so a re-list needs no re-verification.
+      operationId: setRoomSeats
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seatsOpen]
+              properties:
+                seatsOpen: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRoom' }
+        '409': { description: This room has no seat model (`not_seat_based`) }
+  /flatmates/rooms/{id}/occupants:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Engagement]
+      summary: Record how many people live in a room
+      description: >
+        Owner-split rooms only. The server clamps to `min(3, maxOccupants - siblings)` and echoes the
+        clamped value, so a society cap can never be exceeded by editing one room.
+      operationId: setRoomOccupants
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [occupants]
+              properties:
+                occupants: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Updated (clamped)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRoom' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /flatmates/rooms/{id}/agreement/reissue:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Reissue the flat's joint rent agreement
+      description: >
+        One agreement covers the owner and every flatmate in the flat, so a room changing hands
+        invalidates it. Starts a fresh rent-agreement service request bound to the flat.
+      operationId: reissueJointAgreement
+      responses:
+        '202': { description: Reissue started }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /flatmates/groups:
+    get:
+      tags: [Engagement]
+      summary: Flatmate groups
+      operationId: listFlatmateGroups
+      security: []
+      parameters:
+        - { name: locality, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Groups
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateGroup' }
+    post:
+      tags: [Engagement]
+      summary: Create a flatmate group
+      description: L1 signed-in. The verification tier is derived server-side from role + proof; the client can never self-assign a host badge.
+      operationId: createFlatmateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateGroupCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateGroup' }
+        '409':
+          description: Blocked by the host-eligibility guardrails
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostEligibility' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /flatmates/groups/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    delete:
+      tags: [Engagement]
+      summary: Remove a group I created
+      operationId: deleteFlatmateGroup
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /flatmates/groups/{id}/seats:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Engagement]
+      summary: Reopen or close a group seat
+      operationId: setGroupSeats
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seatsOpen]
+              properties:
+                seatsOpen: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateGroup' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /flatmates/groups/{id}/owner-consent:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Request or confirm the flat owner's consent
+      description: >
+        Tenant replacement track. Called once without `otp` to send an OTP to the flat owner, then
+        again with it to record an auditable consent. Consent is never client-asserted.
+      operationId: requestOwnerConsent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerMobile]
+              properties:
+                ownerMobile: { $ref: '#/components/schemas/Mobile' }
+                otp: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        '200': { description: OTP sent, or consent recorded }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /flatmates/rooms/{id}/interest:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Enquire about a room
+      description: Carries the share intent, so the host learns how many people are moving in in the first line.
+      operationId: flatmateRoomInterest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateInterestCreate' }
+      responses:
+        '201': { description: Sent }
+        '409': { description: Interest already expressed (`already_interested`) }
+  /flatmates/groups/{id}/join:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Engagement]
+      summary: Ask to join a group
+      description: An open-policy group (`policy` = `any`) auto-accepts; every other policy creates a pending host-inbox request.
+      operationId: flatmateGroupJoin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateInterestCreate' }
+      responses:
+        '201':
+          description: Joined or requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRequest' }
+        '409': { description: Group is full (`group_full`) or already requested (`already_interested`) }
+  /me/flatmate-requests:
+    get:
+      tags: [Engagement]
+      summary: My incoming flatmate requests (host inbox)
+      operationId: listMyFlatmateRequests
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, accepted, declined] } }
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlatmateRequest' }
+  /me/flatmate-requests/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Engagement]
+      summary: Accept or decline an incoming flatmate request
+      operationId: decideFlatmateRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [accepted, declined] }
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /notifications:
     get:
       tags: [Engagement]
@@ -3797,21 +4312,27 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        query: { type: string, description: URL-encoded filter query string. }
+        kind: { type: string, enum: [listings, flatmates], default: listings, description: Which discovery surface this alert watches. }
+        query: { type: string, description: URL-encoded filter query string (listings alerts). }
         filters: { type: object, additionalProperties: true, description: Structured filter object (alternative to the query string). }
+        criteria: { $ref: '#/components/schemas/FlatmateAlertCriteria', description: Present only when `kind` is `flatmates`; listings alerts use `query` / `filters` instead. }
+        label: { type: string, description: Short human summary rendered on the alert card and in the dashboard Alerts panel. }
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly] }
-        channel: { type: string, enum: [whatsapp, email, push], default: whatsapp }
+        channel: { type: string, enum: [whatsapp, sms, email, push], default: whatsapp }
+        mobile: { $ref: '#/components/schemas/Mobile', description: Required for the signed-out lead path — an anonymous alert is keyed by mobile so it re-homes on sign-in. }
         newCount: { type: integer, description: New matches since last viewed }
         createdAt: { type: string, format: date-time }
     SavedSearchCreate:
       type: object
-      required: [query]
       properties:
         name: { type: string }
-        query: { type: string }
+        kind: { type: string, enum: [listings, flatmates], default: listings }
+        query: { type: string, description: Required when `kind` is `listings`. }
         filters: { type: object, additionalProperties: true }
+        criteria: { $ref: '#/components/schemas/FlatmateAlertCriteria', description: Required when `kind` is `flatmates`. }
         alertFrequency: { type: string, enum: ["off", instant, daily, weekly], default: daily }
-        channel: { type: string, enum: [whatsapp, email, push], default: whatsapp }
+        channel: { type: string, enum: [whatsapp, sms, email, push], default: whatsapp }
+        mobile: { $ref: '#/components/schemas/Mobile' }
     Review:
       type: object
       properties:
@@ -3830,41 +4351,400 @@ components:
         rating: { type: integer, minimum: 1, maximum: 5 }
         title: { type: string }
         body: { type: string }
-    ShareFlatPost:
+    # ---- Engagement · Flatmates ----
+    # Two feeds, split by the one question a seeker can always answer: is there an
+    # address yet? Behavioural spec: docs/flows/consumer/flatmates.md
+    FlatmateTab:
+      type: string
+      description: >
+        `move-in` = browse PLACES (rooms, plus groups that already hold a flat).
+        `team-up` = browse PEOPLE (solo seekers, plus groups still hunting).
+        Replaces the legacy flatmates/rooms/groups triple, which split by our storage
+        model rather than by seeker intent.
+      enum: [move-in, team-up]
+      default: move-in
+    FlatmateTabLegacy:
+      type: string
+      description: >
+        Deprecated `?view=` values kept as read aliases so old deep links, saved alerts and
+        notification links resolve instead of falling back to the default:
+        rooms -> move-in; flatmates | groups -> team-up.
+      enum: [rooms, flatmates, groups]
+      deprecated: true
+    RoomKind:
+      type: string
+      description: >
+        What the room physically is. Drives the derived `attachedBath` — a master bedroom's
+        private bathroom is implied, so the host is never asked the same question twice.
+        A partitioned living room is the budget option.
+      enum: [master, bedroom, living]
+    PriceBasis:
+      type: string
+      description: >
+        Whether the rent is quoted per ROOM or per PERSON. `person` (legacy spare-room posts)
+        is what one flatmate pays; `room` (owner flat-split) is the whole room rent, split
+        equally by whoever takes it. Mixing them silently would make a shared bed look pricier
+        than a private room. Defaults to `person` for every post predating the split flow.
+      enum: [room, person]
+      default: person
+    Occupancy:
+      type: string
+      description: >
+        Whether anyone already lives in the home. Orthogonal to `hostRole` / `verificationTier`:
+        occupancy answers "will I have flatmates from day one?", host role answers the trust
+        question. Derived from the flat's ledger server-side, never trusted from the client.
+      enum: [empty, filling, occupied]
+    HostRole:
+      type: string
+      description: Who is letting the space — an owner of the flat, or a sitting tenant seeking a replacement.
+      enum: [owner, tenant]
+    VerificationTier:
+      type: string
+      description: >
+        Supply-side trust tier. `identity` is the floor and carries no badge; `owner` means the
+        post is attached to an Ops-approved property; `tenant` means a sitting tenant attested a
+        registered rent agreement (badge withheld until Ops approves the uploaded document).
+      enum: [identity, tenant, owner]
+    ShareIntent:
+      type: string
+      description: >
+        How the seeker intends to take a per-room-priced room — `solo` (alone), `bring` (with
+        someone they already know, two people) or `match` (they want PuneNest to find them a
+        room-sharer). Sets the opening message and tells the host how many people are moving in.
+      enum: [solo, bring, match]
+      default: solo
+    FlatmateMoveIn:
+      type: string
+      description: >
+        Move-in availability — the literal `now`, a legacy bucket of days (`15` | `30` | `60`),
+        or an ISO-8601 date from the picker.
+      example: '2026-08-15'
+    FlatmateModStatus:
+      type: string
+      description: Admin moderation state. Absent reads as `live`, so a never-moderated post is not a special case.
+      enum: [live, approved, flagged, removed, rejected]
+      default: live
+    FlatmateSeekerPost:
       type: object
+      description: >
+        A person looking for flatmates who has **no address yet** — the `team-up` feed.
+        One live post per identity (matched on mobile, then name).
+      properties:
+        id: { type: string, example: s1 }
+        name: { type: string }
+        gender: { type: string, enum: [any, male, female] }
+        age: { type: integer, minimum: 18, nullable: true }
+        occupation: { type: string, example: UX Designer }
+        budget: { $ref: '#/components/schemas/Money' }
+        localities:
+          type: array
+          description: Pune localities the seeker will consider (canonical registry names).
+          items: { type: string }
+          example: [Baner, Balewadi]
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        flatPref: { type: string, enum: [any, women, men], description: Who they want to share the flat with. }
+        roomPref: { type: string, enum: [any, private, shared] }
+        tags:
+          type: array
+          description: Lifestyle habits; also the `habits` filter vocabulary.
+          items: { type: string }
+          example: [Vegetarian, Non-smoker]
+        note: { type: string, maxLength: 600 }
+        verifiedContactOnly: { type: boolean, default: false, description: Seeker-side of ADR-019 — only badged callers may express interest. }
+        verified: { type: boolean, description: Mirrors the seeker's DigiLocker L2 badge at post time (ADR-009a). }
+        modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        lat: { type: number, format: double, nullable: true }
+        lng: { type: number, format: double, nullable: true }
+        createdAt: { type: string, format: date-time }
+    FlatmateSeekerPostCreate:
+      type: object
+      required: [name, budget, localities]
+      properties:
+        name: { type: string }
+        gender: { type: string, enum: [any, male, female], default: female }
+        age: { type: integer, minimum: 18 }
+        occupation: { type: string }
+        budget: { $ref: '#/components/schemas/Money' }
+        localities: { type: array, minItems: 1, items: { type: string } }
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        flatPref: { type: string, enum: [any, women, men], default: any }
+        roomPref: { type: string, enum: [any, private, shared], default: any }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+        verifiedContactOnly: { type: boolean, default: false }
+    FlatmateRoom:
+      type: object
+      description: >
+        A room offered inside a real flat — the `move-in` feed. Created either by the
+        list-property flatmate flow (one spare room, seat-based) or by an owner splitting a
+        whole rent listing room by room (occupancy-based, `POST /properties/{propId}/split`).
+      properties:
+        id: { type: string, example: rm7 }
+        type: { type: string, enum: [flatmate] }
+        propertyId: { type: string, nullable: true, description: Parent rent listing when this room came from a flat split — the key that ties sibling rooms into one occupancy ledger and one joint agreement. }
+        roomKind: { $ref: '#/components/schemas/RoomKind' }
+        roomType: { type: string, enum: ['Private room', 'Shared room'] }
+        attachedBath: { type: string, enum: [attached, shared], description: Derived from `roomKind` on split rooms (master implies attached); asked explicitly on single-room posts. }
+        priceBasis: { $ref: '#/components/schemas/PriceBasis' }
+        budget: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        occupancy: { $ref: '#/components/schemas/Occupancy' }
+        occupants: { type: integer, minimum: 0, maximum: 3, description: People actually living in THIS room. Emergent — tenants decide, the owner only records it. }
+        maxOccupants: { type: integer, minimum: 1, default: 3, description: How many people may live in the whole FLAT (the society's rule) — the only ceiling the owner declares. }
+        flatCommitted: { type: integer, readOnly: true, description: Derived — people moved into this flat across every sibling room. }
+        flatMax: { type: integer, readOnly: true, nullable: true }
+        shareMax: { type: integer, readOnly: true, minimum: 1, maximum: 3, description: 'Derived — the most people who could still take this room: min(3 - occupants, flatMax - flatCommitted). Always 1 when priceBasis is `person`.' }
+        seatsTotal: { type: integer, minimum: 1, description: Seat model, used by single spare-room posts instead of the occupancy ledger. }
+        seatsOpen: { type: integer, minimum: 0 }
+        hostRole: { $ref: '#/components/schemas/HostRole' }
+        verificationTier: { $ref: '#/components/schemas/VerificationTier' }
+        verified: { type: boolean, description: The Verified pill — for split rooms it tracks the PARENT listing's Ops approval, so it can never appear on a flat nobody has checked. }
+        agreementDeclared: { type: boolean }
+        addressFingerprint: { type: string, description: Stable key for one physical flat, used to detect two hosts claiming the same address. }
+        flagForReview: { type: boolean }
+        modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+        society: { type: string }
+        societyId: { type: string }
+        flatNumber: { type: string }
+        locality: { type: string }
+        localities: { type: array, items: { type: string } }
+        lat: { type: number, format: double, nullable: true }
+        lng: { type: number, format: double, nullable: true }
+        bhk: { type: string, enum: ['1', '2', '3', '4'], description: "'4' means 4+." }
+        flatType: { type: string, example: 3 BHK }
+        homeTypeLabel: { type: string, example: Flat }
+        gatedCommunity: { type: boolean }
+        furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        availableFrom: { type: string, format: date }
+        gender: { type: string, enum: [any, male, female] }
+        food: { type: string, enum: [any, veg, nonveg] }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+        photos: { type: array, items: { type: string, format: uri } }
+        owner: { type: string }
+        ownerMobile: { $ref: '#/components/schemas/Mobile' }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        createdAt: { type: string, format: date-time }
+    FlatmateRoomCreate:
+      type: object
+      required: [bhk, roomType, locality, society, rentShare, availableFrom, photos]
+      description: Single spare-room post from the list-property flatmate flow. The required set mirrors `submitFlatmate` validation.
+      properties:
+        bhk: { type: string, enum: ['1', '2', '3', '4'] }
+        roomType: { type: string, enum: ['Private room', 'Shared room'] }
+        attachedBath: { type: string, enum: [attached, shared] }
+        furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        locality: { type: string }
+        societyId: { type: string }
+        society: { type: string }
+        rentShare: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        availableFrom: { type: string, format: date }
+        lookingFor: { type: string, enum: [any, male, female] }
+        foodPref: { type: string, enum: [any, veg, nonveg] }
+        lifestyle: { type: array, items: { type: string } }
+        hostRole: { $ref: '#/components/schemas/HostRole' }
+        agreementDeclared: { type: boolean }
+        agreementDoc: { $ref: '#/components/schemas/AgreementDoc' }
+        ownerConsentMobile: { $ref: '#/components/schemas/Mobile' }
+        photos: { type: array, minItems: 1, items: { type: string, format: uri } }
+        note: { type: string, maxLength: 600 }
+    FlatmateGroup:
+      type: object
+      description: >
+        People teaming up. A group with an address (`propertyId` / `society`) sorts into
+        `move-in`; an address-less group is a set of people still hunting and sorts into `team-up`.
+      properties:
+        id: { type: string, example: g1 }
+        title: { type: string }
+        locality: { type: string }
+        policy: { type: string, enum: [any, women, men], description: '`any` means open-join — a request is auto-accepted.' }
+        rent: { $ref: '#/components/schemas/Money', description: Whole-flat rent; per-head is rent / seatsTotal. }
+        seatsTotal: { type: integer, minimum: 1 }
+        seatsOpen: { type: integer, minimum: 0, description: Seats open right now — the honest count for a tenant backfilling one seat. Legacy groups omit it and fall back to seatsTotal minus members. }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              initials: { type: string, maxLength: 2 }
+              verified: { type: boolean }
+        propertyId: { type: string, nullable: true }
+        hostRole: { $ref: '#/components/schemas/HostRole' }
+        verificationTier: { $ref: '#/components/schemas/VerificationTier' }
+        agreementDeclared: { type: boolean }
+        ownerConsent: { type: boolean, description: True once the flat's owner confirmed the replacement search via OTP — turning "trust me" into an auditable consent record. }
+        ownerConsentMobile: { $ref: '#/components/schemas/Mobile' }
+        addressFingerprint: { type: string }
+        flagForReview: { type: boolean }
+        modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+        ownerName: { type: string }
+        ownerMobile: { $ref: '#/components/schemas/Mobile' }
+        createdAt: { type: string, format: date-time }
+    FlatmateGroupCreate:
+      type: object
+      required: [title, rent, name]
+      properties:
+        title: { type: string }
+        locality: { type: string, default: Baner }
+        policy: { type: string, enum: [any, women, men], default: women }
+        rent: { $ref: '#/components/schemas/Money' }
+        seats: { type: integer, minimum: 1, default: 2 }
+        seatsOpen: { type: integer, minimum: 1, default: 1 }
+        name: { type: string, description: The creator's display name — becomes the first member. }
+        role: { $ref: '#/components/schemas/HostRole' }
+        propertyId: { type: string, description: Only honoured when role is `owner`; must be an Ops-approved listing to earn the owner tier. }
+        agreement: { type: boolean }
+        agreementDoc: { $ref: '#/components/schemas/AgreementDoc' }
+        consentMobile: { $ref: '#/components/schemas/Mobile' }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+    AgreementDoc:
+      type: object
+      description: >
+        A tenant's uploaded rent agreement — the artifact Ops verifies. Images and PDFs only.
+        Files over 3 MB are recorded present-but-not-stored so Ops can still ask for the original.
+      properties:
+        name: { type: string, maxLength: 200 }
+        size: { type: integer, minimum: 0 }
+        mime: { type: string, enum: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] }
+        url: { type: string, format: uri, nullable: true }
+        tooLarge: { type: boolean, default: false }
+    FlatSplitRequest:
+      type: object
+      required: [maxOccupants, rooms]
+      description: >
+        Split an existing **rent** listing into per-room supply. The whole-flat listing keeps
+        existing, so the share market never cannibalises core rental inventory.
+      properties:
+        maxOccupants:
+          type: integer
+          description: 'People allowed in the whole flat. Must sit in [roomCount, roomCount x 3].'
+          minimum: 1
+        rooms:
+          type: array
+          minItems: 1
+          description: 'Lettable rooms = bedrooms + hall. Max is bhk + 1; unbounded when bhk is "4" (meaning 4+), so only the flat cap binds.'
+          items:
+            type: object
+            required: [roomKind, rent]
+            properties:
+              roomKind: { $ref: '#/components/schemas/RoomKind' }
+              rent: { $ref: '#/components/schemas/Money' }
+              deposit: { $ref: '#/components/schemas/Money', description: Defaults to 2x rent when omitted. }
+              note: { type: string, maxLength: 600 }
+    FlatSplitResult:
+      type: object
+      properties:
+        count: { type: integer }
+        tier: { $ref: '#/components/schemas/VerificationTier' }
+        pending: { type: boolean, description: True when the parent listing is not yet Ops-approved, so the rooms start unbadged. }
+        flagged: { type: boolean, description: True when a different host already claimed this address. }
+        rooms: { type: array, items: { $ref: '#/components/schemas/FlatmateRoom' } }
+    FlatmateInterestCreate:
+      type: object
+      description: Express interest in a seeker, a room or a group.
+      properties:
+        share: { $ref: '#/components/schemas/ShareIntent', description: Rooms only — how many people are moving in. }
+        message: { type: string, maxLength: 4000, description: Optional override; the server generates a share-intent-appropriate opener when absent. }
+    FlatmateRequest:
+      type: object
+      description: >
+        Host-facing inbox record. The seeker-side interest map is device-local; this is what the
+        HOST sees in Dashboard -> Requests. Deduped by requester + target.
       properties:
         id: { type: string }
-        title: { type: string }
+        kind: { type: string, enum: [flatmate, room, group] }
+        action: { type: string, enum: [request, join], description: '`request` needs host approval; `join` is an open-policy group (already joined, informational).' }
+        share: { $ref: '#/components/schemas/ShareIntent' }
+        targetId: { type: string }
+        targetTitle: { type: string }
         locality: { type: string }
-        rentShare: { $ref: '#/components/schemas/Money' }
-        availableFrom: { type: string, format: date }
-        preferences:
-          type: object
-          properties:
-            gender: { type: string, enum: [any, male, female] }
-            foodPreference: { type: string, enum: [any, veg, non-veg] }
-            occupation: { type: string }
-        postedBy: { $ref: '#/components/schemas/Party' }
-        createdAt: { type: string, format: date-time }
-    ShareFlatPostCreate:
+        requesterName: { type: string }
+        requesterMobile: { $ref: '#/components/schemas/Mobile' }
+        status: { type: string, enum: [pending, accepted, declined] }
+        requestedAt: { type: string, format: date-time }
+        decidedAt: { type: string, format: date-time, nullable: true }
+    FlatmateReview:
       type: object
-      required: [title, locality, rentShare]
+      description: >
+        Ops agreement-review queue item. A tenant's "I have a registered rent agreement" is
+        self-declared, so tenant-tier posts — plus any address a different host already claimed and
+        any flat split whose parent listing is still pending — land here before the post earns a
+        badge. One review per group, and one per flat (not per room).
       properties:
-        title: { type: string }
+        id: { type: string }
+        kind: { type: string, enum: [room, group] }
+        roomId: { type: string, nullable: true }
+        groupId: { type: string, nullable: true }
+        host: { type: string }
+        hostMobile: { $ref: '#/components/schemas/Mobile' }
+        address: { type: string }
+        tier: { $ref: '#/components/schemas/VerificationTier' }
+        flagForReview: { type: boolean, description: Contested address — a DIFFERENT host already claimed it. Fuzzy match, so flag-not-block. }
+        ownerConsent: { type: boolean }
+        agreementDoc: { $ref: '#/components/schemas/AgreementDoc' }
+        status: { type: string, enum: [pending, approved, rejected] }
+        reason: { type: string, description: Required on reject; shown to the host. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FlatmateAlertCriteria:
+      type: object
+      description: >
+        A flatmates saved-search. Only records filters the active tab actually honours, mirroring
+        the tab-gated FilterBar, so a stale value never rides along invisibly.
+      properties:
+        tab: { $ref: '#/components/schemas/FlatmateTab' }
+        q: { type: string }
         locality: { type: string }
-        rentShare: { $ref: '#/components/schemas/Money' }
-        availableFrom: { type: string, format: date }
-        preferences:
-          type: object
-          properties:
-            gender: { type: string, enum: [any, male, female] }
-            foodPreference: { type: string, enum: [any, veg, non-veg] }
-            occupation: { type: string }
+        budget: { $ref: '#/components/schemas/Money', description: Omitted when the slider sits at its 40000 "Any" sentinel. }
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        gender: { type: string, enum: [male, female] }
+        sharing: { type: string, description: '`team-up` only — group size.' }
+        attachedBath: { type: boolean, description: '`move-in` only.' }
+        verifiedOnly: { type: boolean }
+        habits: { type: array, items: { type: string } }
+        label: { type: string, readOnly: true, description: Short human summary, e.g. 'Move in now · Baner · Verified'. }
+    GroupApplication:
+      type: object
+      description: A flatmate group applying to an owner's listing. Carries two independent statuses — the owner's decision and admin moderation.
+      properties:
+        id: { type: string }
+        listingId: { type: string }
+        listingTitle: { type: string }
+        locality: { type: string }
+        rent: { $ref: '#/components/schemas/Money' }
+        perHead: { $ref: '#/components/schemas/Money' }
+        groupTitle: { type: string }
+        applicantName: { type: string }
+        members: { type: integer }
+        seatsTotal: { type: integer }
+        status: { type: string, enum: [pending, accepted, declined], description: The OWNER's decision. Admin may never write this. }
+        modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
+        at: { type: string, format: date-time }
+    HostEligibility:
+      type: object
+      description: >
+        Anti-broker guardrails, evaluated on every supply-side create (room post, group, flat split).
+        A hard block (cap hit, or the same host re-claiming an address) refuses the post; a soft flag
+        (a different host already claimed it) still posts but routes to Ops.
+      properties:
+        blocked: { type: boolean }
+        overCap: { type: boolean, description: True at 3 live non-owner-tier posts per identity. Owner-tier posts are exempt from the count but never from the dedupe. }
+        duplicate: { type: boolean }
+        flagForReview: { type: boolean }
+        fingerprint: { type: string }
+        reason: { type: string }
     Notification:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, example: offer.received }
+        type: { type: string, description: 'Dotted domain event (e.g. `offer.received`) or a coarse surface tag: `share` (flatmates), `listing`, `service`.', example: offer.received }
         title: { type: string }
         body: { type: string }
         read: { type: boolean }

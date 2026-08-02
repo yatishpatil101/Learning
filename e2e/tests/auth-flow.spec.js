@@ -2,6 +2,15 @@ import { test, expect } from '@playwright/test';
 
 const BASE = 'http://localhost:5173';
 
+/* Locators here are scoped to `#root` on purpose.
+ *
+ * `frontend/index.html` ships a hidden `pmf-lead` form as a *sibling* of #root —
+ * inert markup that exists so Netlify's deploy bot registers the form at build
+ * time. It contains `<input type="tel" name="whatsapp">`, so an unscoped
+ * `input[type="tel"]` matches two elements everywhere in the app and fails on
+ * strict mode. Scoping to the React root is the fix that keeps working wherever
+ * the form gains another field. */
+
 async function fillOtp(page, code = '123456') {
   for (let i = 0; i < 6; i++) {
     await page.getByLabel(`OTP digit ${i + 1}`).fill(code[i]);
@@ -15,7 +24,7 @@ test.describe('Auth: SSO ("or continue with") removed', () => {
     await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Apple' })).toHaveCount(0);
     // Core mobile+OTP entry is still present.
-    await expect(page.locator('input[type="tel"]')).toBeVisible();
+    await expect(page.locator('#root input[type="tel"]')).toBeVisible();
   });
 
   test('Sign Up page shows no Google/Apple SSO', async ({ page }) => {
@@ -28,12 +37,12 @@ test.describe('Auth: SSO ("or continue with") removed', () => {
 
 test('Sign In with an unknown number routes to Sign Up with the mobile carried over', async ({ page }) => {
   await page.goto(`${BASE}/signin`);
-  await page.locator('input[type="tel"]').fill('9876500011');
+  await page.locator('#root input[type="tel"]').fill('9876500011');
   await page.getByRole('button', { name: /Send OTP/i }).click();
   await expect(page).toHaveURL(/\/signup\?/);
   await expect(page).toHaveURL(/mobile=9876500011/);
   // Mobile is prefilled on the sign-up form and the new-visitor banner is shown.
-  await expect(page.locator('input[type="tel"]')).toHaveValue('9876500011');
+  await expect(page.locator('#root input[type="tel"]')).toHaveValue('9876500011');
   await expect(page.getByText(/new to PuneNest/i)).toBeVisible();
 });
 
@@ -67,7 +76,7 @@ test('A registered number proceeds to OTP on Sign In (not bounced to Sign Up)', 
     ]));
   });
   await page.goto(`${BASE}/signin`);
-  await page.locator('input[type="tel"]').fill('9876500033');
+  await page.locator('#root input[type="tel"]').fill('9876500033');
   await page.getByRole('button', { name: /Send OTP/i }).click();
   // Stays on Sign In and reveals the OTP entry.
   await expect(page.getByLabel('OTP digit 1')).toBeVisible();

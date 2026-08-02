@@ -22,7 +22,10 @@
 - **Source components:**
   - `src/pages/admin/AdminReports.jsx` - queue, filters, single + bulk actions, detail modal.
   - `src/lib/data/reports.js` - `submitReport` (intake) + `REPORT_REASONS`.
-  - Report intake UI: `src/pages/consumer/property/*` report modal (consumer side).
+  - Report intake UI: the shared `src/components/ReportModal.jsx`, reused by the property detail page
+    (via a thin `src/pages/consumer/property/ReportModal.jsx` adapter), Flatmates posts, Messages,
+    and the public owner profile. The modal takes a `reasons` prop, so each surface supplies its own
+    vocabulary.
 
 ## 3. Actors & roles
 - **Reporter = any signed-in user** (maker) who flags a listing/user from the consumer app.
@@ -49,10 +52,14 @@
   ownerMobile (digits), reason, reasonLabel, details, reportedBy, reporterMobile (digits),
   url, at: Date.now(), status: 'open', actionTaken: '', handledAt: 0 }
 ```
-- **Reasons** come from `REPORT_REASONS` on the consumer side (`sold`, `fake`, `unavailable`,
-  `pricing`, `spam`, `broker`, `other`); the admin filter also lists moderation reasons
-  (`fake`, `inaccurate`, `fraud`, `impersonation`, `offensive`, `spam`). (Reason enums differ between
-  intake and admin filter - see data-model inconsistency #7.)
+- **Reasons** are per-surface and exported from `src/components/ReportModal.jsx`:
+  `LISTING_REPORT_REASONS` (the default, property listings), `SHARE_REPORT_REASONS` (Flatmates
+  seeker/room/group posts), `OWNER_REPORT_REASONS` (owner profiles and chat). `REPORT_REASONS` in
+  `src/lib/data/reports.js` is a leftover export with no importers. The admin filter still lists its
+  own moderation reason set (`fake`, `inaccurate`, `fraud`, `impersonation`, `offensive`, `spam`), so
+  the intake<->filter enum mismatch (data-model inconsistency #7) is now a three-way mismatch.
+- **`kind` routing:** rooms report as `kind: 'listing'` (admin listings queue); flatmate seekers and
+  groups report as `kind: 'user'` (admin users queue).
 - Every new report starts `status: 'open'` with no action taken.
 
 ### 5.2 Triage states & moderator actions
@@ -131,7 +138,8 @@ actioned|resolved|dismissed --(reopen)--> open   (clears actionTaken)
 ## 9. Current mock implementation
 - **Page + handlers:** `src/pages/admin/AdminReports.jsx`
   (`act`, `bulkResolve`, `bulkDismiss`, `updateReport`, `targetCounts`, `kpis`).
-- **Intake + reasons:** `src/lib/data/reports.js` (`submitReport`, `REPORT_REASONS`).
+- **Intake + reasons:** `src/components/ReportModal.jsx` (`LISTING_`/`SHARE_`/`OWNER_REPORT_REASONS`)
+  writing through `src/lib/data/reports.js` (`submitReport`).
 - **List service:** `src/lib/mockApi/collections.js` (`listReports`, excludes archived by default).
 - **Audit / notes:** `src/lib/mockApi/audit.js` (`logAudit`, `addInternalNote`);
   mutation via `mutateDb` (`src/lib/mockApi.js`).
