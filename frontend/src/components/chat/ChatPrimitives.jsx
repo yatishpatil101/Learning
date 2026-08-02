@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { formatTime } from '../../lib/chat.js';
 
@@ -24,5 +25,6 @@ export function MessageBubble({ m }) {
 }
 
 export function TypingDots() {
-  return <div className="pc-typing" aria-label="Typing"><span /><span /><span /></div>;
+  const { t } = useTranslation();
+  return <div className="pc-typing" aria-label={t('nestor.typing')}><span /><span /><span /></div>;
 }

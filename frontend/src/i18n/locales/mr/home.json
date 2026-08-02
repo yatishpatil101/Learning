@@ -9,6 +9,10 @@
       "trustZeroBrokerage": "शून्य दलाली",
       "trustNoSpam": "स्पॅम कॉल नाहीत — नंबर खासगी राहतो",
       "trustAssured": "PuneNest अ‍ॅश्युअर्ड",
+      "trustAadhaarShort": "आधार-पडताळणी",
+      "trustZeroBrokerageShort": "शून्य दलाली",
+      "trustNoSpamShort": "स्पॅम कॉल नाहीत",
+      "trustAssuredShort": "PuneNest अ‍ॅश्युअर्ड",
       "exploreMap": "नकाशावर मालमत्ता पाहा",
       "recent": "अलीकडील:",
       "popular": "लोकप्रिय:",
@@ -31,6 +35,8 @@
       "bhkLabel": "BHK",
       "roomForLabel": "यांच्यासाठी खोली",
       "sharingLabel": "शेअरिंग",
+      "commercialTypeLabel": "व्यावसायिक प्रकार",
+      "landUseLabel": "जमीन वापर",
       "kind": {
         "society": "सोसायटी",
         "landmark": "खूण"
@@ -66,8 +72,8 @@
       "eyebrow": "जिथे थांबलात तिथून पुढे सुरू करा",
       "title": "अलीकडे पाहिलेले"
     },
-    "shareFlat": {
-      "badge": "नवीन · फ्लॅट शेअर करा",
+    "flatmates": {
+      "badge": "नवीन · फ्लॅटमेट्स",
       "headingLead": "संपूर्ण फ्लॅट परवडत नाही?",
       "headingHighlight": "फ्लॅटमेट शोधा.",
       "body": "एका व्यक्तीसाठी संपूर्ण फ्लॅटचे भाडे जास्त असते. तुम्हाला काय हवे ते पोस्ट करा, तुमच्या भागात व बजेटमध्ये खरे शोधणारे पाहा आणि भाडे वाटून घ्या — दलालाशिवाय आणि नंबर सुरक्षित.",
@@ -79,7 +85,7 @@
       "perMonthWhole": "/महिना संपूर्ण फ्लॅट",
       "yourShare": "तुमचा वाटा",
       "perMonth": "/महिना",
-      "lookingToShare": "पुण्यात शेअर करू इच्छितात"
+      "lookingForFlatmate": "पुण्यात फ्लॅटमेट शोधत आहेत"
     },
     "why": {
       "eyebrow": "PuneNest का",

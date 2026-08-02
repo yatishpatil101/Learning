@@ -50,7 +50,7 @@ export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, s
                   type="button"
                   onClick={() => toggleArea(slug)}
                   aria-label={t('listings.removeArea', { name: locNameBySlug[slug] || slug })}
-                  className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-teal-500/12 border border-teal-400/30 text-teal-200 text-xs font-medium hover:bg-rose-500/15 hover:border-rose-400/40 hover:text-rose-200 t-all"
+                  className="inline-flex items-center gap-1.5 min-h-[44px] sm:min-h-0 pl-3 pr-2 py-1.5 rounded-full bg-teal-500/12 border border-teal-400/30 text-teal-200 text-xs font-medium hover:bg-rose-500/15 hover:border-rose-400/40 hover:text-rose-200 t-all"
                 >
                   {locNameBySlug[slug] || slug}
                   <Icon name="x" className="w-3 h-3" />
@@ -97,9 +97,9 @@ export default function MapGate({ localities, f, set, locNameBySlug, maxAreas, s
 
             <p className="mt-6 text-xs text-gray-600">
               {t('listings.preferSwitch')}{' '}
-              <button type="button" onClick={() => setView('grid')} className="text-teal-400 hover:text-teal-300 font-medium underline underline-offset-2">{t('listings.gridWord')}</button>{' '}
+              <button type="button" onClick={() => setView('grid')} className="inline-flex items-center min-h-[44px] sm:min-h-0 px-1 sm:px-0 text-teal-400 hover:text-teal-300 font-medium underline underline-offset-2">{t('listings.gridWord')}</button>{' '}
               {t('listings.orWord')}{' '}
-              <button type="button" onClick={() => setView('list')} className="text-teal-400 hover:text-teal-300 font-medium underline underline-offset-2">{t('listings.listWord')}</button> {t('listings.viewWord')}
+              <button type="button" onClick={() => setView('list')} className="inline-flex items-center min-h-[44px] sm:min-h-0 px-1 sm:px-0 text-teal-400 hover:text-teal-300 font-medium underline underline-offset-2">{t('listings.listWord')}</button> {t('listings.viewWord')}
             </p>
           </>
         )}

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import StepHeader from './StepHeader.jsx';
 import FeatureSelector from '../../../components/ui/FeatureSelector';
 import PhotoUploader from './PhotoUploader.jsx';
-import { FieldError } from './controls.jsx';
 import { fld, lbl, lbl3 } from './styles.js';
 import { docsFor, amenitiesFor, isLandType } from './constants.js';
 
@@ -73,24 +72,17 @@ const PhotosDocumentsStep = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {docsFor(form.deal, form.propertyType, form.commercialType).map((d) => {
                         const has = !!documents[d.key];
-                        const showErr = !!errors.documents && d.required && !has;
                         return (
-                          <div key={d.key} data-err={d.required ? 'documents' : undefined}>
-                            <label className={lbl}>{d.label}</label>
-                            <label className={`doc-upload ${has ? 'has-file' : ''} ${showErr ? 'pn-invalid' : ''}`}>
+                          <div key={d.key}>
+                            <label className={lbl}>
+                              {d.label} <span className="text-gray-500 font-normal">{t('listProperty.optional')}</span>
+                            </label>
+                            <label className={`doc-upload ${has ? 'has-file' : ''}`}>
                               <input type="file" className="hidden" accept="image/*,.pdf" onChange={(e) => handleDocUpload(d.key, e)} />
                               <FileText className="w-5 h-5 text-teal-400 flex-shrink-0" />
                               <span className="doc-name text-sm text-gray-400 truncate">{has ? documents[d.key].name : d.cta}</span>
                             </label>
-                            {showErr ? (
-                              <FieldError show>
-                                {isLandType(form.propertyType)
-                                  ? t('listProperty.err.docsLand')
-                                  : form.deal === 'buy'
-                                    ? t('listProperty.err.docsBuy')
-                                    : t('listProperty.err.docsRent')}
-                              </FieldError>
-                            ) : (d.hint && <p className="text-gray-600 text-xs mt-1.5">{d.hint}</p>)}
+                            {d.hint && <p className="text-gray-600 text-xs mt-1.5">{d.hint}</p>}
                           </div>
                         );
                       })}
@@ -139,7 +131,7 @@ const PhotosDocumentsStep = ({
                     );
                   })()}
 
-                  <div className="flex justify-between">
+                  <div className="flex justify-between lp-step-actions">
                     <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
                     <button onClick={submitProperty} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20"><CheckCircle2 className="w-4 h-4" /> {t('listProperty.photosDocs.submitProperty')}</button>
                   </div>

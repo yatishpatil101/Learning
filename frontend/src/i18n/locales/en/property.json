@@ -20,7 +20,24 @@
     "requestSentAwaiting": "Request sent — awaiting owner",
     "ownerDeclined": "Owner declined the request",
     "requestNumber": "Request number",
+    "contactsLeft_one": "{{count}} free owner contact left",
+    "contactsLeft_other": "{{count}} free owner contacts left",
+    "contactsLeftNoneReferHint": "No free contacts left — refer a friend to get 15 more",
+    "contactsLeftNone": "No free contacts left — upgrade to keep going",
+    "contactsExhausted": {
+      "title": "You've used all your free contacts",
+      "sub": "{{used}} of {{allowance}} owner contacts used.",
+      "freeBadge": "Free",
+      "referTitle": "Refer a friend",
+      "referBody": "Every friend who joins PuneNest gets you {{count}} more owner contacts — free, no payment needed.",
+      "referCta": "Get my referral link",
+      "planTitle": "Upgrade to Seeker Plus",
+      "planBody": "Unlimited owner contacts, priority visit slots and our no-spam guarantee.",
+      "planCta": "See Seeker Plus"
+    },
     "prevPhoto": "Previous photo",
+    "photoDotsAria": "Photo navigation",
+    "goToPhoto": "Go to photo {{n}}",
     "nextPhoto": "Next photo",
 
     "furnishing": {
@@ -105,6 +122,7 @@
     "security247": "24x7 Security",
     "powerBackup": "Power Backup",
     "modernAmenities": "modern amenities",
+    "typeFallback": "Property",
 
     "overviewHeading": "Overview",
     "readMore": "Read more",
@@ -578,6 +596,9 @@
     "virtualTour": "Virtual Tour",
     "fullscreen": "Fullscreen",
     "requestMorePhotos": "Request more photos from the owner",
+    "requestPhotosShort": "Request photos",
+    "requestPhotosSlideTitle": "Seen everything?",
+    "requestPhotosSlideSub": "Ask the owner for more photos of this home \u2014 they'll see your request straight away.",
     "morePhotos": "More photos",
 
     "floorPlan": "Floor Plan",

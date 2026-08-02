@@ -20,7 +20,24 @@
     "requestSentAwaiting": "अनुरोध भेजा गया — मालिक की प्रतीक्षा",
     "ownerDeclined": "मालिक ने अनुरोध अस्वीकार किया",
     "requestNumber": "नंबर का अनुरोध करें",
+    "contactsLeft_one": "{{count}} मुफ्त मालिक संपर्क बाकी",
+    "contactsLeft_other": "{{count}} मुफ्त मालिक संपर्क बाकी",
+    "contactsLeftNoneReferHint": "कोई मुफ्त संपर्क नहीं बचा — दोस्त को रेफर करके 15 और पाएँ",
+    "contactsLeftNone": "कोई मुफ्त संपर्क नहीं बचा — जारी रखने के लिए अपग्रेड करें",
+    "contactsExhausted": {
+      "title": "आपके सभी मुफ्त संपर्क खत्म हो गए",
+      "sub": "{{allowance}} में से {{used}} मालिक संपर्क इस्तेमाल हो चुके हैं।",
+      "freeBadge": "मुफ्त",
+      "referTitle": "दोस्त को रेफर करें",
+      "referBody": "PuneNest पर जुड़ने वाले हर दोस्त पर आपको {{count}} और मालिक संपर्क मिलते हैं — बिल्कुल मुफ्त।",
+      "referCta": "मेरा रेफरल लिंक लें",
+      "planTitle": "Seeker Plus लें",
+      "planBody": "असीमित मालिक संपर्क, प्राथमिकता विज़िट स्लॉट और नो-स्पैम गारंटी।",
+      "planCta": "Seeker Plus देखें"
+    },
     "prevPhoto": "पिछला फोटो",
+    "photoDotsAria": "फ़ोटो नेविगेशन",
+    "goToPhoto": "फ़ोटो {{n}} पर जाएँ",
     "nextPhoto": "अगला फोटो",
 
     "furnishing": {
@@ -105,6 +122,7 @@
     "security247": "24x7 सुरक्षा",
     "powerBackup": "पावर बैकअप",
     "modernAmenities": "आधुनिक सुविधाएँ",
+    "typeFallback": "संपत्ति",
 
     "overviewHeading": "अवलोकन",
     "readMore": "और पढ़ें",
@@ -578,6 +596,9 @@
     "virtualTour": "वर्चुअल टूर",
     "fullscreen": "फुलस्क्रीन",
     "requestMorePhotos": "मालिक से अधिक फोटो का अनुरोध करें",
+    "requestPhotosShort": "फोटो मांगें",
+    "requestPhotosSlideTitle": "सब देख लिया?",
+    "requestPhotosSlideSub": "मालिक से इस घर की और फोटो मांगें — उन्हें आपका अनुरोध तुरंत दिखेगा।",
     "morePhotos": "अधिक फोटो",
 
     "floorPlan": "फ्लोर प्लान",

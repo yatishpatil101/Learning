@@ -86,4 +86,24 @@ i18n
     returnEmptyString: false,
   });
 
+/* Keep <html lang> in step with the active language.
+ *
+ * index.html ships `lang="en"` and nothing was updating it, so a Marathi user
+ * got a document that still claimed to be English. That is not cosmetic:
+ *
+ *   - Screen readers pick their pronunciation rules from `lang`, and read
+ *     Devanagari with English phonetics when it is wrong.
+ *   - The browser's font fallback and line-breaking are language-sensitive.
+ *   - `:lang()` selectors — used below for Devanagari line-height — never match.
+ *
+ * Set once at startup and again on every change, because `languageChanged` does
+ * not fire for the initial detected language. */
+function syncDocumentLang(lng) {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = (lng || 'en').split('-')[0];
+}
+
+syncDocumentLang(i18n.resolvedLanguage || i18n.language);
+i18n.on('languageChanged', syncDocumentLang);
+
 export default i18n;

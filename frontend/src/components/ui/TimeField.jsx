@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { displayTime } from '../../lib/timeOfDay.js';
 import TimePickerDialog from './TimePickerDialog.jsx';
 
@@ -19,7 +20,7 @@ import TimePickerDialog from './TimePickerDialog.jsx';
  * @param {string} [props.dataErr]
  * @param {boolean} [props.disabled]
  * @param {string} [props.ariaLabel]
- * @param {string} [props.placeholder='Select time']
+ * @param {string} [props.placeholder] - Defaults to the translated "Select time".
  */
 export default function TimeField({
   value = '',
@@ -31,12 +32,16 @@ export default function TimeField({
   dataErr,
   disabled = false,
   ariaLabel,
-  placeholder = 'Select time',
+  placeholder,
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   const display = displayTime(value, format);
-  const label = ariaLabel || placeholder;
+  // Resolved at render, not in the default parameter: a module-level default
+  // would be captured once and never follow a language switch.
+  const ph = placeholder || t('ui.selectTime');
+  const label = ariaLabel || ph;
 
   return (
     <>
@@ -57,7 +62,7 @@ export default function TimeField({
         }}
       >
         <span className={`pn-datefield__text ${!display ? 'is-placeholder' : ''}`}>
-          {display || placeholder}
+          {display || ph}
         </span>
         <Clock className="pn-datefield__icon" aria-hidden="true" />
       </div>

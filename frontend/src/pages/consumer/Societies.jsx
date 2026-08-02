@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -16,14 +17,16 @@ import { Stars } from './property/Stars.jsx';
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const norm = (s) => String(s || '').trim().toLowerCase();
 
+/* Sort options carry i18n keys, not English labels — the <Select> is fed
+   translated copy at render time so the list follows the reader's language. */
 const SORTS = [
-  { value: 'relevance', label: 'Sort: Recommended' },
-  { value: 'rating', label: 'Sort: Top rated' },
-  { value: 'homes', label: 'Sort: Most homes listed' },
-  { value: 'name', label: 'Sort: A–Z' },
+  { value: 'relevance', labelKey: 'societies.sortRelevance' },
+  { value: 'rating', labelKey: 'societies.sortRating' },
+  { value: 'homes', labelKey: 'societies.sortHomes' },
+  { value: 'name', labelKey: 'societies.sortName' },
 ];
 
-function SocietyCard({ s, followed, onFollow }) {
+function SocietyCard({ s, followed, onFollow, t }) {
   return (
     <div className="glass rounded-2xl p-5 flex flex-col gap-3 hover:border-teal-400/30 transition-all reveal">
       <div className="flex items-start justify-between gap-2">
@@ -38,11 +41,11 @@ function SocietyCard({ s, followed, onFollow }) {
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           {s.managed ? (
-            <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3 h-3" /> Managed</span>
+            <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3 h-3" /> {t('societies.managed')}</span>
           ) : s.verified ? (
-            <span className="tag" style={{ background: 'rgba(13,148,136,.85)', color: '#fff', border: 'none' }}><Icon name="badge-check" className="w-3 h-3" /> Verified</span>
+            <span className="tag" style={{ background: 'rgba(13,148,136,.85)', color: '#fff', border: 'none' }}><Icon name="badge-check" className="w-3 h-3" /> {t('societies.verified')}</span>
           ) : (
-            <span className="tag" style={{ background: 'rgba(251,191,36,.15)', color: '#fcd34d', border: '1px solid rgba(251,191,36,.3)' }}>Community</span>
+            <span className="tag" style={{ background: 'rgba(251,191,36,.15)', color: '#fcd34d', border: '1px solid rgba(251,191,36,.3)' }}>{t('societies.community')}</span>
           )}
         </div>
       </div>
@@ -51,10 +54,10 @@ function SocietyCard({ s, followed, onFollow }) {
         {s.rating.count ? (
           <span className="inline-flex items-center gap-1.5"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
         ) : (
-          <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> Not rated yet</span>
+          <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> {t('societies.notRated')}</span>
         )}
         <span className="ml-auto inline-flex items-center gap-1 font-semibold text-teal-300">
-          <Icon name="home" className="w-3.5 h-3.5" /> {s.homes ? `${s.homes} home${s.homes > 1 ? 's' : ''}` : 'No homes'}
+          <Icon name="home" className="w-3.5 h-3.5" /> {s.homes ? t('societies.homes', { count: s.homes }) : t('societies.noHomes')}
         </span>
       </div>
 
@@ -65,10 +68,10 @@ function SocietyCard({ s, followed, onFollow }) {
           aria-pressed={followed}
           className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-9 flex-1 text-sm'}
         >
-          <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? 'Following' : 'Follow'}
+          <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('societies.following') : t('societies.follow')}
         </button>
         <Link to={`/society/${s.slug}`} className="btn-outline !h-9 px-3 text-sm inline-flex items-center">
-          View hub <Icon name="arrow-right" className="w-4 h-4 ml-1.5" />
+          {t('societies.viewHub')} <Icon name="arrow-right" className="w-4 h-4 ml-1.5" />
         </Link>
       </div>
     </div>
@@ -76,6 +79,7 @@ function SocietyCard({ s, followed, onFollow }) {
 }
 
 export default function Societies() {
+  const { t } = useTranslation();
   const rootRef = useScrollReveal();
   const nav = useNavigate();
   const { isIn } = useAuth();
@@ -121,8 +125,10 @@ export default function Societies() {
 
   const localities = useMemo(() => {
     const set = [...new Set(enriched.map((s) => s.localitySlug).filter(Boolean))].sort();
-    return [{ value: '', label: 'All localities' }, ...set.map((slug) => ({ value: slug, label: titleCase(slug) }))];
-  }, [enriched]);
+    return [{ value: '', label: t('societies.allLocalities') }, ...set.map((slug) => ({ value: slug, label: titleCase(slug) }))];
+  }, [enriched, t]);
+
+  const sortOptions = useMemo(() => SORTS.map((o) => ({ value: o.value, label: t(o.labelKey) })), [t]);
 
   const results = useMemo(() => {
     const q = norm(query);
@@ -151,7 +157,7 @@ export default function Societies() {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
     const now = toggleFollowSociety(slug);
     setFollowed(new Set(getFollowedSocieties()));
-    toast(now ? "Following — we'll alert you on new listings" : 'Unfollowed', now ? 'success' : 'info');
+    toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
 
   const addSociety = () => {
@@ -160,7 +166,7 @@ export default function Societies() {
     const rec = mintDemandSociety({ name: query.trim(), localitySlug: loc || undefined });
     setBusy(false);
     if (!rec) return;
-    toast('Added — we’ll alert you the moment a home is listed', 'success');
+    toast(t('societies.addedToast'), 'success');
     nav('/society/' + rec.slug);
   };
 
@@ -168,13 +174,13 @@ export default function Societies() {
 
   return (
     <div ref={rootRef} className="soc-page">
-      <main className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <header className="reveal mb-6">
-          <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">Pune-first · Broker-free</p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold">Explore societies</h1>
+          <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">{t('societies.eyebrow')}</p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold">{t('societies.title')}</h1>
           <p className="text-gray-400 mt-2 max-w-2xl text-sm sm:text-base">
-            Browse Pune’s residential societies — see ratings, amenities and homes on sale or rent, and follow the buildings you love to get alerted the moment a home is listed.
+            {t('societies.intro')}
           </p>
         </header>
 
@@ -186,24 +192,24 @@ export default function Societies() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               maxLength={60}
-              placeholder="Search by society, builder or locality"
+              placeholder={t('societies.searchPlaceholder')}
               className="w-full bg-transparent text-sm text-white placeholder-gray-500 outline-none"
-              aria-label="Search societies"
+              aria-label={t('societies.searchAria')}
             />
             {query ? (
-              <button type="button" onClick={() => setQuery('')} aria-label="Clear search" className="text-gray-500 hover:text-white"><Icon name="x" className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setQuery('')} aria-label={t('societies.clearSearch')} className="text-gray-500 hover:text-white"><Icon name="x" className="w-4 h-4" /></button>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <Select value={loc} onChange={setLoc} options={localities} ariaLabel="Filter by locality" className="flex-1 lg:flex-none" />
-            <Select value={sort} onChange={setSort} options={SORTS} ariaLabel="Sort societies" className="flex-1 lg:flex-none" />
+            <Select value={loc} onChange={setLoc} options={localities} ariaLabel={t('societies.filterLocality')} className="flex-1 lg:flex-none" />
+            <Select value={sort} onChange={setSort} options={sortOptions} ariaLabel={t('societies.sortAria')} className="flex-1 lg:flex-none" />
             <button
               type="button"
               onClick={() => setVerifiedOnly((v) => !v)}
               aria-pressed={verifiedOnly}
               className={(verifiedOnly ? 'btn-teal' : 'btn-outline') + ' !h-10 px-3.5 text-sm whitespace-nowrap'}
             >
-              <Icon name="badge-check" className="w-4 h-4 mr-1.5" /> Verified
+              <Icon name="badge-check" className="w-4 h-4 mr-1.5" /> {t('societies.verified')}
             </button>
           </div>
         </div>
@@ -211,7 +217,7 @@ export default function Societies() {
         {/* Count + add-society funnel */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-4 reveal">
           <p className="text-sm text-gray-400">
-            <span className="font-semibold text-white">{results.length}</span> {results.length === 1 ? 'society' : 'societies'}{loc ? ` in ${titleCase(loc)}` : ''}
+            <span className="font-semibold text-white">{results.length}</span> {results.length === 1 ? t('societies.countOne') : t('societies.countOther')}{loc ? ` ${t('societies.inLocality', { locality: titleCase(loc) })}` : ''}
           </p>
         </div>
 
@@ -224,8 +230,8 @@ export default function Societies() {
           >
             <span className="w-9 h-9 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="plus" className="w-5 h-5 text-teal-300" /></span>
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-white">Can’t find “{query.trim()}”?</span>
-              <span className="block text-xs text-gray-400">Add it and we’ll alert you the moment a home is listed there.</span>
+              <span className="block text-sm font-semibold text-white">{t('societies.cantFind', { query: query.trim() })}</span>
+              <span className="block text-xs text-gray-400">{t('societies.addHint')}</span>
             </span>
             <Icon name="arrow-right" className="w-4 h-4 text-teal-300 ml-auto flex-shrink-0" />
           </button>
@@ -236,13 +242,13 @@ export default function Societies() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (
-                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} />
+                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} t={t} />
               ))}
             </div>
             {results.length > limit ? (
               <div className="flex justify-center mt-8">
                 <button type="button" onClick={() => setLimit((n) => n + 24)} className="btn-outline">
-                  Show more societies <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
+                  {t('societies.showMore')} <Icon name="chevron-down" className="w-4 h-4 ml-1.5" />
                 </button>
               </div>
             ) : null}
@@ -252,12 +258,12 @@ export default function Societies() {
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/10">
               <Icon name="building-2" className="h-6 w-6 text-teal-400" />
             </div>
-            <p className="text-sm font-semibold text-white">No societies match your filters</p>
-            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">Try a different locality or clear the verified filter{query ? ', or add the society above' : ''}.</p>
-            <button type="button" onClick={() => { setQuery(''); setLoc(''); setVerifiedOnly(false); }} className="btn-outline mt-4">Reset filters</button>
+            <p className="text-sm font-semibold text-white">{t('societies.noMatch')}</p>
+            <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">{query ? t('societies.noMatchSubAdd') : t('societies.noMatchSub')}</p>
+            <button type="button" onClick={() => { setQuery(''); setLoc(''); setVerifiedOnly(false); }} className="btn-outline mt-4">{t('societies.resetFilters')}</button>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

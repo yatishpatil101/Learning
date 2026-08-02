@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { APIProvider, Map, AdvancedMarker, InfoWindow, useMap } from '@vis.gl/react-google-maps';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
+import '../../styles/routes/property-map.css';
 import { fmtINR } from '../../lib/format.js';
 import { SHARING_LBL, FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { propLatLng } from '../../pages/consumer/listings/geo.js';
@@ -94,6 +96,7 @@ function FitToContent({ positions, focus, active }) {
 // mini-map (Property page). On the listings map, clicking a marker opens the
 // detail drawer directly, so no InfoWindow is rendered there.
 function PropertyPopup({ p, locName }) {
+  const { t } = useTranslation();
   const isRent = p.deal === 'rent';
   const isPg = p.shareType === 'pg' || p.shareType === 'flatmates';
   const isPlot = ['plot', 'open plot', 'farm land'].includes((p.type || '').toLowerCase());
@@ -111,7 +114,7 @@ function PropertyPopup({ p, locName }) {
       <div className="pn-mp-media">
         <img src={p.image} alt={p.title} loading="lazy" />
         <span className={'pn-mp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'Rent' : 'Sale'}</span>
-        {verified ? <span className="pn-mp-verified" title="Verified"><Icon name="badge-check" /></span> : null}
+        {verified ? <span className="pn-mp-verified" title={t('pmap.verified')}><Icon name="badge-check" /></span> : null}
       </div>
       <div className="pn-mp-body">
         <div className="pn-mp-title">{popupTitle(p)}</div>
@@ -134,7 +137,7 @@ function PropertyPopup({ p, locName }) {
         ) : null}
         {amenShown.length ? (
           <div className="pn-mp-amen">
-            <div className="pn-mp-amen-hd">Amenities</div>
+            <div className="pn-mp-amen-hd">{t('pmap.amenities')}</div>
             <div className="pn-mp-chips">
               {amenShown.map((k) => (
                 <span className="pn-mp-chip" key={k}><Icon name={AMEN_ICON[k] || 'check'} /> {amenLabel(k)}</span>

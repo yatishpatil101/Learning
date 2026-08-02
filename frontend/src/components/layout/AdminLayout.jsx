@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import {
   Building2, ExternalLink, LayoutDashboard, LogOut, Menu, MessageSquare,
   FileText, ShieldCheck, Wrench, X, IndianRupee, UserPlus, BedDouble, Gift,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
@@ -20,7 +22,7 @@ const OPS_NAV = [
   ['/ops/packers', 'Packers', Building2],
   ['/ops/valuation', 'Valuation', IndianRupee],
   ['/ops/referrals', 'Referrals', Gift],
-  ['/ops/share-review', 'Flat-share', BedDouble],
+  ['/ops/flatmate-review', 'Flatmate', BedDouble],
 ];
 
 export default function AdminLayout({ variant = 'admin' }) {
@@ -34,6 +36,7 @@ export default function AdminLayout({ variant = 'admin' }) {
 }
 
 function AdminLayoutInner({ variant = 'admin' }) {
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { tabEnabled, canModule } = useAdminFlags();
   const superAdmin = isSuperAdmin(user);
@@ -115,8 +118,25 @@ function AdminLayoutInner({ variant = 'admin' }) {
               </div>
             ) : <div className="flex-1" />}
 
+            {/* Runbooks. Opens in a new tab on purpose: the help centre lives outside
+                the back-office shell, and someone checking an SLA mid-queue should not
+                lose the queue they are working. Both variants get it — ops needs the
+                runbooks more than admin does. Alignment is already handled upstream:
+                AdminTopbarTools is flex-1 on the admin variant, and the ops variant
+                renders a flex-1 spacer, so no margin is needed here. */}
+            <a
+              href="/help/c/ops-playbook"
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t('help.runbooks')}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/10 hover:text-white"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t('help.runbooks')}</span>
+            </a>
+
             {/* User profile + logout */}
-            <div className={variant !== 'admin' ? 'ml-auto' : ''}>
+            <div>
               <div className="flex items-center gap-2.5">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-teal/15 text-xs font-bold text-brand-teal">
                   {(user?.name || 'A').charAt(0).toUpperCase()}

@@ -33,7 +33,6 @@
     "svBookVisit": "भेट बुक करा",
     "svBookVisitSub": "प्रत्यक्ष किंवा व्हिडिओ टूर निश्चित करण्यासाठी मालमत्ता निवडा.",
     "svBrowseListings": "लिस्टिंग पहा",
-
     "contactErrName": "कृपया तुमचे नाव टाका",
     "contactErrPhone": "वैध १०-अंकी मोबाइल नंबर टाका",
     "contactErrEmail": "वैध ईमेल पत्ता टाका",
@@ -59,7 +58,7 @@
     "contactVerifiedOwner": "पडताळलेला मालक",
     "contactHiddenPrivacy": "मालकाच्या गोपनीयतेसाठी लपवलेले",
     "contactRequestIt": "ते मिळवण्यासाठी चौकशी पाठवा",
-  "contactDirectTitle": "मालकाशी थेट संपर्क साधा",
+    "contactDirectTitle": "मालकाशी थेट संपर्क साधा",
     "contactViewOwnerProfile": "मालकाचे प्रोफाइल पहा",
     "contactSupportTitle": "मदत हवी आहे?",
     "contactSupportHours": "आमची सपोर्ट टीम सर्व दिवस सकाळी ९ ते रात्री ९ पर्यंत उपलब्ध आहे.",
@@ -69,7 +68,6 @@
     "contactCall": "कॉल करा",
     "contactWhatsappShort": "WhatsApp",
     "contactEmailShort": "ईमेल",
-
     "emiBadge": "गृहकर्ज कॅल्क्युलेटर",
     "emiTitle": "EMI कॅल्क्युलेटर",
     "emiSubtitle": "तुमच्या मासिक गृहकर्ज हप्त्यांचा अंदाज घ्या आणि बजेट आखा.",
@@ -100,7 +98,6 @@
     "emiPrincipalPaid": "मुद्दल भरले",
     "emiInterestPaid": "व्याज भरले",
     "emiBalance": "शिल्लक",
-
     "plansSeekerFreeName": "शोधकर्ता मोफत",
     "plansSeekerFreeSub": "कायमचे",
     "plansSeekerFreeTag": "तुमचा शोध सुरू करण्यासाठी आवश्यक ते सर्व",
@@ -170,7 +167,6 @@
     "plansFrequentlyAsked": "वारंवार विचारले जाणारे",
     "plansFooter1": "अजून प्रश्न आहेत? संपर्क साधा आमच्या ",
     "plansFooterBold": "सपोर्ट टीमशी.",
-
     "referCodeCopied": "रेफरल कोड कॉपी झाला!",
     "referShareMsg": "PuneNest वर माझ्यासोबत जुडा — भारतातील दलालमुक्त प्रॉपर्टी प्लॅटफॉर्म. सुरुवात करण्यासाठी माझा कोड {{code}} वापरा: {{link}}",
     "referBadge": "रेफर करा आणि कमवा",
@@ -203,6 +199,10 @@
     "referFreeRentAgreement": "मोफत भाडेकरार",
     "referOwnerTrackPost": " (मूल्य {{fee}}).",
     "referProgressLabel": "प्रगती",
+    "referBalanceContacts": "मोफत मालक संपर्क शिल्लक",
+    "referBalanceSlots_one": "लिस्टिंग स्लॉट शिल्लक (रेफरलमधून {{count}})",
+    "referBalanceSlots_other": "लिस्टिंग स्लॉट शिल्लक (रेफरलमधून {{count}})",
+    "referOwnerSlotTrack": "तुम्ही रेफर केलेल्या प्रत्येक मालकाने मालमत्ता पोस्ट केल्यावर तुम्हाला एक अतिरिक्त मोफत लिस्टिंग स्लॉट मिळतो.",
     "referRewardRate": "बक्षीस दर",
     "referPerksLabel": "तुम्हाला काय मिळते",
     "referOwnerPerk1": "ई-स्टँप आणि नोंदणी आम्ही हाताळतो",
@@ -243,6 +243,10 @@
     "referGuaranteeBody3": " — कोणतेही प्रश्न नाहीत.",
     "referTagVerifiedOnly": "फक्त पडताळलेले मूव्ह",
     "referTagReport7Days": "७ दिवसांत तक्रार करा",
-    "referTagNoQuestions": "कोणतेही प्रश्न नाहीत"
+    "referTagNoQuestions": "कोणतेही प्रश्न नाहीत",
+    "referBalanceContacts": "शिल्लक मोफत मालक संपर्क",
+    "referBalanceSlots_one": "शिल्लक लिस्टिंग स्लॉट ({{count}} रेफरलमधून)",
+    "referBalanceSlots_other": "शिल्लक लिस्टिंग स्लॉट ({{count}} रेफरलमधून)",
+    "referOwnerSlotTrack": "तुम्ही रेफर केलेल्या प्रत्येक मालकाने मालमत्ता नोंदवल्यास एक अतिरिक्त मोफत लिस्टिंग स्लॉट मिळतो."
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Plus, Sparkles, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
 
 /**
@@ -15,16 +16,19 @@ import { classNames } from '../../lib/format.js';
  * @param {Array<{label: string, Icon: React.ComponentType}>} props.options - Predefined choices.
  * @param {string[]} props.values - Currently selected labels.
  * @param {(label: string) => void} props.onToggle - Toggles a label in the array.
- * @param {string} [props.placeholder='Add your own…'] - Placeholder for the add input.
- * @param {string} [props.addAriaLabel='feature'] - Noun used in the input's aria-label.
+ * @param {string} [props.placeholder] - Placeholder for the add input; defaults to the translated "Add your own…".
+ * @param {string} [props.addAriaLabel] - Noun used in the input's aria-label.
  */
 export default function FeatureSelector({
   options,
   values,
   onToggle,
-  placeholder = 'Add your own…',
-  addAriaLabel = 'feature',
+  placeholder,
+  addAriaLabel,
 }) {
+  const { t } = useTranslation();
+  const ph = placeholder || t('ui.addYourOwn');
+  const noun = addAriaLabel || t('ui.featureNoun');
   const [draft, setDraft] = useState('');
   // A short-lived confirmation so a commit always visibly "does something" —
   // otherwise typing a name that's already selected (or a predefined tile that
@@ -107,8 +111,8 @@ export default function FeatureSelector({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          aria-label={`Add a custom ${addAriaLabel}`}
+          placeholder={ph}
+          aria-label={t('ui.addCustom', { noun })}
           maxLength={40}
           className="form-input flex-1 px-4 py-3 rounded-xl text-white text-sm"
         />

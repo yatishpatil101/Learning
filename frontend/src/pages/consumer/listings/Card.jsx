@@ -1,6 +1,7 @@
 import { memo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
 import { fmtINR, timeAgo } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
@@ -90,7 +91,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
       <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
         <div className="lr">
           <div className="lr-img">
-            <img src={p.image} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
+            <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
             {verified ? (
               <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
                 <Icon name="shield-check" />
@@ -100,11 +101,11 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
               <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
             )}
             <div className="absolute top-3 right-3 flex flex-col gap-2">
-              <span className={'heart-btn w-9 h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+              <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
                 <Icon name="heart" className="w-4 h-4" />
               </span>
               {showCompare ? (
-                <span className={'w-9 h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
+                <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
                   <Icon name="git-compare" className="w-4 h-4" />
                 </span>
               ) : null}
@@ -152,18 +153,18 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   return (
     <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
       <div className="relative overflow-hidden card-img-wrap h-48">
-        <img src={p.image} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
+        <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
           <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
             <Icon name="shield-check" />
           </span>
         ) : null}
         <div className="absolute top-3 right-3 flex flex-col gap-2">
-          <span className={'heart-btn w-9 h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
+          <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
             <Icon name="heart" className="w-4 h-4" />
           </span>
           {showCompare ? (
-            <span className={'w-9 h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
+            <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
               <Icon name="git-compare" className="w-4 h-4" />
             </span>
           ) : null}

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Calendar } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { isoToDisplay } from '../../lib/format.js';
 import DatePickerDialog from './DatePickerDialog.jsx';
 
@@ -34,10 +35,14 @@ export default function DateField({
   ariaLabel,
   placeholder = 'DD/MM/YYYY',
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   const display = isoToDisplay(value);
-  const label = ariaLabel || placeholder;
+  /* The placeholder is a format mask, not prose — DD/MM/YYYY reads the same in
+     every language and is what the field literally accepts. Only the accessible
+     name is translated, since a screen reader announces it as a sentence. */
+  const label = ariaLabel || t('ui.selectDate');
 
   return (
     <>

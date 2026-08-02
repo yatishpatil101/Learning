@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import '../../styles/routes/reels.css';
 import { fmtINR, rentLabel } from '../../lib/format.js';
 import { getSavedProps, toggleSavedProp } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -20,9 +22,9 @@ const REELS = [
 ];
 
 const FILTERS = [
-  { key: 'all', label: 'All', icon: 'sparkles' },
-  { key: 'rent', label: 'Rent', icon: 'key' },
-  { key: 'buy', label: 'Buy', icon: 'home' },
+  { key: 'all', labelKey: 'reels.filterAll', icon: 'sparkles' },
+  { key: 'rent', labelKey: 'reels.filterRent', icon: 'key' },
+  { key: 'buy', labelKey: 'reels.filterBuy', icon: 'home' },
 ];
 
 const TOUR_MS = 7000; // auto-advance duration per reel
@@ -38,6 +40,7 @@ const compact = (n) => {
 const priceLabel = (r) => (r.deal === 'rent' ? rentLabel(r.price) : fmtINR(r.price));
 
 export default function Reels() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [reduced, setReduced] = useState(prefersReducedMotion);
 
@@ -152,12 +155,12 @@ export default function Reels() {
   const save = (r) => {
     const nowSaved = toggleSavedProp(r.id);
     setSaved((s) => { const next = new Set(s); if (nowSaved) next.add(r.id); else next.delete(r.id); return next; });
-    toast(nowSaved ? `Saved ${r.title} to your shortlist` : `Removed ${r.title} from saved`, nowSaved ? 'success' : 'info');
+    toast(nowSaved ? t('reels.savedToast', { title: r.title }) : t('reels.removedToast', { title: r.title }), nowSaved ? 'success' : 'info');
   };
 
   const shareReel = async (r) => {
     const url = window.location.origin + '/property/' + r.id;
-    const text = `Check this home on PuneNest: ${r.title} · ${priceLabel(r)}`;
+    const text = t('reels.shareText', { title: r.title, price: priceLabel(r) });
     if (navigator.share) {
       try { await navigator.share({ title: r.title, text, url }); return; } catch (err) { if (err?.name === 'AbortError') return; }
     }
@@ -188,13 +191,13 @@ export default function Reels() {
     <div className="reels-page">
       {/* Top overlay: brand + intent filters + segmented progress */}
       <header className="reels-top">
-        <nav className="reels-progress" aria-label="Reel navigation">
+        <nav className="reels-progress" aria-label={t('reels.navAria')}>
           {reels.map((r, i) => (
             <button
               key={r.id}
               type="button"
               className="reels-seg"
-              aria-label={`Go to reel ${i + 1}: ${r.title}`}
+              aria-label={t('reels.goToReel', { index: i + 1, title: r.title })}
               aria-current={i === active ? 'true' : undefined}
               onClick={() => goTo(i)}
             >
@@ -209,8 +212,8 @@ export default function Reels() {
         <div className="reels-topbar">
           <div className="reels-brand">
             <Icon name="video" className="w-4 h-4 text-brand-teal-3" />
-            <span>Reels</span>
-            <span className="reels-hint">Double-tap to ❤️ · tap to pause</span>
+            <span>{t('reels.brand')}</span>
+            <span className="reels-hint">{t('reels.hint')}</span>
           </div>
           <div className="reels-filters">
             {FILTERS.map((f) => (
@@ -221,7 +224,7 @@ export default function Reels() {
                 className={`reels-chip${filter === f.key ? ' is-on' : ''}`}
                 aria-pressed={filter === f.key}
               >
-                <Icon name={f.icon} className="w-3.5 h-3.5" /> {f.label}
+                <Icon name={f.icon} className="w-3.5 h-3.5" /> {t(f.labelKey)}
               </button>
             ))}
           </div>
@@ -236,7 +239,7 @@ export default function Reels() {
               className="reel-gallery"
               role="button"
               tabIndex={-1}
-              aria-label={`${r.title}. Swipe for more photos. Tap to play or pause, double-tap to like.`}
+              aria-label={t('reels.galleryAria', { title: r.title })}
               onClick={() => onMediaTap(r.id)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPlaying((p) => !p); } }}
               onScroll={(e) => onGalleryScroll(r.id, e.currentTarget)}
@@ -264,22 +267,22 @@ export default function Reels() {
             )}
 
             <div className="rail">
-              <button type="button" onClick={() => like(r.id)} aria-label={likes[r.id].on ? 'Unlike' : 'Like'} aria-pressed={likes[r.id].on} className={likes[r.id].on ? 'is-liked' : ''}>
+              <button type="button" onClick={() => like(r.id)} aria-label={likes[r.id].on ? t('reels.unlike') : t('reels.like')} aria-pressed={likes[r.id].on} className={likes[r.id].on ? 'is-liked' : ''}>
                 <span className="ic"><Icon name="heart" weight={likes[r.id].on ? 'fill' : 'regular'} className="w-5 h-5" /></span>
                 <span>{compact(likes[r.id].n)}</span>
               </button>
-              <button type="button" onClick={() => save(r)} aria-label={saved.has(r.id) ? 'Remove from saved' : 'Save property'} aria-pressed={saved.has(r.id)} className={saved.has(r.id) ? 'is-saved' : ''}>
+              <button type="button" onClick={() => save(r)} aria-label={saved.has(r.id) ? t('reels.removeSaved') : t('reels.saveProperty')} aria-pressed={saved.has(r.id)} className={saved.has(r.id) ? 'is-saved' : ''}>
                 <span className="ic"><Icon name="bookmark" weight={saved.has(r.id) ? 'fill' : 'regular'} className="w-5 h-5" /></span>
-                {saved.has(r.id) ? 'Saved' : 'Save'}
+                {saved.has(r.id) ? t('reels.saved') : t('reels.save')}
               </button>
-              <button type="button" onClick={() => shareReel(r)} aria-label="Share this home">
-                <span className="ic"><Icon name="send" className="w-5 h-5" /></span>Share
+              <button type="button" onClick={() => shareReel(r)} aria-label={t('reels.shareAria')}>
+                <span className="ic"><Icon name="send" className="w-5 h-5" /></span>{t('reels.share')}
               </button>
             </div>
 
             <div className="relative z-[4] p-5 pb-8 w-full">
               {r.photos.length > 1 && (
-                <div className="reel-dots" role="tablist" aria-label="Photo">
+                <div className="reel-dots" role="tablist" aria-label={t('reels.photoAria')}>
                   {r.photos.map((_, pi) => (
                     <span key={pi} className={`reel-dot${(photoIdx[r.id] || 0) === pi ? ' is-on' : ''}`} />
                   ))}
@@ -287,25 +290,25 @@ export default function Reels() {
               )}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 {r.deal === 'rent'
-                  ? <span className="reels-badge bg-teal-600/70 text-teal-50">Rent</span>
-                  : <span className="reels-badge bg-emerald-600/70 text-emerald-50">Sale</span>}
-                <span className="reels-badge text-white" style={{ background: 'rgba(16,185,129,.85)' }}>₹0 Brokerage</span>
-                <span className="reels-tag"><Icon name="camera" className="w-3 h-3" /> {r.photos.length} photos</span>
+                  ? <span className="reels-badge bg-teal-600/70 text-teal-50">{t('reels.badgeRent')}</span>
+                  : <span className="reels-badge bg-emerald-600/70 text-emerald-50">{t('reels.badgeSale')}</span>}
+                <span className="reels-badge text-white" style={{ background: 'rgba(16,185,129,.85)' }}>{t('reels.zeroBrokerage')}</span>
+                <span className="reels-tag"><Icon name="camera" className="w-3 h-3" /> {t('reels.photoCount', { count: r.photos.length })}</span>
                 <span className="reels-tag"><Icon name="eye" className="w-3 h-3" /> {compact(r.views)}</span>
               </div>
               <h2 className="text-2xl font-extrabold">{priceLabel(r)}</h2>
               <p className="text-gray-200 font-semibold">{r.title}</p>
-              <p className="text-gray-400 text-sm flex items-center gap-1.5 mt-0.5"><Icon name="map-pin" className="w-4 h-4 text-brand-teal-3" /> {r.loc}, Pune · {r.bhk} BHK · {r.area} sq.ft</p>
+              <p className="text-gray-400 text-sm flex items-center gap-1.5 mt-0.5"><Icon name="map-pin" className="w-4 h-4 text-brand-teal-3" /> {t('reels.meta', { loc: r.loc, bhk: r.bhk, area: r.area })}</p>
               <div className="reels-cta-row">
-                <Link to={`/property/${r.id}`} className="reels-cta reels-cta--primary"><Icon name="eye" className="w-4 h-4" /> View home</Link>
-                <Link to={`/contact?ref=${r.id}`} aria-label="Contact owner" className="reels-cta reels-cta--ghost"><Icon name="phone" className="w-4 h-4" /> Contact</Link>
+                <Link to={`/property/${r.id}`} className="reels-cta reels-cta--primary"><Icon name="eye" className="w-4 h-4" /> {t('reels.viewHome')}</Link>
+                <Link to={`/contact?ref=${r.id}`} aria-label={t('reels.contactAria')} className="reels-cta reels-cta--ghost"><Icon name="phone" className="w-4 h-4" /> {t('reels.contact')}</Link>
               </div>
             </div>
           </section>
         ))}
       </div>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {reels[active] ? `Viewing ${reels[active].title} in ${reels[active].loc}` : ''}
+        {reels[active] ? t('reels.viewingStatus', { title: reels[active].title, loc: reels[active].loc }) : ''}
       </div>
     </div>
   );

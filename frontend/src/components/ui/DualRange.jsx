@@ -1,4 +1,5 @@
 import { forwardRef, useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /** Strip formatting and read a number, understanding ₹, commas and Cr/L/K suffixes. */
 function defaultParse(str) {
@@ -30,6 +31,7 @@ function defaultParse(str) {
  * @param {boolean} [props.disabled] - Disable interaction.
  */
 const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onChange, format = (v) => v, parse = defaultParse, label = '', disabled = false }, ref) {
+  const { t } = useTranslation();
   const [lo, hi] = value;
   const id = useId();
   const [editing, setEditing] = useState(null); // 'lo' | 'hi' | null
@@ -76,7 +78,9 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
       inputMode="numeric"
       autoFocus
       value={draft}
-      aria-label={label ? `${label} ${which === 'lo' ? 'minimum' : 'maximum'} value` : which === 'lo' ? 'Minimum value' : 'Maximum value'}
+      aria-label={label
+        ? t(which === 'lo' ? 'ui.minValueInput' : 'ui.maxValueInput', { label })
+        : t(which === 'lo' ? 'ui.minValuePlain' : 'ui.maxValuePlain')}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={(e) => e.target.select()}
       onBlur={() => commitEdit(which)}
@@ -88,8 +92,8 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
       type="button"
       className={`rng-${which} ${valueClass}`}
       onClick={() => openEdit(which)}
-      title="Click to enter a value"
-      aria-label={label ? `${label} ${which === 'lo' ? 'minimum' : 'maximum'}: ${format(v)}. Click to edit` : undefined}
+      title={t('ui.clickToEnter')}
+      aria-label={label ? t(which === 'lo' ? 'ui.minValueEdit' : 'ui.maxValueEdit', { label, value: format(v) }) : undefined}
     >
       {format(v)}
     </button>
@@ -101,8 +105,8 @@ const DualRange = forwardRef(function DualRange({ min, max, step = 1, value, onC
         <div className="rng-track">
           <div className="rng-fill" style={{ left: `${pct(lo)}%`, width: `${pct(hi) - pct(lo)}%` }} />
         </div>
-        <input type="range" aria-label={label ? `${label} minimum` : 'Minimum'} min={sMin} max={sMax} step={step} value={lo} onChange={(e) => setLo(e.target.value)} id={`${id}-lo`} />
-        <input type="range" aria-label={label ? `${label} maximum` : 'Maximum'} min={sMin} max={sMax} step={step} value={hi} onChange={(e) => setHi(e.target.value)} id={`${id}-hi`} />
+        <input type="range" aria-label={label ? t('ui.minValueOf', { label }) : t('ui.minimum')} min={sMin} max={sMax} step={step} value={lo} onChange={(e) => setLo(e.target.value)} id={`${id}-lo`} />
+        <input type="range" aria-label={label ? t('ui.maxValueOf', { label }) : t('ui.maximum')} min={sMin} max={sMax} step={step} value={hi} onChange={(e) => setHi(e.target.value)} id={`${id}-hi`} />
       </div>
       <div className="flex justify-between mt-3 text-xs">
         {renderValue('lo', lo, 'left')}

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
 import { loadSharedDocuments } from '../../lib/data/viewDocuments.js';
 
-function drawWatermark(ctx, w, h) {
-  const label = 'PuneNest · View Only';
+function drawWatermark(ctx, w, h, label) {
   ctx.save();
   ctx.globalAlpha = 0.1;
   ctx.fillStyle = '#0d9488';
@@ -25,12 +25,12 @@ function drawWatermark(ctx, w, h) {
 }
 
 function DownloadFallback({ doc }) {
+  const { t } = useTranslation();
   return (
     <div className="text-gray-500 text-sm py-4 flex items-start gap-3">
       <Icon name="alert-circle" className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
       <p>
-        <span className="text-gray-300">{doc.name || 'This file'}</span> can’t be previewed here.
-        These documents are view-only, so ask the owner to re-share it as a PDF or image to review it.
+        <Trans i18nKey="viewDocs.cantPreview" values={{ name: doc.name || t('viewDocs.thisFile') }} components={{ 1: <span className="text-gray-300" /> }} />
       </p>
     </div>
   );
@@ -55,18 +55,19 @@ function dataUrlToBytes(dataUrl) {
 
 // Shared zoom toolbar for both the image and PDF canvas viewers.
 function ZoomBar({ zoom, setZoom }) {
+  const { t } = useTranslation();
   const btn = 'inline-flex items-center justify-center h-11 w-11 rounded-lg bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none';
   return (
     <div className="flex items-center justify-end gap-1.5 mb-3">
-      <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className={btn}>
+      <button type="button" aria-label={t('viewDocs.zoomOut')} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className={btn}>
         <Icon name="minus" className="w-4 h-4" />
       </button>
       <span className="text-xs text-gray-400 w-12 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-      <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className={btn}>
+      <button type="button" aria-label={t('viewDocs.zoomIn')} onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className={btn}>
         <Icon name="plus" className="w-4 h-4" />
       </button>
-      <button type="button" aria-label="Reset zoom" onClick={() => setZoom(1)} disabled={zoom === 1} className="inline-flex items-center justify-center h-11 px-3 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none">
-        Reset
+      <button type="button" aria-label={t('viewDocs.resetZoom')} onClick={() => setZoom(1)} disabled={zoom === 1} className="inline-flex items-center justify-center h-11 px-3 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none">
+        {t('viewDocs.reset')}
       </button>
     </div>
   );
@@ -75,6 +76,7 @@ function ZoomBar({ zoom, setZoom }) {
 // Images: draw onto a canvas with a tiled watermark. Guarded against StrictMode
 // double-run and rapid doc switches so it never draws twice or leaks.
 function ImageViewer({ doc }) {
+  const { t } = useTranslation();
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const [error, setError] = useState(false);
@@ -94,12 +96,12 @@ function ImageViewer({ doc }) {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      drawWatermark(ctx, canvas.width, canvas.height);
+      drawWatermark(ctx, canvas.width, canvas.height, t('viewDocs.watermark'));
     };
     img.onerror = () => { if (!cancelled) setError(true); };
     img.src = doc.dataUrl;
     return () => { cancelled = true; };
-  }, [doc]);
+  }, [doc, t]);
 
   if (error) return <DownloadFallback doc={doc} />;
 
@@ -118,6 +120,7 @@ function ImageViewer({ doc }) {
 // is already lazy). Canvas rendering keeps the file strictly view-only — there's
 // no native download/print UI and the watermark is baked into each page.
 function PdfViewer({ doc }) {
+  const { t } = useTranslation();
   const scrollRef = useRef(null);
   const pagesRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -155,7 +158,7 @@ function PdfViewer({ doc }) {
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport }).promise; // eslint-disable-line no-await-in-loop
           if (cancelled) return;
-          drawWatermark(ctx, canvas.width, canvas.height);
+          drawWatermark(ctx, canvas.width, canvas.height, t('viewDocs.watermark'));
           if (host && !cancelled) host.appendChild(canvas);
         }
         if (!cancelled) setStatus('ready');
@@ -164,7 +167,7 @@ function PdfViewer({ doc }) {
       }
     })();
     return () => { cancelled = true; if (host) host.replaceChildren(); };
-  }, [doc]);
+  }, [doc, t]);
 
   if (status === 'error') return <DownloadFallback doc={doc} />;
 
@@ -174,7 +177,7 @@ function PdfViewer({ doc }) {
       <div ref={scrollRef} className="relative overflow-auto rounded-lg" style={{ maxHeight: '70vh' }}>
         {status === 'loading' && (
           <div className="flex items-center justify-center gap-2 py-20 text-gray-400 text-sm">
-            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> Rendering document…
+            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> {t('viewDocs.rendering')}
           </div>
         )}
         <div ref={pagesRef} style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }} />
@@ -191,6 +194,7 @@ function DocumentViewer({ doc }) {
 }
 
 function DocumentCard({ doc }) {
+  const { t } = useTranslation();
   return (
     <div className="glass-card rounded-2xl p-5">
       <div className="flex items-center gap-3 mb-4">
@@ -200,7 +204,7 @@ function DocumentCard({ doc }) {
         <div className="min-w-0 flex-1">
           <p className="text-white font-semibold truncate">{doc.name}</p>
           <p className="text-gray-500 text-xs">
-            <span className="text-teal-300">{doc.category || 'Document'}</span>
+            <span className="text-teal-300">{doc.category || t('viewDocs.document')}</span>
           </p>
         </div>
       </div>
@@ -213,8 +217,9 @@ function DocumentCard({ doc }) {
 // Only the selected document is rendered below, so a multi-doc share no longer
 // stacks every viewer at full height (big mobile scroll + memory win).
 function DocSwitcher({ docs, active, onSelect }) {
+  const { t } = useTranslation();
   return (
-    <HScroll role="tablist" aria-label="Shared documents" fadeColor="#0f0d1a" className="flex gap-2 pb-1" wrapClassName="mb-4">
+    <HScroll role="tablist" aria-label={t('viewDocs.sharedDocsAria')} fadeColor="#0f0d1a" className="flex gap-2 pb-1" wrapClassName="mb-4">
       {docs.map((d, i) => {
         const selected = i === active;
         return (
@@ -234,7 +239,7 @@ function DocSwitcher({ docs, active, onSelect }) {
             </span>
             <span className="min-w-0">
               <span className={classNames('block text-sm font-medium truncate', selected ? 'text-white' : 'text-gray-300')}>{d.name}</span>
-              <span className="block text-[11px] text-teal-300/80 truncate">{d.category || 'Document'}</span>
+              <span className="block text-[11px] text-teal-300/80 truncate">{d.category || t('viewDocs.document')}</span>
             </span>
           </button>
         );
@@ -244,21 +249,23 @@ function DocSwitcher({ docs, active, onSelect }) {
 }
 
 function DocNav({ active, total, onSelect }) {
+  const { t } = useTranslation();
   const btn = 'inline-flex items-center gap-1.5 h-11 px-4 rounded-lg bg-white/5 border border-white/10 text-gray-200 text-sm font-medium hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none';
   return (
     <div className="mt-4 flex items-center justify-between gap-3">
       <button type="button" disabled={active === 0} onClick={() => onSelect(active - 1)} className={btn}>
-        <Icon name="chevron-left" className="w-4 h-4" /> Prev
+        <Icon name="chevron-left" className="w-4 h-4" /> {t('viewDocs.prev')}
       </button>
-      <span className="text-xs text-gray-500 tabular-nums">Document {active + 1} of {total}</span>
+      <span className="text-xs text-gray-500 tabular-nums">{t('viewDocs.docXofY', { index: active + 1, total })}</span>
       <button type="button" disabled={active === total - 1} onClick={() => onSelect(active + 1)} className={btn}>
-        Next <Icon name="chevron-right" className="w-4 h-4" />
+        {t('viewDocs.next')} <Icon name="chevron-right" className="w-4 h-4" />
       </button>
     </div>
   );
 }
 
 export default function ViewDocuments() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const owner = params.get('o') || 'anon';
   const reqId = params.get('r');
@@ -287,10 +294,9 @@ export default function ViewDocuments() {
   }, []);
 
   const showEmpty = errorState || shared.length === 0;
-  const emptyTitle = errorState?.title || 'No documents available';
-  const emptyText =
-    errorState?.text || 'The owner has not shared any documents with you, or access has been revoked.';
-  const subtitle = errorState?.sub || sub || 'Loading…';
+  const emptyTitle = errorState ? t(errorState.titleKey) : t('viewDocs.emptyTitle');
+  const emptyText = errorState ? t(errorState.textKey) : t('viewDocs.emptyText');
+  const subtitle = errorState ? t(errorState.subKey) : (sub ? t(sub.key, sub.args) : t('viewDocs.loading'));
 
   const total = shared.length;
   const idx = Math.min(active, Math.max(0, total - 1)); // clamp if the share shrinks
@@ -315,24 +321,24 @@ export default function ViewDocuments() {
           <span className="flex items-center gap-2">
             <Link
               to="/dashboard"
-              aria-label="Close viewer and return to dashboard"
+              aria-label={t('viewDocs.closeAria')}
               className="inline-flex items-center gap-1.5 h-10 px-3 rounded-full bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10"
             >
-              <Icon name="x" className="w-4 h-4" /> <span className="hidden sm:inline">Close</span>
+              <Icon name="x" className="w-4 h-4" /> <span className="hidden sm:inline">{t('viewDocs.close')}</span>
             </Link>
             <span className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/25 whitespace-nowrap">
               <Icon name="lock" className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="hidden sm:inline">View only — no download</span>
-              <span className="sm:hidden">View only</span>
+              <span className="hidden sm:inline">{t('viewDocs.viewOnlyLong')}</span>
+              <span className="sm:hidden">{t('viewDocs.viewOnlyShort')}</span>
             </span>
           </span>
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Icon name="folder-lock" className="w-6 h-6 text-teal-400" /> Shared Documents
+            <Icon name="folder-lock" className="w-6 h-6 text-teal-400" /> {t('viewDocs.title')}
           </h1>
           <p className="text-gray-400 text-sm mt-1">{subtitle}</p>
         </div>
@@ -343,9 +349,7 @@ export default function ViewDocuments() {
         >
           <Icon name="shield-alert" className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-amber-100/90">
-            These documents were shared privately by the owner for your review.{' '}
-            <span className="font-semibold">Downloading, printing and saving are disabled.</span> Please
-            do not redistribute.
+            <Trans i18nKey="viewDocs.notice" components={{ 1: <span className="font-semibold" /> }} />
           </p>
         </div>
 
@@ -360,7 +364,7 @@ export default function ViewDocuments() {
               to="/dashboard"
               className="btn btn-primary mt-5"
             >
-              <Icon name="arrow-left" className="w-4 h-4" /> Back to dashboard
+              <Icon name="arrow-left" className="w-4 h-4" /> {t('viewDocs.backToDashboard')}
             </Link>
           </div>
         ) : (
@@ -370,7 +374,7 @@ export default function ViewDocuments() {
             {total > 1 && <DocNav active={idx} total={total} onSelect={setActive} />}
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
