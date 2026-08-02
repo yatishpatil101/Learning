@@ -50,7 +50,7 @@ test.describe('Mobile inbox + saved', () => {
     await page.goto(`${BASE}/saved`);
     const tabs = page.locator('.saved-tabs .saved-tab');
     await expect(tabs).toHaveCount(3);
-    // Short label is used on mobile ("Flatmates", not "Flatmates & Flat-shares").
+    // Short label is used on mobile ("Flatmates", not "Flatmates & Rooms").
     await expect(page.locator('.saved-tabs')).toContainText('Flatmates');
     // Single row: every tab shares the same top offset (no wrap).
     const tops = await tabs.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));

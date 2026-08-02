@@ -40,7 +40,7 @@ export default function CityChrome() {
   return (
     <>
       {showBar ? (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-[18px] z-[1200] w-[min(680px,calc(100%-24px))]">
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--pn-bottom-inset)+18px)] z-[1200] w-[min(680px,calc(100%-24px))]">
           <div className="flex items-center gap-3 rounded-2xl border border-white/12 bg-[#15122a]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur flex-wrap">
             <span className="text-lg">🚧</span>
             <span className="text-[12.5px] leading-snug text-gray-300 flex-1 min-w-0">

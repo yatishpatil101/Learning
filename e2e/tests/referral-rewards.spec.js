@@ -1,0 +1,293 @@
+import { test, expect } from '@playwright/test';
+import {
+  ADMIN, OWNER, SEEKER, seed, open, openProperty, rentListing, propertyListing, publishListing,
+  setFlags, readContactsUsed, readReferralStats, readReferralCredits,
+} from '../helpers/app.js';
+
+/* Referral rewards — the "earn it instead of buying it" paths.
+
+   Two quotas can be lifted by referring instead of paying:
+     · seeker — 15 free owner contacts, +15 per friend who joins
+     · owner  — 1 free listing slot, +1 per referred owner who posts
+   Everything else (boosts, featuring, priority support) must stay paid-only,
+   and Ops can withdraw the whole free route with the `referralRewards` flag.
+
+   The quota gates read localStorage synchronously during first render, so all
+   commercial state is seeded through `seed()` before the app boots. */
+
+const PROP = 'P-e2e-1';
+
+/* The property is owned by OWNER, so a signed-in SEEKER is a genuine third
+   party — owners always see their own number and would bypass the gate. */
+const openProp = (page) => openProperty(page, PROP);
+
+const requestNumber = (page) => page.getByRole('button', { name: /Request number/i }).first().click();
+
+const exhaustedModal = (page) => page.getByTestId('contacts-exhausted');
+
+/* Publish the listing, set flags, then land on the property. setFlags navigates,
+   so it must run before the assertion-bearing navigation. */
+const arrive = async (page, flags = null) => {
+  await publishListing(page, propertyListing());
+  if (flags) await setFlags(page, flags);
+  await openProp(page);
+};
+
+test.describe('Seeker contact quota', () => {
+  test('spends exactly one free contact per new request', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 0 });
+    await arrive(page);
+
+    await expect(page.getByTestId('contacts-left')).toContainText('15');
+    await requestNumber(page);
+
+    await expect(page.getByText(/awaiting owner/i)).toBeVisible();
+    expect(await readContactsUsed(page, SEEKER.mobile)).toBe(1);
+  });
+
+  test('a repeat request on the same property does not burn quota again', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 0 });
+    await arrive(page);
+    await requestNumber(page);
+    expect(await readContactsUsed(page, SEEKER.mobile)).toBe(1);
+
+    // requestContact() returns the existing status rather than creating a second
+    // record, so re-landing on the page must not cost another contact.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByText(/awaiting owner/i)).toBeVisible();
+    expect(await readContactsUsed(page, SEEKER.mobile)).toBe(1);
+  });
+
+  test('the gate opens the upsell instead of a request once all 15 are spent', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 15 });
+    await arrive(page);
+
+    await expect(page.getByTestId('contacts-left')).toContainText(/No free contacts left/i);
+    await requestNumber(page);
+
+    await expect(exhaustedModal(page)).toBeVisible();
+    // A blocked request must never be recorded, and must never cost quota.
+    expect(await readContactsUsed(page, SEEKER.mobile)).toBe(15);
+    await expect(page.getByText(/awaiting owner/i)).toHaveCount(0);
+  });
+
+  test('the upsell offers the free referral route alongside the paid plan', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 15 });
+    await arrive(page);
+    await requestNumber(page);
+
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toBeVisible();
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-plan')).toBeVisible();
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveAttribute('href', '/refer');
+  });
+
+  test('a referred friend who joined buys back 15 more contacts', async ({ page }) => {
+    // 15 spent, but one friend joined → allowance is 30, so 15 remain.
+    await seed(page, { user: SEEKER, contactsUsed: 15, referralStats: { invited: 1, joined: 1, listed: 0 } });
+    await arrive(page);
+
+    await expect(page.getByTestId('contacts-left')).toContainText('15');
+    await requestNumber(page);
+
+    await expect(exhaustedModal(page)).toHaveCount(0);
+    expect(await readContactsUsed(page, SEEKER.mobile)).toBe(16);
+  });
+
+  test('Seeker Plus lifts the ceiling entirely — the gate never fires', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 99, plan: { id: 'seeker-plus', name: 'Seeker Plus' } });
+    await arrive(page);
+
+    // Unlimited plans render no countdown at all.
+    await expect(page.getByTestId('contacts-left')).toHaveCount(0);
+    await requestNumber(page);
+    await expect(exhaustedModal(page)).toHaveCount(0);
+    await expect(page.getByText(/awaiting owner/i)).toBeVisible();
+  });
+});
+
+test.describe('Owner listing slots', () => {
+  const openWizard = (page) => open(page, '/list-property');
+
+  test('a free owner at their one-listing limit hits the paywall with a referral route', async ({ page }) => {
+    await seed(page, { user: OWNER, listings: [rentListing({ status: 'approved' })] });
+    await openWizard(page);
+
+    await expect(page.getByTestId('listing-paywall')).toBeVisible();
+    await expect(page.getByTestId('paywall-refer')).toBeVisible();
+    await expect(page.getByTestId('paywall-refer')).toHaveAttribute('href', '/refer');
+  });
+
+  test('a referred owner who posted unlocks an extra free slot', async ({ page }) => {
+    // Same one live listing, but one referred owner has posted → limit is 2.
+    await seed(page, {
+      user: OWNER,
+      listings: [rentListing({ status: 'approved' })],
+      referralStats: { invited: 1, joined: 0, listed: 1 },
+    });
+    await openWizard(page);
+
+    await expect(page.getByTestId('listing-paywall')).toHaveCount(0);
+  });
+
+  test('earned slots do not buy premium tools', async ({ page }) => {
+    await seed(page, {
+      user: OWNER,
+      listings: [rentListing({ status: 'approved' })],
+      referralStats: { invited: 5, joined: 5, listed: 5 },
+    });
+    await open(page, '/dashboard');
+
+    // Referrals move the quota and nothing else — boosting/featuring is still
+    // gated on a genuinely paid plan.
+    const paid = await page.evaluate(async () => {
+      const m = await import('/src/lib/store.js');
+      return { paidPlan: m.isPaidOwnerPlan(), plan: m.getPlan().id, limit: m.listingLimit() };
+    });
+    expect(paid.paidPlan).toBe(false);
+    expect(paid.plan).toBe('free');
+    expect(paid.limit).toBe(6);
+  });
+});
+
+test.describe('Referral credit ledger', () => {
+  test('a referred owner posting their first listing queues exactly one credit', async ({ page }) => {
+    await seed(page, { user: OWNER, referredBy: 'FRND1234' });
+    await open(page, '/dashboard');
+
+    const first = await page.evaluate(async () => {
+      const m = await import('/src/lib/store.js');
+      return m.creditReferrerForListing();
+    });
+    expect(first).toBeTruthy();
+
+    // A second post from the same owner must not pay the referrer twice.
+    const second = await page.evaluate(async () => {
+      const m = await import('/src/lib/store.js');
+      return m.creditReferrerForListing();
+    });
+    expect(second).toBeNull();
+
+    const credits = await readReferralCredits(page);
+    expect(credits.filter((c) => c.kind === 'listing')).toHaveLength(1);
+    expect(credits[0].code).toBe('FRND1234');
+    expect(credits[0].claimed).toBe(false);
+  });
+
+  test('claiming credits bumps the referrer once and cannot be double-spent', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 0 });
+    await open(page, '/dashboard');
+
+    const result = await page.evaluate(async () => {
+      const m = await import('/src/lib/store.js');
+      // Address a credit at this user's own code, as a friend's signup would.
+      m.creditReferrer({ code: m.referralCode(), kind: 'join', dedupeKey: 'e2e-join-1' });
+      return { first: m.claimReferralCredits(), second: m.claimReferralCredits() };
+    });
+
+    expect(result.first).toBe(1);
+    // Re-running must be a no-op, or a page refresh would mint free contacts.
+    expect(result.second).toBe(0);
+    expect((await readReferralStats(page, SEEKER.mobile)).joined).toBe(1);
+    expect((await readReferralCredits(page)).every((c) => c.claimed)).toBe(true);
+  });
+});
+
+test.describe('referralRewards feature flag', () => {
+  test('off — the contacts upsell drops the free route but keeps the paid one', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 15 });
+    await arrive(page, { referralRewards: false });
+    await requestNumber(page);
+
+    await expect(exhaustedModal(page)).toBeVisible();
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-refer')).toHaveCount(0);
+    await expect(exhaustedModal(page).getByTestId('contacts-exhausted-plan')).toBeVisible();
+  });
+
+  test('off — already-earned bonus contacts stop applying, and come back when re-enabled', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 15, referralStats: { invited: 1, joined: 1, listed: 0 } });
+    await arrive(page, { referralRewards: false });
+
+    // The 15 earned contacts are withheld, so the seeker is blocked again.
+    await requestNumber(page);
+    await expect(exhaustedModal(page)).toBeVisible();
+
+    // Turning it back on restores the entitlement — the counters were never wiped.
+    await setFlags(page, { referralRewards: true });
+    await openProp(page);
+    await expect(page.getByTestId('contacts-left')).toContainText('15');
+  });
+
+  test('off — the owner paywall drops the referral CTA', async ({ page }) => {
+    await seed(page, { user: OWNER, listings: [rentListing({ status: 'approved' })] });
+    await setFlags(page, { referralRewards: false });
+    await open(page, '/list-property');
+
+    await expect(page.getByTestId('listing-paywall')).toBeVisible();
+    await expect(page.getByTestId('paywall-refer')).toHaveCount(0);
+  });
+
+  test('off — an earned listing slot is withdrawn', async ({ page }) => {
+    await seed(page, {
+      user: OWNER,
+      listings: [rentListing({ status: 'approved' })],
+      referralStats: { invited: 1, joined: 0, listed: 1 },
+    });
+    await setFlags(page, { referralRewards: false });
+    await open(page, '/list-property');
+
+    await expect(page.getByTestId('listing-paywall')).toBeVisible();
+  });
+
+  test('off — the Refer page hides the quota tracks but keeps the base program', async ({ page }) => {
+    await seed(page, { user: SEEKER });
+    await setFlags(page, { referralRewards: false });
+    await open(page, '/refer');
+
+    await expect(page.getByTestId('refer-balance')).toHaveCount(0);
+    await expect(page.getByTestId('refer-seeker-track')).toHaveCount(0);
+    // The rent-agreement track is part of the base referral program, not this
+    // feature, so it must survive the flag being off.
+    await expect(page.getByText(/free rent agreement/i).first()).toBeVisible();
+  });
+
+  test('on — the Refer page shows the live spendable balance', async ({ page }) => {
+    await seed(page, { user: SEEKER, contactsUsed: 5, referralStats: { invited: 2, joined: 1, listed: 0 } });
+    await setFlags(page, { referralRewards: true });
+    await open(page, '/refer');
+
+    await expect(page.getByTestId('refer-seeker-track')).toBeVisible();
+    // 15 free + 15 earned - 5 spent.
+    await expect(page.getByTestId('refer-balance-contacts')).toHaveText('25');
+  });
+});
+
+test.describe('Admin feature flag toggle', () => {
+  test('Ops can switch referral rewards off from Settings ▸ Feature flags', async ({ page }) => {
+    await seed(page, { user: ADMIN });
+    await open(page, '/admin/settings?tab=flags');
+
+    await page.getByRole('button', { name: /Monetization & Payments/i }).click();
+    const row = page.getByRole('switch', { name: 'Toggle Referral rewards' });
+    await expect(row).toHaveAttribute('aria-checked', 'true');
+
+    // Flag changes are confirmation-gated — the switch alone must not commit.
+    await row.click();
+    await expect(page.getByText('Disable Referral Rewards?')).toBeVisible();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5')).settings.flags.referralRewards)).toBe(true);
+
+    await page.getByRole('button', { name: /^Disable$/ }).click();
+    await expect(row).toHaveAttribute('aria-checked', 'false');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5')).settings.flags.referralRewards)).toBe(false);
+  });
+
+  test('the flag ships registered, so admin and runtime agree', async ({ page }) => {
+    await seed(page, { user: SEEKER });
+    await open(page, '/');
+
+    // A key missing from settings.flags renders OFF in admin but behaves ON at
+    // runtime (flagEnabled is `!== false`). Guard against that drift.
+    const flags = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestDB_v5')).settings.flags);
+    expect(Object.prototype.hasOwnProperty.call(flags, 'referralRewards')).toBe(true);
+    expect(flags.referralRewards).toBe(true);
+  });
+});

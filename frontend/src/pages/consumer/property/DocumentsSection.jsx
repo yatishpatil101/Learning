@@ -188,8 +188,8 @@ export function DocumentsSection({ p, user, isIn, toast }) {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="accent-brand-teal-2 w-4 h-4 mt-0.5 flex-shrink-0" />
+                <label className="flex items-start gap-2.5 cursor-pointer min-h-[44px] py-2 sm:min-h-0 sm:py-0">
+                  <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="accent-brand-teal-2 w-5 h-5 sm:w-4 sm:h-4 mt-0.5 flex-shrink-0" />
                   <span className="text-xs text-slate-300 leading-relaxed">{t('property.ackPre')}<span className="font-semibold text-white">{t('property.ackBold')}</span>{t('property.ackPost')}</span>
                 </label>
                 <button type="button" onClick={requestAccess} disabled={!ack} className="btn-teal flex items-center justify-center gap-2 whitespace-nowrap py-3 px-5 text-sm self-start disabled:opacity-50 disabled:cursor-not-allowed"><Icon name="send" className="w-4 h-4" /> {t('property.requestToViewDocs')}</button>

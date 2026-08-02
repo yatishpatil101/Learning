@@ -56,7 +56,9 @@ const PHOTOS = [
 const img = (id, w = 800) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=70`;
 
 const genName = (r) => pick(r, FIRST) + ' ' + pick(r, LAST);
-const genMobile = (r) => '9' + intp(r, 100000000, 899999999);
+// 9999xxxxxx is not allocated to any Indian subscriber, so seed owners rendered as
+// live wa.me / tel: links on a public dev deploy can never reach a real person.
+const genMobile = (r) => '9999' + intp(r, 100000, 999999);
 
 function build() {
   const r = rng(20260618);
@@ -234,11 +236,14 @@ function build() {
       social: { instagram: 'https://instagram.com/punenest', facebook: 'https://facebook.com/punenest', linkedin: 'https://linkedin.com/company/punenest', twitter: 'https://x.com/punenest' },
     },
     fees: { ownerPlanYearly: 999, ownerProYearly: 2499, rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18, rentPayPercent: 2 },
+    // Keep in sync with APP_FLAG_SECTIONS in src/pages/admin/settings/AppFlagsPanel.jsx —
+    // a key missing here renders OFF in admin but behaves ON at runtime (flagEnabled is `!== false`).
     flags: {
       societySaaS: false, newProjectListings: true, videoListings: false, mapSearch: true, compareProperties: true,
       savedListings: true, scheduleVisit: true, emiCalculator: true, reviewsEnabled: true,
       zeroBrokerage: true, onlineRentPayment: false, depositFinancing: false, paidFeaturedListings: true, subscriptionPlans: true,
-      aadhaarVerification: true, ownerPhonePrivacy: true, listingVerification: true, reviewModeration: true,
+      referralRewards: true,
+      kycBadgeEnabled: true, ownerPhonePrivacy: true, listingVerification: true, reviewModeration: true,
       whatsappEnabled: true, inAppMessaging: true, emailNotifications: true, smsNotifications: true, pushNotifications: false,
       signupsEnabled: true, staffLoginEnabled: true, maintenanceMode: false,
     },

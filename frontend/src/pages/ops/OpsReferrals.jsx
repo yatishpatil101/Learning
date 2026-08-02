@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, Check, Clock, Download, Flag, Lock, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { listReferrals, mutateDb, logAudit } from '../../lib/mockApi.js';
+import { creditReferrer } from '../../lib/store/referrals.js';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -41,6 +42,9 @@ export default function OpsReferrals() {
   const doAction = (r, act) => {
     if (act === 'approve') {
       if (!canQualify(r)) { toast('Blocked — needs Aadhaar verification + uniqueness', 'error'); return; }
+      // Actually grant it: queue a credit the referrer collects on next sign-in.
+      // 'owner' channel unlocks a free listing slot, 'seeker' unlocks +15 contacts.
+      creditReferrer({ mobile: r.referrerMobile, kind: r.channel === 'owner' ? 'listing' : 'join', dedupeKey: 'ops:' + r.id });
       setReferralStatus(r.id, 'rewarded'); logAudit('Referrals', `Approved ${r.id}`); toast('Approved — reward granted');
     } else if (act === 'reject') {
       setReferralStatus(r.id, 'rejected'); logAudit('Referrals', `Rejected ${r.id}`); toast('Rejected', 'error');

@@ -1,6 +1,7 @@
 import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
+import '../../../styles/routes/rent-agreement.css';
 import { invitePath } from '../../../lib/serviceFlow.js';
 import { STEP_LABELS } from './rent-agreement/constants.js';
 import Hero from './rent-agreement/Hero.jsx';
@@ -34,7 +35,7 @@ export default function RentAgreement() {
 
   return (
     <div ref={rootRef} className="ra-page">
-      <main>
+      <div>
         <Hero />
 
         {/* Active requests tracker */}
@@ -217,7 +218,7 @@ export default function RentAgreement() {
         <DocsRequired />
 
         <InfoSections openFaq={openFaq} setOpenFaq={setOpenFaq} />
-      </main>
+      </div>
     </div>
   );
 }

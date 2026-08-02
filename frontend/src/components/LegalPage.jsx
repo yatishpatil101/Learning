@@ -144,7 +144,7 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Back to top"
-          className="fixed bottom-24 right-6 z-40 w-11 h-11 rounded-full bg-teal-500 text-white shadow-lg shadow-teal-500/25 flex items-center justify-center hover:bg-teal-400 transition-colors"
+          className="fixed bottom-[calc(var(--pn-bottom-inset)+1rem)] left-4 z-[60] w-11 h-11 rounded-full bg-teal-500 text-white shadow-lg shadow-teal-500/25 flex items-center justify-center hover:bg-teal-400 transition-colors lg:bottom-24 lg:left-auto lg:right-6 lg:z-40"
         >
           <Icon name="arrow-up" className="w-5 h-5" />
         </button>

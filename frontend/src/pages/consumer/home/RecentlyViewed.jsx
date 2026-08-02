@@ -29,7 +29,7 @@ export default function RecentlyViewed() {
   return (
     <section className="relative section-pb">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between mb-6 reveal">
+        <div className="section-head flex items-end justify-between sm:mb-6 reveal">
           <div>
             <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">{t('home.recent.eyebrow')}</p>
             <h2 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">

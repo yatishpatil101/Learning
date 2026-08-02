@@ -10,12 +10,14 @@
    - 'top': pinned just below the navbar. Use for tall cards (e.g. Sign Up) that
      would otherwise get clipped by the fixed navbar when centered. */
 export default function AuthShell({ left, children, mobileIntro, align = 'center' }) {
-  // Fixed navbar is ~72px on desktop; reserve it so the card never tucks under it.
+  // Reserve the fixed navbar so the card never tucks under it. 'top' adds 16px of
+  // breathing room on top of the bar; both read the height from --pn-nav-h, so lg
+  // resolves to the 72px/88px this used to hardcode and desktop is unchanged.
   const colAlign = align === 'top'
-    ? 'lg:justify-start lg:pt-[88px] lg:pb-12'
-    : 'lg:justify-center lg:pt-[72px] lg:pb-12';
+    ? 'lg:justify-start lg:pt-[calc(var(--pn-nav-h)+16px)] lg:pb-12'
+    : 'lg:justify-center lg:pt-[var(--pn-nav-h)] lg:pb-12';
   return (
-    <div className="auth-page min-h-[100dvh] flex pt-16 lg:pt-0">
+    <div className="auth-page min-h-[100dvh] flex pt-[var(--pn-nav-h)] lg:pt-0">
       {/* Mobile-only ambient backdrop: teal aurora + fine tech grid so the auth
           screen feels like the front page of a modern proptech, not a form on black. */}
       <div className="auth-mobile-bg lg:hidden" aria-hidden="true" />

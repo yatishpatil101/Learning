@@ -90,6 +90,28 @@ export default function AdminSupport() {
     { key: 'status', header: 'Status', render: (t) => <Badge status={t.status} /> },
   ];
 
+  /* Stacked-card fallback below `sm` (see Table.jsx). The whole row opens the detail
+     modal, matching onRowClick on the table. */
+  const ticketCard = (t) => (
+    <button type="button" onClick={() => { setDetail(t); setNote(''); }} className="pn-card block w-full p-3.5 text-left">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{t.customer}</div>
+          <div className="mt-0.5 text-xs text-gray-400">{t.id} · {t.service}</div>
+        </div>
+        <div className="shrink-0"><Badge status={t.status} /></div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <span className={classNames('font-medium capitalize', PRIORITY[t.priority])}>{t.priority}</span>
+        <span className="text-gray-600">·</span>
+        <span className="capitalize">{t.team}</span>
+        <span className="text-gray-600">·</span>
+        <span>{t.assignedTo || 'Unassigned'}</span>
+        {t.value ? (<><span className="text-gray-600">·</span><span>{fmtINR(t.value)}</span></>) : null}
+      </div>
+    </button>
+  );
+
   const doExport = () =>
     exportCsv(
       'punenest-tickets.csv',
@@ -115,7 +137,7 @@ export default function AdminSupport() {
         <Select value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, ...STATUS_OPTS]} className="sm:w-44" ariaLabel="Filter by status" />
       </div>
 
-      <Table columns={columns} rows={rows} onRowClick={(t) => { setDetail(t); setNote(''); }} pageSize={10} label="tickets" empty="No tickets match these filters." />
+      <Table columns={columns} rows={rows} onRowClick={(t) => { setDetail(t); setNote(''); }} pageSize={10} label="tickets" empty="No tickets match these filters." mobileCard={ticketCard} />
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.id} · ${detail.service}` : ''} size="lg">
         {detail ? (

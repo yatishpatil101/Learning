@@ -105,7 +105,12 @@ export default function useProperty() {
   const parkingLabel = p.parkingSpaces ? String(p.parkingSpaces) : '—';
   const emi = Math.round((p.price * 0.0072) / 100) * 100;
   const possessionLabel = p.construction === 'new' ? tr('property.underConstruction') : tr('property.readyToMove');
-  const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${p.type} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
+  /* A listing can reach the detail page with no `type` (older seeds, partial
+     imports, hand-written fixtures). Derive the label once and defensively —
+     an unguarded p.type.toLowerCase() white-screened the whole page. */
+  const typeLabel = p.type || tr('property.typeFallback');
+  const typeLower = String(typeLabel).toLowerCase();
+  const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${typeLabel} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
   const priceStr = isRent ? `₹${(p.price || 0).toLocaleString('en-IN')}/month` : fmtINR(p.price);
 
   // Live-activity signals — derived from this listing's real popularity (views /
@@ -124,7 +129,7 @@ export default function useProperty() {
   if (isLand) {
     details = [
       ['maximize', tr('property.plotArea'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.plotArea'],
-      ['layout-grid', tr('property.plotZone'), p.form?.plotZone || p.type || '—', 'keydetail.plotZone'],
+      ['layout-grid', tr('property.plotZone'), p.form?.plotZone || typeLabel, 'keydetail.plotZone'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
       ['calendar-check', tr('property.possession'), p.available || possessionLabel, 'keydetail.available'],
       ['indian-rupee', perUnitLabel, perUnitVal, isRent ? 'keydetail.perUnitRent' : 'keydetail.perUnitBuy'],
@@ -181,15 +186,15 @@ export default function useProperty() {
   const amenPhrase = (p.amenities || []).map((a) => AMEN_LABEL[a] || a).join(', ') || tr('property.modernAmenities');
   const overviewMore = isLand
     ? tr('property.overviewLand', {
-        type: p.type.toLowerCase(),
+        type: typeLower,
         locality: p.locality,
         zone: p.form?.plotZone ? tr('property.overviewLandZone', { zone: String(p.form.plotZone).toLowerCase() }) : '',
       })
     : kind === 'commercial'
-      ? tr('property.overviewCommercial', { type: p.type.toLowerCase(), locality: p.locality, amenities: amenPhrase })
+      ? tr('property.overviewCommercial', { type: typeLower, locality: p.locality, amenities: amenPhrase })
       : tr('property.overviewResidential', {
           bhk: p.bhkNum ? p.bhkNum + ' BHK ' : '',
-          type: p.type.toLowerCase(),
+          type: typeLower,
           locality: p.locality,
           amenities: amenPhrase,
         });

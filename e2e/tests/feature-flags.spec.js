@@ -224,19 +224,24 @@ test.describe('inAppMessaging flag', () => {
 
 // ─────────────── SAVED LISTINGS FLAG ───────────────
 
+// The mobile bottom nav also links to /saved, so a bare a[href="/saved"] locator
+// is ambiguous under strict mode. These assertions are about the navbar, so scope
+// them to it rather than loosening the match.
+const navbarSaved = (page) => page.locator('nav:not(.pn-bottom-nav) a[href="/saved"]');
+
 test.describe('savedListings flag', () => {
   test('saved link visible in navbar when enabled and logged in', async ({ page }) => {
     await loginAsUser(page);
     await setAppFlag(page, 'savedListings', true);
     await page.waitForTimeout(300);
-    await expect(page.locator('a[href="/saved"]')).toBeVisible({ timeout: 5000 });
+    await expect(navbarSaved(page).first()).toBeVisible({ timeout: 5000 });
   });
 
   test('saved link hidden in navbar when disabled', async ({ page }) => {
     await loginAsUser(page);
     await setAppFlag(page, 'savedListings', false);
     await page.waitForTimeout(300);
-    await expect(page.locator('a[href="/saved"]')).toBeHidden();
+    await expect(navbarSaved(page)).toHaveCount(0);
   });
 
   test('saved route redirects when disabled', async ({ page }) => {

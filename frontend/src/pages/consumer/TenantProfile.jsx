@@ -95,7 +95,7 @@ export default function TenantProfile() {
   if (form.moveIn) meta.push(['calendar', t('misc.tpMoveInPrefix') + form.moveIn]);
 
   return (
-    <main className="pt-8 sm:pt-10 pb-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-8 sm:pt-10 pb-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-11 h-11 rounded-xl bg-emerald-400/15 flex items-center justify-center"><Icon name="user-check" className="w-6 h-6 text-emerald-300" /></div>
         <div>
@@ -240,6 +240,6 @@ export default function TenantProfile() {
           onVerified={onVerified}
         />
       )}
-    </main>
+    </div>
   );
 }

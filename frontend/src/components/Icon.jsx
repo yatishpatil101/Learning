@@ -23,6 +23,7 @@ import {
   Sun, Table, Tag, Television, Timer, Train, Trash, Tray, Tree, TrendDown, TrendUp,
   Truck, Upload, User, UserCheck, UserCircle, UserGear, UserPlus, Users, UsersThree,
   Video, Wallet, Warehouse, Warning, Waves, Wind, X, XCircle,
+  BookOpenText, ThumbsUp, ThumbsDown,
 } from '@phosphor-icons/react';
 
 // ── Lucide fallbacks (icons not in Phosphor) ─────────────────────────────────
@@ -317,6 +318,15 @@ const MAP = {
   'external-link':       ExternalLink,      // Lucide fallback
   link:                  LinkSimple,
   'more-horizontal':     DotsThree,
+
+  // ── Help centre / documentation ────────────────────────────────────────────
+  'user-circle':         UserCircle,
+  'clipboard-text':      ClipboardText,
+  warning:               Warning,
+  sparkle:               Sparkle,
+  'book-open':           BookOpenText,
+  'thumbs-up':           ThumbsUp,
+  'thumbs-down':         ThumbsDown,
 };
 
 export default function Icon({ name, className, ...rest }) {

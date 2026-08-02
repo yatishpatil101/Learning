@@ -1,6 +1,9 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
+import useSheetViewport from '../../lib/useSheetViewport.js';
+import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import Icon from '../Icon.jsx';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
@@ -10,7 +13,7 @@ import PoweredByGoogle from './PoweredByGoogle.jsx';
  * @param {string} props.value - Currently selected value.
  * @param {(value: string) => void} props.onChange - Callback when selection changes.
  * @param {Array<{value: string, label: string}>} props.options - Menu options.
- * @param {string} [props.placeholder='Select…'] - Placeholder when no value selected.
+ * @param {string} [props.placeholder] - Placeholder when no value selected; defaults to the translated "Select…".
  * @param {boolean} [props.searchable] - Force search input (auto-enabled for ≥8 options).
  * @param {string} [props.className] - Additional class on the trigger wrapper.
  * @param {boolean} [props.disabled] - Disable interaction.
@@ -30,7 +33,7 @@ const Select = forwardRef(function Select({
   value,
   onChange,
   options = [],
-  placeholder = 'Select…',
+  placeholder,
   searchable,
   className,
   disabled,
@@ -41,8 +44,14 @@ const Select = forwardRef(function Select({
   asyncSearch,
   onPick,
   prefix,
-  noResultsText = 'No matches',
+  noResultsText,
 }, ref) {
+  const { t } = useTranslation();
+  /* Resolved at render rather than as a default parameter: a default is evaluated
+     against whatever language was active on first mount and would never follow a
+     later switch. */
+  const ph = placeholder || t('ui.selectPlaceholder');
+  const noResults = noResultsText || t('ui.noMatches');
   const opts = useMemo(
     () => options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)),
     [options],
@@ -60,6 +69,10 @@ const Select = forwardRef(function Select({
   useImperativeHandle(ref, () => triggerRef.current, []);
   const [portalOpen, setPortalOpen] = useState(false);
   const listId = useId();
+  /* On phones the menu docks to the bottom edge as a sheet instead of hanging off
+     the trigger: an anchored panel there opens under the thumb's own hand and is
+     routinely half-covered by the keyboard when the field is searchable. */
+  const sheet = useSheetViewport();
 
   // Fall back to showing the raw value as its own label so a locality picked from
   // live search (not in the static list) still displays on the trigger.
@@ -135,6 +148,9 @@ const Select = forwardRef(function Select({
     const trigger = triggerRef.current;
     const menu = menuRef.current;
     if (!trigger || !menu) return;
+    // Sheet mode is laid out entirely in CSS. Drop any inline geometry a previous
+    // desktop-width pass wrote, or it would out-specify the sheet rules.
+    if (sheet) { menu.removeAttribute('style'); return; }
     const r = trigger.getBoundingClientRect();
     menu.style.position = 'fixed';
     menu.style.right = 'auto';
@@ -154,7 +170,7 @@ const Select = forwardRef(function Select({
     if (r.bottom + 8 + mh > window.innerHeight && r.top - 8 - mh > 0) {
       menu.style.top = `${r.top - 8 - mh}px`;
     }
-  }, []);
+  }, [sheet]);
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -169,6 +185,14 @@ const Select = forwardRef(function Select({
       window.removeEventListener('resize', onAnchor);
     };
   }, [open, position, visible.length]);
+
+  /* A sheet covers the page, so the page behind it must not scroll with it. */
+  useEffect(() => {
+    if (!open || !sheet) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open, sheet]);
 
   // Focus the search box only AFTER position() (the layout effect above) has
   // anchored the portaled menu inside the viewport. Focusing during the render
@@ -186,6 +210,9 @@ const Select = forwardRef(function Select({
     if (onPick) onPick(opt);
     close();
   };
+
+  /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
+  const swipe = useSwipeDismiss(close);
 
   const onKeyDown = (e) => {
     if (disabled) return;
@@ -244,7 +271,7 @@ const Select = forwardRef(function Select({
       >
         <span className={classNames('pn-dropdown__value', !selected && 'is-placeholder')}>
           {prefix ? <span className="pn-dropdown__prefix">{prefix}</span> : null}
-          {selected ? selected.label : placeholder}
+            {selected ? selected.label : ph}
         </span>
         <svg className="pn-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 9l6 6 6-6" />
@@ -253,66 +280,72 @@ const Select = forwardRef(function Select({
 
       {open && typeof document !== 'undefined'
         ? createPortal(
-            <div
-              ref={menuRef}
-              className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', portalOpen && 'is-portal-open')}
-              role="listbox"
-              id={listId}
-              aria-label={ariaLabel}
-            >
-              {isSearchable ? (
-                <div className="pn-dropdown__search">
-                  <input
-                    value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      setActiveIndex(0);
-                    }}
-                    onKeyDown={onKeyDown}
-                    placeholder="Search…"
-                    ref={searchRef}
-                  />
-                </div>
-              ) : null}
+            <>
+              {/* Scrim: a sheet is a modal surface, so the page behind it has to
+                  read as dismissed rather than merely covered. */}
+              {sheet ? <div className="pn-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
+              <div
+                ref={menuRef}
+                {...(sheet ? swipe : null)}
+                className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', sheet && 'pn-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                role="listbox"
+                id={listId}
+                aria-label={ariaLabel}
+              >
+                {isSearchable ? (
+                  <div className="pn-dropdown__search">
+                    <input
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setActiveIndex(0);
+                      }}
+                      onKeyDown={onKeyDown}
+                      placeholder={t('ui.searchPlaceholder')}
+                      ref={searchRef}
+                    />
+                  </div>
+                ) : null}
 
-              {visible.length === 0 ? (
-                <div className="pn-dropdown__empty">
-                  {loading
-                    ? 'Searching…'
-                    : (asyncSearch && query.trim().length < 2 ? 'Type to search…' : noResultsText)}
-                </div>
-              ) : (
-                visible.map((o, i) => (
-                  <button
-                    type="button"
-                    key={`${o.value}-${i}`}
-                    role="option"
-                    aria-selected={o.value === value}
-                    disabled={o.disabled}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => choose(o)}
-                    className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
-                  >
-                    {o.icon ? <Icon name={o.icon} className="opt-icon" /> : null}
-                    <span className="opt-label">
-                      {o.label}
-                      {o.sublabel ? <span className="opt-sub"> {o.sublabel}</span> : null}
-                    </span>
-                    {o.badge != null ? <span className="opt-badge">{o.badge}</span> : null}
-                    <svg className="opt-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </button>
-                ))
-              )}
+                {visible.length === 0 ? (
+                  <div className="pn-dropdown__empty">
+                    {loading
+                      ? t('ui.searching')
+                      : (asyncSearch && query.trim().length < 2 ? t('ui.typeToSearch') : noResults)}
+                  </div>
+                ) : (
+                  visible.map((o, i) => (
+                    <button
+                      type="button"
+                      key={`${o.value}-${i}`}
+                      role="option"
+                      aria-selected={o.value === value}
+                      disabled={o.disabled}
+                      onMouseEnter={() => setActiveIndex(i)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => choose(o)}
+                      className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
+                    >
+                      {o.icon ? <Icon name={o.icon} className="opt-icon" /> : null}
+                      <span className="opt-label">
+                        {o.label}
+                        {o.sublabel ? <span className="opt-sub"> {o.sublabel}</span> : null}
+                      </span>
+                      {o.badge != null ? <span className="opt-badge">{o.badge}</span> : null}
+                      <svg className="opt-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                  ))
+                )}
 
-              {usingAsync ? (
-                <div className="pn-dropdown__attrib">
-                  <PoweredByGoogle />
-                </div>
-              ) : null}
-            </div>,
+                {usingAsync ? (
+                  <div className="pn-dropdown__attrib">
+                    <PoweredByGoogle />
+                  </div>
+                ) : null}
+              </div>
+            </>,
             document.body,
           )
         : null}

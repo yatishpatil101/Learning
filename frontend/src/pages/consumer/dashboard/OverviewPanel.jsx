@@ -3,12 +3,23 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
+import Modal from '../../../components/ui/Modal.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import { isAadhaarVerified } from '../../../lib/store.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+
+/* How many stat tiles a phone shows before the rest move behind "See all".
+
+   Three is not arbitrary: the tiles are a 2-up grid below `sm`, so four of them
+   cost two full rows near the top of the Account tab — the densest, least-scanned
+   part of a screen that already stacks 9+ sections. Three plus a "See all" tile
+   fills exactly two rows with the fourth cell doing useful work, and it forces the
+   panel to say which metrics actually lead. Desktop keeps all four: a 4-up row
+   there costs one row and no scroll. */
+const MOBILE_STAT_LIMIT = 3;
 
 export default function OverviewPanel({ isOwner, listings, enquiries, visits, go, apps, pendingApps, setStatus, toast, recent, recommended = [], stats = [], rental = null, alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
@@ -19,6 +30,8 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
   // DigiLocker consent happens in production.
   const [badgeOpen, setBadgeOpen] = useState(false);
   const [verified, setVerified] = useState(() => isAadhaarVerified());
+  // "See all metrics" sheet — the overflow half of the mobile stat split.
+  const [allStatsOpen, setAllStatsOpen] = useState(false);
   // Online rent payment isn't live yet — surface it as "Coming soon". The links
   // point to /pay-rent, which now renders an honest coming-soon page.
   const payEnabled = flagEnabled('onlineRentPayment');
@@ -99,9 +112,61 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           </div>
         </Card>
       )}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {stats.map((s) => <Stat key={s.label} {...s} />)}
-      </div>
+      {/* Headline metrics. On a phone only the first three render inline and the
+          rest move into a sheet — the panel was a straight port of the desktop
+          4-up grid, which on a 360px screen is two dense rows of small numbers
+          before the user reaches anything actionable. The `sm:` branch below is
+          the original grid, unchanged, so desktop sees no difference. */}
+      {stats.length > MOBILE_STAT_LIMIT ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:hidden">
+            {stats.slice(0, MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
+            <button
+              type="button"
+              onClick={() => setAllStatsOpen(true)}
+              data-testid="see-all-metrics"
+              className="tap-target flex flex-col items-start justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06]"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06]">
+                <Icon name="layout-grid" className="h-4 w-4 text-gray-300" />
+              </span>
+              <span className="mt-2 text-xs font-medium text-gray-300">
+                {t('dashboard.seeAllMetrics', 'See all')}
+              </span>
+              <span className="mt-0.5 text-[11px] text-gray-500">
+                {t('dashboard.moreMetrics', '{{count}} more', { count: stats.length - MOBILE_STAT_LIMIT })}
+              </span>
+            </button>
+          </div>
+          <div className="hidden gap-3 sm:grid sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+            {stats.map((s) => <Stat key={s.label} {...s} />)}
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {stats.map((s) => <Stat key={s.label} {...s} />)}
+        </div>
+      )}
+
+      {/* The overflow half of the split. Modal is already a bottom sheet below
+          640px, so this needs no mobile-specific presentation of its own. */}
+      <Modal
+        open={allStatsOpen}
+        onClose={() => setAllStatsOpen(false)}
+        title={t('dashboard.allMetrics', 'All metrics')}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          {stats.map((s) => (
+            <Stat
+              key={s.label}
+              {...s}
+              /* Tapping a tile navigates; the sheet must close with it or the
+                 user lands on the target page with an overlay still up. */
+              onClick={s.onClick ? () => { setAllStatsOpen(false); s.onClick(); } : undefined}
+            />
+          ))}
+        </div>
+      </Modal>
 
       {/* Retention loop — real, personalised nudges that give the user a reason to
           come back: fresh matches for their saved searches and a profile-completion
@@ -180,7 +245,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           <Card className="p-5 sm:p-6">
             <SectionHead
               icon="users-round"
-              title="Flat-share Group Applications"
+              title="Flatmate Group Applications"
               sub="Groups of tenants who want to rent one of your whole flats together and split the rent."
               action={<span className="text-[11px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold whitespace-nowrap">{pendingApps} pending</span>}
             />

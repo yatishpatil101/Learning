@@ -191,22 +191,23 @@ export default function AssistantWidget() {
     return ids.map((id) => KB.find((e) => e.id === id)).filter(Boolean);
   }, [pathname]);
 
-  // Lift the FAB above whatever occupies the bottom-right corner on small screens —
-  // and ONLY on pages that actually have a bottom bar there, so every other page
-  // keeps the FAB in its default corner untouched. Two bars can appear:
-  //  · The Property / Society sticky action bar (Contact / Follow…) — full-width,
+  // Lift the FAB above whatever occupies the bottom-right corner on small screens.
+  // --pn-bottom-inset (owned by ConsumerLayout) already accounts for the persistent
+  // mobile bottom nav; the offsets below add the *extra* clearance for transient bars
+  // that a page raises and the layout can't see:
+  //  · The Property / Society / contact sticky action bar (`.pn-sticky-cta`) — full-width,
   //    rendered below `lg`, so the FAB must clear it up to the lg breakpoint.
-  //  · The /contact quick-contact bar (Call / WhatsApp) — same `.pn-sticky-cta`, so it
-  //    needs the same clearance up to the lg breakpoint.
   //  · The CityChrome waitlist bar — only when the current city isn't live (mobile).
+  // ponytail: page-owned bars still announce themselves by route rather than raising
+  // the inset var. Fold them into --pn-bottom-inset if a third one shows up.
   const detailBar = pathname.startsWith('/property/')
     || pathname === '/society'
     || pathname.startsWith('/society/')
     || pathname === '/contact';
   const cityBar = !isLive(city);
-  let anchorClass = 'bottom-6';
-  if (detailBar) anchorClass = 'bottom-[5.75rem] lg:bottom-6';
-  else if (cityBar) anchorClass = 'bottom-[5.75rem] sm:bottom-6';
+  let anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
+  if (detailBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
+  else if (cityBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+5.75rem)] sm:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
@@ -248,7 +249,10 @@ function Fab({ onOpen, showNudge, onDismissNudge }) {
           <button
             onClick={onDismissNudge}
             aria-label="Dismiss"
-            className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
+            /* A 44px circle here would be bigger than the bubble it closes, so the
+               hit area is extended with a transparent pseudo-element instead — the
+               glyph stays 20px, the target is 44px. See `.tap-extend` in index.css. */
+            className="tap-extend absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#1b1730] text-gray-400 shadow-md ring-1 ring-white/[0.08] hover:text-white"
           >
             <Icon name="x" className="h-3 w-3" />
           </button>

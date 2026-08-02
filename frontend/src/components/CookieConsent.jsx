@@ -61,7 +61,7 @@ export default function CookieConsent() {
   if (mode === 'hidden') return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
+    <div className="pn-safe-x fixed inset-x-0 bottom-[var(--pn-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
       <div
         role="dialog"
         aria-modal="false"

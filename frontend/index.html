@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real values on
+         notched / gesture-bar devices. Without it every safe-area rule in the app is a no-op
+         and fixed bottom bars sit under the home indicator. Desktop is unaffected (insets are 0). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f0d1a" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <!-- Content-Security-Policy: restricts scripts to self + the Google Maps SDK so an
          injected <script src="evil"> can't run. 'unsafe-inline'/'unsafe-eval' are kept for
          Vite HMR and the Maps loader; ws:/wss: cover the dev HMR socket. -->
@@ -32,7 +37,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://images.unsplash.com" />
     <link rel="dns-prefetch" href="https://images.unsplash.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <!-- Outfit carries no Devanagari glyphs, so Hindi and Marathi text was falling
+         back to whatever the OS happened to supply — Nirmala UI on Windows, Noto on
+         Android, Devanagari Sangam MN on iOS — giving three different typographic
+         voices for the same page. Noto Sans Devanagari pins that down. Google Fonts
+         serves it behind a Devanagari unicode-range, so English users never download
+         it. -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <!-- Netlify Forms: hidden static declaration so the deploy bot registers the

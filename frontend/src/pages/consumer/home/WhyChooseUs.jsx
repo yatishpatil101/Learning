@@ -9,7 +9,7 @@ export default function WhyChooseUs({ navigate }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         {/* heading — left-aligned, not centered */}
-        <div className="mb-10 reveal">
+        <div className="section-head sm:mb-10 reveal">
           <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-2">{t('home.why.eyebrow')}</p>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">{t('home.why.headingLine1')}<br className="hidden sm:block" /> {t('home.why.headingLine2')}</h2>
         </div>

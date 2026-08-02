@@ -86,7 +86,7 @@ export default function ServiceLanding({
 
   return (
     <div ref={rootRef}>
-      <main>
+      <div>
         {/* Hero + quote */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
           {heroImage && <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${heroImage}')` }} />}
@@ -262,7 +262,7 @@ export default function ServiceLanding({
             </div>
           </section>
         ) : null}
-      </main>
+      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@
 
 import {
   isLandType, isCommercialType, isResidentialType, isHouseType, isPgType,
-  requiredDocKeyFor, docsFor, amenitiesFor,
+  ownershipDocKeyFor, docsFor, amenitiesFor,
 } from './constants.js';
 
 export const MILESTONES = [20, 40, 60, 80, 100];
@@ -41,7 +41,7 @@ const wholePlaceItems = (form, photos, documents, video) => {
   const furnished = form.furnishing === 'furnished' || form.furnishing === 'semi';
 
   const allDocs = docsFor(form.deal, pt, form.commercialType);
-  const optionalDocs = allDocs.filter((d) => !d.required);
+  const optionalDocs = allDocs.filter((d) => !d.verifies);
   const optionalDone = optionalDocs.filter((d) => !!documents[d.key]).length;
   const amenityOptions = amenitiesFor(pt, form.commercialType);
 
@@ -117,7 +117,7 @@ const wholePlaceItems = (form, photos, documents, video) => {
     /* ----- Photos & documents ----- */
     { done: photos.length > 0 },                             // Property photos *
     { done: !!video },                                       // Walkthrough video
-    { done: !!documents[requiredDocKeyFor(form.deal, pt)] }, // Required ownership doc *
+    { done: !!documents[ownershipDocKeyFor(form.deal, pt)] }, // Ownership doc (Verified Owner badge)
     optionalDocs.length > 0 && { frac: optionalDone / optionalDocs.length }, // Supporting documents
     { done: filled(form.description) },                      // Description
     amenityOptions.length > 0 && { done: nonEmptyArr(form.amenities) }, // Amenities

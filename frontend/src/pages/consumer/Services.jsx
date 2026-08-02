@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import '../../styles/routes/services-hub.css';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -20,10 +21,14 @@ const CATS = [
   ['finance', 'Finance & Legal', 'wallet'],
   ['move', 'Move & Setup', 'truck'],
 ];
+const SPOT_CHIPS = ['govt', 'doorstep', 'fast'];
+/* Rent Agreement leads the list — it is the platform's primary paid service, so it
+   holds the first grid slot on every category and renders with the featured treatment. */
+const FEATURED_SLUG = 'rentAgreement';
 const SERVICES = [
+  ['Rent Agreement', 'file-signature', 'finance', '1521791136064-7986c2920216', 'Hassle-free online Maharashtra rent agreements with doorstep biometric.', '/services/rent-agreement', 'rentAgreement'],
   ['Buy a Home', 'home', 'discover', '1600596542815-ffad4c1539a9', 'Browse 10,000+ verified, RERA-compliant listings across Pune with genuine photos.', '/listings?deal=buy', 'buyHome'],
   ['Rent a Home', 'key-round', 'discover', '1502672260266-1c1ef2d93688', 'Owner-direct rentals with zero brokerage and instant visit scheduling.', '/listings?deal=rent', 'rentHome'],
-  ['Rent Agreement', 'file-signature', 'finance', '1521791136064-7986c2920216', 'Hassle-free online Maharashtra rent agreements with doorstep biometric.', '/services/rent-agreement', 'rentAgreement'],
   ['Locality Insights', 'trending-up', 'discover', '1486406146926-c627a92ad1ab', 'Price trends, livability scores and connectivity for every Pune locality.', '/locality/baner', 'localityInsights'],
   ['Home Loans & EMI', 'badge-percent', 'finance', '1554224155-6726b3ff858f', 'Compare rates from 25+ banks, check eligibility and plan repayments with a built-in EMI calculator.', '/home-loans', 'homeLoans'],
   ['Property & Legal', 'scale', 'finance', '1589829545856-d10d557cf95f', 'Title verification, due diligence and end-to-end registration assistance.', '/services/property-legal', 'propertyLegal'],
@@ -82,7 +87,7 @@ function Counter({ to, prefix = '', suffix = '', run }) {
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [run, to]);
-  return <p className="text-3xl font-extrabold gradient-text">{prefix}{fmtCount(v)}{suffix}</p>;
+  return <p className="text-2xl sm:text-3xl font-extrabold gradient-text">{prefix}{fmtCount(v)}{suffix}</p>;
 }
 
 /* Reactive read of the admin-controlled Move-in Pack config (settings.movePack).
@@ -223,7 +228,7 @@ export default function Services() {
 
   return (
     <div ref={rootRef}>
-      <main>
+      <div>
         {/* Hero */}
         <section className="relative overflow-hidden">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1600&q=80')" }} />
@@ -234,21 +239,44 @@ export default function Services() {
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs text-teal-200 font-medium mb-5"><Icon name="sparkles" className="w-3.5 h-3.5" /> {tr('services.hub.heroBadge')}</span>
               <h1 className="text-4xl sm:text-6xl font-extrabold leading-[1.05]">{tr('services.hub.heroTitle1')}<br /><span className="gradient-text">{tr('services.hub.heroTitleAccent')}</span></h1>
               <p className="text-gray-200 text-base sm:text-lg mt-3 sm:mt-5 max-w-xl">{tr('services.hub.heroSubtitle')}</p>
-              <div className="flex flex-col sm:flex-row gap-3 mt-5 sm:mt-8">
-                <a href="#services" className="btn btn-primary btn-lg min-w-[200px]"><Icon name="layout-grid" className="w-4 h-4" /> {tr('services.hub.exploreServices')}</a>
-                <Link to="/listings?deal=buy" className="btn btn-secondary btn-lg min-w-[200px]"><Icon name="search" className="w-4 h-4" /> {tr('services.hub.browseProperties')}</Link>
+              {/* Single row on mobile too — the pair reads as one choice, and keeping it
+                  on one line lifts the fold so the Rent Agreement spotlight stays visible. */}
+              <div className="hero-cta-row flex flex-row gap-2 sm:gap-3 mt-5 sm:mt-8">
+                <a href="#services" className="btn btn-primary btn-lg sm:min-w-[200px]"><Icon name="layout-grid" className="w-4 h-4 shrink-0" /> {tr('services.hub.exploreServices')}</a>
+                <Link to="/listings?deal=buy" className="btn btn-secondary btn-lg sm:min-w-[200px]"><Icon name="search" className="w-4 h-4 shrink-0" /> {tr('services.hub.browseProperties')}</Link>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Stats */}
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-10 relative z-10">
-          <div ref={statRef} className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">
-            {STAT_BAND.map((s) => (
-              <div key={s.label} className="text-center"><Counter to={s.to} prefix={s.prefix} suffix={s.suffix === '+ Services' ? tr('services.hub.stat.servicesSuffix') : s.suffix} run={countRun} /><p className="text-gray-500 text-xs mt-1">{tr('services.hub.stat.' + s.slug)}</p></div>
-            ))}
-          </div>
+        {/* Rent Agreement spotlight — the primary paid service takes the prime slot
+            directly under the hero (where the stat band used to sit). */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 sm:-mt-10 relative z-10">
+          <Link to="/services/rent-agreement" className="ra-spot glass-card block rounded-2xl p-4 sm:p-6 reveal">
+            <div className="flex items-start gap-3 sm:gap-5">
+              <span className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#14b8a6] flex items-center justify-center shrink-0 shadow-lg shadow-teal-500/30">
+                <Icon name="file-signature" className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-teal-200" style={{ background: 'rgba(20,184,166,.16)' }}>
+                  <Icon name="sparkles" className="w-3 h-3" /> {tr('services.hub.spotlight.badge')}
+                </span>
+                <h2 className="text-lg sm:text-2xl font-extrabold text-white mt-2 leading-tight">{tr('services.hub.spotlight.title')}</h2>
+                <p className="text-gray-300 text-xs sm:text-sm mt-1.5 leading-relaxed">{tr('services.hub.spotlight.sub')}</p>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {SPOT_CHIPS.map((k) => (
+                    <span key={k} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[11px] text-gray-300">
+                      <Icon name="check" className="w-3 h-3 text-teal-300 shrink-0" /> {tr('services.hub.spotlight.chip.' + k)}
+                    </span>
+                  ))}
+                </div>
+                <span className="btn btn-primary btn-lg w-full sm:w-auto mt-4">
+                  <Icon name="file-signature" className="w-4 h-4 shrink-0" /> {tr('services.hub.spotlight.cta')}
+                  <Icon name="arrow-right" className="w-4 h-4 shrink-0" />
+                </span>
+              </div>
+            </div>
+          </Link>
         </section>
 
         {/* Services */}
@@ -280,6 +308,7 @@ export default function Services() {
           <div ref={svcGridRef} className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5">
             {list.map(([t, ic, c, img, d, href, slug], i) => {
               const cardName = tr('services.hub.card.' + slug + '.name');
+              const featured = slug === FEATURED_SLUG;
               const Inner = (
                 <>
                   <div className="zoom relative h-40 sm:h-44">
@@ -288,7 +317,7 @@ export default function Services() {
                     {/* Mobile: stronger bottom scrim so the overlaid title stays legible */}
                     <div className="absolute inset-0 sm:hidden" style={{ background: 'linear-gradient(180deg,rgba(8,7,16,0) 34%,rgba(8,7,16,.55) 62%,rgba(8,7,16,.9) 100%)' }} />
                     <div className="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#14b8a6] flex items-center justify-center shadow-lg shadow-teal-500/30"><Icon name={ic} className="w-4 h-4 sm:w-5 sm:h-5 text-white" /></div>
-                    <span className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-black/45 backdrop-blur text-teal-100">{tr('services.hub.catBadge.' + c)}</span>
+                    <span className={'absolute top-2.5 right-2.5 sm:top-3 sm:right-3 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full backdrop-blur ' + (featured ? 'svc-ribbon text-white' : 'bg-black/45 text-teal-100')}>{featured ? tr('services.hub.mostBooked') : tr('services.hub.catBadge.' + c)}</span>
                     {/* Mobile: title integrated onto the image, image fills the whole tile */}
                     <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between gap-2 sm:hidden">
                       <h3 className="text-white font-bold text-sm leading-tight line-clamp-2 drop-shadow-sm">{cardName}</h3>
@@ -303,7 +332,7 @@ export default function Services() {
                   </div>
                 </>
               );
-              const cls = 'svc-card svc-pop glass-card rounded-2xl overflow-hidden block';
+              const cls = 'svc-card svc-pop glass-card rounded-2xl overflow-hidden block' + (featured ? ' svc-featured' : '');
               const style = { animationDelay: `${i * 45}ms` };
               // key includes `cat` so cards remount on category switch -> svc-pop replays
               return href.startsWith('/listings') || href.startsWith('/locality') || href.startsWith('/home-loans') || href.startsWith('/services')
@@ -329,12 +358,23 @@ export default function Services() {
           </div>
         </section>
 
+        {/* Stats — moved below the fold: these are aspirational numbers, not proof yet,
+            so they support the story rather than lead it. */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
+          <div ref={statRef} className="glass-card rounded-2xl p-4 sm:p-6 grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 reveal">
+            {STAT_BAND.map((s) => (
+              <div key={s.label} className="text-center"><Counter to={s.to} prefix={s.prefix} suffix={s.suffix === '+ Services' ? tr('services.hub.stat.servicesSuffix') : s.suffix} run={countRun} /><p className="text-gray-500 text-[11px] sm:text-xs mt-1">{tr('services.hub.stat.' + s.slug)}</p></div>
+            ))}
+          </div>
+        </section>
+
         {/* Testimonials */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-          <div className="text-center mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.testimonialsTitle')}</h2></div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.testimonialsTitle')}</h2></div>
+          {/* Mobile: one swipeable rail instead of three stacked cards (saves ~2 screens of scroll) */}
+          <HScroll wrapClassName="-mx-4 sm:mx-0 reveal" className="testi-rail flex md:grid md:grid-cols-3 gap-4 sm:gap-5 px-4 sm:px-0 md:overflow-visible" fadeWidth="1.5rem">
             {TESTI.map(([n, r, av, q, col], i) => (
-              <div key={n} className="glass-card rounded-2xl p-6 reveal">
+              <div key={n} className="glass-card rounded-2xl p-5 sm:p-6 shrink-0 w-[82%] sm:w-auto md:w-full">
                 <div className="flex gap-0.5 mb-3">{Array.from({ length: 5 }).map((_, si) => <Icon key={si} name="star" className="w-4 h-4" style={{ color: '#fbbf24', fill: '#fbbf24' }} />)}</div>
                 <p className="text-gray-300 text-sm leading-relaxed">&ldquo;{tr('services.hub.testi.' + i + '.quote')}&rdquo;</p>
                 <div className="flex items-center gap-3 mt-5">
@@ -343,7 +383,7 @@ export default function Services() {
                 </div>
               </div>
             ))}
-          </div>
+          </HScroll>
         </section>
 
         {/* Move-in Pack */}
@@ -426,7 +466,7 @@ export default function Services() {
             </div>
           </div>
         </section>
-      </main>
+      </div>
     </div>
   );
 }

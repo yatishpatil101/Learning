@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import '../../styles/routes/messages.css';
 import { MessageBubble, TypingDots } from '../../components/chat/ChatPrimitives.jsx';
 import SharedReportModal, { OWNER_REPORT_REASONS } from '../../components/ReportModal.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -158,7 +159,7 @@ export default function Messages() {
   const showQuick = active && active.state === 'active' && active.youAre === 'buyer' && active.messages.length > 0 && active.messages[active.messages.length - 1].from === 'them';
 
   return (
-    <main className="messages-page pt-2 pb-6">
+    <div className="messages-page pt-2 pb-6">
       <div className="pc-shell max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div ref={wrapRef} className={wrapCls} style={{ height: 'calc(100dvh - 108px)' }}>
           {/* List */}
@@ -169,7 +170,7 @@ export default function Messages() {
                 <button role="tab" aria-selected={tab === 'chats'} className={'pc-tab' + (tab === 'chats' ? ' active' : '')} onClick={() => setTab('chats')}>{tr('misc.msgChats')}</button>
                 <button role="tab" aria-selected={tab === 'requests'} className={'pc-tab' + (tab === 'requests' ? ' active' : '')} onClick={() => setTab('requests')}>{tr('misc.msgRequests')} {incoming > 0 && <span className="pc-reqbadge">{incoming}</span>}</button>
               </div>
-              <div className="pc-search"><Icon name="search" className="w-4 h-4" /><input value={search} onChange={(e) => setSearch(e.target.value)} type="text" placeholder={tr('misc.msgSearchPlaceholder')} aria-label={tr('misc.msgSearchAria')} /></div>
+              <div className="pc-search"><Icon name="search" className="w-4 h-4" /><input value={search} onChange={(e) => setSearch(e.target.value)} type="text" enterKeyHint="search" placeholder={tr('misc.msgSearchPlaceholder')} aria-label={tr('misc.msgSearchAria')} /></div>
             </div>
             <div className="pc-convs">
               {items.length ? items.map((c) => {
@@ -274,7 +275,7 @@ export default function Messages() {
                         </div>
                       )}
                       <button className="pc-icon-btn" onClick={() => setAttachOpen((v) => !v)} aria-label={tr('misc.msgShareAttachment')}><Icon name="plus" className="w-5 h-5" /></button>
-                      <input className="pc-input" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} type="text" placeholder={tr('misc.msgTypeMessage')} aria-label={tr('misc.msgTypeMessage')} />
+                      <input className="pc-input" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} type="text" enterKeyHint="send" placeholder={tr('misc.msgTypeMessage')} aria-label={tr('misc.msgTypeMessage')} />
                       <button className="pc-send" onClick={send} aria-label={tr('misc.msgSendMessage')}><Icon name="send" className="w-5 h-5" /></button>
                     </div>
                   </>
@@ -296,6 +297,6 @@ export default function Messages() {
           toast={toast}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

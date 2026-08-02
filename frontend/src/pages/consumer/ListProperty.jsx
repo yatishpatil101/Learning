@@ -10,11 +10,13 @@ import LocationPricingStep from './list-property/LocationPricingStep.jsx';
 import PhotosDocumentsStep from './list-property/PhotosDocumentsStep.jsx';
 import FlatmateFlow from './list-property/FlatmateFlow.jsx';
 import PostSuccessVerifyNudge from './list-property/PostSuccessVerifyNudge.jsx';
+import PostSuccessSplitNudge from './list-property/PostSuccessSplitNudge.jsx';
 
 const ListProperty = () => {
   const vm = useListProperty();
   const {
     t, navigate, showSuccess, isFlatmateMode, editId, editApproved, editChanges,
+    postedListing,
     progressState, canPost,
     activeListingCount, listingLimit, currentStep, setCurrentStep,
     form, set, setForm, changePropertyType, rentMode, setRentMode, errors,
@@ -52,6 +54,10 @@ const ListProperty = () => {
           {/* C1 growth lever: offer the opt-in Verified badge only for a brand-new property
               post — at the value moment (listing is already live), never as a gate. */}
           {(!editId && !isFlatmateMode) && <PostSuccessVerifyNudge t={t} />}
+
+          {/* A rent listing can also be let one room at a time. Offered here, while
+              the owner is still thinking about how to fill it. */}
+          {postedListing && <PostSuccessSplitNudge listing={postedListing} />}
         </div>
       </div>
     );

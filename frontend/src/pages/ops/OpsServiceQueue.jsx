@@ -18,6 +18,7 @@ import { fmtAgo } from './service-queue/helpers.js';
 import { STAGE_BADGE, DOC_PILL, STAGE_OPTS } from './service-queue/constants.js';
 import Stepper from './service-queue/Stepper.jsx';
 import DocViewer from './service-queue/DocViewer.jsx';
+import { openDocUrl } from '../../lib/openDoc.js';
 
 /* Config-driven ops queue backed by the shared service-workflow engine
    (serviceFlow.js). Faithful port of ops-service.js — same state machine,
@@ -166,6 +167,35 @@ export default function OpsServiceQueue({ type }) {
     { key: '_open', header: '', render: (r) => <button onClick={(e) => { e.stopPropagation(); openReq(r._mobile, r.id); }} className="pn-btn pn-btn-primary pn-btn-sm"><Icon name="folder-open" className="w-4 h-4" /> Open</button> },
   ];
 
+  /* Stacked-card fallback below `sm` (see Table.jsx) — service ops staff triage
+     this queue from a phone, so stage, unread count and Open must survive. */
+  const requestCard = (row) => {
+    const u = unread(row._mobile, row.id, 'staff');
+    return (
+      <div className="pn-card p-3.5">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-semibold">{row.customer?.name}</div>
+            <div className="mt-0.5 text-xs text-gray-400">{row.id} · {row.customer?.mobile}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <span className={classNames('px-2 py-0.5 rounded-md text-xs font-medium', STAGE_BADGE[row.status] || 'bg-slate-500/15 text-slate-300')}>{statusLabel(row.status)}</span>
+            {u ? <span className="px-1.5 py-0.5 rounded-md text-xs font-bold bg-rose-500/20 text-rose-300">{u}</span> : null}
+          </div>
+        </div>
+        {summaryOf(row) ? <div className="mt-2 text-sm text-gray-300">{summaryOf(row)}</div> : null}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+          <span>{fmtAgo(row.updatedAt)}</span>
+          <span className="text-gray-600">·</span>
+          <span>{row.assignedTo || 'Unassigned'}</span>
+        </div>
+        <div className="mt-3 border-t border-white/5 pt-3">
+          <button onClick={() => openReq(row._mobile, row.id)} className="pn-btn pn-btn-primary tap-target w-full"><Icon name="folder-open" className="w-4 h-4" /> Open</button>
+        </div>
+      </div>
+    );
+  };
+
   const r = fresh();
   const d = r?.details || {};
   const verifiedCount = (r?.docs || []).filter((x) => x.status === 'verified').length;
@@ -241,7 +271,7 @@ export default function OpsServiceQueue({ type }) {
         <span className="text-xs text-gray-400">{rows.length} request(s)</span>
       </div>
 
-      <Table columns={columns} rows={rows} onRowClick={(x) => openReq(x._mobile, x.id)} empty={`No ${svc.title} requests`} />
+      <Table columns={columns} rows={rows} onRowClick={(x) => openReq(x._mobile, x.id)} empty={`No ${svc.title} requests`} mobileCard={requestCard} />
 
       <Modal
         open={!!r}
@@ -297,25 +327,33 @@ export default function OpsServiceQueue({ type }) {
               </div>
               <div className="space-y-2">
                 {(r.docs || []).length === 0 ? <p className="text-xs text-gray-500">No documents yet.</p> : (r.docs || []).map((x) => (
-                  <div key={x.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-white/[0.02] p-2.5">
-                    <div className="flex min-w-0 items-center gap-2">
+                  <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/8 bg-white/[0.02] p-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
                       <Icon name={x.file && /^image\//.test(x.file.mime || '') ? 'image' : 'file-text'} className="w-4 h-4 text-gray-400" />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-white">{x.name}</div>
-                        <div className="truncate text-[11px] text-gray-500">{x.file ? (x.file.fileName || '') : 'No file attached'}{x.note ? ' · 📝 ' + x.note : ''}</div>
+                        <div className="truncate text-xs text-gray-500">{x.file ? (x.file.fileName || '') : 'No file attached'}{x.note ? ' · 📝 ' + x.note : ''}</div>
                       </div>
+                      <span className={classNames('ml-auto flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-medium', DOC_PILL[x.status] || DOC_PILL.submitted)}>{x.status === 'verified' ? 'Verified' : x.status === 'rejected' ? 'Rejected' : 'Submitted'}</span>
                     </div>
-                    <div className="flex flex-shrink-0 items-center gap-1.5">
-                      <button onClick={() => openDocViewer(x)} title="View document" className="pn-btn pn-btn-ghost pn-btn-sm"><Icon name="eye" className="w-3.5 h-3.5" /></button>
-                      <span className={classNames('px-1.5 py-0.5 rounded text-[10px] font-medium', DOC_PILL[x.status] || DOC_PILL.submitted)}>{x.status === 'verified' ? 'Verified' : x.status === 'rejected' ? 'Rejected' : 'Submitted'}</span>
-                      <button onClick={() => doDoc(x.id, 'verified')} title="Verify" className="rounded-md bg-emerald-500/15 p-1.5 text-emerald-300 hover:bg-emerald-500/25"><Icon name="check" className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => doDoc(x.id, 'rejected')} title="Reject" className="rounded-md bg-rose-500/15 p-1.5 text-rose-300 hover:bg-rose-500/25"><Icon name="x" className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => openDocViewer(x)} title="Add note" className="rounded-md bg-white/5 p-1.5 text-gray-300 hover:bg-white/10"><Icon name="pencil" className="w-3.5 h-3.5" /></button>
+                    {/* Verify/reject is the one ops action that genuinely happens on a
+                        phone, standing in front of the customer (see review §H Q7).
+                        These were 26px icon buttons with `title=` tooltips that never
+                        fire on touch: `.tap-target` lifts the hit area to 44px without
+                        growing the glyph, and aria-label replaces the tooltip so the
+                        action is named on a device that cannot hover. The row wraps so
+                        the four controls get a full-width line of their own at 360px
+                        instead of being squeezed against the filename. */}
+                    <div className="flex w-full flex-shrink-0 items-center gap-1.5 sm:w-auto">
+                      <button onClick={() => openDocViewer(x)} aria-label={`View ${x.name}`} className="tap-target flex-1 rounded-md bg-white/5 text-gray-300 hover:bg-white/10 sm:flex-none"><Icon name="eye" className="w-4 h-4" /></button>
+                      <button onClick={() => doDoc(x.id, 'verified')} aria-label={`Verify ${x.name}`} className="tap-target flex-1 rounded-md bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 sm:flex-none"><Icon name="check" className="w-4 h-4" /></button>
+                      <button onClick={() => doDoc(x.id, 'rejected')} aria-label={`Reject ${x.name}`} className="tap-target flex-1 rounded-md bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 sm:flex-none"><Icon name="x" className="w-4 h-4" /></button>
+                      <button onClick={() => openDocViewer(x)} aria-label={`Add a note to ${x.name}`} className="tap-target flex-1 rounded-md bg-white/5 text-gray-300 hover:bg-white/10 sm:flex-none"><Icon name="pencil" className="w-4 h-4" /></button>
                     </div>
                   </div>
                 ))}
               </div>
-              {(r.docs || []).length ? <button onClick={verifyAll} className="pn-btn pn-btn-ghost pn-btn-sm mt-3"><Icon name="check-check" className="w-4 h-4" /> Mark all verified</button> : null}
+              {(r.docs || []).length ? <button onClick={verifyAll} className="pn-btn pn-btn-ghost tap-target mt-3 w-full sm:w-auto"><Icon name="check-check" className="w-4 h-4" /> Mark all verified</button> : null}
             </div>
 
             {/* Draft */}
@@ -328,7 +366,7 @@ export default function OpsServiceQueue({ type }) {
                       <div className="text-sm font-semibold text-white">{svc.draftNoun} v{r.draft.version} · {r.draft.fileName}</div>
                       <div className="text-xs text-gray-500">Shared {fmtAgo(r.draft.sharedAt)}</div>
                     </div>
-                    {r.draft.dataUrl ? <button onClick={() => window.open(r.draft.dataUrl, '_blank', 'noopener')} className="pn-btn pn-btn-ghost pn-btn-sm"><Icon name="download" className="w-3.5 h-3.5" /> Open {svc.draftNoun.toLowerCase()}</button> : null}
+                    {r.draft.dataUrl ? <button onClick={() => openDocUrl(r.draft.dataUrl)} className="pn-btn pn-btn-ghost pn-btn-sm"><Icon name="download" className="w-3.5 h-3.5" /> Open {svc.draftNoun.toLowerCase()}</button> : null}
                   </div>
                   <div className="mt-2 text-xs text-gray-400">
                     {r.draftDecision ? (r.draftDecision.type === 'accepted' ? <span className="text-emerald-300">Customer approved.</span> : <span className="text-rose-300">Customer requested changes{r.draftDecision.note ? ': ' + r.draftDecision.note : ''}</span>) : 'Awaiting the customer\'s decision…'}
@@ -361,7 +399,7 @@ export default function OpsServiceQueue({ type }) {
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><Icon name="badge-check" className="w-4 h-4 text-emerald-400" /> Final document</div>
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-semibold text-white">{r.finalDoc.fileName}</div>
-                  {r.finalDoc.dataUrl ? <button onClick={() => window.open(r.finalDoc.dataUrl, '_blank', 'noopener')} className="pn-btn pn-btn-ghost pn-btn-sm"><Icon name="download" className="w-3.5 h-3.5" /> Download</button> : null}
+                    {r.finalDoc.dataUrl ? <button onClick={() => openDocUrl(r.finalDoc.dataUrl)} className="pn-btn pn-btn-ghost pn-btn-sm"><Icon name="download" className="w-3.5 h-3.5" /> Download</button> : null}
                 </div>
               </div>
             ) : null}
@@ -374,9 +412,12 @@ export default function OpsServiceQueue({ type }) {
               <div className="mb-3 max-h-48 space-y-2 overflow-y-auto">
                 {(r.messages || []).length ? (r.messages || []).map((m, i) => (
                   <div key={m.id || i} className={classNames('flex', m.from === 'staff' ? 'justify-end' : 'justify-start')}>
-                    <div className={classNames('max-w-[80%] rounded-2xl px-3 py-1.5 text-xs', m.from === 'staff' ? 'bg-brand-teal/20 text-teal-100' : 'bg-white/8 text-gray-200')}>
+                    {/* Message body and its byline were 12px/10px — under the 14px/13px
+                        mobile floor (review §D.2) on a surface staff now read on a phone
+                        in the field. Desktop keeps the denser original at `sm:`. */}
+                    <div className={classNames('max-w-[80%] rounded-2xl px-3 py-1.5 text-sm sm:text-xs', m.from === 'staff' ? 'bg-brand-teal/20 text-teal-100' : 'bg-white/8 text-gray-200')}>
                       {m.text}
-                      <div className="mt-0.5 text-[10px] text-gray-500">{m.from === 'staff' ? 'You (PuneNest)' : r.customer?.name} · {fmtAgo(m.at)}</div>
+                      <div className="mt-0.5 text-xs text-gray-500 sm:text-[10px]">{m.from === 'staff' ? 'You (PuneNest)' : r.customer?.name} · {fmtAgo(m.at)}</div>
                     </div>
                   </div>
                 )) : <p className="text-center text-xs text-gray-500">No messages yet.</p>}

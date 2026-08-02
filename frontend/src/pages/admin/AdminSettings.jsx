@@ -198,6 +198,19 @@ export default function AdminSettings() {
     { key: 'detail', header: 'Detail', className: 'text-gray-300' },
   ];
 
+  /* Stacked-card fallback below `sm` (see Table.jsx). Read-only log, so the card is
+     purely informational — no actions to size up. */
+  const auditCard = (a) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <span className="font-semibold text-gray-200">{a.who}</span>
+        <span className="shrink-0 rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-indigo-300">{a.action}</span>
+      </div>
+      {a.detail ? <div className="mt-2 text-sm text-gray-300">{a.detail}</div> : null}
+      <div className="mt-2 text-xs text-gray-400">{new Date(a.at).toLocaleString('en-IN')}</div>
+    </div>
+  );
+
   return (
     <div>
       <PageHeader title="Settings" subtitle="Site details, the fee schedule and feature flags." />
@@ -372,6 +385,7 @@ export default function AdminSettings() {
             rowKey={(a) => a.id}
             pageSize={12}
             label="entries"
+            mobileCard={auditCard}
             empty={
               <span className="inline-flex items-center gap-2 text-gray-500">
                 <History className="h-4 w-4" /> No changes logged yet.

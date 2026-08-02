@@ -14,19 +14,27 @@ const px = (s) => parseFloat(s);
 
 test.describe('Mobile space optimization', () => {
   test('Listings H1 is 20% smaller on mobile than desktop', async ({ page }) => {
+    /* The H1 is name-matched on desktop but only level-matched on mobile: below `sm`
+       it renders a shortened title ("Rent in Pune") so the Buy/Rent pill can share its
+       row, so /Properties for/i would not match there. */
     await page.setViewportSize(DESKTOP);
     await page.goto(`${BASE}/listings?deal=rent`);
-    const h1 = page.getByRole('heading', { level: 1, name: /Properties for/i });
-    const deskSize = px(await h1.evaluate((el) => getComputedStyle(el).fontSize));
+    const deskSize = px(
+      await page.getByRole('heading', { level: 1, name: /Properties for/i })
+        .evaluate((el) => getComputedStyle(el).fontSize)
+    );
 
     await page.setViewportSize(MOBILE);
     await page.goto(`${BASE}/listings?deal=rent`);
-    const mobSize = px(await h1.evaluate((el) => getComputedStyle(el).fontSize));
+    const mobSize = px(
+      await page.getByRole('heading', { level: 1 })
+        .evaluate((el) => getComputedStyle(el).fontSize)
+    );
 
-    // Heading is text-2xl sm:text-3xl: desktop sm:text-3xl -> 30px; mobile base
-    // text-2xl is scaled by the mobile rule to 1.2rem -> 19.2px.
+    // Heading is text-3xl at every width: desktop 30px; the mobile rule scales it to
+    // 1.5rem -> 24px, which is exactly the 20% this suite is named for.
     expect(mobSize).toBeLessThan(deskSize);
-    expect(mobSize).toBeCloseTo(19.2, 0);
+    expect(mobSize).toBeCloseTo(24, 0);
   });
 
   test('Home hero H1 shrinks on mobile and applies the tightened leading', async ({ page }) => {
@@ -53,7 +61,8 @@ test.describe('Mobile space optimization', () => {
   test('Listings heading sits higher on the page on mobile (reduced top band)', async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await page.goto(`${BASE}/listings?deal=rent`);
-    const h1 = page.getByRole('heading', { level: 1, name: /Properties for/i });
+    // Short title below `sm`, so match by level rather than by name.
+    const h1 = page.getByRole('heading', { level: 1 });
     const box = await h1.boundingBox();
     // pt-20 (80px) + navbar clearance; heading top should be comfortably within
     // the first ~200px rather than pushed far down by the old pt-28 band.
@@ -64,8 +73,9 @@ test.describe('Mobile space optimization', () => {
     await page.setViewportSize(MOBILE);
     await page.goto(`${BASE}/listings?deal=rent`);
     await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
-    // Navbar controls intact.
-    await expect(page.getByRole('button', { name: /Toggle menu/i })).toBeVisible();
+    // Navigation controls intact — the bottom tab bar, now that the top bar's
+    // hamburger is gone.
+    await expect(page.locator('nav.pn-bottom-nav')).toBeVisible();
   });
 
   test('No console errors across the optimized consumer pages (mobile)', async ({ page }) => {
@@ -77,7 +87,7 @@ test.describe('Mobile space optimization', () => {
       errors.push(t);
     });
     await page.setViewportSize(MOBILE);
-    for (const p of ['/', '/listings?deal=buy', '/services', '/share-flat']) {
+    for (const p of ['/', '/listings?deal=buy', '/services', '/flatmates']) {
       await page.goto(`${BASE}${p}`);
     }
     expect(errors, errors.join('\n')).toEqual([]);

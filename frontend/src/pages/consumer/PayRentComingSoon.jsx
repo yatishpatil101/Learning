@@ -28,7 +28,7 @@ export default function PayRentComingSoon() {
   const { toast } = useToast();
 
   return (
-    <main className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Hero */}
       <section className="glass rounded-2xl p-6 sm:p-8 mb-6 overflow-hidden relative">
         <span
@@ -111,6 +111,6 @@ export default function PayRentComingSoon() {
           </Link>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

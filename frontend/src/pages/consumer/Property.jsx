@@ -33,7 +33,10 @@ export default function Property() {
 
   return (
     <div ref={rootRef}>
-      <main className="pt-20 sm:pt-28 pb-24">
+      {/* selfPadded route — reserves the fixed navbar itself, from the token. The gaps
+          make ≥768px resolve to the 112px (pt-28) it hardcoded before; phones inherit
+          the shorter bar. */}
+      <div className="pt-[calc(var(--pn-nav-h)+16px)] sm:pt-[calc(var(--pn-nav-h)+40px)] pb-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
           <button type="button" onClick={goBackToSearch} className="pn-back-search">
@@ -60,7 +63,7 @@ export default function Property() {
           <PropertyHeader ctx={ctx} />
 
           {/* SECTION TABS — collapse the long scroll into grouped tabs */}
-          <div className="sticky top-16 md:top-[72px] z-30 section-mb">
+          <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 section-mb">
             <HScroll role="tablist" aria-label={tr('property.tablistAria')} className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
               {tabs.map((t) => (
                 <button
@@ -80,7 +83,7 @@ export default function Property() {
           <PropertyTabs ctx={ctx} />
 
         </div>
-      </main>
+      </div>
 
       {/* Sticky mobile CTA bar */}
       <div className="pn-sticky-cta lg:hidden">
@@ -90,14 +93,17 @@ export default function Property() {
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
             </Link>
           ) : (
-            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on PuneNest.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4">
+            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on PuneNest.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-[1.125rem]">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.whatsapp')}
             </a>
           )
         ) : (
           <button onClick={handleContact} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}</button>
         )}
-        {flagEnabled('scheduleVisit') && <Link to={`/schedule-visit?listing=${p.id}`} className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl border border-white/15 text-slate-200 text-sm font-semibold py-3 px-4"><Icon name="calendar" className="w-4 h-4" /> {tr('property.visit')}</Link>}
+        {/* Matches the sibling primary exactly: no py-* (the 1px border already sits inside
+            the 44px box) and the button system's 1.125rem inline padding, so `flex-1`
+            hands both halves the same width. */}
+        {flagEnabled('scheduleVisit') && <Link to={`/schedule-visit?listing=${p.id}`} className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl border border-white/15 text-slate-200 text-sm font-semibold px-[1.125rem]"><Icon name="calendar" className="w-4 h-4" /> {tr('property.visit')}</Link>}
       </div>
 
       <PropertyModals ctx={ctx} />

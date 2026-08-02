@@ -42,24 +42,24 @@ test.describe('Mobile navbar — context-aware left slot', () => {
   test('Non-home pages show a compact icon-only Back button (no page-name pill)', async ({ page }) => {
     await signedIn(page);
     await page.setViewportSize(MOBILE);
-    // Share-a-Flat must NOT show a redundant "Share a Flat" pill.
-    await page.goto(`${BASE}/share-flat`);
+    // Flatmates must NOT show a redundant "Flatmates" pill.
+    await page.goto(`${BASE}/flatmates`);
     const back = page.getByRole('button', { name: /Go back/i });
     await expect(back).toBeVisible();
-    await expect(back).not.toContainText(/Share a Flat/i);
+    await expect(back).not.toContainText(/Flatmates/i);
     await expect(page.getByRole('button', { name: /Back to/i })).toHaveCount(0);
   });
 
-  test('Account pill AND hamburger stay visible (in viewport) on every page', async ({ page }) => {
+  test('Account pill stays visible (in viewport) on every page', async ({ page }) => {
     await signedIn(page);
     await page.setViewportSize(MOBILE);
-    for (const path of ['/', '/listings?deal=rent', '/services', '/share-flat']) {
+    for (const path of ['/', '/listings?deal=rent', '/services', '/flatmates']) {
       await page.goto(`${BASE}${path}`);
-      const hamburger = page.getByRole('button', { name: /Toggle menu/i });
+      // The hamburger that used to sit beside it is gone — the bottom tab bar owns
+      // navigation now — so the account pill is the top bar's only trailing control.
       const account = page.getByRole('button', { name: /Account menu/i });
-      await expect(hamburger).toBeVisible();
+      await expect(page.getByRole('button', { name: /Toggle menu/i })).toHaveCount(0);
       await expect(account).toBeVisible();
-      await inViewportX(hamburger, MOBILE.width);
       await inViewportX(account, MOBILE.width);
     }
   });
@@ -94,7 +94,7 @@ test.describe('Mobile navbar — context-aware left slot', () => {
     await page.goto(`${BASE}/`);
     await page.goto(`${BASE}/listings?deal=buy`);
     await page.goto(`${BASE}/services`);
-    await page.goto(`${BASE}/share-flat`);
+    await page.goto(`${BASE}/flatmates`);
     expect(errors, errors.join('\n')).toEqual([]);
   });
 });

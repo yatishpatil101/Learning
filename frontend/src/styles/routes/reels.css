@@ -1,0 +1,455 @@
+/* reels — split out of styles/index.css so it ships with its own
+   route chunk instead of blocking first paint on every page.
+   Reels. All rules are scoped to .reels-page. Loaded with the /reels route
+   chunk (pages/consumer/Reels.jsx). NOTE: the global .sr-only utility that used
+   to sit inside this block stays in index.css — it is used app-wide. */
+
+/* Reels (vertical snap-scroll walkthroughs) */
+.reels-page {
+  background: #12101f;
+}
+
+/* A reel is exactly one viewport minus the chrome above and below it, or the snap
+   points drift. --pn-nav-h is the top bar's height and --pn-bottom-inset is the tab
+   bar's reservation: subtracting both is what keeps the sum at exactly 100dvh, so the
+   page never grows a second scrollbar competing with the snap container.
+   --pn-bottom-inset resolves to 0 above lg, where no bar is rendered, leaving desktop's
+   arithmetic untouched. Both tokens already change at their own breakpoints, so this
+   needs no media query of its own — it used to carry a max-width:767px copy that
+   restated the navbar's mobile height and could silently desync from it. */
+.reels-page .reel-wrap {
+  height: calc(100vh - var(--pn-nav-h) - var(--pn-bottom-inset));
+  height: calc(100dvh - var(--pn-nav-h) - var(--pn-bottom-inset));
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+}
+
+.reels-page .reel-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.reels-page .reel {
+  height: calc(100vh - var(--pn-nav-h) - var(--pn-bottom-inset));
+  height: calc(100dvh - var(--pn-nav-h) - var(--pn-bottom-inset));
+  scroll-snap-align: start;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Horizontal photo carousel within each property */
+.reels-page .reel-gallery {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reels-page .reel-gallery::-webkit-scrollbar {
+  display: none;
+}
+
+.reels-page .reel-gallery:focus-visible {
+  outline: none;
+}
+
+.reels-page .reel-slide {
+  position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  overflow: hidden;
+}
+
+.reels-page .reel-slide-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.reels-page .reel-slide-img.is-live {
+  animation: reelKenBurns 12s ease-in-out infinite alternate;
+}
+
+.reels-page .reel-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(10, 8, 24, .15) 30%, rgba(10, 8, 24, .92));
+}
+
+.reels-page .play-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reels-page .rail {
+  position: absolute;
+  right: 14px;
+  bottom: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  z-index: 5;
+}
+
+@media (max-width: 767px) {
+  .reels-page .rail {
+    bottom: 208px;
+    gap: 16px;
+  }
+}
+
+.reels-page .rail button,
+.reels-page .rail a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.reels-page .rail .ic {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .34);
+  border: 1px solid rgba(255, 255, 255, .22);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .18s ease, background .18s ease, color .18s ease;
+}
+
+.reels-page {
+  position: relative;
+}
+
+.reels-page .reel {
+  overflow: hidden;
+}
+
+/* Photo position dots (above the property caption) */
+.reels-page .reel-dots {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.reels-page .reel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .4);
+  transition: width .2s ease, background .2s ease;
+}
+
+.reels-page .reel-dot.is-on {
+  width: 18px;
+  background: #fff;
+}
+
+
+/* Interaction states on the rail */
+.reels-page .rail button:active .ic,
+.reels-page .rail a:active .ic {
+  transform: scale(.88);
+}
+
+.reels-page .rail .is-liked {
+  color: #f43f5e;
+}
+
+.reels-page .rail .is-liked .ic {
+  background: rgba(244, 63, 94, .22);
+  border-color: rgba(244, 63, 94, .5);
+}
+
+.reels-page .rail .is-liked .ic svg {
+  animation: heartPop .4s ease;
+}
+
+.reels-page .rail .is-saved {
+  color: #2dd4bf;
+}
+
+.reels-page .rail .is-saved .ic {
+  background: rgba(20, 184, 166, .22);
+  border-color: rgba(20, 184, 166, .5);
+}
+
+.reels-page .rail button:focus-visible .ic,
+.reels-page .rail a:focus-visible .ic {
+  outline: 2px solid #2dd4bf;
+  outline-offset: 2px;
+}
+
+/* Center play/pause badge */
+.reels-page .play-badge {
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity .3s ease, transform .3s ease;
+}
+
+.reels-page .play-badge.is-playing {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.4);
+}
+
+/* Ken Burns "live tour" motion on the active photo */
+@keyframes reelKenBurns {
+  from {
+    transform: scale(1.02) translate(0, 0);
+  }
+
+  to {
+    transform: scale(1.14) translate(-1.5%, -1.5%);
+  }
+}
+
+/* Double-tap heart burst */
+.reels-page .reel-heart-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  color: #f43f5e;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 24px rgba(244, 63, 94, .5));
+  animation: reelBurst .8s cubic-bezier(.2, .8, .2, 1) forwards;
+}
+
+@keyframes reelBurst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(.3) rotate(-12deg);
+  }
+
+  25% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.1) rotate(6deg);
+  }
+
+  55% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(.95) rotate(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+}
+
+/* Top overlay: progress + brand + intent filters */
+.reels-page .reels-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 7;
+  padding: 10px 14px 18px;
+  background: linear-gradient(180deg, rgba(10, 8, 24, .75), rgba(10, 8, 24, 0));
+  pointer-events: none;
+}
+
+.reels-page .reels-top>* {
+  pointer-events: auto;
+}
+
+.reels-page .reels-progress {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.reels-page .reels-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .28);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.reels-page .reels-seg-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2dd4bf, #14b8a6);
+  transition: width .12s linear;
+}
+
+.reels-page .reels-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reels-page .reels-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.reels-page .reels-hint {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, .62);
+}
+
+@media (max-width: 639px) {
+  .reels-page .reels-hint {
+    display: none;
+  }
+}
+
+.reels-page .reels-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.reels-page .reels-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, .82);
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .14);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+
+.reels-page .reels-chip:hover {
+  background: rgba(255, 255, 255, .18);
+}
+
+.reels-page .reels-chip.is-on {
+  color: #fff;
+  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  border-color: transparent;
+  box-shadow: 0 6px 18px rgba(20, 184, 166, .35);
+}
+
+.reels-page .reels-chip:focus-visible {
+  outline: 2px solid #2dd4bf;
+  outline-offset: 2px;
+}
+
+/* Bottom info chrome */
+.reels-page .reels-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.reels-page .reels-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, .14);
+  border: 1px solid rgba(255, 255, 255, .16);
+}
+
+.reels-page .reels-cta-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.reels-page .reels-cta {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+}
+
+.reels-page .reels-cta--primary {
+  color: #fff;
+  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  box-shadow: 0 10px 26px rgba(20, 184, 166, .32);
+}
+
+.reels-page .reels-cta--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(20, 184, 166, .45);
+}
+
+.reels-page .reels-cta--ghost {
+  color: #fff;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .24);
+  backdrop-filter: blur(6px);
+}
+
+.reels-page .reels-cta--ghost:hover {
+  background: rgba(255, 255, 255, .2);
+  transform: translateY(-2px);
+}
+
+.reels-page .reels-cta:focus-visible {
+  outline: 2px solid #2dd4bf;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reels-page .reel-slide-img.is-live {
+    animation: none;
+  }
+
+  .reels-page .reel-heart-burst {
+    animation-duration: .01ms;
+  }
+}

@@ -7,6 +7,7 @@ import {
   list, listForParty, STEPS, stepStates, statusMeta, isActive, progressPct,
   decideDraft, addMessage, markRead, makeSampleRequest,
 } from '../lib/serviceFlow.js';
+import { openDocUrl } from '../lib/openDoc.js';
 
 function ProgressBar({ status }) {
   const pct = progressPct(status);
@@ -75,8 +76,8 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobile, isIn, typeFilter, tick]);
 
-  const openDraft = (r) => { if (r.draft?.dataUrl) window.open(r.draft.dataUrl, '_blank', 'noopener'); };
-  const openFinal = (r) => { if (r.finalDoc?.dataUrl) window.open(r.finalDoc.dataUrl, '_blank', 'noopener'); };
+  const openDraft = (r) => openDocUrl(r.draft?.dataUrl);
+  const openFinal = (r) => openDocUrl(r.finalDoc?.dataUrl);
   const approve = (r) => { decideDraft(r._mobile || mobile, r.id, 'accepted'); refresh(); toast('Draft approved — we\'ll proceed with registration.', 'success'); };
   const requestChanges = (r) => { setChangeNote(''); setChangeReq(r); };
   const submitChanges = () => {

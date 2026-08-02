@@ -91,7 +91,7 @@ export function SubNav({ items, active, onChange, variant = 'pill' }) {
           key={it.key}
           onClick={() => onChange(it.key)}
           aria-current={active === it.key ? 'page' : undefined}
-          className={'inline-flex min-h-[40px] items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-medium transition ' + (active === it.key ? 'border-brand-teal/30 bg-brand-teal/15 text-brand-teal' : 'border-transparent bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white')}
+          className={'inline-flex min-h-[44px] sm:min-h-[40px] items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-medium transition ' + (active === it.key ? 'border-brand-teal/30 bg-brand-teal/15 text-brand-teal' : 'border-transparent bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white')}
         >
           {it.icon ? <Icon name={it.icon} className="w-4 h-4" /> : null} {it.label}
           {it.count > 0 ? (
@@ -172,7 +172,7 @@ export function RequestRow({ icon, tint = 'teal', avatar, title, badge, meta, ti
               <Icon name="timer" className="h-2.5 w-2.5" />{urgency.label}
             </span>
           ) : time ? (
-            <span className="flex-shrink-0 text-[11px] font-medium text-gray-500">{time}</span>
+            <span className="flex-shrink-0 text-[13px] sm:text-[11px] font-medium text-gray-500">{time}</span>
           ) : null}
         </span>
         {meta ? <span className="mt-0.5 block line-clamp-2 text-xs text-gray-500 sm:truncate">{meta}</span> : null}

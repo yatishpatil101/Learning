@@ -3,24 +3,48 @@
     "id": "F1",
     "q": "Is PuneNest really zero brokerage?",
     "a": "Yes. You deal directly with verified owners — no brokerage, ever.",
-    "cat": "General"
+    "cat": "General",
+    "q_hi": "क्या PuneNest वाकई ज़ीरो ब्रोकरेज है?",
+    "a_hi": "हाँ। आप सीधे सत्यापित मालिकों से डील करते हैं — कोई ब्रोकरेज नहीं, कभी नहीं।",
+    "q_mr": "PuneNest खरोखर झिरो ब्रोकरेज आहे का?",
+    "a_mr": "होय. तुम्ही थेट पडताळलेल्या मालकांशी व्यवहार करता — कधीही दलाली नाही.",
+    "cat_hi": "सामान्य",
+    "cat_mr": "सर्वसाधारण"
   },
   {
     "id": "F2",
     "q": "How are owners verified?",
     "a": "We verify owner identity (Aadhaar) and, where possible, ownership documents.",
-    "cat": "Trust"
+    "cat": "Trust",
+    "q_hi": "मालिकों का सत्यापन कैसे होता है?",
+    "a_hi": "हम मालिक की पहचान (आधार) और जहाँ संभव हो, मालिकाना हक़ के दस्तावेज़ सत्यापित करते हैं।",
+    "q_mr": "मालकांची पडताळणी कशी होते?",
+    "a_mr": "आम्ही मालकाची ओळख (आधार) आणि शक्य असेल तिथे मालकी हक्काची कागदपत्रे पडताळतो.",
+    "cat_hi": "भरोसा",
+    "cat_mr": "विश्वास"
   },
   {
     "id": "F3",
     "q": "Can I list my property for free?",
     "a": "Basic listing is free. Paid plans add featured placement and more contacts.",
-    "cat": "Owners"
+    "cat": "Owners",
+    "q_hi": "क्या मैं अपनी प्रॉपर्टी मुफ़्त में लिस्ट कर सकता हूँ?",
+    "a_hi": "बेसिक लिस्टिंग मुफ़्त है। पेड प्लान में फ़ीचर्ड प्लेसमेंट और ज़्यादा कॉन्टैक्ट मिलते हैं।",
+    "q_mr": "मी माझी मालमत्ता मोफत नोंदवू शकतो का?",
+    "a_mr": "बेसिक जाहिरात मोफत आहे. सशुल्क योजनांमध्ये फीचर्ड प्लेसमेंट आणि अधिक संपर्क मिळतात.",
+    "cat_hi": "मालिक",
+    "cat_mr": "मालक"
   },
   {
     "id": "F4",
     "q": "Do you offer rent agreements?",
     "a": "Yes — drafting, e-stamp and doorstep delivery from ₹999.",
-    "cat": "Services"
+    "cat": "Services",
+    "q_hi": "क्या आप रेंट एग्रीमेंट बनाते हैं?",
+    "a_hi": "हाँ — ड्राफ़्टिंग, ई-स्टाम्प और घर तक डिलीवरी ₹999 से।",
+    "q_mr": "तुम्ही भाडेकरार करून देता का?",
+    "a_mr": "होय — मसुदा, ई-स्टँप आणि घरपोच डिलिव्हरी ₹999 पासून.",
+    "cat_hi": "सेवाएँ",
+    "cat_mr": "सेवा"
   }
 ]

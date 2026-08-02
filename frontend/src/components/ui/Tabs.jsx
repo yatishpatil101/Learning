@@ -42,9 +42,24 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
     );
   }
 
+  /* A segmented control is a "pick one of these" decision, so every option has to
+     be visible to be weighed. Past three pills that stops being true on a 360px
+     phone — the rest sit off-screen behind a scroll nobody knows to perform — so
+     below `sm` the strip wraps into a 2-up grid instead. The HScroll wrapper stays
+     (desktop is unchanged) and its edge fades switch themselves off once there is
+     nothing left to scroll. */
+  const wrapOnMobile = items.length > 3;
+
   return (
     <div>
-      <HScroll role="tablist" fadeColor="var(--brand-card, #1a1730)" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+      <HScroll
+        role="tablist"
+        fadeColor="var(--brand-card, #1a1730)"
+        className={classNames(
+          'flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1',
+          wrapOnMobile && 'max-sm:grid max-sm:grid-cols-2 max-sm:overflow-x-visible',
+        )}
+      >
         {items.map((i) => (
           <button
             key={i.key}
@@ -52,7 +67,10 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
             aria-selected={active === i.key}
             onClick={() => select(i.key)}
             className={classNames(
-              'flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition',
+              'flex-1 shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition',
+              // 44px touch floor on mobile; desktop keeps the original density.
+              'min-h-[44px] sm:min-h-0',
+              wrapOnMobile ? 'whitespace-normal sm:whitespace-nowrap' : 'whitespace-nowrap',
               active === i.key ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white',
             )}
           >

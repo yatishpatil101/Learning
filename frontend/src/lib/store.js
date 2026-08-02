@@ -48,6 +48,7 @@ export * from './store/notifications.js';
 export * from './store/account.js';
 export * from './store/search.js';
 export * from './store/billing.js';
+export * from './store/contactQuota.js';
 export * from './store/rent.js';
 export * from './store/visits.js';
 export {

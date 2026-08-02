@@ -100,7 +100,7 @@ export default function Contact() {
 
   return (
     <div ref={rootRef}>
-      <main className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      <div className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-6 sm:mb-10 reveal">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-semibold mb-3">
@@ -225,7 +225,7 @@ export default function Contact() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Sticky mobile quick-contact bar — PuneNest support (not the gated owner number).
           Hidden on lg where the rail is already visible. The Nestor FAB lifts above it. */}

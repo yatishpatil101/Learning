@@ -54,7 +54,7 @@ export default function Checkout() {
   const alreadyOnThisPlan = P.kind === 'plan' && !paid && getPlan().id === planId;
 
   return (
-    <main className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       <Link to="/plans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors mb-5"><Icon name="arrow-left" className="w-4 h-4" /> {t('misc.coBackToPricing')}</Link>
       <h1 className="text-2xl sm:text-3xl font-extrabold mb-1">{t('misc.coTitle')}</h1>
       <p className="text-gray-400 text-sm mb-7">{t('misc.coSubtitle')} <span className="text-gray-500">{t('misc.coBrokerage')}</span></p>
@@ -132,6 +132,6 @@ export default function Checkout() {
         </div>
         </>
       )}
-    </main>
+    </div>
   );
 }
