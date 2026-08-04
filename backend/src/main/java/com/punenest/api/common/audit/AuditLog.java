@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.Getter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
@@ -19,6 +20,7 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Table(name = "audit_log")
+@Getter
 public class AuditLog {
 
     @Id
@@ -68,39 +70,4 @@ public class AuditLog {
         this.metadata = metadata == null ? "{}" : metadata;
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public String getActor() {
-        return actor;
-    }
-
-    public String getActorRole() {
-        return actorRole;
-    }
-
-    public String getAction() {
-        return action;
-    }
-
-    public String getEntity() {
-        return entity;
-    }
-
-    public String getEntityId() {
-        return entityId;
-    }
-
-    public String getChecker() {
-        return checker;
-    }
-
-    public String getMetadata() {
-        return metadata;
-    }
-
-    public Instant getAt() {
-        return at;
-    }
 }

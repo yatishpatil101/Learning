@@ -3,7 +3,7 @@ package com.punenest.api.provider;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,9 +21,18 @@ public interface KycProvider {
     }
 }
 
-/** Dev/default: deterministic fake session, no external call. */
+/**
+ * Default: deterministic fake session, no external call.
+ *
+ * <p>Selected by the <em>absence</em> of Cashfree credentials rather than by environment. This seam
+ * used to be split on {@code @Profile("prod")}, which meant a developer holding real sandbox keys
+ * could never exercise the live path and a production deployment could never fall back to mocks
+ * during a vendor outage; see {@link com.punenest.api.provider.cashfree.CashfreeProperties} for why
+ * those are separate questions.
+ */
 @Component
-@Profile("!prod")
+@ConditionalOnProperty(prefix = "punenest.providers.cashfree", name = "enabled",
+        havingValue = "false", matchIfMissing = true)
 class MockKycProvider implements KycProvider {
 
     @Override
@@ -32,16 +41,5 @@ class MockKycProvider implements KycProvider {
         return new KycSession(ref,
                 "https://mock.kyc.local/verify/" + ref,
                 Instant.now().plus(Duration.ofMinutes(15)));
-    }
-}
-
-/** Prod stub: fail until DigiLocker/Cashfree KYC is wired in. */
-@Component
-@Profile("prod")
-class DigilockerKycProvider implements KycProvider {
-
-    @Override
-    public KycSession start(String userId) {
-        throw new UnsupportedOperationException("KYC provider not configured for prod yet");
     }
 }

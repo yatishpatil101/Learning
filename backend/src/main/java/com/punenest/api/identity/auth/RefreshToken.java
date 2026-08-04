@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.Getter;
 
 /**
  * A rotating refresh token (ADR-008). Stored hashed; {@code rotatedFrom} chains rotations so a
@@ -18,6 +19,7 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "refresh_tokens")
+@Getter
 public class RefreshToken extends BaseEntity {
 
     @Column(name = "user_id", nullable = false, updatable = false)
@@ -46,28 +48,8 @@ public class RefreshToken extends BaseEntity {
         this.expiresAt = expiresAt;
     }
 
-    public UUID getUserId() {
-        return userId;
-    }
-
-    public String getTokenHash() {
-        return tokenHash;
-    }
-
-    public UUID getRotatedFrom() {
-        return rotatedFrom;
-    }
-
-    public boolean isRevoked() {
-        return revoked;
-    }
-
     public void revoke() {
         this.revoked = true;
-    }
-
-    public Instant getExpiresAt() {
-        return expiresAt;
     }
 
     public boolean isExpired() {

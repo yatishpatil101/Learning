@@ -6,6 +6,8 @@ import com.punenest.api.provider.OtpSender;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,21 @@ public class OtpService {
     /** Online-guess ceiling per code before it's burned (10^6 space ⇒ this keeps brute force infeasible). */
     static final int MAX_ATTEMPTS = 5;
 
+    /**
+     * Minimum gap between two codes to the same mobile. Covers the "user pressed resend twice"
+     * case and blunts rapid-fire bombing; comfortably shorter than {@link #TTL}, so a person who
+     * genuinely never received the SMS is never told to wait for a code that has already expired.
+     */
+    static final Duration SEND_COOLDOWN = Duration.ofSeconds(60);
+    /** Rolling window over which {@link #MAX_SENDS_PER_WINDOW} applies. */
+    static final Duration SEND_WINDOW = Duration.ofHours(1);
+    /**
+     * Codes per mobile per {@link #SEND_WINDOW}. Above any believable honest retry count (a real user
+     * who fails five times in an hour has a delivery problem an SMS cannot fix), and low enough that a
+     * targeted victim's phone cannot be used as a doorbell.
+     */
+    static final int MAX_SENDS_PER_WINDOW = 5;
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpCodeRepository repository;
@@ -39,13 +56,90 @@ public class OtpService {
     /**
      * Generate a fresh login code for {@code mobile}, persist its hash, and dispatch it. Any prior
      * unconsumed code is left to expire; the newest one wins on verify (repository orders by newest).
+     *
+     * <p><strong>Rate limited, and the contract says so</strong> — {@code POST /auth/login} is the only
+     * operation in the spec that declares a {@code 429}. This path is unauthenticated and, in prod,
+     * spends real money and rings a real phone on every call, with the <em>attacker</em> choosing whose
+     * phone. Left open it is a harassment tool ("bomb this number") and a billing tap; the per-code
+     * attempt cap in {@link #verifyLoginCode} does not help, because that limits guesses against one
+     * code, not how many codes you may cause to be sent.
+     *
+     * <p>Two limits, both keyed on the recipient: a {@link #SEND_COOLDOWN} between consecutive codes,
+     * and at most {@link #MAX_SENDS_PER_WINDOW} per {@link #SEND_WINDOW}. Keying on the mobile — not on
+     * the caller — is the point: the number is what gets harassed and billed, and it is the one thing
+     * an attacker cannot rotate while still attacking a chosen victim.
+     *
+     * <p>The 429 carries a truthful {@code Retry-After}, and is returned identically whether or not the
+     * number has an account, so it stays useless as a registration oracle.
      */
     @Transactional
     public void sendLoginCode(String mobile) {
+        sendCode(mobile, OtpCode.PURPOSE_LOGIN);
+    }
+
+    /**
+     * Issue a code for any declared purpose.
+     *
+     * <p><strong>Every limit is keyed on (mobile, purpose), and that is load-bearing.</strong> The
+     * flatmates owner-consent flow sends a code to a landlord who usually has no account, to confirm
+     * they know their tenant is seeking a replacement. Sharing the {@code login} purpose would have
+     * made "request consent" a way to mint <em>login</em> codes for any number a caller can name,
+     * turning a consent form into an account-takeover primitive. Separate purposes mean a consent
+     * code can never be presented at {@code /auth/login}, and neither flow can exhaust the other's
+     * send budget.
+     *
+     * <p>The throttle itself is shared on purpose: it is the security-critical part, and two copies
+     * of a rate limiter is one copy that will be forgotten when the rule changes.
+     */
+    @Transactional
+    public void sendCode(String mobile, String purpose) {
+        enforceSendBudget(mobile, purpose);
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));
-        repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), OtpCode.PURPOSE_LOGIN,
+        repository.save(new OtpCode(mobile, Tokens.sha256Hex(code), purpose,
                 Instant.now().plus(TTL)));
         sender.send(mobile, code);
+    }
+
+    /**
+     * Throw {@link RateLimitedException} if {@code mobile} has already had its share of codes for
+     * this purpose.
+     *
+     * <p>Reads at most {@link #MAX_SENDS_PER_WINDOW} rows — enough to answer both questions from one
+     * query: the newest row gives the cooldown, and a full page means the window budget is spent, with
+     * its oldest row saying when the budget frees up.
+     */
+    private void enforceSendBudget(String mobile, String purpose) {
+        List<OtpCode> recent = repository.findByMobileAndPurposeOrderByCreatedAtDesc(
+                mobile, purpose, PageRequest.of(0, MAX_SENDS_PER_WINDOW));
+        if (recent.isEmpty()) {
+            return;
+        }
+        Instant now = Instant.now();
+
+        Instant readyAt = recent.get(0).getCreatedAt().plus(SEND_COOLDOWN);
+        if (now.isBefore(readyAt)) {
+            throw new RateLimitedException(
+                    "A code was just sent — wait a moment before requesting another",
+                    secondsUntil(now, readyAt));
+        }
+        if (recent.size() >= MAX_SENDS_PER_WINDOW) {
+            // why the oldest of the page: it is the send that will fall out of the window first, so
+            // its expiry is the exact moment a slot reopens.
+            Instant windowFreesAt = recent.get(recent.size() - 1).getCreatedAt().plus(SEND_WINDOW);
+            if (now.isBefore(windowFreesAt)) {
+                throw new RateLimitedException(
+                        "Too many login codes requested for this number — try again later",
+                        secondsUntil(now, windowFreesAt));
+            }
+        }
+    }
+
+    /** Whole seconds from {@code now} until {@code target}, rounded up and never below 1. */
+    private static int secondsUntil(Instant now, Instant target) {
+        // why round up: a truthful Retry-After must not point at an instant that is still too early,
+        // or a client that obeys it exactly gets a second 429.
+        long millis = Duration.between(now, target).toMillis();
+        return (int) Math.max(1, (millis + 999) / 1000);
     }
 
     /**
@@ -60,9 +154,20 @@ public class OtpService {
      */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class})
     public void verifyLoginCode(String mobile, String code) {
+        verifyCode(mobile, code, OtpCode.PURPOSE_LOGIN);
+    }
+
+    /**
+     * Validate {@code code} against the newest unconsumed OTP for {@code (mobile, purpose)}.
+     *
+     * <p>Scoped by purpose for the reason given on {@link #sendCode}: a code issued for one flow must
+     * be worthless in another.
+     */
+    @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class})
+    public void verifyCode(String mobile, String code, String purpose) {
         OtpCode otp = repository
                 .findFirstByMobileAndPurposeAndConsumedFalseOrderByCreatedAtDesc(
-                        mobile, OtpCode.PURPOSE_LOGIN)
+                        mobile, purpose)
                 .orElseThrow(() -> new UnauthorizedException("No active OTP — request a new code"));
 
         if (otp.isExpired()) {

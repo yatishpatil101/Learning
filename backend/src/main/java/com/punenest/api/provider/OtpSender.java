@@ -29,7 +29,21 @@ class MockOtpSender implements OtpSender {
     }
 }
 
-/** Prod stub: fail loudly until a real SMS provider (e.g. via Cashfree/MSG91) is wired in. */
+/**
+ * Prod stub: fail loudly until a real SMS provider (e.g. via Cashfree/MSG91) is wired in.
+ *
+ * <p><strong>Before wiring a gateway here, add a spend control.</strong> {@code OtpService} rate-limits
+ * per <em>recipient</em>, which stops a chosen victim being bombed and caps the spend attributable to
+ * any one number — but nothing stops an attacker walking through thousands of valid-looking numbers to
+ * run up the bill, because each fresh number starts with a fresh budget. That gap is harmless today
+ * (this method sends nothing) and becomes a live financial DoS the moment it does.
+ *
+ * <p>The fix belongs at the edge, not here: a spend cap on the gateway account plus per-IP throttling
+ * at the load balancer or WAF. Doing IP throttling in-process would need a trusted-proxy config the
+ * deployment does not yet have — get it wrong and you either throttle every user behind the balancer
+ * as one IP, or throttle a header the client can forge. An in-app limiter that can be spoofed is worse
+ * than none, because it reads as protection.
+ */
 @Component
 @Profile("prod")
 class SmsOtpSender implements OtpSender {

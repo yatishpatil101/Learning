@@ -1,6 +1,5 @@
 package com.punenest.api.security;
 
-import com.punenest.api.identity.user.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import java.nio.charset.StandardCharsets;
@@ -31,7 +30,7 @@ public class JwtService {
     }
 
     /** Mint an access token for a freshly authenticated user. */
-    public String issueAccessToken(User user) {
+    public String issueAccessToken(TokenSubject user) {
         Instant now = Instant.now();
         var builder = Jwts.builder()
                 .subject(user.getId().toString())
