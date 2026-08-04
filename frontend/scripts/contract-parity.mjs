@@ -11,14 +11,17 @@
  *
  * Usage (backend must be running):
  *   node scripts/contract-parity.mjs --otp-log <path-to-backend-console-log>
- *   node scripts/contract-parity.mjs --base http://localhost:8080   (prompts for the OTP)
+ *   node scripts/contract-parity.mjs --base http://localhost:8080/api   (prompts for the OTP)
+ *
+ * **The base must include `/api`** — this talks to the backend directly, with no Vite proxy in
+ * front, and the backend serves under `server.servlet.context-path=/api`.
  *
  * Exit code 0 = shapes match, 1 = drift found (suitable for CI).
  */
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
-const BASE = args.get('base') || 'http://localhost:8080';
+const BASE = args.get('base') || 'http://localhost:8080/api';
 // A throwaway mobile so the run is idempotent and never mutates a seeded account.
 const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
 

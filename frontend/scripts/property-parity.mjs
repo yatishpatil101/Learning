@@ -13,7 +13,12 @@
  *
  * Usage (backend must be running against the seeded dev DB):
  *   node scripts/property-parity.mjs
- *   node scripts/property-parity.mjs --base http://localhost:8081
+ *   node scripts/property-parity.mjs --base http://localhost:8081/api
+ *
+ * **The base must include `/api`.** This script talks to the backend directly, with no Vite dev
+ * proxy in front of it, and the backend serves everything under `server.servlet.context-path=/api`.
+ * A base without the prefix 404s every request — which is the same failure mode as a backend running
+ * older code, so check the `live API:` line this prints before believing a drift report.
  *
  * Coverage note: the owner-scoped and mutating operations (`myListings`, `archiveListing`,
  * `restoreListing`) are checked for *existence* on both providers but not driven, because they need
@@ -25,7 +30,7 @@
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
-const BASE = args.get('base') || 'http://localhost:8080';
+const BASE = args.get('base') || 'http://localhost:8080/api';
 
 installStorageStubs();
 
