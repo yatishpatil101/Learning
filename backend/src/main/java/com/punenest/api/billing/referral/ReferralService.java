@@ -1,0 +1,310 @@
+package com.punenest.api.billing.referral;
+
+import com.punenest.api.common.audit.AuditService;
+import com.punenest.api.common.error.ConflictException;
+import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.settings.PlatformSettings;
+import com.punenest.api.common.web.Ids;
+import com.punenest.api.identity.user.User;
+import com.punenest.api.identity.user.UserRepository;
+import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.Roles;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The referral scheme: a user's own code and rewards, and the ops desk that decides whether a
+ * referral is real.
+ *
+ * <p><strong>Every reward is decided by a human.</strong> Redeeming a code creates a
+ * {@link ReferralStatuses#PENDING} row and pays nothing; only {@link #approve} releases money. A
+ * referral scheme that self-approves is a scheme that gets farmed, which is why the contract gives
+ * the fraud desk three verbs and the consumer only one.
+ *
+ * <p><strong>The rewards "ledger" is the referrals table itself.</strong> Approve and clawback are
+ * documented as crediting and debiting a ledger; that ledger is
+ * {@code sum(reward_amount) group by status}. A separate double-entry table was considered and
+ * rejected: there is nothing to reconcile against — no external rail moves this money, the amount is
+ * frozen on the row at redemption, and every mutation already carries who decided, when and why.
+ * The platform's other ledger, {@code finance.ledger.Transaction}, is the <em>user's own</em> rent
+ * and expense book and would be actively wrong as a home for platform-side credits.
+ */
+@Service
+public class ReferralService {
+
+    /** Prefix of every code, so a pasted string is recognisable as ours. */
+    private static final String CODE_PREFIX = "PUNE-";
+
+    /**
+     * Alphabet for the random half of a code. Deliberately excludes {@code I}, {@code O},
+     * {@code 0} and {@code 1}: these codes get read off phone screens and dictated over calls, and
+     * a referrer whose reward hinges on someone typing {@code 0} instead of {@code O} loses it.
+     */
+    private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+    /** Random characters after the prefix. 32^4 ≈ 1M codes — ample against a Pune-sized user base. */
+    private static final int CODE_LENGTH = 4;
+
+    /** Attempts before giving up on a unique code. Each collision is ~1-in-a-million. */
+    private static final int CODE_ATTEMPTS = 5;
+
+    /** Window and threshold for the velocity signal. */
+    private static final Duration VELOCITY_WINDOW = Duration.ofDays(1);
+    private static final long VELOCITY_LIMIT = 5;
+
+    private static final String RISK_LOW = "low";
+    private static final String RISK_MEDIUM = "medium";
+    private static final String RISK_HIGH = "high";
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    private final ReferralRepository referrals;
+    private final ReferralCodeRepository codes;
+    private final ReferralMapper mapper;
+    private final UserRepository users;
+    private final PlatformSettings settings;
+    private final AuditService audit;
+
+    public ReferralService(ReferralRepository referrals, ReferralCodeRepository codes,
+            ReferralMapper mapper, UserRepository users, PlatformSettings settings,
+            AuditService audit) {
+        this.referrals = referrals;
+        this.codes = codes;
+        this.mapper = mapper;
+        this.users = users;
+        this.settings = settings;
+        this.audit = audit;
+    }
+
+    /**
+     * {@code GET /me/referrals} — the caller's code and rewards.
+     *
+     * <p>Not read-only: the code is minted on first read. Generating it at signup would mean a
+     * migration over every existing user and a code for the overwhelming majority who never open
+     * this screen; generating it here costs one insert, once, for the people who actually refer.
+     */
+    @Transactional
+    public ReferralSummaryDto summary(AuthPrincipal caller) {
+        String code = codeFor(caller.userId());
+        List<Referral> mine = referrals.findByReferrerId(caller.userId());
+
+        int converted = 0;
+        long earned = 0;
+        long pending = 0;
+        for (Referral r : mine) {
+            if (ReferralStatuses.REWARDED.equals(r.getStatus())) {
+                converted++;
+                earned += r.getRewardAmount();
+            } else if (ReferralStatuses.isRewardPending(r.getStatus())) {
+                pending += r.getRewardAmount();
+            }
+        }
+        return new ReferralSummaryDto(code, mine.size(), converted, earned, pending);
+    }
+
+    /**
+     * {@code POST /referrals/redeem} — 200, or 409.
+     *
+     * <p><strong>Every refusal is the same 409 with the same message.</strong> An unknown code, your
+     * own code and a mobile that has already been referred are indistinguishable to the caller. The
+     * alternative leaks: distinct messages turn this endpoint into an oracle for "is {@code PUNE-XXXX}
+     * a real code?", which is exactly the reconnaissance step before farming one.
+     */
+    @Transactional
+    public void redeem(AuthPrincipal caller, String rawCode) {
+        User referred = users.findById(caller.userId())
+                .orElseThrow(() -> NotFoundException.of("User"));
+
+        String code = normalise(rawCode);
+        Optional<ReferralCode> owner = code == null ? Optional.empty() : codes.findByCode(code);
+        if (owner.isEmpty()
+                || owner.get().getUserId().equals(caller.userId())
+                || referrals.existsByReferredMobile(referred.getMobile())) {
+            throw refuse();
+        }
+
+        User referrer = users.findById(owner.get().getUserId()).orElseThrow(this::refuse);
+        long reward = settings.referralRewardInr();
+        boolean velocityHigh = referrals.countByReferrerIdAndAtAfter(
+                referrer.getId(), Instant.now().minus(VELOCITY_WINDOW)) >= VELOCITY_LIMIT;
+
+        Referral referral = new Referral(
+                referrer.getId(),
+                referrer.getMobile(),
+                referred.getName(),
+                referred.getMobile(),
+                channelOf(referred),
+                "₹" + reward + " PuneNest credit",
+                reward,
+                risk(velocityHigh, referred.isAadhaarVerified()),
+                referred.isAadhaarVerified(),
+                // Aadhaar uniqueness is enforced at verification time -- a second account cannot
+                // complete a badge against an identity hash the platform already holds
+                // (AadhaarAlreadyRegisteredException). So a verified referred party is, by
+                // construction, a unique one; there is nothing further to check here.
+                referred.isAadhaarVerified(),
+                velocityHigh);
+        try {
+            referrals.saveAndFlush(referral);
+        } catch (DataIntegrityViolationException raced) {
+            // why: two redemptions for the same mobile that both passed the check above before
+            // either committed. uq_referrals_referred_mobile (V23) settles it, and the loser gets
+            // the same refusal it would have got a millisecond later.
+            //
+            // Safe to catch here only because nothing below touches the database: the persistence
+            // context is unusable after a constraint fires, and this path just builds and throws.
+            // Worth keeping rather than letting the generic 409 through, because the refusal must
+            // be byte-identical to every other one — see this method's Javadoc.
+            throw refuse();
+        }
+    }
+
+    /**
+     * {@code GET /referrals} (spec fix S53, {@code x-roles: [staff, admin]}) — the paged queue.
+     *
+     * <p>Paged because it grows with the platform, not with one user (api-standards §5.1).
+     */
+    @Transactional(readOnly = true)
+    public Page<ReferralDto> queue(String status, String risk, Pageable pageable) {
+        Page<Referral> page = referrals.queue(blankToNull(status), blankToNull(risk), pageable);
+        // why not page.map(mapper::toDto): that would resolve the referrer's name one row at a
+        // time. toDtos resolves the whole page in a single query.
+        return new PageImpl<>(mapper.toDtos(page.getContent()), pageable, page.getTotalElements());
+    }
+
+    /** {@code POST /referrals/{id}/approve} — releases the reward. Staff or admin only. */
+    @Transactional
+    public ReferralDto approve(AuthPrincipal actor, String id) {
+        return decide(actor, id, ReferralStatuses.REWARDED, null,
+                r -> ReferralStatuses.isReviewable(r.getStatus()),
+                "referral.approve");
+    }
+
+    /** {@code POST /referrals/{id}/reject} — refuses the reward, with a reason. */
+    @Transactional
+    public ReferralDto reject(AuthPrincipal actor, String id, String reason) {
+        return decide(actor, id, ReferralStatuses.REJECTED, reason,
+                r -> ReferralStatuses.isReviewable(r.getStatus()),
+                "referral.reject");
+    }
+
+    /**
+     * {@code POST /referrals/{id}/clawback} — reverses a released reward, with a reason.
+     *
+     * <p>Only a {@code rewarded} referral can be clawed back. Anything else is a 409: clawing back
+     * a referral that was never paid would silently rewrite history to say it had been.
+     */
+    @Transactional
+    public ReferralDto clawback(AuthPrincipal actor, String id, String reason) {
+        return decide(actor, id, ReferralStatuses.CLAWED_BACK, reason,
+                r -> ReferralStatuses.REWARDED.equals(r.getStatus()),
+                "referral.clawback");
+    }
+
+    /**
+     * The one place a referral changes state: load, check the transition, stamp, audit.
+     *
+     * <p>Three near-identical verbs written once. The differences are the target status, whether a
+     * reason is carried, and which starting states are legal — everything else, including the audit
+     * write that makes a money decision attributable, is identical and must stay that way.
+     *
+     * <p>The row is loaded under a write lock. See {@link ReferralRepository#findForDecision}.
+     */
+    private ReferralDto decide(AuthPrincipal actor, String id, String nextStatus, String reason,
+            java.util.function.Predicate<Referral> allowed, String action) {
+        Referral referral = Ids.parseUuid(id)
+                .flatMap(referrals::findForDecision)
+                .orElseThrow(() -> NotFoundException.of("Referral"));
+        if (!allowed.test(referral)) {
+            throw new ConflictException(
+                    "Referral is " + referral.getStatus() + " and cannot be " + nextStatus);
+        }
+        referral.decide(nextStatus, actor.userId().toString(), blankToNull(reason));
+        referrals.saveAndFlush(referral);
+        audit.record(actor, action, "referral", referral.getId().toString(),
+                "amount", String.valueOf(referral.getRewardAmount()));
+        return mapper.toDto(referral);
+    }
+
+    /**
+     * The caller's code, minting one on first read.
+     *
+     * <p>Collisions are avoided by looking before leaping rather than by catching the unique index.
+     * A constraint violation poisons the persistence context, so there is no "try again" available
+     * once one fires — the retry has to happen before the insert or not at all. A genuinely
+     * concurrent collision (two mints in flight at the same instant) still reaches the index and is
+     * answered as a 409; at one chance in a million per attempt, that is a re-tap, not a design.
+     */
+    private String codeFor(UUID userId) {
+        Optional<ReferralCode> existing = codes.findById(userId);
+        if (existing.isPresent()) {
+            return existing.get().getCode();
+        }
+        for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+            String candidate = generateCode();
+            if (!codes.existsByCode(candidate)) {
+                return codes.saveAndFlush(new ReferralCode(userId, candidate)).getCode();
+            }
+        }
+        throw new IllegalStateException("Could not mint a unique referral code for " + userId);
+    }
+
+    private static String generateCode() {
+        StringBuilder code = new StringBuilder(CODE_PREFIX);
+        for (int i = 0; i < CODE_LENGTH; i++) {
+            code.append(CODE_ALPHABET.charAt(RANDOM.nextInt(CODE_ALPHABET.length())));
+        }
+        return code.toString();
+    }
+
+    /** Codes are dictated aloud and pasted with stray spaces; store and match one canonical form. */
+    private static String normalise(String code) {
+        if (code == null) {
+            return null;
+        }
+        String trimmed = code.trim().toUpperCase(java.util.Locale.ROOT);
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * Which side of the marketplace the referred party joined on. The contract allows exactly two
+     * values, so a staff or admin account — which cannot meaningfully be referred anyway — records
+     * as {@code seeker} rather than putting an undeclared value on the wire.
+     */
+    private static String channelOf(User referred) {
+        return Roles.Wire.OWNER.equals(referred.getRole()) ? "owner" : "seeker";
+    }
+
+    /**
+     * The risk band shown to the desk.
+     *
+     * <p>Two inputs, because two are all the platform can honestly compute: how fast the referrer is
+     * going, and whether the referred party has a verified identity behind them. Device and IP
+     * correlation would be the other two signals and neither is captured — see {@link Referral}.
+     */
+    private static String risk(boolean velocityHigh, boolean aadhaarVerified) {
+        if (velocityHigh) {
+            return RISK_HIGH;
+        }
+        return aadhaarVerified ? RISK_LOW : RISK_MEDIUM;
+    }
+
+    /** The single, undifferentiated refusal. See {@link #redeem}. */
+    private ConflictException refuse() {
+        return new ConflictException("That referral code cannot be redeemed");
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+}
