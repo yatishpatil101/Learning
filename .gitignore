@@ -53,3 +53,11 @@ _rollback/
 
 # Generated patches — share them out-of-band, never commit them
 *.patch
+# graphify knowledge graph â€” generated output, machine-specific paths, multi-MB blobs
+graphify-out/
+
+# Scratch specs used to measure something once, never part of the suite
+e2e/tests/**/tmp-*.spec.js
+
+# VS Code Java-modernization extension scaffolding â€” tool cruft, not project code
+.github/modernize/

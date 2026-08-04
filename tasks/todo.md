@@ -1,5 +1,186 @@
 # Tasks
 
+## Mobile-first Phase 1 — unblock content + lock the size budget (DONE)
+
+Implements Phase 1 of `docs/roadmap/mobile-ux-review.md`. All changes are UI/config
+only, behind no backend dependency — the service seam (`services/config.js`) means a
+later `VITE_API_MODE=http` swap touches none of it.
+
+- [x] **A6** `scripts/check-bundle-size.mjs` + `npm run check:size` — gzip gate on the
+      critical path, read from `dist/index.html` (entry + modulepreload + stylesheet)
+      rather than guessed by filename. Ratchet at 560 KB (measured 550.7), target 180.
+- [x] **B1** Nestor coach-mark: suppressed below `lg` on conversion routes
+      (`/property/`, `/list-property`, `/checkout`, `/schedule-visit`, `/signin`,
+      `/signup`); dismissal moved sessionStorage → localStorage with a 2-sighting
+      budget so it stops reappearing on every page load. Ref-guarded against the
+      StrictMode double-invoke (the exact trap `design-system.md` documents).
+- [x] **B2** `/list-property` hero collapsed below `sm` (badge + subtitle desktop-only,
+      tighter margins) — the first form control is now above the fold at 360×640.
+- [x] **B3** Autosave "Draft saved" toast moved out of inline JS into
+      `.pn-autosave-flash`; z-index 2000 → 90 (in the documented ladder, just above the
+      tab bar) and offset rebuilt from the bar's own tokens so it no longer sits on it.
+      Ladder updated in `docs/system/design-system.md`.
+- [x] Contact-page consent checkbox: `.tap-target` on the label (was an ~18px hit area
+      on a consent control). Sign-in/sign-up were **false positives** — their labels
+      already meet the floor; the audit measured the `<input>`, not its label.
+- [x] New spec `e2e/tests/mobile-content-budget.spec.js` (6 tests, both mobile
+      projects) + `e2e/COVERAGE.md` row.
+- [x] Corrected two wrong estimates in the review doc after measuring: **A5** CSS split
+      is worth ~10–20 KB gzip, not 60–100 (209 KB raw → 37.9 KB gzipped); **A1/A2**
+      re-rated S → L/M once the import graph was traced.
+- [x] Full `mobile` + `mobile-small` suite: **366 passed, 2 failed**. Both failures are
+      `help-i18n-urls` (the Hindi/Marathi footer-link cases) and are **pre-existing** —
+      proved by stashing every source change and re-running the spec, which failed
+      identically. `locales/mr/chrome.json` was already modified before this work began.- [x] Verified after restore: lint 0 errors (402 pre-existing warnings), build exit 0,
+      size gate exit 0 (550.7 / 560 KB), content-budget spec 6/6 on both projects.
+- [x] Desktop (`chromium`) suite: **957 passed, 85 failed, 13 flaky**. Proven **not
+      mine** by an A/B run: stashed all six source edits, ran the four worst-hit specs
+      (`list-property-p3`, `society-community`, `flatmates-eligibility`,
+      `flatmates-groups`) → **12 failed / 9 passed**; restored the edits, ran the same
+      four → **12 failed / 9 passed**. Byte-identical result.
+
+### Pre-existing desktop breakage — NOT addressed here, needs a decision
+The branch carries substantial uncommitted work from an earlier session that this task
+did not touch: `InstallPrompt.jsx`, `uiEvents.js`, `MobileSearchSheet.jsx`,
+`VerifyModal.jsx`, `CityChrome.jsx`, `CityContext.jsx`, `propertyTypes.js`, `Reels.jsx`,
+`reels.css`, and six `i18n/locales/**` files. The 85 desktop failures cluster almost
+entirely in flatmates (~80 of them) plus `list-property-p3`, `society-community` and
+`help-i18n-urls` — i.e. exactly those areas. Representative failure:
+`list-property-p3` expects `[data-err="documents"]` and gets 0 elements.
+
+Left alone deliberately: it is someone else's in-progress work, and "fixing" a red test
+by editing unfamiliar half-finished code is how real work gets discarded. Flagged for
+the owner to triage.
+
+## Mobile-first Phase 3 — touch targets the sweep missed (DONE)
+
+`mobile-tap-targets.spec.js` sweeps a fixed route list; every control below sat
+outside it, which is how a 6px slider rail and an 8px carousel dot survived a suite
+of 178 specs. Baseline was captured **before** any edit this time.
+
+- [x] **C2** EMI sliders (`/emi-calculator`): rail hit area 6px → 32px, thumb 20px →
+      28px under `pointer: coarse`. The rail is still *drawn* at 6px via
+      `background-size` — a fat bar reads as a progress meter, not a slider. Required
+      moving the fill gradient out of an inline `background:` shorthand (which resets
+      background-size/position and outranks any stylesheet rule) into a `--emi-pct`
+      custom property.
+- [x] **C2** Budget/area value labels (`.rng-val` on `/listings`): 15x16 painted →
+      44x44 hit area via a transparent `::before`, same trade as `.tap-extend`. The
+      `.rng` *thumbs* already grew to 28px on touch — that part was already correct
+      and documented; only the labels were missed.
+- [x] **C3** `/plans` carousel dots: 8x8 → 24x44. Deliberately not 44x44 — three 44px
+      dots either overlap (ambiguous taps, worse than small ones) or spread so far
+      they stop reading as one indicator. 24px is the WCAG 2.5.8 AA floor and puts
+      adjacent centres 32px apart.
+- [x] **D2** Admin header icon buttons: `.tap-extend` + real `aria-label` on Open
+      menu / Close menu / Log out. They had `title` only, which never surfaces on a
+      phone — an icon-only control named only by `title` is unnamed.
+- [x] **D3** The two `/admin` Latest-activity cards: added `min-w-0`. A grid item
+      defaults to `min-width: auto`, so the track refused to shrink and the card ran
+      14px past the viewport with its Review button clipped off screen. The inner rows
+      were already built to truncate; they just never got the chance.
+- [x] New spec `e2e/tests/mobile-touch-targets-p3.spec.js` (5 tests) + COVERAGE row.
+- [x] Verified: lint 0 errors, build exit 0, size gate exit 0 (550.8 / 560 KB),
+      new spec 5/5, regression set **59 passed / 1 failed**.
+- [x] The 1 failure (`admin-rbac` → "Team & Access renders seeded members") is
+      **pre-existing**: stashed only the two admin files I touched, re-ran, failed
+      identically. Same `/admin/team` seeding issue as the wider desktop breakage below.
+
+### Not done, and why
+- **C4** (property gallery thumb strip, 22px wide): the honest fix is to drop the
+  thumbs below `sm` and rely on swipe + the existing `1/6` counter, not to grow them.
+  That is a gallery-interaction decision, not a sizing tweak — raised, not taken.
+- **A7** (preload the LCP image): deferred with A1/A2. The hero URL is only known
+  after JS runs, so a static `<link rel=preload>` in `index.html` cannot name it; doing
+  this properly means emitting the preload from the route, which is Phase 2 work.
+
+## Mobile-first Phase 4 (partial) — native-app affordances (DONE)
+
+- [x] **E7 measured first, and it is NOT a defect.** Scrolled `/listings` to y=1400,
+      opened a property, pressed Back → restored to exactly 1400 (max scroll 3739, so
+      the position was real, not a clamp). The `navType !== 'POP'` guard in `App.jsx`
+      already works. Review row corrected from "gap" to "verified". No code written.
+- [x] **E5 — found a real bug the audit had missed.** On `/property/:id`, dismissing
+      the OS share sheet rejects with `AbortError`, which fell into the clipboard
+      `catch` and raised a "Couldn't copy link" error toast. The single most common
+      outcome of tapping Share on a phone reported a failure for working correctly.
+      Reels and Refer already handled `AbortError`; this surface did not. Fixed, and
+      the fix is regression-proven (see below).
+- [x] **E4** `lib/haptics.js` + wired to save-a-listing (`tick`) and wizard step
+      advance (`step`). Suppressed by BOTH `prefers-reduced-motion` and the existing
+      `pnAppPrefs.reduceMotion` toggle — deliberately **no new setting**, since a third
+      switch is one more thing to find and could disagree with the two that exist.
+      Imports `getAppPrefs` from `store/account.js`, not the `store.js` barrel, so a
+      tick does not drag the whole store graph into every component.
+- [x] New spec `e2e/tests/mobile-native-affordances.spec.js` (4 tests) + COVERAGE rows.
+- [x] **Proved the new test actually catches the bug:** stashed only the share fix,
+      re-ran the spec → **failed**; restored it → **passed**. A regression test that has
+      never been seen to fail is decoration.
+- [x] Verified: lint 0 errors, build exit 0, size gate exit 0 (550.8 / 560 KB),
+      regression set across property / wizard / saved / reels / refer / settings +
+      all three new mobile specs — **58 passed, 0 failed**.
+
+### Honest limits of E4
+- **iOS gets no haptics.** No WebKit browser implements `navigator.vibrate`, so every
+  browser on iOS is a silent no-op. India is ~95% Android so this still reaches nearly
+  the whole audience, but iOS needs the Capacitor Haptics plugin — it is not a web fix,
+  and pretending otherwise would be worse than the gap.
+- Only two interactions are wired. The review listed four; filter-apply and
+  contact-reveal were left until the two shipped ones have been felt on a real device.
+  Haptics are trivial to over-apply, and a phone that buzzes constantly is worse than
+  one that never does.
+
+### Still open from Phase 4
+- **E5 (the other half):** extending `navigator.share` to society pages and flatmate
+  posts. The bug fix was the urgent part; the extension is additive.
+- **E1** (offline state) and **E3** (pull-to-refresh) remain deferred — both need real
+  network failure and real latency to be testable, which means the backend.
+- **E2** (skeletons): buildable now, but mock data resolves instantly so the timings
+  cannot be tuned honestly until there is a real API.
+
+## Mobile-first Phase 5 — unreachable control + unreadable safety badge (DONE)
+
+Two defects that produce **no** console error, no layout shift and no horizontal
+scrollbar, which is why 180 specs never noticed them.
+
+- [x] **`/societies` Verified filter was unreachable on a phone.** Measured at
+      x=364..481 on a 412px viewport — 69px past the edge, clipped by an ancestor so
+      there was no page scroll to reach it and nothing looked broken. Same root cause
+      as D3: two `flex-1` selects with the default `min-width: auto` refused to shrink
+      ("Sort: Recommended" alone claimed 186px). `min-w-0` + `flex-wrap`. Re-measured:
+      all three controls now end at 383 inside a 396 toolbar, no wrap needed.
+- [x] **`.badge-seeker` "VERIFIED" raised 9px → 11px below `sm`** (`/flatmates`). This
+      is the badge that tells someone whether the stranger they might share a flat
+      with has passed an identity check — the one place in the audit where small text
+      has a safety cost, not an aesthetic one. Verified 7 badges render at 11px with
+      0 overflow past card or viewport at 360px.
+- [x] Two new tests in `mobile-content-budget.spec.js` (now 10 tests, both projects).
+- [x] **Both new tests proven to catch their bugs:** stashed the two fixes → both
+      failed (`controls escaping a 412px viewport`, `VERIFIED badge font-size`);
+      restored → both passed.
+- [x] Verified: lint 0 errors, build exit 0, size gate exit 0 (550.8 / 560 KB),
+      regression set **63 passed / 3 failed**; the 3 are `flatmates-filters` and are
+      **pre-existing** (stashed both my files, re-ran, failed identically — same
+      flatmates cluster as the wider desktop breakage documented above).
+
+### A correction to my own audit
+The review listed `.badge-verified` / `.badge-rera` as 9px trust badges needing a fix.
+I raised them, then measured: they render **zero times on a phone** — they belong to
+the desktop-only list-row card variant. The change was reverted. The audit had read
+`text-[9px]` in source and assumed it reached mobile users. Source-grep is not
+evidence of what renders; only measurement is.
+
+### Deferred, with reasons
+- **A1** (`db.json` off the entry chunk): `rawLoad()` is synchronous and called from
+  dozens of sites, so a dynamic import means an async refactor of the whole mock
+  layer — code that is deleted when the backend lands. Do the `VITE_API_MODE` gate
+  instead, or nothing.
+- **A2** (`societies-rera.js`): on the critical path via Home's societies rail, so it
+  is a data-shape change rather than a config tweak.
+- **Property price above the fold at 360×640**: measured at y=551 with the sticky CTA
+  at y=505. Closing that needs ~90px, i.e. shrinking the hero gallery on a property
+  site. That is a photo-vs-price product decision, not a bug — raised, not decided.
+
 ## PMF test overlay — public mockup deploy with demand capture (DONE)
 
 Temporary, non-invasive overlay to test product-market fit before backend/company.
@@ -1070,3 +1251,280 @@ Attempt 2 (shipped): the ask became the LAST SLIDE of the carousel; dots re-cent
       hardcodes `OWNER_MOBILE = '9530047855'`, but P5000's `ownerMobile` in
       `frontend/src/data/properties.json` is `9999047855`, so the localStorage assertion reads an
       empty key. One-line constant fix; flagged to the user, not changed unasked.
+
+## Mobile-first Phase 6 — deferred-item sweep
+
+Worked autonomously (user unavailable to answer the clarifying questions). Took the
+recommended option on each item, and **declined the ones that are product-taste calls
+or new features** rather than guessing at someone else's design intent.
+
+- [x] **C4 was already done, and the audit mislabelled it.** The thumbnail strip is
+      `hidden sm:block`; mobile already uses the dot rail built two rounds ago. What
+      the audit measured as "22x44 thumbs" was that dot rail — and it *is* 2px under
+      the 24px its own comment claims: `px-2` (8px a side) around a `w-1.5` (6px) dot
+      = 22px. Fixed with `min-w-[24px]`, not more padding, because the active dot is
+      `w-5` and a padding change cannot pin both states at once.
+- [x] **A4 (partial): Outfit trimmed 7 weights → 5.** Grepped before cutting:
+      `font-light`, `font-black`, `font-weight: 300|900` and inline `fontWeight` are
+      **zero** uses, so 300 and 900 were pure download cost. The audit proposed
+      cutting to 3 weights (400/600/800) — the evidence says 500 (16 uses) and 700
+      (39 uses) are load-bearing, so that would have visibly flattened the type
+      hierarchy. Cut only what is provably dead.
+- [x] **D5 admin safe-area.** `<main>` had bare `p-4 sm:p-6`, so the last row of a
+      queue sits under the home indicator on a notched phone — the row a field-ops
+      user is actually reaching for. Routed through `--pn-safe-b` (verified declared
+      on `:root`, so the admin tree inherits it); `env()` resolves to 0px off-device,
+      so it is inert everywhere except an installed app on a notched phone.
+
+### Declined, with reasons — these are decisions, not leftovers
+- **Property price above the fold.** A real photo-vs-price product call (measured:
+  price at y=551, sticky CTA at y=505; closing the gap costs ~90px of hero). Every
+  option changes the visual hierarchy of the main money page. **Needs a human answer.**
+- **E5 second half (share on society / flatmate).** There is no share control on those
+  surfaces at all, so this is *new UI plus new strings in three languages* — a feature,
+  not a deferred fix. Note for whoever picks it up: `share` in `RoomCard.jsx` means
+  flat-sharing (roommates), not social share. Easy to conflate.
+- **A3 English locale split.** Rejected after working it through, not skipped. The app
+  merges every `en/*.json` into one `translation` namespace, so making part of it lazy
+  lets components render before their strings land and paint **raw keys**. That is a
+  visible regression on every route in exchange for ~35 KB gzip. Doing it safely needs
+  a per-route loading gate — a bigger design than the review implied.
+- **A1 / A2.** Unchanged: `rawLoad()` is synchronous across dozens of call sites, and
+  `societies-rera.js` is on the critical path via Home's societies rail. Both are
+  mock-layer code the backend deletes.
+- **C1 blanket 12px floor.** The one badge with a *safety* cost (flatmates VERIFIED)
+  is fixed. The rest is metadata — `10 min ago`, `₹9,786/sq.ft` — at 10–11px across
+  ~40 files. Best driven test-first by the F3 sweep so each bump is justified by a
+  failing assertion, not a blind 40-file diff.
+- **A5 / A7 / D4 / E1 / E2 / E3 / E6.** Unchanged — see the review; E1/E3/E6 need the
+  backend before they can be honest.
+
+## Desktop e2e triage (2026-08-03)
+
+Full chromium baseline: **84 failed / 2 flaky / 969 passed**. First established that
+none of it is mine — stashed every tracked change and re-ran a four-spec sample at
+HEAD: **identical 17 failures** with and without the mobile work.
+
+Three root causes, not 84 separate bugs:
+
+1. **The flatmates page was redesigned and the old specs were left behind.** It moved
+   from three supply-shaped tabs (Flatmates / Rooms / Groups) to two intent tabs
+   (Move in now / Team up) — rationale in `flatmates/model.js`. The old `?view=`
+   values still resolve as *aliases*, so those specs kept loading a real page and
+   asserting against the wrong tab. That is worse than a 404: it fails silently and
+   looks like an app bug. ~40 failures. **The app is correct**; `flatmates-discovery.spec.js`
+   is the current spec and passes, aliases included.
+2. **A stale seed constant.** P5000's `ownerMobile` changed to `9999047855`, but five
+   specs still carried `9530047855` and asserted on `puneNestContactReq:<old>` — a key
+   nothing ever writes, so the symptom was a baffling empty array rather than "your
+   constant is stale". ~13 failures.
+3. **Strict-mode name collisions.** `Modal.jsx` labels its dismiss icon
+   `aria-label={`Close ${title}`}`, so a loose `name: 'Close'` matches both it and the
+   footer button. The a11y is *right* — a specific label beats a bare "Close" — the
+   tests were loose. ~14 failures.
+
+### Fixed
+- [x] **Root cause 2 killed at the source.** Added `ownerMobileOf(id)` to `helpers/app.js`,
+      which reads `frontend/src/data/properties.json` directly. Five specs now derive the
+      number instead of copying it, so the next data change can't rot them. In
+      `contact-owner-gate` the mask and formatted variants are derived too — verified
+      against the real `maskPhone`/`fmtPhone` rather than trusting the old comment.
+- [x] **Root cause 3:** tightened four locators in `admin-properties` with `{ exact: true }`
+      and a note explaining the collision. Chose this over renaming the app's aria-labels,
+      which would have made the icon button *less* descriptive for screen readers.
+- [x] **`flatmates-filters.spec.js` rewritten** for the two-tab contract (Move-in on both,
+      Sharing on Team up, Washroom on Move in now) and now drives the tabs through the UI
+      instead of legacy deep links.
+- [x] **`flatmates-smart-search.spec.js`:** the tab-count assertion used the removed
+      "Flatmates, N available" label; now asserts the sighted and announced counts agree.
+      Two hardcoded `toHaveCount(3)` became "narrowed but not to nothing" — the merge made
+      it 4, and pinning any literal just re-arms the same trap for the next seed change.
+- [x] Verified: **81 passed / 0 failed** across the six repaired specs, then **25 passed**
+      across the three flatmates specs. Lint still 0 errors.
+
+### Still stale — same root cause 1, group-flow specs RESOLVED
+
+Eight of the nine rewritten (the group-creation family). Two further app changes
+surfaced that the first pass had not seen — both found by probing the running app,
+not by reading the specs:
+
+- [x] **The three post buttons became one.** "Create a group", "List your room" and
+      "Post your request" were replaced by a single **Post** button opening a chooser:
+      "do you have a place?", then "just me or a group?". Added `postAsGroup`,
+      `postHavingPlace` and `postAsSolo` to `helpers/app.js` — seven specs drove the
+      old buttons directly, and inlining the new two-step walk seven times would just
+      recreate the coupling. Every click is scoped to `.sf-modal`, because the seeker
+      cards *behind* the overlay carry their own "Just me" control and an unscoped
+      match resolved to four elements.
+- [x] **A new group lands on the tab you are not looking at.** Creation returns you to
+      Move in now, but an address-less group sorts into Team up (`tabOf()` in
+      `flatmates/model.js`), so the card genuinely is not where the spec looked. Added
+      `switchToTeamUp()` and placed it at each create/reload site.
+- [x] **Two places where the blanket hop would have been WRONG**, caught by reading
+      `tabOf()` rather than pattern-matching:
+      - `flatmates-eligibility` "owner attaches a verified property" — attaching gives
+        the group an address, so it sorts to **Move in now**. No hop.
+      - `flatmates-guardrails` dedupe — the create is *blocked*, so the modal stays up
+        and covers the tab strip. Cancel first, then hop.
+- [x] Also fixed a test that was **passing for the wrong reason**: `flatmates-groups`
+      asserted `toHaveCount(0)` after deleting a group, but did so on Move in now where
+      the group was never listed — it would have passed whether the delete worked or not.
+- [x] Verified: **55 passed / 0 failed** across all eleven flatmates specs.
+
+### The last three specs (interactions / map-gate / prefreeze)
+- [x] **`flatmates-interactions`** — same tab-visibility cause: a posted solo request
+      creates a *seeker*, which lives on Team up, so the "Your live request" banner is
+      never on the tab the spec landed on. Added the hop at all three sites. Its empty
+      state CTA is also the unified `Post` now. The duplicate-post guard needed care:
+      it lives in `openPostModal()`, reachable only via the chooser's
+      "still looking → just me" branch, so clicking `Post` alone never triggers it.
+- [x] **`flatmates-map-gate`** — `/Rooms available/` was a removed tab label; now
+      switches via `Team up`, which is what "a new tab starts unfocused" means today.
+
+### FLAGGED — a real layout regression, NOT a stale test — NOW FIXED
+`flatmates-prefreeze.spec.js:87` asserts the first result card is above the fold on a
+1440x820 laptop. It measured **y=881** against an 820px viewport, so a visitor landed
+on a search page and saw no stock at all without scrolling. The test was doing its job.
+
+**Root cause (measured, not guessed).** Walked every box above the first card. The
+desktop advanced-filter grid is **308px** and sat permanently open (`hidden lg:grid`),
+plus its `mt-4`: **324px** of controls between the visitor and the inventory. Mobile was
+never affected — it puts the same controls in a drawer (measured y=669 of 915). Confirmed
+via git that `FilterBar.jsx` matches HEAD, so this shipped with the flatmates redesign
+(`5c075a9`), not with any of this session's work.
+
+**Fix.** The desktop grid is now collapsible and starts collapsed — the same idea the
+mobile drawer already used, with the room a wide viewport allows. The search box, tabs,
+list/map toggle, sort and reset all stay on screen; only the advanced grid folds away,
+behind a toggle carrying the existing active-filter count badge.
+
+Rejected the alternative of trimming the hero: it is doing real work (badge, H1, trust
+pills, two CTAs), ~60px was the most it could give, and that left only 19px of margin —
+a longer Hindi or Marathi string would have silently reintroduced the bug.
+
+- Measured **881 → 521** on 1440x820; mobile unchanged at 669.
+- **Opens automatically when any filter is already active**, so a deep link like
+  `?loc=Baner` never lands someone on a narrowed list with the reason hidden — that
+  would be a worse bug than the scroll it saves. Verified: plain landing `aria-expanded=false`,
+  `?loc=Baner` → `true` with a "1" badge.
+- Updated the 7 filter specs that (correctly) failed once the panel closed, and added
+  two new ones: the fold assertion, and the auto-open-when-active behaviour.
+
+
+### Out of scope (agreed) — a ~30-failure unrelated tail
+`society-community`, `society-community-v2`, `list-property-types`, `list-property-p3`,
+`rent-agreement`, `admin-rbac`, `view-documents-flow`, `listing-freshness` and others.
+All confirmed failing at HEAD too. Each needs individual diagnosis.
+
+
+
+---
+
+## Mobile review: B5 / C5 / D1 + CI (DONE) and B7 (blocked)
+
+Worked the four items that were actionable without a backend, then stood up CI.
+
+- [x] **B5 — z-index ladder now covers toasts, and the ladder is consistent.**
+      The toast was already at 1600; what the audit missed is that the ladder was
+      written down *twice* (`design-system.md` and the `:root` comment in
+      `index.css`) and the two disagreed — the CSS copy was also missing the
+      autosave flash at 90. Both now read
+      `… blocking modals 1500 / toasts 1600`, with the reasoning for why toasts sit
+      on top (a toast is a receipt for a user action, so it must outrank the surface
+      that triggered it; hence `pointer-events: none` on the container).
+      Swept every rung actually in use rather than trusting the item text, which
+      found a *second* undocumented `z=2000`: the `/services/interior` lightbox,
+      above the toast layer. Moved to the 1500 modal rung.
+      The sweep also surfaced a whole upper band the ladder never described
+      (`.pn-action-sheet`/`.pn-dropdown__menu--sheet` 9999, `.pn-cal` 2000, skip
+      link 9999, maintenance overlay 99999). Documented as a table, including the
+      honest note that an action sheet currently outranks toasts. **Not** restacked
+      silently — that changes live tap/focus behaviour and needs its own pass.
+- [x] **C5 — audited, no offenders remain.** Measured painted heights of every
+      pill-shaped control at 360x640 across `/`, `/listings`, `/flatmates`,
+      `/societies`, `/plans`, `/compare`, `/locality`, `/locality/:slug`.
+      `--control-h` is 44px at that width and nothing lands under 40px except two
+      deliberate `.tap-extend` controls (32px Back tile, 20px assistant Dismiss),
+      both with a transparent 44px hit area. The 30–32px pills the audit saw were
+      already fixed by the earlier control-token work.
+- [x] **Genuine regression found while measuring** (not in the review): the
+      Save-property heart on `/` Featured cards painted 36x36 with no hit
+      extension and was failing `tap-targets.spec.js` on both mobile projects.
+      Given `.tap-extend`, which keeps the 36px tile the card art is built around.
+      Sweep went 2 flaky -> 24/24.
+- [x] **D1 — field-ops route set defined.** `design-system.md` now opens the
+      mobile-first section with which routes are mobile-supported: all consumer
+      routes, plus `/ops` and its eight queues (enumerated from the router, not
+      guessed) and `/admin/properties`. The other fifteen `/admin/*` routes are
+      named as desk-only, with the bar they must still clear (usable, unclipped)
+      separated from the one they need not (mobile polish).
+- [ ] **B7 — blocked, needs a product call.** The density is real and measured:
+      7 targets, 265px of painted control in a 360px row, 8px gaps, account pill
+      ending at exactly x=360. But the item's escape hatch does not exist — the
+      bottom nav is Reels/Search/Post/Flatmates/Services and has never held
+      Saved/Notifications/Messages, and `acctItems()` carries a comment recording
+      that those three were *deliberately removed* from the account drawer when
+      they went inline. The top bar is currently their only route, so removing
+      them would strand three destinations, not relocate them. Three options
+      written up under the B7 row in the review; all seven targets already clear
+      44px of hit area, so "accept the density" is a legitimate answer.
+
+### CI (new — `.github/workflows/ci.yml`)
+
+There was no `.github/` at all. Two jobs, split on purpose so a lint error is not
+reported behind a browser install:
+
+- `checks` — `npm ci`, lint, `check:i18n`, `check:help`, build, `check:size`.
+  Each a named step so the failing gate is visible from the job list.
+- `e2e` — matrix over `chromium` / `mobile` / `mobile-small`, Chromium only
+  (all three projects are Chromium-based), report uploaded on `always()`.
+  Playwright's own `webServer` starts the Vite dev server, so no manual step.
+
+**`check:i18n` currently fails**, and CI will be red until it is fixed: 31
+unresolved keys, all from two *untracked* files (`VerifyModal.jsx`,
+`MobileSearchSheet.jsx`) belonging to in-flight work. The gate is correct; the
+tree is dirty. Whoever owns those files needs to add the keys.
+
+### Mobile suite after these changes: 322 passed, 1 flaky, 3 failed
+
+None attributable to this work (my changes: `Featured.jsx`,
+`InteriorRenovation.jsx`, an `index.css` comment, two docs):
+
+- `phase3.spec.js` calendar docking (x2) — asserts on `.pn-cal`, which lives in
+  `styles/components/date-time-fields.css`, an **untracked** new file from
+  another session's in-flight work.
+- `sheets-and-actions.spec.js` — "Close filters" width `43.99998474` vs a `>= 44`
+  assertion. A sub-pixel rounding artifact, not a real undersized control; the
+  assertion needs a tolerance.
+
+## Home "Flatmates" tile — mobile optimisation (DONE)
+
+Single file: `frontend/src/pages/consumer/home/FlatmatesSection.jsx`. CSS-class-only
+change, no logic, no i18n, no new file.
+
+- [x] Feature row (`Verified seekers` / `Women-only filter` / `No number sharing`)
+      forced to **one line**: `flex-nowrap` + `whitespace-nowrap` + `shrink-0`,
+      `text-xs` -> `text-[11px]` below `sm`, icons `w-4` -> `w-3.5`, gap `20px` -> `8px`.
+      Measured: at 412px content == 340px == container width (exact fit, no scroll);
+      at 360px it overflows 40px, so `overflow-x-auto no-scrollbar` + a
+      `max-[399px]:` right-edge mask makes the cut intentional and swipeable.
+      Fitting all three at 360 needs ~9.5px type, which is below a readable floor.
+- [x] CTAs stacked full-width below `sm` (`w-full sm:w-auto`, `justify-center`,
+      `py-3`), `hover:scale-105` scoped to `sm:` (no scale on touch).
+- [x] Card padding `p-8` -> `p-5 sm:p-10`, radius `rounded-2xl sm:rounded-3xl`,
+      body copy `text-sm` -> `text-[13px]`, tightened vertical rhythm.
+- [x] Split-rent card: `p-6` -> `p-4 sm:p-7`, icon tile 44 -> 36, share price
+      `text-2xl` -> `text-xl`, avatars 40 -> 32; `min-w-0` + `truncate` on the
+      locality line and `shrink-0` on the arrow so the row never wraps or clips.
+- [x] Verified: eslint 0, `npm run build` exit 0, no horizontal document overflow at
+      412 or 360, `tests/consumer/home` 20 passed.
+
+### Pre-existing failures (proven, not caused by this work)
+
+Confirmed by `git stash push -- FlatmatesSection.jsx`, re-run, identical failure:
+
+- `consumer/home/flatmates-rail.spec.js:18` — spec expects `/flatmates?view=flatmates`,
+  the component has always navigated to `?view=team-up`. Spec and source disagree on
+  the query param; needs a product decision on which is right.
+- `consumer/home/entity-search.spec.js:84` — `page.goto` 30s timeout, part of the
+  known `home-entity-search` / `qa-location-search` cluster already logged above.

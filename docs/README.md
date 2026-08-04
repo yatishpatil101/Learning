@@ -13,13 +13,14 @@ these docs capture that logic in detail so it can be re-implemented server-side.
 5. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system (bottom chrome, sheets, touch targets) and the design-validation checklist.
 6. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases).
 7. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+   - [`roadmap/mobile-ux-review.md`](./roadmap/mobile-ux-review.md) — measured mobile-first audit of every consumer/admin/ops screen at 390x844 and 360x640, with a prioritised improvement plan (~80% of users are on phones).
 
 ## Map
 ```
 docs/
   system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, design-system
   flows/      consumer/ admin/ ops/ per-feature docs
-  roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
+  roadmap/    build-roadmap, mobile-app-plan, mobile-ux-review, ai-ml-libraries
   misc/       packing-plan
 ```
 

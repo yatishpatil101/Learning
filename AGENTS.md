@@ -1,13 +1,34 @@
 ## Workflow Orchestration
 
-### Always-On Skills (mandatory — before every answer)
-- Before responding to ANY task in this repo (plan, build, review, debug, or answer), first consult these three skills and apply their guidance: `punenest-frontend` (implementation), `real-estate-expert` (domain model), `senior-product-manager-realestate` (scope/priority). Required even for questions and clearly scoped bug fixes — for a trivial mechanical change it is a fast internal check, not a reason to pause.
-- For every implementation (writing, adding, refactoring, or fixing code), apply the `ponytail` skill (default `full`): climb the laziness ladder, prefer stdlib/native/existing code over new abstractions, and ship the shortest diff that fully solves the problem. It governs how code is built; the three skills above still govern scope, domain, and conventions.
-- On conflict between them, prefer `punenest-frontend` for implementation, `real-estate-expert` for domain, `senior-product-manager-realestate` for scope. Note the conflict in your session summary.
-- If a skill you actually need cannot be read, report the missing file to the user.
+### Attachments (screenshots are primary input)
+When an image is attached:
+- **Inspect it before answering or editing.** Never ask the user to re-describe it; never infer its content from the message text.
+- It is the **source of truth** for current state — if it contradicts the code, the code is wrong. Say so.
+- Read the whole frame: the broken element plus surrounding spacing, alignment, overflow, and any visible viewport width, console error, terminal output, or DevTools panel.
+- State what you see and what you're changing because of it, so a misread surfaces immediately.
+- Workspace image file → `view_image`, not `read_file`. Referenced but missing → say so and stop.
+
+### Skill Routing (load on demand)
+Default: **read no skill file** — answering, explaining, and mechanical edits need none. Max **two** per turn; if two apply, pick the primary deliverable's.
+
+| Trigger | Read |
+|---|---|
+| Frontend code, project conventions, file map, mock data, auth guards, Playwright harness | `punenest-frontend` |
+| Backend code, API contracts, data model, Flyway, JWT/roles | `punenest-backend` |
+| Designing listing/search/filter/map/wizard/contact-gate/alert **behaviour** (not just editing markup) | `real-estate-expert` |
+| Scope, priority, tradeoffs, success metrics for a new feature | `senior-product-manager-realestate` |
+| New UI surface or visual redesign | `ui-ux-pro-max`, then `frontend-design` |
+| Render/data/bundle performance (incl. during review) | `react-performance` |
+| A skill named by the user | that skill |
+
+**Simplicity rule (inlined — don't read `ponytail` for this).** Prefer no change > existing code > stdlib/native > one-line addition > new dependency > new abstraction. Ship the shortest diff that fully solves it. Read `ponytail` only when invoked by name or asked for an over-engineering audit.
+
+Conflicts: `punenest-*` wins on implementation, `real-estate-expert` on domain, `senior-product-manager-realestate` on scope — note it in your summary. Skills live in `~/.copilot/skills/`; a missing local `skills/` folder means nothing. UI design-consistency rules auto-apply from `.github/instructions/ui-design-consistency.instructions.md`.
+
+**Archived skills** (other languages/frameworks, Office/PDF/image gen) sit in `~/.copilot/skills-archive/` so they don't load every turn. Still usable — read `~/.copilot/skills-archive/<name>/SKILL.md` by absolute path when named, or move the folder back to re-activate. In neither place → report it.
 
 ### Rule Precedence
-Order when rules conflict: (1) safety/correctness, (2) task-type routing (bug vs. feature), (3) planning/check-in, (4) elegance/simplicity, (5) lessons capture.
+On conflict: (1) safety/correctness, (2) task-type routing, (3) planning/check-in, (4) elegance, (5) lessons capture.
 
 **Check-in policy (single source of truth):**
 
@@ -16,61 +37,82 @@ Order when rules conflict: (1) safety/correctness, (2) task-type routing (bug vs
 | Bug fix / clearly scoped task | Proceed autonomously — no check-in, even across multiple files |
 | New feature / architectural change | Plan first, verify with user before implementing |
 | Ambiguous scope | Ask one clarifying question first |
-| Spawning a subagent | Not a check-in — never pause, spawn silently as needed |
+| Spawning a subagent | Not a check-in — never pause, spawn silently |
 
-- If `tasks/lessons.md` or `tasks/todo.md` don't exist, create them with a header before writing.
-
-### Planning
-- For UI: run `ui-ux-pro-max` (design system) + `frontend-design`, follow `punenest-frontend`. For real-estate features: use `real-estate-expert` (domain) and `senior-product-manager-realestate` (scope/metrics) before building.
-- Enter plan mode for features/architectural changes with real tradeoffs; write specs upfront.
-- If something goes sideways, STOP and re-plan. If one full re-plan (rewrite the approach from scratch) fails, stop and report the specific obstacle to the user.
-
-### Subagents
-- Spawn one when a task meets a threshold (>~150 new lines, >3 files, or independent parallel workstreams) AND no single targeted fix cleanly solves it; otherwise prefer the targeted fix. Applies equally to bug fixes.
-- Give each subagent one clear responsibility. If it fails or returns unusable output, stop and report to the user.
-
-### Self-Improvement
-- After any user correction, record the pattern in `tasks/lessons.md` and read it at session start. If a lesson conflicts with this file, this file wins (note it in your summary).
-
-### Autonomous Bug Fixing
-- Given a bug report or scoped task: just fix it. Point at logs/errors/failing tests and resolve them without hand-holding.
-
-### Demand Elegance (balanced)
-- For non-trivial changes, ask "is there a more elegant way?" and challenge your own work. Skip for simple, obvious fixes.
+### Execution
+- **Planning** — plan mode for features/architectural changes with real tradeoffs; specs upfront. If it goes sideways, STOP and re-plan; if one full re-plan (approach rewritten from scratch) fails, report the specific obstacle.
+- **Bug fixing** — just fix it. Point at logs/errors/failing tests and resolve without hand-holding.
+- **Elegance** — for non-trivial changes ask "is there a more elegant way?" and challenge your own work. Skip for obvious fixes.
+- **Subagents** — spawn when >~150 new lines, >3 files, or independent parallel workstreams AND no single targeted fix solves it; otherwise prefer the targeted fix (bug fixes included). One responsibility each; if one fails or returns unusable output, stop and report.
+- **Self-improvement** — after any user correction, record the pattern in `tasks/lessons.md` and read it at session start. If a lesson conflicts with this file, this file wins (note it).
 
 ## Task Management
-1. **Plan** to `tasks/todo.md` (checkable items).
-2. **Track** progress; mark items complete as you go.
-3. **Summarize** changes at each step.
-4. **Document** results and **capture lessons** in `tasks/lessons.md`.
+Plan to `tasks/todo.md` as checkable items → mark complete as you go → summarize each step → capture lessons in `tasks/lessons.md`. Create either file with a header if missing.
 
 ## Core Principles
-- **Simplicity first** — simplest change that fully solves it.
-- **No laziness** — fix root causes, no temporary hacks.
-- **Minimal impact** — touch only what's necessary.
+**Simplicity first** (simplest change that fully solves it) · **No laziness** (fix root causes, no temporary hacks) · **Minimal impact** (touch only what's necessary).
 
-## Project Skills
-Read a skill's `SKILL.md` before matching work:
-- **ui-ux-pro-max** — design system before any UI code.
-- **frontend-design** — distinctive visual direction.
-- **punenest-frontend** — project conventions, file map, mock data, auth guards, Playwright harness.
-- **punenest-backend** — Spring Boot 3 + PostgreSQL API conventions, system design, data model, Flyway, JWT/role guards, contact gate, provider seams, frontend `http` wiring.
-- **react-best-practices** — render/data/bundle performance (apply during review too).
-- **real-estate-expert** — listing model, search/filters, maps, wizards, contact gates, alerts, SEO.
-- **senior-product-manager-realestate** — scope, prioritize, and define success metrics before code.
-- **ponytail** — laziest-that-works discipline for every implementation; stdlib/native/existing over new code, shortest working diff.
+## Context Cost Rules
 
-Design-consistency rules for UI live in `.github/instructions/ui-design-consistency.instructions.md` (auto-applied to UI files).
+### Query the graph before searching
+`frontend/src/graphify-out/` holds a knowledge graph of `frontend/src` (3,697 nodes, graphify 0.9.32). To locate code from a symptom, screenshot, or concept rather than a known filename, **query it first** — right files with line numbers for ~600 tokens vs ~40k for semantic search plus file reads. Fall back to `grep_search`/`semantic_search` only if a query returns nothing useful.
 
-All skills above are installed globally under `~/.copilot/skills/` (not in this repo), so a missing local `skills/` folder does not mean a skill is absent.
+Run from repo root; the CLI isn't on PATH, and every read command needs `--graph` (the graph lives under `frontend/src`):
+```powershell
+python -m graphify query "mobile bottom navigation bar" --graph frontend/src/graphify-out/graph.json --budget 700python -m graphify path "BottomNav" "AuthContext" --graph frontend/src/graphify-out/graph.json
+python -m graphify explain "ConsumerLayout" --graph frontend/src/graphify-out/graph.json
+```
+
+**Keep it current** — a stale graph points at moved files. Re-indexing costs no LLM tokens and is idempotent. Run the watcher in a background terminal, or `update` after a change (Post-Change Verification step 5):
+```powershell
+python -m graphify watch frontend/src
+python -m graphify update frontend/src --force
+```
+
+`graphify-out/` is git-ignored at any depth (generated, ~11 MB); a from-scratch rebuild is ~40s and free, so never commit it. `graph.json` paths are repo-root-relative, so it survives moving the repo. **Never use `graphify extract`** — it loses the relative paths and named communities and drops ~300 nodes; `update --force` is the only rebuild. `frontend/src/.graphifyignore` excludes 132 node-less `.json` files and the minified `societies-rera.js`. The `pre-#1504 node-ID` note on every query is cosmetic.
+
+### Reading files
+- Never read whole — `grep_search` for a symbol, then read a narrow line range:
+  - `frontend/src/data/societies-rera.js` — 182 KB of minified data on 4 lines. Grep only.
+  - `frontend/src/styles/index.css` — 7,309 lines. Use the section map below.
+  - `e2e/COVERAGE.md` — 272-line matrix. Grep the feature's row; never read whole.
+- `e2e` is deliberately **not** in the graph: specs reach the app via `page.goto()` strings, not imports, so there'd be no edges to traverse. Find a spec by filename (`Get-ChildItem e2e/tests -Recurse -Filter *bottom-nav*`) or a COVERAGE.md row.
+- Don't read `e2e/helpers/app.js` (14.9 KB) for its API — grep all 41 helper exports instead:
+  ```powershell
+  Select-String -Path e2e/helpers/*.js,e2e/fixtures/*.js -Pattern '^export (?:async )?function (\w+)|^export const (\w+)\s*='
+  ```
+- Prefer `grep_search` over `semantic_search` when you know the identifier.
+- Read a line range, not a whole file, for anything over ~400 lines.
+
+### `index.css` section map
+Jump to a range; never read top-to-bottom. Line numbers drift — re-grep the section comment (`/* ===`) if a range looks wrong.
+
+| Line | Section | Line | Section |
+|---|---|---|---|
+| 7 | Design tokens (from `theme.css`) | 5595 | Service landing pages |
+| 668 | Base | 6439 | Reduced motion |
+| 684 | Devanagari typography (Hindi, Marathi) | 6577 | View Transitions |
+| 1645 | Listings page | 6624 | `.pn-mdp` map detail drawer |
+| 3526 | Property page | 7222 | Mobile space optimization (`<640px`) |
+| 4250 | Owner page | 7287 | Mobile bottom chrome |
+| 4378 | List Property wizard | | |
+
+### Shrinking `index.css`
+Route CSS goes to `frontend/src/styles/routes/<route>.css`, pulled in by **JS import from the route component** (e.g. [frontend/src/pages/consumer/Reels.jsx](frontend/src/pages/consumer/Reels.jsx#L5)) so Vite bundles it into that chunk. Seven routes do this; leave a `/* → moved to styles/routes/<name>.css */` breadcrumb.
+- Only move blocks scoped to one route (Listings / Property / Owner / List-Property / Services remain).
+- **Never move** design tokens, Base, `@tailwind` directives, the `@layer components` block, Devanagari typography, Reduced motion, View Transitions, or the global mobile media queries — cascade-order sensitive.
+- Never use CSS `@import`. [frontend/postcss.config.js](frontend/postcss.config.js) has no `postcss-import`; the JS import is what makes this safe.
+- After each extraction run `npm run build` plus that route's `e2e/*.spec.js`.
 
 ## Code Review
-- **user-data changes** = code that reads/writes/transmits/displays PII, credentials, session tokens, contact-gate logic, or per-user data.
-- After changes, run reviewers in order: `react-reviewer` (`.jsx`/React), `code-reviewer` (general), `security-reviewer` (auth or user-data changes).
-- If a reviewer agent is unavailable, do a manual review, note it in `tasks/todo.md`, and mark the step PENDING AGENT REVIEW.
+**user-data changes** = code that reads/writes/transmits/displays PII, credentials, session tokens, contact-gate logic, or per-user data.
 
-## Post-Change Verification (canonical checklist, in order)
-1. **Review** — run the applicable agents above; apply the staff-engineer self-check ("would a staff engineer approve this?") and diff behavior vs. main when relevant.
-2. **Simplify** — run `/simplify` (or `code-simplifier`) as a STRICT no-behavior-change pass; skip any change that isn't provably equivalent. If unavailable, skip it and note the skip in `tasks/todo.md`.
-3. **Playwright** — run the relevant `e2e/*.spec.js` (full suite if cross-cutting). Don't mark complete until they pass; fix root causes, not tests. For a failure not documented in `tasks/todo.md`, flag it to the user as potentially pre-existing before proceeding; record confirmed pre-existing failures there and don't count them against the task.
-4. **No coverage** — if no test covers the feature, document the gap in `tasks/todo.md`, add a stub spec or manual steps, and mark PENDING VERIFICATION.
+After changes run reviewers in order: `react-reviewer` (`.jsx`/React) → `code-reviewer` (general) → `security-reviewer` (auth or user-data changes). If an agent is unavailable, review manually, note it in `tasks/todo.md`, and mark the step PENDING AGENT REVIEW.
+
+## Post-Change Verification (in order)
+1. **Review** — run the agents above; apply the staff-engineer self-check and diff behavior vs. main when relevant.
+2. **Simplify** — `/simplify` (or `code-simplifier`) as a STRICT no-behavior-change pass; skip anything not provably equivalent. If unavailable, note the skip in `tasks/todo.md`.
+3. **Playwright** — run the relevant `e2e/*.spec.js` (full suite if cross-cutting). Not complete until they pass; fix root causes, not tests. Flag any failure not already in `tasks/todo.md` as potentially pre-existing before proceeding; record confirmed ones there and don't count them against the task.
+4. **Update specs** — every completed feature or behaviour change ships with a new or updated `e2e/*.spec.js` plus an `e2e/COVERAGE.md` entry.
+5. **Re-index the graph** — if a file under `frontend/src` was added, renamed, or deleted, run `python -m graphify update frontend/src --force`. Skip if the watcher is running or only contents changed.
+6. **No coverage** — document the gap in `tasks/todo.md`, add a stub spec or manual steps, and mark PENDING VERIFICATION.

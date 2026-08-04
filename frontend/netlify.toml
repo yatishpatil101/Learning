@@ -32,6 +32,28 @@
     # Deltas vs the meta CSP: frame-ancestors + form-action added (meta can't do either),
     # ws:/wss: dropped (dev-only HMR), data: dropped from frame-src (a data: iframe is a
     # script-execution primitive this app never needs).
+    #
+    # images.unsplash.com is in connect-src, not just img-src, because the service worker
+    # caches listing photos: a plain <img> is an img-src load, but the SW's fetch() for that
+    # same URL has no image element behind it and is checked against connect-src. Without it
+    # every listing photo failed with ERR_FAILED the moment the worker took control — and
+    # only in production, because `vite preview` sends no CSP header and a <meta> CSP does
+    # not apply to the worker script.
+    #
     # TODO(prod): drop 'unsafe-inline' from script-src once Maps + GA are re-tested — it is
     # the one control that actually contains XSS, and Vite emits no inline scripts.
+    #
+    # fonts.googleapis.com / fonts.gstatic.com stay in style-src / font-src even though our
+    # web fonts are self-hosted in public/fonts. They are NOT dead allowances: the Maps SDK
+    # pulls Google Sans + Material Symbols itself, and without them the map controls lose
+    # their icons. Keep this in step with the meta CSP in index.html.
     Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+# Self-hosted fonts. Content-addressed by weight+subset and only ever replaced by
+# re-running scripts/fetch-fonts.mjs, so a year-long immutable cache is safe — and
+# it is the whole point of self-hosting: a repeat visitor pays nothing for type.
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+

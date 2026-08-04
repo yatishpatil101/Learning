@@ -140,21 +140,105 @@ is now the minority pattern and should not be used in new code.
 The app is authored mobile-first. These are the rules the phone layout depends on; breaking one of
 them usually breaks a different component than the one you edited.
 
+### Which routes are mobile-supported
+
+"Mobile-first" is a claim about the consumer app, not about every screen in the codebase. Roughly
+80% of consumer traffic is phone-only, so **every `/` consumer route is mobile-supported without
+exception** and a phone regression there is a release blocker.
+
+The back office splits in two, and the split is a deliberate scope boundary rather than an
+oversight:
+
+**Field ops — mobile-supported.** These are used standing in a lobby, on a site visit, or between
+appointments, so they get the same touch-target floor, safe-area handling and content-budget checks
+as consumer routes:
+
+- `/ops` and every ops queue under it — `/ops/requests`, `/ops/flatmate-review`, `/ops/interior`,
+  `/ops/legal`, `/ops/packers`, `/ops/referrals`, `/ops/rent-agreement`, `/ops/valuation`
+- `/admin/properties` — listing verification, which is done with the property in front of you
+
+**Desk admin — desktop-only, and that is a decision.** `/admin/analytics`, `/admin/finance`,
+`/admin/reports`, `/admin/settings`, `/admin/users`, `/admin/team`, `/admin/staff-activity`,
+`/admin/content`, `/admin/localities`, `/admin/societies`, `/admin/enquiries`, `/admin/services`,
+`/admin/support`, `/admin/post-on-behalf`, `/admin/flatmates`. These are dense multi-column tables,
+cross-filtered charts and bulk editors that a staff member uses seated at a desk. They must stay
+*usable* on a phone — nothing may be unreachable or clipped off-screen — but they are not held to
+the mobile polish bar, and time spent hand-tuning a phone layout for `/admin/analytics` is time
+spent on nobody.
+
+Practical consequences:
+
+- Mobile e2e projects (`mobile`, `mobile-small`) cover consumer and field-ops routes. Adding a desk
+  admin route to a mobile sweep will surface real but deliberately-accepted findings.
+- The responsive dual-render pattern below is mandatory for field-ops tables and optional for desk
+  admin, where a horizontally scrollable table is an acceptable answer.
+- If a desk admin route starts being used in the field, move it into the list above *first* and then
+  fix it — the list is what makes the expectation reviewable.
+
 ### Bottom chrome: `--pn-bottom-inset` and the z-index ladder
 Nothing bottom-anchored may hardcode a `bottom-*` value. `--pn-bottom-inset` reports how much of the
 viewport bottom is already claimed by fixed chrome; `ConsumerLayout` sets `.has-bottom-nav` on routes
 that mount the mobile tab bar, which expands the inset to
-`--pn-bottom-nav-h + --pn-bottom-nav-gap + --pn-safe-b`. Above `lg` the variable collapses back to the
+`--pn-bottom-nav-h + --pn-bottom-nav-offset`. Above `lg` the variable collapses back to the
 safe-area inset alone, so every `calc()` built on it resolves to the literal offset it had before the
 system existed — desktop safety is structural, not a promise.
 
+`--pn-bottom-nav-offset` is `max(--pn-bottom-nav-gap, --pn-safe-b)`, **not** a sum. The capsule's
+float gap and the home-indicator inset are the same thing — breathing room at the bottom edge — so
+adding them double-counts. That shipped: in an installed iOS app `--pn-safe-b` is 34px, and
+`gap + safe-b` parked the bar 46px above the screen edge (5.5% of the viewport) while an in-browser
+visit showed the intended 12px, because in a browser tab the inset is 0. It is one token because the
+bar's own `bottom` and `--pn-bottom-inset` must agree; they were two hand-synced `calc()`s, which is
+precisely how they drifted apart.
+
 The ladder is written down once so bottom chrome never re-negotiates it:
-**content 0-49 · sticky page CTA 60 · mobile bottom nav 70 · sheets 1000 · assistant 1300 ·
-cookie consent 1400 · blocking modals 1500.**
+**content 0-49 · sticky page CTA 60 · mobile bottom nav 70 · autosave flash 90 · sheets 1000 ·
+assistant 1300 · install prompt 1350 · cookie consent 1400 · blocking modals 1500 · toasts 1600.**
+
+Toasts are the top of the *bottom-chrome* ladder on purpose, and they are the one rung there that is
+not bottom chrome. A toast is the receipt for an action the user just took — "Saved", "Request sent",
+"Couldn't copy link" — so it has to be legible above whatever surface triggered it, including a modal.
+Anything that outranked a toast would silently swallow the only confirmation the app gives. That is
+also why the container is `pointer-events: none` with the pills re-enabling it individually: sitting
+at 1600 means it covers real estate on every layer below, so it must not intercept a tap meant for
+them.
+
+The rung this replaced is worth recording. The autosave pill used to sit at an undocumented
+`z-index: 2000` — above blocking modals — so a transient "Draft saved" could paint over a dialog
+asking the user to confirm something irreversible. It is now 90, because it reports *state* rather
+than confirming an *action* and never needs to outrank a dialog. A property lightbox carried the same
+ad-hoc 2000 and has been moved onto the 1500 modal rung for the same reason.
+
+**Above the ladder there is a second, higher band that the ladder above does not describe**, and it
+is recorded here so nobody assumes 1600 is the ceiling:
+
+| Layer | Value | Why it is up there |
+| --- | --- | --- |
+| `.pn-lightbox`, `.pn-dropdown__scrim` | 9998 | Must cover page chrome including the sticky nav |
+| `.pn-dropdown__menu--sheet`, `.pn-action-sheet` | 9999 | Paired with the scrim directly beneath them |
+| `.pn-cal` (date picker) | 2000 | Anchored dropdown that has to clear the sheet it opens inside |
+| Skip-to-content link | 9999 | WCAG 2.4.1 — on focus it must beat everything |
+| Maintenance overlay | 99999 | Blocks the entire consumer app by design |
+
+The skip link and the maintenance overlay genuinely belong at the ceiling. The sheet/picker cluster
+is the **known inconsistency**: `.pn-action-sheet` at 9999 outranks the toast layer at 1600, so a
+confirmation fired from inside an action sheet paints behind it. Consolidating that cluster onto the
+1000 "sheets" rung is the next change here; it is called out rather than done silently because
+restacking live surfaces changes real tap and focus behaviour and needs its own measurement pass.
+
+Every `position: fixed` addition gets a rung — from this page, not invented — before it ships. A
+value picked to "just be on top" is how 2000 happened, twice.
+
+The autosave flash (`.pn-autosave-flash`) sits *just above* the tab bar rather than near the top:
+it reports state and never needs to outrank a dialog. It is also the one piece of bottom chrome
+appended to `<body>` rather than rendered inside the layout, so it cannot read the
+`--pn-bottom-inset` that `.has-bottom-nav` sets on ConsumerLayout's wrapper — it rebuilds the
+offset from `--pn-bottom-nav-h` + `--pn-bottom-nav-offset` inside the bar's own breakpoint
+instead. Anything else appended to `<body>` has the same blind spot.
 
 A new `position: fixed` element must be checked against the existing bottom-chrome inventory (bottom
-nav, assistant FAB, cookie bar, CityChrome, sticky CTA), not just against z-index — two floating
-controls on the same corner intercept each other's taps.
+nav, assistant FAB, install prompt, cookie bar, CityChrome, sticky CTA), not just against z-index — two
+floating controls on the same corner intercept each other's taps.
 
 ### Top chrome: `--pn-nav-h`, `--pn-top-inset`, hide-on-scroll
 `--pn-nav-h` is the only place the top bar's height is written down: the row, every page's top
@@ -226,6 +310,35 @@ material (`.pn-bottom-nav`, `.filter-fab`) share the same `left` inset so they s
 edge, and both carry an opaque `@supports not (backdrop-filter)` fallback for Firefox Android and old
 WebViews. Height is owned by `--pn-bottom-nav-h` **only** — an inline `style` on the element would
 desync every widget that positions against `--pn-bottom-inset`.
+
+### Home-screen install nudge is two mechanisms, not one
+`InstallPrompt.jsx` promotes adding PuneNest to the home screen, and the platform split is real
+rather than an implementation detail worth hiding:
+
+- **Chromium** (Android Chrome, Samsung Internet, Edge) fires `beforeinstallprompt`. We
+  `preventDefault()` it — suppressing Chrome's own mini-infobar so the user gets one ask, not two —
+  stash the event, and call `prompt()` from the click. That opens the browser's native install
+  dialog. `prompt()` throws outside a user gesture, so a silent install on page load is impossible on
+  every platform, by design.
+- **iOS/WebKit** has no install API in any browser, including Chrome on iOS. The only honest option
+  is the Share → Add to Home Screen instruction, rendered **without** a button — a CTA there would be
+  a dead control.
+- Everything else (Firefox Android, desktop) never renders it. Mobile-only via `lg:hidden`, matching
+  the bottom nav's breakpoint.
+
+**The gate is engagement, not time.** The nudge appears after 3 page views, not after N seconds: a
+timer measures patience, whereas three pages in is someone who came here to look at homes. The count
+persists in `localStorage` (`pn_install_prompt_v1`), so it accumulates across visits.
+
+**Silence escalates and is terminal:** 1st dismissal → 1 week, 2nd → 2 weeks, 3rd → never again.
+Declining the browser's own dialog counts as a dismissal; treating it as neutral would re-ask someone
+who already said no. It is also suppressed while the cookie bar is up (that bar is legally required
+and owns the bottom of the screen), and never shown once `display-mode: standalone`,
+`navigator.standalone`, or an `appinstalled` event indicates the app is already installed.
+
+> The view counter is written through a ref guard. Under `StrictMode` effects are double-invoked
+> deliberately, and a bare `views + 1` counted every page twice — the gate opened at half the intended
+> engagement in dev. Any future per-navigation counter has the same trap.
 
 ### Landscape phones are a height budget, not a width one
 A rotated handset is ~915x412, so a `min-width: 768px` breakpoint cannot tell it from a tablet and was

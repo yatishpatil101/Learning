@@ -1,5 +1,39 @@
 # Lessons
 
+## Mobile-first audit + Phase 1 (this session)
+- **Measure before rating effort.** Two items the audit called "S" were wrong once the
+  import graph was traced: `db.json` can't be dynamically imported without making the
+  whole mock layer async (`rawLoad()` is sync, called everywhere), and `societies-rera.js`
+  is on the critical path via Home's societies rail. A doc that hasn't opened the call
+  sites is guessing at cost.
+- **Raw KB != wire KB.** The stylesheet is 209 KB raw but **37.9 KB gzipped**; the review's
+  "save 60-100 KB" for a CSS split was really ~10-20. Always quote gzip for perf claims.
+- **Budget gates must read the document, not guess filenames.** `index-*.js` matched both
+  the entry chunk AND an unrelated vendor chunk. Parsing `dist/index.html` for
+  `<script type=module>` + modulepreload + stylesheet is exact and needs no upkeep when
+  chunking changes. Also: fail loudly if 0 assets match — a gate reporting 0 KB looks green
+  while waving through every regression.
+- **The StrictMode double-invoke trap is real and repeats.** A per-visit counter in an
+  effect spent its entire 2-view budget on one load. `design-system.md` already documented
+  this for InstallPrompt; the same fix (ref guard) was needed for the Nestor nudge. Any new
+  "show N times" counter needs it.
+- **`scrollIntoViewIfNeeded` stops at the viewport rect**, which includes the strip behind
+  a sticky bar — so it parks the element under exactly the chrome you're testing for. Scroll
+  to a reading position (`top - 160`) instead.
+- **`elementFromPoint` returns null off-screen.** Returning "nothing is covering it" for an
+  element that isn't on screen is a pass for the wrong reason. Return OFFSCREEN explicitly.
+- **A/B a red test against `git stash` before claiming "pre-existing".** The 2 `help-i18n-urls`
+  failures reproduced with all source changes stashed -> genuinely not mine. Cheap and
+  conclusive; asserting it without the experiment is just hoping.
+- **Not every audit finding is a bug.** Sign-in/sign-up "sub-44px checkboxes" were false
+  positives — the *labels* carry `.tap-target` and clicking a label toggles its control, so
+  the label is the touch target. Only `/contact` genuinely lacked it. Measure the thing the
+  finger actually hits.
+- **Some findings are product decisions, not defects.** The property price sits at y=551 on
+  a 360x640 screen; lifting it above the fold means shrinking the hero gallery on a property
+  site. Raised it, didn't silently decide it — and made the test assert the unconditional
+  invariant instead (no *fixed* overlay on the price; scrolling under a sticky bar is fine).
+
 ## PMF overlay session
 - **Temporary/experimental overlays must be flag-gated so the dev flow is never touched.**
   `VITE_PMF_MODE` off by default; every hook (`track`, `captureLead`, banner, NotifyMe) no-ops
