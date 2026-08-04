@@ -1,0 +1,138 @@
+name: CI
+
+# Two jobs, deliberately split.
+#
+# `checks` is the fast gate: lint, i18n/help content checks, build, and the bundle
+# budget. It finishes in a couple of minutes and catches most breakage, so it is
+# what a contributor watches while a PR is open.
+#
+# `e2e` is the slow gate. It needs a browser download and starts the Vite dev
+# server (playwright.config.js does that itself via `webServer` whenever BASE_URL
+# is unset), so it is kept separate rather than bolted onto `checks` — a lint
+# error should not wait behind a browser install to be reported.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run irrelevant. Cancel it
+# rather than paying for both; `main` is excluded so pushed history always has a
+# completed run against it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # Pin one Node major for every job. The repo declares no `engines`, so without
+  # this the runner's default silently decides, and a bump would land as an
+  # unexplained CI failure rather than a deliberate change.
+  NODE_VERSION: '22'
+
+jobs:
+  checks:
+    name: Lint, content checks, build, size budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` rather than `npm install`: it fails when package.json and the
+      # lockfile disagree, which is the check we want in CI.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Each step is named and separate so the failing gate is visible from the
+      # job list without opening logs. `npm run check` bundles lint + i18n + help,
+      # but bundling them here would collapse three distinct failure modes into
+      # one red X.
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: i18n key and locale checks
+        working-directory: frontend
+        run: npm run check:i18n
+
+      - name: Help content check
+        working-directory: frontend
+        run: npm run check:help
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # Must run after the build — it measures dist/. This is the regression gate
+      # for the bundle work: the budget is 560 KB with a 180 KB target, and the
+      # script exits non-zero when the entry chunks exceed it.
+      - name: Bundle size budget
+        working-directory: frontend
+        run: npm run check:size
+
+  e2e:
+    name: Playwright (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # No `needs: checks`. The suites test different things, and making e2e wait
+    # on lint just delays the slowest signal for the sake of tidiness.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split by viewport project so a mobile-only regression is legible from
+        # the job name, and so the three run in parallel instead of end to end.
+        project: [chromium, mobile, mobile-small]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      # The dev server the tests drive lives in frontend/, and playwright.config
+      # starts it with `npm --prefix ../frontend run dev`, so both installs are
+      # required even though the specs live in e2e/.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+
+      # Chromium only: all three projects are Chromium-based (Desktop Chrome and
+      # two Pixel 7 viewports), so downloading Firefox and WebKit would add
+      # minutes per job for browsers no project uses.
+      - name: Install Playwright browser
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ${{ matrix.project }}
+        working-directory: e2e
+        run: npx playwright test --project=${{ matrix.project }}
+
+      # `always()`, not `failure()`: the HTML report is the artifact you want when
+      # a run is flaky-but-green just as much as when it is red.
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 7

@@ -35,6 +35,16 @@ test-results/
 playwright-report/
 playwright/.cache/
 
+# Eclipse/IDE compiled output — backend/bin is a full duplicate of backend/src
+# plus .class files, produced by the IDE. Never commit it.
+backend/bin/
+*.class
+
+# Playwright run artifacts (regenerated on every run)
+e2e/after-fails.xml
+e2e/baseline.json
+e2e/*-results.xml
+
 # Editor / scratch artifacts (never commit temp duplicates)
 *.jsx.new
 *.new
@@ -44,6 +54,18 @@ playwright/.cache/
 _rollback/
 .rollback/
 
+# Generated patches — share them out-of-band, never commit them
+*.patch
 
 # Local, machine-specific DB status snapshot (durable setup docs live in docs/LOCAL_DEV.md).
 backend/LOCAL_DB_STATUS.md
+
+# Graphify knowledge graph — generated output, machine-specific paths, multi-MB blobs.
+# Regenerated locally; ignored at any depth (repo root and frontend/src both carry one).
+graphify-out/
+
+# Scratch specs used to measure something once, never part of the suite
+e2e/tests/**/tmp-*.spec.js
+
+# VS Code Java-modernization extension scaffolding — tool cruft, not project code
+.github/modernize/

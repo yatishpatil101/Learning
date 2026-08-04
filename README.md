@@ -60,7 +60,7 @@ scripts/generate-seed.mjs
 - **Phase 0 + 1 (done):** scaffold, Tailwind theme, router + layouts, full seed data, mock API,
   auth + guards.
 - **Phase 3 (done):** all consumer pages live (Home, Listings, Property, Owner, Compare, Services +
-  sub-services, calculators, account pages, Locality, Reels, Share-a-Flat, Support, …).
+  sub-services, calculators, account pages, Locality, Reels, Flatmates, Support, …).
 - **Phase 4 (done):** admin back-office — Dashboard, Properties (verification queue), Analytics,
   Users, Services, Enquiries, Finance, Content, Reports (Trust & Safety), Support, Flatmates, Settings.
 - **Phase 5 (done):** ops queues — shared `OpsQueue` (team-scoped tickets) powers Requests, Rent
