@@ -5,6 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.util.UUID;
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * A buyer's request to see a listing owner's contact details — the row behind the contact gate.
@@ -28,6 +30,7 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "contact_requests")
+@Getter
 public class ContactRequest extends AuditedEntity {
 
     @Column(name = "property_id", nullable = false, updatable = false)
@@ -39,10 +42,12 @@ public class ContactRequest extends AuditedEntity {
 
     /** One of {@link ContactRequestStatuses}; the V4 CHECK rejects anything else. */
     @Column(name = "status", nullable = false)
+    @Setter
     private String status = ContactRequestStatuses.PENDING;
 
     /** Optional free-text note from the requester, shown to the owner in their inbox. */
     @Column(name = "message")
+    @Setter
     private String message;
 
     protected ContactRequest() {
@@ -55,27 +60,4 @@ public class ContactRequest extends AuditedEntity {
         this.message = message;
     }
 
-    public UUID getPropertyId() {
-        return propertyId;
-    }
-
-    public UUID getRequesterId() {
-        return requesterId;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public void setMessage(String message) {
-        this.message = message;
-    }
 }

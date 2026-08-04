@@ -1,0 +1,103 @@
+package com.punenest.api.leads.conversation;
+
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
+import com.punenest.api.common.web.Routes;
+import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.CurrentUser;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * {@code /messages} — the in-app inbox.
+ *
+ * <p>No {@code @PreAuthorize} anywhere: every guard on this resource is about <em>who the caller is
+ * to the other party</em>, not what role they hold, and roles cannot express that. The service owns
+ * all four decisions.
+ *
+ * <p>The inbox is paged. It was a bare array on §5.1's "grows with one user's own activity"
+ * reasoning, which holds for a seeker and fails for an owner: a row appears every time somebody
+ * else enquires about their listing, so the collection is driven by demand rather than by the
+ * caller.
+ */
+@RestController
+public class ConversationsController {
+
+    private final ConversationService service;
+
+    public ConversationsController(ConversationService service) {
+        this.service = service;
+    }
+
+    /**
+     * {@code GET /messages} (contract {@code myMessages}) — paged.
+     *
+     * <p>Most-recent-first is fixed in the query, so a client sort is stripped rather than honoured;
+     * see {@code ConversationRepository.inboxOf}.
+     */
+    @GetMapping(Routes.Conversations.BASE)
+    public PageResponse<ConversationDto> inbox(@CurrentUser AuthPrincipal principal,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(service.inbox(principal, Pageables.unsorted(pageable)), c -> c);
+    }
+
+    /**
+     * {@code POST /messages} (contract {@code startConversation}, spec fix S48).
+     *
+     * <p>201 when the thread was created, 200 when it already existed — hence {@code ResponseEntity}
+     * rather than {@code @ResponseStatus}. Both carry the same body, so a client that ignores the
+     * distinction still behaves correctly; one that honours it can tell a new chat from a resumed one
+     * without a second request.
+     */
+    @PostMapping(Routes.Conversations.BASE)
+    public ResponseEntity<ConversationDto> start(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody ConversationCreate body) {
+        ConversationService.Started started = service.start(principal, body);
+        return ResponseEntity
+                .status(started.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(started.conversation());
+    }
+
+    /** {@code GET /messages/{id}} (contract {@code getConversation}). */
+    @GetMapping(Routes.Conversations.BY_ID)
+    public ConversationDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.get(principal, id);
+    }
+
+    /** {@code POST /messages/{id}/reply} (contract {@code replyConversation}) — 201. */
+    @PostMapping(Routes.Conversations.REPLY)
+    @ResponseStatus(HttpStatus.CREATED)
+    public MessageDto reply(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @Valid @RequestBody MessageCreate body) {
+        return service.reply(principal, id, body.body());
+    }
+
+    /** {@code POST /messages/{id}/read} (contract {@code readConversation}) — 204. */
+    @PostMapping(Routes.Conversations.READ)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markRead(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        service.markRead(principal, id);
+    }
+
+    /**
+     * Contract schema {@code MessageCreate}.
+     *
+     * <p>Its {@code attachments} array is deliberately absent. There is no upload surface that
+     * produces a URL for a chat message, so the field could only ever carry a client-supplied string
+     * straight into the database — accepting it and dropping it is the honest behaviour, and leaving
+     * it off the record is what makes the drop visible instead of silent.
+     */
+    public record MessageCreate(@NotBlank @Size(max = 4000) String body) {
+    }
+}

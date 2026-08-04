@@ -6,11 +6,11 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.VerificationRequiredException;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -162,10 +162,10 @@ public class ContactService {
      */
     @Transactional
     public void respond(UUID ownerId, String reqId, StatusUpdate body) {
-        ContactRequest row = parseUuid(reqId)
+        ContactRequest row = Ids.parseUuid(reqId)
                 .flatMap(contactRequests::findById)
                 .filter(r -> properties.findByIdAndOwner_Id(r.getPropertyId(), ownerId).isPresent())
-                .orElseThrow(() -> new NotFoundException("Contact request not found"));
+                .orElseThrow(() -> NotFoundException.of("Contact request"));
 
         if (!ContactRequestStatuses.canTransition(row.getStatus(), body.status())) {
             throw new ConflictException("This contact request has already been answered");
@@ -218,18 +218,9 @@ public class ContactService {
      * either/or the property-detail endpoint accepts, so the client can pass whatever it holds.
      */
     private Property resolve(String idOrSlug) {
-        return parseUuid(idOrSlug)
+        return Ids.parseUuid(idOrSlug)
                 .flatMap(properties::findById)
                 .or(() -> properties.findBySlug(idOrSlug))
-                .orElseThrow(() -> new NotFoundException("Property not found"));
-    }
-
-    /** {@link Optional#empty()} when the token is not a UUID — a lookup miss, not a 400. */
-    private static Optional<UUID> parseUuid(String token) {
-        try {
-            return Optional.of(UUID.fromString(token));
-        } catch (IllegalArgumentException | NullPointerException notUuid) {
-            return Optional.empty();
-        }
+                .orElseThrow(() -> NotFoundException.of("Property"));
     }
 }

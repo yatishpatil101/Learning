@@ -1,6 +1,7 @@
 package com.punenest.api.leads.contact;
 
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.identity.user.User;
 import java.util.UUID;
 import org.mapstruct.Context;
@@ -80,20 +81,16 @@ public interface ContactMapper {
     }
 
     /**
-     * Mask a 10-digit mobile to the contract form {@code 98XXXXX210}. Byte-identical to
-     * {@code PropertyMapper.maskMobile} on purpose — the two trust surfaces must agree, and the UI's
-     * prettier {@code maskPhone} rendering is applied client-side to whatever string it receives.
-     * Anything that is not a clean 10-digit number becomes {@code null} rather than a partial leak.
-     * {@code private} so MapStruct never treats it as an implicit {@code String→String} mapping.
+     * Mask a 10-digit mobile to the contract form {@code 98XXXXX210}. Delegates to
+     * {@link MobileMask} — the single definition shared with every other trust surface, extracted in
+     * slice 4 when this rule was about to acquire a sixth copy. The UI's prettier {@code maskPhone}
+     * rendering is applied client-side to whatever string it receives.
+     *
+     * <p>Kept as a {@code private} wrapper rather than calling {@link MobileMask} inline from the
+     * mapping methods: a {@code String→String} method visible to MapStruct can be adopted as an
+     * implicit converter and applied to unrelated string fields (§8.1).
      */
     private String maskMobile(String mobile) {
-        if (mobile == null) {
-            return null;
-        }
-        String digits = mobile.replaceAll("\\D", "");
-        if (digits.length() != 10) {
-            return null;
-        }
-        return digits.substring(0, 2) + "XXXXX" + digits.substring(7);
+        return MobileMask.mask(mobile);
     }
 }

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Reads over {@code contact_requests}. Every finder here is deliberately shaped to hit one of the two
@@ -37,4 +39,27 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
      * (no N+1). An empty collection short-circuits to an empty list without a query.
      */
     List<ContactRequest> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds);
+
+    /**
+     * Whether {@code requesterId} holds an approved contact request against any listing owned by
+     * {@code ownerId} — one half of the relationship guard on {@code GET /tenant-profiles/{mobile}}
+     * (spec fix S10).
+     *
+     * <p>Lives here rather than in {@code finance} because it is a question about this table, and a
+     * feature that owns a table owns the queries over it. Expressed as a single existence check
+     * with the ownership test as a subquery: the alternative — fetch the owner's property ids, then
+     * probe each — is an N+1 on the read that decides whether a stranger may see a tenant's income.
+     *
+     * <p>The join to {@code properties} is the documented {@code leads → catalog} exception
+     * ({@code package-structure.md} §2).
+     */
+    @Query("""
+            select count(cr) > 0 from ContactRequest cr
+            where cr.requesterId = :requesterId
+              and cr.status = :status
+              and cr.propertyId in (select p.id from Property p where p.owner.id = :ownerId)
+            """)
+    boolean existsApprovedForOwner(@Param("requesterId") UUID requesterId,
+                                   @Param("ownerId") UUID ownerId,
+                                   @Param("status") String status);
 }
