@@ -1,5 +1,6 @@
 package com.punenest.api.leads.contact;
 
+import com.punenest.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -12,7 +13,6 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
-import com.punenest.api.security.JwtService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -20,12 +20,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
@@ -36,15 +32,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * regression would break: badge-not-gate (ADR-019), reveal-only-on-owner-or-approved, strict
  * owner-scoping, and request idempotency.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class ContactGateEndpointsTest {
+class ContactGateEndpointsTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JwtService jwtService;
     @Autowired
     UserRepository users;
     @Autowired
@@ -72,10 +61,6 @@ class ContactGateEndpointsTest {
         User u = user(mobile, "buyer");
         u.setAadhaarVerified(true);
         return users.saveAndFlush(u);
-    }
-
-    private String bearer(User u) {
-        return "Bearer " + jwtService.issueAccessToken(u);
     }
 
     private Property listing(User owner, String title) {

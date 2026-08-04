@@ -1,5 +1,6 @@
 package com.punenest.api.identity.verification;
 
+import com.punenest.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,17 +11,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
-import com.punenest.api.security.JwtService;
+import com.punenest.api.provider.cashfree.WebhookSignature;
 import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Contract + behaviour proof for the Aadhaar (DigiLocker) badge and its webhook.
@@ -29,15 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
  * than stubbing verification out: a signature check that is only ever mocked is a signature check
  * nobody has run, and this is the one unauthenticated write in the application.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class VerificationEndpointsTest {
+class VerificationEndpointsTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JwtService jwtService;
     @Autowired
     UserRepository users;
     @Autowired
@@ -50,10 +40,6 @@ class VerificationEndpointsTest {
         u.setName("Asha Patil");
         u.setMobileVerified(true);
         return users.saveAndFlush(u);
-    }
-
-    private String bearer(User u) {
-        return "Bearer " + jwtService.issueAccessToken(u);
     }
 
     /** Start a flow and return its correlation {@code ref}. */

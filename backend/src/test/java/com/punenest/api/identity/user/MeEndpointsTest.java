@@ -1,5 +1,6 @@
 package com.punenest.api.identity.user;
 
+import com.punenest.api.support.AbstractApiTest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -8,27 +9,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Contract + behavior proof for {@code GET/PATCH /auth/me}: owner-scoped reads, partial updates,
  * unauthenticated rejection, and validation. Tokens are minted directly via {@link JwtService} for a
  * saved user, so these tests don't depend on the OTP flow.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class MeEndpointsTest {
+class MeEndpointsTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JwtService jwtService;
     @Autowired
     UserRepository users;
 
@@ -37,10 +27,6 @@ class MeEndpointsTest {
         u.setName("Asha Patil");
         u.setMobileVerified(true);
         return users.saveAndFlush(u);
-    }
-
-    private String bearer(User u) {
-        return "Bearer " + jwtService.issueAccessToken(u);
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.punenest.api.foundation;
 
+import com.punenest.api.support.AbstractApiTest;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -9,20 +11,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.RequestCorrelation;
 import com.punenest.api.security.CurrentUser;
-import com.punenest.api.security.JwtService;
 import com.punenest.api.security.Roles;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,15 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
  * open, and the correlation id echoed on every response. Uses a throwaway test controller so no
  * feature endpoint is needed.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class SecurityWebTest {
+class SecurityWebTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JwtService jwtService;
     @Autowired
     UserRepository userRepository;
 

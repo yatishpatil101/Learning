@@ -1,5 +1,6 @@
 package com.punenest.api.catalog;
 
+import com.punenest.api.support.AbstractApiTest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,13 +16,9 @@ import com.punenest.api.security.JwtService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Contract + behavior proof for the properties + search slice. Exercises the real filter chain via
@@ -30,31 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
  * restore-pending, soft-delete hides) and the wire shapes the frontend consumes (masked owner,
  * {@code PageEnvelope}, contract field names). Tokens are minted directly via {@link JwtService}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class PropertiesEndpointsTest {
+class PropertiesEndpointsTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JwtService jwtService;
     @Autowired
     UserRepository users;
     @Autowired
     PropertyRepository properties;
-    @Autowired
-    JdbcTemplate jdbc;
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
         u.setName("Asha Patil");
         u.setMobileVerified(true);
         return users.saveAndFlush(u);
-    }
-
-    private String bearer(User u) {
-        return "Bearer " + jwtService.issueAccessToken(u);
     }
 
     private Property save(User owner, String title, String deal, String type, BigDecimal bhk,
@@ -226,8 +210,23 @@ class PropertiesEndpointsTest {
                 .andExpect(jsonPath("$.content[0].mobile").doesNotExist());
     }
 
-    // ---------------- GET /properties/featured ----------------
+    /**
+     * Public search clamps a hostile page size.
+     *
+     * <p>This is the endpoint where the ceiling matters most: it needs no token, so an uncapped
+     * {@code size} is one anonymous request against the largest table on the platform.
+     */
+    @Test
+    void publicSearchClampsAHostilePageSize() throws Exception {
+        User o = owner("9810000019");
+        save(o, "Listed", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
 
+        mvc.perform(get("/properties?size=5000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
+    }
+
+    // ---------------- GET /properties/featured ----------------
     @Test
     void featuredReturnsFeaturedFirst() throws Exception {
         User o = owner("9810000005");
@@ -297,6 +296,24 @@ class PropertiesEndpointsTest {
     void myListingsRequiresAuth() throws Exception {
         mvc.perform(get("/me/listings"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The owner's own list clamps a hostile page size.
+     *
+     * <p>Asserted separately from the public search because the two are clamped by the same global
+     * {@code spring.data.web.pageable.max-page-size} and by nothing else: there is no per-controller
+     * guard to notice if that property is removed or overridden. One property, several endpoints, so
+     * the endpoints have to say individually that they are still covered by it.
+     */
+    @Test
+    void myListingsClampsAHostilePageSize() throws Exception {
+        User o = owner("9810000018");
+        save(o, "Mine", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
+
+        mvc.perform(get("/me/listings?size=5000").header(HttpHeaders.AUTHORIZATION, bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
     }
 
     @Test

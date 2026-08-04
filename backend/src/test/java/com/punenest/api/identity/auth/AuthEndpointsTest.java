@@ -1,5 +1,7 @@
 package com.punenest.api.identity.auth;
 
+import com.punenest.api.support.AbstractApiTest;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,31 +13,25 @@ import com.punenest.api.common.web.RequestCorrelation;
 import com.punenest.api.provider.OtpSender;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Contract + behavior proof for the four auth endpoints through the real filter chain. Uses a
  * capturing {@link OtpSender} so the deterministic dev OTP can be read back and the full send→verify
  * round-trip exercised without any external dependency.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class AuthEndpointsTest {
+class AuthEndpointsTest extends AbstractApiTest {
 
-    @Autowired
-    MockMvc mvc;
     // why: Boot 4 test contexts don't expose an ObjectMapper bean for autowiring — a plain instance
     // is sufficient for reading assertion JSON here.
     final ObjectMapper json = new ObjectMapper();
@@ -45,6 +41,8 @@ class AuthEndpointsTest {
     PasswordEncoder passwordEncoder;
     @Autowired
     CapturingOtpSender otp;
+    @PersistenceContext
+    EntityManager em;
 
     // ---- login: dual-mode OTP ------------------------------------------------
 
@@ -116,6 +114,87 @@ class AuthEndpointsTest {
                         .content(body(mobile, "111111")))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error").value("rate_limited"));
+    }
+
+    // ---- login: send-rate limit (the contract's 429 on the send path) --------
+
+    /**
+     * A second code for the same number inside the cooldown is refused, with a truthful Retry-After.
+     *
+     * <p>This is the harassment control: without it, {@code POST /auth/login} is an unauthenticated
+     * endpoint that rings any phone the caller names, as often as they like.
+     */
+    @Test
+    void secondCodeInsideTheCooldownIs429WithRetryAfter() throws Exception {
+        String mobile = "9876500701";
+        sendOtp(mobile);
+
+        MvcResult res = mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mobile\":\"" + mobile + "\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"))
+                .andExpect(jsonPath("$.status").value(429))
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
+                .andReturn();
+
+        int retryAfter = Integer.parseInt(res.getResponse().getHeader(HttpHeaders.RETRY_AFTER));
+        org.assertj.core.api.Assertions.assertThat(retryAfter)
+                .as("Retry-After must be a usable hint, never 0 or longer than the cooldown")
+                .isBetween(1, (int) OtpService.SEND_COOLDOWN.toSeconds());
+    }
+
+    /**
+     * The hourly budget stops a slow drip that the cooldown alone would allow.
+     *
+     * <p>Rows are backdated past the cooldown between sends — otherwise the cooldown, not the window,
+     * would be what rejects sends 2..5 and this test would prove nothing about the window.
+     */
+    @Test
+    void sendsBeyondTheHourlyBudgetAre429EvenWhenTheCooldownHasPassed() throws Exception {
+        String mobile = "9876500702";
+        for (int i = 0; i < OtpService.MAX_SENDS_PER_WINDOW; i++) {
+            sendOtp(mobile);
+            ageOutCooldown(mobile);
+        }
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mobile\":\"" + mobile + "\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"))
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+    }
+
+    /**
+     * The budget is per number, so one attacker cannot lock everybody else out of logging in.
+     *
+     * <p>The regression this guards is a plausible "simplification": counting sends globally rather
+     * than per mobile would pass the two tests above while turning the rate limiter into a
+     * denial-of-service tool aimed at the whole platform.
+     */
+    @Test
+    void exhaustingOneNumbersBudgetDoesNotBlockAnother() throws Exception {
+        String victim = "9876500703";
+        sendOtp(victim);
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mobile\":\"" + victim + "\"}"))
+                .andExpect(status().isTooManyRequests());
+
+        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mobile\":\"9876500704\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.otpSent").value(true));
+    }
+
+    /** Shift this number's existing codes back past the cooldown, leaving them inside the window. */
+    private void ageOutCooldown(String mobile) {
+        // why flush/clear around the raw UPDATE: the send wrote through JPA and may still be pending,
+        // so without a flush the UPDATE matches nothing; without the clear, the next repository read
+        // would be served the stale first-level-cache entity and never see the new created_at.
+        em.flush();
+        jdbc.update("update otp_codes set created_at = created_at - (?::text || ' seconds')::interval"
+                        + " where mobile = ?",
+                OtpService.SEND_COOLDOWN.toSeconds() + 1, mobile);
+        em.clear();
     }
 
     // ---- login: request validation (422) ------------------------------------
