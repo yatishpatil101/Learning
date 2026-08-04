@@ -142,18 +142,15 @@ CREATE TABLE share_flat_posts (
 );
 CREATE INDEX idx_share_flat_locality ON share_flat_posts (locality) WHERE archived = false;
 
--- society_leads: B2B society/builder lead capture (schema: SocietyLead). Lead contact is not a user.
-CREATE TABLE society_leads (
-    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    society_name text NOT NULL,
-    contact_name text NOT NULL,
-    mobile       text NOT NULL CHECK (mobile ~ '^[6-9][0-9]{9}$'),
-    units        integer,
-    interest     text CHECK (interest IN ('bulk-listing','society-services','partnership')),
-    status       text NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','qualified','won','lost')),
-    created_at   timestamptz NOT NULL DEFAULT now(),
-    updated_at   timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_society_leads_status ON society_leads (status);
+-- society_leads is NOT created here. It is created by V24, which is the considered version: it adds
+-- the `note` column the ops status-update writes, drops the mobile regex on purpose (one builder
+-- legitimately enquires about several societies), bounds `units`, and adds the three indexes the
+-- pipeline query and the public rate limit actually need.
+--
+-- V7 used to declare a thinner copy of the same table. Two CREATE TABLEs for one relation made the
+-- migration chain un-replayable -- every environment built from scratch died here with
+-- 'relation "society_leads" already exists', which is why only incrementally-grown databases
+-- worked. Removing the earlier sketch rather than the later definition keeps the schema that the
+-- SocietyLead entity and SocietyLeadService are written against.
 
 SELECT install_updated_at_triggers();
