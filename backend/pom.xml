@@ -31,6 +31,23 @@
         <jjwt.version>0.12.6</jjwt.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <!--
+          Lombok is pinned BELOW the Spring Boot BOM's managed version (4.1.0 manages 1.18.46).
+
+          Why: builds here run offline (`mvn -o`, see .mvn/maven.config) and the local repository
+          caches up to 1.18.44 only. Taking the BOM's 1.18.46 makes every offline build fail at
+          dependency resolution rather than at anything to do with the code. 1.18.44 is the first
+          release with Jackson 3 support and is well past 1.18.40, which is where JDK 25 support
+          landed - so nothing this project needs is missing. Delete this property (and the explicit
+          <version> below) the moment the build is allowed to fetch from the network.
+        -->
+        <lombok.version>1.18.44</lombok.version>
+        <!--
+          Binds Lombok into MapStruct's annotation-processing round. Without it the two processors
+          race: MapStruct can run against the pre-Lombok AST, see an entity with no getters, and
+          fail every mapping. Its position in annotationProcessorPaths matters - see below.
+        -->
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+        <!--
           Build output directory, overridable from the CLI.
 
           Why: the VS Code Java language server (redhat.java / m2e) continuously compiles this
@@ -48,6 +65,18 @@
         <buildDirName>target</buildDirName>
     </properties>
     <dependencies>
+        <!--
+          Lombok: entity accessors only (@Getter/@Setter). The ban list in lombok.config is the
+          load-bearing half of this dependency - see docs/system/tech-debt.md §1. `provided` scope
+          keeps it off the runtime classpath, which is correct: it is a compile-time source
+          generator and nothing needs it at run time.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
         <!-- MapStruct annotation processor wired via the compiler plugin's annotationProcessorPaths
              (the MapStruct-recommended setup). Kept off the runtime classpath automatically. -->
         <dependency>
@@ -178,7 +207,30 @@
                 -->
                 <configuration>
                     <useIncrementalCompilation>true</useIncrementalCompilation>
+                    <!--
+                      ORDER IS SIGNIFICANT and is the single most common way this setup breaks.
+
+                      lombok must precede mapstruct-processor so the entity accessors exist in the
+                      AST before MapStruct looks for them, and lombok-mapstruct-binding must sit
+                      between the two to make MapStruct wait for Lombok's round instead of reading a
+                      half-built model.
+
+                      The failure mode when this is wrong is loud here rather than silent, because
+                      PropertyMapper sets unmappedTargetPolicy=ERROR: MapStruct sees an entity with
+                      no getters and fails the compile with "Unmapped target property". That is the
+                      good outcome - do not "fix" such an error by relaxing the policy.
+                    -->
                     <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>${lombok-mapstruct-binding.version}</version>
+                        </path>
                         <path>
                             <groupId>org.mapstruct</groupId>
                             <artifactId>mapstruct-processor</artifactId>

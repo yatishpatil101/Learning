@@ -42,7 +42,7 @@ java -jar target-cli\punenest-api-0.0.1-SNAPSHOT.jar
 > otherwise overwrite Maven's Java 25 bytecode mid-build — producing `NoClassDefFoundError` or
 > `Unresolved compilation problems` at test runtime. See `docs/system/api-standards.md` §8.1.
 
-Then open http://localhost:8080/docs.
+Then open http://localhost:8080/api/docs.
 
 ## Next steps
 
