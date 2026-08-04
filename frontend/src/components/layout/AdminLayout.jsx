@@ -73,7 +73,10 @@ function AdminLayoutInner({ variant = 'admin' }) {
               <span className="ml-1 text-xs font-medium text-gray-400">{variant === 'ops' ? 'Ops' : 'Admin'}</span>
             </span>
           </Link>
-          <button onClick={() => setOpen(false)} className="rounded-lg p-1 hover:bg-white/5 lg:hidden">
+          {/* tap-extend, not tap-target: the drawn square sits in a tight header row,
+             so growing the box would push the wordmark. aria-label because this is
+             icon-only and a phone never surfaces `title`. */}
+          <button onClick={() => setOpen(false)} aria-label="Close menu" className="tap-extend relative rounded-lg p-1 hover:bg-white/5 lg:hidden">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -100,7 +103,7 @@ function AdminLayoutInner({ variant = 'admin' }) {
       <div className="flex min-h-[100dvh] flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-white/10 bg-ink/80 backdrop-blur">
           <div className="flex items-center gap-3 px-4 py-2.5">
-            <button onClick={() => setOpen(true)} className="rounded-lg p-2 hover:bg-white/5 lg:hidden">
+            <button onClick={() => setOpen(true)} aria-label="Open menu" className="tap-extend relative rounded-lg p-2 hover:bg-white/5 lg:hidden">
               <Menu className="h-5 w-5" />
             </button>
 
@@ -148,14 +151,21 @@ function AdminLayoutInner({ variant = 'admin' }) {
                     {user?.team ? ' · ' + user.team : ''}
                   </div>
                 </div>
-                <button onClick={doLogout} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white transition" title="Log out">
+                <button onClick={doLogout} aria-label="Log out" className="tap-extend relative rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white transition" title="Log out">
                   <LogOut className="h-4 w-4" />
                 </button>
               </div>
             </div>
           </div>
         </header>
-        <main className="flex-1 p-4 sm:p-6">
+        {/* The bottom padding carries the home-indicator inset. The consumer app
+            routes every bottom offset through --pn-safe-b (see the chrome-token block
+            in index.css); this shell was written without a bottom bar and so never
+            picked the pattern up, which leaves the last row of a queue sitting under
+            the gesture bar on a notched phone — exactly the row a field-ops user is
+            reaching for. `env()` resolves to 0px on desktop and in a browser tab, so
+            this is inert everywhere except an installed app on a notched device. */}
+        <main className="flex-1 p-4 pb-[calc(1rem+var(--pn-safe-b))] sm:p-6 sm:pb-[calc(1.5rem+var(--pn-safe-b))]">
           <Outlet />
         </main>
       </div>

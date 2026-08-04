@@ -292,8 +292,15 @@ export default function AdminDashboard() {
         <h2 className={SECTIONS}>Latest activity</h2>
         <span className="text-sm text-gray-500">Most recent items needing a look</span>
       </div>
+      {/* min-w-0 on both cards: a grid item defaults to `min-width: auto`, so the
+         track refuses to shrink below the widest thing inside it. The rows here are
+         already built to truncate (`min-w-0 flex-1` + `truncate`), but that never got
+         a chance to run — the card grew to fit a listing title instead, and at 390px
+         it overflowed the viewport by 14px with the right-hand Review button clipped
+         off screen. One property, and the truncation that was always there starts
+         working. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="pn-card p-5">
+        <div className="pn-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">Pending verification</h3>
@@ -330,7 +337,7 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        <div className="pn-card p-5">
+        <div className="pn-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">Latest service requests</h3>

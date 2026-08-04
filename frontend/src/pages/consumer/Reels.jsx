@@ -4,22 +4,36 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import '../../styles/routes/reels.css';
 import { fmtINR, rentLabel } from '../../lib/format.js';
+import { listProperties } from '../../lib/mockApi.js';
+import { isResidentialHome } from '../../data/propertyTypes.js';
 import { getSavedProps, toggleSavedProp } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
 
-// Curated tour feed mapped to real listing IDs (P50xx) so every CTA resolves.
-// Each reel carries a small photo set that swipes horizontally within the property.
-const P = (id) => `https://images.unsplash.com/photo-${id}?w=800&q=80`;
-const REELS = [
-  { id: 'P5000', photos: [P('1600596542815-ffad4c1539a9'), P('1616594039964-ae9021a400a0'), P('1556911220-bff31c812dba')], title: '3 BHK in Magarpatta City', loc: 'Magarpatta', deal: 'rent', price: 42000, bhk: 3, area: 1500, likes: 214, views: 4355, tag: 'Owner tour' },
-  { id: 'P5006', photos: [P('1600585154340-be6161a56a0c'), P('1522708323590-d24dbb6b0267'), P('1484154218962-a197022b5858')], title: '2 BHK near IT Park', loc: 'Hinjawadi', deal: 'rent', price: 24000, bhk: 2, area: 980, likes: 158, views: 7712, tag: 'Owner tour' },
-  { id: 'P5008', photos: [P('1600047509807-ba8f99d2cdde'), P('1493809842364-78817add7ffb'), P('1600210492486-724fe5c67fb0')], title: '3 BHK Sky Residence', loc: 'Baner', deal: 'buy', price: 13500000, bhk: 3, area: 1650, likes: 402, views: 6930, tag: 'Drone view' },
-  { id: 'P5007', photos: [P('1600566753086-00f18fb6b3ea'), P('1556909212-d5b604d0c90d'), P('1616486338812-3dadae4b4ace')], title: '2 BHK Studio Home', loc: 'Balewadi', deal: 'rent', price: 26000, bhk: 2, area: 1050, likes: 189, views: 3133, tag: 'Walkthrough' },
-  { id: 'P5010', photos: [P('1512917774080-9991f1c4c750'), P('1600607687939-ce8a6c25118c'), P('1583847268964-b28dc8f51f92')], title: '3 BHK Villa', loc: 'Undri', deal: 'buy', price: 9500000, bhk: 3, area: 1400, likes: 664, views: 5754, tag: 'Owner tour' },
-  { id: 'P5013', photos: [P('1560448204-e02f11c3d0e2'), P('1560185007-cde436f6a4d0'), P('1522708323590-d24dbb6b0267')], title: '1 BHK Cozy Flat', loc: 'Baner', deal: 'rent', price: 18000, bhk: 1, area: 620, likes: 293, views: 6890, tag: 'Walkthrough' },
-  { id: 'P5015', photos: [P('1600607687939-ce8a6c25118c'), P('1600585154340-be6161a56a0c'), P('1616594039964-ae9021a400a0')], title: '2 BHK Row House', loc: 'Wakad', deal: 'rent', price: 27000, bhk: 2, area: 1080, likes: 955, views: 5205, tag: 'Owner tour' },
-  { id: 'P5017', photos: [P('1502672260266-1c1ef2d93688'), P('1600210492486-724fe5c67fb0'), P('1556911220-bff31c812dba')], title: '4 BHK Penthouse', loc: 'Koregaon Park', deal: 'buy', price: 34000000, bhk: 4, area: 3200, likes: 1172, views: 5324, tag: 'Society tour' },
-];
+/* The feed is the live catalogue, not a curated list — it used to be eight hardcoded
+   entries with stock photos whose CTAs merely *pointed* at real IDs, so a newly posted
+   home could never appear here and the captions could drift from the listing they
+   linked to. Two gates decide what earns a reel:
+
+     isResidentialHome  Reels is deliberately homes-only (see data/propertyTypes.js).
+                        Land and commercial are reachable from /listings instead.
+     MIN_PHOTOS         A reel is a walkthrough. One or two frames is a card, not a
+                        tour, and swiping into a dead end reads as a broken listing. */
+const MIN_PHOTOS = 3;
+/* Past this the horizontal swipe outlasts the viewer, and the vertical feed — which is
+   the point of the page — stops advancing. The rest of the gallery is on the detail page. */
+const MAX_PHOTOS = 5;
+
+const toReel = (p) => ({
+  id: p.id,
+  photos: (p.gallery || []).slice(0, MAX_PHOTOS),
+  title: p.title,
+  loc: p.locality,
+  deal: p.deal,
+  price: p.price,
+  bhk: p.bhkNum,
+  area: p.area,
+  views: p.views,
+});
 
 const FILTERS = [
   { key: 'all', labelKey: 'reels.filterAll', icon: 'sparkles' },
@@ -45,9 +59,35 @@ export default function Reels() {
   const [reduced, setReduced] = useState(prefersReducedMotion);
 
   const [filter, setFilter] = useState('all');
-  const reels = useMemo(() => (filter === 'all' ? REELS : REELS.filter((r) => r.deal === filter)), [filter]);
+  const [feed, setFeed] = useState(null); // null until the catalogue resolves
 
-  const [likes, setLikes] = useState(() => Object.fromEntries(REELS.map((r) => [r.id, { n: r.likes, on: false }])));
+  useEffect(() => {
+    let alive = true;
+    listProperties({}, 'newest').then((all) => {
+      if (!alive) return;
+      setFeed(all
+        .filter((p) => isResidentialHome(p.type) && (p.gallery || []).length >= MIN_PHOTOS)
+        .map(toReel));
+    }).catch(() => {
+      // `feed` stays null forever on a rejection, and null is the loading state —
+      // so a failed catalogue read renders "loading" indefinitely, which is exactly
+      // the dead-end-disguised-as-slow-network this screen's empty state exists to
+      // avoid. Fall through to the empty state instead.
+      if (alive) setFeed([]);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const reels = useMemo(() => {
+    const list = feed || [];
+    return filter === 'all' ? list : list.filter((r) => r.deal === filter);
+  }, [feed, filter]);
+
+  /* Liked is session-only and intentionally uncounted. There is no like on a listing
+     to read, so any number next to the heart would be invented — and the badge row
+     already carries `views`, which is real. The heart stays because double-tap is the
+     gesture this surface is built on. */
+  const [liked, setLiked] = useState(() => new Set());
   const [saved, setSaved] = useState(() => new Set(getSavedProps()));
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(!prefersReducedMotion());
@@ -58,7 +98,6 @@ export default function Reels() {
   const reelRefs = useRef({});
   const tapRef = useRef({ time: 0, id: null, t: null });
   const activeRef = useRef(0);
-  const fillRef = useRef(null); // active reel's progress-bar fill node
   const burstSeq = useRef(0);
   activeRef.current = active;
 
@@ -107,30 +146,21 @@ export default function Reels() {
     el?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' });
   }, [reels, reduced]);
 
-  // Story-style auto-advance. Drives the active fill node directly (no per-frame
-  // React state) so 60fps progress never re-renders the reel tree.
+  // Story-style auto-advance. With the segmented progress bar gone there is nothing
+  // to paint per frame, so a single timer replaces the old rAF loop.
   useEffect(() => {
     if (!playing || reduced || reels.length === 0) return undefined;
-    let raf; let start = null;
-    const step = (ts) => {
-      if (start === null) start = ts;
-      const pct = Math.min(100, ((ts - start) / TOUR_MS) * 100);
-      if (fillRef.current) fillRef.current.style.width = `${pct}%`;
-      if (pct >= 100) {
-        setActive((prev) => {
-          if (prev < reels.length - 1) {
-            reelRefs.current[reels[prev + 1]?.id]?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' });
-            return prev + 1;
-          }
-          setPlaying(false);
-          return prev;
-        });
-        return;
-      }
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    const timer = setTimeout(() => {
+      setActive((prev) => {
+        if (prev < reels.length - 1) {
+          reelRefs.current[reels[prev + 1]?.id]?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' });
+          return prev + 1;
+        }
+        setPlaying(false);
+        return prev;
+      });
+    }, TOUR_MS);
+    return () => clearTimeout(timer);
   }, [playing, reduced, active, reels]);
 
   // Keyboard navigation (reads active via ref to avoid re-binding each change).
@@ -143,11 +173,12 @@ export default function Reels() {
     return () => window.removeEventListener('keydown', onKey);
   }, [goTo]);
 
-  const like = (id, force) => setLikes((m) => {
-    const cur = m[id];
-    const on = force !== undefined ? force : !cur.on;
-    if (on === cur.on) return m;
-    return { ...m, [id]: { n: on ? cur.n + 1 : cur.n - 1, on } };
+  const like = (id, force) => setLiked((s) => {
+    const on = force !== undefined ? force : !s.has(id);
+    if (on === s.has(id)) return s;
+    const next = new Set(s);
+    if (on) next.add(id); else next.delete(id);
+    return next;
   });
 
   const doBurst = (id) => { like(id, true); setBurst({ id, key: ++burstSeq.current }); };
@@ -189,26 +220,8 @@ export default function Reels() {
 
   return (
     <div className="reels-page">
-      {/* Top overlay: brand + intent filters + segmented progress */}
+      {/* Top overlay: brand + intent filters */}
       <header className="reels-top">
-        <nav className="reels-progress" aria-label={t('reels.navAria')}>
-          {reels.map((r, i) => (
-            <button
-              key={r.id}
-              type="button"
-              className="reels-seg"
-              aria-label={t('reels.goToReel', { index: i + 1, title: r.title })}
-              aria-current={i === active ? 'true' : undefined}
-              onClick={() => goTo(i)}
-            >
-              <span
-                ref={i === active ? fillRef : null}
-                className="reels-seg-fill"
-                style={{ width: i < active ? '100%' : '0%' }}
-              />
-            </button>
-          ))}
-        </nav>
         <div className="reels-topbar">
           <div className="reels-brand">
             <Icon name="video" className="w-4 h-4 text-brand-teal-3" />
@@ -232,6 +245,23 @@ export default function Reels() {
       </header>
 
       <div className="reel-wrap" ref={wrapRef}>
+        {/* Two distinct nothing-states. "Loading" means the catalogue has not resolved;
+            "empty" means it did and this intent has no tourable home in it. Collapsing
+            them into one spinner leaves a real dead end looking like a slow network. */}
+        {feed === null && (
+          <div className="reel-note" role="status">
+            <Icon name="video" className="w-8 h-8 text-brand-teal-3" />
+            <p>{t('reels.loading')}</p>
+          </div>
+        )}
+        {feed !== null && reels.length === 0 && (
+          <div className="reel-note">
+            <Icon name="video" className="w-8 h-8 text-brand-teal-3" />
+            <p className="reel-note__title">{t('reels.emptyTitle')}</p>
+            <p>{t('reels.emptyBody')}</p>
+            <Link to="/listings" className="reel-note__cta">{t('reels.browseAll')}</Link>
+          </div>
+        )}
         {reels.map((r, i) => (
           <section key={r.id} data-idx={i} ref={setReelRef(r.id)} className="reel">
             {/* Horizontal photo carousel for this property */}
@@ -267,20 +297,28 @@ export default function Reels() {
             )}
 
             <div className="rail">
-              <button type="button" onClick={() => like(r.id)} aria-label={likes[r.id].on ? t('reels.unlike') : t('reels.like')} aria-pressed={likes[r.id].on} className={likes[r.id].on ? 'is-liked' : ''}>
-                <span className="ic"><Icon name="heart" weight={likes[r.id].on ? 'fill' : 'regular'} className="w-5 h-5" /></span>
-                <span>{compact(likes[r.id].n)}</span>
+              <button type="button" onClick={() => like(r.id)} aria-label={liked.has(r.id) ? t('reels.unlike') : t('reels.like')} aria-pressed={liked.has(r.id)} className={liked.has(r.id) ? 'is-liked' : ''}>
+                <span className="ic"><Icon name="heart" weight={liked.has(r.id) ? 'fill' : 'regular'} className="w-5 h-5" /></span>
+                <span className="lb">{liked.has(r.id) ? t('reels.liked') : t('reels.like')}</span>
               </button>
               <button type="button" onClick={() => save(r)} aria-label={saved.has(r.id) ? t('reels.removeSaved') : t('reels.saveProperty')} aria-pressed={saved.has(r.id)} className={saved.has(r.id) ? 'is-saved' : ''}>
                 <span className="ic"><Icon name="bookmark" weight={saved.has(r.id) ? 'fill' : 'regular'} className="w-5 h-5" /></span>
-                {saved.has(r.id) ? t('reels.saved') : t('reels.save')}
+                <span className="lb">{saved.has(r.id) ? t('reels.saved') : t('reels.save')}</span>
               </button>
               <button type="button" onClick={() => shareReel(r)} aria-label={t('reels.shareAria')}>
-                <span className="ic"><Icon name="send" className="w-5 h-5" /></span>{t('reels.share')}
+                <span className="ic"><Icon name="send" className="w-5 h-5" /></span><span className="lb">{t('reels.share')}</span>
               </button>
+              {/* The two CTAs live on the rail rather than as a full-width row, so the
+                  photo keeps the bottom third of the screen it used to give away. */}
+              <Link to={`/property/${r.id}`} aria-label={t('reels.viewHome')} className="is-cta">
+                <span className="ic"><Icon name="eye" className="w-5 h-5" /></span><span className="lb">{t('reels.viewHome')}</span>
+              </Link>
+              <Link to={`/contact?ref=${r.id}`} aria-label={t('reels.contactAria')}>
+                <span className="ic"><Icon name="phone" className="w-5 h-5" /></span><span className="lb">{t('reels.contact')}</span>
+              </Link>
             </div>
 
-            <div className="relative z-[4] p-5 pb-8 w-full">
+            <div className="reel-info">
               {r.photos.length > 1 && (
                 <div className="reel-dots" role="tablist" aria-label={t('reels.photoAria')}>
                   {r.photos.map((_, pi) => (
@@ -299,10 +337,6 @@ export default function Reels() {
               <h2 className="text-2xl font-extrabold">{priceLabel(r)}</h2>
               <p className="text-gray-200 font-semibold">{r.title}</p>
               <p className="text-gray-400 text-sm flex items-center gap-1.5 mt-0.5"><Icon name="map-pin" className="w-4 h-4 text-brand-teal-3" /> {t('reels.meta', { loc: r.loc, bhk: r.bhk, area: r.area })}</p>
-              <div className="reels-cta-row">
-                <Link to={`/property/${r.id}`} className="reels-cta reels-cta--primary"><Icon name="eye" className="w-4 h-4" /> {t('reels.viewHome')}</Link>
-                <Link to={`/contact?ref=${r.id}`} aria-label={t('reels.contactAria')} className="reels-cta reels-cta--ghost"><Icon name="phone" className="w-4 h-4" /> {t('reels.contact')}</Link>
-              </div>
             </div>
           </section>
         ))}

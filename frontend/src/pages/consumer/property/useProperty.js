@@ -205,12 +205,16 @@ export default function useProperty() {
   };
 
   const tags = [];
+  /* Two tiers, deliberately: the first badge states a fact about the property and
+     stays neutral; every verification claim shares one emerald so the trust block
+     reads as a set rather than four unrelated colours. Each carries an icon — a
+     mixed row of some-with, some-without is what made these look scattered. */
   // Sale: possession status. Rent: furnishing (possession is a buy concept, meaningless for rentals).
-  if (!isRent) tags.push([possessionLabel, 'tag-teal', null, p.construction === 'new' ? 'tag.underConstruction' : 'tag.readyToMove']);
-  else if (!isLand && furnishLabel !== '—') tags.push([furnishLabel, 'tag-teal', 'sofa', 'tag.furnishing']);
-  if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-indigo', 'user-check', 'tag.verifiedOwner']);
+  if (!isRent) tags.push([possessionLabel, '', p.construction === 'new' ? 'hard-hat' : 'key', p.construction === 'new' ? 'tag.underConstruction' : 'tag.readyToMove']);
+  else if (!isLand && furnishLabel !== '—') tags.push([furnishLabel, '', 'sofa', 'tag.furnishing']);
+  if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-emerald', 'user-check', 'tag.verifiedOwner']);
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
-  if (p.rera) tags.push([tr('property.reraApproved'), 'tag-coral', null, 'tag.rera']);
+  if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
 
   // Persist a "more photos" request so the owner sees it in their dashboard.
   // Sign-in gate only (no PII exposed); can't request photos on your own listing.

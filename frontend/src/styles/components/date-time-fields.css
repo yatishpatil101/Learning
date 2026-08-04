@@ -1,0 +1,460 @@
+/* Date & time field styling — shared UI components, NOT a route.
+
+   DateField / TimeField / DatePickerDialog / TimePickerDialog are used on ~20
+   surfaces (the listing wizard, rent-agreement, tenant profile, schedule-visit,
+   the dashboard visits tab, the flatmates filter bar, admin enquiries, the
+   post-on-behalf wizard). These rules used to live in routes/list-property.css,
+   which only ListProperty.jsx imports — so every other route rendered the field
+   as an unstyled block and the calendar as a static, unlayered element that
+   reflowed the page instead of floating over it.
+
+   Imported by DateField.jsx and TimeField.jsx so it ships with whichever chunk
+   actually renders a picker. */
+
+/* DateField â€” guaranteed DD/MM/YYYY display over a native date picker.
+   The wrapper carries the caller's field classes (form-input / field / â€¦) so it
+   looks identical to sibling inputs; the native control sits on top, invisible. */
+.pn-datefield {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.pn-datefield.form-input {
+  height: var(--control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.pn-datefield__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pn-datefield__text.is-placeholder {
+  color: #6b7280;
+}
+
+.pn-datefield__icon {
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+  color: var(--teal-2);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.pn-datefield:focus-within,
+.pn-datefield:focus {
+  border-color: var(--teal-2);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+  outline: none;
+}
+
+.pn-datefield.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* â”€â”€ Custom calendar (DatePickerDialog) â€” light "Select Date" card, teal accents,
+   shown as a dropdown anchored under its field (position set inline by JS).
+   Centrally used by every DateField, so the picker looks identical app-wide. â”€â”€ */
+.pn-cal {
+  position: fixed;
+  z-index: 2000;
+  top: 0;
+  left: 0;
+  width: 275px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  background: var(--brand-card);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 16px 14px 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-sans);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top center;
+  transition: opacity 0.18s var(--dd-ease, ease), transform 0.18s var(--dd-ease, ease);
+  /* Month/year use the shared <Select> with the app's default dark theme; only
+     tighten the trigger to fit the compact card (keeps full month names visible). */
+  --dd-trigger-radius: 10px;
+  --dd-trigger-pad: 0 0.5rem;
+  --dd-trigger-height: 34px;
+}
+
+.pn-cal.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.pn-cal:focus {
+  outline: none;
+}
+
+/* Date / time pickers become bottom sheets on phones.
+
+   Both DatePickerDialog and TimePickerDialog render `.pn-cal`, so this one block
+   converts both. It matters most inside ScheduleVisitModal, which is itself a
+   sheet below 640px: an anchored popup floating over a sheet is a dialog inside a
+   dialog, the classic mobile failure point the review flags as P0.
+
+   The pickers stay custom rather than falling back to <input type="date">, because
+   they encode the available-slot rules; only their presentation changes.
+
+   Both dialogs write inline left/top from their place() helper, which would beat
+   these rules â€” each bails out at this same breakpoint and clears those inline
+   values. Keep the two in sync. */
+@media (max-width: 639.98px) {
+
+  .pn-cal {
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    left: 0 !important;
+    width: 100%;
+    max-width: none;
+    padding-bottom: calc(14px + var(--pn-safe-b));
+    border-radius: 20px 20px 0 0;
+    border-bottom: 0;
+    transform: translateY(100%);
+    transform-origin: bottom center;
+  }
+
+  .pn-cal.is-open {
+    transform: translateY(0);
+  }
+
+  /* Backdrop without extra markup: a fixed pseudo-element behind the panel, which
+     also gives the sheet something to read against on a busy page. */
+  .pn-cal::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  /* Grab handle, matching the modal sheets. */
+  .pn-cal::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 2.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-cal {
+    transition: none;
+  }
+}
+
+.pn-cal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13px;
+}
+
+.pn-cal__title {
+  font-size: 1.22rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+
+.pn-cal__badge {
+  position: relative;
+  width: 44px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: linear-gradient(150deg, var(--teal-3), var(--teal-1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(13, 148, 136, 0.35);
+}
+
+.pn-cal__badge-tab {
+  position: absolute;
+  top: -4px;
+  width: 5px;
+  height: 11px;
+  border-radius: 4px;
+  background: var(--teal-1);
+}
+
+.pn-cal__badge-tab:nth-child(1) {
+  left: 12px;
+}
+
+.pn-cal__badge-tab:nth-child(2) {
+  right: 12px;
+}
+
+.pn-cal__badge-num {
+  font-size: 1.22rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+  margin-top: 4px;
+}
+
+.pn-cal__selectors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 13px;
+}
+
+.pn-cal__nav {
+  flex-shrink: 0;
+  width: 28px;
+  height: 34px;
+  border-radius: 9px;
+  border: none;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.pn-cal__nav:hover {
+  background: rgba(20, 184, 166, 0.16);
+  color: var(--teal-3);
+}
+
+/* Year is fixed-narrow (only 4 digits) so month gets the room full names need. */
+.pn-cal__dd {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pn-cal__dd.pn-cal__dd--year {
+  flex: 0 0 74px;
+}
+
+.pn-cal .pn-cal__dd .pn-dropdown__trigger {
+  font-weight: 600;
+  font-size: 0.8rem;
+  gap: 0.3rem;
+}
+
+.pn-cal .pn-cal__dd .pn-dropdown__chev {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.pn-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.pn-cal__grid--head {
+  margin-bottom: 4px;
+}
+
+.pn-cal__wd {
+  text-align: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-subtle);
+  padding: 3px 0;
+}
+
+.pn-cal__wd.is-sun {
+  color: var(--teal-3);
+}
+
+.pn-cal__day {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-height: 31px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--dd-text);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pn-cal__day.is-sun {
+  color: var(--teal-3);
+}
+
+.pn-cal__day.is-muted {
+  color: rgba(255, 255, 255, 0.22);
+  font-weight: 500;
+}
+
+.pn-cal__day:hover:not(:disabled):not(.is-selected) {
+  background: rgba(20, 184, 166, 0.16);
+}
+
+.pn-cal__day.is-today:not(.is-selected)::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--teal-3);
+}
+
+.pn-cal__day.is-selected {
+  background: rgba(20, 184, 166, 0.2);
+  color: var(--teal-3);
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1.5px var(--teal-2);
+}
+
+.pn-cal__day:disabled {
+  color: rgba(255, 255, 255, 0.18);
+  cursor: not-allowed;
+}
+
+.pn-cal__day:focus-visible {
+  outline: 2px solid var(--teal-2);
+  outline-offset: -2px;
+}
+
+.pn-cal__confirm {
+  width: 100%;
+  margin-top: 14px;
+  height: 42px;
+  border: none;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.32);
+  transition: filter 0.18s ease, transform 0.08s ease;
+}
+
+.pn-cal__confirm:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.pn-cal__confirm:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.pn-cal__confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-cal {
+    transition: none;
+  }
+}
+
+/* â”€â”€ Custom time picker (TimePickerDialog) â€” reuses the .pn-cal card shell so it
+   looks identical to the calendar; swaps the day grid for hour/minute selects +
+   an AM/PM toggle. Centrally used by every TimeField. â”€â”€ */
+/* The card is narrower than the calendar on a desktop dropdown, but NOT on a
+   phone: the bottom-sheet block above gives `.pn-cal` a full-bleed `width: 100%`,
+   and an unguarded `.pn-timepicker { width: 250px }` later in this file has equal
+   specificity, so it would win and dock a 250px stub against the left edge while
+   the calendar next to it goes full width. Guarding by the same breakpoint keeps
+   the two dialogs behaving identically, which is what the sheet block claims. */
+@media (min-width: 640px) {
+  .pn-timepicker {
+    width: 250px;
+  }
+}
+
+.pn-timepicker__readout {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--teal-3);
+  background: rgba(20, 184, 166, 0.14);
+  border-radius: 11px;
+  padding: 6px 12px;
+}
+
+.pn-timepicker__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.pn-timepicker__unit {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pn-timepicker__colon {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--text);
+  padding: 0 1px;
+}
+
+.pn-timepicker__mer {
+  flex: 0 0 auto;
+  display: flex;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pn-timepicker__mer button {
+  height: 34px;
+  padding: 0 11px;
+  border: none;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pn-timepicker__mer button+button {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pn-timepicker__mer button:hover:not(.is-on) {
+  background: rgba(20, 184, 166, 0.12);
+  color: var(--teal-3);
+}
+
+.pn-timepicker__mer button.is-on {
+  background: rgba(20, 184, 166, 0.2);
+  color: var(--teal-3);
+}

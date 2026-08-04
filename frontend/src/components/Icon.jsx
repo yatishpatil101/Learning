@@ -20,7 +20,7 @@ import {
   PiggyBank, Play, Plus, PlusCircle, Question, Receipt, Repeat, Rocket, Rows, Ruler,
   Scales, SealCheck, Share, Shield, ShieldCheck, ShieldWarning, ShoppingBag, SignIn,
   SignOut, Signature, SlidersHorizontal, Sparkle, SquaresFour, Stack, Star, StarHalf,
-  Sun, Table, Tag, Television, Timer, Train, Trash, Tray, Tree, TrendDown, TrendUp,
+  Sun, Table, Tag, Television, Timer, Toolbox, Train, Trash, Tray, Tree, TrendDown, TrendUp,
   Truck, Upload, User, UserCheck, UserCircle, UserGear, UserPlus, Users, UsersThree,
   Video, Wallet, Warehouse, Warning, Waves, Wind, X, XCircle,
   BookOpenText, ThumbsUp, ThumbsDown,
@@ -187,6 +187,7 @@ const MAP = {
   handshake:                  Handshake,
   'heart-handshake':          HeartHandshake,    // Lucide fallback
   truck:                      Truck,
+  toolbox:                    Toolbox,
   package:                    Package,
 
   // ── Navigation & location ─────────────────────────────────────────────────

@@ -16,7 +16,13 @@ const DEFAULTS = { amt: 8000000, rate: 8.5, ten: 20 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const pctOf = (v, { min, max }) => (clamp(+v || 0, min, max) - min) / (max - min) * 100;
-const trackBg = (p) => `linear-gradient(90deg, var(--teal-2) ${p}%, rgba(255,255,255,.1) ${p}%)`;
+/* Only the fill percentage crosses from JS to CSS; the gradient itself lives in
+   index.css. It used to be an inline `background:` shorthand built here, which
+   made the rail impossible to restyle from a media query — an inline shorthand
+   resets background-size/position/repeat and outranks any stylesheet rule short
+   of !important. The touch-target rule for these sliders needs exactly those
+   sub-properties, so the percentage became a variable instead. */
+const trackPct = (p) => ({ '--emi-pct': `${p}%` });
 
 export default function EmiCalculator() {
   const rootRef = useScrollReveal();
@@ -114,7 +120,7 @@ export default function EmiCalculator() {
                     <input type="number" value={amt} onChange={(e) => setAmt(e.target.value)} onBlur={() => setAmt(clamp(Math.round(+amt || 0), AMT.min, AMT.max))} min={AMT.min} max={AMT.max} inputMode="numeric" aria-label={t('misc1.emiAriaAmount')} className="num-field w-28 bg-transparent text-right text-white text-sm font-semibold focus:outline-none" />
                   </div>
                 </div>
-                <input type="range" min={AMT.min} max={AMT.max} step={AMT.step} value={clamp(+amt || 0, AMT.min, AMT.max)} onChange={(e) => setAmt(e.target.value)} aria-label={t('misc1.emiAriaAmountSlider')} className="w-full" style={{ background: trackBg(pctOf(amt, AMT)) }} />
+                <input type="range" min={AMT.min} max={AMT.max} step={AMT.step} value={clamp(+amt || 0, AMT.min, AMT.max)} onChange={(e) => setAmt(e.target.value)} aria-label={t('misc1.emiAriaAmountSlider')} className="w-full" style={trackPct(pctOf(amt, AMT))} />
                 <div className="flex justify-between text-[11px] text-gray-500 mt-1"><span>₹5 L</span><span>₹5 Cr</span></div>
               </div>
               <div className="mb-6 sm:mb-7">
@@ -125,7 +131,7 @@ export default function EmiCalculator() {
                     <span className="text-teal-400 text-sm">%</span>
                   </div>
                 </div>
-                <input type="range" min={RATE.min} max={RATE.max} step={RATE.step} value={clamp(+rate || 0, RATE.min, RATE.max)} onChange={(e) => setRate(e.target.value)} aria-label={t('misc1.emiAriaRateSlider')} className="w-full" style={{ background: trackBg(pctOf(rate, RATE)) }} />
+                <input type="range" min={RATE.min} max={RATE.max} step={RATE.step} value={clamp(+rate || 0, RATE.min, RATE.max)} onChange={(e) => setRate(e.target.value)} aria-label={t('misc1.emiAriaRateSlider')} className="w-full" style={trackPct(pctOf(rate, RATE))} />
                 <div className="flex justify-between text-[11px] text-gray-500 mt-1"><span>5%</span><span>15%</span></div>
               </div>
               <div className="mb-2">
@@ -136,7 +142,7 @@ export default function EmiCalculator() {
                     <span className="text-teal-400 text-sm">yrs</span>
                   </div>
                 </div>
-                <input type="range" min={TEN.min} max={TEN.max} step={TEN.step} value={clamp(+ten || 0, TEN.min, TEN.max)} onChange={(e) => setTen(e.target.value)} aria-label={t('misc1.emiAriaTenureSlider')} className="w-full" style={{ background: trackBg(pctOf(ten, TEN)) }} />
+                <input type="range" min={TEN.min} max={TEN.max} step={TEN.step} value={clamp(+ten || 0, TEN.min, TEN.max)} onChange={(e) => setTen(e.target.value)} aria-label={t('misc1.emiAriaTenureSlider')} className="w-full" style={trackPct(pctOf(ten, TEN))} />
                 <div className="flex justify-between text-[11px] text-gray-500 mt-1"><span>1 yr</span><span>30 yrs</span></div>
               </div>
 

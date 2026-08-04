@@ -166,6 +166,20 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
     return Array.isArray(def) ? filters[k].length > 0 : filters[k] !== def;
   }).length;
   const fieldProps = { filters, setF, seg, budgetLbl, genderLabel, tab };
+  /* Desktop advanced filters, collapsed by default.
+
+     The grid is 308px tall and sat permanently open above the results, which on a
+     1440x820 laptop — the commonest size there is — put the first result card at
+     y=881: a visitor landed on a search page and saw no stock at all without
+     scrolling. Mobile already solved this with a drawer; desktop never got the
+     equivalent, so this is the same idea with the room a wide viewport allows.
+
+     Opens automatically when any filter is already set, so a deep link like
+     ?loc=Baner or a returning user never lands on a narrowed list with no visible
+     reason for it — hiding the *cause* of an empty result set is worse than the
+     scroll it saves. The search box, tabs, list/map toggle, sort and reset all
+     stay on screen; only the advanced grid folds away, behind a count badge. */
+  const [showFilters, setShowFilters] = useState(() => activeCount > 0);
   return (
     <>
       <div className="glass rounded-2xl p-4 sm:p-5 mb-5 reveal">
@@ -196,6 +210,16 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
               <button type="button" onClick={() => setViewMode('map')} className={'sf-seg__btn' + (viewMode === 'map' ? ' is-active' : '')} aria-pressed={viewMode === 'map'}><Icon name="map" className="w-4 h-4" /> {t('flatmates.viewMap')}</button>
             </div>
             <div className="hidden lg:flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                aria-expanded={showFilters}
+                aria-controls="sf-desktop-filters"
+                className={'inline-flex items-center gap-1.5 px-3 h-10 rounded-xl border text-sm font-semibold t-all shrink-0 ' + (showFilters ? 'border-teal-400/60 bg-teal-500/25 text-teal-100' : 'border-teal-400/40 bg-teal-500/15 text-teal-100 hover:bg-teal-500/25')}
+              >
+                <Icon name="sliders-horizontal" className="w-4 h-4" /> {t('flatmates.filters')}
+                {activeCount > 0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-400 text-gray-900 text-[10px] font-bold leading-none">{activeCount}</span>}
+              </button>
               <span className="text-xs font-medium text-gray-400 whitespace-nowrap">{t('flatmates.sortBy')}</span>
               <Select value={sortMode} onChange={onSort} options={SORT_OPTIONS} className="w-44" ariaLabel={t('flatmates.ariaSortPosts')} />
               <button onClick={onReset} className="btn-ghost text-sm font-medium text-gray-300 px-4 h-10 rounded-full inline-flex items-center gap-1.5"><Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('flatmates.reset')}</button>
@@ -203,8 +227,9 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
           </div>
         </div>
 
-        {/* Filters — aligned 3-column grid (desktop only) */}
-        <div className="hidden lg:grid grid-cols-3 gap-x-5 gap-y-5 mt-4">
+        {/* Filters — aligned 3-column grid (desktop only), collapsed by default so
+            inventory clears the fold. See the note on `showFilters` above. */}
+        <div id="sf-desktop-filters" className={(showFilters ? 'hidden lg:grid' : 'hidden') + ' grid-cols-3 gap-x-5 gap-y-5 mt-4'}>
           <FilterControls {...fieldProps} />
         </div>
       </div>

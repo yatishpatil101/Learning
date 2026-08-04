@@ -177,8 +177,12 @@ export default function BottomNav() {
         <span className="pn-bottom-nav__label font-semibold text-white">{t('nav.post')}</span>
       </Link>
 
-      <Tab slotRef={setSlotRef[3]} to="/flatmates" icon="users" label={t('nav.flatmates', 'Flatmates')} active={activeIndex === 3} />
-      <Tab slotRef={setSlotRef[4]} to="/services" icon="sparkles" label={t('nav.services', 'Services')} active={activeIndex === 4} />
+      {/* Both tabs avoid glyphs that are spoken for elsewhere: `users` is the
+          sharing/occupants chip on property cards, and `sparkles` is the AI-search
+          mark (smart-search fields, assistant FAB) — a tab wearing it reads as "AI"
+          rather than as a destination. */}
+      <Tab slotRef={setSlotRef[3]} to="/flatmates" icon="users-round" label={t('nav.flatmates', 'Flatmates')} active={activeIndex === 3} />
+      <Tab slotRef={setSlotRef[4]} to="/services" icon="toolbox" label={t('nav.services', 'Services')} active={activeIndex === 4} />
     </nav>
   );
 }

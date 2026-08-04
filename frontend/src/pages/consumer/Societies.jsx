@@ -200,9 +200,21 @@ export default function Societies() {
               <button type="button" onClick={() => setQuery('')} aria-label={t('societies.clearSearch')} className="text-gray-500 hover:text-white"><Icon name="x" className="w-4 h-4" /></button>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={loc} onChange={setLoc} options={localities} ariaLabel={t('societies.filterLocality')} className="flex-1 lg:flex-none" />
-            <Select value={sort} onChange={setSort} options={sortOptions} ariaLabel={t('societies.sortAria')} className="flex-1 lg:flex-none" />
+          {/* flex-wrap + min-w-0: three controls do not fit one phone row. The two
+              selects are `flex-1`, but a flex item defaults to `min-width: auto`, so
+              they refused to shrink below their content ("Sort: Recommended" alone
+              claims 186px) and pushed the Verified toggle to x=364..481 on a 412px
+              screen — 69px of it off the edge, with no page scroll to reach it,
+              because an ancestor clips the overflow. So the control was simply
+              unreachable on a phone rather than visibly broken, which is why it
+              survived the suite.
+
+              min-w-0 lets the selects give way; flex-wrap lets Verified drop to its
+              own row when they cannot give way enough. Unchanged at lg, where the
+              toolbar is one row on a wide canvas. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={loc} onChange={setLoc} options={localities} ariaLabel={t('societies.filterLocality')} className="min-w-0 flex-1 lg:flex-none" />
+            <Select value={sort} onChange={setSort} options={sortOptions} ariaLabel={t('societies.sortAria')} className="min-w-0 flex-1 lg:flex-none" />
             <button
               type="button"
               onClick={() => setVerifiedOnly((v) => !v)}

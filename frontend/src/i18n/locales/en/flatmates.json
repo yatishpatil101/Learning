@@ -223,6 +223,8 @@
     "deposit": "Deposit",
     "attachedBath": "Attached bath",
     "ariaReportRoom": "Report this room",
+    "ariaShareRoom": "Share this room",
+    "shareRoomText": "Room in {{society}}, {{locality}} — {{price}}/month on PuneNest",
     "ariaMarkSeatFilled": "Mark a seat filled",
     "ariaReopenSeat": "Reopen a seat",
     "openSeats": "Open seats",

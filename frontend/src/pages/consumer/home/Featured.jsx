@@ -46,13 +46,19 @@ function FeaturedCard({ p, priority = false }) {
             </span>
           )}
         </div>
+        {/* tap-extend, not tap-target: this heart *is* the drawn 36px tile sitting on
+            the photo, so growing the box would enlarge the visible chrome over the
+            image. .tap-extend keeps the tile at 36px and puts a transparent 44px
+            ::before under the finger, so WCAG 2.5.8 holds without the card art
+            changing. Same treatment the top-bar icon tiles use. Never pair it with
+            .tap-target — they set the same property and .tap-target wins by order. */}
         <button
-          className={'absolute top-3 right-3 w-9 h-9 rounded-lg backdrop-blur-sm border flex items-center justify-center transition-all ' + (saved ? 'bg-rose-500/90 border-rose-400/40 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-black/60')}
+          className={'tap-extend absolute top-3 right-3 w-9 h-9 rounded-lg backdrop-blur-sm border flex items-center justify-center transition-all ' + (saved ? 'bg-rose-500/90 border-rose-400/40 text-white' : 'bg-black/40 border-white/10 text-white hover:bg-black/60')}
           onClick={handleSave}
           aria-pressed={saved}
           aria-label={saved ? t('home.featured.removeSaved') : t('home.featured.saveProperty')}
         >
-          <Icon name="heart" className={'w-4 h-4' + (saved ? ' fill-current' : '')} />
+          <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
         </button>
         <div className="absolute bottom-3 left-3">
           <span className="text-xl font-extrabold text-white tabular-nums" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6)' }}>{priceLabel(p)}</span>

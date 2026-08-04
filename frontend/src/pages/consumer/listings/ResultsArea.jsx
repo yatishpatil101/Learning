@@ -45,8 +45,8 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
 
 
   const viewToggles = (
-    <div className="flex items-center gap-1.5 sm:gap-2">
-      <span className="text-xs text-gray-500 mr-1 hidden sm:inline">{t('listings.viewLabel')}</span>
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <span className="text-sm text-gray-400 mr-0.5 sm:mr-1">{t('listings.viewLabel')}</span>
       <button onClick={() => setView('grid')} aria-pressed={view === 'grid'} aria-label={t('listings.gridView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'grid' ? ' active' : ' text-gray-500')} title={t('listings.gridView')}><Icon name="layout-grid" className="w-4 h-4" /></button>
       <button onClick={() => setView('list')} aria-pressed={view === 'list'} aria-label={t('listings.listView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'list' ? ' active' : ' text-gray-500')} title={t('listings.listView')}><Icon name="list" className="w-4 h-4" /></button>
       {flagEnabled('mapSearch') && <button onClick={() => setView('map')} aria-pressed={view === 'map'} aria-label={t('listings.mapView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'map' ? ' active' : ' text-gray-500')} title={t('listings.mapView')}><Icon name="map" className="w-4 h-4" /></button>}
@@ -63,7 +63,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
         { value: 'price-high', label: t('listings.sortPriceHigh') },
         { value: 'newest', label: t('listings.sortNewest') },
       ]}
-      className="w-[116px] sm:w-40"
+      className="pn-dd-sort"
       ariaLabel={t('listings.sortAria')}
     />
   );
@@ -102,7 +102,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                   the (tall) results column so it stays stuck under the header across the
                   whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              <div className="pn-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-end gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+              <div className="pn-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}
               </div>

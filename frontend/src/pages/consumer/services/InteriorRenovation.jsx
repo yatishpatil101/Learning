@@ -325,7 +325,10 @@ export default function InteriorRenovation() {
       </div>
 
       {lightbox ? (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
+        /* 1500 = the "blocking modals" rung. This was an ad-hoc 2000, which put it
+           above the toast layer (1600), so a confirmation fired while the lightbox
+           was open would have been painted behind it. See the ladder in index.css. */
+        <div className="fixed inset-0 z-[1500] flex items-center justify-center p-6" style={{ background: 'rgba(8,7,16,.92)', backdropFilter: 'blur(8px)' }} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt={tr('services.interior.lightboxAlt')} className="rounded-2xl" style={{ maxWidth: '92vw', maxHeight: '86vh', boxShadow: '0 24px 80px rgba(0,0,0,.6)' }} />
         </div>
       ) : null}

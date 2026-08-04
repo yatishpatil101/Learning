@@ -309,6 +309,28 @@
   background: var(--brand-gradient);
 }
 
+/* Legibility floor for the VERIFIED badge on a phone.
+
+   RoomCard and SeekerCard render it at text-[9px] uppercase. Nine pixels is below
+   what most people over ~40 read without effort, and on this surface the badge is
+   not decoration: it is the signal that the person you might share a flat with has
+   passed an identity check. Someone deciding whether it is safe to move in with a
+   stranger should not have to squint to find out whether we checked. Of everything
+   the mobile audit measured, this is the one where small text has a safety cost
+   rather than an aesthetic one.
+
+   11px, not 13px: the badge sits in an absolutely-positioned row next to the match
+   pill and the freshness chip on the room card, so it has a real width budget.
+   11px is the same floor already accepted for the bottom-nav labels, and it was
+   measured to keep every card's badge row on one line at 360px.
+
+   Scoped below sm and to this class only, so the desktop card is untouched. */
+@media (max-width: 639.98px) {
+  .sf-page .badge-seeker {
+    font-size: 11px;
+  }
+}
+
 .sf-page .pick {
   background: rgba(255, 255, 255, .04);
   border: 1px solid rgba(255, 255, 255, .12);

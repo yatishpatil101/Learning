@@ -23,6 +23,34 @@ import {
 const MSG_KEY = 'pn_nestor_msgs';
 const NUDGE_KEY = 'pn_nestor_nudge';
 const NUDGE_TIMEOUT_MS = 6000; // auto-clear the first-visit hint after a few seconds
+/* The hint is an introduction, so it has a budget: two sightings, then never
+   again. It used to live in sessionStorage and only record an *explicit* close,
+   which meant the 6s auto-hide was forgotten and the bubble greeted the user
+   again on the very next page load — on every route, for the whole session. An
+   introduction that repeats indefinitely is not an introduction, it is an
+   interruption, so the timeout now counts too and the count outlives the tab. */
+const NUDGE_MAX_SHOWS = 2;
+
+function nudgeShows() {
+  try {
+    const n = Number(localStorage.getItem(NUDGE_KEY));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return NUDGE_MAX_SHOWS; } // storage blocked → stay quiet
+}
+
+function recordNudgeShown() {
+  try { localStorage.setItem(NUDGE_KEY, String(nudgeShows() + 1)); } catch { /* ignore */ }
+}
+
+/* Routes where the user is deciding or transacting. On a 640px-tall phone the
+   bubble is ~110px of opaque card anchored above the FAB, which lands it over
+   the price band on a listing and over the first field of the posting wizard —
+   i.e. exactly the content the page exists to show. Nothing here is a route
+   someone browses idly, so there is no "how does this work?" to answer.
+   Suppressed below `lg` only: the desktop bubble sits in empty margin beside a
+   wider layout and covers nothing. The width test is CSS (`max-lg:hidden`), not
+   JS — see lib/chrome.js on keeping breakpoints out of JavaScript. */
+const NUDGE_MUTED = ['/property/', '/list-property', '/checkout', '/schedule-visit', '/signin', '/signup'];
 
 let msgSeq = 0;
 // Stateless-enough unique id: monotonic counter + random suffix so keys never
@@ -58,9 +86,7 @@ export default function AssistantWidget() {
   const [msgs, setMsgs] = useState(loadMsgs);
   const [input, setInput] = useState('');
   const [faqs, setFaqs] = useState([]);
-  const [showNudge, setShowNudge] = useState(() => {
-    try { return sessionStorage.getItem(NUDGE_KEY) !== '1'; } catch { return false; }
-  });
+  const [showNudge, setShowNudge] = useState(() => nudgeShows() < NUDGE_MAX_SHOWS);
   // True while the cookie-consent banner/sheet is on screen (first visit or
   // reopened from the footer). On phones the FAB and the full-width consent bar
   // fight for the same corner, so the FAB yields to the consent UI there.
@@ -112,18 +138,30 @@ export default function AssistantWidget() {
   }, []);
 
   // The first-visit nudge is a gentle hint, not a task — auto-clear it after a
-  // few seconds so the user never has to close it. This transient hide is NOT
-  // persisted (unlike an explicit close), so the hint still greets the user on
-  // the next fresh page load.
+  // few seconds so the user never has to close it. Timing out spends one of the
+  // two allowed sightings, exactly as an explicit close does: the user saw it
+  // either way, and only counting the close is what made it repeat forever.
+  //
+  // The increment is behind a ref guard because StrictMode double-invokes effects
+  // on purpose in development — without it a single page load spent the entire
+  // two-sighting budget and the hint vanished after one view. Any future
+  // per-visit counter has the same trap; InstallPrompt.jsx documents it too.
+  const nudgeCounted = useRef(false);
   useEffect(() => {
-    if (!showNudge) return;
+    if (!showNudge) return undefined;
+    if (!nudgeCounted.current) {
+      nudgeCounted.current = true;
+      recordNudgeShown();
+    }
     const t = setTimeout(() => setShowNudge(false), NUDGE_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [showNudge]);
 
   const dismissNudge = useCallback(() => {
     setShowNudge(false);
-    try { sessionStorage.setItem(NUDGE_KEY, '1'); } catch { /* ignore */ }
+    // Closing it by hand is a clearer "no" than letting it time out, so spend the
+    // whole budget rather than one sighting.
+    try { localStorage.setItem(NUDGE_KEY, String(NUDGE_MAX_SHOWS)); } catch { /* ignore */ }
   }, []);
 
   const openPanel = useCallback(() => { setOpen(true); dismissNudge(); }, [dismissNudge]);
@@ -207,7 +245,7 @@ export default function AssistantWidget() {
   const cityBar = !isLive(city);
   let anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
   if (detailBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
-  else if (cityBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+5.75rem)] sm:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
+  else if (cityBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+9rem)] sm:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
@@ -234,18 +272,23 @@ export default function AssistantWidget() {
           onReset={resetThread}
         />
       ) : (
-        <Fab onOpen={openPanel} showNudge={showNudge} onDismissNudge={dismissNudge} />
+        <Fab
+          onOpen={openPanel}
+          showNudge={showNudge}
+          onDismissNudge={dismissNudge}
+          nudgeMuted={NUDGE_MUTED.some((p) => pathname.startsWith(p))}
+        />
       )}
     </div>
   );
 }
 
 /* ── Floating action button + first-visit nudge ─────────────────────────────── */
-function Fab({ onOpen, showNudge, onDismissNudge }) {
+function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
   return (
     <div className="flex flex-col items-end gap-2">
       {showNudge ? (
-        <div className="relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur">
+        <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-[#1b1730]/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
           <button
             onClick={onDismissNudge}
             aria-label="Dismiss"

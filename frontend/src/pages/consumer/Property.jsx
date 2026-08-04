@@ -1,10 +1,11 @@
 import { Link } from 'react-router';
 import Icon from '../../components/Icon.jsx';
-import Loading from '../../components/ui/Loading.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { digits } from '../../lib/contact.js';
 import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import useSheetViewport from '../../lib/useSheetViewport.js';
 import { Gallery } from './property/Gallery.jsx';
+import PropertySkeleton from './property/PropertySkeleton.jsx';
 import useProperty from './property/useProperty.js';
 import PropertyHeader from './property/PropertyHeader.jsx';
 import PropertyTabs from './property/PropertyTabs.jsx';
@@ -12,8 +13,15 @@ import PropertyModals from './property/PropertyModals.jsx';
 
 export default function Property() {
   const ctx = useProperty();
+  /* Which of the two slots shows the price. Decided here, above the early returns,
+     so the hook order is stable and so exactly one price element is ever rendered
+     — see the notes in Gallery.jsx and PropertyHeader.jsx. Same breakpoint the
+     rest of the app uses to switch to phone presentation. */
+  const priceOnHero = useSheetViewport();
   const { tr } = ctx;
-  if (ctx.loading) return <Loading />;
+  // A skeleton in the page's own shape rather than a centred spinner: it holds the
+  // layout, so the hero arriving does not shove the page down.
+  if (ctx.loading) return <PropertySkeleton />;
   if (ctx.notFound) return <div className="mx-auto max-w-3xl px-4 py-32 text-center text-slate-400">{tr('property.notFound')}</div>;
   if (ctx.underReview) {
     return (
@@ -57,10 +65,10 @@ export default function Property() {
           </nav>
 
           {/* GALLERY */}
-          <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} />
+          <Gallery gallery={gallery} active={active} setActive={setActive} title={title} p={p} flagEnabled={flagEnabled} setLightbox={setLightbox} setTourOpen={setTourOpen} requestPhotos={requestPhotos} priceStr={priceOnHero ? ctx.priceStr : null} />
 
           {/* HEADER */}
-          <PropertyHeader ctx={ctx} />
+          <PropertyHeader ctx={ctx} priceOnHero={priceOnHero} />
 
           {/* SECTION TABS — collapse the long scroll into grouped tabs */}
           <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 section-mb">

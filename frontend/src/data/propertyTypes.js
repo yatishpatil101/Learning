@@ -103,6 +103,16 @@ export const matchTypeKey = (key, typeStr) => {
   return def.matches.some((m) => x.includes(m));
 };
 
+/* ---------- residential homes ----------
+   The subset of SEARCH_TYPES that is a home you can be *walked through*. Reels is
+   scoped to these on purpose: an open plot or farm land has no interior to tour, and
+   commercial space is searched by spec (carpet area, floor, frontage) rather than
+   browsed by feel — mixing either into one vertical feed just trains people to swipe
+   past. pg/flatmates are residential but are matched by `shareType`, not `type`, and
+   live in their own stores, so they are not reachable from a `type` string here. */
+export const RESIDENTIAL_KEYS = ['flat', 'house', 'villa'];
+export const isResidentialHome = (typeStr) => RESIDENTIAL_KEYS.some((k) => matchTypeKey(k, typeStr));
+
 /* ---------- commercial subtypes ----------
    Mirrors the "Post a property" COMMERCIAL_SUBTYPES so a commercial listing is
    filterable by the same options it was authored with. `matches` are substrings

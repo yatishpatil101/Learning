@@ -2,6 +2,8 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
+import { shareOrCopy } from '../../lib/share.js';
 import { Stars } from './property/Stars.jsx';
 import { useSocietyHub } from './society/useSocietyHub.js';
 import OverviewTab from './society/tabs/OverviewTab.jsx';
@@ -14,6 +16,7 @@ import SocietyModals from './society/SocietyModals.jsx';
 
 export default function Society() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const hub = useSocietyHub();
   const {
     rootRef, soc, locName, hero, onFollow, followed, setRateOpen,
@@ -21,6 +24,15 @@ export default function Society() {
     rateOpen, pick, setPick, revText, setRevText, inp, submitReview,
     sugRec, openSuggest, stats, tabs, current, selectTab,
   } = hub;
+
+  /* A society page is the most forwarded thing on the site — "look at this
+     building" is how a flat hunt actually gets discussed with family. The page
+     URL is the whole payload, so there is no deep-link contract to invent here. */
+  const shareSociety = async () => {
+    const status = await shareOrCopy({ title: soc.name });
+    if (status === 'copied') toast(t('property.shareCopied'), 'success');
+    if (status === 'failed') toast(t('property.shareCopyFail'), 'error');
+  };
 
   return (
     <div ref={rootRef} className="soc-page">
@@ -38,6 +50,9 @@ export default function Society() {
           <div className="absolute top-4 right-4 flex gap-2">
             <button onClick={onFollow} className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-9 !px-3 text-sm'}><Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('society.following') : t('society.follow')}</button>
             <button onClick={() => setRateOpen((v) => !v)} className="btn-outline !h-9 !px-3 text-sm"><Icon name="star" className="w-4 h-4 mr-1.5" /> {t('society.review')}</button>
+            {/* Label collapses below sm: three labelled pills overflow a 360px hero.
+                aria-label carries the name in the icon-only state. */}
+            <button onClick={shareSociety} aria-label={t('society.share')} className="btn-outline !h-9 !px-3 text-sm"><Icon name="share-2" className="w-4 h-4 sm:mr-1.5" /> <span className="hidden sm:inline">{t('society.share')}</span></button>
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
             <div className="flex flex-wrap items-center gap-2 mb-2">

@@ -165,16 +165,21 @@ function flashDraftSaved() {
   if (!s) {
     s = document.createElement('div');
     s.id = 'pnAutosaveSaved';
-    s.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2000;background:rgba(15,13,26,.92);border:1px solid rgba(20,184,166,.3);color:#5eead4;font-size:12px;font-weight:600;padding:7px 12px;border-radius:10px;display:flex;align-items:center;gap:6px;opacity:0;transition:opacity .3s;backdrop-filter:blur(8px);pointer-events:none';
+    // Presentation and placement live in index.css (.pn-autosave-flash). They used
+    // to be an inline cssText here, which is how the pill ended up parked on top of
+    // the mobile tab bar: a body-level node cannot see the --pn-bottom-inset that
+    // ConsumerLayout sets on its own wrapper, and JS has no view of the breakpoint
+    // that decides whether the bar exists at all. Only the on/off toggle is JS.
+    s.className = 'pn-autosave-flash';
     const dot = document.createElement('span');
-    dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:#14b8a6;display:inline-block';
+    dot.className = 'pn-autosave-flash__dot';
     s.appendChild(dot);
     s.appendChild(document.createTextNode(' Draft saved'));
     document.body.appendChild(s);
   }
-  s.style.opacity = '1';
+  s.classList.add('is-on');
   clearTimeout(s._t);
-  s._t = setTimeout(() => { s.style.opacity = '0'; }, 1400);
+  s._t = setTimeout(() => { s.classList.remove('is-on'); }, 1400);
 }
 
 export function useFormDraft(key, form, setForm, { debounce = 400, ignore = ['name', 'mobile'], enabled = true } = {}) {

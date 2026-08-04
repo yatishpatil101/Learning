@@ -156,7 +156,13 @@ export default function Contact() {
                   <FieldError show={err.has('msg')}>{err.msg('msg')}</FieldError>
                 </div>
               </div>
-              <label className="flex items-center gap-2.5 mt-4 cursor-pointer">
+              {/* tap-target on the label, not the box: clicking a label toggles its
+                  control, so the label *is* the touch target. Sign-in's "remember this
+                  device" row already does this. It matters more here — this is a single
+                  line of text-xs, so the hit area was ~18px tall on a consent control,
+                  where a mis-tap silently changes what the user agreed to. Reset above
+                  sm, where a mouse makes the 44px floor unnecessary. */}
+              <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2.5 mt-4 cursor-pointer">
                 <input type="checkbox" defaultChecked className="accent-teal-500 w-4 h-4" />
                 <span className="text-xs text-gray-400">{t('misc1.contactConsent')}</span>
               </label>

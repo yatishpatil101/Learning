@@ -5,6 +5,7 @@ import BottomNav from './BottomNav.jsx';
 import Footer from './Footer.jsx';
 import CityChrome from '../CityChrome.jsx';
 import CookieConsent from '../CookieConsent.jsx';
+import InstallPrompt from '../InstallPrompt.jsx';
 import AssistantWidget from '../assistant/AssistantWidget.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { AppFlagsProvider } from '../../context/AppFlagsContext.jsx';
@@ -52,11 +53,11 @@ export default function ConsumerLayout() {
      `.has-bottom-nav` is what makes --pn-bottom-inset reserve the bar's height, so the
      class and the bar are always mounted together and no widget can be left positioned
      against an inset that isn't there. */
-  const { selfPadded, chatRoute, authRoute, showBottomNav, showFooter, showAssistant } = chromeFor(pathname);
+  const { selfPadded, fullBleed, chatRoute, authRoute, showBottomNav, showFooter, showAssistant } = chromeFor(pathname);
 
   return (
     <AppFlagsProvider>
-      <div className={'flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
+      <div className={'flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
         <Navbar />
         <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
           <Outlet />
@@ -66,6 +67,10 @@ export default function ConsumerLayout() {
         {showAssistant && <div className="pn-assistant-slot">{<AssistantWidget />}</div>}
         <CityChrome />
         <CookieConsent />
+        {/* Home-screen install nudge (mobile only, self-silencing). Not on auth
+            routes — interrupting a sign-in or OTP entry to sell an app install
+            is how you lose the sign-in. */}
+        {!authRoute && <InstallPrompt />}
         {showBottomNav && <BottomNav />}
       </div>
     </AppFlagsProvider>

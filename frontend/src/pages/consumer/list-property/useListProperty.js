@@ -10,6 +10,7 @@ import {
   creditReferrerForListing,
 } from '../../../lib/store';
 import { formatIndian } from './format.js';
+import { haptic } from '../../../lib/haptics.js';
 import {
   isResidentialType, isLandType, isCommercialType, isHouseType, isPgType,
 } from './constants.js';
@@ -212,7 +213,15 @@ export default function useListProperty() {
     if (currentStep === 2 && !locationSet) err.location = true;
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setErrors({});
-    if (currentStep < 3) { setCurrentStep(currentStep + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      /* Two beats, not one: this is progress through the posting funnel, not a
+         toggle. It also fires only on a *successful* advance — the early return
+         above means a validation failure stays silent, so the tick means "you got
+         through", never "something happened". */
+      haptic('step');
+    }
   };
   const prevStep = () => {
     if (currentStep > 1) { setCurrentStep(currentStep - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }

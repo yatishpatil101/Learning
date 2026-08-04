@@ -55,13 +55,18 @@ export function CityProvider({ children }) {
   const setCity = useCallback((next) => {
     const name = String(next || '').trim();
     if (!name) return;
+    // A "coming soon" city is a waitlist prompt, not a destination: only open the
+    // modal and leave the shopper on their current city, so cancelling is a no-op.
+    if (!getCityLive(name)) {
+      setModal({ type: 'waitlist', city: name });
+      return;
+    }
     try {
       localStorage.setItem(CKEY, name);
     } catch {
       /* ignore */
     }
     setCityState(name);
-    if (!getCityLive(name)) setModal({ type: 'waitlist', city: name });
   }, []);
 
   // If the city the shopper is currently viewing gets taken offline by an admin

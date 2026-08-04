@@ -4,7 +4,7 @@ import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import { srcSetFor } from '../../../lib/imgSrcSet.js';
 
-export function Gallery({ gallery, active, setActive, title, p, flagEnabled, setLightbox, setTourOpen, requestPhotos }) {
+export function Gallery({ gallery, active, setActive, title, p, flagEnabled, setLightbox, setTourOpen, requestPhotos, priceStr }) {
   const { t } = useTranslation();
   const count = gallery.length;
   const go = (dir) => setActive((i) => (i + dir + count) % count);
@@ -61,6 +61,32 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
         <div className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold">
           <Icon name="camera" className="w-4 h-4" /> <span>{active + 1}/{gallery.length}</span>
         </div>
+        {/* Price, on phones only — the single most-asked question about a listing, and
+            previously the first thing that fell off the bottom of a 640px screen (measured
+            y=551 behind a photo-led hero). Laying it over the photo answers it without
+            shrinking the photo, which is the other trust signal that sells an Indian
+            listing.
+
+            Rendered here rather than duplicated-and-hidden: the parent decides which of
+            the two positions gets the price, so exactly one lives in the DOM. A hidden
+            twin would give `data-testid="property-price"` two matches and read the figure
+            out twice to a screen reader.
+
+            The scrim is what makes it legible over an unknown photo — white text alone
+            disappears against a bright kitchen. Both layers are pointer-events-none so
+            tapping the lower third of the photo still opens the lightbox. Sits below the
+            ask slide's z-20, so swiping to the ask covers the price with it. */}
+        {priceStr ? (
+          <>
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
+            <p
+              data-testid="property-price"
+              className="pointer-events-none absolute bottom-4 left-4 text-3xl font-extrabold text-white [text-shadow:0_1px_12px_rgba(0,0,0,.55)]"
+            >
+              {priceStr}
+            </p>
+          </>
+        ) : null}
         {/* The ask slide. Covers the hero (and its badges) rather than sitting in flow, so
             it inherits the hero's exact box — swiping between a photo and the ask stays a
             single steady frame instead of the page reflowing under the finger. */}
@@ -105,7 +131,13 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
             aria-selected={!ask && i === active}
             aria-label={t('property.goToPhoto', { n: i + 1 })}
             onClick={() => showPhoto(i)}
-            className="shrink-0 inline-flex items-center justify-center h-11 px-2"
+            /* min-w-[24px], not padding alone: `px-2` (8px a side) around a `w-1.5`
+               (6px) dot measures 22px, two short of the 24px WCAG 2.5.8 floor this
+               rail is documented to meet — while the *active* dot is `w-5` and
+               measures 36px. Padding cannot fix both at once because the dot width
+               changes with state. A min-width pins the floor for every state and
+               leaves the active pill alone. */
+            className="shrink-0 inline-flex min-w-[24px] items-center justify-center h-11 px-2"
           >
             <span className={'block rounded-full transition-all ' + (!ask && i === active ? 'w-5 h-1.5 bg-brand-teal-3' : 'w-1.5 h-1.5 bg-white/25')} />
           </button>
@@ -116,7 +148,7 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
           aria-selected={ask}
           aria-label={t('property.requestMorePhotos')}
           onClick={() => setAsk(true)}
-          className="shrink-0 inline-flex items-center justify-center h-11 px-2"
+          className="shrink-0 inline-flex min-w-[24px] items-center justify-center h-11 px-2"
         >
           <span className={'block w-2.5 h-2.5 rounded-full border-2 transition-all ' + (ask ? 'border-brand-teal-3 bg-brand-teal-3' : 'border-white/30')} />
         </button>

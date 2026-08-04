@@ -9,6 +9,7 @@ import { useCompare } from '../../../context/CompareContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
+import { haptic } from '../../../lib/haptics.js';
 import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL, SHARING_LBL } from './constants.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
@@ -29,6 +30,11 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     if (!isIn) { navigate(`/signin?reason=save&next=${encodeURIComponent('/listings')}`); return; }
     const nowSaved = toggleSavedProp(p.id);
     setSaved(nowSaved);
+    /* Saving is the one action on a results card that changes state without moving
+       the user anywhere: the card stays put and a small heart changes colour, which
+       is easy to miss mid-scroll with a thumb over it. The tick is the confirmation
+       the visual can't reliably give. No-op on iOS and under reduce-motion. */
+    haptic('tick');
   };
   const handleCompare = (e) => {
     e.preventDefault();
@@ -102,7 +108,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
             )}
             <div className="absolute top-3 right-3 flex flex-col gap-2">
               <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-                <Icon name="heart" className="w-4 h-4" />
+                <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
               </span>
               {showCompare ? (
                 <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>
@@ -161,7 +167,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
         ) : null}
         <div className="absolute top-3 right-3 flex flex-col gap-2">
           <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
-            <Icon name="heart" className="w-4 h-4" />
+            <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
           </span>
           {showCompare ? (
             <span className={'w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur flex items-center justify-center t-all ' + (inCompare ? 'bg-teal-500/80 text-white hover:bg-teal-500' : 'bg-black/40 text-gray-200 hover:bg-black/60')} role="button" tabIndex={0} onClick={handleCompare} onKeyDown={onKeyActivate(handleCompare)} aria-label={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')} aria-pressed={inCompare} title={inCompare ? t('listings.removeFromCompare') : t('listings.addToCompare')}>

@@ -1,11 +1,11 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 
 
 /* ============================================================================
-   PuneNest — design tokens (ported verbatim from theme.css)
+   PuneNest â€” design tokens (ported verbatim from theme.css)
    ============================================================================ */
 :root {
   --brand-dark: #0f0d1a;
@@ -35,19 +35,19 @@
   --teal-glow: rgba(13, 148, 136, 0.3);
   /* 'Noto Sans Devanagari' sits after Outfit rather than replacing it: the browser
      falls through per character, so Latin still renders in Outfit and only
-     Devanagari codepoints reach Noto. Order matters — putting Noto first would
+     Devanagari codepoints reach Noto. Order matters â€” putting Noto first would
      restyle the entire English site. */
   --font-sans: 'Outfit', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --section-gap: 2.5rem;
   --section-gap-lg: 4rem;
   --radius: 1rem;
 
-  /* ── Control sizing scale (design language) ──
+  /* â”€â”€ Control sizing scale (design language) â”€â”€
      All interactive controls share the same 40px height for visual rhythm.
      This applies to: dropdowns, pills, filter buttons, search inputs, toggles. */
   --control-h: 40px;
   --control-font: 0.875rem;
-  /* 14px — text-sm */
+  /* 14px â€” text-sm */
   --control-weight: 400;
   /* regular for inputs/dropdowns */
   --control-weight-action: 600;
@@ -55,7 +55,7 @@
   --control-radius: 10px;
   /* rounded square for most controls */
   --control-radius-pill: 9999px;
-  /* pill — reserved for search tabs, nav CTAs */
+  /* pill â€” reserved for search tabs, nav CTAs */
   --control-px: 1rem;
   /* 16px horizontal padding */
   --control-border: 1px solid rgba(255, 255, 255, 0.1);
@@ -68,11 +68,11 @@
   --control-placeholder: #9ca3af;
   /* gray-400 for placeholders */
 
-  /* ── Button system tokens (3 tiers: primary / secondary / compact-icon) ──
+  /* â”€â”€ Button system tokens (3 tiers: primary / secondary / compact-icon) â”€â”€
      Default md height aligns to --control-h for rhythm with inputs/dropdowns.
      lg (48px) is for hero + prominent mobile CTAs; sm (32px) for dense toolbars. */
   --btn-h: var(--control-h);
-  /* 40px — md */
+  /* 40px â€” md */
   --btn-h-sm: 32px;
   --btn-h-lg: 48px;
   --btn-radius: var(--control-radius);
@@ -80,7 +80,7 @@
   --btn-primary-shadow: 0 4px 14px rgba(20, 184, 166, 0.25);
   --btn-primary-shadow-hover: 0 6px 20px rgba(20, 184, 166, 0.35);
 
-  /* ── Mobile bottom-chrome system ──────────────────────────────────────────
+  /* â”€â”€ Mobile bottom-chrome system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
      --pn-safe-b   the device's bottom inset (home indicator / gesture bar).
                    Only non-zero once index.html carries viewport-fit=cover.
      --pn-bottom-inset  how much vertical space at the bottom of the viewport is
@@ -93,14 +93,41 @@
      each calc() collapses to exactly the literal offset it had before.
 
      Z-index ladder, documented once so bottom chrome never re-negotiates it:
-       content 0-49 · sticky page CTA 60 · mobile bottom nav 70 · sheets 1000
-       · assistant 1300 · cookie consent 1400 · blocking modals 1500 */
+       content 0-49 / sticky page CTA 60 / mobile bottom nav 70 / autosave flash 90
+       / sheets 1000 / assistant 1300 / install prompt 1350 / cookie consent 1400
+       / blocking modals 1500 / toasts 1600
+
+     Toasts top the ladder deliberately, and they are the one rung that is not
+     bottom chrome: a toast is the receipt for an action the user just took, so it
+     must stay legible above whatever surface triggered it, modals included. Its
+     container is pointer-events:none for that same reason - sitting at 1600 means
+     it overlays every layer below, so it must not intercept their taps.
+
+     The autosave pill used to sit at an undocumented 2000, above blocking modals,
+     so a transient "Draft saved" could paint over a dialog asking the user to
+     confirm something irreversible. It is now 90: it reports state rather than
+     confirming an action, and never needs to outrank a dialog.
+
+     Give every new `position: fixed` element a rung here before it ships - a value
+     picked to "just be on top" is how 2000 happened. See design-system.md for this
+     same ladder plus the bottom-chrome inventory a new fixed layer must be checked
+     against, since two floating controls on one corner intercept each other. */
   --pn-safe-b: env(safe-area-inset-bottom, 0px);
   --pn-bottom-nav-h: 56px;
   /* The bar floats, so it claims its own height PLUS the gap it hovers above the
      screen edge by. Both live in tokens because --pn-bottom-inset is derived from
      them; changing the float here moves every bottom-anchored widget with it. */
   --pn-bottom-nav-gap: 12px;
+  /* How far the bar's bottom edge sits above the viewport bottom â€” max(), not a sum.
+     The float gap and the home-indicator inset are the same thing (breathing room at
+     the bottom edge), so adding them double-counts: in an installed iOS app --pn-safe-b
+     is 34px, and `gap + safe-b` parked the capsule 46px up â€” 5.5% of the screen â€” while
+     in-browser (safe-b: 0px) it was 12px. max() takes whichever floor is larger, so the
+     browser keeps its 12px and the installed app clears the home indicator by exactly
+     the 34px iOS reserves, with no gap stacked on top.
+     One token because the bar's `bottom` and --pn-bottom-inset MUST agree â€” they were
+     two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
+  --pn-bottom-nav-offset: max(var(--pn-bottom-nav-gap), var(--pn-safe-b));
   --pn-bottom-inset: var(--pn-safe-b);
 
   /* Top chrome, mirroring the bottom system. --pn-top-inset is where a sticky
@@ -115,13 +142,13 @@
      It used to be duplicated as literals in ten files, including Tailwind classes on
      the row, which is why the landscape override needed a specificity argument.
 
-     The phone value is 10% under what it was; ≥768px deliberately is NOT, so tablet
+     The phone value is 10% under what it was; â‰¥768px deliberately is NOT, so tablet
      and desktop keep the layout they have always had. Every consumer of the token
-     inherits that split for free — which is the point of there being one token. */
+     inherits that split for free â€” which is the point of there being one token. */
   --pn-nav-h: 58px;
   --pn-top-inset: var(--pn-nav-h);
 
-  /* Drawn height of the top bar's pills on a phone — 10% under the 44px tap floor
+  /* Drawn height of the top bar's pills on a phone â€” 10% under the 44px tap floor
      they used to be pinned to. See .pn-topbar__pill below for why the two can
      differ, and --pn-nav-icon-box for the square controls that scale with it. */
   --pn-nav-pill-h: 40px;
@@ -135,7 +162,7 @@
 }
 
 /* The bar's real height, driven by the token rather than by utility classes on the
-   element — see --pn-nav-h above. */
+   element â€” see --pn-nav-h above. */
 .pn-topbar__row {
   height: var(--pn-nav-h);
 }
@@ -143,11 +170,11 @@
 /* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
 
    Below sm these all carry the 44px .tap-target floor, which was *drawing* them at
-   44px — taller than the very same pills on desktop, on the device with the least
+   44px â€” taller than the very same pills on desktop, on the device with the least
    room to spare. So the phone got the chunkiest chrome, which is backwards.
 
    The drawn pill drops to --pn-nav-pill-h and .tap-extend puts a transparent 44px
-   ::before back under the finger, so WCAG 2.5.8 still holds — the target is still
+   ::before back under the finger, so WCAG 2.5.8 still holds â€” the target is still
    44px, it just stops being painted. These pills therefore carry .tap-extend and NOT
    .tap-target: the two set the same property, and .tap-target is declared later in
    this file, so pairing them would silently reinstate the 44px box.
@@ -176,7 +203,7 @@
 
    Navbar.jsx toggles `.pn-nav-hidden` on <html> unconditionally, which keeps the
    JS free of breakpoint logic and makes it resize-safe. Every rule that reacts to
-   the class lives inside this max-width block, so on desktop the class is inert —
+   the class lives inside this max-width block, so on desktop the class is inert â€”
    that is the desktop-safety argument, and it is structural rather than a
    promise. */
 @media (max-width: 1023.98px) {
@@ -210,10 +237,10 @@
 }
 
 /* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
-   lg:hidden, so the inset is reset above lg — desktop always resolves to --pn-safe-b (0px)
+   lg:hidden, so the inset is reset above lg â€” desktop always resolves to --pn-safe-b (0px)
    and every calc() built on it collapses to the literal offset it had before this system. */
 .has-bottom-nav {
-  --pn-bottom-inset: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-gap) + var(--pn-safe-b));
+  --pn-bottom-inset: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset));
   /* Reserving the inset on the layout wrapper keeps the last card / footer of every
      consumer page clear of the bar. One rule; no per-page padding, and no lg reset
      needed because the variable itself already collapses above lg. */
@@ -226,23 +253,31 @@
   }
 }
 
+/* Full-bleed routes (reels) keep the inset *token* â€” their own chrome positions off it â€”
+   but not the reservation: the tab bar is a capsule floating over the media, so the media
+   is supposed to pass under it. Reserving the strip here drew a dead band across the
+   bottom of every reel and made the bar look like a wall rather than a floating control. */
+.has-bottom-nav.route-fullbleed {
+  padding-bottom: 0;
+}
+
 /* Floating "liquid glass" tab bar.
 
    An edge-to-edge bar reads as a wall at the bottom of the screen; a detached capsule
-   reads as a control sitting on top of the page, which is what it is — and letting the
+   reads as a control sitting on top of the page, which is what it is â€” and letting the
    page scroll visibly under and around it is the whole point of the material. The look
    is one blur + one saturation boost + a light top edge, not a stack of decorations:
    saturate() is what stops the blur from turning the app's teal into grey mud, and the
    inset top highlight is what gives the capsule an edge instead of a flat fill.
 
    Inset from both sides via env() so a rotated phone's notch can't clip it. Height is
-   the token only — the float gap is added by `bottom`, and --pn-bottom-inset above
+   the token only â€” the float gap is added by `bottom`, and --pn-bottom-inset above
    accounts for both. */
 .pn-bottom-nav {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 12px);
   right: calc(env(safe-area-inset-right, 0px) + 12px);
-  bottom: calc(var(--pn-safe-b) + var(--pn-bottom-nav-gap));
+  bottom: var(--pn-bottom-nav-offset);
   z-index: 70;
   display: flex;
   align-items: stretch;
@@ -298,7 +333,7 @@
   will-change: transform;
 }
 
-/* Added by BottomNav.jsx one paint after the first measurement — see the comment there.
+/* Added by BottomNav.jsx one paint after the first measurement â€” see the comment there.
    Until then the indicator must be able to jump to its measured slot without animating,
    or every page load slides it in from the left edge. */
 .pn-bottom-nav__indicator.is-animated {
@@ -316,8 +351,8 @@
   }
 }
 
-/* Raised centre action. It breaks the capsule's top edge on purpose — that overlap is
-   what makes Post read as the primary act rather than the third of five tabs — and the
+/* Raised centre action. It breaks the capsule's top edge on purpose â€” that overlap is
+   what makes Post read as the primary act rather than the third of five tabs â€” and the
    ring keeps it legible where it overhangs onto page content. */
 .pn-bottom-nav__fab {
   margin-top: -14px;
@@ -328,7 +363,7 @@
 
 /* Tab height is owned by the token, not by an inline style on the element. The bar
    and its slots have to shrink together, and --pn-bottom-nav-h is what --pn-bottom-inset
-   already reserves against — so a hardcoded height here would silently desync every
+   already reserves against â€” so a hardcoded height here would silently desync every
    bottom-anchored widget the moment the bar resized. */
 .pn-bottom-nav__tab {
   height: var(--pn-bottom-nav-h);
@@ -353,7 +388,7 @@
 }
 
 /* 11px, in rem so the label honours the browser/OS font-size setting instead of being
-   frozen — a px label is immune to dynamic type, which reads as "safe" but is actually
+   frozen â€” a px label is immune to dynamic type, which reads as "safe" but is actually
    the accessibility failure. 10px was below the floor where a glass background still
    leaves the text comfortably legible. The overflow guard is what makes scaling safe:
    at large type the label ellipsises instead of wrapping and bursting the fixed bar. */
@@ -403,7 +438,7 @@
   .pn-bottom-nav__tab {
     justify-content: center;
     /* Clears the Post tab's baseline-matching bottom padding, which only exists to
-       line its label up with the others — and the labels are gone here. */
+       line its label up with the others â€” and the labels are gone here. */
     padding-bottom: 0;
   }
 
@@ -433,7 +468,7 @@
 
 /* Mobile tap-target floor (WCAG 2.5.8 / platform HIG). Grows the hit area of an
    icon-only control without touching the glyph. Deliberately does NOT set `display`,
-   so Tailwind's `hidden` / `lg:hidden` on the same element still win — these
+   so Tailwind's `hidden` / `lg:hidden` on the same element still win â€” these
    declarations come after @tailwind utilities in source order. Pair it with
    `inline-flex items-center justify-center` on any element that isn't already flex. */
 .tap-target {
@@ -441,7 +476,7 @@
   min-height: 44px;
 }
 
-/* Same 44px floor, but for controls whose *drawn* size is load-bearing — a close
+/* Same 44px floor, but for controls whose *drawn* size is load-bearing â€” a close
    pill on a small bubble, for instance, where growing the box would make the
    control bigger than the thing it dismisses. The pseudo-element is transparent
    and centred, so the glyph stays as designed while the finger gets its target.
@@ -459,14 +494,14 @@
 /* Top-bar icon-only account actions (Saved / Notifications / Messages / Compare).
 
    These now sit inline in the bar at every width rather than being folded into the
-   account drawer below sm — they are the three screens a returning user checks most,
+   account drawer below sm â€” they are the three screens a returning user checks most,
    and reaching them through a drawer cost two taps and a context switch.
 
    Four painted 44px boxes plus the city pill overflow a 360px bar, so below sm the
    drawn square drops to --pn-nav-icon-box while .tap-extend keeps a transparent 44px
    target under the finger (WCAG 2.5.8 still holds; the target is 44px, it just stops
    being painted). A 32px box plus the row's 12px gap puts adjacent centres exactly
-   44px apart, so those targets tile edge-to-edge and never overlap — an overlap here
+   44px apart, so those targets tile edge-to-edge and never overlap â€” an overlap here
    would let one icon silently steal its neighbour's taps. Do not shrink the gap
    without shrinking the target to match.
 
@@ -483,7 +518,7 @@
   }
 }
 
-/* Nothing may be reachable ONLY via :hover — on a touch screen that hover state
+/* Nothing may be reachable ONLY via :hover â€” on a touch screen that hover state
    never fires, so the content is simply invisible. Mark any hover-revealed layer
    with this class and it becomes permanently visible on devices that cannot hover.
    Keyed on the capability, not the viewport, so a touch laptop is handled too and
@@ -494,13 +529,13 @@
     transform: none !important;
   }
 
-  /* On a touch device a :hover style is dead weight — it either never fires or,
+  /* On a touch device a :hover style is dead weight â€” it either never fires or,
      worse, sticks after the finger lifts. What the user actually needs is proof
      the tap registered, which matters most on the mid-range Android this app is
      built for, where the route transition can take a beat.
 
      The browser's own blue tap flash is removed (it clashes with the dark theme
-     and lags on Android), so a replacement is not optional — remove one without
+     and lags on Android), so a replacement is not optional â€” remove one without
      the other and taps feel broken. */
   a,
   button,
@@ -522,7 +557,7 @@
 
 /* Below 640px the default button (40px) and the compact button (32px) both fail the
    44px touch minimum. All .btn sizing flows through these three vars, so the whole
-   mobile ramp is this override — and it cannot leak to desktop, which keeps 32/40/48. */
+   mobile ramp is this override â€” and it cannot leak to desktop, which keeps 32/40/48. */
 @media (max-width: 639px) {
   :root {
     --btn-h: 44px;
@@ -560,7 +595,7 @@
   padding-bottom: var(--section-gap-lg);
 }
 
-/* ── Mobile vertical rhythm ──
+/* â”€â”€ Mobile vertical rhythm â”€â”€
    The page rhythm was authored for a 1440px canvas, where 40px between sections
    and a 40px gap under a heading read as air. On a 412px screen the same values
    are most of a fold: a visitor scrolls past empty space between every heading
@@ -575,7 +610,7 @@
    Everything here is inside a max-width block, so desktop keeps its original
    numbers structurally rather than by promise. `.section-head` is paired with an
    `sm:mb-*` utility at every call site, which is what restores the exact desktop
-   value above the breakpoint — the class simply stops applying. */
+   value above the breakpoint â€” the class simply stops applying. */
 @media (max-width: 639.98px) {
   :root {
     --section-gap: 1.75rem;
@@ -595,7 +630,7 @@
   }
 }
 
-/* ── Design Language: Reusable control classes ──
+/* â”€â”€ Design Language: Reusable control classes â”€â”€
    Use these classes for any interactive control to maintain consistent sizing. */
 .pn-control {
   height: var(--control-h);
@@ -667,13 +702,13 @@ body {
    ============================================================================
    The layout is tuned for Latin, and three Latin habits actively damage
    Devanagari. These rules are scoped by :lang(), which only matches because
-   i18n/index.js keeps <html lang> in step with the active language — if that
+   i18n/index.js keeps <html lang> in step with the active language â€” if that
    ever regresses, this whole block silently stops applying.
 
-   1. Line height. Devanagari stacks matras above the shirorekha (ि ी े ै ो ौ ं)
-      and below the baseline (ृ ु ू), so its ink box is materially taller than
+   1. Line height. Devanagari stacks matras above the shirorekha (à¤¿ à¥€ à¥‡ à¥ˆ à¥‹ à¥Œ à¤‚)
+      and below the baseline (à¥ƒ à¥ à¥‚), so its ink box is materially taller than
       Latin's. Tailwind's leading-none (1) and leading-tight (1.25) clip those
-      marks outright — the vowel sign is simply cut off, which changes the word.
+      marks outright â€” the vowel sign is simply cut off, which changes the word.
       There are ~70 uses of those two utilities in the app, so raising the floor
       here fixes all of them at once and keeps English untouched.
 
@@ -684,7 +719,7 @@ body {
       Devanagari loses legibility.
 
    3. Uppercase. Devanagari has no case, so `text-transform: uppercase` is a
-      no-op on the glyphs — but it is left alone rather than reset, because the
+      no-op on the glyphs â€” but it is left alone rather than reset, because the
       same elements often carry Latin brand names (PuneNest, SLA, OTP) that
       should still uppercase.
    ========================================================================== */
@@ -723,7 +758,7 @@ body {
   line-height: 1.55;
 }
 
-/* Devanagari runs 15–30% longer than the same English sentence, so buttons and
+/* Devanagari runs 15â€“30% longer than the same English sentence, so buttons and
    chips sized to fit English copy overflow. Let them grow instead of clipping. */
 :lang(hi) .btn-teal,
 :lang(mr) .btn-teal,
@@ -735,7 +770,7 @@ body {
   min-height: 2.5rem;
 }
 
-/* Devanagari digits are rendered as Latin numerals throughout the app (₹32,000,
+/* Devanagari digits are rendered as Latin numerals throughout the app (â‚¹32,000,
    2 BHK, 15 August), so numeric runs keep Outfit's tabular figures rather than
    inheriting Noto's proportional ones and jittering in aligned columns. */
 :lang(hi) .tabular-nums,
@@ -743,7 +778,7 @@ body {
   font-family: 'Outfit', system-ui, sans-serif;
 }
 
-/* ── Prevent browser autofill from overriding dark theme backgrounds ── */
+/* â”€â”€ Prevent browser autofill from overriding dark theme backgrounds â”€â”€ */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -753,7 +788,7 @@ input:-webkit-autofill:focus {
   transition: background-color 5000s ease-in-out 0s;
 }
 
-/* ── Heading balance — prevents orphaned words on all headings ── */
+/* â”€â”€ Heading balance â€” prevents orphaned words on all headings â”€â”€ */
 h1,
 h2,
 h3,
@@ -761,9 +796,9 @@ h4 {
   text-wrap: balance;
 }
 
-/* ── Radius hierarchy ──
+/* â”€â”€ Radius hierarchy â”€â”€
    Pill shape is reserved for nav CTAs, hero search tabs, and filter chips.
-   Cards, modals, forms use --radius (16px). Inner elements use 8px. ── */
+   Cards, modals, forms use --radius (16px). Inner elements use 8px. â”€â”€ */
 .btn-teal,
 .btn-outline,
 .pn-btn {
@@ -785,7 +820,7 @@ h4 {
   border-radius: var(--control-radius-pill) !important;
 }
 
-/* ── Tabular figures on all price and stat numbers ── */
+/* â”€â”€ Tabular figures on all price and stat numbers â”€â”€ */
 .price-marker,
 .rd-val,
 .rd-val-lg,
@@ -794,7 +829,7 @@ h4 {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Active/press feedback on all interactive controls ── */
+/* â”€â”€ Active/press feedback on all interactive controls â”€â”€ */
 button:active:not(:disabled),
 a[role="button"]:active {
   transform: scale(0.97) translateY(1px);
@@ -804,7 +839,7 @@ a[role="button"]:active {
   transform: scale(0.97) translateY(1px) !important;
 }
 
-/* ── Tinted shadows — brand hue instead of pure black ── */
+/* â”€â”€ Tinted shadows â€” brand hue instead of pure black â”€â”€ */
 .property-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
@@ -820,7 +855,7 @@ a[role="button"]:active {
   box-shadow: 0 0 40px rgba(13, 148, 136, 0.12), 0 8px 24px rgba(15, 13, 26, 0.4) !important;
 }
 
-/* ── Section subtext max-width — prevents lines stretching too wide ── */
+/* â”€â”€ Section subtext max-width â€” prevents lines stretching too wide â”€â”€ */
 .section-desc {
   max-width: 60ch;
 }
@@ -839,18 +874,18 @@ a[role="button"]:active {
 }
 
 /* App-wide: never show a horizontal scrollbar. Horizontal regions pan by
-   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars —
-   which several dropdowns and lists deliberately theme — are left untouched
+   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars â€”
+   which several dropdowns and lists deliberately theme â€” are left untouched
    because :horizontal only targets the horizontal bar. */
 ::-webkit-scrollbar:horizontal {
   display: none;
   height: 0;
 }
 
-/* Filter sidebar scroll — reserve a stable gutter and float a transparent-track
+/* Filter sidebar scroll â€” reserve a stable gutter and float a transparent-track
    thumb so it never overlaps the rounded tile edge or its corners. The thumb is
    AUTO-HIDDEN by default and only fades in (standard teal) while the panel itself
-   is hovered/focused — so hovering an adjacent card never surfaces a teal bar.
+   is hovered/focused â€” so hovering an adjacent card never surfaces a teal bar.
    Gutter width stays reserved, so revealing the thumb causes no layout shift. */
 .filter-scroll {
   scrollbar-gutter: stable;
@@ -887,7 +922,7 @@ a[role="button"]:active {
   background: rgba(20, 184, 166, 0.7);
 }
 
-/* ── Hero gradient animation ── */
+/* â”€â”€ Hero gradient animation â”€â”€ */
 @keyframes heroGradient {
   0% {
     background-position: 0% 50%;
@@ -917,7 +952,7 @@ a[role="button"]:active {
   will-change: background-position;
 }
 
-/* ── Floating shapes ── */
+/* â”€â”€ Floating shapes â”€â”€ */
 @keyframes float1 {
 
   0%,
@@ -1016,7 +1051,7 @@ a[role="button"]:active {
   animation: float2 16s ease-in-out infinite reverse;
 }
 
-/* ── Staggered hero text (compressed: search widget usable well under ~0.6s) ── */
+/* â”€â”€ Staggered hero text (compressed: search widget usable well under ~0.6s) â”€â”€ */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -1084,7 +1119,7 @@ a[role="button"]:active {
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.36s forwards;
 }
 
-/* ── Hero trust-proof ticker ── */
+/* â”€â”€ Hero trust-proof ticker â”€â”€ */
 .hero-ticker {
   opacity: 0;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.74s forwards;
@@ -1103,7 +1138,7 @@ a[role="button"]:active {
   animation: tickerPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
-/* ── Scroll reveal ── */
+/* â”€â”€ Scroll reveal â”€â”€ */
 .reveal {
   opacity: 0;
   transform: translateY(36px);
@@ -1115,7 +1150,7 @@ a[role="button"]:active {
   transform: translateY(0);
 }
 
-/* ── Card image zoom ── */
+/* â”€â”€ Card image zoom â”€â”€ */
 .card-img-wrap {
   overflow: hidden;
 }
@@ -1128,7 +1163,7 @@ a[role="button"]:active {
   transform: scale(1.08);
 }
 
-/* ── Heart animation ── */
+/* â”€â”€ Heart animation â”€â”€ */
 @keyframes heartPop {
   0% {
     transform: scale(1);
@@ -1151,7 +1186,7 @@ a[role="button"]:active {
   animation: heartPop 0.4s ease;
 }
 
-/* ── Glow hover for category cards ── */
+/* â”€â”€ Glow hover for category cards â”€â”€ */
 .cat-card {
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
 }
@@ -1184,7 +1219,7 @@ a[role="button"]:active {
   background: linear-gradient(to right, var(--brand-dark), transparent);
 }
 
-/* ── Property card lift + off-screen rendering optimization ── */
+/* â”€â”€ Property card lift + off-screen rendering optimization â”€â”€ */
 .property-card {
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
   content-visibility: auto;
@@ -1201,7 +1236,7 @@ a[role="button"]:active {
   contain-intrinsic-size: 0 320px;
 }
 
-/* ── CTA floating shapes ── */
+/* â”€â”€ CTA floating shapes â”€â”€ */
 @keyframes ctaFloat1 {
 
   0%,
@@ -1226,7 +1261,7 @@ a[role="button"]:active {
   }
 }
 
-/* ── Glass (with fallback for browsers without backdrop-filter support) ── */
+/* â”€â”€ Glass (with fallback for browsers without backdrop-filter support) â”€â”€ */
 .glass {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
@@ -1262,7 +1297,7 @@ a[role="button"]:active {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Hero search dropdowns — themed vertical scrollbar, always shown (stable gutter)
+/* Hero search dropdowns â€” themed vertical scrollbar, always shown (stable gutter)
    so all three search dropdowns look and behave consistently, and long
    Type / BHK / locality lists stay usable (never run off-screen on mobile). */
 .search-dd-scroll {
@@ -1516,7 +1551,7 @@ a[role="button"]:active {
   justify-content: flex-start;
 }
 
-/* Attribution footer inside the hero locality dropdown — kept last, bottom-left, out of focus. */
+/* Attribution footer inside the hero locality dropdown â€” kept last, bottom-left, out of focus. */
 .loc-attrib {
   margin-top: 2px;
   padding-top: 3px;
@@ -1542,7 +1577,7 @@ a[role="button"]:active {
   z-index: 10;
 }
 
-/* ── Category scroll hide scrollbar ── */
+/* â”€â”€ Category scroll hide scrollbar â”€â”€ */
 .cat-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -1562,7 +1597,7 @@ a[role="button"]:active {
   scrollbar-width: none;
 }
 
-/* HScroll edge-fade affordance — the touch-first "there's more this way" cue used
+/* HScroll edge-fade affordance â€” the touch-first "there's more this way" cue used
    app-wide on tab bars, chip rows and card rails. */
 .hscroll-fade {
   position: absolute;
@@ -1581,13 +1616,13 @@ a[role="button"]:active {
   right: 0;
 }
 
-/* ── Pill active ── */
+/* â”€â”€ Pill active â”€â”€ */
 .pill-active {
   background: var(--brand-gradient);
   color: #fff;
 }
 
-/* ── Sleek hover for search button (no gimmicky pulse) ── */
+/* â”€â”€ Sleek hover for search button (no gimmicky pulse) â”€â”€ */
 .search-btn:hover {
   box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28);
 }
@@ -1725,7 +1760,7 @@ details.faq[open] .faq-ico {
    and a price range is one of the most-dragged controls in the search funnel.
    Grow the thumb to 28px on coarse pointers and grow the row around it so the
    track stays centred and the thumb isn't clipped at 0%/100%. Desktop keeps the
-   16px thumb — the pointer there is a cursor, not a fingertip. */
+   16px thumb â€” the pointer there is a cursor, not a fingertip. */
 @media (pointer: coarse) {
   .rng-wrap {
     padding: 0 15px;
@@ -1752,6 +1787,29 @@ details.faq[open] .faq-ico {
   .rng input[type=range]::-moz-range-thumb {
     width: 28px;
     height: 28px;
+  }
+
+  /* The two labels under the track ("â‚¹0" / "â‚¹5 Cr+") are also buttons â€” tapping one
+     swaps it for a text input so an exact figure can be typed, which is the only way
+     to set a precise budget on a phone. They are drawn as small underlined values
+     because that is what they are; making them look like buttons would turn a quiet
+     row of numbers into two competing controls. So extend the target, not the box.
+
+     Centred 44px is safe here: the pair sits at opposite ends of a justify-between
+     row, so the boxes cannot meet, and the 12px gap above them puts the top edge
+     clear of the thumb's travel. */
+  .rng-val {
+    position: relative;
+  }
+
+  .rng-val::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
   }
 }
 
@@ -2064,7 +2122,7 @@ details.faq[open] .faq-ico {
 /* Floating "Filters" control on the mobile listings page.
 
    It floats over a scrolling column of property photos, so its backdrop is
-   unpredictable — a bright interior one moment, a dark card the next. A flat teal
+   unpredictable â€” a bright interior one moment, a dark card the next. A flat teal
    fill dissolves into the light shots, and ringing it in page-background black
    just reads as a sticker cut out and pasted on.
 
@@ -2126,7 +2184,7 @@ details.faq[open] .faq-ico {
   border-color: rgba(45, 212, 191, 0.42);
 }
 
-/* Solid teal on glass — the one saturated element, so the eye lands on how many
+/* Solid teal on glass â€” the one saturated element, so the eye lands on how many
    filters are applied before it reads the word. */
 .filter-fab__count {
   background: #2dd4bf;
@@ -2167,7 +2225,7 @@ details.faq[open] .faq-ico {
   background-position: right 10px center;
 }
 
-/* ── Native <select> themed via @layer to avoid !important conflicts with Tailwind ── */
+/* â”€â”€ Native <select> themed via @layer to avoid !important conflicts with Tailwind â”€â”€ */
 @layer components {
   select {
     -webkit-appearance: none;
@@ -2269,7 +2327,7 @@ details.faq[open] .faq-ico {
     transition: transform 0.2s ease;
   }
 
-  /* ── Help centre / documentation prose ──────────────────────────────────
+  /* â”€â”€ Help centre / documentation prose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
      Styles the HTML compiled from src/content/help/**.md. Kept separate from
      .legal-prose because docs need a wider element vocabulary (tables, code,
      callouts) and a slightly larger reading size than a policy page. */
@@ -2383,7 +2441,7 @@ details.faq[open] .faq-ico {
     margin: 2.25rem 0;
   }
 
-  /* Tables scroll horizontally rather than forcing the article column wider —
+  /* Tables scroll horizontally rather than forcing the article column wider â€”
      a 5-column comparison table is unavoidable in docs and must not break the
      phone layout. */
   .doc-prose table {
@@ -2415,7 +2473,7 @@ details.faq[open] .faq-ico {
     }
   }
 
-  /* Callouts — emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
+  /* Callouts â€” emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
   .doc-prose .doc-callout {
     border: 1px solid rgb(255 255 255 / 0.1);
     border-left-width: 3px;
@@ -2501,8 +2559,8 @@ select option:checked {
   font-weight: 600;
 }
 
-/* ── Custom dropdown (.pn-dropdown) — ported verbatim from the HTML dropdowns.css
-   so the React <Select> matches the enhanced native selects exactly. ── */
+/* â”€â”€ Custom dropdown (.pn-dropdown) â€” ported verbatim from the HTML dropdowns.css
+   so the React <Select> matches the enhanced native selects exactly. â”€â”€ */
 :root {
   --dd-bg: rgba(255, 255, 255, 0.05);
   --dd-bg-hover: rgba(255, 255, 255, 0.08);
@@ -2556,8 +2614,25 @@ select option:checked {
   height: 0.85rem;
 }
 
+/* Listings sort picker: shares one row with the view toggles, so it needs a fixed
+   pill width rather than the base `width: 100%` above - that declaration sits
+   after @tailwind utilities, so a w-* utility on the same element loses to it.
+   Stays shrinkable so very narrow phones ellipsis the label instead of wrapping
+   the row. */
+.pn-dropdown.pn-dd-sort {
+  flex: 0 1 126px;
+  width: 126px;
+}
+
+@media (min-width: 640px) {
+  .pn-dropdown.pn-dd-sort {
+    flex-basis: 10rem;
+    width: 10rem;
+  }
+}
+
 /* Photo-category picker: a subtle caption laid directly ON the thumbnail (over a
-   gradient scrim), so it reads as part of the photo — not a strip below it. Stays
+   gradient scrim), so it reads as part of the photo â€” not a strip below it. Stays
    quiet (borderless, 20px tall) with white text for legibility over the image;
    the chevron alone invites a click to change the room type. */
 .pn-dropdown--sm.pn-dd-photocat {
@@ -2694,7 +2769,7 @@ select option:checked {
   pointer-events: auto;
 }
 
-/* ── Dropdown as a bottom sheet (phones) ──
+/* â”€â”€ Dropdown as a bottom sheet (phones) â”€â”€
    Select/MultiSelect anchor their portaled menu to the trigger with inline
    geometry. On a phone that lands the list under the user's own hand, and for a
    searchable field the keyboard then eats most of what's left. Below 640px the
@@ -2758,7 +2833,7 @@ select option:checked {
   top: 1.375rem;
 }
 
-/* Overflow ("More") menu presented as an action sheet on phones — same docking,
+/* Overflow ("More") menu presented as an action sheet on phones â€” same docking,
    scrim and handle as the dropdown sheet above, but the panel's own look comes
    from utility classes in Menu.jsx. */
 .pn-action-sheet {
@@ -2988,6 +3063,26 @@ select option:checked {
   animation: pnShimmer 1.4s ease-in-out infinite;
 }
 
+/* The shimmer is an INFINITE loop, which is exactly the kind of motion someone
+   who asked for less of it does not want â€” and a loading state is when they are
+   least able to look away. Both opt-outs are honoured: the OS-level media query
+   and the app's own Settings â–¸ Appearance toggle (html.pn-reduce-motion).
+
+   Kept next to the animation rather than in the reduced-motion section further
+   down, because that section is an explicit allowlist ~3,500 lines away: this
+   rule was missing from it for as long as the shimmer has existed, and the next
+   person to touch the shimmer will be looking here. The surface stays visible â€”
+   only the sweep stops â€” so the placeholder still reads as "content pending". */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+html.pn-reduce-motion .skeleton::after {
+  animation: none;
+}
+
 @keyframes pnShimmer {
   100% {
     transform: translateX(100%);
@@ -3021,7 +3116,7 @@ select option:checked {
   }
 }
 
-/* ── Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) ── */
+/* â”€â”€ Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) â”€â”€ */
 /* Base page canvas. The left half is painted over by .auth-left; this gradient is
    what shows through the right (form) column, so it lifts that side out of flat
    black into a deep teal-navy console that matches the brand without competing
@@ -3173,7 +3268,7 @@ select option:checked {
   background: rgba(255, 255, 255, .08);
 }
 
-/* OTP box styles — global (used on signin, signup, staff-login, list-property) */
+/* OTP box styles â€” global (used on signin, signup, staff-login, list-property) */
 .otp-container {
   display: flex;
   gap: 10px;
@@ -3181,7 +3276,7 @@ select option:checked {
 }
 
 /* Boxes flex-fill their row (capped at 48px) so 6 inputs never overflow a
-   narrow auth card on 360/414px phones — no horizontal scroll. */
+   narrow auth card on 360/414px phones â€” no horizontal scroll. */
 .otp-box {
   flex: 1 1 0;
   min-width: 0;
@@ -3256,7 +3351,7 @@ select option:checked {
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
 }
 
-/* ── Mobile auth "edge-lit proptech" theme (≤lg) ──
+/* â”€â”€ Mobile auth "edge-lit proptech" theme (â‰¤lg) â”€â”€
    Desktop keeps its split-screen; mobile hides the left panel, so we give the
    whole screen a techy identity: an ambient teal aurora + fine tech-grid backdrop
    behind a lit, gradient-ring form card. Reuses brand teal tokens only. */
@@ -3409,7 +3504,7 @@ select option:checked {
   height: 16px;
 }
 
-/* List view card (redesigned row) — ported from listings.html */
+/* List view card (redesigned row) â€” ported from listings.html */
 .list-card {
   display: block;
 }
@@ -3564,6 +3659,8 @@ select option:checked {
   transform: scale(1.1);
 }
 
+/* Chip used in list context — rent inventory, tenant list, price insights and the
+   similar-property cards. Stays boxed; only the property-header rail below opts out. */
 .tag {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -3578,6 +3675,76 @@ select option:checked {
 
 .tag:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+/* Property-header trust panel — ONE tile, not N badges.
+
+   These four phrases answer a single question ("what is the standing of this
+   listing?"), so they share one container. Boxing each phrase separately turned one
+   answer into four independent-looking buttons; leaving them loose in a row left
+   them reading as unrelated fragments. A single tile is the middle: the container
+   says "one context", and the items inside stay chrome-free so none of them looks
+   tappable.
+
+   Borrowed from `.detail-card` further down this file — same page, same job (small
+   read-only info tile), so it reuses that surface rather than inventing a third.
+
+   Packed with flex-wrap, NOT stretched across auto-fit grid tracks: with 3 items in
+   a 800px column, `1fr` tracks pushed them ~250px apart and they read as disconnected
+   again — the tile said "one thing", the spacing said "three". Packed left at a fixed
+   column gap, the set scans as one line of facts however wide the column gets.
+
+   Scoped to `.tag-strip`: `.tag` is also worn by rent inventory, the tenant list
+   and similar-property cards, which are chips in list context and stay boxed. */
+.tag-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1.5rem;
+  row-gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.8rem 0.95rem;
+}
+
+.tag-strip .tag {
+  align-items: center;
+  min-width: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  /* Beats `.tag-emerald` on specificity on purpose: the label stays neutral so the
+     icon is the only thing saying "verified". */
+  color: #cbd5e1;
+  cursor: help;
+  transition: color 0.2s ease;
+}
+
+.tag-strip .tag:hover {
+  background: none;
+  color: #fff;
+}
+
+.tag-strip .tag svg {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+.tag-strip .tag-emerald svg {
+  color: #34d399;
+}
+
+/* No box of its own to outline, so the focus ring supplies one. */
+.tag-strip .tag:focus-visible {
+  outline: 2px solid rgba(45, 212, 191, 0.65);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 .tag-teal {
@@ -3636,15 +3803,15 @@ select option:checked {
   border-color: rgba(20, 184, 166, 0.25);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   BUTTON SYSTEM — single source of truth. Three tiers:
-     .btn-primary   → the one main action per view (teal gradient)
-     .btn-secondary → supporting actions (outline/ghost)
-     .btn-icon      → compact square icon-only utility button
-   Sizes: .btn-sm (32px) · default (40px) · .btn-lg (48px).
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   BUTTON SYSTEM â€” single source of truth. Three tiers:
+     .btn-primary   â†’ the one main action per view (teal gradient)
+     .btn-secondary â†’ supporting actions (outline/ghost)
+     .btn-icon      â†’ compact square icon-only utility button
+   Sizes: .btn-sm (32px) Â· default (40px) Â· .btn-lg (48px).
    Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
    long tail of existing buttons inherits this system without per-file edits.
-   ═══════════════════════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 .btn,
 .btn-teal,
 .btn-outline,
@@ -3694,7 +3861,7 @@ select option:checked {
   pointer-events: none;
 }
 
-/* Tier 1 — primary */
+/* Tier 1 â€” primary */
 .btn-primary,
 .btn-teal,
 .pn-btn-primary {
@@ -3718,7 +3885,7 @@ select option:checked {
   transform: translateY(0);
 }
 
-/* Tier 2 — secondary */
+/* Tier 2 â€” secondary */
 .btn-secondary,
 .btn-outline,
 .pn-btn-ghost {
@@ -3742,7 +3909,7 @@ select option:checked {
   transform: translateY(1px);
 }
 
-/* Tier 3 — compact icon-only */
+/* Tier 3 â€” compact icon-only */
 .btn-icon {
   width: var(--btn-h);
   height: var(--btn-h);
@@ -4098,14 +4265,14 @@ select option:checked {
   color: #fff;
 }
 
-/* ── Mobile: centred dialogs become bottom sheets ───────────────────────────
+/* â”€â”€ Mobile: centred dialogs become bottom sheets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Below 640px a centred dialog is the wrong shape: with the keyboard open the
    usable viewport is ~300px, so the submit button of any form modal gets
    pushed off-screen. Docking to the bottom edge keeps the primary action in
    the thumb arc and lets the body scroll inside a bounded panel instead.
 
    Every consumer overlay already shares .pn-modal-backdrop/.pn-modal, so this
-   one block converts all of them at once — no per-modal markup change. The
+   one block converts all of them at once â€” no per-modal markup change. The
    whole thing sits inside a max-width query, so >=640px (and therefore every
    desktop viewport) renders byte-for-byte as before. */
 @media (max-width: 639.98px) {
@@ -4170,10 +4337,10 @@ select option:checked {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* ── Listing wizard: step actions dock to the thumb arc on mobile ───────────
+/* â”€â”€ Listing wizard: step actions dock to the thumb arc on mobile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Step 2 of the owner flow is a very long form (address grid, map, ~10 pricing
    fields). With Back/Next only at the end of the document, an owner scrolls
-   hundreds of pixels to advance — and again every time validation fails. This
+   hundreds of pixels to advance â€” and again every time validation fails. This
    is the single biggest supply-side conversion leak on a phone.
 
    `sticky` rather than `fixed` deliberately: the row keeps its place in the
@@ -4220,7 +4387,7 @@ select option:checked {
      keeps it in reach while the rest of the form scrolls underneath.
 
      Auth routes never mount the bottom nav, so --pn-bottom-inset resolves to the
-     safe-area inset alone — no double counting. */
+     safe-area inset alone â€” no double counting. */
   .pn-auth-submit {
     position: sticky;
     bottom: calc(var(--pn-bottom-inset) + 0.75rem);
@@ -4354,1224 +4521,9 @@ select option:checked {
   box-shadow: inset 0 0 0 3px #15131f;
 }
 
-/* → moved to styles/routes/compare.css (loaded with its route chunk) */
-/* → moved to styles/routes/services-hub.css (loaded with its route chunk) */
-/* ============================================================================
-   List Property wizard (ported from list-property.html <style>)
-   ============================================================================ */
-.progress-track {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.progress-fill {
-  background: linear-gradient(90deg, var(--teal-1), var(--teal-2), var(--teal-3));
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.step-dot {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.step-dot.active {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-  box-shadow: 0 0 20px rgba(20, 184, 166, 0.3);
-}
-
-.step-dot.completed {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-}
-
-.step-dot.inactive {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.step-line.active {
-  background: var(--teal-2);
-}
-
-.step-line.inactive {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* ---- Listing wizard step nav (segmented, gamified, on-brand) ----
-   Three discrete phase segments that complement (not duplicate) the
-   continuous % momentum meter. Completed segments are clickable. */
-.lp-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.625rem;
-}
-
-.lp-steps__item {
-  position: relative;
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 0.75rem 0.875rem 0.75rem;
-  border-radius: 0.875rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font: inherit;
-  color: inherit;
-}
-
-.lp-steps__rail {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.lp-steps__item.is-done .lp-steps__rail,
-.lp-steps__item.is-active .lp-steps__rail {
-  background: var(--brand-gradient);
-}
-
-.lp-steps__row {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-width: 0;
-}
-
-.lp-steps__badge {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1.5px solid rgba(255, 255, 255, 0.12);
-  color: #9ca3af;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-steps__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.15;
-}
-
-.lp-steps__num {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #6b7280;
-}
-
-.lp-steps__label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #e5e7eb;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lp-steps__status {
-  font-size: 11px;
-  font-weight: 500;
-  color: #6b7280;
-  margin-top: 1px;
-}
-
-/* Active: brand-glow badge + teal accents */
-.lp-steps__item.is-active {
-  background: rgba(20, 184, 166, 0.08);
-  border-color: rgba(20, 184, 166, 0.35);
-}
-
-.lp-steps__item.is-active .lp-steps__badge {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-  color: #fff;
-  box-shadow: 0 0 16px rgba(20, 184, 166, 0.35);
-}
-
-.lp-steps__item.is-active .lp-steps__status {
-  color: #5eead4;
-}
-
-/* Done: solid teal check badge, clickable to go back */
-.lp-steps__item.is-done .lp-steps__badge {
-  background: var(--teal-2);
-  border-color: var(--teal-2);
-  color: #fff;
-}
-
-.lp-steps__item.is-done {
-  cursor: pointer;
-}
-
-.lp-steps__item.is-done:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(20, 184, 166, 0.3);
-}
-
-.lp-steps__item.is-done:focus-visible {
-  outline: none;
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
-}
-
-.lp-steps__item.is-done .lp-steps__status {
-  color: #5eead4;
-}
-
-/* Todo: dimmed */
-.lp-steps__item.is-todo {
-  opacity: 0.6;
-}
-
-@media (max-width: 640px) {
-  .lp-steps {
-    gap: 0.5rem;
-  }
-
-  .lp-steps__item {
-    padding: 0.625rem;
-  }
-
-  .lp-steps__num {
-    display: none;
-  }
-
-  .lp-steps__badge {
-    width: 1.75rem;
-    height: 1.75rem;
-  }
-
-  .lp-steps__label {
-    font-size: 0.8125rem;
-  }
-
-  /* On phones the active state reads from the teal highlight + rail, so drop
-     the status lines entirely to keep each tile on one clean line. */
-  .lp-steps__status {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .lp-steps__item,
-  .lp-steps__badge {
-    transition: none;
-  }
-}
-
-/* The wizard is the longest form in the app. The meter is already sticky, but on
-   a phone the full card costs a fifth of the screen for the whole scroll, so shed
-   the tier icon, the encouragement line and the milestone scale and let the
-   percentage plus the bar carry the message. `.pn-docks-under-nav` on the element
-   supplies the top offset, so the meter follows the navbar as it hides and
-   returns instead of hard-coding a second copy of that value. */
-@media (max-width: 639.98px) {
-  .lp-meter {
-    margin-bottom: 1.25rem;
-    padding: 0.5rem 0.875rem 0.625rem;
-    border-radius: 0.875rem;
-    background: rgba(15, 13, 26, 0.94);
-  }
-
-  .lp-meter__head {
-    margin-bottom: 0.4rem;
-  }
-
-  .lp-meter__badge,
-  .lp-meter__cheer,
-  .lp-meter__scale {
-    display: none;
-  }
-}
-
-.form-input {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Single-line inputs align to the shared control height (matches dropdowns);
-   textareas keep their natural multi-line height. */
-input.form-input {
-  height: var(--control-h);
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.form-input:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
-  outline: none;
-}
-
-.form-input::placeholder {
-  color: #6b7280;
-}
-
-.form-input option {
-  background: #1a1730;
-}
-
-/* DateField — guaranteed DD/MM/YYYY display over a native date picker.
-   The wrapper carries the caller's field classes (form-input / field / …) so it
-   looks identical to sibling inputs; the native control sits on top, invisible. */
-.pn-datefield {
-  position: relative;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.pn-datefield.form-input {
-  height: var(--control-h);
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.pn-datefield__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.pn-datefield__text.is-placeholder {
-  color: #6b7280;
-}
-
-.pn-datefield__icon {
-  width: 1rem;
-  height: 1rem;
-  margin-left: 0.5rem;
-  flex-shrink: 0;
-  color: var(--teal-2);
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.pn-datefield:focus-within,
-.pn-datefield:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
-  outline: none;
-}
-
-.pn-datefield.is-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* ── Custom calendar (DatePickerDialog) — light "Select Date" card, teal accents,
-   shown as a dropdown anchored under its field (position set inline by JS).
-   Centrally used by every DateField, so the picker looks identical app-wide. ── */
-.pn-cal {
-  position: fixed;
-  z-index: 2000;
-  top: 0;
-  left: 0;
-  width: 275px;
-  max-width: calc(100vw - 16px);
-  box-sizing: border-box;
-  background: var(--brand-card);
-  color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 16px 14px 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
-  font-family: var(--font-sans);
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  transform-origin: top center;
-  transition: opacity 0.18s var(--dd-ease, ease), transform 0.18s var(--dd-ease, ease);
-  /* Month/year use the shared <Select> with the app's default dark theme; only
-     tighten the trigger to fit the compact card (keeps full month names visible). */
-  --dd-trigger-radius: 10px;
-  --dd-trigger-pad: 0 0.5rem;
-  --dd-trigger-height: 34px;
-}
-
-.pn-cal.is-open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-.pn-cal:focus {
-  outline: none;
-}
-
-/* Date / time pickers become bottom sheets on phones.
-
-   Both DatePickerDialog and TimePickerDialog render `.pn-cal`, so this one block
-   converts both. It matters most inside ScheduleVisitModal, which is itself a
-   sheet below 640px: an anchored popup floating over a sheet is a dialog inside a
-   dialog, the classic mobile failure point the review flags as P0.
-
-   The pickers stay custom rather than falling back to <input type="date">, because
-   they encode the available-slot rules; only their presentation changes.
-
-   Both dialogs write inline left/top from their place() helper, which would beat
-   these rules — each bails out at this same breakpoint and clears those inline
-   values. Keep the two in sync. */
-@media (max-width: 639.98px) {
-
-  .pn-cal {
-    top: auto !important;
-    right: 0;
-    bottom: 0;
-    left: 0 !important;
-    width: 100%;
-    max-width: none;
-    padding-bottom: calc(14px + var(--pn-safe-b));
-    border-radius: 20px 20px 0 0;
-    border-bottom: 0;
-    transform: translateY(100%);
-    transform-origin: bottom center;
-  }
-
-  .pn-cal.is-open {
-    transform: translateY(0);
-  }
-
-  /* Backdrop without extra markup: a fixed pseudo-element behind the panel, which
-     also gives the sheet something to read against on a busy page. */
-  .pn-cal::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background: rgba(0, 0, 0, 0.5);
-  }
-
-  /* Grab handle, matching the modal sheets. */
-  .pn-cal::after {
-    content: '';
-    position: absolute;
-    top: 6px;
-    left: 50%;
-    width: 2.25rem;
-    height: 0.25rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.15);
-    transform: translateX(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pn-cal {
-    transition: none;
-  }
-}
-
-.pn-cal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 13px;
-}
-
-.pn-cal__title {
-  font-size: 1.22rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  margin: 0;
-}
-
-.pn-cal__badge {
-  position: relative;
-  width: 44px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 11px;
-  background: linear-gradient(150deg, var(--teal-3), var(--teal-1));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8px 18px rgba(13, 148, 136, 0.35);
-}
-
-.pn-cal__badge-tab {
-  position: absolute;
-  top: -4px;
-  width: 5px;
-  height: 11px;
-  border-radius: 4px;
-  background: var(--teal-1);
-}
-
-.pn-cal__badge-tab:nth-child(1) {
-  left: 12px;
-}
-
-.pn-cal__badge-tab:nth-child(2) {
-  right: 12px;
-}
-
-.pn-cal__badge-num {
-  font-size: 1.22rem;
-  font-weight: 800;
-  color: #fff;
-  line-height: 1;
-  margin-top: 4px;
-}
-
-.pn-cal__selectors {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 13px;
-}
-
-.pn-cal__nav {
-  flex-shrink: 0;
-  width: 28px;
-  height: 34px;
-  border-radius: 9px;
-  border: none;
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.18s ease, color 0.18s ease;
-}
-
-.pn-cal__nav:hover {
-  background: rgba(20, 184, 166, 0.16);
-  color: var(--teal-3);
-}
-
-/* Year is fixed-narrow (only 4 digits) so month gets the room full names need. */
-.pn-cal__dd {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.pn-cal__dd.pn-cal__dd--year {
-  flex: 0 0 74px;
-}
-
-.pn-cal .pn-cal__dd .pn-dropdown__trigger {
-  font-weight: 600;
-  font-size: 0.8rem;
-  gap: 0.3rem;
-}
-
-.pn-cal .pn-cal__dd .pn-dropdown__chev {
-  width: 0.85rem;
-  height: 0.85rem;
-}
-
-.pn-cal__grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-}
-
-.pn-cal__grid--head {
-  margin-bottom: 4px;
-}
-
-.pn-cal__wd {
-  text-align: center;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: var(--text-subtle);
-  padding: 3px 0;
-}
-
-.pn-cal__wd.is-sun {
-  color: var(--teal-3);
-}
-
-.pn-cal__day {
-  position: relative;
-  aspect-ratio: 1 / 1;
-  min-height: 31px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  font-family: var(--font-sans);
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--dd-text);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.pn-cal__day.is-sun {
-  color: var(--teal-3);
-}
-
-.pn-cal__day.is-muted {
-  color: rgba(255, 255, 255, 0.22);
-  font-weight: 500;
-}
-
-.pn-cal__day:hover:not(:disabled):not(.is-selected) {
-  background: rgba(20, 184, 166, 0.16);
-}
-
-.pn-cal__day.is-today:not(.is-selected)::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 4px;
-  transform: translateX(-50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--teal-3);
-}
-
-.pn-cal__day.is-selected {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
-  font-weight: 800;
-  box-shadow: inset 0 0 0 1.5px var(--teal-2);
-}
-
-.pn-cal__day:disabled {
-  color: rgba(255, 255, 255, 0.18);
-  cursor: not-allowed;
-}
-
-.pn-cal__day:focus-visible {
-  outline: 2px solid var(--teal-2);
-  outline-offset: -2px;
-}
-
-.pn-cal__confirm {
-  width: 100%;
-  margin-top: 14px;
-  height: 42px;
-  border: none;
-  border-radius: 13px;
-  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  color: #fff;
-  font-family: var(--font-sans);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.32);
-  transition: filter 0.18s ease, transform 0.08s ease;
-}
-
-.pn-cal__confirm:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
-.pn-cal__confirm:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.pn-cal__confirm:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pn-cal {
-    transition: none;
-  }
-}
-
-/* ── Custom time picker (TimePickerDialog) — reuses the .pn-cal card shell so it
-   looks identical to the calendar; swaps the day grid for hour/minute selects +
-   an AM/PM toggle. Centrally used by every TimeField. ── */
-.pn-timepicker {
-  width: 250px;
-}
-
-.pn-timepicker__readout {
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  color: var(--teal-3);
-  background: rgba(20, 184, 166, 0.14);
-  border-radius: 11px;
-  padding: 6px 12px;
-}
-
-.pn-timepicker__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-
-.pn-timepicker__unit {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.pn-timepicker__colon {
-  font-weight: 800;
-  font-size: 1.05rem;
-  color: var(--text);
-  padding: 0 1px;
-}
-
-.pn-timepicker__mer {
-  flex: 0 0 auto;
-  display: flex;
-  border-radius: 9px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.pn-timepicker__mer button {
-  height: 34px;
-  padding: 0 11px;
-  border: none;
-  cursor: pointer;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  font-weight: 700;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.pn-timepicker__mer button+button {
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.pn-timepicker__mer button:hover:not(.is-on) {
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--teal-3);
-}
-
-.pn-timepicker__mer button.is-on {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
-}
-
-.radio-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-}
-
-.radio-pill:hover {
-  border-color: rgba(20, 184, 166, 0.3);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-.radio-pill.selected {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--teal-2);
-  box-shadow: 0 0 15px rgba(20, 184, 166, 0.1);
-}
-
-/* Invalid choice group (pills): each pill takes the same red border + glow as an
-   invalid input (.pn-invalid), so a required pill-group reads exactly like the
-   red-outlined text fields (e.g. Locality) on the same form. */
-.pn-invalid-group .radio-pill {
-  border-color: #f87171;
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, .22);
-}
-
-.toggle-track {
-  width: 48px;
-  height: 26px;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.1);
-  transition: background 0.3s;
-  cursor: pointer;
-  position: relative;
-}
-
-.toggle-track.active {
-  background: var(--teal-2);
-}
-
-.toggle-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: white;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-track.active .toggle-thumb {
-  transform: translateX(22px);
-}
-
-.upload-zone {
-  border: 2px dashed rgba(255, 255, 255, 0.12);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.upload-zone:hover,
-.upload-zone.drag-over {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-/* ----- Listing success celebration ----- */
-@keyframes lp-pop-in {
-  0% {
-    opacity: 0;
-    transform: scale(.86) translateY(14px);
-  }
-
-  60% {
-    opacity: 1;
-    transform: scale(1.03) translateY(0);
-  }
-
-  100% {
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes lp-badge-pop {
-  0% {
-    transform: scale(0) rotate(-40deg);
-  }
-
-  60% {
-    transform: scale(1.15) rotate(0);
-  }
-
-  100% {
-    transform: scale(1) rotate(0);
-  }
-}
-
-@keyframes lp-ring-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, .45);
-  }
-
-  70% {
-    box-shadow: 0 0 0 22px rgba(20, 184, 166, 0);
-  }
-
-  100% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
-  }
-}
-
-.lp-success-card {
-  animation: lp-pop-in .55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.lp-success-badge {
-  animation: lp-badge-pop .6s .12s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.lp-success-ring {
-  animation: lp-ring-pulse 1.7s .3s ease-out 2;
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .lp-success-card,
-  .lp-success-badge,
-  .lp-success-ring {
-    animation: none !important;
-  }
-}
-
-.lp-page .otp-box {
-  flex: 0 0 46px;
-  width: 46px;
-  height: 54px;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 12px;
-  text-align: center;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #fff;
-  outline: none;
-  transition: all .25s ease;
-}
-
-.lp-page .otp-box:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
-  background: rgba(20, 184, 166, .05);
-}
-
-.lp-page .otp-box.filled {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .08);
-}
-
-.thumb-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s;
-}
-
-.thumb-card .thumb-remove {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.thumb-card:hover .thumb-remove {
-  opacity: 1;
-}
-
-.doc-upload {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1.5px dashed rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.doc-upload:hover {
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-.doc-upload.has-file {
-  border-style: solid;
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.08);
-}
-
-.doc-upload.has-file .doc-name {
-  color: #5eead4;
-}
-
-.furn-tile {
-  position: relative;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  padding: 14px 8px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  text-align: center;
-  cursor: pointer;
-  min-height: 96px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.furn-tile:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.06);
-  transform: translateY(-1px);
-}
-
-.furn-tile .furn-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: #5eead4;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.furn-tile .furn-label {
-  font-size: 0.72rem;
-  line-height: 1.15;
-  font-weight: 500;
-  color: #9ca3af;
-}
-
-.furn-tile.checked {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.12);
-  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.3), 0 6px 18px rgba(20, 184, 166, 0.12);
-}
-
-.furn-tile.checked .furn-icon {
-  background: rgba(20, 184, 166, 0.2);
-  color: #2dd4bf;
-}
-
-.furn-tile.checked .furn-label {
-  color: #5eead4;
-}
-
-.furn-check {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  color: #04221d;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: scale(0.5);
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.furn-tile.checked .furn-check {
-  opacity: 1;
-  transform: scale(1);
-}
-
-@keyframes lpSlideIn {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.lp-step {
-  animation: lpSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ---- Momentum meter (gamified completion) ---- */
-.lp-meter {
-  position: sticky;
-  top: 84px;
-  z-index: 30;
-  background: rgba(20, 18, 40, 0.92);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-.lp-meter__badge {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(20, 184, 166, 0.15);
-  color: #2dd4bf;
-  flex-shrink: 0;
-  transition: all .3s ease;
-}
-
-.lp-meter__badge.is-ready {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.35);
-}
-
-.lp-meter__pct {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 2rem;
-  font-weight: 800;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--teal-1), var(--teal-3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: lpPctPop .35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-meter__pct-sign {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-left: 1px;
-}
-
-@keyframes lpPctPop {
-  0% {
-    transform: scale(0.72);
-    opacity: .45;
-  }
-
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.lp-meter__track {
-  position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.lp-meter__fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--teal-1), var(--teal-2), var(--teal-3));
-  box-shadow: 0 0 16px rgba(20, 184, 166, 0.5);
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.lp-meter__node {
-  position: absolute;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: #1a1730;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-meter__node.reached {
-  background: var(--teal-2);
-  border-color: #5eead4;
-  box-shadow: 0 0 12px rgba(20, 184, 166, 0.7);
-}
-
-.lp-meter__scale {
-  position: relative;
-  height: 15px;
-  margin-top: 9px;
-}
-
-.lp-meter__scale span {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  font-size: 10px;
-  font-weight: 600;
-  color: #6b7280;
-  transition: color 0.3s ease;
-}
-
-.lp-meter__scale span.reached {
-  color: #5eead4;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-meter__pct {
-    animation: none;
-  }
-
-  .lp-meter__fill,
-  .lp-meter__node {
-    transition: none;
-  }
-}
-
-/* ---- Location picker pin (teal teardrop) ---- */
-.lp-pin {
-  width: 26px;
-  height: 26px;
-  background: var(--teal-2);
-  border: 2px solid #0f0d1a;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lp-pin__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #04221d;
-  transform: rotate(45deg);
-}
-
-/* List-property "Search an area" autocomplete dropdown — dark, google.com/maps-style
-   predictions shown under the search input in the location picker. */
-.pn-ac-list {
-  position: absolute;
-  z-index: 40;
-  left: 0;
-  right: 0;
-  top: calc(100% + 6px);
-  max-height: 288px;
-  overflow-y: auto;
-  padding: 6px;
-  background: var(--brand-card, #16131f);
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 14px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
-  list-style: none;
-  margin: 0;
-}
-
-.pn-ac-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  color: #e7e5ee;
-}
-
-.pn-ac-item.is-active {
-  background: rgba(45, 212, 191, .14);
-}
-
-.pn-ac-pin {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  flex-shrink: 0;
-  color: var(--teal-2, #2dd4bf);
-}
-
-.pn-ac-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.3;
-}
-
-.pn-ac-main {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f4f3f8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-ac-sub {
-  font-size: 11.5px;
-  color: #9a97a8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* â†’ moved to styles/routes/compare.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/services-hub.css (loaded with its route chunk) */
+/* → moved to styles/routes/list-property.css (loaded with its route chunk) */
 
 /* ============================================================================
    Service landing pages (packers/legal/home-loans/interior/valuation)
@@ -5726,7 +4678,7 @@ input.form-input {
   backdrop-filter: blur(4px);
 }
 
-/* → moved to styles/routes/rent-agreement.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/rent-agreement.css (loaded with its route chunk) */
 /* Notifications page */
 .notif {
   background: rgba(255, 255, 255, .04);
@@ -5760,7 +4712,7 @@ input.form-input {
   color: #5eead4;
 }
 
-/* Rent/Buy intent switch on the listings page — brand-gradient active pill,
+/* Rent/Buy intent switch on the listings page â€” brand-gradient active pill,
    concentric inner buttons (matches the List|Map .sf-seg pattern). */
 .deal-seg-btn {
   transition: color .2s ease, background .2s ease, box-shadow .2s ease;
@@ -5790,13 +4742,18 @@ details[open] .faq-chevron {
   transform: rotate(180deg);
 }
 
-/* EMI calculator range sliders + num field */
+/* EMI calculator range sliders + num field.
+
+   The fill percentage arrives as --emi-pct from EmiCalculator.jsx; the gradient is
+   built here so a media query can restyle the rail (see the coarse-pointer block
+   below). */
 .emi-page input[type=range] {
   -webkit-appearance: none;
   appearance: none;
   height: 6px;
   border-radius: 999px;
   outline: none;
+  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
 }
 
 .emi-page input[type=range]::-webkit-slider-thumb {
@@ -5827,6 +4784,35 @@ details[open] .faq-chevron {
 
 .emi-page input[type=range]:focus-visible {
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
+}
+
+/* These sliders predate the .rng touch block above and never got the same
+   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px â€”
+   both well under the 44px floor, on the three controls this page exists for.
+
+   The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
+   than a slider. Only the element grows, with the gradient pinned to a centred 6px
+   band so the visual is byte-identical while the finger gets a 32px strip. This is
+   the same trade .tap-extend makes for icon buttons â€” extend the target, not the
+   drawing. Painting the band requires background-size/position, which is why the
+   gradient moved out of the component's inline style. */
+@media (pointer: coarse) {
+  .emi-page input[type=range] {
+    height: 32px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 6px;
+  }
+
+  .emi-page input[type=range]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .emi-page input[type=range]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 .num-field:focus {
@@ -5916,7 +4902,7 @@ label.lbl {
   color: #f59e0b;
 }
 
-/* → moved to styles/routes/reels.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -5928,7 +4914,7 @@ label.lbl {
   white-space: nowrap;
   border: 0;
 }
-/* → moved to styles/routes/reels.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
 /* Saved properties page */
 .saved-page .property-card {
   background: rgba(255, 255, 255, 0.04);
@@ -6033,7 +5019,7 @@ label.lbl {
   color: #5eead4;
 }
 
-/* Property-detail section tabs — left-aligned underline style */
+/* Property-detail section tabs â€” left-aligned underline style */
 .pn-detail-tab {
   display: inline-flex;
   align-items: center;
@@ -6058,7 +5044,7 @@ label.lbl {
   border-bottom-color: var(--teal-2);
 }
 
-/* Option info tooltips (<Tip/>) — hover/focus/tap a tile to learn what it means */
+/* Option info tooltips (<Tip/>) â€” hover/focus/tap a tile to learn what it means */
 [data-tip] {
   cursor: help;
 }
@@ -6175,8 +5161,8 @@ label.lbl {
   color: #5eead4;
 }
 
-/* → moved to styles/routes/property-map.css (loaded with its route chunk) */
-/* → moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/property-map.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
 /* Google Maps display (PropertyMap / FlatmateMap). AdvancedMarkers reuse the same
    .price-marker / .map-pin DOM as the old Leaflet divIcons, so their styling is
    already covered above. These rules strip Google's default InfoWindow chrome so
@@ -6230,7 +5216,7 @@ label.lbl {
   border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
 
-/* → moved to styles/routes/messages.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/messages.css (loaded with its route chunk) */
 /* Mobile: Messages is a native, full-screen chat. Drop the marketing footer +
    floating assistant, run the inbox edge-to-edge, and fill the viewport below the
    navbar so the composer pins to the screen bottom. Desktop is untouched. */
@@ -6272,8 +5258,8 @@ label.lbl {
   }
 }
 
-/* → moved to styles/routes/flatmates.css (loaded with its route chunk) */
-/* List | Map segmented control — height matches the search field (h-10). Inner
+/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* List | Map segmented control â€” height matches the search field (h-10). Inner
    buttons are rounded-full and inset by 4px so their corners are concentric with
    the container's, eliminating the corner-collision of the old pill-in-pill. */
 .sf-page .sf-seg {
@@ -6392,7 +5378,7 @@ label.lbl {
   background: rgba(255, 255, 255, .05);
 }
 
-/* Modal panel — solid dark bg so content is always readable over any page */
+/* Modal panel â€” solid dark bg so content is always readable over any page */
 .pn-modal-panel {
   background: #1a1730;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
@@ -6482,7 +5468,7 @@ label.lbl {
     animation: none;
   }
 
-  /* Scroll reveal — show immediately */
+  /* Scroll reveal â€” show immediately */
   .reveal {
     opacity: 1;
     transform: none;
@@ -6500,13 +5486,13 @@ label.lbl {
     animation: none;
   }
 
-  /* General transitions — keep colors but disable motion */
+  /* General transitions â€” keep colors but disable motion */
   .t-all {
     transition: color 0.2s, background-color 0.2s, border-color 0.2s;
   }
 }
 
-/* User-toggled "Reduce motion" (Settings ▸ Appearance). Mirrors the OS-level
+/* User-toggled "Reduce motion" (Settings â–¸ Appearance). Mirrors the OS-level
    reduced-motion rules above so users can opt in regardless of system settings. */
 html.pn-reduce-motion .hero-bg,
 html.pn-reduce-motion .shape,
@@ -6559,7 +5545,7 @@ html.pn-reduce-motion .list-reveal {
    View Transitions (React Router v7 + browser View Transition API)
    ============================================================================ */
 
-/* Default cross-fade for route changes — fast and subtle */
+/* Default cross-fade for route changes â€” fast and subtle */
 ::view-transition-old(root) {
   animation: 150ms ease-out both fade-out;
 }
@@ -6580,7 +5566,7 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* Shared element morph: property card image → property hero image.
+/* Shared element morph: property card image â†’ property hero image.
    The browser automatically morphs elements with matching view-transition-name. */
 ::view-transition-old(property-hero-*),
 ::view-transition-new(property-hero-*) {
@@ -6602,7 +5588,7 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* ===== Map detail drawer (stay-on-map master–detail) ===== */
+/* ===== Map detail drawer (stay-on-map masterâ€“detail) ===== */
 .pn-mdp {
   position: fixed;
   z-index: 150;
@@ -6836,10 +5822,6 @@ html.pn-reduce-motion .list-reveal {
 
 .pn-mdp-heart.is-on {
   background: rgba(244, 63, 94, 0.9);
-}
-
-.pn-mdp-heart.is-on svg {
-  fill: currentColor;
 }
 
 .pn-mdp-nav {
@@ -7251,10 +6233,10 @@ html.pn-reduce-motion .list-reveal {
   /* 1.25 -> 1.0  */
 }
 
-/* ── Mobile: prevent focus auto-zoom on inputs ──
+/* â”€â”€ Mobile: prevent focus auto-zoom on inputs â”€â”€
    Touch browsers (Chrome Android, iOS Safari) zoom into any editable field whose
    computed font-size is < 16px on focus, forcing the user to pinch back out. Our
-   controls run 13–14px, so on coarse-pointer devices we lift editable fields to
+   controls run 13â€“14px, so on coarse-pointer devices we lift editable fields to
    16px. Scoped to (pointer: coarse) so the desktop design is untouched; !important
    is needed to beat the class-scoped rules (.pc-input, .pc-search input, etc.). */
 @media (pointer: coarse) {
@@ -7269,8 +6251,68 @@ html.pn-reduce-motion .list-reveal {
    Mobile bottom-chrome consumers (see the --pn-bottom-inset block near the top).
    ============================================================================ */
 
+/* Autosave "Draft saved" flash (lib/hooks.js flashDraftSaved).
+
+   It is created with document.body.appendChild, and --pn-bottom-inset is expanded
+   by `.has-bottom-nav` on ConsumerLayout's wrapper â€” not on <body> â€” so a body-level
+   child reads the :root value (the bare safe-area inset) and knows nothing about the
+   tab bar. It therefore sat at bottom:16px, directly on top of the floating capsule,
+   at an undocumented z-index:2000 that put a transient status pill above every modal
+   in the app.
+
+   Both halves are fixed here rather than in JS: z-index joins the documented ladder
+   just above the tab bar (70) and below sheets (1000) â€” it reports state, it does not
+   need to outrank a dialog â€” and the offset is rebuilt from the same two tokens the
+   bar itself uses, guarded by the bar's own breakpoint so desktop is untouched. */
+.pn-autosave-flash {
+  position: fixed;
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  bottom: calc(var(--pn-safe-b) + 16px);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+  border-radius: 10px;
+  background: rgba(15, 13, 26, 0.92);
+  backdrop-filter: blur(8px);
+  color: #5eead4;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.pn-autosave-flash__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #14b8a6;
+}
+
+.pn-autosave-flash.is-on {
+  opacity: 1;
+}
+
+/* Below lg the tab bar owns the bottom edge, so clear it. Every route that
+   autosaves a form mounts the bar; the two that do not (messages, auth) pin their
+   own control to that edge, which this clears just the same. */
+@media (max-width: 1023.98px) {
+  .pn-autosave-flash {
+    bottom: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset) + 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-autosave-flash {
+    transition: none;
+  }
+}
+
 /* Home hero search: the "add area" chip on a suggestion row only reads as an ADD
-   affordance once it fills teal on hover — which never fires on touch, so phone users
+   affordance once it fills teal on hover â€” which never fires on touch, so phone users
    can't tell a row adds an area rather than replacing the search until after the tap.
    Give it the filled treatment permanently where hover doesn't exist. */
 @media (hover: none) {
@@ -7280,8 +6322,8 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px —
-   under the touch minimum — and redundant next to native swipe + the HScroll fade.
+/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px â€”
+   under the touch minimum â€” and redundant next to native swipe + the HScroll fade.
    Remove them on coarse pointers rather than growing them. */
 @media (pointer: coarse) {
   .hscroll-arrow {

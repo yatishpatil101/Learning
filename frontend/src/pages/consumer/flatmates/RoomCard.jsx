@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import { useToast } from '../../../context/ToastContext.jsx';
+import { shareOrCopy } from '../../../lib/share.js';
 import { inr, genderPref, foodLabel, matchTier, savePayload, seatsLeft, hostTierMeta, showHostBadge, moveInLabel } from './helpers.js';
 import { roomKindOf, occupancyOf, filledSeatsOf, priceBasisOf, perPersonRent, PRICE_ROOM, OCCUPANCY_EMPTY, OCCUPANCY_OCCUPIED } from './model.js';
 import { Chip, MatchPill, Fresh } from './atoms.jsx';
@@ -33,6 +35,23 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
   // knows whether one person or two are coming, and whether we need to find the
   // second one.
   const [share, setShare] = useState('solo');
+  const { toast } = useToast();
+  /* Forwarding a room. Deliberately NOT named `share` — that is taken above and
+     means flat-sharing, an entirely different idea.
+
+     There is no per-room URL: /flatmates is one route. Rather than invent a deep
+     link, the URL narrows to the tab and locality the page already honours
+     (?view= and ?loc= are read in useFlatmateDiscovery), and the room itself is
+     named in the share text. The recipient lands on rooms in the right area with
+     the right one named, instead of on an unfiltered national list. */
+  const shareRoom = async () => {
+    const loc = r.localities?.[0] || '';
+    const url = `${window.location.origin}/flatmates?view=move-in${loc ? '&loc=' + encodeURIComponent(loc) : ''}`;
+    const label = tr('flatmates.shareRoomText', { society: r.society, locality: loc, price: inr(r.budget) });
+    const status = await shareOrCopy({ title: label, text: label, url });
+    if (status === 'copied') toast(tr('property.shareCopied'), 'success');
+    if (status === 'failed') toast(tr('property.shareCopyFail'), 'error');
+  };
   return (
     <div data-sf-id={anchorId} className="sf-card rounded-2xl overflow-hidden reveal flex flex-col" style={{ animationDelay: i * 0.03 + 's' }}>
       <div className="relative h-36">
@@ -42,6 +61,7 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
         <div className="absolute top-3 right-3 flex items-center gap-1">
           <button onClick={() => onSave('r:' + r.id, savePayload('room', r))} className={'save-btn seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200' + (saved ? ' saved' : '')} aria-pressed={saved}><Icon name="bookmark" className="w-4 h-4" /></button>
           <button className="report-btn seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200" aria-label={tr('flatmates.ariaReportRoom')} onClick={() => onReport && onReport({ id: r.id, title: 'Room in ' + r.society, ownerName: r.society, kind: 'listing' })}><Icon name="flag" className="w-4 h-4" /></button>
+          <button className="seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200" aria-label={tr('flatmates.ariaShareRoom')} onClick={shareRoom}><Icon name="share-2" className="w-4 h-4" /></button>
         </div>
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
           <div className="min-w-0"><p className="text-white font-semibold text-sm leading-tight drop-shadow truncate">{r.society}</p><p className="text-[11px] text-gray-200 inline-flex items-center gap-1"><Icon name="map-pin" className="w-3 h-3 text-teal-300" />{r.localities[0]}</p></div>

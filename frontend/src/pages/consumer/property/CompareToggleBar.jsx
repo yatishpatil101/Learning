@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
+import { shareOrCopy } from '../../../lib/share.js';
 import { toggleSavedProp } from '../../../lib/store.js';
 
 export function CompareToggleBar({ p, saved, setSaved }) {
@@ -15,15 +16,16 @@ export function CompareToggleBar({ p, saved, setSaved }) {
     setSaved(nowSaved);
   };
 
-  // Copy the listing URL and confirm — a silent copy leaves the user unsure it worked.
+  // Share the listing, falling back to a clipboard copy where the OS share sheet
+  // doesn't exist (desktop, and any browser without navigator.share). The cancel
+  // path — dismissing the sheet rejects with AbortError — used to fall into the
+  // clipboard catch and raise "Couldn't copy link" for something that worked
+  // exactly as intended. That logic now lives in lib/share.js so every surface
+  // treats a cancel the same way.
   const share = async () => {
-    const url = window.location.href;
-    try {
-      if (navigator.share) { await navigator.share({ title: p.title || 'PuneNest listing', url }); return; }      await navigator.clipboard.writeText(url);
-      toast(t('property.shareCopied'), 'success');
-    } catch {
-      toast(t('property.shareCopyFail'), 'error');
-    }
+    const status = await shareOrCopy({ title: p.title || 'PuneNest listing' });
+    if (status === 'copied') toast(t('property.shareCopied'), 'success');
+    if (status === 'failed') toast(t('property.shareCopyFail'), 'error');
   };
 
   const toggleThis = () => {

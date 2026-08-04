@@ -9,7 +9,7 @@ import { OwnerCard } from './OwnerCard.jsx';
 import { DealPanel } from './DealPanel.jsx';
 import { CompareToggleBar } from './CompareToggleBar.jsx';
 
-export default function PropertyHeader({ ctx }) {
+export default function PropertyHeader({ ctx, priceOnHero = false }) {
   const {
     tags, priceStr, isRent, isLand, tr, emi, title, p,
     viewingNow, enquiriesThisWeek, visitsScheduled, perUnitVal, kind,
@@ -20,17 +20,29 @@ export default function PropertyHeader({ ctx }) {
           <section className="fade-in grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 section-mb">
             {/* Left */}
             <div className="lg:col-span-2">
-              <div className="flex flex-wrap gap-2 mb-4">
+              {/* The panel's surface, grid and icon colours live in `.tag-strip` in
+                  index.css, not in utilities here — the tile IS the design.
+
+                  No `weight` prop: `file-check` resolves to a Lucide fallback, which
+                  ignores it, so asking for `fill` produced two solid Phosphor glyphs
+                  beside one outline. Outline everywhere is the one weight both sets
+                  can actually honour. */}
+              <div className="tag-strip mb-4">
                 {tags.map(([label, cls, ic, tipKey]) => (
                   <Tip key={label} k={tipKey}>
-                    <span className={`tag ${cls} items-center gap-1.5`}>{ic ? <Icon name={ic} className="w-3.5 h-3.5" /> : null} {label}</span>
+                    <span className={`tag ${cls}`}>{ic ? <Icon name={ic} className="w-4 h-4" /> : null} {label}</span>
                   </Tip>
                 ))}
               </div>
 
-              <div className="mb-1">
-                <span className="text-3xl sm:text-4xl font-extrabold gradient-text">{priceStr}</span>
-              </div>
+              {/* On phones the price is laid over the hero photo instead (see Gallery),
+                  so it clears the fold. Skipped rather than hidden so only one price
+                  element exists at a time. */}
+              {priceOnHero ? null : (
+                <div className="mb-1">
+                  <span data-testid="property-price" className="text-3xl sm:text-4xl font-extrabold gradient-text">{priceStr}</span>
+                </div>
+              )}
               {!isRent && !isLand ? <p className="text-slate-400 text-sm mb-2">{tr('property.emiStartsAt')} <span className="text-brand-coral-2 font-semibold">₹{fmtNum(emi)}/month</span></p> : null}
               <p className="inline-flex items-center gap-1.5 mb-4 px-2.5 py-1 rounded-full text-xs font-semibold text-emerald-300" style={{ background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.25)' }}>
                 <Icon name="hand-coins" className="w-3.5 h-3.5" /> {tr('property.zeroBrokerageDirect')}

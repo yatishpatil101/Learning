@@ -223,6 +223,8 @@
     "deposit": "अनामत",
     "attachedBath": "संलग्न स्नानगृह",
     "ariaReportRoom": "ही खोली तक्रार करा",
+    "ariaShareRoom": "ही खोली शेअर करा",
+    "shareRoomText": "{{society}}, {{locality}} मधील खोली — PuneNest वर {{price}}/महिना",
     "ariaMarkSeatFilled": "एक जागा भरली म्हणून चिन्हांकित करा",
     "ariaReopenSeat": "जागा पुन्हा उघडा",
     "openSeats": "खुल्या जागा",

@@ -152,6 +152,8 @@
     "deposit": "जमा",
     "attachedBath": "संलग्न स्नानघर",
     "ariaReportRoom": "इस कमरे की रिपोर्ट करें",
+    "ariaShareRoom": "यह कमरा साझा करें",
+    "shareRoomText": "{{society}}, {{locality}} में कमरा — PuneNest पर {{price}}/माह",
     "ariaMarkSeatFilled": "एक सीट भरी हुई चिह्नित करें",
     "ariaReopenSeat": "सीट फिर से खोलें",
     "openSeats": "खुली सीटें",

@@ -1,0 +1,9 @@
+# Scoped to the graphify scan root (frontend/src). Same syntax as .gitignore.
+# .gitignore is already respected automatically; this only excludes more.
+
+# Mock/seed data and i18n bundles: 132 .json files that produce zero graph nodes
+# but are still read, parsed, and warned about on every rebuild.
+*.json
+
+# 182 KB of minified RERA data on 4 lines — contributes 2 nodes, costs a lot to parse.
+data/societies-rera.js
