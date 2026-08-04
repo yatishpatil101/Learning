@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-const BUYER = { name: 'Test Buyer', mobile: '9888888888', email: '', role: 'buyer', joinedAt: Date.now() };
+const BUYER = { name: 'Yatish Test', mobile: '9888888888', email: '', role: 'buyer', joinedAt: Date.now() };
 const ADMIN = { name: 'Ops Admin', mobile: '9800000001', email: '', role: 'admin', teams: ['rental', 'legal', 'loans', 'interior', 'packers', 'valuation'], joinedAt: Date.now() };
 const LOAN_OFFICERS = ['Aarav Deshpande', 'Priya Nair'];
 

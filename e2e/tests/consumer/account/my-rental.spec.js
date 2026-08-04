@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-const TENANT = { name: 'Test Tenant', mobile: '9700055001', email: '', role: 'buyer', joinedAt: Date.now() };
+const TENANT = { name: 'Yatish Tenant', mobile: '9700055001', email: '', role: 'buyer', joinedAt: Date.now() };
 const OWNER = { name: 'Owner Only', mobile: '9800055002', email: '', role: 'owner', joinedAt: Date.now() };
 const LISTING = {
   id: 'L-OWN-1', title: 'Owner 2 BHK, Baner', locality: 'Baner', deal: 'rent',

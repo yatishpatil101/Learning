@@ -8,7 +8,7 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an owner who has posted a listing / room / flat-share / managed property and
+- **Persona:** an owner who has posted a listing / room / flatmate / managed property and
   needs one place to run it; a seeker/tenant who wants their saved homes, alerts, visits and
   documents in one account hub.
 - **Job-to-be-done (owner):** "See what is waiting on me, triage leads, track views/enquiries, and
@@ -36,7 +36,7 @@
 ## 3. Actors & roles
 - **Owner view vs seeker view is NOT decided by `user.role`.** `Dashboard.jsx` computes
   `isOwner = hasListings() || hasRooms || hasRequests || hasGroups || hasManaged` - the user must
-  have ACTUAL inventory (a property listing, a flatmate room, a flat-share request/group, or a
+  have ACTUAL inventory (a property listing, a flatmate room, a flatmate request/group, or a
   private managed property from Owner Hub / Rent-o-meter). This prevents a brand-new "owner" from
   landing on empty "My Listings / Requests / Finances" dead-ends.
 - **`showRental`** (My Rental tab) = `hasTenancy || !isOwner || hasRentalInvite` - buyers/tenants,
@@ -57,7 +57,7 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 - `visits` - read + updated (`listVisits`, `updateVisit` via `mutateVisit`).
 - `contact_requests` - read + updated (owner approve/decline via `decideContact`).
 - `document_requests` - read + updated (grouped, granted/declined via `decideDocReqs`).
-- photo requests, share-flat requests, group applications - read + updated.
+- photo requests, flatmates requests, group applications - read + updated.
 - `property_review` - read (verification status per listing) + reply (`addPropReviewReply`).
 - `saved_properties`, `saved_searches`, followed societies, recent props/searches - read (counts + nudges).
 - `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge).
@@ -107,7 +107,7 @@ A single triage list pinned to the top of Overview. Rows are only added when the
 
 ### Attention badges (`attentionCounts`)
 Shown on the sidebar/mobile-nav from every tab, not just Overview:
-- `leads` = `pendingContacts + photoReqs.length + pendingShareFlat + pendingDocGroups.length`
+- `leads` = `pendingContacts + photoReqs.length + pendingFlatmateReqs + pendingDocGroups.length`
   (only items genuinely waiting on the owner; already-contactable enquiries are NOT counted).
 - `visits` = `scheduledVisits.length`.
 - `messages` = `chatUnread`.
@@ -144,12 +144,46 @@ property only. Drives the seeker "Rent due soon" action row and Overview rental 
 for you" (neutral discovery fallback, `approved.slice(0,6)`). The code is explicit that recommended
 is never mislabeled as recently viewed.
 
+### Requests inbox (`EnquiriesPanel.jsx`)
+One inbox, six filters: `all` (default), `numbers`, `photos`, `documents`, `flatmate`, `enquiries`.
+Every request type is normalised into one lead descriptor, so the unified "All leads" queue, the
+tappable row -> detail sheet (`LeadSheet.jsx`), and the sheet's actions all behave identically. Sort
+is attention-first (`attention` = awaiting a decision from the owner), then longest-waiting; undated
+leads sink. Flatmate rows are labelled by `kind`: **Room enquiry** (`room`), **Group join** /
+**Group request** (`group`, by `action`), **Flatmate interest** (otherwise). The detail sheet also
+carries owner-private annotations - notes and follow-up dates keyed by a stable lead id
+(`getLeadAnnotations` / `setLeadAnnotation`) - which are never part of any consumer-visible payload.
+
+### My Listings: type filter and letting a flat room by room
+- **Type filter:** My Listings is a mixed inventory (properties, flatmate rooms, flatmate requests,
+  flatmate groups). A `Select` filters by `catOf(l)` and only offers buckets with a non-zero count;
+  it self-resets to `all` when its bucket empties (for example after a delete).
+- **`splitEligible`** = not a flatmate post, not closed, not reserved, and `canSplitIntoRooms(l)`
+  (`deal === 'rent'`). **`split`** = `isFlatSplit(l.id)`.
+- **"Let room by room"** (shown when eligible and not yet split) opens `SplitFlatModal`; confirming
+  calls `splitFlat(...)` with the signed-in owner's mobile/name. The toast is honest about the badge:
+  an unapproved parent listing reports *"they'll show as owner-verified once this property is
+  approved"*.
+- **"Stop letting room by room"** (shown only when `movedIn === 0`) calls `unsplitFlat(l.id)`; once
+  anyone has moved in it is refused, because deleting the rooms would erase a live tenancy.
+- **Split status on the card:** an "*N rooms listed*" chip, plus either "*M moved in - whole-flat
+  listing hidden*" (the flat can no longer honestly be let whole) or "*Whole-flat listing still
+  live*". Saying so is the difference between a feature and a silent disappearance.
+- **Where occupancy is edited:** the dashboard shows the split *summary* only. Adjusting how many
+  people actually live in each room - and reissuing the joint rent agreement when that changes -
+  happens on the owner's own room cards in Flatmates
+  ([`flatmates.md`](./flatmates.md) section 5).
+
+Source: `MyListingsPanel.jsx` (`handleSplitConfirm`, `handleUnsplit`, the `SplitFlatModal` mount) and
+`myListings/ListingCard.jsx` (`splitEligible` / `split` / `splitRooms` / `movedIn`, overflow items,
+chips).
+
 ## 6. Maker-checker / approval
 - The hub itself is not a maker-checker, but it is the **checker's cockpit**. Every owner-side action
   row is the approve/decline side of a maker-checker defined elsewhere: contact reveal, document
-  access, share-flat requests, group applications, and listing-verification clarification. See the
+  access, flatmates requests, group applications, and listing-verification clarification. See the
   shared pattern in [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 and the
-  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decideShareFlatReq`,
+  contact-gate flow doc. Handlers (`decideContact`, `decideDocReqs`, `decideFlatmateReq`,
   `setStatus`, `mutateVisit`) apply the decision optimistically and toast the outcome.
 
 ## 7. State machine
@@ -188,12 +222,17 @@ contact decision) does not remount and wipe the active panel; React remounts onl
 - **Retention:** `src/pages/consumer/dashboard/retention.js` (`profileCompletion`).
 - **Registry/constants:** `src/pages/consumer/dashboard/constants.js` (`TABS`, `TAB_ALIAS`,
   `REVIEW_STATUS_MAP`, `BILLING_HISTORY`, calendar/doc constants).
-- **Panels:** `OverviewPanel.jsx`, `MyPropertiesPanel.jsx`, `MyRentalPanel.jsx`, `EnquiriesPanel.jsx`
-  (Requests), `BillingPanel.jsx`, `ActivityPanel.jsx`, `SavedPanel.jsx`, `AlertsPanel.jsx`,
-  `ActionCenter.jsx`, plus `components/dashboard/{VisitsTab,DocumentsTab,FinancesTab,ProfileTab}.jsx`.
+- **Panels:** `OverviewPanel.jsx`, `MyPropertiesPanel.jsx` (wraps `MyListingsPanel.jsx` +
+  `myListings/*`: `ListingCard`, `OverflowActions`, `AttentionBanner`, `PrivateListingCard`,
+  `FinalizeDealModal`, `VerifyListingsBanner`, `EmptyState`, `StatChip`, `helpers`),
+  `MyRentalPanel.jsx`, `EnquiriesPanel.jsx` (Requests) + `LeadSheet.jsx`, `BillingPanel.jsx`,
+  `ActivityPanel.jsx`, `SavedPanel.jsx`, `RecentPanel.jsx`, `AlertsPanel.jsx`,
+  `FollowedSocietiesPanel.jsx`, `SocietyFinder.jsx`, `ActionCenter.jsx`, `DashboardReviewModal.jsx`;
+  chrome: `DashboardSidebar.jsx` + `MobileNav.jsx`; documents: `DocSection.jsx` / `DocSlot.jsx`;
+  plus `components/dashboard/{VisitsTab,DocumentsTab,FinancesTab,TenantFinancesTab,ProfileTab}.jsx`.
 - **Stores read:** `src/lib/store/*` (`hasListings`, `getSavedProps`, `getSavedSearches`,
   `getFollowedSocieties`, `getRecentProps`, `getRecentSearches`, `getTenancies`, `getPropReview`),
-  `src/lib/data/{myListings,managedProperty,documents,shareFlat}.js`, `src/lib/contact.js`,
+  `src/lib/data/{myListings,managedProperty,documents,flatmates}.js`, `src/lib/contact.js`,
   `src/lib/photoRequests.js`, `src/lib/serviceFlow.js`, `src/lib/groupApplications.js`.
 
 ## 10. Target API endpoints

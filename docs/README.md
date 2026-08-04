@@ -5,29 +5,34 @@ Authoritative documentation set for PuneNest (Pune-first real-estate marketplace
 these docs capture that logic in detail so it can be re-implemented server-side.
 
 ## Reading order
-1. [`system/app-architecture.md`](./system/app-architecture.md) — context, tech stack, mock→http seam, deployment shape.
+1. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: context, tech stack, components, diagrams, ADRs, deployment shape (living doc).
+   - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
 2. [`system/data-model.md`](./system/data-model.md) — data model & persistence design (ER map, DB conventions, migration; entity field shapes → OpenAPI schemas).
 3. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact + Aadhaar gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
 4. [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; Swagger UI at `/docs`).
 5. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: components, diagrams, ADRs, scoring (living doc).
    - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
-6. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
-7. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases). Start from [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md).
-8. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+6. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system (bottom chrome, sheets, touch targets) and the design-validation checklist.
+7. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
+8. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases).
+9. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+   - [`roadmap/mobile-ux-review.md`](./roadmap/mobile-ux-review.md) — measured mobile-first audit of every consumer/admin/ops screen at 390x844 and 360x640, with a prioritised improvement plan (~80% of users are on phones).
+10. [`system/tech-debt.md`](./system/tech-debt.md) — the debt register: everything knowingly deferred, with the trigger that unblocks it. Living doc.
+11. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Deliberately separate from the register so the register stays 100% actionable.
 
 ## Map
 ```
 docs/
-  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, frontend-data-seam, design-system
-  flows/      _TEMPLATE.md + consumer/ admin/ ops/ per-feature docs
-  roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
+  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, frontend-data-seam, design-system, tech-debt, open-questions
+  flows/      consumer/ admin/ ops/ per-feature docs
+  roadmap/    build-roadmap, mobile-app-plan, mobile-ux-review, ai-ml-libraries
   misc/       packing-plan
 ```
 
 ## Conventions
 - **Maker-checker** is defined once in [`system/cross-cutting.md`](./system/cross-cutting.md); flow docs reference it.
 - Entity **field shapes** are defined once in the [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) (component schemas); [`system/data-model.md`](./system/data-model.md) owns the ER map + persistence design. Flow docs link, not re-define.
-- Every flow doc follows [`flows/_TEMPLATE.md`](./flows/_TEMPLATE.md) so each reads as a drop-in API spec.
+- Every flow doc follows the same 11-section shape (purpose, entry points, actors, entities, business rules, maker-checker, state machine, edge cases, mock implementation, target API, backend responsibilities) so each reads as a drop-in API spec.
 
 ## Traceability
 - [`coverage-matrix.md`](./coverage-matrix.md) - one row per flow doc mapping feature -> flow doc -> API domain -> entities, with the primary role(s) and whether a maker-checker loop applies.
@@ -48,15 +53,16 @@ docs/
 - [`flows/consumer/schedule-visit.md`](./flows/consumer/schedule-visit.md) - Book a property visit; owner confirms/completes it.
 - [`flows/consumer/search-listings.md`](./flows/consumer/search-listings.md) - Public buy/rent discovery: filters, map, and save-search.
 - [`flows/consumer/services-calculators.md`](./flows/consumer/services-calculators.md) - Services hub plus EMI/affordability calculators.
-- [`flows/consumer/share-a-flat.md`](./flows/consumer/share-a-flat.md) - Flatmate posts, rooms, and share groups.
+- [`flows/consumer/flatmates.md`](./flows/consumer/flatmates.md) - Flatmate discovery (Move in now / Team up), rooms, groups and the owner flat-split.
 - [`flows/consumer/societies.md`](./flows/consumer/societies.md) - Society and locality pages, claims, and reviews.
 - [`flows/consumer/support-tickets.md`](./flows/consumer/support-tickets.md) - Customer support tickets and FAQ.
 
-### Admin flows (9)
+### Admin flows (10)
 - [`flows/admin/analytics.md`](./flows/admin/analytics.md) - Platform KPIs and funnel analytics.
 - [`flows/admin/content-localities-societies.md`](./flows/admin/content-localities-societies.md) - CMS content, localities, and society moderation.
 - [`flows/admin/enquiries-funnel.md`](./flows/admin/enquiries-funnel.md) - Enquiries and deals funnel tracking.
 - [`flows/admin/finance.md`](./flows/admin/finance.md) - Revenue, fees, and transaction ledger views.
+- [`flows/admin/flatmates-moderation.md`](./flows/admin/flatmates-moderation.md) - Flatmate seekers, groups and group applications moderation.
 - [`flows/admin/property-verification.md`](./flows/admin/property-verification.md) - Listing verification queue (canonical maker-checker).
 - [`flows/admin/services-moderation.md`](./flows/admin/services-moderation.md) - Service-request desk, assignment, and moderation.
 - [`flows/admin/settings-team-staff.md`](./flows/admin/settings-team-staff.md) - Platform settings, team, and staff accounts.
@@ -64,5 +70,5 @@ docs/
 - [`flows/admin/users-kyc.md`](./flows/admin/users-kyc.md) - User management and KYC/verification decisions.
 
 ### Ops flows (2)
-- [`flows/ops/service-queues.md`](./flows/ops/service-queues.md) - Shared back-office work queues for service fulfilment.
+- [`flows/ops/service-queues.md`](./flows/ops/service-queues.md) - Shared back-office work queues for service fulfilment and flatmate host verification.
 - [`flows/ops/referrals-fraud.md`](./flows/ops/referrals-fraud.md) - Referral verification and fraud-review queue.

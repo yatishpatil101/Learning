@@ -6,7 +6,7 @@ a flow doc mentions auth, an approval/verification step, the contact or Aadhaar 
 audit, pagination, the provider seam, or notifications, it points back to the relevant section
 below.
 
-Two hard truths frame everything here (see [`./app-architecture.md`](./app-architecture.md)):
+Two hard truths frame everything here (see [`./platform-architecture.md`](./platform-architecture.md)):
 
 - **The mock layer is the business logic today.** All of the rules below are currently enforced
   in browser JavaScript over `localStorage`. Every rule marked "MUST be server-enforced" is a
@@ -17,7 +17,7 @@ Two hard truths frame everything here (see [`./app-architecture.md`](./app-archi
 Related docs:
 - [`./data-model.md`](./data-model.md) - ER map + persistence design (field shapes → OpenAPI schemas).
 - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API contract the future backend must expose.
-- [`./app-architecture.md`](./app-architecture.md) - overall system shape and the provider seam.
+- [`./platform-architecture.md`](./platform-architecture.md) - overall system shape and the provider seam.
 
 ---
 

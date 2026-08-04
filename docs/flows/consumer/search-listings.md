@@ -21,13 +21,22 @@
   `v` (verification flags), `sharing`, `room`, `tenants`, `landuse`, `constr`, `avail`, `availfrom`,
   `pets`, `budget`, `rent`, `area`, `age`, `floor`, `near`/`nearlabel`/`nearr`/`nearmode`,
   `q` (text), `sort`, `view` (`grid`|`list`|`map`), `property` (open card).
-- **Triggers:** hero search, home category tiles, locality/society pages, "Discover flatmates"
-  link, `alerts`-reason sign-in returns, and deep links from anywhere.
+- **Triggers:** hero search, home category tiles, locality/society pages, `alerts`-reason sign-in
+  returns, and deep links from anywhere. Flatmates is reached from its own permanent slot in the
+  mobile bottom nav - the old "Looking to share? Browse flatmates & rooms" pill on the Rent tab was
+  removed as a second entry point to a destination already one tap away, which also pushed the first
+  result card below the fold. A flatmates cross-sell card still renders inside the results list, but
+  only when `deal === 'rent'` **and** the `flatmates` type filter is selected.
 - **Source components:** `Listings.jsx` (container) + `src/pages/consumer/listings/`:
   `filterState.js`, `listingsResultsPipeline.js`, `matchers.js`, `filterRelevance.js`,
-  `Filters.jsx` (+ `filtersPanel/*`), `ResultsArea.jsx`, `Card.jsx`, `DealToggle.jsx`,
-  `MobileFilterDrawer.jsx`, `MapGate.jsx`, `NotifyMeCard.jsx`, `constants.js`,
-  `listingsChips.js`, `listingsSmartQuery.js`, `alertCriteria.js`.
+  `Filters.jsx` (+ `filtersPanel/*`), `FilterControls.jsx`, `ResultsArea.jsx`, `Card.jsx`,
+  `DealToggle.jsx`, `MobileFilterDrawer.jsx`, `MapGate.jsx`, `NotifyMeCard.jsx`, `constants.js`,
+  `listingsChips.js`, `listingsSmartQuery.js`, `alertCriteria.js`, `format.js`, `geo.js`.
+- **Mobile filter FAB:** filtering is the most-repeated action in the search journey, but the
+  controls bar is pinned to the top of the page - the hardest place to reach one-handed. A `lg:hidden`
+  fixed pill duplicates the action into the thumb arc, docked above `--pn-bottom-inset` so it clears
+  the bottom nav, and carries a count badge when filters are active. It is anchored **bottom-left**
+  because the Nestor assistant FAB owns bottom-right and was literally intercepting taps there.
 
 ## 3. Actors & roles
 - **Public:** anyone can browse, filter, sort and page. No `ProtectedRoute`.

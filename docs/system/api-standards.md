@@ -18,7 +18,11 @@ code); where the spec is silent, this doc governs.
 
 ## 2. URIs, verbs, versioning
 
-- Base path `/api` (set via `server.servlet.context-path`); Spring matchers are written **without** it.
+- Base path `/api`, set via `server.servlet.context-path`; Spring matchers are written **without** it.
+  Infrastructure moves with it — health is `/api/actuator/health`, Swagger UI is `/api/docs` — so
+  deployment probes must use the prefixed paths. Pinned by `ApiContextPathTest`, which needs a real
+  container: MockMvc does not apply the context path at all, so every other HTTP test passes whether
+  the property is set or not.
 - Nouns, plural collections (`/properties`, `/deals`); sub-resources nest (`/deals/{id}/parties`).
 - Verb semantics: `GET` read (no side effects), `POST` create/action, `PATCH` partial update,
   `PUT` full replace (avoid), `DELETE` = **soft-delete/archive** (never hard-delete business rows).
@@ -60,13 +64,22 @@ Rules:
 | Missing/invalid credentials | `401` | `Error` |
 | Authenticated but not permitted (RBAC / owner pref) | `403` | `Error` |
 | Not found | `404` | `Error` |
-| Conflict (uniqueness, state) | `409` | `Error` |
+| Conflict (uniqueness, state, lost concurrent update) | `409` | `Error` |
+| Failed `If-Match` precondition | `412` | `Error` |
 | Semantic validation failure (bean validation) | `422` | `ValidationProblem` |
 | Rate limited | `429` | `Error` + `Retry-After` |
 | Uncaught | `500` | `Error` (no internals leaked) |
 
 Note the deliberate split: **`400` = can't parse**, **`422` = parsed but invalid**. Auth failures stay
 vague (`Invalid credentials`) so endpoints never leak whether an identity exists.
+
+**`409` vs `412` is also a deliberate split, and it is about who asked.** A `409` says the request
+conflicts with reality and would conflict again if resent — a duplicate unique key, an illegal state
+transition, or a lost optimistic-lock race on a row two ops staff were editing. A `412` says the
+caller *asked to be stopped* if the resource had moved, and it had: nothing was written, no audit row
+was recorded, and the recovery is to re-read and re-apply rather than to reconsider. Conditional
+writes are opt-in per endpoint (`/admin/settings` is the first) and the header is never required —
+mandating it would break existing callers and turn a safety feature into an outage.
 
 ## 4. Error & validation envelope
 
@@ -88,6 +101,57 @@ vague (`Invalid credentials`) so endpoints never leak whether an identity exists
 - Zero-indexed `?page=&size=` (clamp `size`), `?sort=field,dir` (multi-sort joined by `;`).
 - Every sort/filter field must be backed by a DB index (see the Flyway schema); don't expose a filter
   the schema can't serve efficiently.
+- `size` is capped at **100** globally by `spring.data.web.pageable.max-page-size`. Spring's own
+  default is 2000, so this is not optional — and it must be duplicated in
+  `src/test/resources/application.properties`, which *shadows* the main file rather than merging with
+  it. Without the duplicate, tests "prove" a cap the test run doesn't have.
+
+### 5.1 Which collections get paged
+
+Paginate when the collection's size grows with **the platform**. Return a bare array when it grows
+with **one user's own activity**, or when it is fixed reference data.
+
+| Growth driven by | Shape | Examples |
+| --- | --- | --- |
+| Platform (all users, all rows) | `PageEnvelope` | `/properties`, `/societies`, `/users`, `/tickets`, `/admin/*` |
+| One user's own actions | array | `/me/deals`, `/me/offers`, `/me/visit-requests` |
+| **Inbound demand** — rows written by *other* users against the caller | `PageEnvelope` | `/messages`, `/me/saved` |
+| **Time** — rows accrue on a schedule and are never culled | `PageEnvelope` | `/me/finances/{propId}/transactions`, `/me/rent-ledger`, `/me/rent-payments` |
+| Fixed reference / CMS data | array | `/fees`, `/cities`, `/localities`, `/plans`, `/faqs` |
+
+The middle rows are the ones that get confused. A landlord has eight offers, not eighty thousand,
+so paging `/me/offers` buys nothing and costs a `count(*)` on every read. But a *ledger* under `/me/`
+looks equally personal while growing every month on its own — a five-year tenancy is sixty rent rows
+that nothing deletes. **Scope is not the test; growth is.**
+
+**The inbound-demand row was added after the fact, and it is the one that catches people.** "Grows
+with one user's own actions" reads as a statement about scope, and several `/me/` collections satisfy
+the scope while failing the growth test, because the row is written by somebody else: a contact
+request, an offer on your listing, a visit booking, an enquiry. Those grow with how well a listing is
+doing, which is precisely the case where the array gets large — the successful owner is the one the
+unpaged read punishes. `/messages` carried a Javadoc arguing the opposite for exactly this reason,
+and it was true for a seeker and false for an owner.
+
+`/me/saved` is the neighbouring failure: genuinely the caller's own clicks, but its Javadoc claimed
+the list was "structurally bounded" while naming no structure, and none exists. **"One user's clicks"
+is a rate, not a bound.** A bound is a constraint you can point at — `idx_reviews_author_target`, or
+an explicit service cap.
+
+One operation cannot serve two growth profiles. `GET /support/tickets` used to read "my tickets
+(all for admin)", which is a bare array for the customer and a platform-wide table for the admin -
+so it had to either change shape with the caller's role or return every support conversation on the
+platform unbounded. Slice 12 narrowed it to the caller's own. When a role needs the platform-wide
+view of something, that is a *different, paginated operation*, normally under `/admin/`.
+
+Two rules that follow, and are not optional:
+
+- **An array response must have a bound.** If a collection can't be shown to stay small, either page
+  it or cap it explicitly in the service (`PropertyService.FEATURED_CAP`, `SocietyService.MAX_HOMES`).
+  "Small in practice today" is a measurement, not a guarantee — write the cap down.
+- **A client-side pager is a smell, not a solution.** `Table.jsx` slices a full array in the browser
+  and renders `Showing 1–10 of {rows.length}`. Against a mock that's free; against a real API the
+  server has already serialised everything and the pager is a lie about network cost. If a screen
+  needs a pager, the endpoint feeding it needs `PageEnvelope`.
 
 ## 6. Auth, roles, trust
 

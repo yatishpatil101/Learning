@@ -168,10 +168,10 @@
   service (interior/legal/valuation/packers) marketplace, referrals, and growth capture.
 - **API domains covered:** #13 Service Requests / Tickets, #27 Service Workflows (rent agreement,
   valuation, etc.), #22 Referrals, #23 Reviews and Ratings, #25 Reports (listing moderation),
-  #26 Share a Flat, #29 Admin Analytics and Settings (analytics/audit-log/finance dashboards),
+  #26 Flatmates, #29 Admin Analytics and Settings (analytics/audit-log/finance dashboards),
   #32 Society Leads.
 - **Entities / tables:** `tickets`, `service_requests`, `referrals`, `entity_reviews`, `reports`,
-  `share_flat_requests` + `rooms`, `society_leads`, analytics read models, and the full `audit_log`
+  `flatmate_requests` + `rooms`, `society_leads`, analytics read models, and the full `audit_log`
   read API.
 - **Dependencies:** Phases 1-5 (queues and analytics aggregate users, listings, leads, deals, and
   finance).
@@ -240,7 +240,7 @@ records the secondary phase.
 | 23 | Reviews and Ratings | Phase 6 | Moderation. |
 | 24 | Localities | Phase 2 | Geographic reference for listings. |
 | 25 | Reports (Listing Moderation) | Phase 6 | Trust and Safety. |
-| 26 | Share a Flat | Phase 6 | Secondary marketplace + admin moderation. |
+| 26 | Flatmates | Phase 6 | Secondary marketplace + admin moderation. |
 | 27 | Service Workflows | Phase 6 | Staff-driven draft/decision maker-checker. |
 | 28 | Rent Agreements | Phase 5 | Owner KYC + agreement records. |
 | 29 | Admin - Analytics and Settings | Phase 6 | Settings/config slice bootstrapped in Phase 0. |

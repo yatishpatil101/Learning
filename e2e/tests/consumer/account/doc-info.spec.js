@@ -76,7 +76,7 @@ test('owner Documents vault carries a property-scoped Rent Agreement panel', asy
 });
 
 test('a tenant sees their Rent Agreement in a property-scoped My Tenancy vault, not Personal', async ({ page }) => {
-  const TENANT = { name: 'Test User', mobile: '9800000002', email: '', role: 'buyer', joinedAt: Date.now() };
+  const TENANT = { name: 'Yatish', mobile: '9800000002', email: '', role: 'buyer', joinedAt: Date.now() };
   await page.addInitScript((u) => {
     localStorage.setItem('puneNestUser', JSON.stringify(u));
     localStorage.setItem('puneNestUsers', JSON.stringify([u]));

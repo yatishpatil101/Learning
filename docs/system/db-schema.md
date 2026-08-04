@@ -127,8 +127,8 @@ never stored — last-4 masked only.
 | Referral | `referrals` | `referrer_id` FK + `referred_mobile text` (recon #10), fraud-signal flags |
 | Review, ReviewCreate | `reviews` | polymorphic `target_type/target_id` (recon #6), moderation `status` |
 | Report, ReportCreate | `reports` | polymorphic target, free-text `reason` (recon #7), `status` |
-| ShareFlatPost(Create) | `share_flat_posts` | preferences as columns, soft-delete; idx locality |
-| SocietyLead(Create) | `society_leads` | `mobile text` lead (recon #10), `status` |
+| ~~ShareFlatPost(Create)~~ | ~~`share_flat_posts`~~ | **Dropped in V28** — carried into `flatmate_seeker_posts`; see V27/V28 |
+| SocietyLead(Create) | `society_leads` | **Created by V24, not here.** V7 also declared it, which made the chain un-replayable on a fresh DB; the earlier sketch was removed |
 
 ### V8 — Engagement, Billing, CMS & Support (Phase 7)
 | OpenAPI schema | Table | Notable columns / FKs / indexes |

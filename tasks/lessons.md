@@ -1,5 +1,51 @@
 # Lessons
 
+## Deals sub-slice A2
+
+- **`Map.of()` rejects null keys** — `ImmutableCollections$MapN.get(null)` throws NPE.
+  When batch-loading counterparty users, guard `get()` with a null check on the key before
+  passing it to the immutable map. Java's unmodifiable Map implementations are not null-safe.
+
+- **JPA `save()` does not flush** — in `@Transactional` tests, a JDBC query in the same
+  transaction won't see unflushed JPA writes. Use `saveAndFlush()` when the next assertion
+  uses raw JDBC to verify side effects (e.g., soft-delete `deleted_at IS NOT NULL`).
+
+<!-- above: feature/backend-integration | below: feature/ui-mobile-improvements -->
+
+## Mobile-first audit + Phase 1 (this session)
+- **Measure before rating effort.** Two items the audit called "S" were wrong once the
+  import graph was traced: `db.json` can't be dynamically imported without making the
+  whole mock layer async (`rawLoad()` is sync, called everywhere), and `societies-rera.js`
+  is on the critical path via Home's societies rail. A doc that hasn't opened the call
+  sites is guessing at cost.
+- **Raw KB != wire KB.** The stylesheet is 209 KB raw but **37.9 KB gzipped**; the review's
+  "save 60-100 KB" for a CSS split was really ~10-20. Always quote gzip for perf claims.
+- **Budget gates must read the document, not guess filenames.** `index-*.js` matched both
+  the entry chunk AND an unrelated vendor chunk. Parsing `dist/index.html` for
+  `<script type=module>` + modulepreload + stylesheet is exact and needs no upkeep when
+  chunking changes. Also: fail loudly if 0 assets match — a gate reporting 0 KB looks green
+  while waving through every regression.
+- **The StrictMode double-invoke trap is real and repeats.** A per-visit counter in an
+  effect spent its entire 2-view budget on one load. `design-system.md` already documented
+  this for InstallPrompt; the same fix (ref guard) was needed for the Nestor nudge. Any new
+  "show N times" counter needs it.
+- **`scrollIntoViewIfNeeded` stops at the viewport rect**, which includes the strip behind
+  a sticky bar — so it parks the element under exactly the chrome you're testing for. Scroll
+  to a reading position (`top - 160`) instead.
+- **`elementFromPoint` returns null off-screen.** Returning "nothing is covering it" for an
+  element that isn't on screen is a pass for the wrong reason. Return OFFSCREEN explicitly.
+- **A/B a red test against `git stash` before claiming "pre-existing".** The 2 `help-i18n-urls`
+  failures reproduced with all source changes stashed -> genuinely not mine. Cheap and
+  conclusive; asserting it without the experiment is just hoping.
+- **Not every audit finding is a bug.** Sign-in/sign-up "sub-44px checkboxes" were false
+  positives — the *labels* carry `.tap-target` and clicking a label toggles its control, so
+  the label is the touch target. Only `/contact` genuinely lacked it. Measure the thing the
+  finger actually hits.
+- **Some findings are product decisions, not defects.** The property price sits at y=551 on
+  a 360x640 screen; lifting it above the fold means shrinking the hero gallery on a property
+  site. Raised it, didn't silently decide it — and made the test assert the unconditional
+  invariant instead (no *fixed* overlay on the price; scrolling under a sticky bar is fine).
+
 ## PMF overlay session
 - **Temporary/experimental overlays must be flag-gated so the dev flow is never touched.**
   `VITE_PMF_MODE` off by default; every hook (`track`, `captureLead`, banner, NotifyMe) no-ops
@@ -584,3 +630,748 @@ The live spec needs Postgres, a backend and a specific dev-server env. Putting i
 would mean a failure no longer says "the app is broken" — it might mean "Postgres is down". Separate
 config, `testIgnore` in the main one, and `reuseExistingServer: false` so a leftover mock-mode dev
 server can't serve the wrong bundle to a test that believes it is live.
+
+## Lesson: a mask that still parses is worse than one that throws
+
+`digits('98XXXXX210')` returns `'98210'`. Not an error, not empty - a short, plausible
+string that every downstream key builder happily accepted. The masking itself was correct;
+the damage came from a *sanitiser* (`digits()`) silently turning a redacted value back into
+something that looked like an identity.
+
+Rules taken from this:
+- Validate on a property the bad input CANNOT satisfy. Here: length === 10. Sniffing for
+  `X` or the bullet char would have been a guess about mask formats; length is structural.
+- When identity is unknown, return `null`/refuse. Do NOT fall back to a shared bucket -
+  `|| 'anon'` was the same bug wearing a different name.
+- Fail in the direction that under-reveals. Every rejected case here hides the number.
+- Don't let a function report success for a write that did not land. `requestContact()`
+  returning `'pending'` after a no-op write was how this stayed invisible.
+
+## Lesson: prove a regression test fails on the old code
+
+My first collision test passed against the buggy `contact.js` - it used two unmasked
+numbers, so the buckets were legitimately distinct and the leak was never exercised. It
+looked like a thorough test and asserted nothing that mattered.
+
+Restoring the pre-fix file from `git show HEAD:<path>` and re-running is cheap (~25s) and
+is now the standard step for any bug fix: **red on old, green on new, or the test is
+decoration.** The rewritten spec fails 3/6 against the old file.
+
+## Lesson: don't reformat JSON to insert one key
+
+Round-tripping `property.json` through `JSON.parse` + `JSON.stringify(j, null, 2)` inserted
+the key correctly and silently deleted 36 blank lines per locale - a 108-line diff for a
+3-line change. Reverted and inserted the line textually by anchoring on the neighbouring
+key instead. For i18n files with non-ASCII values, script the edit (so the encoding is
+preserved) but operate on lines, not on the parsed object - then `JSON.parse` the result
+purely as a validity check.
+
+## Lesson: re-run a "known failing" suite before triaging it
+
+`tasks\todo.md` carried an open item to classify 22 e2e failures (qa-location-search x13,
+admin-* x9) as pre-existing and unexplained. They had in fact been root-caused and fixed in a
+later session further down the same file; only the carry-over checkbox was stale. Two full runs
+gave 290/290 green with zero retries consumed.
+
+Cost of the reproduce-first step: ~5 minutes. Cost of trusting the note: an investigation of a
+non-existent bug. **Always reproduce a recorded failure before analysing it**, and when closing a
+failure, grep the tracker for every entry mentioning it - not just the one you are editing.
+
+
+## Lesson: participation is not authorisation
+
+The worst defect in slice 4 shipped inside a green build. `OfferService.respond` asked "is the
+caller a participant in this offer?" and, satisfied, allowed any action -- so the **buyer could
+accept their own offer**, agreeing a price with no owner involvement and flipping the very status
+that controls whether a phone number is revealed.
+
+Once named, the same shape appeared in two more places written the same week: the finalization
+initiator could accept their own request, and a visitor could mark their own visit `completed` --
+forging the anti-fake-review signal that gates the "Visited" badge.
+
+The check answers a question ("may this caller see this row?") that feels like the authorisation
+question but is a strictly weaker one. Split them explicitly, and give them different status codes:
+
+- not a participant -> **404**, never confirm the row exists
+- a participant who may not take *this* action -> **403**
+
+Whenever a guard is shared by a read and a write, assume it was written for the read.
+
+
+## Lesson: derive the sensitive value, do not validate what the client sent
+
+`FinalizationService.request` took `counterpartyMobile` from the request body and checked only that
+it belonged to *some* registered user. Two findings fell out of that one mistake: a buyer could aim
+a proposal at any account on the platform, and the two distinct error messages ("invalid" vs "not
+registered") turned the endpoint into a **registered-mobile oracle** -- on a marketplace whose whole
+model is not leaking phone numbers.
+
+Both closed with one change: take the counterparty from `property.getOwner()` and use the body's
+value only to confirm the caller already knew it. There is now exactly one legitimate answer, so
+there is nothing to enumerate and one uninformative error suffices.
+
+Generally: if a field identifies *who a request affects*, the server should derive it from something
+it already trusts. Validating a client-supplied identifier only narrows the attack; deriving it
+removes the surface. Watch for the tell -- an error message that distinguishes *why* a lookup failed
+is usually answering a question the caller had no right to ask.
+
+
+## Lesson: a rule copied a third time has already forked
+
+`maskMobile` existed privately in `PropertyMapper` and `ContactMapper`; slice 4 was about to add a
+fourth. When they were gathered up, `VerificationService.digits` and `DealService.normaliseMobile`
+turned out to have drifted into *different* leniencies -- and the loosest would cheerfully accept a
+**masked** number and store it as an identity.
+
+Nobody chose that. Each copy was locally reasonable; the divergence is what copying is.
+
+The consolidated `MobileMask.normalise` now fails closed (exactly ten digits or `null`), and it
+deliberately **disagrees** with `mask` about country codes: `normalise` handles user input, `mask`
+handles values already read back from the DB, so anything unusual reaching `mask` means
+normalisation was skipped -- and `null` makes that loud instead of quiet. That asymmetry is now
+pinned by a test, because it looks like a bug to anyone who meets it cold.
+
+
+## Lesson: an agent's green build is evidence about the build, not the code
+
+Four sub-slices were delegated; each came back green and each was re-verified by hand. **Two of the
+four contained real defects** the passing suite did not see -- including the self-accept
+authorisation hole.
+
+Worse, one agent-written test actively pinned a bug in place:
+`requestFinalization_unregisteredMobile_returns400` asserted the *leaky* error wording. It read as
+coverage and functioned as a lock on the enumeration oracle.
+
+So: read the security-sensitive service yourself, whatever the test count says. And when a test
+asserts an error *message*, ask what that message tells an attacker before treating it as a
+requirement to preserve.
+
+The standing counter-measure, used throughout the slice: **prove a regression test fails against the
+broken code.** Replace the guard with `if (false)`, re-run that class, confirm red, restore. Every
+invariant test in slice 4 was pinned this way; without it you get thorough-looking tests that assert
+nothing.
+
+
+## Lesson: when a guardrail needs an allowlist for everything, fix the rule
+
+The ArchUnit boundary test was deferred twice, and both deferrals were correct for the wrong reason.
+The rule on the books -- "no feature package imports another feature package" -- was false the day
+it was written: `identity` is "who" and `catalog` is "which listing", so every transaction context
+needs both. Six such edges existed. An allowlist naming nearly every pair permits everything and
+therefore guards nothing, which is why writing it never felt worth it.
+
+The property actually worth failing a build over was narrower: the context graph must stay
+**acyclic**. Enforcing a *layering* (`identity -> catalog -> leads -> deals`, imports point strictly
+downward) is true today, cheap, and catches the thing that would be irreversible.
+
+It found a violation on its first run -- the one previously recorded as a permanent exception,
+`security.JwtService` taking the `identity.user.User` entity. That is the single direction the rule
+cannot tolerate, because the kernel is imported by everything. And the dependency was not even real:
+the issuer read five scalars. Inverting it (`TokenSubject` in `security`, implemented by `User`)
+changed no callsite.
+
+Two things generalise. **A documented exception is worth re-testing rather than grandfathering** --
+this one had been accepted for three slices and dissolved in ten minutes. And **a rule you keep
+declining to enforce is usually the wrong rule**, not a chore you are avoiding.
+
+
+## Lesson: PowerShell 5.1 traps that cost real time this session
+
+- Heredocs (`<<'EOF'`) **do not exist**. Piping a script into `python -` fails at the parser.
+- `Out-File -Encoding utf8` **writes a BOM**, which ends up in the first line of a commit message.
+  Use `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))`.
+- Chain with `;` and gate with `if ($?) { ... }`; never `&&`.
+- The Maven exit code is not trustworthy here -- always aggregate
+  `target-cli\surefire-reports\*.txt` for the real totals.
+
+## Lesson: `:param is null` is a Postgres landmine in JPQL
+
+`(:from is null or t.date >= :from)` looks like the standard optional-filter idiom and compiles
+fine. Postgres rejects it at execution: `ERROR: could not determine data type of parameter $2`.
+Both sides of the `is null` are unknown, so the driver cannot infer a type, and the **whole
+statement** fails -- not the branch, the query. This broke **100% of `/summary` calls** and was
+invisible until a test hit the endpoint.
+
+Fix: `cast(:from as LocalDate) is null`. Any optional parameter compared to `null` in JPQL needs
+the cast. Grep for `:x is null` before shipping a repository.
+
+## Lesson: a multi-column `@Query` declared as `Object[]` silently nests
+
+Spring Data models a multi-column projection as `List<Object[]>`. Declare the return type as
+`Object[]` and you get a **one-element array containing the row** -- so `result[0]` is itself an
+`Object[]`, and the cast blows up at runtime with a `ClassCastException` that names neither the
+query nor the column.
+
+Use a projection interface with `as` aliases in the select. It is typed, it is self-documenting,
+and it deleted a pile of `((Number) x).longValue()` casts on the way out. Cost: five lines.
+
+## Lesson: in a `@Transactional` `@SpringBootTest`, `JdbcTemplate` cannot see un-flushed JPA writes
+
+They share the transaction but not the persistence context. `save()` only queues the insert, so a
+raw-column assertion after a successful `201` fails with `EmptyResultDataAccessException` -- which
+reads like "the endpoint did not write" and is actually "the endpoint has not flushed". Call
+`em.flush()` before any raw SQL read in a test. Worth a named helper so the next person does not
+spend the same twenty minutes.
+
+## Lesson: check what the shipped UI can send before adding a server-side constraint
+
+Three near-misses in one slice: `@PastOrPresent` on a transaction date would have rejected
+post-dated cheques, which are how a large share of Indian rent is actually paid.
+`familySize: integer` cannot express "Bachelor (Male)", which is the single most consequential fact
+in a Pune tenancy screening. And `TenantProfile` carried `employer`/`budget`/`preferredLocalities`
+that no screen has ever collected, while **four of the six trust-score inputs had no column at
+all** -- so a faithful server would have halved every tenant's score on cutover.
+
+The contract is law, but the contract can be wrong. Read the form before you constrain the field.
+
+## Lesson: iterative date stepping clamps once and never recovers
+
+`next = next.plusMonths(1)` from 31 Jan gives 29 Feb -- correct -- and then 29 Mar, 29 Apr, 29 May.
+The clamp is **sticky**, because each step is measured from the already-clamped date. Month-end
+rent silently walks two days earlier, forever, after one February.
+
+Always step from the original anchor: `anchor.plusMonths(n)` re-derives the 31st in every month
+that has one. The Javadoc here confidently described the broken behaviour as the correct one, which
+is exactly why it survived the first read -- **a comment asserting correctness is not evidence of
+it**, and is a good place to look for bugs.
+
+## Lesson: reviewer findings are input, not instructions
+
+Of six ranked findings from this slice's review, two were real (the date drift, a misleading log),
+two were already handled (a null guard the reviewer read past), and two were style dressed as
+risk. The one ranked **HIGH** -- an "off-by-one" in an occupancy day-count -- was wrong: half-open
+`[start, end)` is the correct interval convention, and "fixing" it would have double-counted the
+day one tenancy ends and the next begins. Applying it would have introduced the bug it claimed to
+remove.
+
+Triage every finding against the code and the domain. Then leave a comment where you rejected one,
+so the next reviewer does not re-raise it and the next author does not "fix" it.
+
+## Slice 6 - the rent money rail
+
+**A "pause" you cannot undo is a trap, not a safety feature.** The mandate write refused any
+re-activation, reasoning that debiting a bank account needs fresh consent. That reasoning is correct
+for *revoke* and wrong for *pause*, and collapsing the two made the pause button a one-way door
+disguised as a toggle. The tell: the `MandateStatuses` constants had already encoded the right state
+machine, and the service overrode it with a special case. **When a service adds an `if` in front of
+its own `canTransition`, one of the two is wrong -- and it is usually not the state machine.**
+
+**A status filter in a lookup is a policy decision, and it hides.** `findActiveByTenancyId` filtered
+`status = 'active'`, so a paused mandate was invisible to the write path and could never be revoked:
+an uncancellable standing instruction against someone's bank account, created by a `WHERE` clause.
+The word "active" in a finder name looks like a detail and is really the answer to "who is allowed
+to reach this row". **Ask of every filtered finder: what becomes unreachable, and is that intended?**
+
+**Scope idempotency keys to the resource, in the index and not only the query.** A global
+`findByIdempotencyKey` hands anyone who guesses a key the payment it belongs to -- from a path whose
+whole job is to *skip* the checks. Scoping the unique constraint to `(tenancy_id, idempotency_key)`
+makes the isolation structural: the query cannot be written unscoped, because the caller must supply
+a tenancy it was already authorised for. **Corollary: authorise first, replay second.** The original
+ordering replayed the key before resolving the tenancy, which is exactly what made the leak possible.
+
+**"The index is the real guard" is only true if you catch the violation.** Both a service `exists`
+check and a unique index were in place, with a comment explaining that the check was a courtesy and
+the index the guard. But nothing caught `DataIntegrityViolationException`, so the loser of the race
+got a 500 for behaving correctly. **A constraint you rely on for correctness needs a catch block that
+turns it into the status code the check would have produced.**
+
+**Reviewer findings are input, not instructions -- and the confident ones need checking hardest.** Of
+16 findings across two reviewers, 6 were real. One MEDIUM ("missing foreign keys allow orphaned
+payments") was simply false: every one of those columns is `NOT NULL REFERENCES` in V6, which the
+reviewer did not read -- and a second finding was stacked on top of the same mistake. Two more asked
+for redundant `save()` calls on managed entities inside a transaction, i.e. cargo cult dressed as
+consistency. **Verify the premise before accepting the fix; a wrong premise usually arrives with a
+plausible sibling.**
+
+**Declare every status code the server can actually return.** `payRent` documented `201`/`422` while
+returning `404` and `409` too, and seven *already-shipped* slice-4 operations had the same gap. An
+undeclared status has no branch in a generated client, so a perfectly good "the rent changed, confirm
+again" surfaces to the user as an unhandled error. **A contract that under-declares is not merely
+incomplete -- it actively produces bad UX at the exact moments the server is being careful.**
+
+**Backfill from the data, not from the clock.** V14 filled a new `NOT NULL due_date` with
+`current_date`, which would stamp every historic payment with today and quietly break overdue
+calculations and month-by-month reporting. `date_trunc('month', created_at)` preserves the real
+order. The table is empty today -- which is precisely why the mistake was easy to write and would
+have been discovered much later.
+
+**Let the provider's number reconcile, never write.** The payment callback's amount is compared with
+what we billed and logged loudly on mismatch, but it never overwrites the ledger and a mismatch never
+blocks settlement. Both halves matter: writing it would let the provider's rounding become our
+revenue figure, and refusing to settle would leave a tenant who genuinely paid showing as unpaid.
+
+## Slice 7 (Catalog & Search)
+
+### Postgres: `ON CONFLICT ON CONSTRAINT` cannot name an expression index
+A `UNIQUE` **constraint** cannot be declared over an expression, so `lower(city)` can only ever be a
+`CREATE UNIQUE INDEX`. The explicit-looking `ON CONFLICT ON CONSTRAINT uq_...` form was therefore
+never available - it 500s. Use the inference form `ON CONFLICT (mobile, lower(city))`, which must
+match the index's columns *and* expression exactly and so still fails loudly if the index changes.
+Same guarantee, different spelling.
+
+### Catching `DataIntegrityViolationException` around `save()` inside `@Transactional` is a trap
+The failed flush marks the transaction rollback-only. Swallowing the exception produces a caller that
+believes it succeeded and a commit that then throws - the worst of both. `INSERT ... ON CONFLICT DO
+NOTHING` avoids the exception existing at all. I wrote the buggy version first and caught it before
+compiling; it would have passed a single-threaded test.
+
+### `src/test/resources/application.properties` SHADOWS the main file, it does not merge
+Same filename, test classpath first. Anything production config needs and tests must exercise has to
+be written **twice**. This nearly let me ship a page-size cap that the test run did not actually have
+- the tests would have "proved" a protection that only existed in prod config.
+
+### Spring's default `max-page-size` is 2000
+It silently applied to a public endpoint shipped five slices earlier, whose contract had said
+`maximum: 100` since day one. A published limit that nothing enforces is not a limit. Set
+`spring.data.web.pageable.max-page-size` globally, not per-controller.
+
+### Spring binds a `Pageable`'s sort even when the endpoint declares no sort parameter
+`?sort=anything` is bound and appended to the derived query; an unknown property becomes a **500 an
+anonymous caller can trigger by guessing**. Where sorting is not offered, strip it
+(`PageRequest.of(page, size)`). A whitelist is the right answer only where sorting *is* offered.
+
+### A counter that measures the wrong predicate is worse than no counter
+The stored `listing_count` columns did not merely drift - they counted *all* properties while every
+surface that displays them means approved-and-unarchived. Stale can be refreshed; wrong-by-construction
+was wrong the day it was written and looks trustworthy the whole time. Enforce the fix structurally:
+leave the columns **unmapped on the entity** so reading them is impossible, not just discouraged.
+
+### Do not let a reviewer's confidence substitute for evidence
+Of the code review's 1 CRITICAL + 2 HIGH, only the CRITICAL survived. One HIGH (division by zero) was
+invented from a mapper signature by a reviewer that said outright it had not read the service - there
+is no division in the package. The other (MapStruct silently rebinding to a future entity getter,
+defeating the whole counter decision) was a plausible, load-bearing claim, so I **tested it**: added
+exactly that getter, compiled, and read the generated mapper - it still binds the parameter. A
+whole-parameter match beats an entity property. Cost: about four minutes. Verify claims that are cheap
+to verify, especially the ones you would otherwise act on.
+
+### Flyway operational notes (cost me a failed run each)
+Applying migrations by `psql` leaves no `flyway_schema_history`, so the next boot refuses with
+"non-empty schema but no schema history table" - let Flyway own the DB, or rebuild it empty. And
+editing any already-applied versioned migration changes its checksum, which means another rebuild of
+`punenest_test`.
+
+
+## Pagination pass + OTP rate limiting
+
+- **A contract that declares a status nobody implements is a bug report you already filed.**
+  `POST /auth/login` carried `429` in the spec and had no limiter. Grepping the spec for declared
+  error responses with no server-side counterpart is a cheap, repeatable audit - do it per slice.
+- **Rate-limit state does not need new infrastructure if the thing you are limiting already writes
+  a row.** `otp_codes` had one row per send, so the limiter is a single indexed query: no Redis, no
+  bucket cache, and it survives restarts and multi-node deploys for free. Look for the existing
+  write before reaching for a counter store.
+- **Key a limiter on the thing being harmed, not on the caller.** The victim's mobile is what gets
+  spammed and billed, and it is the one identifier the attacker cannot rotate while still attacking
+  their chosen target. Keying on caller/IP would have been both weaker and forgeable.
+- **A limiter keyed globally is a DoS you built yourself.** The per-number isolation test exists
+  purely to stop a future "simplify this counter" refactor turning one attacker into an outage for
+  everyone. Test the *shape* of a defence, not just that it fires.
+- **JPA writes are not flushed when raw JDBC runs in the same transaction.** A test that backdates
+  rows with `JdbcTemplate` matched zero rows until `em.flush()` ran first - and without
+  `em.clear()` after, the next repository read was served the stale first-level-cache entity and
+  never saw the new timestamp. Flush before, clear after.
+- **A spec audit that ignores `$ref` parameters will lie to you.** The first pass read
+  `p.get('name')` and so missed every `$ref`-style parameter, making paged endpoints look
+  unparameterised. Resolve refs *before* drawing any conclusion from a spec scan.
+- **"Scope is not the test; growth is."** `/me/rent-payments` looks personal and bounded because of
+  its path. It grows a row a month forever. The right question for pagination is never "whose data
+  is this?" but "what makes this list longer, and does it ever stop?"
+- **Before writing a rule, check whether the codebase already follows one.** The spec's 9 paged
+  endpoints were exactly the platform-scale ones - a consistent, deliberate rule that had simply
+  never been written down. Documenting the existing rule beat inventing a new one, and shrank the
+  work from 42 endpoints to 3.
+- **A client-side pager is a smell, not a solution.** `Table.jsx` slicing a full array on 19 admin
+  screens was the evidence that the product had already decided those lists are paginated; the mock
+  made server paging free, so the intent never reached the contract. When the UI pages and the API
+  does not, the API is wrong.
+- **Spring binds `?sort=` whether or not your endpoint offers it.** An unknown sort property reaches
+  the query and surfaces as a 500 that any caller can trigger. Where sorting is not part of the
+  contract, rebuild the `Pageable` with `PageRequest.of(page, size)` and drop the sort.
+- **PowerShell 5.1's `Set-Content -Encoding UTF8` prepends a BOM**, which `javac` rejects with
+  `illegal character: '\ufeff'`. Never rewrite a source file that way - use Python with explicit
+  UTF-8, or `utf-8-sig` on read to strip an existing BOM. PowerShell also has no heredoc: pipe a
+  script *file*, never `python - <<'PY'`.
+- **Two paged reads over the same table still need two tests.** The rent pair (`/me/rent-payments`
+  tenant-side, `/me/rent-ledger` owner-side) share a table and differ only in the join column - the
+  exact shape where a copy-paste bug makes one return the other's rows.
+
+
+## Slice 8 (Engagement) — lessons
+
+### An index that contains the sort column still may not back the sort
+V16 caught `idx_notifications_user (user_id, read, created_at DESC)` failing to back
+`WHERE user_id = ? ORDER BY created_at DESC` — `read` sits *mid-key*, so Postgres uses the
+`user_id` prefix to find rows and then sorts every one of them. The index looked right at a glance
+and contained every column involved. Auditing the rest of the slice found two more (V17).
+
+The check is not "does the index mention created_at" but **"is the sort column reachable as an
+unbroken prefix continuation after the equality predicates"**. Read the `CREATE INDEX`, not the
+comment above it — and when one instance of this turns up, sweep the whole slice, because it comes
+from a habit rather than a slip.
+
+Corollary worth keeping: small editor-curated tables (`banners`, `faqs`, `announcements`,
+`cms_services`) should be left unindexed and the reason written down. The planner will seq-scan
+them anyway. The distinction that matters is **bounded by an editor's patience vs bounded by user
+growth**, and it is not visible from the query.
+
+### Architecture tests that match on source text can be evaded by SQL — don't
+`ArchitectureBoundaryTest` ranks bounded contexts and fails the build on an upward import. Reviews
+(engagement=2) needed visit facts (deals=4) and tenancy facts (finance=3). A native query naming
+those tables would have passed the test silently, because a SQL string mentions no package.
+
+That is worse than the import it evades: it swaps a compile-time dependency on another context's
+*API* for an invisible runtime dependency on its *schema*. The port inversion (`PropertyExperience`,
+`RatingLookup` on the `common.trust` kernel, following the existing `ContactGate`) is more code and
+the right answer. **When a boundary test blocks you, the question is whether the boundary is wrong,
+never whether the test can be slipped past.**
+
+### `Routes` composition can silently rename a path variable
+`Routes.Properties.BY_ID` is `/properties/{id}`; the contract's review route says `{propId}`.
+Composing the constant would have produced a working route with the wrong variable name — no
+compile error, no test failure until something reads the wrong path variable. Reuse of a route
+constant is only safe when the *variable names* match too, not just the path shape.
+
+### The fix that looks tolerant can be the dangerous one
+`POST /notifications/read` with a malformed id threw `IllegalArgumentException` → 500. The obvious
+"tolerant" fix — skip ids that don't parse — would have been an escalation: an all-garbage list
+arrives **empty**, and empty is the sentinel for "mark *all* read". A client typo would have
+cleared the entire inbox, silently, with a 204.
+
+**When a collection has a sentinel value (empty = all, null = everything, 0 = unlimited), any code
+path that can *shrink* that collection can reach the sentinel by accident.** Filtering into a
+sentinel is a bug class, not a one-off. Reject at the edge instead.
+
+### A validation pattern that is too tight is the same bug as no pattern
+Adding `@Pattern` for `alertFrequency`/`channel` fixed a user-triggerable 500 — but a wrong pattern
+would simply move the failure. So the test asserts all **12** legal combinations are accepted, not
+just that two illegal ones are rejected. Vocabulary tests need both halves; the accept-half is the
+one people skip and the one that breaks real clients.
+
+### Reviewer output is a lead, not a finding
+Standing practice after an earlier slice produced fabricated review claims: **verify every claim
+against the source before acting.** This slice: 6 findings confirmed and fixed, 1 closed with a
+written reason, 2 rejected on inspection (one the reviewer retracted mid-report; one was my own
+suspicion that the code already handled). And the highest-severity real bug — the notification
+sentinel above — was found by hand, by *reading around* a line a reviewer had quoted for an
+unrelated reason. Reviewers are good at breadth and unreliable at depth; the reading is not
+optional.
+
+### Where a deliberate decision gets written down matters
+"Reviews publish immediately with no moderation queue" was flagged as a security finding. It is
+actually the product posture — pre-moderation means an author cannot see their own review, which
+suppresses honest reviews far more than dishonest ones, and the eligibility bar (a real tenancy or
+completed visit on *that* property) is the actual defence. The reason now lives in
+`ReviewService`'s Javadoc, next to the line that sets the status — not only in a task file. A
+decision recorded where the reader is already looking does not get re-litigated by the next
+reviewer, or quietly "fixed" by the next author.
+
+### A REQUIRES_NEW write escapes the test's rollback
+`AuditService` is `@Transactional(REQUIRES_NEW)` on purpose, so an audit row survives a rolled-back
+business transaction. The consequence in tests is easy to miss and makes a suite quietly
+order-dependent: the rows outlive `@Transactional` rollback and accumulate across runs. Two
+assertions failed on each other's data. The fix is in the test, never the propagation - **scope
+every assertion to the specific row under test (`entity_id`), never to the emptiness of a table** -
+plus an `@AfterEach` that deletes what the class created. "Assert the table is empty" is a
+test-isolation bug waiting for a second test to be written.
+
+### jsonb is stored normalised, so never assert on its text
+An audit-metadata assertion compared `"from":"pending"` as a substring and failed against
+`"from": "pending"` - Postgres had reformatted it. Asserting on the serialisation of a document
+column is asserting on formatting. Read it back through `metadata->>'key'` and compare values.
+
+### `Set-Content -Encoding ascii` destroys Unicode silently
+A regex replace round-tripped through ascii turned 12 em-dashes into `???` across a source file.
+`-Encoding UTF8` is not the fix either - it prepends a BOM, which broke the OpenAPI YAML a slice
+earlier. PowerShell 5.1 has no `utf8NoBOM`. **Edit files through Python with
+`encoding='utf-8', newline='\n'`, or through the editor tool.** Also: `python -c "..."` from
+PowerShell mangles nested quotes and `$`; write a `.py` file and delete it after.
+
+### Spring's default bean name is the simple class name, so contexts collide
+`moderation.verification.VerificationController` and the existing
+`identity.verification.VerificationController` (Aadhaar KYC) produced a
+`ConflictingBeanDefinitionException` at startup. A new bounded context can silently collide with an
+old one across the whole application. Renaming to `PropertyVerificationController` was clearer
+anyway - it is *listing* verification, not identity verification.
+
+### Grep the controllers, not the obvious service, before building an endpoint
+I re-implemented `PATCH /properties/{id}/archive|restore` and got an ambiguous-mapping failure:
+they already shipped in slice 2, with the correct owner-or-staff rule. `PropertyService` is
+read-only, which misled me - the writes live in `catalog.listing.ListingService`. The route is the
+identity of an endpoint; search for the route string across controllers first.
+
+### Entities get their id at INSERT, not at construction
+`@UuidGenerator` + `@CreationTimestamp` populate on flush. Any DTO built from an entity created in
+the same transaction - especially a child added to a cascaded `@OneToMany` - reads nulls. This
+500'd every verification message post, and it was **found by a test written for an unrelated
+invariant**, not by a reviewer. The tell is `save(...)` where the response exposes a generated
+field; `saveAndFlush` before mapping. Worth applying even where the response happens not to read
+the id today, because that correctness is a coincidence a future field will break.
+
+### Escaping a LIKE term is not defensive coding, it is the feature
+`q + "%"` looks anchored and isn't: the caller can supply their own `%` or `_` and step outside the
+anchor. Without `pg_trgm`, the index only serves anchored patterns, so `?q=%` degrades a
+staff-callable endpoint to a full scan - and a page cap does not help, because the scan happens
+before the limit does. The regression test asserts **both** halves: wildcards are matched
+literally, and an honest prefix still returns its row. A test for only the first half passes
+happily against a search that has stopped working.
+
+### A reviewer's fix can be worse than the bug
+A MEDIUM finding proposed catching audit-serialisation failures and writing `"{}"`. That converts
+a loud failure into a silent one on the single table whose entire purpose is to be trusted - if an
+action cannot be recorded, the right answer is to refuse the action, not to perform it and file an
+empty note saying it happened for reasons unknown. Rejected, and the reasoning written into the
+Javadoc beside the line, so the next reader does not "fix" it back.
+
+<!-- above: feature/backend-integration | below: feature/ui-mobile-improvements -->
+
+## 2026-07-31 - Never run an unvalidated bulk-rewrite script across the tree
+
+**What happened.** A PowerShell rename script built its replacement map as
+`@( @('a','b') @('c','d') )`. PowerShell *flattens* nested array literals when they
+are newline-separated inside `@()`, so `\` became a flat string array. The loop
+`foreach (\ in \) { \.Replace(\[0], \[1]) }` then indexed
+*characters*, turning every replacement into a single-character substitution. ~800 files
+under `frontend/src`, `e2e/tests`, `docs`, `backend/src` and `tasks` were
+character-mangled in one pass.
+
+**Why it was recoverable.** Tracked files came back with `git reset --hard`. The
+uncommitted Phase 1 work survived only because an earlier `git stash push -u` /
+`git stash pop` had left unreachable commits in the object store
+(`git fsck --unreachable`): `8ac3eb7` (tracked mods) and `26c0142` (untracked files).
+Two edits made *after* that stash had to be re-applied by hand, and `tasks/todo.md`
+content was lost.
+
+**Rules going forward.**
+1. Commit (or `git stash create`) before any scripted bulk rewrite. Uncommitted work is
+   the only thing git cannot give back.
+2. Dry-run first: print the planned per-file diff count and rewrite **zero** files until
+   the map is verified on one sample file.
+3. Validate the map's shape before use - assert every entry is a 2-element array and that
+   both elements are non-empty multi-character strings.
+4. Prefer `git ls-files` to scope a rewrite to tracked files only.
+5. PowerShell hashtable keys are case-insensitive; a case-sensitive rename map must be an
+   array of pairs, and building it needs an explicit comma between elements.
+
+## Mobile-only design work (Phase 2)
+
+- **Shared CSS classes are the cheapest lever.** Seven consumer overlays all use
+  `.pn-modal-backdrop` / `.pn-modal`. One media query turned every one of them into a
+  bottom sheet with zero markup edits. Look for the shared class before editing components.
+
+- **A new floating control can physically block an existing one.** The filters pill and the
+  Nestor FAB both anchored bottom-right; Playwright caught `.pn-assistant-slot subtree
+  intercepts pointer events`. Any new `position: fixed` element must be checked against the
+  bottom-chrome inventory (bottom nav, FAB, cookie bar, CityChrome, sticky CTA), not just
+  against z-index.
+
+- **Two controls for one action = a strict-mode failure waiting to happen.** The in-bar
+  Filters button and the new pill were both `lg:hidden`, so both rendered below 1024px with
+  the same accessible name. The fix was deleting the redundant one, not renaming it — if a
+  locator can't tell two controls apart, neither can a user.
+
+- **Measure animated elements after the animation settles.** `getBoundingClientRect()` right
+  after `appendChild` catches a sheet at `translateY(100%)`. Await
+  `el.getAnimations({ subtree: true })` `.finished` first.
+
+- **Sub-pixel is not a bug.** A "bar overlaps footer" assertion failed at **-0.140625px**.
+  Assert `> -1`, and say why in a comment, rather than chasing fractional layout rounding.
+
+- **`position: sticky` beats `fixed` for in-flow action rows.** The wizard's step actions stay
+  in flow, so they reserve their own space and can never cover the last field — no per-step
+  `padding-bottom` bookkeeping.
+
+- **`title=` is not a label on touch.** `CompareToggleBar` had four icon-only controls whose
+  only name was a `title` attribute — completely invisible on a phone. Grep for `title=` on
+  icon-only buttons during any mobile pass.
+
+- **Enhancements should fail closed.** `srcSetFor()` returns `undefined` unless it can prove
+  the URL is resizable, so a bad URL yields a plain `src` rather than a broken image.
+
+## Mobile-only work — Phase 3
+
+- **An inline `style` beats a responsive Tailwind class.** Writing a FAB offset as
+  `style={{ bottom: 'calc(...)' }}` alongside `lg:bottom-24` silently changes desktop,
+  because the inline style wins at every width. Use an arbitrary-value class instead.
+- **Check whether a rule already exists before adding it in a media query.** `.lp-meter`
+  was already `position: sticky` unconditionally; re-declaring it inside the mobile block
+  hid that fact and made a desktop guardrail look like a regression. Grep the base rule first.
+- **Some properties cannot prove a non-leak.** Chrome computes
+  `-webkit-tap-highlight-color` as `rgba(0, 0, 0, 0)` by default on a pointer device, so a
+  desktop assertion on it is meaningless. When a property has the same value by default,
+  the media-query bound is the guarantee — say so in a comment instead of writing a
+  test that always passes for the wrong reason.
+- **`window.scrollTo(x, y)` then reading `scrollY` returns 0** when the app sets
+  `scroll-behavior: smooth`. Use `scrollTo({ top, behavior: 'instant' })` in specs.
+- **`waitForLoadState('networkidle')` is not enough for a `lazy()` route.** It can fire
+  before the chunk mounts; a probe measured an empty document and looked like a bug.
+  Wait for a real element (`getByRole('heading')`).
+- **Measure a detached probe element bare, not inside its hidden parent.** Appending a
+  `.pn-dropdown__option` inside a `.pn-dropdown__menu` measures zero because the menu is
+  hidden until opened.
+- **Take pointer capture on the first qualifying move, never on pointerdown.** Capturing
+  eagerly retargets the following `click` to the capturing element and breaks every button
+  inside the panel.
+- **`git stash -u` + re-run is the only trustworthy way to separate new failures from a
+  noisy baseline.** The desktop suite went 58 -> 66 failures; stashing proved all 11
+  suspect failures were pre-existing rather than guessing from cluster names.
+
+## Phase 4 lessons
+
+- **An inline `style` silently defeats a token system.** `BottomNav` set `height` from a JS
+  constant, so the bar's height was only *apparently* owned by `--pn-bottom-nav-h`. Any
+  media query that changed the token would have desynced the bar from its own slots. Before
+  trusting a CSS variable, grep for an inline style on the element that consumes it.
+
+- **`min-width` breakpoints cannot tell a landscape phone from a tablet.** A rotated handset
+  is ~915px wide, so `min-width: 768px` served it the desktop navbar on a 412px-tall screen.
+  When a rule is really about *available height*, key it off height/orientation, not width.
+
+- **A px font-size is not "safe" from dynamic type — it is the accessibility failure.**
+  `text-[10px]` never overflows at 200% because it never scales. Passing an overflow test
+  for that reason is a false negative. Convert to `rem` and add an overflow guard.
+
+- **`leading-none` clips glyph extents.** line-height 1 is shorter than ascent+descent, so
+  `scrollHeight > clientHeight`. Harmless at 10px, visible once the text scales.
+
+- **Specificity ties are decided by which Tailwind variant is live, not by source order
+  alone.** A one-class rule beat `h-16` at 640px but lost to `md:h-[72px]` at 915px. When
+  overriding a responsive utility, go two classes deep rather than reaching for `!important`.
+
+- **Measure the fix at the viewport that must NOT change, not just the one that must.** The
+  landscape guard only earns trust because 1024×768 landscape-tablet and 1440×460
+  short-desktop are asserted to stay at 72px — those prove the height and width guards
+  independently.
+
+- **When a constraint is physically unsatisfiable, say so.** The raised centre slot cannot
+  fit a 56px circle plus a 24px label in a 56px bar. Scoping the assertion and documenting
+  the exemption is honest; loosening it silently, or redesigning the slot without asking,
+  is not.
+
+## PWA lessons
+
+- **Set the data-caching boundary before the data exists.** Writing `/api/* → NetworkOnly`
+  while the app is still on mock data costs nothing and is fully testable; bolting it on
+  after a live backend means experimenting on real listings, where a stale "available" flat
+  is a trust failure.
+
+- **A regex `urlPattern` fails open.** `/^\/api\//` is tested against the *whole* URL, so it
+  never matches `http://host/api/...` — the rule silently does nothing. Match on
+  `url.pathname` via a function, and assert the exclusion with a test that walks Cache
+  Storage rather than trusting the config.
+
+- **Precache the initial load graph, not the build output.** `dist` was 7 MB / 200 files;
+  precaching it all would mean a 7 MB download before first paint.
+
+- **An offline PWA fails to a blank white screen, which is worse than the browser's offline
+  page.** `navigateFallback` serves `index.html` happily, then the lazy route chunk 404s and
+  React never mounts. Always test "load once → go offline → reload", and read the
+  `requestfailed` log instead of guessing which chunk is missing.
+
+- **A service worker in dev would poison an entire e2e suite.** Keep `devOptions.enabled:
+  false` and add a test asserting zero registrations in dev, so turning it on cannot happen
+  quietly.
+
+- **Scattered failures across unrelated specs + a 6× slower run = machine contention, not a
+  regression.** Three orphaned Vite dev servers with `usePolling` turned 0 failures into 16.
+  Check `Get-Process node` and listening ports before debugging the code.
+
+## Bundle / chunking lessons
+
+1. **An unassigned module in `manualChunks` is not "left in the entry" — it gets folded into
+   whichever chunk happens to reference it.** If that chunk is a lazy vendor bundle, the entry
+   now statically imports the *entire* bundle. One 3 KB shared module (`react/jsx-runtime`)
+   pulled 189 KB of charting code in front of first paint.
+2. **`if (!id.includes('node_modules')) return;` silently drops Vite's virtual modules.**
+   `vite/preload-helper` has no `node_modules` in its id, so it fell through to "unassigned"
+   and landed in vendor-jspdf — 382 KB eager, for a helper used by every dynamic import.
+3. **A `vendor-react` rule that matches `react-dom` does not match `react`.** Substring rules
+   read as if they cover the family; they don't. Match the path segment (`node_modules/react/`)
+   and order the rules so the more specific package (`react-chartjs-2`) is claimed first.
+4. **Grep finds import statements; only the bundler knows the graph.** The initial hypothesis
+   ("fix the 5 jsPDF importers") was wrong twice over: 4 of the 5 were already lazy, and fixing
+   the 5th did not remove the preload at all. Rollup's `getModuleInfo().importedIds` /
+   `dynamicallyImportedIds` gave the answer in one run.
+5. **Verify the artifact, not the source.** After the source graph reported "dynamic only",
+   `dist/index.html` *still* preloaded both chunks. Source-level correctness and bundle-level
+   correctness are different claims and need separate evidence.
+6. **`manualChunks` is build-only, so no dev-server test can catch this.** The whole class of
+   bug is invisible to the Playwright suites. Assert on `dist/index.html` after a build.
+7. **Prove "pre-existing" instead of asserting it.** `git stash push -- <only the changed files>`
+   gives a clean before/after on the exact suspect file without disturbing ~237 other
+   working-tree entries, and `stash pop` restores it.
+8. **Cold dev servers manufacture flakiness.** Right after killing stray servers, the mobile run
+   showed 8 flaky (all bottom-nav/inset); the same specs on a warm server were 25/25 clean.
+   Re-run before believing a flake cluster.
+
+## Dev-server "first click hangs" — diagnosis (not a PWA bug)
+
+Reported symptom: clicking a page link the first time takes ~1-2s and feels hung; instant after.
+
+Measured, cold browser cache (fresh context per route), first in-app click:
+
+| Route | Dev server | Production build |
+|---|---|---|
+| EMI calculator | 1488-1780 ms | **164 ms** |
+| Flatmates | 1081-1258 ms | **155 ms** |
+| Services | 1309-1681 ms | **109 ms** |
+
+- Service worker in dev: `{ regs: 0, controlled: false, caches: [] }` — `devOptions.enabled: false`
+  means no SW exists there, so **vite-plugin-pwa cannot be the cause**. In production the SW makes
+  repeat loads faster, never slower.
+- Only 3-7 requests / ~14-32 KB per first click, so it is not download size — it is Vite
+  transforming the route module on demand. The result is cached, hence "fast from the second time".
+- Dev-server idle CPU measured at 0 over a 5s window, so `watch.usePolling` is not a factor.
+
+**`server.warmup` was tried and REVERTED — it did not help.** A/B with identical restarts:
+control 1488/1081/1681 ms vs warmup 2235/2221/1021 ms. Warmup competes for CPU at startup and
+the first click still pays for the rest of the route graph. Reverted rather than shipping config
+that looks like a fix but measurably is not.
+
+## i18n renames are silent failures
+- The Share-a-Flat -> Flatmates rename moved  + "ShareFlatSection.jsx" +  ->  + "FlatmatesSection.jsx" +  and its
+   + " ('home.shareFlat.*')" +  calls ->  + " ('home.flatmates.*')" + , but left the  + "shareFlat" +  block in
+   + "i18n/locales/*/home.json" +  untouched. i18next renders a missing key as the key itself, so
+  the home page shipped  + "home.flatmates.headingLead" +  as visible copy. No test, lint rule or
+  build step failed.
+- Lesson: a rename is not done until the locale JSON moves with it, in every language.
+- Guard added:  + "rontend/scripts/check-i18n-keys.cjs" +  ( + "
+pm run check:i18n" + ) resolves every static
+   + " ('a.b.c')" +  against the merged English bundle. Proven to catch this exact regression (13
+  keys) by temporarily renaming the block back. The trailing  + "[,)]" +  in the regex is what
+  separates a complete key argument from the literal half of  + " ('a.b.' + kind)" + .
+- Interpolated keys are invisible to static analysis, so a runtime guard was added too:
+   + "mobile-home-featured-first.spec.js" +  walks Home's text nodes and fails on anything shaped
+  like a dotted key.
+
+## Docs/OpenAPI re-sync after a large feature redesign
+
+- **The git history was one squashed commit, so there was no diff to work from.** When "what
+  changed?" is unanswerable from VCS, the only reliable method is to re-derive the docs FROM the
+  current source. Do not trust a doc's own "Status: documented from React source" line - the
+  flatmates doc claimed it while describing a tab model that had been deleted.
+- **Fan out the audit, serialise the edits.** Three read-only subagents (design-system, OpenAPI,
+  other flow docs) produced evidence-backed drift lists with file+line citations in one pass; writing
+  the edits afterwards was then mechanical. Asking a subagent to *edit* would have raced on shared
+  files.
+- **A rename is a doc-wide event, not a doc-local one.** `Flatmates/Rooms/Groups -> move-in/team-up`
+  leaked into saved-alerts (alert `tab` values), ops (a new queue), admin (a whole missing doc),
+  search-listings (a removed cross-sell pill), property-detail (a deep link), rent-agreement (a
+  reissue entry) and the coverage matrix counts. Grep the old vocabulary across `docs/**` before
+  declaring a rename documented.
+- **Document the inert wiring honestly.** `?flat=&reissue=1` is produced by Flatmates and never read
+  by `useRentAgreement.js`. Writing "this exists" without "and it currently does nothing" would have
+  buried a real bug in a doc that reads as a spec.
+- **YAML flow scalars break on `: ` (colon-space), not on semicolons.** A description like
+  ``An open-policy group (`policy: any`) auto-accepts`` is a parse error; the same sentence with a
+  semicolon is fine. Either quote the whole scalar or reword to `policy` = `any`.
+- **Validate the spec after every batch, not at the end.** A ~30-line PyYAML script that reports
+  paths / schemas / refs / unresolved / unused / boolean-enums / duplicate operationIds catches the
+  YAML-1.1 traps and orphaned schemas in seconds. Expect unresolved == 0 and unused == 0.
+- **A relative-link check over `docs/**` is worth running even when you did not touch links** - it
+  surfaced 25 dead links left by earlier sessions that deleted `app-architecture.md`,
+  `domain-model.md`, `api-contract.md` and `flows/_TEMPLATE.md` without repointing their referrers.
+- **Docs-only changes have no Playwright story.** Say so explicitly instead of skipping the
+  verification step silently - "no source changed, so the applicable checks are the spec parse and
+  the link check" is a verification result, not an omission.
+

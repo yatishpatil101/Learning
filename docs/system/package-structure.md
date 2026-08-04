@@ -59,18 +59,69 @@ package except the shared kernel it *depends on*.
 
 ```
 feature context ──▶ security ──▶ common       feature context ──▶ provider ──▶ common
-        └─────────────────────▶ common                    (features never import each other)
+        └─────────────────────▶ common
 ```
 
 - **Shared kernel** (`common.*`, `security.*`, `provider.*`) may **never** import a feature package.
-- A **feature context may import** the shared kernel, but **not another feature context** — the one
-  intentional exception today is documented in §5 (`security.JwtService` reads `identity.user.User`).
-- Cross-context needs (notifications, audit, analytics) go through **events/ids**, not direct calls or
-  shared tables — the seam that lets a context split out later (architecture-review §"Context map").
+- A **feature context may import** the shared kernel, and may import a context **below it in the
+  layering order** — never one above, so the graph stays acyclic.
 
-**Enforcement:** convention + code review **now**; a single **ArchUnit** boundary test is *specified
-here but deferred* (see §4). We deliberately reject Spring Modulith / JPMS `module-info` as too heavy
-for a one-slice codebase (`ponytail`): the guardrail's weight must be earned by a second context.
+**Context layering order** (low → high; an import may only point downward):
+
+| Layer | Context | May import |
+|---|---|---|
+| 0 | `content`, `identity` | shared kernel only |
+| 1 | `catalog` | layer 0 |
+| 2 | `documents`, `leads`, `engagement`, `billing` | layers 0–1 |
+| 3 | `finance`, `services` | layers 0–2 |
+| 4 | `deals` | layers 0–3 |
+| 5 | `moderation` | layers 0–4 |
+
+Contexts sharing a rank never import one another; only the strict ordering is enforced.
+
+`billing` sits at 2 and `finance` at 3 because the payment callback `finance` already owns is what
+activates a paid subscription or boost — so the arrow is `finance → billing`. Ranking `billing`
+higher would make that legitimate call a violation and invite someone to "fix" it by having
+`billing` reach back into `finance`.
+
+`moderation` sits at the top because it is the one context that legitimately reaches into
+everything: taking content down means touching `catalog`, `identity` and `engagement` at once.
+
+`finance` sits **below** `deals`, which reads backwards at first glance — closing a deal is what
+creates a tenancy, so the arrow looks like it should point the other way. It does not, because
+`finance` never needs to know a deal exists: a tenancy is a lease, and a ledger row is a rupee
+against a property. `DealService.close` calls `TenancyService.openFromClosedDeal`, and that is the
+only edge. Ranking `finance` lower keeps the ledger extractable and stops the reverse import from
+ever being added.
+
+**Why this replaced "features never import each other."** That rule was aspirational and was already
+false the day it was written. `identity.user.User` *is* "who" and `catalog.property.Property` *is*
+"which listing"; every transaction context needs both to say anything at all. Six such edges exist
+today (`catalog→identity`, `leads→{catalog,identity}`, `finance→{leads,catalog,identity}`,
+`deals→{finance,leads,catalog,identity}`), so
+enforcing the original rule would have required an allowlist naming essentially every pair — a
+guardrail that permits everything and therefore guards nothing.
+
+What actually matters is that the graph never grows a **cycle**: the moment `identity` imports
+`deals`, the contexts have fused and none of them can ever be extracted. The layered rule forbids
+exactly that and permits the rest, so it is both true today and worth failing a build over.
+
+Direct cross-context **repository** access (rather than going through the owning service) is
+permitted downward and is used deliberately: `leads` and `deals` read `PropertyRepository` and
+`UserRepository` to resolve a listing or a participant. These are read-only lookups of another
+context's identity, not invocations of its behaviour — routing them through a service would add a
+pass-through method per call and no invariant. **Writes to another context's tables remain
+forbidden**; a cross-context write goes through that context's service (e.g. finalization-accept
+calls `DealService.closeForFinalization`, it does not write `deals` rows itself).
+
+Cross-context needs that are genuinely *behavioural* and point **upward** (notifications, audit,
+analytics) go through **events/ids** or a `common.*` port — never a direct call. That is the seam
+that lets a context split out later (architecture-review §"Context map"), and it is why slice 3's
+contact gate lives in `common.trust.ContactGate` rather than in `leads`.
+
+**Enforcement:** `ArchitectureBoundaryTest` (ArchUnit) fails the build on an upward or cyclic
+context import, and on any shared-kernel → feature import. We still reject Spring Modulith / JPMS
+`module-info` as too heavy (`ponytail`): one test class, no runtime cost, no build plugin.
 
 ---
 
@@ -110,8 +161,8 @@ layout is aligned *now* so that move is later just a schema-qualifier change, no
 | Service | `<Aggregate>Service`; owns `@Transactional` + business logic; small & single-responsibility |
 | Repository | `<Entity>Repository extends JpaRepository`; soft-delete-aware finders (`…AndArchivedFalse`) |
 | Entity | domain noun (`User`, `OtpCode`); extends `common.persistence` base; never serialized |
-| DTO | Java `record`; **request** = `<Verb>Request`/`<Noun>Update`, **response** = `<Noun>Response` with a `from(entity)` factory |
-| Mapper | inline `from(...)` on the response record (no separate mapper class until a mapping earns one) |
+| DTO | Java `record`; **request** = `<Verb>Request`/`<Noun>Update`, **response** = `<Noun>Response` — a plain record, no `from(entity)` factory (see Mapper) |
+| Mapper | a dedicated `<Aggregate>Mapper` per **api-standards.md §8.1** — MapStruct by default, hand-written only where the whole projection is trust-shaping. Superseded the original inline `from(entity)` style once masking rules appeared: a factory *on the response record* has no access to the viewer, so it cannot decide what to reveal, and every callsite silently got the same answer. |
 | Exception | reuse `common.error.*`; add a feature exception only for genuinely feature-specific cases |
 | Config | cross-cutting → `common.config`; a feature's own beans live in that feature package |
 | Tests | mirror the main package exactly under `src/test/java/...` |

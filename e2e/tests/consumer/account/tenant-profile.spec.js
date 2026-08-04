@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const TENANT = { name: 'Test User', mobile: '9700055010', email: '', role: 'buyer', joinedAt: Date.now() };
+const TENANT = { name: 'Yatish', mobile: '9700055010', email: '', role: 'buyer', joinedAt: Date.now() };
 
 async function login(page, user) {
   await page.addInitScript((u) => {
@@ -74,11 +74,11 @@ test.describe('Tenant profile', () => {
     // Seed a verified profile whose KYC was done against a DIFFERENT mobile than
     // the current account number — i.e. the user later changed their number.
     await page.addInitScript(() => {
-      const u = { name: 'Test User', mobile: '9700055010', role: 'buyer', joinedAt: Date.now() };
+      const u = { name: 'Yatish', mobile: '9700055010', role: 'buyer', joinedAt: Date.now() };
       localStorage.setItem('puneNestUser', JSON.stringify(u));
       localStorage.setItem('puneNestUsers', JSON.stringify([u]));
       localStorage.setItem('pnTenantProfile:9700055010', JSON.stringify({
-        name: 'Test User', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '',
+        name: 'Yatish', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '',
         idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked: '+91 98\u2022\u2022\u2022 \u2022\u2022\u202288', verifiedAt: Date.now() },
       }));
     });
@@ -93,7 +93,7 @@ test.describe('Tenant profile', () => {
   test('saving shows the next-step CTAs', async ({ page }) => {
     await login(page, TENANT);
     await page.goto(`${BASE}/tenant-profile`, { waitUntil: 'networkidle' });
-    await page.locator('#tp-name').fill('Test Kumar');
+    await page.locator('#tp-name').fill('Yatish Kumar');
     await page.getByRole('button', { name: /save profile/i }).click();
     await expect(page.getByRole('button', { name: /browse rentals/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /back to dashboard/i })).toBeVisible();

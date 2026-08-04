@@ -44,14 +44,14 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 1).
 
 ## 4. Entities touched
-- [`users`](../../system/domain-model.md) - the session user object
+- [`users`](../../system/data-model.md) - the session user object
   (`{ name, mobile, role, loginAt }`) written to storage; on sign-up also appended to the local
   account registry (`puneNestUsers`).
-- [`aadhaar_verifications`](../../system/domain-model.md) - not written here. The DigiLocker Verified
+- [`aadhaar_verifications`](../../system/data-model.md) - not written here. The DigiLocker Verified
   badge (L2) is an **opt-in trust signal** that layers on top of auth — it is **not** a gate for
   posting or contacting (mobile-OTP sign-in / L1 is the only floor; see
   [contact-gate-leads.md](./contact-gate-leads.md) and ADR-019).
-- [`referrals`](../../system/domain-model.md) - a `?ref=` code present at sign-up is stored via
+- [`referrals`](../../system/data-model.md) - a `?ref=` code present at sign-up is stored via
   `setReferredBy(ref)`.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -160,7 +160,7 @@ logout <---------------------------------------------------------------+
   `src/components/auth/useOtpFlow.js`, `src/lib/authIntent.js` (`resolveAuthIntent`, `postAuthDest`).
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md) (section 1, Auth):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml) (tag: Auth):
 - `POST /auth/login` - OTP-verified mobile login -> `{ token, user }`. Replaces `loginUser` +
   the fake verify. Request should carry `{ mobile, otp, remember }`.
 - `POST /auth/staff-login` - back-office door (separate).

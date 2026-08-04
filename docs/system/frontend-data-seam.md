@@ -125,8 +125,8 @@ Not covered: `myListings`, `archiveListing` and `restoreListing` are checked for
 driven, because they need a real session and would write to the dev DB.
 
 ```powershell
-npm run parity:property                                  # defaults to http://localhost:8080
-node scripts/property-parity.mjs --base http://localhost:8081
+npm run parity:property                                      # defaults to http://localhost:8080/api
+node scripts/property-parity.mjs --base http://localhost:8081/api
 ```
 
 **Point it at the backend you actually changed.** A server running older code fails these assertions
@@ -188,6 +188,31 @@ name → containment for sub-areas like "Hinjawadi Phase 1" → nearest curated 
 It mirrors the client's `resolveLocalitySlug` with one deliberate difference: the server returns
 `null` rather than coining `slugify(name)`, because the column is FK-constrained and coining would
 mean polluting the curated locality table (and the sitemap) with owner typos.
+
+## Backend changes the http providers must account for (API polish pass)
+
+The backend was reviewed and hardened before integration began. Five changes alter what a client
+sees, so they are recorded here rather than only in the contract.
+
+| Change | What breaks without it |
+|---|---|
+| **`/api` is now a real prefix** (`server.servlet.context-path`) and the Vite proxy no longer rewrites it | Nothing, in dev — which was the problem. The backend used to serve `/auth/login` while every layer claimed `/api/auth/login`, and it only worked because the proxy stripped the prefix. Pointing `VITE_API_BASE` at a deployed host would have 404'd every request. Health and Swagger move too: `/api/actuator/health`, `/api/docs` |
+| **Four reads are now paged**: `GET /me/saved`, `GET /messages`, `GET /admin/flatmate-reviews`, `GET /admin/group-applications` | A provider reading `response.length` or iterating the body gets the envelope, not the rows. Unwrap `content`, and read `totalElements` for counts — `$.length()` on an envelope returns the *field count* (6), which is the confusing failure these produced in the backend's own tests |
+| **Three endpoints added**: `PATCH /me/saved-searches/{id}`, `GET /me/properties/{propId}/boost`, `GET /admin/reviews` | Each was a feature whose UI could write but never read. `toggleSearchAlert` in the mock provider now has a real counterpart; the boost UI can render its own state; the review moderation queue is reachable |
+| **`GET /properties/{id}/rooms` now exists** | It was declared in the contract and served by nothing — a generated client 404'd on a promise the document made |
+| **`furnishing` and `possession` now revert a listing to `pending`** | The client's `LISTING_FOUNDATION_FIELDS` list disagrees with the server in *both* directions and must be reconciled before the listing domain goes live — see below |
+
+### The foundation-field list is still wrong client-side
+
+`lib/store/listings.js` lists twelve fields; the server's rule is the **searchable** set:
+`price`, `bhk`, `propertyType`, `locality`, `deal`, `furnishing`, `possession`. The two disagree
+both ways — the client warns on `title`/`area`/`facing`/`floor`/`age` (which do *not* revert) and
+stays silent on `price` (which does). So the UI currently warns "this will send your listing back
+for review" on edits that don't, and says nothing about the edit that does.
+
+The server side is fixed and self-enforcing: `ListingFoundationTest` reads the facets off
+`PropertyController.search` by reflection, so a new search facet fails the build until somebody
+decides whether it is a foundation field. The client list still needs updating to match.
 
 ## Local run
 

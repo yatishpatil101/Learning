@@ -24,8 +24,15 @@
   `src/pages/consumer/property/`: `Gallery.jsx`, `PropertyHeader.jsx`, `PropertyTabs.jsx`,
   `PropertyModals.jsx`, `OwnerCard.jsx`, `ContactBox.jsx`, `ContactOwnerModal.jsx`,
   `SimilarProperties.jsx`, `PriceInsights.jsx`, `RentDetails.jsx`, `LocationInsights.jsx`,
-  `VerificationSection.jsx`, `ReviewsSection.jsx`, `ScheduleVisitModal.jsx`, `ReportModal.jsx`,
+  `locationIntel.js`, `VerificationSection.jsx`, `DocumentsSection.jsx`, `FloorPlan.jsx`,
+  `SocietySection.jsx`, `ReviewsSection.jsx` (+ `ReviewModal.jsx`, `StarInput.jsx`, `Stars.jsx`,
+  `reviews.js`), `CompareToggleBar.jsx`, `ScheduleVisitModal.jsx`,
+  `ReportModal.jsx` (a thin property adapter over the shared `src/components/ReportModal.jsx`),
   `DealPanel.jsx`, `derivations.js`.
+- **Mobile chrome:** below `lg` the page carries a fixed bottom action bar (`pn-sticky-cta`) holding
+  the primary conversion actions, and the tab rail docks under the nav
+  (`pn-docks-under-nav`, `top: var(--pn-nav-h)`). Actions the sticky bar already exposes are hidden
+  from the in-page header on mobile rather than duplicated.
 
 ## 3. Actors & roles
 - **Public:** anyone can open an `approved` listing.
@@ -38,10 +45,10 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) (section 3).
 
 ## 4. Entities touched
-- [`properties`](../../system/domain-model.md) - read (single row by id).
-- [`contact_requests`](../../system/domain-model.md) - read (`contactStatus`) to decide reveal;
+- [`properties`](../../system/data-model.md) - read (single row by id).
+- [`contact_requests`](../../system/data-model.md) - read (`contactStatus`) to decide reveal;
   created from here via the gate (details in [contact-gate-leads.md](./contact-gate-leads.md)).
-- [`saved_properties`](../../system/domain-model.md) - toggled (`isSavedProp`).
+- [`saved_properties`](../../system/data-model.md) - toggled (`isSavedProp`).
 - Recently viewed (`pushRecentProp`) and a view log (`logPropertyView`) are written on open.
 - Photo requests (`requestMorePhotos`), reviews, reports, visit requests are created from
   sub-sections/modals.
@@ -98,6 +105,16 @@
   `ContactOwnerModal` (enquiry). `contactApproved` (approved/owner) swaps the sticky mobile CTA to a
   chat/WhatsApp action. Full rules: [contact-gate-leads.md](./contact-gate-leads.md).
 
+### Flat-share teaser (`PropertyHeader.jsx`)
+Any **residential rent** listing with `bhkNum >= 2` and a positive price shows a "sharing this flat"
+card: three per-head price tiles (alone / 2 sharing / 3 sharing, computed as `price / n`), plus a
+**Find flatmates** CTA that deep-links to
+`/flatmates?startGroup=1&title=<title>&rent=<price>&loc=<locality>` - it pre-seeds a *Team up* group
+from this exact flat rather than dropping the user on a blank Flatmates page. The gate is
+deliberately by shape, not by a hardcoded type list (flats, apartments, row houses, penthouses and
+villas all qualify); a studio or 1 BHK is not practical to split, so 2+ BHK is the floor. See
+[`flatmates.md`](./flatmates.md).
+
 ### Similar / related properties (`SimilarProperties.jsx`)
 - Same deal only; up to `LIMIT = 3`, tiered:
   1. **Ideal:** within `RADIUS_KM = 6` km AND BHK within `BHK_TOL = 1` AND price in
@@ -152,7 +169,7 @@ loading (p === undefined)
   `SimilarProperties.jsx`, `property/derivations.js`.
 
 ## 10. Target API endpoints
-Map to [`../../system/api-contract.md`](../../system/api-contract.md):
+Map to the [OpenAPI spec](../../../backend/src/main/resources/static/openapi/punenest-api.yaml):
 - `GET /properties/:id` -> full listing (section 2). Must return only `approved` to public callers;
   owner/admin get their own/any via authenticated `/me/listings/:id` or role-scoped access.
 - `GET /contacts/status?ownerMobile=&propertyId=` -> current reveal status (section 7).

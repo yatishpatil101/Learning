@@ -2,16 +2,20 @@
 
 ## Control Sizing Scale
 
-All interactive controls share a **single height: 40px** for visual rhythm and consistency.
+All interactive controls share **one height token, `--control-h`** — 40px on desktop and **44px
+below 640px**. The mobile value is not decoration: 40px fails the WCAG 2.5.8 / platform 44px touch
+floor, and ramping the variable fixes every dropdown trigger, dropdown option and shared field height
+at once instead of per component. Quote sizes as **tokens**, never as literals.
 
 ### CSS Tokens (defined in `:root` of `src/styles/index.css`)
 
 ```css
---control-h: 40px;              /* Universal control height */
+--control-h: 40px;              /* Universal control height (44px below 640px) */
 --control-font: 0.875rem;       /* 14px (text-sm) */
 --control-weight: 400;          /* Regular for inputs/dropdowns */
 --control-weight-action: 600;   /* Semibold for action buttons */
---control-radius: 9999px;       /* Fully rounded (pill shape) */
+--control-radius: 10px;         /* Rounded square — the default for controls */
+--control-radius-pill: 9999px;  /* Pill — hero search tabs, locality chips, BHK pills only */
 --control-px: 1rem;             /* 16px horizontal padding */
 --control-border: 1px solid rgba(255, 255, 255, 0.1);
 --control-bg: rgba(255, 255, 255, 0.05);
@@ -20,54 +24,70 @@ All interactive controls share a **single height: 40px** for visual rhythm and c
 --control-border-active: #14b8a6;
 --control-text: #e5e7eb;        /* Selected value text */
 --control-placeholder: #9ca3af; /* Placeholder text */
+
+/* Buttons — three tiers, three sizes */
+--btn-h: 40px;                  /* default (44px below 640px) */
+--btn-h-sm: 32px;               /* .btn-sm (36px below 640px) */
+--btn-h-lg: 48px;               /* .btn-lg */
+--btn-radius, --btn-primary-grad, --btn-primary-shadow;
 ```
 
 ### Element Heights
 
+Everything below derives from `--control-h` / `--btn-h`, so all of them are 40px on desktop and
+44px below 640px unless stated otherwise.
+
 | Element | Height | Class/Token | Example |
 |---------|--------|-------------|---------|
-| Dropdown trigger | 40px | `.pn-dropdown__trigger` | "Any locality" pill |
-| Dropdown option | 40px | `.pn-dropdown__option` | Menu item row |
-| Filter pill | 40px | `.seg` or `.pn-control` | "Everyone", "Women", "Verified only" |
-| Search input | 40px | `py-[9px]` in `rounded-full` | Smart search bar |
-| CTA button | 40px | `.pn-control--action` or `h-10` | "List your room", "Create group" |
-| Ghost button | 40px | `.pn-control--ghost` | "Reset" button |
-| Navbar pills | 40px | `px-5 py-2.5 rounded-full` | "Post Property", "Sign In" |
-| Range slider wrap | 40px | `h-10 flex items-center` | Budget slider in pill |
+| Dropdown trigger | `--control-h` | `.pn-dropdown__trigger` | "Any locality" pill |
+| Dropdown option | `--control-h` | `.pn-dropdown__option` | Menu item row |
+| Filter pill | `--control-h` | `.seg` or `.pn-control` | "Everyone", "Women", "Verified only" |
+| Text / search input | `--control-h` | `.pn-input`, `input.form-input` | Smart search bar |
+| Button (default) | `--btn-h` | `.btn` / `<Button>` | "Post", "Save search" |
+| Button (small / large) | `--btn-h-sm` / `--btn-h-lg` | `.btn-sm` / `.btn-lg` | Inline action / hero CTA |
+| Navbar pills | `--pn-nav-pill-h` | `.pn-topbar__pill` + `.tap-extend` | "Post Property", "Sign In" |
+| Range slider | grows on touch | `.rng-wrap` / `.rng` | Budget slider (thumb 16px -> 28px) |
 
 ### Utility Classes
 
-```css
-.pn-control         — Base control (40px, pill, bg, border)
-.pn-control.active  — Active/selected state (teal bg + border)
-.pn-control--action — Primary CTA (teal gradient, semibold, white text)
-.pn-control--ghost  — Ghost/outline button (transparent bg, muted text)
-.seg                — Legacy alias (same height/border, add your own padding/text via Tailwind)
-.seg.active         — Legacy active state
 ```
+Buttons (canonical — use <Button/> from components/ui/Button.jsx)
+.btn                — base (height --btn-h, radius --btn-radius, semibold)
+.btn-primary        — tier 1, teal gradient. One per view.
+.btn-secondary      — tier 2, outline/ghost
+.btn-icon           — tier 3, square icon-only (width = height)
+.btn-sm / .btn-lg   — 32px / 48px (36px / 48px below 640px)
+.btn-success / .btn-danger — colour modifiers on primary
+.btn-teal / .btn-outline / .pn-btn* — legacy aliases, folded into the above
+
+Non-button controls
+.pn-control{,.active,--action,--ghost} — legacy control shell, still used in the dashboard
+.seg / .seg.active  — toggle/filter pill shell (height + border only)
+.pn-input           — single-line text input
+```
+
+The button system in `index.css` declares itself the single source of truth for buttons; `.pn-control*`
+is now the minority pattern and should not be used in new code.
 
 ### Usage in JSX
 
 ```jsx
-// Filter pill (toggleable)
-<button className="pn-control px-4 text-sm font-semibold">Everyone</button>
+// Primary CTA — use the component, not the classes
+<Button variant="primary" icon="plus" onClick={onPost}>Post</Button>
 
-// Active filter pill
-<button className="pn-control active px-4 text-sm font-semibold">Women</button>
+// Secondary
+<Button variant="secondary" icon="shield-check" onClick={openVerify}>Get verified</Button>
 
-// CTA button
-<button className="pn-control pn-control--action px-5 text-sm font-semibold gap-2">
-  <Icon name="plus" className="w-4 h-4" /> Create group
-</button>
+// Icon-only — `aria-label` is mandatory (see "Icon-only controls")
+<Button variant="icon" iconOnly icon="rotate-ccw" aria-label="Reset filters" />
 
-// Ghost button
-<button className="pn-control pn-control--ghost px-4 text-sm gap-1.5">
-  <Icon name="rotate-ccw" className="w-3.5 h-3.5" /> Reset
-</button>
+// Toggle/filter pill
+<button aria-pressed={on} className={'seg px-4 h-10 rounded-full text-sm font-semibold' + (on ? ' active' : '')}>Women</button>
 
 // Dropdown (automatic via NativeSelect/Select component)
 <NativeSelect className="...">...</NativeSelect>
-// Trigger automatically gets 40px from --dd-trigger-height: var(--control-h)
+// Trigger height comes from --dd-trigger-height: var(--control-h).
+// Below 640px Select/MultiSelect stop writing inline anchor geometry and render as bottom sheets.
 ```
 
 ### Typography in Controls
@@ -92,16 +112,305 @@ All interactive controls share a **single height: 40px** for visual rhythm and c
 
 | Element | Radius | Token |
 |---------|--------|-------|
-| Controls (pills, dropdowns, inputs) | `9999px` (fully rounded) | `--control-radius` |
-| Cards | `1rem` (16px) | `rounded-2xl` |
-| Dropdown menu | `1rem` | `--dd-menu-radius` |
-| Menu options | `0.6rem` | `--dd-option-radius` |
+| Controls (`.pn-control`, `.seg`, `.btn*`) | `10px` | `--control-radius` |
+| Text inputs (`.pn-input`) | `0.75rem` | — (literal) |
+| Dropdown trigger | `999px` (pill) | `--dd-trigger-radius` |
+| Pill-only exceptions (search tabs, locality chips, BHK pills) | `9999px` | `--control-radius-pill` |
+| Cards | `1rem` (16px) | `--radius` / `rounded-2xl` |
+| Dropdown menu | `1.1rem` | `--dd-menu-radius` |
+| Menu options | `0.8rem` | `--dd-option-radius` |
+| Bottom sheets (top corners) | `1.25rem` | — (literal) |
+| Badges | `6px` | — |
 
-### When NOT to use 40px
+### When NOT to use the default height
 
-- **Tab navigation** (Flatmates/Rooms/Groups): These are page-level navigation, not filters. They use `py-2.5 px-4 rounded-xl` (~40-42px) which is intentionally slightly different to distinguish from filter controls.
-- **Hero CTA** ("Post a request"): Uses `py-3 px-5 rounded-xl` (44px) — larger to draw attention.
-- **Modal buttons**: Follow standard button sizing in the modal footer.
+- **Category tabs** (Flatmates "Move in now" / "Team up"): built on `.seg` with `py-2.5 rounded-xl`
+  and `flex-1` below `sm`, so two tabs fill a 360px row. They carry a **rendered** count badge, not
+  just an `aria-label` — stock a seeker cannot see is stock they never switch tabs for.
+- **Prominent / hero CTAs:** use `size="lg"` (`--btn-h-lg`, 48px), never a hand-rolled `py-*`.
+- **Compact inline actions:** `.btn-sm` (`--btn-h-sm`).
+- Modal footers add `pb-[calc(0.75rem + var(--pn-safe-b))]` on mobile so the primary action clears
+  the home indicator.
+
+
+---
+
+## Mobile-first system
+
+The app is authored mobile-first. These are the rules the phone layout depends on; breaking one of
+them usually breaks a different component than the one you edited.
+
+### Which routes are mobile-supported
+
+"Mobile-first" is a claim about the consumer app, not about every screen in the codebase. Roughly
+80% of consumer traffic is phone-only, so **every `/` consumer route is mobile-supported without
+exception** and a phone regression there is a release blocker.
+
+The back office splits in two, and the split is a deliberate scope boundary rather than an
+oversight:
+
+**Field ops — mobile-supported.** These are used standing in a lobby, on a site visit, or between
+appointments, so they get the same touch-target floor, safe-area handling and content-budget checks
+as consumer routes:
+
+- `/ops` and every ops queue under it — `/ops/requests`, `/ops/flatmate-review`, `/ops/interior`,
+  `/ops/legal`, `/ops/packers`, `/ops/referrals`, `/ops/rent-agreement`, `/ops/valuation`
+- `/admin/properties` — listing verification, which is done with the property in front of you
+
+**Desk admin — desktop-only, and that is a decision.** `/admin/analytics`, `/admin/finance`,
+`/admin/reports`, `/admin/settings`, `/admin/users`, `/admin/team`, `/admin/staff-activity`,
+`/admin/content`, `/admin/localities`, `/admin/societies`, `/admin/enquiries`, `/admin/services`,
+`/admin/support`, `/admin/post-on-behalf`, `/admin/flatmates`. These are dense multi-column tables,
+cross-filtered charts and bulk editors that a staff member uses seated at a desk. They must stay
+*usable* on a phone — nothing may be unreachable or clipped off-screen — but they are not held to
+the mobile polish bar, and time spent hand-tuning a phone layout for `/admin/analytics` is time
+spent on nobody.
+
+Practical consequences:
+
+- Mobile e2e projects (`mobile`, `mobile-small`) cover consumer and field-ops routes. Adding a desk
+  admin route to a mobile sweep will surface real but deliberately-accepted findings.
+- The responsive dual-render pattern below is mandatory for field-ops tables and optional for desk
+  admin, where a horizontally scrollable table is an acceptable answer.
+- If a desk admin route starts being used in the field, move it into the list above *first* and then
+  fix it — the list is what makes the expectation reviewable.
+
+### Bottom chrome: `--pn-bottom-inset` and the z-index ladder
+Nothing bottom-anchored may hardcode a `bottom-*` value. `--pn-bottom-inset` reports how much of the
+viewport bottom is already claimed by fixed chrome; `ConsumerLayout` sets `.has-bottom-nav` on routes
+that mount the mobile tab bar, which expands the inset to
+`--pn-bottom-nav-h + --pn-bottom-nav-offset`. Above `lg` the variable collapses back to the
+safe-area inset alone, so every `calc()` built on it resolves to the literal offset it had before the
+system existed — desktop safety is structural, not a promise.
+
+`--pn-bottom-nav-offset` is `max(--pn-bottom-nav-gap, --pn-safe-b)`, **not** a sum. The capsule's
+float gap and the home-indicator inset are the same thing — breathing room at the bottom edge — so
+adding them double-counts. That shipped: in an installed iOS app `--pn-safe-b` is 34px, and
+`gap + safe-b` parked the bar 46px above the screen edge (5.5% of the viewport) while an in-browser
+visit showed the intended 12px, because in a browser tab the inset is 0. It is one token because the
+bar's own `bottom` and `--pn-bottom-inset` must agree; they were two hand-synced `calc()`s, which is
+precisely how they drifted apart.
+
+The ladder is written down once so bottom chrome never re-negotiates it:
+**content 0-49 · sticky page CTA 60 · mobile bottom nav 70 · autosave flash 90 · sheets 1000 ·
+assistant 1300 · install prompt 1350 · cookie consent 1400 · blocking modals 1500 · toasts 1600.**
+
+Toasts are the top of the *bottom-chrome* ladder on purpose, and they are the one rung there that is
+not bottom chrome. A toast is the receipt for an action the user just took — "Saved", "Request sent",
+"Couldn't copy link" — so it has to be legible above whatever surface triggered it, including a modal.
+Anything that outranked a toast would silently swallow the only confirmation the app gives. That is
+also why the container is `pointer-events: none` with the pills re-enabling it individually: sitting
+at 1600 means it covers real estate on every layer below, so it must not intercept a tap meant for
+them.
+
+The rung this replaced is worth recording. The autosave pill used to sit at an undocumented
+`z-index: 2000` — above blocking modals — so a transient "Draft saved" could paint over a dialog
+asking the user to confirm something irreversible. It is now 90, because it reports *state* rather
+than confirming an *action* and never needs to outrank a dialog. A property lightbox carried the same
+ad-hoc 2000 and has been moved onto the 1500 modal rung for the same reason.
+
+**Above the ladder there is a second, higher band that the ladder above does not describe**, and it
+is recorded here so nobody assumes 1600 is the ceiling:
+
+| Layer | Value | Why it is up there |
+| --- | --- | --- |
+| `.pn-lightbox`, `.pn-dropdown__scrim` | 9998 | Must cover page chrome including the sticky nav |
+| `.pn-dropdown__menu--sheet`, `.pn-action-sheet` | 9999 | Paired with the scrim directly beneath them |
+| `.pn-cal` (date picker) | 2000 | Anchored dropdown that has to clear the sheet it opens inside |
+| Skip-to-content link | 9999 | WCAG 2.4.1 — on focus it must beat everything |
+| Maintenance overlay | 99999 | Blocks the entire consumer app by design |
+
+The skip link and the maintenance overlay genuinely belong at the ceiling. The sheet/picker cluster
+is the **known inconsistency**: `.pn-action-sheet` at 9999 outranks the toast layer at 1600, so a
+confirmation fired from inside an action sheet paints behind it. Consolidating that cluster onto the
+1000 "sheets" rung is the next change here; it is called out rather than done silently because
+restacking live surfaces changes real tap and focus behaviour and needs its own measurement pass.
+
+Every `position: fixed` addition gets a rung — from this page, not invented — before it ships. A
+value picked to "just be on top" is how 2000 happened, twice.
+
+The autosave flash (`.pn-autosave-flash`) sits *just above* the tab bar rather than near the top:
+it reports state and never needs to outrank a dialog. It is also the one piece of bottom chrome
+appended to `<body>` rather than rendered inside the layout, so it cannot read the
+`--pn-bottom-inset` that `.has-bottom-nav` sets on ConsumerLayout's wrapper — it rebuilds the
+offset from `--pn-bottom-nav-h` + `--pn-bottom-nav-offset` inside the bar's own breakpoint
+instead. Anything else appended to `<body>` has the same blind spot.
+
+A new `position: fixed` element must be checked against the existing bottom-chrome inventory (bottom
+nav, assistant FAB, install prompt, cookie bar, CityChrome, sticky CTA), not just against z-index — two
+floating controls on the same corner intercept each other's taps.
+
+### Top chrome: `--pn-nav-h`, `--pn-top-inset`, hide-on-scroll
+`--pn-nav-h` is the only place the top bar's height is written down: the row, every page's top
+padding, sticky sub-headers and full-height routes all derive from it (58px on phones, 72px from
+768px up). `--pn-top-inset` is where a sticky sub-header docks; below `lg` the navbar slides away on
+scroll-down (`.pn-nav-hidden` on `<html>`) and the inset drops to 0 so the sub-header rises to the
+screen edge instead of leaving a hole. Opt a sub-header in with `.pn-docks-under-nav`. Every rule
+that reacts to the class lives inside a `max-width: 1023.98px` block, so the class is inert on
+desktop.
+
+### Bottom sheets are the mobile overlay shape
+Below 640px a centred dialog is the wrong shape: with the keyboard open the usable viewport is ~300px,
+so a form modal's submit button leaves the screen. Every centred overlay therefore docks to the bottom
+edge as a sheet — squared bottom corners, `1.25rem` top corners, `max-height` in `dvh`, a slide-in, a
+36x4px grab handle, and bottom padding that adds `--pn-safe-b`. Four shells implement it and must not
+diverge:
+
+- `.pn-modal` / `.pn-modal-backdrop` — all legacy consumer overlays, converted by **one media query
+  with zero markup edits**. Look for the shared class before editing a component.
+- `.pn-modal-sheet` — the shared `<Modal>`.
+- `.pn-dropdown__menu--sheet` + `.pn-dropdown__scrim` — `Select`/`MultiSelect` stop writing inline
+  anchor geometry below `sm`.
+- `.pn-action-sheet` — overflow menus.
+
+`useSwipeDismiss` adds drag-to-dismiss; it arms only on the mobile media query, only inside the top
+40px handle zone, and takes pointer capture on the first qualifying *move* — capturing on
+`pointerdown` retargets the following click and breaks every button in the panel.
+
+### Touch-target floor: `.tap-target` vs `.tap-extend`
+Two classes, one rule (WCAG 2.5.8 / 44px). `.tap-target` grows the box
+(`min-width`/`min-height: 44px`) and is for icon-only controls whose box is invisible chrome anyway.
+`.tap-extend` keeps the drawn size and lays a transparent 44px `::before` under the finger — use it
+wherever the *drawn* size is load-bearing (a close pill on a small bubble; the top-bar pills, which
+drop to `--pn-nav-pill-h` / `--pn-nav-icon-box` below `sm` so four painted 44px boxes don't overflow a
+360px bar). **Never pair the two on one element:** they set the same property and `.tap-target` is
+declared later, so pairing silently reinstates the 44px box. A 32px box plus the row's 12px gap puts
+adjacent centres exactly 44px apart — do not shrink the gap without shrinking the target.
+
+### Icon-only controls must carry a real accessible name
+`title=` is **not** a label on touch — it never surfaces on a phone, so an icon-only control named
+only by `title` is unnamed. Every icon-only button takes `aria-label`, and toggles take
+`aria-pressed`. Where a visible label is dropped for space (bottom-nav tabs in landscape), the
+`aria-label` is set unconditionally so hiding the text costs a screen reader nothing. Grep for
+`title=` on icon-only buttons during any mobile pass.
+
+### Hover is not an affordance
+Nothing may be reachable only via `:hover`; on a touch screen that state never fires and the content
+is simply invisible. Mark any hover-revealed layer `.reveal-on-hover` and it becomes permanently
+visible under `@media (hover: none)` — keyed on the *capability*, not the viewport, so touch laptops
+are covered and mouse desktops keep the animation. The same block removes the browser's blue tap
+flash and replaces it with an `:active` opacity dip: removing one without the other makes taps feel
+broken.
+
+### Sticky action rows (`position: sticky`, not `fixed`)
+In-flow action rows use `sticky`: the row keeps its place in the flow, so it reserves its own space
+and can never cover the last field — no per-step `padding-bottom` bookkeeping. Three consumers:
+`.lp-step-actions` (listing wizard, below `lg`, primary flexed 1.6x so the target is unambiguous
+under a thumb), `.pn-auth-submit` (sign-in/sign-up, where the keyboard would otherwise push the
+primary action below the fold), and `.pn-sticky-cta`, which is genuinely `fixed` and docks at
+`--pn-bottom-inset`.
+
+### Mobile bottom nav + the floating-glass material
+The primary wayfinding surface on phones is a floating capsule, not an edge-to-edge bar: an
+edge-to-edge bar reads as a wall, a detached capsule reads as a control sitting on the page. The
+material is one blur + one saturation boost + a light inset top edge, tinted with the app's own
+indigo/teal — `saturate()` is what stops the blur turning the brand teal into grey mud. Alphas are set
+by the worst case (near-white gallery imagery behind the bar), not the pretty one. Both users of the
+material (`.pn-bottom-nav`, `.filter-fab`) share the same `left` inset so they sit on one vertical
+edge, and both carry an opaque `@supports not (backdrop-filter)` fallback for Firefox Android and old
+WebViews. Height is owned by `--pn-bottom-nav-h` **only** — an inline `style` on the element would
+desync every widget that positions against `--pn-bottom-inset`.
+
+### Home-screen install nudge is two mechanisms, not one
+`InstallPrompt.jsx` promotes adding PuneNest to the home screen, and the platform split is real
+rather than an implementation detail worth hiding:
+
+- **Chromium** (Android Chrome, Samsung Internet, Edge) fires `beforeinstallprompt`. We
+  `preventDefault()` it — suppressing Chrome's own mini-infobar so the user gets one ask, not two —
+  stash the event, and call `prompt()` from the click. That opens the browser's native install
+  dialog. `prompt()` throws outside a user gesture, so a silent install on page load is impossible on
+  every platform, by design.
+- **iOS/WebKit** has no install API in any browser, including Chrome on iOS. The only honest option
+  is the Share → Add to Home Screen instruction, rendered **without** a button — a CTA there would be
+  a dead control.
+- Everything else (Firefox Android, desktop) never renders it. Mobile-only via `lg:hidden`, matching
+  the bottom nav's breakpoint.
+
+**The gate is engagement, not time.** The nudge appears after 3 page views, not after N seconds: a
+timer measures patience, whereas three pages in is someone who came here to look at homes. The count
+persists in `localStorage` (`pn_install_prompt_v1`), so it accumulates across visits.
+
+**Silence escalates and is terminal:** 1st dismissal → 1 week, 2nd → 2 weeks, 3rd → never again.
+Declining the browser's own dialog counts as a dismissal; treating it as neutral would re-ask someone
+who already said no. It is also suppressed while the cookie bar is up (that bar is legally required
+and owns the bottom of the screen), and never shown once `display-mode: standalone`,
+`navigator.standalone`, or an `appinstalled` event indicates the app is already installed.
+
+> The view counter is written through a ref guard. Under `StrictMode` effects are double-invoked
+> deliberately, and a bare `views + 1` counted every page twice — the gate opened at half the intended
+> engagement in dev. Any future per-navigation counter has the same trap.
+
+### Landscape phones are a height budget, not a width one
+A rotated handset is ~915x412, so a `min-width: 768px` breakpoint cannot tell it from a tablet and was
+serving it desktop chrome on a 412px-tall screen. When a rule is really about available *height*, key
+it off height and orientation. The landscape block is guarded three ways — `orientation: landscape`
+**and** `max-height: 500px` **and** `max-width: 1023.98px` — so a 1440x900 desktop and a 1024x768
+landscape tablet both fail it structurally. Inside it `--pn-nav-h` drops to 47px,
+`--pn-bottom-nav-h` to 44px, and tab labels are hidden (the `aria-label` keeps the tab named).
+
+### Safe areas and `dvh`
+`viewport-fit=cover` is set on the document — the only thing that makes `env(safe-area-inset-*)`
+resolve to real values. Bottom insets flow through `--pn-safe-b`, never through raw `env()` at call
+sites. Horizontal insets are handled by `.pn-safe-x` (positioning, not padding, so the element's own
+padding utilities survive); `env()` is `0px` everywhere else including desktop, so the class is inert
+off-device.
+
+Every viewport-height constraint uses **`dvh`**, so the mobile URL bar collapsing does not resize the
+layout: dropdown/action sheets cap at `70dvh`, modals at `88dvh`, the app shell is `min-h-[100dvh]`.
+Do not introduce `vh`.
+
+### Responsive dual-render (mobile card / desktop table)
+Data tables render twice: a stacked card list at `sm:hidden` and the real `<table>` at
+`hidden sm:block`. `Table` takes an optional `mobileCard(row)` renderer and only splits when one is
+supplied, so a table without one is unchanged. **Both copies exist in the DOM at all times** — any
+assertion or query selector must scope to the visible copy (`getByRole('table')`, `:visible`), or it
+hits the hidden one first.
+
+### Mobile vertical rhythm and type
+- The page rhythm was authored for a 1440px canvas, where 40px between sections reads as air; on a
+  412px screen it is most of a fold. Two knobs, not per-component tuning: `--section-gap` (already
+  behind every `.section-y/-pt/-pb/-mb`) drops to `1.75rem` below `sm`, and `--section-head-gap`
+  standardises the gap under a section heading.
+- `.consumer-main` headings scale down exactly 20% below 640px, scoped to `h1/h2/h3` so numeric price
+  and stat spans reusing the same `text-*` utilities keep their emphasis.
+- **Never let an editable field's font-size fall below 16px on touch.** Touch browsers zoom into any
+  field under 16px on focus, forcing the user to pinch back out; our controls run 13-14px, so every
+  `input`/`select`/`textarea` is lifted to `16px !important` under `pointer: coarse`. The
+  `!important` is required to beat class-scoped rules.
+- A `px` font-size is not "safe" from dynamic type — it *is* the accessibility failure. Labels that
+  must scale are authored in `rem` with an overflow guard, and never with `leading-none` (line-height
+  1 is shorter than ascent+descent and clips glyphs).
+
+### Reduced motion is a first-class state
+Decorative motion is cut under `prefers-reduced-motion: reduce`, and the app additionally honours a
+user-toggled "Reduce motion" setting mirroring the OS one. What survives is the half that carries
+information: the bottom-nav indicator keeps its opacity fade but loses its travel; the filter FAB
+keeps its shadow drop but loses the press scale; sheets keep a short opacity transition instead of the
+slide. When cutting motion, ask which half of the effect reports state.
+
+### Devanagari / i18n typography
+`--font-sans` lists `'Noto Sans Devanagari'` **after** `Outfit`, not instead of it: the browser falls
+through per character, so Latin still renders in Outfit and only Devanagari codepoints reach Noto.
+Putting Noto first would restyle the entire English site. Devanagari runs 15-30% longer than the same
+English sentence and its taller line box changes how clamped text counts lines — budget for both when
+sizing a button or a truncated row.
+
+### Route-scoped stylesheets
+Large per-route CSS is split out of `index.css` and ships with its route chunk instead of blocking
+first paint everywhere: `styles/routes/{messages,reels,flatmates,rent-agreement,property-map,compare,services-hub}.css`.
+`index.css` keeps a one-line pointer at each extraction site. New route-only styling belongs in a
+route file, not in `index.css`.
+
+### Shared primitives inventory
+Reach for these before hand-rolling (`src/components/ui/`): `Button` (3 tiers, 3 sizes, `to`/`as`
+polymorphism), `Modal` (portal, focus trap, stacked-dialog-aware Escape, sheet on mobile), `Table`
+(pagination, selection, optional `mobileCard`), `Select` / `MultiSelect` / `NativeSelect` /
+`LocalitySelect`, `DateField` / `TimeField` / `DatePickerDialog` / `TimePickerDialog` (all bottom
+sheets on phones), `Menu` (action sheet on phones), `MobileCollapse` (collapsed below `lg`, always
+open above — an overlay toggle, so existing heading markup is untouched), `HScroll` (horizontal rail
+with edge fades; its arrow buttons are 36px and are *removed* under `pointer: coarse` rather than
+grown), `Tabs`, `Switch`, `Badge`, `Tip`, `FieldError`, `DualRange`, `Stat`, `PageHeader`,
+`PoweredByGoogle`.
 
 ---
 
@@ -145,15 +454,28 @@ Before shipping a form, confirm:
 
 - [ ] No dropdown with a short, fixed option set spans the full form width on desktop.
 - [ ] Standalone dropdowns/inputs are capped (`ddSolo` / `sm:max-w-xs`) or paired into a grid row.
-- [ ] Every interactive control keeps the 40px height (`--control-h`).
+- [ ] Every interactive control derives its height from a token (`--control-h`, `--btn-h`,
+      `--btn-h-sm`, `--btn-h-lg`) — never a literal `h-*`.
+- [ ] No control drops below 44px at <640px; verify at **360px**, not just at desktop width.
 - [ ] Grid-paired controls share the row evenly (`sm:grid-cols-2`), no lone stretched cell.
+- [ ] Every icon-only control has an `aria-label` (a `title` is not a label on touch).
+- [ ] Nothing bottom-anchored hardcodes a `bottom-*` value — it docks at `--pn-bottom-inset` and was
+      checked against the existing bottom-chrome inventory.
+- [ ] Any new overlay uses one of the four sheet shells rather than a fifth.
+- [ ] No `vh` — viewport heights are `dvh`.
 
 ---
 
 ## How to Apply to a New Page
 
-1. Use `<NativeSelect>` or `<Select>` for dropdowns — they automatically get 40px height
-2. Use the `seg()` helper or `.pn-control` class for filter pills
-3. Use `h-10 rounded-full` + `text-sm font-semibold` for CTAs
-4. Use `field rounded-full py-[9px] text-sm` for search/text inputs
-5. Wrap sliders in `h-10 flex items-center rounded-full bg-white/5 border border-white/10 px-4`
+1. Use `<Button>` for every button; pick the tier (`primary` / `secondary` / `icon`) and, if needed,
+   the size (`sm` / `lg`). Do not hand-roll `py-*` heights.
+2. Use `<NativeSelect>` or `<Select>` for dropdowns — they take their height from `--control-h` and
+   become bottom sheets below 640px automatically.
+3. Use the `seg()` helper or `.seg` for toggle/filter pills.
+4. Use `.pn-input` or `input.form-input` for text/search inputs — both take their height from
+   `--control-h`. Do not hand-tune vertical padding (`py-[9px]`); it desyncs from the mobile 44px ramp.
+5. Wrap sliders in `.rng-wrap` / `.rng` rather than a bare `h-10` row. On `pointer: coarse` the thumb
+   grows 16px -> 28px and the row grows with it, so a fixed `h-10` wrapper clips it.
+6. Put route-only CSS in `styles/routes/<route>.css`, not in `index.css`.
+7. Verify at 360px wide **and** in landscape (~915x412) before calling it done.
