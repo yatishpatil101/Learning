@@ -1,0 +1,258 @@
+/* rent-agreement — split out of styles/index.css so it ships with its own
+   route chunk instead of blocking first paint on every page.
+   Rent Agreement wizard (all rules scoped to .ra-page). Loaded with the
+   /services/rent-agreement route chunk (pages/consumer/services/RentAgreement.jsx). */
+
+/* ============================================================================
+   Rent Agreement wizard (ported from rent-agreement.html <style>, scoped to .ra-page)
+   ============================================================================ */
+.ra-page .field {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1);
+  transition: all .25s ease;
+}
+
+.ra-page .field:focus {
+  border-color: var(--teal-2) !important;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  outline: none;
+}
+
+.ra-page select.field option {
+  background: #1a1730;
+}
+
+.ra-page .hero {
+  background: var(--hero-gradient);
+}
+
+.ra-page .step-dot {
+  border: 2px solid rgba(255, 255, 255, .15);
+  color: #64748b;
+  background: transparent;
+  transition: all .3s ease;
+}
+
+.ra-page .step-dot.active {
+  border-color: var(--teal-2);
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: none;
+}
+
+.ra-page .step-dot.done {
+  border-color: var(--teal-2);
+  background: var(--teal-2);
+  color: #fff;
+}
+
+.ra-page .step-dot.pending {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, .14);
+  color: #fbbf24;
+}
+
+.ra-page .step-line {
+  background: rgba(255, 255, 255, .08);
+}
+
+.ra-page .step-line.done {
+  background: var(--teal-2);
+}
+
+.ra-page .step-panel {
+  display: none;
+}
+
+.ra-page .step-panel.active {
+  display: block;
+  animation: raFade .4s cubic-bezier(.4, 0, .2, 1);
+}
+
+@keyframes raFade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ra-page .opt-pill {
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .03);
+  cursor: pointer;
+  transition: all .25s ease;
+}
+
+.ra-page .opt-pill:hover {
+  border-color: rgba(20, 184, 166, .4);
+}
+
+.ra-page .opt-pill.sel {
+  border-color: var(--teal-2);
+  background: rgba(20, 184, 166, .12);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
+  color: #fff;
+}
+
+.ra-page .ra-mode {
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .03);
+  cursor: pointer;
+  transition: all .25s ease;
+}
+
+.ra-page .ra-mode:hover {
+  border-color: rgba(20, 184, 166, .4);
+}
+
+.ra-page .ra-mode.sel {
+  border-color: var(--teal-2);
+  background: rgba(20, 184, 166, .1);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
+}
+
+.ra-page .furn-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.ra-page .furn-row .fr-name {
+  font-size: .82rem;
+  color: #e5e7eb;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ra-page .furn-row .fr-tag {
+  font-size: .58rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #5eead4;
+  background: rgba(20, 184, 166, .12);
+  border: 1px solid rgba(20, 184, 166, .25);
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.ra-page .qty-step {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 9px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ra-page .qty-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.ra-page .qty-btn:hover {
+  background: rgba(20, 184, 166, .15);
+  color: #5eead4;
+}
+
+.ra-page .qty-val {
+  min-width: 30px;
+  text-align: center;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ra-page .fr-remove {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+
+.ra-page .fr-remove:hover {
+  background: rgba(244, 63, 94, .12);
+  color: #fda4af;
+}
+
+.ra-page label.lbl {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+}
+
+.ra-page .req::after {
+  content: ' *';
+  color: #fb7185;
+}
+
+.ra-page .upload-box {
+  border: 1.5px dashed rgba(255, 255, 255, .15);
+  background: rgba(255, 255, 255, .03);
+  transition: all .25s ease;
+}
+
+.ra-page .upload-box:hover {
+  border-color: rgba(20, 184, 166, .5);
+  background: rgba(20, 184, 166, .05);
+}
+
+.ra-page .upload-box.has-file {
+  border-style: solid;
+  border-color: rgba(20, 184, 166, .5);
+  background: rgba(20, 184, 166, .08);
+}
+
+.ra-page .upload-box.has-file .upload-name {
+  color: #5eead4;
+}
+
+.ra-page .tenant-block {
+  transition: all .3s ease;
+}
+
+.ra-page .furn-tile {
+  padding: 11px 6px 10px;
+  min-height: 84px;
+  gap: 7px;
+  border-radius: 12px;
+}
+
+.ra-page .furn-tile .furn-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.ra-page .field.err {
+  border-color: #fb7185 !important;
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, .15);
+}

@@ -1,11 +1,11 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 
 
 /* ============================================================================
-   PuneNest — design tokens (ported verbatim from theme.css)
+   PuneNest â€” design tokens (ported verbatim from theme.css)
    ============================================================================ */
 :root {
   --brand-dark: #0f0d1a;
@@ -33,17 +33,21 @@
   --brand-gradient: linear-gradient(135deg, var(--teal-1), var(--teal-2));
   --hero-gradient: linear-gradient(135deg, #0f172a 0%, #134e4a 35%, var(--teal-1) 100%);
   --teal-glow: rgba(13, 148, 136, 0.3);
-  --font-sans: 'Outfit', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* 'Noto Sans Devanagari' sits after Outfit rather than replacing it: the browser
+     falls through per character, so Latin still renders in Outfit and only
+     Devanagari codepoints reach Noto. Order matters â€” putting Noto first would
+     restyle the entire English site. */
+  --font-sans: 'Outfit', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --section-gap: 2.5rem;
   --section-gap-lg: 4rem;
   --radius: 1rem;
 
-  /* ── Control sizing scale (design language) ──
+  /* â”€â”€ Control sizing scale (design language) â”€â”€
      All interactive controls share the same 40px height for visual rhythm.
      This applies to: dropdowns, pills, filter buttons, search inputs, toggles. */
   --control-h: 40px;
   --control-font: 0.875rem;
-  /* 14px — text-sm */
+  /* 14px â€” text-sm */
   --control-weight: 400;
   /* regular for inputs/dropdowns */
   --control-weight-action: 600;
@@ -51,7 +55,7 @@
   --control-radius: 10px;
   /* rounded square for most controls */
   --control-radius-pill: 9999px;
-  /* pill — reserved for search tabs, nav CTAs */
+  /* pill â€” reserved for search tabs, nav CTAs */
   --control-px: 1rem;
   /* 16px horizontal padding */
   --control-border: 1px solid rgba(255, 255, 255, 0.1);
@@ -64,17 +68,509 @@
   --control-placeholder: #9ca3af;
   /* gray-400 for placeholders */
 
-  /* ── Button system tokens (3 tiers: primary / secondary / compact-icon) ──
+  /* â”€â”€ Button system tokens (3 tiers: primary / secondary / compact-icon) â”€â”€
      Default md height aligns to --control-h for rhythm with inputs/dropdowns.
      lg (48px) is for hero + prominent mobile CTAs; sm (32px) for dense toolbars. */
   --btn-h: var(--control-h);
-  /* 40px — md */
+  /* 40px â€” md */
   --btn-h-sm: 32px;
   --btn-h-lg: 48px;
   --btn-radius: var(--control-radius);
   --btn-primary-grad: linear-gradient(135deg, var(--teal-1), var(--teal-2));
   --btn-primary-shadow: 0 4px 14px rgba(20, 184, 166, 0.25);
   --btn-primary-shadow-hover: 0 6px 20px rgba(20, 184, 166, 0.35);
+
+  /* â”€â”€ Mobile bottom-chrome system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+     --pn-safe-b   the device's bottom inset (home indicator / gesture bar).
+                   Only non-zero once index.html carries viewport-fit=cover.
+     --pn-bottom-inset  how much vertical space at the bottom of the viewport is
+                   already claimed by fixed chrome. ConsumerLayout adds
+                   .has-bottom-nav on routes that mount the mobile bottom nav;
+                   this is the value everywhere else.
+
+     Every bottom-anchored widget positions from --pn-bottom-inset instead of a
+     hardcoded `bottom-*`. Above lg it resolves to --pn-safe-b (0px on desktop), so
+     each calc() collapses to exactly the literal offset it had before.
+
+     Z-index ladder, documented once so bottom chrome never re-negotiates it:
+       content 0-49 / sticky page CTA 60 / mobile bottom nav 70 / autosave flash 90
+       / sheets 1000 / assistant 1300 / install prompt 1350 / cookie consent 1400
+       / blocking modals 1500 / toasts 1600
+
+     Toasts top the ladder deliberately, and they are the one rung that is not
+     bottom chrome: a toast is the receipt for an action the user just took, so it
+     must stay legible above whatever surface triggered it, modals included. Its
+     container is pointer-events:none for that same reason - sitting at 1600 means
+     it overlays every layer below, so it must not intercept their taps.
+
+     The autosave pill used to sit at an undocumented 2000, above blocking modals,
+     so a transient "Draft saved" could paint over a dialog asking the user to
+     confirm something irreversible. It is now 90: it reports state rather than
+     confirming an action, and never needs to outrank a dialog.
+
+     Give every new `position: fixed` element a rung here before it ships - a value
+     picked to "just be on top" is how 2000 happened. See design-system.md for this
+     same ladder plus the bottom-chrome inventory a new fixed layer must be checked
+     against, since two floating controls on one corner intercept each other. */
+  --pn-safe-b: env(safe-area-inset-bottom, 0px);
+  --pn-bottom-nav-h: 56px;
+  /* The bar floats, so it claims its own height PLUS the gap it hovers above the
+     screen edge by. Both live in tokens because --pn-bottom-inset is derived from
+     them; changing the float here moves every bottom-anchored widget with it. */
+  --pn-bottom-nav-gap: 12px;
+  /* How far the bar's bottom edge sits above the viewport bottom â€” max(), not a sum.
+     The float gap and the home-indicator inset are the same thing (breathing room at
+     the bottom edge), so adding them double-counts: in an installed iOS app --pn-safe-b
+     is 34px, and `gap + safe-b` parked the capsule 46px up â€” 5.5% of the screen â€” while
+     in-browser (safe-b: 0px) it was 12px. max() takes whichever floor is larger, so the
+     browser keeps its 12px and the installed app clears the home indicator by exactly
+     the 34px iOS reserves, with no gap stacked on top.
+     One token because the bar's `bottom` and --pn-bottom-inset MUST agree â€” they were
+     two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
+  --pn-bottom-nav-offset: max(var(--pn-bottom-nav-gap), var(--pn-safe-b));
+  --pn-bottom-inset: var(--pn-safe-b);
+
+  /* Top chrome, mirroring the bottom system. --pn-top-inset is where a sticky
+     sub-header (property/society tabs, listings controls) must dock. It equals the
+     navbar height until the navbar slides away on mobile scroll-down, at which
+     point it drops to 0 so the sub-header rises to the screen edge instead of
+     leaving a hole. Desktop never changes it.
+
+     --pn-nav-h is the ONLY place the bar's height is written down. The row itself,
+     every page's top padding, the sticky sub-headers and the full-height routes all
+     derive from it, so the bar can be resized here and nothing drifts out of sync.
+     It used to be duplicated as literals in ten files, including Tailwind classes on
+     the row, which is why the landscape override needed a specificity argument.
+
+     The phone value is 10% under what it was; â‰¥768px deliberately is NOT, so tablet
+     and desktop keep the layout they have always had. Every consumer of the token
+     inherits that split for free â€” which is the point of there being one token. */
+  --pn-nav-h: 58px;
+  --pn-top-inset: var(--pn-nav-h);
+
+  /* Drawn height of the top bar's pills on a phone â€” 10% under the 44px tap floor
+     they used to be pinned to. See .pn-topbar__pill below for why the two can
+     differ, and --pn-nav-icon-box for the square controls that scale with it. */
+  --pn-nav-pill-h: 40px;
+  --pn-nav-icon-box: 32px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --pn-nav-h: 72px;
+  }
+}
+
+/* The bar's real height, driven by the token rather than by utility classes on the
+   element â€” see --pn-nav-h above. */
+.pn-topbar__row {
+  height: var(--pn-nav-h);
+}
+
+/* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
+
+   Below sm these all carry the 44px .tap-target floor, which was *drawing* them at
+   44px â€” taller than the very same pills on desktop, on the device with the least
+   room to spare. So the phone got the chunkiest chrome, which is backwards.
+
+   The drawn pill drops to --pn-nav-pill-h and .tap-extend puts a transparent 44px
+   ::before back under the finger, so WCAG 2.5.8 still holds â€” the target is still
+   44px, it just stops being painted. These pills therefore carry .tap-extend and NOT
+   .tap-target: the two set the same property, and .tap-target is declared later in
+   this file, so pairing them would silently reinstate the 44px box.
+
+   Above sm this block is inert and every pill keeps the geometry it has today. */
+@media (max-width: 639.98px) {
+  .pn-topbar__pill {
+    height: var(--pn-nav-pill-h);
+  }
+
+  /* Square controls (logo tile, Back). These keep .tap-target rather than
+     .tap-extend: their box is already invisible chrome around a drawn tile, so the
+     hit area can simply stay 44px while the tile inside it shrinks. */
+  .pn-topbar__icon-box {
+    height: var(--pn-nav-icon-box);
+    width: var(--pn-nav-icon-box);
+  }
+}
+
+/* Hide-on-scroll top bar (below lg only).
+
+   The fixed bar is pure chrome once the user is reading; it slides away on
+   scroll-down and returns on scroll-up, the pattern Chrome and WhatsApp already
+   trained this user on. Scrolling up is also the gesture someone makes when they want
+   navigation, so the bar arrives exactly when it is wanted.
+
+   Navbar.jsx toggles `.pn-nav-hidden` on <html> unconditionally, which keeps the
+   JS free of breakpoint logic and makes it resize-safe. Every rule that reacts to
+   the class lives inside this max-width block, so on desktop the class is inert â€”
+   that is the desktop-safety argument, and it is structural rather than a
+   promise. */
+@media (max-width: 1023.98px) {
+  .pn-topbar {
+    transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .pn-nav-hidden {
+    --pn-top-inset: 0px;
+  }
+
+  .pn-nav-hidden .pn-topbar {
+    transform: translateY(-100%);
+  }
+
+  /* Opt-in for sticky sub-headers. Declared after @tailwind utilities, so it wins
+     over the element's own `top-[var(--pn-nav-h)]` below lg while leaving that
+     utility to own desktop untouched. */
+  .pn-docks-under-nav {
+    top: var(--pn-top-inset);
+    transition: top 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .pn-topbar,
+  .pn-docks-under-nav {
+    transition: none;
+  }
+}
+
+/* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
+   lg:hidden, so the inset is reset above lg â€” desktop always resolves to --pn-safe-b (0px)
+   and every calc() built on it collapses to the literal offset it had before this system. */
+.has-bottom-nav {
+  --pn-bottom-inset: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset));
+  /* Reserving the inset on the layout wrapper keeps the last card / footer of every
+     consumer page clear of the bar. One rule; no per-page padding, and no lg reset
+     needed because the variable itself already collapses above lg. */
+  padding-bottom: var(--pn-bottom-inset);
+}
+
+@media (min-width: 1024px) {
+  .has-bottom-nav {
+    --pn-bottom-inset: var(--pn-safe-b);
+  }
+}
+
+/* Full-bleed routes (reels) keep the inset *token* â€” their own chrome positions off it â€”
+   but not the reservation: the tab bar is a capsule floating over the media, so the media
+   is supposed to pass under it. Reserving the strip here drew a dead band across the
+   bottom of every reel and made the bar look like a wall rather than a floating control. */
+.has-bottom-nav.route-fullbleed {
+  padding-bottom: 0;
+}
+
+/* Floating "liquid glass" tab bar.
+
+   An edge-to-edge bar reads as a wall at the bottom of the screen; a detached capsule
+   reads as a control sitting on top of the page, which is what it is â€” and letting the
+   page scroll visibly under and around it is the whole point of the material. The look
+   is one blur + one saturation boost + a light top edge, not a stack of decorations:
+   saturate() is what stops the blur from turning the app's teal into grey mud, and the
+   inset top highlight is what gives the capsule an edge instead of a flat fill.
+
+   Inset from both sides via env() so a rotated phone's notch can't clip it. Height is
+   the token only â€” the float gap is added by `bottom`, and --pn-bottom-inset above
+   accounts for both. */
+.pn-bottom-nav {
+  position: fixed;
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  right: calc(env(safe-area-inset-right, 0px) + 12px);
+  bottom: var(--pn-bottom-nav-offset);
+  z-index: 70;
+  display: flex;
+  align-items: stretch;
+  height: var(--pn-bottom-nav-h);
+  padding: 0 6px;
+  border-radius: 999px;
+  /* Tinted with the app's own indigo/teal rather than neutral grey. A neutral glass
+     capsule is the generic iOS one; pulling --indigo-1 into the top of the gradient and
+     a teal cast into the shadow is what makes this read as PuneNest chrome and lets it
+     sit next to the teal Post button without looking borrowed.
+
+     The alphas are set by the worst case, not the pretty one: a property gallery or a
+     reel can put near-white imagery directly behind the bar, and a lighter fill left
+     the labels sitting on mid-grey. At 0.74/0.86 the composite stays dark even over
+     white while still reading as translucent over the app's own dark surfaces. */
+  background: linear-gradient(180deg, rgba(45, 41, 120, 0.74), rgba(14, 12, 24, 0.86));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 12px 36px rgba(0, 0, 0, 0.52),
+    0 2px 8px rgba(13, 148, 136, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Without backdrop-filter the translucent fill is just unreadable text over content,
+   so those browsers get an opaque capsule instead. Firefox on Android and older
+   WebViews land here. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pn-bottom-nav {
+    background: #17142b;
+  }
+}
+
+/* Travelling active indicator. Geometry (translateX + width) is set inline by
+   BottomNav.jsx from the measured slot; everything about how it *looks* and how it
+   moves lives here, so the component stays a measuring device and the design stays in
+   one file.
+
+   Sliding rather than cross-fading is the point: the five tabs are one control, and a
+   shape that travels between them says so. Transitioning transform/width instead of
+   `left` keeps it on the compositor. */
+.pn-bottom-nav__indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(45, 212, 191, 0.24), rgba(20, 184, 166, 0.10));
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  will-change: transform;
+}
+
+/* Added by BottomNav.jsx one paint after the first measurement â€” see the comment there.
+   Until then the indicator must be able to jump to its measured slot without animating,
+   or every page load slides it in from the left edge. */
+.pn-bottom-nav__indicator.is-animated {
+  transition:
+    transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 340ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 180ms linear;
+}
+
+/* The slide is decorative: it only re-states where the user already is. Cutting it is
+   free, so the whole travel goes and only the fade survives. */
+@media (prefers-reduced-motion: reduce) {
+  .pn-bottom-nav__indicator.is-animated {
+    transition: opacity 180ms linear;
+  }
+}
+
+/* Raised centre action. It breaks the capsule's top edge on purpose â€” that overlap is
+   what makes Post read as the primary act rather than the third of five tabs â€” and the
+   ring keeps it legible where it overhangs onto page content. */
+.pn-bottom-nav__fab {
+  margin-top: -14px;
+  box-shadow:
+    0 6px 18px rgba(13, 148, 136, 0.45),
+    0 0 0 4px rgba(15, 13, 26, 0.55);
+}
+
+/* Tab height is owned by the token, not by an inline style on the element. The bar
+   and its slots have to shrink together, and --pn-bottom-nav-h is what --pn-bottom-inset
+   already reserves against â€” so a hardcoded height here would silently desync every
+   bottom-anchored widget the moment the bar resized. */
+.pn-bottom-nav__tab {
+  height: var(--pn-bottom-nav-h);
+  /* Touch feedback. A floating control that doesn't move under the finger reads as a
+     picture of a button; the dip is the confirmation, and it costs no layout because
+     transform is composited. */
+  transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pn-bottom-nav__tab:active {
+  transform: scale(0.93);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-bottom-nav__tab {
+    transition: none;
+  }
+
+  .pn-bottom-nav__tab:active {
+    transform: none;
+  }
+}
+
+/* 11px, in rem so the label honours the browser/OS font-size setting instead of being
+   frozen â€” a px label is immune to dynamic type, which reads as "safe" but is actually
+   the accessibility failure. 10px was below the floor where a glass background still
+   leaves the text comfortably legible. The overflow guard is what makes scaling safe:
+   at large type the label ellipsises instead of wrapping and bursting the fixed bar. */
+.pn-bottom-nav__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.01em;
+  /* Not leading-none: line-height 1 is shorter than the font's own ascent+descent, so
+     the box clips glyph extents. Invisible at 11px, measurable once the label scales:
+     at 200% type Outfit needs 28px of extent and 1.2 only gave 26.4, so `overflow:
+     hidden` below was shaving the descenders. 1.3 clears the full extent at every
+     size and still fits icon+gap+label inside the 56px bar. */
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Landscape phones.
+
+   A rotated phone is ~915x412 or ~640x360, and it was spending 31-34% of its height on
+   chrome: the top bar inherits the md bump because that keys off `min-width: 768px`,
+   which cannot tell a landscape handset from a tablet, and the bottom bar adds its own.
+
+   Guarded three ways so it can never reach desktop: landscape AND short AND narrower than
+   the lg breakpoint. A 1440x900 desktop fails both the height and the width test, and a
+   1024x768 landscape tablet fails both as well, so neither can match. The :root override
+   sits after the min-width:768px block at equal specificity, which is what lets it win.
+
+   Overriding the token is now enough: .pn-topbar__row reads its height from --pn-nav-h,
+   so the bar and the sticky sub-headers that dock under it shrink together by
+   construction. This used to need a companion rule with a hand-tuned two-class selector
+   to out-specify Tailwind's `md:h-[72px]` on the row. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px) {
+  :root {
+    --pn-nav-h: 47px;
+    --pn-bottom-nav-h: 44px;
+  }
+
+  /* Icon-only. The tab keeps its accessible name via aria-label on the Link, so hiding
+     the visible text costs nothing to a screen reader. 44px is the tap-target floor
+     exactly, not a value chosen for looks. */
+  .pn-bottom-nav__label {
+    display: none;
+  }
+
+  .pn-bottom-nav__tab {
+    justify-content: center;
+    /* Clears the Post tab's baseline-matching bottom padding, which only exists to
+       line its label up with the others â€” and the labels are gone here. */
+    padding-bottom: 0;
+  }
+
+  /* The raised centre circle overhangs the capsule by 14px; on a 44px bar that overhang
+     would collide with page content, so it drops to the bar's own height and sits flush. */
+  .pn-bottom-nav__fab {
+    height: 40px;
+    width: 40px;
+    margin-top: 0;
+  }
+
+  .pn-bottom-nav__fab svg {
+    height: 22px;
+    width: 22px;
+  }
+}
+
+/* Landscape companion to the bottom inset. viewport-fit=cover lets full-bleed fixed
+   bars run under the notch when the phone is rotated, so anything pinned edge-to-edge
+   has to inset from it. Positioning rather than padding, so the element's own padding
+   utilities survive. env() is 0px everywhere else, including desktop. Requires the
+   element to be positioned and to not also set an explicit width. */
+.pn-safe-x {
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile tap-target floor (WCAG 2.5.8 / platform HIG). Grows the hit area of an
+   icon-only control without touching the glyph. Deliberately does NOT set `display`,
+   so Tailwind's `hidden` / `lg:hidden` on the same element still win â€” these
+   declarations come after @tailwind utilities in source order. Pair it with
+   `inline-flex items-center justify-center` on any element that isn't already flex. */
+.tap-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Same 44px floor, but for controls whose *drawn* size is load-bearing â€” a close
+   pill on a small bubble, for instance, where growing the box would make the
+   control bigger than the thing it dismisses. The pseudo-element is transparent
+   and centred, so the glyph stays as designed while the finger gets its target.
+   The element needs a positioning context; every current user already has one. */
+.tap-extend::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+/* Top-bar icon-only account actions (Saved / Notifications / Messages / Compare).
+
+   These now sit inline in the bar at every width rather than being folded into the
+   account drawer below sm â€” they are the three screens a returning user checks most,
+   and reaching them through a drawer cost two taps and a context switch.
+
+   Four painted 44px boxes plus the city pill overflow a 360px bar, so below sm the
+   drawn square drops to --pn-nav-icon-box while .tap-extend keeps a transparent 44px
+   target under the finger (WCAG 2.5.8 still holds; the target is 44px, it just stops
+   being painted). A 32px box plus the row's 12px gap puts adjacent centres exactly
+   44px apart, so those targets tile edge-to-edge and never overlap â€” an overlap here
+   would let one icon silently steal its neighbour's taps. Do not shrink the gap
+   without shrinking the target to match.
+
+   Declared AFTER .tap-target on purpose: the elements carry both classes so that
+   above sm they keep today's painted 44px box unchanged, and the two rules set the
+   same properties. Moving this block earlier would silently hand the 44px box back. */
+@media (max-width: 639.98px) {
+  .pn-topbar__action {
+    min-width: 0;
+    min-height: 0;
+    height: var(--pn-nav-icon-box);
+    width: var(--pn-nav-icon-box);
+    padding: 0;
+  }
+}
+
+/* Nothing may be reachable ONLY via :hover â€” on a touch screen that hover state
+   never fires, so the content is simply invisible. Mark any hover-revealed layer
+   with this class and it becomes permanently visible on devices that cannot hover.
+   Keyed on the capability, not the viewport, so a touch laptop is handled too and
+   a mouse-driven desktop keeps the reveal animation untouched. */
+@media (hover: none) {
+  .reveal-on-hover {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* On a touch device a :hover style is dead weight â€” it either never fires or,
+     worse, sticks after the finger lifts. What the user actually needs is proof
+     the tap registered, which matters most on the mid-range Android this app is
+     built for, where the route transition can take a beat.
+
+     The browser's own blue tap flash is removed (it clashes with the dark theme
+     and lags on Android), so a replacement is not optional â€” remove one without
+     the other and taps feel broken. */
+  a,
+  button,
+  [role="button"],
+  [role="tab"],
+  summary,
+  label {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  a:active,
+  button:not(:disabled):active,
+  [role="button"]:active,
+  [role="tab"]:active,
+  summary:active {
+    opacity: 0.72;
+  }
+}
+
+/* Below 640px the default button (40px) and the compact button (32px) both fail the
+   44px touch minimum. All .btn sizing flows through these three vars, so the whole
+   mobile ramp is this override â€” and it cannot leak to desktop, which keeps 32/40/48. */
+@media (max-width: 639px) {
+  :root {
+    --btn-h: 44px;
+    --btn-h-sm: 36px;
+    --btn-h-lg: 48px;
+
+    /* The same argument for every non-button control. --control-h drives the
+       dropdown trigger, every dropdown option, and the shared field heights, so
+       at 40px each of those was a sub-minimum target on the busiest surfaces in
+       the app (filters, wizard, dashboard). Ramping the variable fixes all of
+       them at once instead of per-component, and desktop keeps 40px. */
+    --control-h: 44px;
+  }
 }
 
 .section-y {
@@ -99,7 +595,42 @@
   padding-bottom: var(--section-gap-lg);
 }
 
-/* ── Design Language: Reusable control classes ──
+/* â”€â”€ Mobile vertical rhythm â”€â”€
+   The page rhythm was authored for a 1440px canvas, where 40px between sections
+   and a 40px gap under a heading read as air. On a 412px screen the same values
+   are most of a fold: a visitor scrolls past empty space between every heading
+   and the content it introduces.
+
+   Two knobs, not per-component tuning. `--section-gap` already drives every
+   .section-y / -pt / -pb / -mb on the page, so ramping the variable restyles the
+   whole rhythm at once. `--section-head-gap` is new and standardises the gap
+   under a section heading, which had drifted to four different values across the
+   home page alone (mb-3, mb-6, mb-8, mb-10).
+
+   Everything here is inside a max-width block, so desktop keeps its original
+   numbers structurally rather than by promise. `.section-head` is paired with an
+   `sm:mb-*` utility at every call site, which is what restores the exact desktop
+   value above the breakpoint â€” the class simply stops applying. */
+@media (max-width: 639.98px) {
+  :root {
+    --section-gap: 1.75rem;
+    --section-head-gap: 1.25rem;
+  }
+
+  .section-head {
+    margin-bottom: var(--section-head-gap);
+  }
+
+  /* For sections that hard-code their own padding instead of using the token
+     (they need a different desktop value), this pulls the mobile half back onto
+     the scale without touching the desktop utility. */
+  .section-y-m {
+    padding-top: var(--section-gap);
+    padding-bottom: var(--section-gap);
+  }
+}
+
+/* â”€â”€ Design Language: Reusable control classes â”€â”€
    Use these classes for any interactive control to maintain consistent sizing. */
 .pn-control {
   height: var(--control-h);
@@ -166,7 +697,88 @@ body {
   overflow-x: clip;
 }
 
-/* ── Prevent browser autofill from overriding dark theme backgrounds ── */
+/* ============================================================================
+   Devanagari typography (Hindi, Marathi)
+   ============================================================================
+   The layout is tuned for Latin, and three Latin habits actively damage
+   Devanagari. These rules are scoped by :lang(), which only matches because
+   i18n/index.js keeps <html lang> in step with the active language â€” if that
+   ever regresses, this whole block silently stops applying.
+
+   1. Line height. Devanagari stacks matras above the shirorekha (à¤¿ à¥€ à¥‡ à¥ˆ à¥‹ à¥Œ à¤‚)
+      and below the baseline (à¥ƒ à¥ à¥‚), so its ink box is materially taller than
+      Latin's. Tailwind's leading-none (1) and leading-tight (1.25) clip those
+      marks outright â€” the vowel sign is simply cut off, which changes the word.
+      There are ~70 uses of those two utilities in the app, so raising the floor
+      here fixes all of them at once and keeps English untouched.
+
+   2. Letter spacing. `tracking-widest` is used throughout for small-caps section
+      labels. Devanagari joins its characters under a continuous shirorekha, and
+      forcing space between them breaks that line and splits conjuncts into
+      pieces that read as separate letters. Latin loses nothing by having it;
+      Devanagari loses legibility.
+
+   3. Uppercase. Devanagari has no case, so `text-transform: uppercase` is a
+      no-op on the glyphs â€” but it is left alone rather than reset, because the
+      same elements often carry Latin brand names (PuneNest, SLA, OTP) that
+      should still uppercase.
+   ========================================================================== */
+:lang(hi),
+:lang(mr) {
+  /* Only raises the floor: anything already looser than this is left alone. */
+  line-height: 1.7;
+}
+
+:lang(hi) .leading-none,
+:lang(mr) .leading-none,
+:lang(hi) .leading-tight,
+:lang(mr) .leading-tight,
+:lang(hi) .leading-snug,
+:lang(mr) .leading-snug {
+  line-height: 1.45 !important;
+}
+
+:lang(hi) .tracking-widest,
+:lang(mr) .tracking-widest,
+:lang(hi) .tracking-wider,
+:lang(mr) .tracking-wider,
+:lang(hi) .tracking-wide,
+:lang(mr) .tracking-wide {
+  letter-spacing: normal;
+}
+
+/* Clamped text measures its box in lines, so the taller Devanagari line box has
+   to be accounted for or the last line is sliced through the descenders. */
+:lang(hi) .line-clamp-1,
+:lang(mr) .line-clamp-1,
+:lang(hi) .line-clamp-2,
+:lang(mr) .line-clamp-2,
+:lang(hi) .line-clamp-3,
+:lang(mr) .line-clamp-3 {
+  line-height: 1.55;
+}
+
+/* Devanagari runs 15â€“30% longer than the same English sentence, so buttons and
+   chips sized to fit English copy overflow. Let them grow instead of clipping. */
+:lang(hi) .btn-teal,
+:lang(mr) .btn-teal,
+:lang(hi) .btn-outline,
+:lang(mr) .btn-outline,
+:lang(hi) .pn-btn,
+:lang(mr) .pn-btn {
+  height: auto;
+  min-height: 2.5rem;
+}
+
+/* Devanagari digits are rendered as Latin numerals throughout the app (â‚¹32,000,
+   2 BHK, 15 August), so numeric runs keep Outfit's tabular figures rather than
+   inheriting Noto's proportional ones and jittering in aligned columns. */
+:lang(hi) .tabular-nums,
+:lang(mr) .tabular-nums {
+  font-family: 'Outfit', system-ui, sans-serif;
+}
+
+/* â”€â”€ Prevent browser autofill from overriding dark theme backgrounds â”€â”€ */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -176,7 +788,7 @@ input:-webkit-autofill:focus {
   transition: background-color 5000s ease-in-out 0s;
 }
 
-/* ── Heading balance — prevents orphaned words on all headings ── */
+/* â”€â”€ Heading balance â€” prevents orphaned words on all headings â”€â”€ */
 h1,
 h2,
 h3,
@@ -184,9 +796,9 @@ h4 {
   text-wrap: balance;
 }
 
-/* ── Radius hierarchy ──
+/* â”€â”€ Radius hierarchy â”€â”€
    Pill shape is reserved for nav CTAs, hero search tabs, and filter chips.
-   Cards, modals, forms use --radius (16px). Inner elements use 8px. ── */
+   Cards, modals, forms use --radius (16px). Inner elements use 8px. â”€â”€ */
 .btn-teal,
 .btn-outline,
 .pn-btn {
@@ -208,7 +820,7 @@ h4 {
   border-radius: var(--control-radius-pill) !important;
 }
 
-/* ── Tabular figures on all price and stat numbers ── */
+/* â”€â”€ Tabular figures on all price and stat numbers â”€â”€ */
 .price-marker,
 .rd-val,
 .rd-val-lg,
@@ -217,7 +829,7 @@ h4 {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Active/press feedback on all interactive controls ── */
+/* â”€â”€ Active/press feedback on all interactive controls â”€â”€ */
 button:active:not(:disabled),
 a[role="button"]:active {
   transform: scale(0.97) translateY(1px);
@@ -227,7 +839,7 @@ a[role="button"]:active {
   transform: scale(0.97) translateY(1px) !important;
 }
 
-/* ── Tinted shadows — brand hue instead of pure black ── */
+/* â”€â”€ Tinted shadows â€” brand hue instead of pure black â”€â”€ */
 .property-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
@@ -243,7 +855,7 @@ a[role="button"]:active {
   box-shadow: 0 0 40px rgba(13, 148, 136, 0.12), 0 8px 24px rgba(15, 13, 26, 0.4) !important;
 }
 
-/* ── Section subtext max-width — prevents lines stretching too wide ── */
+/* â”€â”€ Section subtext max-width â€” prevents lines stretching too wide â”€â”€ */
 .section-desc {
   max-width: 60ch;
 }
@@ -262,18 +874,18 @@ a[role="button"]:active {
 }
 
 /* App-wide: never show a horizontal scrollbar. Horizontal regions pan by
-   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars —
-   which several dropdowns and lists deliberately theme — are left untouched
+   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars â€”
+   which several dropdowns and lists deliberately theme â€” are left untouched
    because :horizontal only targets the horizontal bar. */
 ::-webkit-scrollbar:horizontal {
   display: none;
   height: 0;
 }
 
-/* Filter sidebar scroll — reserve a stable gutter and float a transparent-track
+/* Filter sidebar scroll â€” reserve a stable gutter and float a transparent-track
    thumb so it never overlaps the rounded tile edge or its corners. The thumb is
    AUTO-HIDDEN by default and only fades in (standard teal) while the panel itself
-   is hovered/focused — so hovering an adjacent card never surfaces a teal bar.
+   is hovered/focused â€” so hovering an adjacent card never surfaces a teal bar.
    Gutter width stays reserved, so revealing the thumb causes no layout shift. */
 .filter-scroll {
   scrollbar-gutter: stable;
@@ -310,7 +922,7 @@ a[role="button"]:active {
   background: rgba(20, 184, 166, 0.7);
 }
 
-/* ── Hero gradient animation ── */
+/* â”€â”€ Hero gradient animation â”€â”€ */
 @keyframes heroGradient {
   0% {
     background-position: 0% 50%;
@@ -340,7 +952,7 @@ a[role="button"]:active {
   will-change: background-position;
 }
 
-/* ── Floating shapes ── */
+/* â”€â”€ Floating shapes â”€â”€ */
 @keyframes float1 {
 
   0%,
@@ -439,7 +1051,7 @@ a[role="button"]:active {
   animation: float2 16s ease-in-out infinite reverse;
 }
 
-/* ── Staggered hero text (compressed: search widget usable well under ~0.6s) ── */
+/* â”€â”€ Staggered hero text (compressed: search widget usable well under ~0.6s) â”€â”€ */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -507,7 +1119,7 @@ a[role="button"]:active {
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.36s forwards;
 }
 
-/* ── Hero trust-proof ticker ── */
+/* â”€â”€ Hero trust-proof ticker â”€â”€ */
 .hero-ticker {
   opacity: 0;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.74s forwards;
@@ -526,7 +1138,7 @@ a[role="button"]:active {
   animation: tickerPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
-/* ── Scroll reveal ── */
+/* â”€â”€ Scroll reveal â”€â”€ */
 .reveal {
   opacity: 0;
   transform: translateY(36px);
@@ -538,7 +1150,7 @@ a[role="button"]:active {
   transform: translateY(0);
 }
 
-/* ── Card image zoom ── */
+/* â”€â”€ Card image zoom â”€â”€ */
 .card-img-wrap {
   overflow: hidden;
 }
@@ -551,7 +1163,7 @@ a[role="button"]:active {
   transform: scale(1.08);
 }
 
-/* ── Heart animation ── */
+/* â”€â”€ Heart animation â”€â”€ */
 @keyframes heartPop {
   0% {
     transform: scale(1);
@@ -574,7 +1186,7 @@ a[role="button"]:active {
   animation: heartPop 0.4s ease;
 }
 
-/* ── Glow hover for category cards ── */
+/* â”€â”€ Glow hover for category cards â”€â”€ */
 .cat-card {
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
 }
@@ -607,7 +1219,7 @@ a[role="button"]:active {
   background: linear-gradient(to right, var(--brand-dark), transparent);
 }
 
-/* ── Property card lift + off-screen rendering optimization ── */
+/* â”€â”€ Property card lift + off-screen rendering optimization â”€â”€ */
 .property-card {
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
   content-visibility: auto;
@@ -624,7 +1236,7 @@ a[role="button"]:active {
   contain-intrinsic-size: 0 320px;
 }
 
-/* ── CTA floating shapes ── */
+/* â”€â”€ CTA floating shapes â”€â”€ */
 @keyframes ctaFloat1 {
 
   0%,
@@ -649,7 +1261,7 @@ a[role="button"]:active {
   }
 }
 
-/* ── Glass (with fallback for browsers without backdrop-filter support) ── */
+/* â”€â”€ Glass (with fallback for browsers without backdrop-filter support) â”€â”€ */
 .glass {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
@@ -685,7 +1297,7 @@ a[role="button"]:active {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Hero search dropdowns — themed vertical scrollbar, always shown (stable gutter)
+/* Hero search dropdowns â€” themed vertical scrollbar, always shown (stable gutter)
    so all three search dropdowns look and behave consistently, and long
    Type / BHK / locality lists stay usable (never run off-screen on mobile). */
 .search-dd-scroll {
@@ -939,7 +1551,7 @@ a[role="button"]:active {
   justify-content: flex-start;
 }
 
-/* Attribution footer inside the hero locality dropdown — kept last, bottom-left, out of focus. */
+/* Attribution footer inside the hero locality dropdown â€” kept last, bottom-left, out of focus. */
 .loc-attrib {
   margin-top: 2px;
   padding-top: 3px;
@@ -965,7 +1577,7 @@ a[role="button"]:active {
   z-index: 10;
 }
 
-/* ── Category scroll hide scrollbar ── */
+/* â”€â”€ Category scroll hide scrollbar â”€â”€ */
 .cat-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -985,7 +1597,7 @@ a[role="button"]:active {
   scrollbar-width: none;
 }
 
-/* HScroll edge-fade affordance — the touch-first "there's more this way" cue used
+/* HScroll edge-fade affordance â€” the touch-first "there's more this way" cue used
    app-wide on tab bars, chip rows and card rails. */
 .hscroll-fade {
   position: absolute;
@@ -1004,13 +1616,13 @@ a[role="button"]:active {
   right: 0;
 }
 
-/* ── Pill active ── */
+/* â”€â”€ Pill active â”€â”€ */
 .pill-active {
   background: var(--brand-gradient);
   color: #fff;
 }
 
-/* ── Sleek hover for search button (no gimmicky pulse) ── */
+/* â”€â”€ Sleek hover for search button (no gimmicky pulse) â”€â”€ */
 .search-btn:hover {
   box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28);
 }
@@ -1142,6 +1754,63 @@ details.faq[open] .faq-ico {
   background: var(--teal-2);
   border: 2px solid #0f0d1a;
   cursor: pointer;
+}
+
+/* A 16px thumb is a mouse-sized target: on touch it is under half the 44px floor,
+   and a price range is one of the most-dragged controls in the search funnel.
+   Grow the thumb to 28px on coarse pointers and grow the row around it so the
+   track stays centred and the thumb isn't clipped at 0%/100%. Desktop keeps the
+   16px thumb â€” the pointer there is a cursor, not a fingertip. */
+@media (pointer: coarse) {
+  .rng-wrap {
+    padding: 0 15px;
+  }
+
+  .rng {
+    height: 32px;
+  }
+
+  .rng-track {
+    top: 14px;
+  }
+
+  .rng input[type=range] {
+    top: 2px;
+    height: 28px;
+  }
+
+  .rng input[type=range]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .rng input[type=range]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* The two labels under the track ("â‚¹0" / "â‚¹5 Cr+") are also buttons â€” tapping one
+     swaps it for a text input so an exact figure can be typed, which is the only way
+     to set a precise budget on a phone. They are drawn as small underlined values
+     because that is what they are; making them look like buttons would turn a quiet
+     row of numbers into two competing controls. So extend the target, not the box.
+
+     Centred 44px is safe here: the pair sits at opposite ends of a justify-between
+     row, so the boxes cannot meet, and the 12px gap above them puts the top edge
+     clear of the thumb's travel. */
+  .rng-val {
+    position: relative;
+  }
+
+  .rng-val::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }
 
 .custom-cb {
@@ -1450,6 +2119,78 @@ details.faq[open] .faq-ico {
   transform: translateX(0);
 }
 
+/* Floating "Filters" control on the mobile listings page.
+
+   It floats over a scrolling column of property photos, so its backdrop is
+   unpredictable â€” a bright interior one moment, a dark card the next. A flat teal
+   fill dissolves into the light shots, and ringing it in page-background black
+   just reads as a sticker cut out and pasted on.
+
+   So it takes the same liquid glass as the bottom nav 12px below it: one blur +
+   one saturation boost + a light top edge, tinted with the app's indigo/teal
+   rather than neutral grey. Those alphas were already set by the worst case
+   (near-white imagery directly behind the bar), so legibility is carried by the
+   material itself and no outline is needed to prop it up. saturate() is what
+   keeps the blur from turning the app's teal into grey mud.
+
+   Colour is spent only where it carries meaning: the icon, the edge, and the
+   active count. A fully teal chip would fight the Post FAB for primary-action
+   status, which it should never win. */
+.filter-fab {
+  /* Shares the bottom nav's left inset, so the two capsules sit on one vertical
+     edge instead of being 4px out of register. */
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  background: linear-gradient(180deg, rgba(45, 41, 120, 0.78), rgba(14, 12, 24, 0.88));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 10px rgba(13, 148, 136, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 160ms ease;
+}
+
+.filter-fab:active {
+  transform: scale(0.96);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* The press scale is pure feedback flourish; the shadow drop already reports the
+   tap, so the movement is the only part worth cutting. */
+@media (prefers-reduced-motion: reduce) {
+
+  .filter-fab,
+  .filter-fab:active {
+    transform: none;
+    transition: box-shadow 160ms ease;
+  }
+}
+
+/* Same fallback the bottom nav takes: without backdrop-filter a translucent fill
+   is just unreadable text over content, so those browsers get an opaque capsule.
+   Firefox on Android and older WebViews land here. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .filter-fab {
+    background: #17142b;
+  }
+}
+
+/* Filters are on. The capsule earns a teal edge only now, because only now does
+   it carry state the user needs to catch from the corner of their eye. */
+.filter-fab.is-active {
+  border-color: rgba(45, 212, 191, 0.42);
+}
+
+/* Solid teal on glass â€” the one saturated element, so the eye lands on how many
+   filters are applied before it reads the word. */
+.filter-fab__count {
+  background: #2dd4bf;
+  color: #0b1f1c;
+}
+
 .fade-up {
   opacity: 0;
   transform: translateY(24px);
@@ -1484,7 +2225,7 @@ details.faq[open] .faq-ico {
   background-position: right 10px center;
 }
 
-/* ── Native <select> themed via @layer to avoid !important conflicts with Tailwind ── */
+/* â”€â”€ Native <select> themed via @layer to avoid !important conflicts with Tailwind â”€â”€ */
 @layer components {
   select {
     -webkit-appearance: none;
@@ -1586,6 +2327,223 @@ details.faq[open] .faq-ico {
     transition: transform 0.2s ease;
   }
 
+  /* â”€â”€ Help centre / documentation prose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+     Styles the HTML compiled from src/content/help/**.md. Kept separate from
+     .legal-prose because docs need a wider element vocabulary (tables, code,
+     callouts) and a slightly larger reading size than a policy page. */
+  .doc-prose {
+    font-size: 0.9375rem;
+    line-height: 1.75;
+    color: #94a3b8;
+  }
+
+  .doc-prose > * + * {
+    margin-top: 1.125rem;
+  }
+
+  .doc-prose h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 2.75rem;
+    margin-bottom: 0.75rem;
+    scroll-margin-top: calc(var(--pn-nav-h) + 5rem);
+  }
+
+  .doc-prose h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-top: 1.875rem;
+    margin-bottom: 0.5rem;
+    scroll-margin-top: calc(var(--pn-nav-h) + 5rem);
+  }
+
+  .doc-prose h4 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-top: 1.5rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .doc-prose ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+
+  .doc-prose ol {
+    list-style: decimal;
+    padding-left: 1.25rem;
+  }
+
+  .doc-prose li {
+    margin-bottom: 0.4375rem;
+  }
+
+  .doc-prose li > ul,
+  .doc-prose li > ol {
+    margin-top: 0.4375rem;
+  }
+
+  .doc-prose a {
+    color: var(--teal-2);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .doc-prose a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .doc-prose strong {
+    color: #e2e8f0;
+    font-weight: 600;
+  }
+
+  .doc-prose code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8125em;
+    background: rgb(255 255 255 / 0.06);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 0.3125rem;
+    padding: 0.1rem 0.35rem;
+    color: #e2e8f0;
+  }
+
+  .doc-prose pre {
+    background: rgb(255 255 255 / 0.04);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 0.75rem;
+    padding: 1rem 1.125rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .doc-prose pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .doc-prose blockquote {
+    border-left: 3px solid rgb(255 255 255 / 0.15);
+    padding-left: 1rem;
+    color: #94a3b8;
+    font-style: italic;
+  }
+
+  .doc-prose hr {
+    border: 0;
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+    margin: 2.25rem 0;
+  }
+
+  /* Tables scroll horizontally rather than forcing the article column wider â€”
+     a 5-column comparison table is unavoidable in docs and must not break the
+     phone layout. */
+  .doc-prose table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+
+  .doc-prose th,
+  .doc-prose td {
+    border: 1px solid rgb(255 255 255 / 0.08);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .doc-prose th {
+    background: rgb(255 255 255 / 0.04);
+    color: #e2e8f0;
+    font-weight: 600;
+  }
+
+  @media (min-width: 768px) {
+    .doc-prose table {
+      white-space: normal;
+    }
+  }
+
+  /* Callouts â€” emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
+  .doc-prose .doc-callout {
+    border: 1px solid rgb(255 255 255 / 0.1);
+    border-left-width: 3px;
+    border-radius: 0.75rem;
+    padding: 0.875rem 1.125rem;
+    background: rgb(255 255 255 / 0.03);
+  }
+
+  .doc-prose .doc-callout p {
+    margin: 0;
+  }
+
+  .doc-prose .doc-callout p + p {
+    margin-top: 0.5rem;
+  }
+
+  .doc-prose .doc-callout__label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.375rem !important;
+  }
+
+  .doc-prose .doc-callout--note {
+    border-left-color: var(--teal-2);
+  }
+
+  .doc-prose .doc-callout--note .doc-callout__label {
+    color: var(--teal-2);
+  }
+
+  .doc-prose .doc-callout--tip {
+    border-left-color: #a78bfa;
+  }
+
+  .doc-prose .doc-callout--tip .doc-callout__label {
+    color: #a78bfa;
+  }
+
+  .doc-prose .doc-callout--warning {
+    border-left-color: #fbbf24;
+    background: rgb(251 191 36 / 0.06);
+  }
+
+  .doc-prose .doc-callout--warning .doc-callout__label {
+    color: #fbbf24;
+  }
+
+  .doc-prose .doc-callout--important {
+    border-left-color: #f87171;
+    background: rgb(248 113 113 / 0.06);
+  }
+
+  .doc-prose .doc-callout--important .doc-callout__label {
+    color: #f87171;
+  }
+
+  .doc-toc summary {
+    list-style: none;
+  }
+
+  .doc-toc summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .doc-toc[open] .doc-toc-caret {
+    transform: rotate(180deg);
+  }
+
   .legal-toc[open] .legal-toc-caret {
     transform: rotate(180deg);
   }
@@ -1601,8 +2559,8 @@ select option:checked {
   font-weight: 600;
 }
 
-/* ── Custom dropdown (.pn-dropdown) — ported verbatim from the HTML dropdowns.css
-   so the React <Select> matches the enhanced native selects exactly. ── */
+/* â”€â”€ Custom dropdown (.pn-dropdown) â€” ported verbatim from the HTML dropdowns.css
+   so the React <Select> matches the enhanced native selects exactly. â”€â”€ */
 :root {
   --dd-bg: rgba(255, 255, 255, 0.05);
   --dd-bg-hover: rgba(255, 255, 255, 0.08);
@@ -1656,8 +2614,25 @@ select option:checked {
   height: 0.85rem;
 }
 
+/* Listings sort picker: shares one row with the view toggles, so it needs a fixed
+   pill width rather than the base `width: 100%` above - that declaration sits
+   after @tailwind utilities, so a w-* utility on the same element loses to it.
+   Stays shrinkable so very narrow phones ellipsis the label instead of wrapping
+   the row. */
+.pn-dropdown.pn-dd-sort {
+  flex: 0 1 126px;
+  width: 126px;
+}
+
+@media (min-width: 640px) {
+  .pn-dropdown.pn-dd-sort {
+    flex-basis: 10rem;
+    width: 10rem;
+  }
+}
+
 /* Photo-category picker: a subtle caption laid directly ON the thumbnail (over a
-   gradient scrim), so it reads as part of the photo — not a strip below it. Stays
+   gradient scrim), so it reads as part of the photo â€” not a strip below it. Stays
    quiet (borderless, 20px tall) with white text for legibility over the image;
    the chevron alone invites a click to change the room type. */
 .pn-dropdown--sm.pn-dd-photocat {
@@ -1792,6 +2767,115 @@ select option:checked {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+
+/* â”€â”€ Dropdown as a bottom sheet (phones) â”€â”€
+   Select/MultiSelect anchor their portaled menu to the trigger with inline
+   geometry. On a phone that lands the list under the user's own hand, and for a
+   searchable field the keyboard then eats most of what's left. Below 640px the
+   component stops writing inline geometry (see `sheet` in Select/MultiSelect) and
+   these rules take over: full-width, docked to the bottom edge, scrim behind,
+   grab handle on top. Desktop never gets the class, so nothing here applies. */
+.pn-dropdown__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.pn-dropdown__menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  z-index: 9999;
+  width: auto;
+  max-width: none;
+  max-height: 70dvh;
+  padding: 0 0.5rem calc(0.5rem + var(--pn-safe-b));
+  border-width: 1px 0 0;
+  border-radius: 1.25rem 1.25rem 0 0;
+  transform: translateY(100%);
+  transform-origin: bottom center;
+  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pn-dropdown__menu--sheet.is-portal-open {
+  transform: translateY(0);
+}
+
+/* Grab handle. Sticky rather than static because the sheet is itself the
+   scrolling element, and a handle that scrolls away can't be dragged. */
+.pn-dropdown__menu--sheet::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex: 0 0 auto;
+  align-self: center;
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0.625rem 0 0.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.pn-dropdown__menu--sheet .pn-dropdown__option {
+  white-space: normal;
+}
+
+/* Both the handle and the search box are sticky; park the search below the
+   handle so they don't pile up at top: 0. */
+.pn-dropdown__menu--sheet .pn-dropdown__search {
+  top: 1.375rem;
+}
+
+/* Overflow ("More") menu presented as an action sheet on phones â€” same docking,
+   scrim and handle as the dropdown sheet above, but the panel's own look comes
+   from utility classes in Menu.jsx. */
+.pn-action-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  z-index: 9999;
+  max-height: 70dvh;
+  overflow-y: auto;
+  padding-bottom: calc(0.375rem + var(--pn-safe-b));
+  border-width: 1px 0 0;
+  border-radius: 1.25rem 1.25rem 0 0;
+  animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pn-action-sheet::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex: 0 0 auto;
+  align-self: center;
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0.375rem 0 0.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-action-sheet {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-dropdown__menu--sheet {
+    transition: opacity 0.15s linear;
+    transform: none;
+  }
 }
 
 .pn-dropdown__search {
@@ -1979,6 +3063,26 @@ select option:checked {
   animation: pnShimmer 1.4s ease-in-out infinite;
 }
 
+/* The shimmer is an INFINITE loop, which is exactly the kind of motion someone
+   who asked for less of it does not want â€” and a loading state is when they are
+   least able to look away. Both opt-outs are honoured: the OS-level media query
+   and the app's own Settings â–¸ Appearance toggle (html.pn-reduce-motion).
+
+   Kept next to the animation rather than in the reduced-motion section further
+   down, because that section is an explicit allowlist ~3,500 lines away: this
+   rule was missing from it for as long as the shimmer has existed, and the next
+   person to touch the shimmer will be looking here. The surface stays visible â€”
+   only the sweep stops â€” so the placeholder still reads as "content pending". */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+html.pn-reduce-motion .skeleton::after {
+  animation: none;
+}
+
 @keyframes pnShimmer {
   100% {
     transform: translateX(100%);
@@ -2012,7 +3116,7 @@ select option:checked {
   }
 }
 
-/* ── Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) ── */
+/* â”€â”€ Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) â”€â”€ */
 /* Base page canvas. The left half is painted over by .auth-left; this gradient is
    what shows through the right (form) column, so it lifts that side out of flat
    black into a deep teal-navy console that matches the brand without competing
@@ -2164,7 +3268,7 @@ select option:checked {
   background: rgba(255, 255, 255, .08);
 }
 
-/* OTP box styles — global (used on signin, signup, staff-login, list-property) */
+/* OTP box styles â€” global (used on signin, signup, staff-login, list-property) */
 .otp-container {
   display: flex;
   gap: 10px;
@@ -2172,7 +3276,7 @@ select option:checked {
 }
 
 /* Boxes flex-fill their row (capped at 48px) so 6 inputs never overflow a
-   narrow auth card on 360/414px phones — no horizontal scroll. */
+   narrow auth card on 360/414px phones â€” no horizontal scroll. */
 .otp-box {
   flex: 1 1 0;
   min-width: 0;
@@ -2247,7 +3351,7 @@ select option:checked {
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
 }
 
-/* ── Mobile auth "edge-lit proptech" theme (≤lg) ──
+/* â”€â”€ Mobile auth "edge-lit proptech" theme (â‰¤lg) â”€â”€
    Desktop keeps its split-screen; mobile hides the left panel, so we give the
    whole screen a techy identity: an ambient teal aurora + fine tech-grid backdrop
    behind a lit, gradient-ring form card. Reuses brand teal tokens only. */
@@ -2400,7 +3504,7 @@ select option:checked {
   height: 16px;
 }
 
-/* List view card (redesigned row) — ported from listings.html */
+/* List view card (redesigned row) â€” ported from listings.html */
 .list-card {
   display: block;
 }
@@ -2555,6 +3659,8 @@ select option:checked {
   transform: scale(1.1);
 }
 
+/* Chip used in list context — rent inventory, tenant list, price insights and the
+   similar-property cards. Stays boxed; only the property-header rail below opts out. */
 .tag {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -2569,6 +3675,76 @@ select option:checked {
 
 .tag:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+/* Property-header trust panel — ONE tile, not N badges.
+
+   These four phrases answer a single question ("what is the standing of this
+   listing?"), so they share one container. Boxing each phrase separately turned one
+   answer into four independent-looking buttons; leaving them loose in a row left
+   them reading as unrelated fragments. A single tile is the middle: the container
+   says "one context", and the items inside stay chrome-free so none of them looks
+   tappable.
+
+   Borrowed from `.detail-card` further down this file — same page, same job (small
+   read-only info tile), so it reuses that surface rather than inventing a third.
+
+   Packed with flex-wrap, NOT stretched across auto-fit grid tracks: with 3 items in
+   a 800px column, `1fr` tracks pushed them ~250px apart and they read as disconnected
+   again — the tile said "one thing", the spacing said "three". Packed left at a fixed
+   column gap, the set scans as one line of facts however wide the column gets.
+
+   Scoped to `.tag-strip`: `.tag` is also worn by rent inventory, the tenant list
+   and similar-property cards, which are chips in list context and stay boxed. */
+.tag-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1.5rem;
+  row-gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.8rem 0.95rem;
+}
+
+.tag-strip .tag {
+  align-items: center;
+  min-width: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  /* Beats `.tag-emerald` on specificity on purpose: the label stays neutral so the
+     icon is the only thing saying "verified". */
+  color: #cbd5e1;
+  cursor: help;
+  transition: color 0.2s ease;
+}
+
+.tag-strip .tag:hover {
+  background: none;
+  color: #fff;
+}
+
+.tag-strip .tag svg {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+.tag-strip .tag-emerald svg {
+  color: #34d399;
+}
+
+/* No box of its own to outline, so the focus ring supplies one. */
+.tag-strip .tag:focus-visible {
+  outline: 2px solid rgba(45, 212, 191, 0.65);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 .tag-teal {
@@ -2627,15 +3803,15 @@ select option:checked {
   border-color: rgba(20, 184, 166, 0.25);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   BUTTON SYSTEM — single source of truth. Three tiers:
-     .btn-primary   → the one main action per view (teal gradient)
-     .btn-secondary → supporting actions (outline/ghost)
-     .btn-icon      → compact square icon-only utility button
-   Sizes: .btn-sm (32px) · default (40px) · .btn-lg (48px).
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   BUTTON SYSTEM â€” single source of truth. Three tiers:
+     .btn-primary   â†’ the one main action per view (teal gradient)
+     .btn-secondary â†’ supporting actions (outline/ghost)
+     .btn-icon      â†’ compact square icon-only utility button
+   Sizes: .btn-sm (32px) Â· default (40px) Â· .btn-lg (48px).
    Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
    long tail of existing buttons inherits this system without per-file edits.
-   ═══════════════════════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 .btn,
 .btn-teal,
 .btn-outline,
@@ -2685,7 +3861,7 @@ select option:checked {
   pointer-events: none;
 }
 
-/* Tier 1 — primary */
+/* Tier 1 â€” primary */
 .btn-primary,
 .btn-teal,
 .pn-btn-primary {
@@ -2709,7 +3885,7 @@ select option:checked {
   transform: translateY(0);
 }
 
-/* Tier 2 — secondary */
+/* Tier 2 â€” secondary */
 .btn-secondary,
 .btn-outline,
 .pn-btn-ghost {
@@ -2733,7 +3909,7 @@ select option:checked {
   transform: translateY(1px);
 }
 
-/* Tier 3 — compact icon-only */
+/* Tier 3 â€” compact icon-only */
 .btn-icon {
   width: var(--btn-h);
   height: var(--btn-h);
@@ -3089,18 +4265,134 @@ select option:checked {
   color: #fff;
 }
 
+/* â”€â”€ Mobile: centred dialogs become bottom sheets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Below 640px a centred dialog is the wrong shape: with the keyboard open the
+   usable viewport is ~300px, so the submit button of any form modal gets
+   pushed off-screen. Docking to the bottom edge keeps the primary action in
+   the thumb arc and lets the body scroll inside a bounded panel instead.
+
+   Every consumer overlay already shares .pn-modal-backdrop/.pn-modal, so this
+   one block converts all of them at once â€” no per-modal markup change. The
+   whole thing sits inside a max-width query, so >=640px (and therefore every
+   desktop viewport) renders byte-for-byte as before. */
+@media (max-width: 639.98px) {
+  .pn-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .pn-modal {
+    max-width: none;
+    max-height: 88dvh;
+    /* Square off the edge that now meets the screen bottom. */
+    border-radius: 1.25rem 1.25rem 0 0;
+    border-bottom: 0;
+    padding: 0.75rem 1rem calc(1.25rem + var(--pn-safe-b));
+    animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* Grab handle: the platform signal that a surface is a dismissible sheet. */
+  .pn-modal::before {
+    content: '';
+    display: block;
+    width: 2.25rem;
+    height: 0.25rem;
+    margin: 0 auto 0.75rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* 36px close button fails the touch minimum; grow the hit area, not the glyph. */
+  .pn-modal-x {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@keyframes pnSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
 .pn-sticky-cta {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Docks above whatever bottom chrome is already claiming space (mobile bottom nav).
+     Resolves to 0 on desktop, i.e. today's `bottom: 0`. */
+  bottom: var(--pn-bottom-inset);
   z-index: 60;
   display: flex;
   gap: 0.6rem;
-  padding: 0.7rem 1rem calc(0.7rem + env(safe-area-inset-bottom));
+  /* Left/right insets matter in landscape on notched devices now that the document
+     is viewport-fit=cover; the bottom inset is already carried by --pn-bottom-inset. */
+  padding: 0.7rem calc(1rem + env(safe-area-inset-right, 0px)) 0.7rem calc(1rem + env(safe-area-inset-left, 0px));
   background: rgba(15, 13, 26, 0.92);
   backdrop-filter: blur(16px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* â”€â”€ Listing wizard: step actions dock to the thumb arc on mobile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Step 2 of the owner flow is a very long form (address grid, map, ~10 pricing
+   fields). With Back/Next only at the end of the document, an owner scrolls
+   hundreds of pixels to advance â€” and again every time validation fails. This
+   is the single biggest supply-side conversion leak on a phone.
+
+   `sticky` rather than `fixed` deliberately: the row keeps its place in the
+   flow, so it reserves its own space and can never cover the last field. It
+   pins to the bottom edge while the step is taller than the viewport, and
+   settles back inline at the end. It docks above whatever bottom chrome is
+   already claiming space via --pn-bottom-inset.
+
+   Scoped to <1024px to match the bottom nav's breakpoint; above lg the rule is
+   inert and the row renders inline exactly as it does today. */
+@media (max-width: 1023.98px) {
+  .lp-step-actions {
+    position: sticky;
+    bottom: calc(var(--pn-bottom-inset) + 0.5rem);
+    z-index: 60;
+    gap: 0.6rem;
+    margin-top: 1.25rem;
+    padding: 0.6rem;
+    border-radius: 1rem;
+    background: rgba(15, 13, 26, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Share the width rather than sitting at the two extremes, and let the
+     primary action dominate so the target is unambiguous under a thumb. */
+  .lp-step-actions>button {
+    flex: 1 1 0;
+    justify-content: center;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .lp-step-actions>button:last-child {
+    flex: 1.6 1 0;
+  }
+
+  /* Auth submit. The signin/signup card is short enough on a desktop viewport,
+     but with the software keyboard up on a ~640px device the primary action is
+     pushed below the fold, on the one screen where dropping the user costs the
+     most. The button is the last child of its form, so sticking it to the bottom
+     keeps it in reach while the rest of the form scrolls underneath.
+
+     Auth routes never mount the bottom nav, so --pn-bottom-inset resolves to the
+     safe-area inset alone â€” no double counting. */
+  .pn-auth-submit {
+    position: sticky;
+    bottom: calc(var(--pn-bottom-inset) + 0.75rem);
+    z-index: 60;
+  }
 }
 
 /* ============================================================================
@@ -3229,1367 +4521,9 @@ select option:checked {
   box-shadow: inset 0 0 0 3px #15131f;
 }
 
-/* ============================================================================
-   Compare page (ported from compare.html <style>)
-   ============================================================================ */
-.cmp-table {
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.cmp-table th,
-.cmp-table td {
-  vertical-align: top;
-}
-
-.feature-col {
-  position: sticky;
-  left: 0;
-  z-index: 20;
-  background: #12101f;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.row-label {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  font-weight: 600;
-  white-space: nowrap;
-  padding: 1rem 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.cmp-cell {
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  min-width: 220px;
-}
-
-.feature-col.cmp-cell {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.cmp-row:hover .cmp-cell {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.col-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  transition: all 0.3s ease;
-}
-
-.col-card:hover {
-  border-color: rgba(20, 184, 166, 0.25);
-}
-
-.col-card img {
-  transition: transform 0.5s ease;
-}
-
-.col-card:hover img {
-  transform: scale(1.05);
-}
-
-.best {
-  color: #34d399 !important;
-  font-weight: 700;
-}
-
-.best-tag {
-  font-size: 0.6rem;
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  margin-left: 6px;
-}
-
-.chk {
-  color: #34d399;
-}
-
-.crs {
-  color: #6b7280;
-}
-
-.add-slot {
-  border: 1.5px dashed rgba(255, 255, 255, 0.15);
-  transition: all 0.3s ease;
-}
-
-.add-slot:hover {
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-.modal-overlay {
-  background: rgba(5, 4, 12, 0.75);
-  backdrop-filter: blur(8px);
-}
-
-.modal-pick {
-  transition: all 0.25s ease;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.modal-pick:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.06);
-}
-
-/* Desktop label column keeps its original width (was an inline min-width). */
-.feature-col.cmp-cell {
-  min-width: 180px;
-}
-
-/* Mobile compare: a genuine 2-up side-by-side instead of one-column-at-a-time.
-   Slim the sticky label column + data columns so two properties fit in a phone
-   viewport and wrap long amenity labels. */
-@media (max-width: 640px) {
-  .cmp-cell {
-    min-width: 128px;
-    padding: 0.7rem 0.55rem;
-  }
-
-  .feature-col.cmp-cell {
-    min-width: 92px;
-  }
-
-  .feature-col.cmp-cell>span {
-    letter-spacing: 0.02em;
-    font-size: 0.62rem;
-  }
-
-  .row-label {
-    white-space: normal;
-    line-height: 1.2;
-    font-size: 0.72rem;
-    gap: 0.4rem;
-    padding: 0.7rem 0.55rem;
-  }
-}
-
-/* ============================================================================
-   Services hub (ported from services.html <style>)
-   ============================================================================ */
-.svc-card {
-  transition: transform .35s cubic-bezier(.4, 0, .2, 1), box-shadow .35s, border-color .35s;
-}
-
-.svc-card:hover {
-  transform: translateY(-8px);
-  border-color: rgba(20, 184, 166, .35);
-  box-shadow: 0 22px 50px rgba(0, 0, 0, .5);
-}
-
-.zoom {
-  overflow: hidden;
-}
-
-.zoom img {
-  transition: transform .6s cubic-bezier(.4, 0, .2, 1);
-}
-
-.svc-card:hover .zoom img {
-  transform: scale(1.1);
-}
-
-.svc-card .lm {
-  color: #5eead4;
-  transition: gap .25s ease;
-  gap: 4px;
-}
-
-.svc-card:hover .lm {
-  gap: 9px;
-}
-
-.svc-pop {
-  animation: pop .45s cubic-bezier(.34, 1.56, .64, 1) both;
-}
-
-@keyframes pop {
-  0% {
-    opacity: 0;
-    transform: scale(.92) translateY(10px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.svc-focus {
-  border-color: rgba(20, 184, 166, .6) !important;
-  box-shadow: 0 0 0 2px var(--teal-2), 0 22px 50px rgba(20, 184, 166, .35);
-  animation: focusPulse 1.1s ease-in-out 3;
-}
-
-@keyframes focusPulse {
-
-  0%,
-  100% {
-    box-shadow: 0 0 0 2px var(--teal-2), 0 22px 50px rgba(20, 184, 166, .35);
-  }
-
-  50% {
-    box-shadow: 0 0 0 4px var(--teal-2), 0 22px 60px rgba(20, 184, 166, .55);
-  }
-}
-
-.cat-tab {
-  transition: all .25s ease;
-  border: 1px solid rgba(255, 255, 255, .1);
-}
-
-.cat-tab.on {
-  background: var(--brand-gradient);
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(20, 184, 166, .25);
-}
-
-.step:hover .step-ic {
-  transform: translateY(-4px) scale(1.05);
-}
-
-.step-ic {
-  transition: transform .3s ease;
-}
-
-/* ============================================================================
-   List Property wizard (ported from list-property.html <style>)
-   ============================================================================ */
-.progress-track {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.progress-fill {
-  background: linear-gradient(90deg, var(--teal-1), var(--teal-2), var(--teal-3));
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.step-dot {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.step-dot.active {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-  box-shadow: 0 0 20px rgba(20, 184, 166, 0.3);
-}
-
-.step-dot.completed {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-}
-
-.step-dot.inactive {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.step-line.active {
-  background: var(--teal-2);
-}
-
-.step-line.inactive {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* ---- Listing wizard step nav (segmented, gamified, on-brand) ----
-   Three discrete phase segments that complement (not duplicate) the
-   continuous % momentum meter. Completed segments are clickable. */
-.lp-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.625rem;
-}
-
-.lp-steps__item {
-  position: relative;
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 0.75rem 0.875rem 0.75rem;
-  border-radius: 0.875rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font: inherit;
-  color: inherit;
-}
-
-.lp-steps__rail {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.lp-steps__item.is-done .lp-steps__rail,
-.lp-steps__item.is-active .lp-steps__rail {
-  background: var(--brand-gradient);
-}
-
-.lp-steps__row {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-width: 0;
-}
-
-.lp-steps__badge {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1.5px solid rgba(255, 255, 255, 0.12);
-  color: #9ca3af;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-steps__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.15;
-}
-
-.lp-steps__num {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #6b7280;
-}
-
-.lp-steps__label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #e5e7eb;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lp-steps__status {
-  font-size: 11px;
-  font-weight: 500;
-  color: #6b7280;
-  margin-top: 1px;
-}
-
-/* Active: brand-glow badge + teal accents */
-.lp-steps__item.is-active {
-  background: rgba(20, 184, 166, 0.08);
-  border-color: rgba(20, 184, 166, 0.35);
-}
-
-.lp-steps__item.is-active .lp-steps__badge {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-  color: #fff;
-  box-shadow: 0 0 16px rgba(20, 184, 166, 0.35);
-}
-
-.lp-steps__item.is-active .lp-steps__status {
-  color: #5eead4;
-}
-
-/* Done: solid teal check badge, clickable to go back */
-.lp-steps__item.is-done .lp-steps__badge {
-  background: var(--teal-2);
-  border-color: var(--teal-2);
-  color: #fff;
-}
-
-.lp-steps__item.is-done {
-  cursor: pointer;
-}
-
-.lp-steps__item.is-done:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(20, 184, 166, 0.3);
-}
-
-.lp-steps__item.is-done:focus-visible {
-  outline: none;
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
-}
-
-.lp-steps__item.is-done .lp-steps__status {
-  color: #5eead4;
-}
-
-/* Todo: dimmed */
-.lp-steps__item.is-todo {
-  opacity: 0.6;
-}
-
-@media (max-width: 640px) {
-  .lp-steps {
-    gap: 0.5rem;
-  }
-
-  .lp-steps__item {
-    padding: 0.625rem;
-  }
-
-  .lp-steps__num {
-    display: none;
-  }
-
-  .lp-steps__badge {
-    width: 1.75rem;
-    height: 1.75rem;
-  }
-
-  .lp-steps__label {
-    font-size: 0.8125rem;
-  }
-
-  /* On phones the active state reads from the teal highlight + rail, so drop
-     the status lines entirely to keep each tile on one clean line. */
-  .lp-steps__status {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .lp-steps__item,
-  .lp-steps__badge {
-    transition: none;
-  }
-}
-
-.form-input {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Single-line inputs align to the shared control height (matches dropdowns);
-   textareas keep their natural multi-line height. */
-input.form-input {
-  height: var(--control-h);
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.form-input:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
-  outline: none;
-}
-
-.form-input::placeholder {
-  color: #6b7280;
-}
-
-.form-input option {
-  background: #1a1730;
-}
-
-/* DateField — guaranteed DD/MM/YYYY display over a native date picker.
-   The wrapper carries the caller's field classes (form-input / field / …) so it
-   looks identical to sibling inputs; the native control sits on top, invisible. */
-.pn-datefield {
-  position: relative;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.pn-datefield.form-input {
-  height: var(--control-h);
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.pn-datefield__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.pn-datefield__text.is-placeholder {
-  color: #6b7280;
-}
-
-.pn-datefield__icon {
-  width: 1rem;
-  height: 1rem;
-  margin-left: 0.5rem;
-  flex-shrink: 0;
-  color: var(--teal-2);
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.pn-datefield:focus-within,
-.pn-datefield:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
-  outline: none;
-}
-
-.pn-datefield.is-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* ── Custom calendar (DatePickerDialog) — light "Select Date" card, teal accents,
-   shown as a dropdown anchored under its field (position set inline by JS).
-   Centrally used by every DateField, so the picker looks identical app-wide. ── */
-.pn-cal {
-  position: fixed;
-  z-index: 2000;
-  top: 0;
-  left: 0;
-  width: 275px;
-  max-width: calc(100vw - 16px);
-  box-sizing: border-box;
-  background: var(--brand-card);
-  color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 16px 14px 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
-  font-family: var(--font-sans);
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  transform-origin: top center;
-  transition: opacity 0.18s var(--dd-ease, ease), transform 0.18s var(--dd-ease, ease);
-  /* Month/year use the shared <Select> with the app's default dark theme; only
-     tighten the trigger to fit the compact card (keeps full month names visible). */
-  --dd-trigger-radius: 10px;
-  --dd-trigger-pad: 0 0.5rem;
-  --dd-trigger-height: 34px;
-}
-
-.pn-cal.is-open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-.pn-cal:focus {
-  outline: none;
-}
-
-.pn-cal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 13px;
-}
-
-.pn-cal__title {
-  font-size: 1.22rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  margin: 0;
-}
-
-.pn-cal__badge {
-  position: relative;
-  width: 44px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 11px;
-  background: linear-gradient(150deg, var(--teal-3), var(--teal-1));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8px 18px rgba(13, 148, 136, 0.35);
-}
-
-.pn-cal__badge-tab {
-  position: absolute;
-  top: -4px;
-  width: 5px;
-  height: 11px;
-  border-radius: 4px;
-  background: var(--teal-1);
-}
-
-.pn-cal__badge-tab:nth-child(1) {
-  left: 12px;
-}
-
-.pn-cal__badge-tab:nth-child(2) {
-  right: 12px;
-}
-
-.pn-cal__badge-num {
-  font-size: 1.22rem;
-  font-weight: 800;
-  color: #fff;
-  line-height: 1;
-  margin-top: 4px;
-}
-
-.pn-cal__selectors {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 13px;
-}
-
-.pn-cal__nav {
-  flex-shrink: 0;
-  width: 28px;
-  height: 34px;
-  border-radius: 9px;
-  border: none;
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.18s ease, color 0.18s ease;
-}
-
-.pn-cal__nav:hover {
-  background: rgba(20, 184, 166, 0.16);
-  color: var(--teal-3);
-}
-
-/* Year is fixed-narrow (only 4 digits) so month gets the room full names need. */
-.pn-cal__dd {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.pn-cal__dd.pn-cal__dd--year {
-  flex: 0 0 74px;
-}
-
-.pn-cal .pn-cal__dd .pn-dropdown__trigger {
-  font-weight: 600;
-  font-size: 0.8rem;
-  gap: 0.3rem;
-}
-
-.pn-cal .pn-cal__dd .pn-dropdown__chev {
-  width: 0.85rem;
-  height: 0.85rem;
-}
-
-.pn-cal__grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-}
-
-.pn-cal__grid--head {
-  margin-bottom: 4px;
-}
-
-.pn-cal__wd {
-  text-align: center;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: var(--text-subtle);
-  padding: 3px 0;
-}
-
-.pn-cal__wd.is-sun {
-  color: var(--teal-3);
-}
-
-.pn-cal__day {
-  position: relative;
-  aspect-ratio: 1 / 1;
-  min-height: 31px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  font-family: var(--font-sans);
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--dd-text);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.pn-cal__day.is-sun {
-  color: var(--teal-3);
-}
-
-.pn-cal__day.is-muted {
-  color: rgba(255, 255, 255, 0.22);
-  font-weight: 500;
-}
-
-.pn-cal__day:hover:not(:disabled):not(.is-selected) {
-  background: rgba(20, 184, 166, 0.16);
-}
-
-.pn-cal__day.is-today:not(.is-selected)::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 4px;
-  transform: translateX(-50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--teal-3);
-}
-
-.pn-cal__day.is-selected {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
-  font-weight: 800;
-  box-shadow: inset 0 0 0 1.5px var(--teal-2);
-}
-
-.pn-cal__day:disabled {
-  color: rgba(255, 255, 255, 0.18);
-  cursor: not-allowed;
-}
-
-.pn-cal__day:focus-visible {
-  outline: 2px solid var(--teal-2);
-  outline-offset: -2px;
-}
-
-.pn-cal__confirm {
-  width: 100%;
-  margin-top: 14px;
-  height: 42px;
-  border: none;
-  border-radius: 13px;
-  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  color: #fff;
-  font-family: var(--font-sans);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.32);
-  transition: filter 0.18s ease, transform 0.08s ease;
-}
-
-.pn-cal__confirm:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
-.pn-cal__confirm:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.pn-cal__confirm:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pn-cal {
-    transition: none;
-  }
-}
-
-/* ── Custom time picker (TimePickerDialog) — reuses the .pn-cal card shell so it
-   looks identical to the calendar; swaps the day grid for hour/minute selects +
-   an AM/PM toggle. Centrally used by every TimeField. ── */
-.pn-timepicker {
-  width: 250px;
-}
-
-.pn-timepicker__readout {
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  color: var(--teal-3);
-  background: rgba(20, 184, 166, 0.14);
-  border-radius: 11px;
-  padding: 6px 12px;
-}
-
-.pn-timepicker__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-
-.pn-timepicker__unit {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.pn-timepicker__colon {
-  font-weight: 800;
-  font-size: 1.05rem;
-  color: var(--text);
-  padding: 0 1px;
-}
-
-.pn-timepicker__mer {
-  flex: 0 0 auto;
-  display: flex;
-  border-radius: 9px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.pn-timepicker__mer button {
-  height: 34px;
-  padding: 0 11px;
-  border: none;
-  cursor: pointer;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  font-weight: 700;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.pn-timepicker__mer button+button {
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.pn-timepicker__mer button:hover:not(.is-on) {
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--teal-3);
-}
-
-.pn-timepicker__mer button.is-on {
-  background: rgba(20, 184, 166, 0.2);
-  color: var(--teal-3);
-}
-
-.radio-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-}
-
-.radio-pill:hover {
-  border-color: rgba(20, 184, 166, 0.3);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-.radio-pill.selected {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--teal-2);
-  box-shadow: 0 0 15px rgba(20, 184, 166, 0.1);
-}
-
-/* Invalid choice group (pills): each pill takes the same red border + glow as an
-   invalid input (.pn-invalid), so a required pill-group reads exactly like the
-   red-outlined text fields (e.g. Locality) on the same form. */
-.pn-invalid-group .radio-pill {
-  border-color: #f87171;
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, .22);
-}
-
-.toggle-track {
-  width: 48px;
-  height: 26px;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.1);
-  transition: background 0.3s;
-  cursor: pointer;
-  position: relative;
-}
-
-.toggle-track.active {
-  background: var(--teal-2);
-}
-
-.toggle-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: white;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-track.active .toggle-thumb {
-  transform: translateX(22px);
-}
-
-.upload-zone {
-  border: 2px dashed rgba(255, 255, 255, 0.12);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.upload-zone:hover,
-.upload-zone.drag-over {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-/* ----- Listing success celebration ----- */
-@keyframes lp-pop-in {
-  0% {
-    opacity: 0;
-    transform: scale(.86) translateY(14px);
-  }
-
-  60% {
-    opacity: 1;
-    transform: scale(1.03) translateY(0);
-  }
-
-  100% {
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes lp-badge-pop {
-  0% {
-    transform: scale(0) rotate(-40deg);
-  }
-
-  60% {
-    transform: scale(1.15) rotate(0);
-  }
-
-  100% {
-    transform: scale(1) rotate(0);
-  }
-}
-
-@keyframes lp-ring-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, .45);
-  }
-
-  70% {
-    box-shadow: 0 0 0 22px rgba(20, 184, 166, 0);
-  }
-
-  100% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
-  }
-}
-
-.lp-success-card {
-  animation: lp-pop-in .55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.lp-success-badge {
-  animation: lp-badge-pop .6s .12s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.lp-success-ring {
-  animation: lp-ring-pulse 1.7s .3s ease-out 2;
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .lp-success-card,
-  .lp-success-badge,
-  .lp-success-ring {
-    animation: none !important;
-  }
-}
-
-.lp-page .otp-box {
-  flex: 0 0 46px;
-  width: 46px;
-  height: 54px;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 12px;
-  text-align: center;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #fff;
-  outline: none;
-  transition: all .25s ease;
-}
-
-.lp-page .otp-box:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
-  background: rgba(20, 184, 166, .05);
-}
-
-.lp-page .otp-box.filled {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .08);
-}
-
-.thumb-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s;
-}
-
-.thumb-card .thumb-remove {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.thumb-card:hover .thumb-remove {
-  opacity: 1;
-}
-
-.doc-upload {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1.5px dashed rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.doc-upload:hover {
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.05);
-}
-
-.doc-upload.has-file {
-  border-style: solid;
-  border-color: rgba(20, 184, 166, 0.5);
-  background: rgba(20, 184, 166, 0.08);
-}
-
-.doc-upload.has-file .doc-name {
-  color: #5eead4;
-}
-
-.furn-tile {
-  position: relative;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  padding: 14px 8px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  text-align: center;
-  cursor: pointer;
-  min-height: 96px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.furn-tile:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  background: rgba(20, 184, 166, 0.06);
-  transform: translateY(-1px);
-}
-
-.furn-tile .furn-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: #5eead4;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.furn-tile .furn-label {
-  font-size: 0.72rem;
-  line-height: 1.15;
-  font-weight: 500;
-  color: #9ca3af;
-}
-
-.furn-tile.checked {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, 0.12);
-  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.3), 0 6px 18px rgba(20, 184, 166, 0.12);
-}
-
-.furn-tile.checked .furn-icon {
-  background: rgba(20, 184, 166, 0.2);
-  color: #2dd4bf;
-}
-
-.furn-tile.checked .furn-label {
-  color: #5eead4;
-}
-
-.furn-check {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  color: #04221d;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: scale(0.5);
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.furn-tile.checked .furn-check {
-  opacity: 1;
-  transform: scale(1);
-}
-
-@keyframes lpSlideIn {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.lp-step {
-  animation: lpSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ---- Momentum meter (gamified completion) ---- */
-.lp-meter {
-  position: sticky;
-  top: 84px;
-  z-index: 30;
-  background: rgba(20, 18, 40, 0.92);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-.lp-meter__badge {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(20, 184, 166, 0.15);
-  color: #2dd4bf;
-  flex-shrink: 0;
-  transition: all .3s ease;
-}
-
-.lp-meter__badge.is-ready {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.35);
-}
-
-.lp-meter__pct {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 2rem;
-  font-weight: 800;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--teal-1), var(--teal-3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: lpPctPop .35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-meter__pct-sign {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-left: 1px;
-}
-
-@keyframes lpPctPop {
-  0% {
-    transform: scale(0.72);
-    opacity: .45;
-  }
-
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.lp-meter__track {
-  position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.lp-meter__fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--teal-1), var(--teal-2), var(--teal-3));
-  box-shadow: 0 0 16px rgba(20, 184, 166, 0.5);
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.lp-meter__node {
-  position: absolute;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: #1a1730;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.lp-meter__node.reached {
-  background: var(--teal-2);
-  border-color: #5eead4;
-  box-shadow: 0 0 12px rgba(20, 184, 166, 0.7);
-}
-
-.lp-meter__scale {
-  position: relative;
-  height: 15px;
-  margin-top: 9px;
-}
-
-.lp-meter__scale span {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  font-size: 10px;
-  font-weight: 600;
-  color: #6b7280;
-  transition: color 0.3s ease;
-}
-
-.lp-meter__scale span.reached {
-  color: #5eead4;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-meter__pct {
-    animation: none;
-  }
-
-  .lp-meter__fill,
-  .lp-meter__node {
-    transition: none;
-  }
-}
-
-/* ---- Location picker pin (teal teardrop) ---- */
-.lp-pin {
-  width: 26px;
-  height: 26px;
-  background: var(--teal-2);
-  border: 2px solid #0f0d1a;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lp-pin__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #04221d;
-  transform: rotate(45deg);
-}
-
-/* List-property "Search an area" autocomplete dropdown — dark, google.com/maps-style
-   predictions shown under the search input in the location picker. */
-.pn-ac-list {
-  position: absolute;
-  z-index: 40;
-  left: 0;
-  right: 0;
-  top: calc(100% + 6px);
-  max-height: 288px;
-  overflow-y: auto;
-  padding: 6px;
-  background: var(--brand-card, #16131f);
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 14px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
-  list-style: none;
-  margin: 0;
-}
-
-.pn-ac-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  color: #e7e5ee;
-}
-
-.pn-ac-item.is-active {
-  background: rgba(45, 212, 191, .14);
-}
-
-.pn-ac-pin {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  flex-shrink: 0;
-  color: var(--teal-2, #2dd4bf);
-}
-
-.pn-ac-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.3;
-}
-
-.pn-ac-main {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f4f3f8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-ac-sub {
-  font-size: 11.5px;
-  color: #9a97a8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* â†’ moved to styles/routes/compare.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/services-hub.css (loaded with its route chunk) */
+/* → moved to styles/routes/list-property.css (loaded with its route chunk) */
 
 /* ============================================================================
    Service landing pages (packers/legal/home-loans/interior/valuation)
@@ -4744,260 +4678,7 @@ input.form-input {
   backdrop-filter: blur(4px);
 }
 
-/* ============================================================================
-   Rent Agreement wizard (ported from rent-agreement.html <style>, scoped to .ra-page)
-   ============================================================================ */
-.ra-page .field {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  transition: all .25s ease;
-}
-
-.ra-page .field:focus {
-  border-color: var(--teal-2) !important;
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
-  outline: none;
-}
-
-.ra-page select.field option {
-  background: #1a1730;
-}
-
-.ra-page .hero {
-  background: var(--hero-gradient);
-}
-
-.ra-page .step-dot {
-  border: 2px solid rgba(255, 255, 255, .15);
-  color: #64748b;
-  background: transparent;
-  transition: all .3s ease;
-}
-
-.ra-page .step-dot.active {
-  border-color: var(--teal-2);
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: none;
-}
-
-.ra-page .step-dot.done {
-  border-color: var(--teal-2);
-  background: var(--teal-2);
-  color: #fff;
-}
-
-.ra-page .step-dot.pending {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, .14);
-  color: #fbbf24;
-}
-
-.ra-page .step-line {
-  background: rgba(255, 255, 255, .08);
-}
-
-.ra-page .step-line.done {
-  background: var(--teal-2);
-}
-
-.ra-page .step-panel {
-  display: none;
-}
-
-.ra-page .step-panel.active {
-  display: block;
-  animation: raFade .4s cubic-bezier(.4, 0, .2, 1);
-}
-
-@keyframes raFade {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.ra-page .opt-pill {
-  border: 1px solid rgba(255, 255, 255, .1);
-  background: rgba(255, 255, 255, .03);
-  cursor: pointer;
-  transition: all .25s ease;
-}
-
-.ra-page .opt-pill:hover {
-  border-color: rgba(20, 184, 166, .4);
-}
-
-.ra-page .opt-pill.sel {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .12);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-  color: #fff;
-}
-
-.ra-page .ra-mode {
-  border: 1px solid rgba(255, 255, 255, .1);
-  background: rgba(255, 255, 255, .03);
-  cursor: pointer;
-  transition: all .25s ease;
-}
-
-.ra-page .ra-mode:hover {
-  border-color: rgba(20, 184, 166, .4);
-}
-
-.ra-page .ra-mode.sel {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .1);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-}
-
-.ra-page .furn-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, .03);
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 12px;
-  padding: 8px 10px;
-}
-
-.ra-page .furn-row .fr-name {
-  font-size: .82rem;
-  color: #e5e7eb;
-  font-weight: 500;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ra-page .furn-row .fr-tag {
-  font-size: .58rem;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: #5eead4;
-  background: rgba(20, 184, 166, .12);
-  border: 1px solid rgba(20, 184, 166, .25);
-  padding: 1px 6px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-
-.ra-page .qty-step {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 9px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.ra-page .qty-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #9ca3af;
-  cursor: pointer;
-  transition: all .15s;
-}
-
-.ra-page .qty-btn:hover {
-  background: rgba(20, 184, 166, .15);
-  color: #5eead4;
-}
-
-.ra-page .qty-val {
-  min-width: 30px;
-  text-align: center;
-  font-size: .82rem;
-  font-weight: 600;
-  color: #fff;
-}
-
-.ra-page .fr-remove {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #9ca3af;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all .15s;
-  flex-shrink: 0;
-}
-
-.ra-page .fr-remove:hover {
-  background: rgba(244, 63, 94, .12);
-  color: #fda4af;
-}
-
-.ra-page label.lbl {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: #cbd5e1;
-  margin-bottom: 8px;
-}
-
-.ra-page .req::after {
-  content: ' *';
-  color: #fb7185;
-}
-
-.ra-page .upload-box {
-  border: 1.5px dashed rgba(255, 255, 255, .15);
-  background: rgba(255, 255, 255, .03);
-  transition: all .25s ease;
-}
-
-.ra-page .upload-box:hover {
-  border-color: rgba(20, 184, 166, .5);
-  background: rgba(20, 184, 166, .05);
-}
-
-.ra-page .upload-box.has-file {
-  border-style: solid;
-  border-color: rgba(20, 184, 166, .5);
-  background: rgba(20, 184, 166, .08);
-}
-
-.ra-page .upload-box.has-file .upload-name {
-  color: #5eead4;
-}
-
-.ra-page .tenant-block {
-  transition: all .3s ease;
-}
-
-.ra-page .furn-tile {
-  padding: 11px 6px 10px;
-  min-height: 84px;
-  gap: 7px;
-  border-radius: 12px;
-}
-
-.ra-page .furn-tile .furn-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-}
-
-.ra-page .field.err {
-  border-color: #fb7185 !important;
-  box-shadow: 0 0 0 3px rgba(251, 113, 133, .15);
-}
-
+/* â†’ moved to styles/routes/rent-agreement.css (loaded with its route chunk) */
 /* Notifications page */
 .notif {
   background: rgba(255, 255, 255, .04);
@@ -5031,7 +4712,7 @@ input.form-input {
   color: #5eead4;
 }
 
-/* Rent/Buy intent switch on the listings page — brand-gradient active pill,
+/* Rent/Buy intent switch on the listings page â€” brand-gradient active pill,
    concentric inner buttons (matches the List|Map .sf-seg pattern). */
 .deal-seg-btn {
   transition: color .2s ease, background .2s ease, box-shadow .2s ease;
@@ -5061,13 +4742,18 @@ details[open] .faq-chevron {
   transform: rotate(180deg);
 }
 
-/* EMI calculator range sliders + num field */
+/* EMI calculator range sliders + num field.
+
+   The fill percentage arrives as --emi-pct from EmiCalculator.jsx; the gradient is
+   built here so a media query can restyle the rail (see the coarse-pointer block
+   below). */
 .emi-page input[type=range] {
   -webkit-appearance: none;
   appearance: none;
   height: 6px;
   border-radius: 999px;
   outline: none;
+  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
 }
 
 .emi-page input[type=range]::-webkit-slider-thumb {
@@ -5098,6 +4784,35 @@ details[open] .faq-chevron {
 
 .emi-page input[type=range]:focus-visible {
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
+}
+
+/* These sliders predate the .rng touch block above and never got the same
+   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px â€”
+   both well under the 44px floor, on the three controls this page exists for.
+
+   The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
+   than a slider. Only the element grows, with the gradient pinned to a centred 6px
+   band so the visual is byte-identical while the finger gets a 32px strip. This is
+   the same trade .tap-extend makes for icon buttons â€” extend the target, not the
+   drawing. Painting the band requires background-size/position, which is why the
+   gradient moved out of the component's inline style. */
+@media (pointer: coarse) {
+  .emi-page input[type=range] {
+    height: 32px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 6px;
+  }
+
+  .emi-page input[type=range]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .emi-page input[type=range]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 .num-field:focus {
@@ -5187,177 +4902,7 @@ label.lbl {
   color: #f59e0b;
 }
 
-/* Reels (vertical snap-scroll walkthroughs) */
-.reels-page {
-  background: #12101f;
-}
-
-.reels-page .reel-wrap {
-  height: calc(100vh - 72px);
-  height: calc(100dvh - 72px);
-  overflow-y: auto;
-  scroll-snap-type: y mandatory;
-}
-
-.reels-page .reel-wrap::-webkit-scrollbar {
-  display: none;
-}
-
-.reels-page .reel {
-  height: calc(100vh - 72px);
-  height: calc(100dvh - 72px);
-  scroll-snap-align: start;
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-}
-
-@media (max-width: 767px) {
-  .reels-page .reel-wrap {
-    height: calc(100dvh - 64px);
-  }
-
-  .reels-page .reel {
-    height: calc(100dvh - 64px);
-  }
-}
-
-/* Horizontal photo carousel within each property */
-.reels-page .reel-gallery {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.reels-page .reel-gallery::-webkit-scrollbar {
-  display: none;
-}
-
-.reels-page .reel-gallery:focus-visible {
-  outline: none;
-}
-
-.reels-page .reel-slide {
-  position: relative;
-  flex: 0 0 100%;
-  width: 100%;
-  height: 100%;
-  scroll-snap-align: center;
-  scroll-snap-stop: always;
-  overflow: hidden;
-}
-
-.reels-page .reel-slide-img {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-}
-
-.reels-page .reel-slide-img.is-live {
-  animation: reelKenBurns 12s ease-in-out infinite alternate;
-}
-
-.reels-page .reel-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(10, 8, 24, .15) 30%, rgba(10, 8, 24, .92));
-}
-
-.reels-page .play-badge {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, .45);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.reels-page .rail {
-  position: absolute;
-  right: 14px;
-  bottom: 120px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  z-index: 5;
-}
-
-@media (max-width: 767px) {
-  .reels-page .rail {
-    bottom: 208px;
-    gap: 16px;
-  }
-}
-
-.reels-page .rail button,
-.reels-page .rail a {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.reels-page .rail .ic {
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, .34);
-  border: 1px solid rgba(255, 255, 255, .22);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform .18s ease, background .18s ease, color .18s ease;
-}
-
-.reels-page {
-  position: relative;
-}
-
-.reels-page .reel {
-  overflow: hidden;
-}
-
-/* Photo position dots (above the property caption) */
-.reels-page .reel-dots {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.reels-page .reel-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .4);
-  transition: width .2s ease, background .2s ease;
-}
-
-.reels-page .reel-dot.is-on {
-  width: 18px;
-  background: #fff;
-}
-
+/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -5369,287 +4914,7 @@ label.lbl {
   white-space: nowrap;
   border: 0;
 }
-
-/* Interaction states on the rail */
-.reels-page .rail button:active .ic,
-.reels-page .rail a:active .ic {
-  transform: scale(.88);
-}
-
-.reels-page .rail .is-liked {
-  color: #f43f5e;
-}
-
-.reels-page .rail .is-liked .ic {
-  background: rgba(244, 63, 94, .22);
-  border-color: rgba(244, 63, 94, .5);
-}
-
-.reels-page .rail .is-liked .ic svg {
-  animation: heartPop .4s ease;
-}
-
-.reels-page .rail .is-saved {
-  color: #2dd4bf;
-}
-
-.reels-page .rail .is-saved .ic {
-  background: rgba(20, 184, 166, .22);
-  border-color: rgba(20, 184, 166, .5);
-}
-
-.reels-page .rail button:focus-visible .ic,
-.reels-page .rail a:focus-visible .ic {
-  outline: 2px solid #2dd4bf;
-  outline-offset: 2px;
-}
-
-/* Center play/pause badge */
-.reels-page .play-badge {
-  z-index: 5;
-  pointer-events: none;
-  transition: opacity .3s ease, transform .3s ease;
-}
-
-.reels-page .play-badge.is-playing {
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(1.4);
-}
-
-/* Ken Burns "live tour" motion on the active photo */
-@keyframes reelKenBurns {
-  from {
-    transform: scale(1.02) translate(0, 0);
-  }
-
-  to {
-    transform: scale(1.14) translate(-1.5%, -1.5%);
-  }
-}
-
-/* Double-tap heart burst */
-.reels-page .reel-heart-burst {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 6;
-  transform: translate(-50%, -50%);
-  color: #f43f5e;
-  pointer-events: none;
-  filter: drop-shadow(0 8px 24px rgba(244, 63, 94, .5));
-  animation: reelBurst .8s cubic-bezier(.2, .8, .2, 1) forwards;
-}
-
-@keyframes reelBurst {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(.3) rotate(-12deg);
-  }
-
-  25% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.1) rotate(6deg);
-  }
-
-  55% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(.95) rotate(0);
-  }
-
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1.3);
-  }
-}
-
-/* Top overlay: progress + brand + intent filters */
-.reels-page .reels-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 7;
-  padding: 10px 14px 18px;
-  background: linear-gradient(180deg, rgba(10, 8, 24, .75), rgba(10, 8, 24, 0));
-  pointer-events: none;
-}
-
-.reels-page .reels-top>* {
-  pointer-events: auto;
-}
-
-.reels-page .reels-progress {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.reels-page .reels-seg {
-  flex: 1;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .28);
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.reels-page .reels-seg-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #2dd4bf, #14b8a6);
-  transition: width .12s linear;
-}
-
-.reels-page .reels-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.reels-page .reels-brand {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #fff;
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.reels-page .reels-hint {
-  font-size: 10.5px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, .62);
-}
-
-@media (max-width: 639px) {
-  .reels-page .reels-hint {
-    display: none;
-  }
-}
-
-.reels-page .reels-filters {
-  display: flex;
-  gap: 6px;
-}
-
-.reels-page .reels-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, .82);
-  background: rgba(255, 255, 255, .1);
-  border: 1px solid rgba(255, 255, 255, .14);
-  backdrop-filter: blur(6px);
-  cursor: pointer;
-  transition: all .2s ease;
-}
-
-.reels-page .reels-chip:hover {
-  background: rgba(255, 255, 255, .18);
-}
-
-.reels-page .reels-chip.is-on {
-  color: #fff;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
-  border-color: transparent;
-  box-shadow: 0 6px 18px rgba(20, 184, 166, .35);
-}
-
-.reels-page .reels-chip:focus-visible {
-  outline: 2px solid #2dd4bf;
-  outline-offset: 2px;
-}
-
-/* Bottom info chrome */
-.reels-page .reels-badge {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-
-.reels-page .reels-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  padding: 2px 8px;
-  border-radius: 6px;
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, .14);
-  border: 1px solid rgba(255, 255, 255, .16);
-}
-
-.reels-page .reels-cta-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.reels-page .reels-cta {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  font-weight: 700;
-  transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
-}
-
-.reels-page .reels-cta--primary {
-  color: #fff;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
-  box-shadow: 0 10px 26px rgba(20, 184, 166, .32);
-}
-
-.reels-page .reels-cta--primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 32px rgba(20, 184, 166, .45);
-}
-
-.reels-page .reels-cta--ghost {
-  color: #fff;
-  background: rgba(255, 255, 255, .12);
-  border: 1px solid rgba(255, 255, 255, .24);
-  backdrop-filter: blur(6px);
-}
-
-.reels-page .reels-cta--ghost:hover {
-  background: rgba(255, 255, 255, .2);
-  transform: translateY(-2px);
-}
-
-.reels-page .reels-cta:focus-visible {
-  outline: 2px solid #2dd4bf;
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .reels-page .reel-slide-img.is-live {
-    animation: none;
-  }
-
-  .reels-page .reel-heart-burst {
-    animation-duration: .01ms;
-  }
-}
-
+/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
 /* Saved properties page */
 .saved-page .property-card {
   background: rgba(255, 255, 255, 0.04);
@@ -5754,7 +5019,7 @@ label.lbl {
   color: #5eead4;
 }
 
-/* Property-detail section tabs — left-aligned underline style */
+/* Property-detail section tabs â€” left-aligned underline style */
 .pn-detail-tab {
   display: inline-flex;
   align-items: center;
@@ -5779,7 +5044,7 @@ label.lbl {
   border-bottom-color: var(--teal-2);
 }
 
-/* Option info tooltips (<Tip/>) — hover/focus/tap a tile to learn what it means */
+/* Option info tooltips (<Tip/>) â€” hover/focus/tap a tile to learn what it means */
 [data-tip] {
   cursor: help;
 }
@@ -5896,496 +5161,9 @@ label.lbl {
   color: #5eead4;
 }
 
-/* Listings map — dark popup content (rendered inside Google InfoWindow). */
-/* Property tile popup: a full-bleed compact clone of the standard Card tile. */
-.pn-mp-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--brand-card);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  overflow: hidden;
-  color: #fff;
-  text-decoration: none;
-}
-
-.pn-mp-media {
-  position: relative;
-  height: 122px;
-  flex: none;
-}
-
-.pn-mp-media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.pn-mp-deal {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 9px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.pn-mp-deal.is-rent {
-  background: rgba(13, 148, 136, 0.6);
-  color: #ccfbf1;
-}
-
-.pn-mp-deal.is-sale {
-  background: rgba(5, 150, 105, 0.6);
-  color: #d1fae5;
-}
-
-.pn-mp-verified {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: rgba(13, 148, 136, 0.92);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-}
-
-.pn-mp-verified svg {
-  width: 14px;
-  height: 14px;
-}
-
-.pn-mp-body {
-  flex: 1 1 auto;
-  padding: 10px 12px 11px;
-}
-
-.pn-mp-title {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #e5e7eb;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-mp-price {
-  margin-top: 3px;
-  font-size: 16px;
-  font-weight: 800;
-  color: #fff;
-  line-height: 1.05;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-}
-
-.pn-mp-price span {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0;
-}
-
-.pn-mp-loc {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 5px;
-  font-size: 11px;
-  color: #9ca3af;
-}
-
-.pn-mp-loc svg {
-  width: 12px;
-  height: 12px;
-  color: var(--teal-3);
-  flex-shrink: 0;
-}
-
-.pn-mp-facts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px 10px;
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.pn-mp-fact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.pn-mp-fact>svg {
-  width: 14px;
-  height: 14px;
-  color: var(--teal-3);
-  flex-shrink: 0;
-}
-
-.pn-mp-fact>div {
-  min-width: 0;
-  line-height: 1.15;
-}
-
-.pn-mp-fact b {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  color: #e5e7eb;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-mp-fact span {
-  display: block;
-  font-size: 9px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.pn-mp-amen {
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.pn-mp-amen-hd {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-
-.pn-mp-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.pn-mp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(13, 148, 136, 0.12);
-  border: 1px solid rgba(13, 148, 136, 0.28);
-  font-size: 10px;
-  font-weight: 600;
-  color: #ccfbf1;
-}
-
-.pn-mp-chip svg {
-  width: 11px;
-  height: 11px;
-  color: var(--teal-3);
-}
-
-.pn-mp-chip.is-more {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #9ca3af;
-}
-
-.pn-mp-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 10px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--teal-3);
-}
-
-.pn-mp-cta svg {
-  width: 13px;
-  height: 13px;
-  transition: transform 0.2s ease;
-}
-
-.pn-mp-card:hover .pn-mp-cta svg {
-  transform: translateX(3px);
-}
-
-/* Share-flat map: per-locality posting preview popup (dark, actionable). */
-.pn-sp {
-  padding: 0;
-}
-
-.pn-sp-head {
-  padding: 11px 13px 9px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.pn-sp-title {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #fff;
-  line-height: 1.25;
-}
-
-.pn-sp-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.pn-sp-list {
-  max-height: 306px;
-  overflow-y: auto;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.pn-sp-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.pn-sp-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-
-.pn-sp-row {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 11px;
-  padding: 7px;
-}
-
-.pn-sp-rowmain {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-}
-
-.pn-sp-thumb {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.pn-sp-av {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.pn-sp-av svg {
-  width: 16px;
-  height: 16px;
-}
-
-.pn-sp-rowinfo {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.pn-sp-rowtitle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #f1f5f9;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-sp-vtick {
-  width: 12px;
-  height: 12px;
-  color: var(--teal-3);
-  flex-shrink: 0;
-}
-
-.pn-sp-rowmeta {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 1px;
-}
-
-.pn-sp-chev {
-  width: 15px;
-  height: 15px;
-  color: #64748b;
-  flex-shrink: 0;
-  transition: transform 0.2s ease, color 0.2s ease;
-}
-
-.pn-sp-rowmain:hover .pn-sp-chev {
-  transform: translateX(2px);
-  color: var(--teal-3);
-}
-
-.pn-sp-rowact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.pn-sp-cta {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  background: #0d9488;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.pn-sp-cta:hover {
-  background: #0f766e;
-}
-
-.pn-sp-cta svg {
-  width: 13px;
-  height: 13px;
-}
-
-.pn-sp-cta.is-done {
-  background: rgba(16, 185, 129, 0.14);
-  color: #6ee7b7;
-  cursor: default;
-}
-
-.pn-sp-cta.is-off {
-  background: rgba(255, 255, 255, 0.06);
-  color: #94a3b8;
-  cursor: not-allowed;
-}
-
-.pn-sp-save {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.pn-sp-save:hover {
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.pn-sp-save svg {
-  width: 14px;
-  height: 14px;
-}
-
-.pn-sp-save.is-saved {
-  color: var(--teal-3);
-  border-color: rgba(45, 212, 191, 0.35);
-}
-
-.pn-sp-save.is-saved svg {
-  fill: currentColor;
-}
-
-.pn-sp-all {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 100%;
-  padding: 9px;
-  background: rgba(255, 255, 255, 0.02);
-  border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  color: var(--teal-3);
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.pn-sp-all:hover {
-  background: rgba(20, 184, 166, 0.08);
-}
-
-.pn-sp-all svg {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.2s ease;
-}
-
-.pn-sp-all:hover svg {
-  transform: translateX(3px);
-}
-
-/* Highlight the target card after "go to posting" jumps from the map. */
-@keyframes sf-flash-kf {
-
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0);
-  }
-
-  15% {
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.55);
-  }
-}
-
-.sf-flash {
-  animation: sf-flash-kf 1.6s ease-out;
-  border-radius: 16px;
-}
-
-/* Google Maps display (PropertyMap / ShareMap). AdvancedMarkers reuse the same
+/* â†’ moved to styles/routes/property-map.css (loaded with its route chunk) */
+/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* Google Maps display (PropertyMap / FlatmateMap). AdvancedMarkers reuse the same
    .price-marker / .map-pin DOM as the old Leaflet divIcons, so their styling is
    already covered above. These rules strip Google's default InfoWindow chrome so
    our dark popup cards fill it edge-to-edge (headerDisabled removes the X + header). */
@@ -6438,839 +5216,7 @@ label.lbl {
   border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
 
-/* Messages — two-pane property chat (ported verbatim from chat.js) */
-.pc-wrap {
-  display: flex;
-  height: 100%;
-  background: #0e0c1a;
-  border-radius: 20px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .07);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
-  font-family: 'Inter', sans-serif;
-}
-
-.pc-list {
-  width: 340px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: rgba(255, 255, 255, .015);
-  border-right: 1px solid rgba(255, 255, 255, .06);
-}
-
-.pc-list-head {
-  padding: 18px 16px 12px;
-}
-
-.pc-list-head h2 {
-  font-size: 18px;
-  font-weight: 800;
-  color: #fff;
-  margin-bottom: 12px;
-  letter-spacing: -.01em;
-}
-
-.pc-tabs {
-  display: flex;
-  gap: 6px;
-  background: rgba(255, 255, 255, .04);
-  padding: 4px;
-  border-radius: 12px;
-}
-
-.pc-tab {
-  flex: 1;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 7px 0;
-  border-radius: 9px;
-  color: #94a3b8;
-  transition: all .2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-}
-
-.pc-tab.active {
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(20, 184, 166, .3);
-}
-
-.pc-reqbadge {
-  background: #f43f5e;
-  color: #fff;
-  font-size: 10px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-
-.pc-search {
-  margin-top: 12px;
-  position: relative;
-}
-
-.pc-search input {
-  width: 100%;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 11px;
-  padding: 9px 12px 9px 34px;
-  color: #fff;
-  font-size: 13px;
-  outline: none;
-  transition: all .2s;
-}
-
-.pc-search input:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-}
-
-.pc-search svg {
-  position: absolute;
-  left: 11px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #64748b;
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-}
-
-.pc-convs {
-  flex: 1;
-  overflow-y: auto;
-  padding: 6px 8px 12px;
-}
-
-.pc-conv {
-  width: 100%;
-  display: flex;
-  gap: 12px;
-  padding: 10px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: all .18s;
-  margin-bottom: 2px;
-  background: transparent;
-}
-
-.pc-conv:hover {
-  background: rgba(255, 255, 255, .04);
-}
-
-.pc-conv.active {
-  background: linear-gradient(135deg, rgba(20, 184, 166, .13), rgba(13, 148, 136, .1));
-  border-color: rgba(20, 184, 166, .3);
-}
-
-.pc-conv-av {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.pc-conv-av img {
-  width: 50px;
-  height: 50px;
-  border-radius: 14px;
-  object-fit: cover;
-}
-
-.pc-conv-badge {
-  position: absolute;
-  bottom: -5px;
-  right: -5px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--brand-gradient);
-  border: 2.5px solid #0e0c1a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 800;
-  color: #fff;
-}
-
-.pc-conv-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.pc-conv-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.pc-conv-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pc-conv-time {
-  font-size: 10px;
-  color: #64748b;
-  flex-shrink: 0;
-}
-
-.pc-conv-prop {
-  font-size: 11px;
-  color: #2dd4bf;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 1px;
-}
-
-.pc-conv-bot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.pc-conv-last {
-  font-size: 12px;
-  color: #7c8499;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pc-unread {
-  flex-shrink: 0;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--teal-2);
-  color: #04221d;
-  font-size: 10px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-}
-
-.pc-pill {
-  flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 999px;
-}
-
-.pc-pill.req {
-  background: rgba(244, 63, 94, .15);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, .25);
-}
-
-.pc-pill.pend {
-  background: rgba(245, 158, 11, .15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, .25);
-}
-
-.pc-empty-list {
-  text-align: center;
-  padding: 50px 16px;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.pc-thread {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: radial-gradient(120% 80% at 50% 0, rgba(79, 70, 229, .06), transparent 60%), #0b0a14;
-}
-
-.pc-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 32px;
-}
-
-.pc-empty .ic {
-  width: 72px;
-  height: 72px;
-  border-radius: 22px;
-  background: linear-gradient(135deg, rgba(20, 184, 166, .15), rgba(79, 70, 229, .12));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-}
-
-.pc-empty h3 {
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
-}
-
-.pc-empty p {
-  color: #64748b;
-  font-size: 13px;
-  margin-top: 6px;
-  max-width: 280px;
-}
-
-.pc-chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.pc-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: rgba(15, 13, 26, .6);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
-}
-
-.pc-back {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  color: #cbd5e1;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-}
-
-.pc-back:hover {
-  background: rgba(255, 255, 255, .06);
-}
-
-.pc-head-av {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.pc-head-av img {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  object-fit: cover;
-}
-
-.pc-online {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #22c55e;
-  border: 2.5px solid #0b0a14;
-}
-
-.pc-online.off {
-  background: #64748b;
-}
-
-.pc-head-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.pc-head-name {
-  font-size: 14.5px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.pc-head-name span {
-  font-weight: 400;
-  color: #7c8499;
-  font-size: 12px;
-}
-
-.pc-head-sub {
-  font-size: 11px;
-  color: #22c55e;
-  margin-top: 1px;
-}
-
-.pc-head-sub.off {
-  color: #64748b;
-}
-
-.pc-head-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.pc-hbtn {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all .2s;
-  text-decoration: none;
-}
-
-.pc-hbtn:hover {
-  background: rgba(255, 255, 255, .06);
-  color: #2dd4bf;
-}
-
-.pc-propchip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 14px 0;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .07);
-  border-radius: 14px;
-}
-
-.pc-propchip img {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  object-fit: cover;
-}
-
-.pc-propchip .t {
-  flex: 1;
-  min-width: 0;
-}
-
-.pc-propchip .t p:first-child {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pc-propchip .t p:last-child {
-  font-size: 11px;
-  color: #7c8499;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pc-propchip a {
-  font-size: 11px;
-  font-weight: 600;
-  color: #2dd4bf;
-  padding: 6px 10px;
-  border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, .1);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.pc-propchip a:hover {
-  background: rgba(255, 255, 255, .05);
-}
-
-.pc-msgs {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 18px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.pc-divider {
-  align-self: center;
-  font-size: 10.5px;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, .05);
-  padding: 4px 12px;
-  border-radius: 999px;
-  margin: 8px 0;
-}
-
-.pc-row {
-  display: flex;
-  flex-direction: column;
-  margin-top: 5px;
-  animation: pcIn .28s cubic-bezier(.22, 1, .36, 1);
-}
-
-.pc-row.me {
-  align-items: flex-end;
-}
-
-.pc-row.them {
-  align-items: flex-start;
-}
-
-@keyframes pcIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.pc-bubble {
-  max-width: 74%;
-  padding: 9px 13px;
-  font-size: 13.5px;
-  line-height: 1.5;
-  position: relative;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
-}
-
-.pc-bubble.me {
-  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  color: #fff;
-  border-radius: 18px 18px 5px 18px;
-}
-
-.pc-bubble.them {
-  background: #1b1830;
-  color: #e7e9f0;
-  border: 1px solid rgba(255, 255, 255, .06);
-  border-radius: 18px 18px 18px 5px;
-}
-
-.pc-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  justify-content: flex-end;
-  margin-top: 3px;
-  font-size: 10px;
-  opacity: .7;
-}
-
-.pc-meta .tick {
-  display: inline-flex;
-}
-
-.pc-card {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.pc-card .ci {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.pc-sys {
-  align-self: center;
-  font-size: 11px;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, .05);
-  padding: 5px 13px;
-  border-radius: 999px;
-  margin: 6px 0;
-}
-
-.pc-typing {
-  align-self: flex-start;
-  background: #1b1830;
-  border: 1px solid rgba(255, 255, 255, .06);
-  border-radius: 18px 18px 18px 5px;
-  padding: 11px 14px;
-  margin-top: 5px;
-  display: flex;
-  gap: 4px;
-}
-
-.pc-typing span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #7c8499;
-  animation: pcBounce 1.2s infinite;
-}
-
-.pc-typing span:nth-child(2) {
-  animation-delay: .18s;
-}
-
-.pc-typing span:nth-child(3) {
-  animation-delay: .36s;
-}
-
-@keyframes pcBounce {
-
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: .5;
-  }
-
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
-  }
-}
-
-.pc-actions {
-  margin: 0 14px 14px;
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 16px;
-  padding: 14px;
-  text-align: center;
-}
-
-.pc-actions p {
-  color: #cbd5e1;
-  font-size: 13px;
-}
-
-.pc-actions .sub {
-  color: #7c8499;
-  font-size: 11.5px;
-  margin: 2px 0 12px;
-}
-
-.pc-actions .btns {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-}
-
-.pc-btn {
-  padding: 9px 16px;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, .1);
-  color: #cbd5e1;
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pc-btn:hover {
-  background: rgba(255, 255, 255, .05);
-}
-
-.pc-btn.primary {
-  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  border-color: transparent;
-  color: #fff;
-}
-
-.pc-btn.primary:hover {
-  filter: brightness(1.08);
-}
-
-.pc-wait {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: center;
-  color: #fbbf24;
-  font-size: 13px;
-  background: rgba(245, 158, 11, .08);
-  border: 1px solid rgba(245, 158, 11, .2);
-  border-radius: 14px;
-  padding: 13px;
-  margin: 0 14px 14px;
-}
-
-.pc-quick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 10px 14px 0;
-}
-
-.pc-quick-chip {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 999px;
-  padding: 7px 13px;
-  cursor: pointer;
-  transition: all .18s;
-}
-
-.pc-quick-chip:hover {
-  background: rgba(20, 184, 166, .12);
-  border-color: rgba(20, 184, 166, .4);
-  color: #5eead4;
-}
-
-.pc-composer {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid rgba(255, 255, 255, .06);
-  background: rgba(15, 13, 26, .5);
-}
-
-.pc-input {
-  flex: 1;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 999px;
-  padding: 11px 18px;
-  color: #fff;
-  font-size: 13.5px;
-  outline: none;
-  transition: all .2s;
-}
-
-.pc-input:focus {
-  border-color: var(--teal-2);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-}
-
-.pc-icon-btn {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #94a3b8;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all .2s;
-  background: transparent;
-  border: none;
-}
-
-.pc-icon-btn:hover {
-  background: rgba(255, 255, 255, .06);
-  color: #2dd4bf;
-}
-
-.pc-send {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--teal-2), var(--teal-1));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all .2s;
-  box-shadow: 0 6px 18px rgba(20, 184, 166, .35);
-  border: none;
-}
-
-.pc-send:hover {
-  transform: translateY(-1px) scale(1.04);
-}
-
-.pc-attach-pop {
-  position: absolute;
-  bottom: 62px;
-  left: 12px;
-  width: 240px;
-  background: #15122a;
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 14px;
-  padding: 6px;
-  z-index: 30;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
-  animation: pcIn .18s ease;
-}
-
-.pc-attach-pop button {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-  color: #e7e9f0;
-  background: transparent;
-  cursor: pointer;
-  border: none;
-}
-
-.pc-attach-pop button:hover {
-  background: rgba(255, 255, 255, .06);
-}
-
-.pc-wrap.is-narrow .pc-list {
-  width: 100%;
-}
-
-.pc-wrap.is-narrow .pc-thread {
-  display: none;
-}
-
-.pc-wrap.is-narrow.show-thread .pc-list {
-  display: none;
-}
-
-.pc-wrap.is-narrow.show-thread .pc-thread {
-  display: flex;
-}
-
-.pc-wrap.is-narrow .pc-back {
-  display: flex;
-}
-
+/* â†’ moved to styles/routes/messages.css (loaded with its route chunk) */
 /* Mobile: Messages is a native, full-screen chat. Drop the marketing footer +
    floating assistant, run the inbox edge-to-edge, and fill the viewport below the
    navbar so the composer pins to the screen bottom. Desktop is untouched. */
@@ -7299,7 +5245,7 @@ label.lbl {
   }
 
   .messages-page .pc-wrap {
-    height: calc(100dvh - 64px) !important;
+    height: calc(100dvh - var(--pn-nav-h)) !important;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
@@ -7312,71 +5258,8 @@ label.lbl {
   }
 }
 
-/* Share-a-flat (scoped) */
-.sf-page .field {
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .12);
-  color: #fff;
-}
-
-.sf-page .field:focus {
-  outline: none;
-  border-color: var(--teal-2);
-}
-
-.sf-page .btn-ghost {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  transition: all .25s ease;
-}
-
-.sf-page .btn-ghost:hover {
-  border-color: rgba(20, 184, 166, .4);
-  color: #fff;
-}
-
-.sf-page .sf-card {
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .07);
-  transition: all .25s ease;
-}
-
-.sf-page .sf-card:hover {
-  border-color: rgba(20, 184, 166, .25);
-  background: rgba(255, 255, 255, .06);
-  transform: translateY(-2px);
-}
-
-.sf-page .chip {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-}
-
-.sf-page .badge-seeker {
-  background: var(--brand-gradient);
-}
-
-.sf-page .pick {
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .12);
-  transition: all .2s ease;
-  cursor: pointer;
-  user-select: none;
-}
-
-.sf-page .pick.active {
-  background: rgba(20, 184, 166, .18);
-  border-color: var(--teal-2);
-  color: #5eead4;
-}
-
-.sf-page .save-btn.saved {
-  color: #fb7185;
-  border-color: rgba(251, 113, 133, .4);
-  background: rgba(251, 113, 133, .12);
-}
-
-/* List | Map segmented control — height matches the search field (h-10). Inner
+/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* List | Map segmented control â€” height matches the search field (h-10). Inner
    buttons are rounded-full and inset by 4px so their corners are concentric with
    the container's, eliminating the corner-collision of the old pill-in-pill. */
 .sf-page .sf-seg {
@@ -7495,10 +5378,29 @@ label.lbl {
   background: rgba(255, 255, 255, .05);
 }
 
-/* Modal panel — solid dark bg so content is always readable over any page */
+/* Modal panel â€” solid dark bg so content is always readable over any page */
 .pn-modal-panel {
   background: #1a1730;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+/* Sheet affordance for the shared <Modal> component below 640px. The layout
+   itself is handled by base/`sm:` Tailwind classes in Modal.jsx; this only adds
+   the grab handle and the slide-up, both of which are mobile-only. */
+@media (max-width: 639.98px) {
+  .pn-modal-sheet {
+    animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .pn-modal-sheet::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 0.25rem;
+    margin: 0.5rem auto 0;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.18);
+  }
 }
 
 /* ============================================================================
@@ -7506,6 +5408,12 @@ label.lbl {
    Essential transitions (opacity for reveal, focus rings) are preserved.
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
+
+  /* Sheets: keep the position change, drop the slide-up */
+  .pn-modal,
+  .pn-modal-sheet {
+    animation: none;
+  }
 
   /* Hero */
   .hero-bg {
@@ -7560,7 +5468,7 @@ label.lbl {
     animation: none;
   }
 
-  /* Scroll reveal — show immediately */
+  /* Scroll reveal â€” show immediately */
   .reveal {
     opacity: 1;
     transform: none;
@@ -7578,13 +5486,13 @@ label.lbl {
     animation: none;
   }
 
-  /* General transitions — keep colors but disable motion */
+  /* General transitions â€” keep colors but disable motion */
   .t-all {
     transition: color 0.2s, background-color 0.2s, border-color 0.2s;
   }
 }
 
-/* User-toggled "Reduce motion" (Settings ▸ Appearance). Mirrors the OS-level
+/* User-toggled "Reduce motion" (Settings â–¸ Appearance). Mirrors the OS-level
    reduced-motion rules above so users can opt in regardless of system settings. */
 html.pn-reduce-motion .hero-bg,
 html.pn-reduce-motion .shape,
@@ -7637,7 +5545,7 @@ html.pn-reduce-motion .list-reveal {
    View Transitions (React Router v7 + browser View Transition API)
    ============================================================================ */
 
-/* Default cross-fade for route changes — fast and subtle */
+/* Default cross-fade for route changes â€” fast and subtle */
 ::view-transition-old(root) {
   animation: 150ms ease-out both fade-out;
 }
@@ -7658,7 +5566,7 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* Shared element morph: property card image → property hero image.
+/* Shared element morph: property card image â†’ property hero image.
    The browser automatically morphs elements with matching view-transition-name. */
 ::view-transition-old(property-hero-*),
 ::view-transition-new(property-hero-*) {
@@ -7680,7 +5588,7 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* ===== Map detail drawer (stay-on-map master–detail) ===== */
+/* ===== Map detail drawer (stay-on-map masterâ€“detail) ===== */
 .pn-mdp {
   position: fixed;
   z-index: 150;
@@ -7914,10 +5822,6 @@ html.pn-reduce-motion .list-reveal {
 
 .pn-mdp-heart.is-on {
   background: rgba(244, 63, 94, 0.9);
-}
-
-.pn-mdp-heart.is-on svg {
-  fill: currentColor;
 }
 
 .pn-mdp-nav {
@@ -8329,10 +6233,10 @@ html.pn-reduce-motion .list-reveal {
   /* 1.25 -> 1.0  */
 }
 
-/* ── Mobile: prevent focus auto-zoom on inputs ──
+/* â”€â”€ Mobile: prevent focus auto-zoom on inputs â”€â”€
    Touch browsers (Chrome Android, iOS Safari) zoom into any editable field whose
    computed font-size is < 16px on focus, forcing the user to pinch back out. Our
-   controls run 13–14px, so on coarse-pointer devices we lift editable fields to
+   controls run 13â€“14px, so on coarse-pointer devices we lift editable fields to
    16px. Scoped to (pointer: coarse) so the desktop design is untouched; !important
    is needed to beat the class-scoped rules (.pc-input, .pc-search input, etc.). */
 @media (pointer: coarse) {
@@ -8341,5 +6245,88 @@ html.pn-reduce-motion .list-reveal {
   select,
   textarea {
     font-size: 16px !important;
+  }
+}
+/* ============================================================================
+   Mobile bottom-chrome consumers (see the --pn-bottom-inset block near the top).
+   ============================================================================ */
+
+/* Autosave "Draft saved" flash (lib/hooks.js flashDraftSaved).
+
+   It is created with document.body.appendChild, and --pn-bottom-inset is expanded
+   by `.has-bottom-nav` on ConsumerLayout's wrapper â€” not on <body> â€” so a body-level
+   child reads the :root value (the bare safe-area inset) and knows nothing about the
+   tab bar. It therefore sat at bottom:16px, directly on top of the floating capsule,
+   at an undocumented z-index:2000 that put a transient status pill above every modal
+   in the app.
+
+   Both halves are fixed here rather than in JS: z-index joins the documented ladder
+   just above the tab bar (70) and below sheets (1000) â€” it reports state, it does not
+   need to outrank a dialog â€” and the offset is rebuilt from the same two tokens the
+   bar itself uses, guarded by the bar's own breakpoint so desktop is untouched. */
+.pn-autosave-flash {
+  position: fixed;
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  bottom: calc(var(--pn-safe-b) + 16px);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+  border-radius: 10px;
+  background: rgba(15, 13, 26, 0.92);
+  backdrop-filter: blur(8px);
+  color: #5eead4;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.pn-autosave-flash__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #14b8a6;
+}
+
+.pn-autosave-flash.is-on {
+  opacity: 1;
+}
+
+/* Below lg the tab bar owns the bottom edge, so clear it. Every route that
+   autosaves a form mounts the bar; the two that do not (messages, auth) pin their
+   own control to that edge, which this clears just the same. */
+@media (max-width: 1023.98px) {
+  .pn-autosave-flash {
+    bottom: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset) + 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-autosave-flash {
+    transition: none;
+  }
+}
+
+/* Home hero search: the "add area" chip on a suggestion row only reads as an ADD
+   affordance once it fills teal on hover â€” which never fires on touch, so phone users
+   can't tell a row adds an area rather than replacing the search until after the tap.
+   Give it the filled treatment permanently where hover doesn't exist. */
+@media (hover: none) {
+  .loc-sugg .add {
+    background: var(--teal-2);
+    color: #04221d;
+  }
+}
+
+/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px â€”
+   under the touch minimum â€” and redundant next to native swipe + the HScroll fade.
+   Remove them on coarse pointers rather than growing them. */
+@media (pointer: coarse) {
+  .hscroll-arrow {
+    display: none;
   }
 }

@@ -1,0 +1,231 @@
+/* property-map — split out of styles/index.css so it ships with its own
+   route chunk instead of blocking first paint on every page.
+   Property map InfoWindow popups. Loaded with whichever chunk pulls in
+   components/property/PropertyMap.jsx. */
+
+/* Listings map — dark popup content (rendered inside Google InfoWindow). */
+/* Property tile popup: a full-bleed compact clone of the standard Card tile. */
+.pn-mp-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--brand-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  color: #fff;
+  text-decoration: none;
+}
+
+.pn-mp-media {
+  position: relative;
+  height: 122px;
+  flex: none;
+}
+
+.pn-mp-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pn-mp-deal {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pn-mp-deal.is-rent {
+  background: rgba(13, 148, 136, 0.6);
+  color: #ccfbf1;
+}
+
+.pn-mp-deal.is-sale {
+  background: rgba(5, 150, 105, 0.6);
+  color: #d1fae5;
+}
+
+.pn-mp-verified {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.pn-mp-verified svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pn-mp-body {
+  flex: 1 1 auto;
+  padding: 10px 12px 11px;
+}
+
+.pn-mp-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #e5e7eb;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pn-mp-price {
+  margin-top: 3px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-mp-price span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+.pn-mp-loc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.pn-mp-loc svg {
+  width: 12px;
+  height: 12px;
+  color: var(--teal-3);
+  flex-shrink: 0;
+}
+
+.pn-mp-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 10px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.pn-mp-fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pn-mp-fact>svg {
+  width: 14px;
+  height: 14px;
+  color: var(--teal-3);
+  flex-shrink: 0;
+}
+
+.pn-mp-fact>div {
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.pn-mp-fact b {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pn-mp-fact span {
+  display: block;
+  font-size: 9px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.pn-mp-amen {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.pn-mp-amen-hd {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.pn-mp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pn-mp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.12);
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  font-size: 10px;
+  font-weight: 600;
+  color: #ccfbf1;
+}
+
+.pn-mp-chip svg {
+  width: 11px;
+  height: 11px;
+  color: var(--teal-3);
+}
+
+.pn-mp-chip.is-more {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #9ca3af;
+}
+
+.pn-mp-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teal-3);
+}
+
+.pn-mp-cta svg {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.2s ease;
+}
+
+.pn-mp-card:hover .pn-mp-cta svg {
+  transform: translateX(3px);
+}

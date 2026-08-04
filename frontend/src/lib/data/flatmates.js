@@ -1,12 +1,9 @@
-import { rawDb, saveDb, mutateDb } from '../mockApi.js';
 import { digits as digitsOf, norm } from './identityNorm.js';
 
-const STORE_KEY = 'puneNestShareRequests';
-const GROUPS_KEY = 'puneNestShareGroups';
-const PREFS_KEY = 'puneNestSharePrefs';
+const STORE_KEY = 'puneNestFlatmatePosts';
+const GROUPS_KEY = 'puneNestFlatmateGroups';
 const VERIFIED_KEY = 'puneNestSeekerVerified';
-const INTERESTS_KEY = 'puneNestShareInterests';
-const SAVED_KEY = 'puneNestShareSaved';
+const INTERESTS_KEY = 'puneNestFlatmateInterests';
 
 const get = (k, def) => {
   try {
@@ -23,14 +20,37 @@ const set = (k, v) => {
   return v;
 };
 
-export const getShareRequests = () => get(STORE_KEY, []);
-export const saveShareRequest = (req) => {
-  const arr = getShareRequests();
+const NOTIFS_KEY = 'puneNestNotifications';
+const PENDING_REQ_KEY = 'pnPendingRequests';
+
+/* Every flatmate interaction (seeker interest, room enquiry, group join, split post)
+   ends by dropping a bell notification and a pending chat request. These two writers
+   are the single place that knows those storage shapes — previously the same
+   try/JSON.parse/push/setItem block was copy-pasted at seven call sites.
+   Failures are logged rather than swallowed: the caller shows a success toast, so a
+   silently-lost write means the user is told their message was sent when it wasn't. */
+export const pushNotification = (n) => {
+  try {
+    set(NOTIFS_KEY, [{ id: 'n' + Date.now(), unread: true, time: 'Just now', ...n }, ...get(NOTIFS_KEY, [])]);
+    return true;
+  } catch (e) { console.warn('[flatmates] notification write failed', e); return false; }
+};
+
+export const pushPendingRequest = (req) => {
+  try {
+    set(PENDING_REQ_KEY, [...get(PENDING_REQ_KEY, []), req]);
+    return true;
+  } catch (e) { console.warn('[flatmates] pending-request write failed', e); return false; }
+};
+
+export const getFlatmatePosts = () => get(STORE_KEY, []);
+export const saveFlatmatePost = (req) => {
+  const arr = getFlatmatePosts();
   arr.unshift(req);
   return set(STORE_KEY, arr);
 };
-export const updateShareRequest = (id, patch) => {
-  const arr = getShareRequests();
+export const updateFlatmatePost = (id, patch) => {
+  const arr = getFlatmatePosts();
   const idx = arr.findIndex((r) => r.id === id);
   if (idx >= 0) {
     arr[idx] = { ...arr[idx], ...patch };
@@ -39,22 +59,22 @@ export const updateShareRequest = (id, patch) => {
   }
   return null;
 };
-export const deleteShareRequest = (id) => {
-  const arr = getShareRequests().filter((r) => r.id !== id);
+export const deleteFlatmatePost = (id) => {
+  const arr = getFlatmatePosts().filter((r) => r.id !== id);
   set(STORE_KEY, arr);
 };
 
-// Flat-share groups. Mirrors the request seam above so created groups persist,
+// Flatmate groups. Mirrors the request seam above so created groups persist,
 // are owner-managed, and map cleanly onto a future API. Seed groups (rendered
 // from constants) stay out of storage; only user-created groups live here.
-export const getShareGroups = () => get(GROUPS_KEY, []);
-export const saveShareGroup = (group) => {
-  const arr = getShareGroups();
+export const getFlatmateGroups = () => get(GROUPS_KEY, []);
+export const saveFlatmateGroup = (group) => {
+  const arr = getFlatmateGroups();
   arr.unshift(group);
   return set(GROUPS_KEY, arr);
 };
-export const updateShareGroup = (id, patch) => {
-  const arr = getShareGroups();
+export const updateFlatmateGroup = (id, patch) => {
+  const arr = getFlatmateGroups();
   const idx = arr.findIndex((g) => g.id === id);
   if (idx >= 0) {
     arr[idx] = { ...arr[idx], ...patch };
@@ -63,16 +83,16 @@ export const updateShareGroup = (id, patch) => {
   }
   return null;
 };
-export const deleteShareGroup = (id) => {
-  const arr = getShareGroups().filter((g) => g.id !== id);
+export const deleteFlatmateGroup = (id) => {
+  const arr = getFlatmateGroups().filter((g) => g.id !== id);
   set(GROUPS_KEY, arr);
 };
 
 /* =========================================================================
-   Anti-broker guardrails. Trust is the product: cap how many live flat-shares
+   Anti-broker guardrails. Trust is the product: cap how many live flatmate posts
    one identity can host, and detect two people claiming the same physical flat.
    Rooms live in their own store (store.js `puneNestRoomListings`); we read that
-   key directly here to avoid a store.js <-> shareFlat.js import cycle.
+   key directly here to avoid a store.js <-> flatmates.js import cycle.
    ========================================================================= */
 const ROOMS_KEY = 'puneNestRoomListings';
 const getRoomsRaw = () => {
@@ -95,10 +115,10 @@ const roomSeatsOpen = (r) => (r && r.seatsOpen != null ? Math.max(0, r.seatsOpen
 const roomActive = (r) => r && r.status !== 'filled' && r.status !== 'closed' && roomSeatsOpen(r) > 0;
 
 // Live non-owner-tier shares hosted by this identity — the number the cap limits.
-export const countCappedActiveShares = (mobile) => {
+export const countCappedActiveFlatmatePosts = (mobile) => {
   const d = digitsOf(mobile);
   if (!d) return 0;
-  const g = getShareGroups().filter(
+  const g = getFlatmateGroups().filter(
     (x) => digitsOf(x.ownerMobile) === d && x.verificationTier !== 'owner' && groupSeatsOpen(x) > 0
   ).length;
   const r = getRoomsRaw().filter(
@@ -124,7 +144,7 @@ export const addressFingerprint = ({ propertyId, society, locality, title } = {}
 export const findAddressClaims = (fingerprint) => {
   if (!fingerprint) return [];
   const claims = [];
-  getShareGroups().forEach((g) => {
+  getFlatmateGroups().forEach((g) => {
     if (groupSeatsOpen(g) <= 0) return;
     if (addressFingerprint({ propertyId: g.propertyId, locality: g.locality, title: g.title }) === fingerprint)
       claims.push({ kind: 'group', id: g.id, mobile: digitsOf(g.ownerMobile), tier: g.verificationTier });
@@ -143,16 +163,16 @@ export const findAddressClaims = (fingerprint) => {
 // this address — fuzzy match, so flag-not-block to avoid false positives).
 export const evaluateHostEligibility = ({ mobile, tier, address } = {}) => {
   const d = digitsOf(mobile);
-  const capped = countCappedActiveShares(mobile);
+  const capped = countCappedActiveFlatmatePosts(mobile);
   const overCap = tier !== 'owner' && capped >= MAX_ACTIVE_HOST_SHARES;
   const fingerprint = addressFingerprint(address || {});
   const claims = findAddressClaims(fingerprint);
   const duplicate = claims.some((c) => c.mobile && c.mobile === d);
   const flagForReview = claims.some((c) => c.mobile && c.mobile !== d);
   const reason = overCap
-    ? `You already have ${MAX_ACTIVE_HOST_SHARES} live flat-shares. Fill or close one before posting another.`
+    ? `You already have ${MAX_ACTIVE_HOST_SHARES} live flatmate posts. Fill or close one before posting another.`
     : duplicate
-    ? 'You already have a live flat-share for this address.'
+    ? 'You already have a live flatmate for this address.'
     : '';
   return { fingerprint, overCap, duplicate, flagForReview, blocked: overCap || duplicate, reason };
 };
@@ -173,11 +193,6 @@ export const setSeekerVerified = (userKey) => {
    remembered if the tenant reopens the form. */
 const CONSENT_KEY = 'puneNestOwnerConsent';
 export const getOwnerConsents = () => get(CONSENT_KEY, {});
-export const hasOwnerConsent = (ownerMobile, byMobile) => {
-  const rec = getOwnerConsents()[digitsOf(ownerMobile)];
-  if (!rec) return false;
-  return byMobile ? digitsOf(rec.by) === digitsOf(byMobile) : true;
-};
 export const setOwnerConsent = (ownerMobile, byMobile) => {
   const map = getOwnerConsents();
   map[digitsOf(ownerMobile)] = { at: Date.now(), by: digitsOf(byMobile) };
@@ -188,7 +203,7 @@ export const setOwnerConsent = (ownerMobile, byMobile) => {
    self-declared, so tenant-tier posts (and any address a different host already
    claimed) land here for Ops to verify. Approve → the post shows Ops-verified;
    reject(+reason) → it shows the review failed. One review per group/room. */
-const REVIEW_KEY = 'puneNestShareReviews';
+const REVIEW_KEY = 'puneNestFlatmateReviews';
 // A tenant's uploaded agreement is the artifact Ops verifies. We keep only the
 // metadata + the inline data URL when it's small enough for localStorage; an
 // oversized file is recorded as present-but-not-stored so Ops can still ask for it.
@@ -205,11 +220,9 @@ const normalizeAgreementDoc = (doc) => {
     tooLarge,
   };
 };
-export const getShareReviews = () => get(REVIEW_KEY, []);
-export const getShareReviewFor = (targetId) =>
-  getShareReviews().find((r) => r.groupId === targetId || r.roomId === targetId) || null;
-export const enqueueShareReview = (rec) => {
-  const arr = getShareReviews();
+export const getFlatmateReviews = () => get(REVIEW_KEY, []);
+export const enqueueFlatmateReview = (rec) => {
+  const arr = getFlatmateReviews();
   const key = rec.groupId || rec.roomId;
   if (key && arr.some((r) => (r.groupId || r.roomId) === key)) return arr;
   const { agreementDoc, ...rest } = rec;
@@ -225,8 +238,8 @@ export const enqueueShareReview = (rec) => {
     return set(REVIEW_KEY, arr);
   }
 };
-export const decideShareReview = (id, status, reason) => {
-  const arr = getShareReviews();
+export const decideFlatmateReview = (id, status, reason) => {
+  const arr = getFlatmateReviews();
   const idx = arr.findIndex((r) => r.id === id);
   if (idx < 0) return null;
   arr[idx] = { ...arr[idx], status, reason: reason || '', updatedAt: Date.now() };
@@ -234,14 +247,14 @@ export const decideShareReview = (id, status, reason) => {
   return arr[idx];
 };
 // Map of targetId -> review status, for cards to render their moderation state.
-export const getShareReviewStatusMap = () => {
+export const getFlatmateReviewStatusMap = () => {
   const m = {};
-  getShareReviews().forEach((r) => { m[r.groupId || r.roomId] = r.status; });
+  getFlatmateReviews().forEach((r) => { m[r.groupId || r.roomId] = r.status; });
   return m;
 };
 
 export const getMyRequest = (userMobile, userName) => {
-  return getShareRequests().find((r) => {
+  return getFlatmatePosts().find((r) => {
     if (userMobile && r.mobile && r.mobile === userMobile) return true;
     if (userName && r.name && r.name.toLowerCase() === userName.toLowerCase()) return true;
     return false;
@@ -261,23 +274,23 @@ export const addInterest = (id) => {
 /* =========================================================================
    Host-facing incoming requests. The interest map above only lives on the
    SEEKER's device (it disables the button + fires a notification/chat). The
-   HOST of a flat-share post never saw who reached out. This seam records an
+   HOST of a flatmate post never saw who reached out. This seam records an
    incoming request keyed to the HOST's mobile (same per-owner keying idea as
    photoRequests.js / contact.js) so the host sees it in Dashboard → Requests.
    Maps cleanly onto a future API: one host inbox endpoint.
    ========================================================================= */
-const shareFlatReqKey = (ownerMobile) => 'puneNestShareFlatReq:' + (digitsOf(ownerMobile) || 'anon');
+const flatmateReqKey = (ownerMobile) => 'puneNestFlatmateReq:' + (digitsOf(ownerMobile) || 'anon');
 
-export const getShareFlatRequests = (ownerMobile) => get(shareFlatReqKey(ownerMobile), []);
+export const getFlatmateRequests = (ownerMobile) => get(flatmateReqKey(ownerMobile), []);
 
 /* kind: 'flatmate' | 'room' | 'group'. action: 'request' (needs host approval)
    or 'join' (open-policy group, already joined → informational). Deduped by
    requester + target so a repeat tap is a no-op. Returns 'anon' | 'duplicate' |
    the new record. */
-export const addShareFlatRequest = (ownerMobile, req = {}) => {
+export const addFlatmateRequest = (ownerMobile, req = {}) => {
   const host = digitsOf(ownerMobile);
   if (!host) return 'anon'; // can't route to a host — leave the notification/chat as-is
-  const arr = getShareFlatRequests(ownerMobile);
+  const arr = getFlatmateRequests(ownerMobile);
   const reqMob = digitsOf(req.requesterMobile);
   if (arr.some((r) => r.targetId === req.targetId && digitsOf(r.requesterMobile) === reqMob && reqMob)) {
     return 'duplicate';
@@ -287,7 +300,7 @@ export const addShareFlatRequest = (ownerMobile, req = {}) => {
     kind: req.kind || 'group',
     action: req.action || 'request',
     targetId: req.targetId || '',
-    targetTitle: req.targetTitle || 'Flat-share',
+    targetTitle: req.targetTitle || 'Flatmate',
     locality: req.locality || '',
     requesterName: req.requesterName || 'Someone',
     requesterMobile: req.requesterMobile || '',
@@ -295,18 +308,15 @@ export const addShareFlatRequest = (ownerMobile, req = {}) => {
     requestedAt: Date.now(),
   };
   arr.unshift(rec);
-  set(shareFlatReqKey(ownerMobile), arr);
+  set(flatmateReqKey(ownerMobile), arr);
   return rec;
 };
 
-export const decideShareFlatRequest = (ownerMobile, id, decision) => {
-  const arr = getShareFlatRequests(ownerMobile);
+export const decideFlatmateRequest = (ownerMobile, id, decision) => {
+  const arr = getFlatmateRequests(ownerMobile);
   const idx = arr.findIndex((r) => r.id === id);
   if (idx < 0) return null;
   arr[idx] = { ...arr[idx], status: decision, decidedAt: Date.now() };
-  set(shareFlatReqKey(ownerMobile), arr);
+  set(flatmateReqKey(ownerMobile), arr);
   return arr[idx];
 };
-
-export const shareFlatReqPendingCount = (ownerMobile) =>
-  getShareFlatRequests(ownerMobile).filter((r) => r.status === 'pending').length;

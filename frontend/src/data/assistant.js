@@ -160,9 +160,9 @@ export const KB = [
   {
     id: 'flatmate',
     keywords: ['flatmate', 'flatmates', 'roommate', 'share', 'sharing', 'pg', 'paying', 'guest', 'co-living', 'partner'],
-    q: 'Can I find a flatmate or share a flat?',
-    a: "Yes — use Share a flat to list a spare room or find a flatmate whose preferences match yours (budget, locality, habits). Great for splitting rent in Pune's IT hubs.",
-    actions: [{ label: 'Share a flat', to: '/share-flat', icon: 'users' }],
+    q: 'Can I find a flatmate or flatmates?',
+    a: "Yes — use Flatmates to list a spare room or find a flatmate whose preferences match yours (budget, locality, habits). Great for splitting rent in Pune's IT hubs.",
+    actions: [{ label: 'Flatmates', to: '/flatmates', icon: 'users' }],
   },
   {
     id: 'locality',

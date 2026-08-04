@@ -11,6 +11,15 @@ const USER_KEY = 'puneNestUser';
 
 export const digits = (num) => String(num || '').replace(/\D/g, '');
 
+/* A usable identity is a full 10-digit Indian mobile, and nothing else.
+   The API masks owner numbers to '98XXXXX210' (first two + last three, ADR contact
+   gate) and maskPhone() renders '+91 98••• •••10'. Stripping non-digits from either
+   yields a SHORT-but-plausible string ('98210', '9810'), which used to be accepted as
+   an identity — so every owner sharing a first-two/last-three prefix collapsed onto one
+   storage bucket and could read each other's contact requests. Length is the reliable
+   test: a mask can never produce 10 digits, so we never have to sniff for 'X' or '•'. */
+export const isFullMobile = (num) => digits(num).length === 10;
+
 export function maskPhone(num) {
   const d = digits(num);
   if (d.length < 4) return '+91 ••••• •••••';
@@ -35,30 +44,50 @@ export const myMobile = () => {
   return u ? digits(u.mobile) : '';
 };
 
-const contactKey = (ownerMobile) => 'puneNestContactReq:' + (digits(ownerMobile) || 'anon');
+/* The single place a mobile becomes a storage bucket. Returns null unless the number is a
+   full identity, so a masked or missing value can never name a bucket — two different
+   owners mask to the same short digit string, and every mobile-less session shares the
+   same empty one. Callers treat null as "identity unknown": read nothing, write nothing.
+   The legacy `|| 'anon'` fallback is deliberately gone; it WAS the shared bucket. */
+const mobileKey = (prefix, mobile) =>
+  isFullMobile(mobile) ? prefix + digits(mobile) : null;
+
+const contactKey = (ownerMobile) => mobileKey('puneNestContactReq:', ownerMobile);
 
 export function getContactReqs(ownerMobile) {
+  const key = contactKey(ownerMobile);
+  if (!key) return [];
   try {
-    return JSON.parse(localStorage.getItem(contactKey(ownerMobile))) || [];
+    return JSON.parse(localStorage.getItem(key)) || [];
   } catch {
     return [];
   }
 }
 
 export function saveContactReqs(ownerMobile, arr) {
-  localStorage.setItem(contactKey(ownerMobile), JSON.stringify(arr));
+  const key = contactKey(ownerMobile);
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(arr));
 }
 
+/* Identity check, so it demands a full mobile on BOTH sides. Given a masked owner number
+   this is false — the viewer is treated as a stranger, which keeps the number hidden.
+   That is the safe direction to fail: it never reveals, it can only under-reveal. */
 export const isOwnerViewer = (ownerMobile) => {
   const m = myMobile();
-  return !!m && m === digits(ownerMobile);
+  return isFullMobile(m) && isFullMobile(ownerMobile) && m === digits(ownerMobile);
 };
 
-// True when the given signed-in user carries the opt-in "Verified" identity badge.
-// Reads the same flag the DigiLocker/OTP verification writes ('puneNestAadhaar:<mobile>').
+/* True when the given signed-in user carries the opt-in "Verified" identity badge.
+   Reads the same flag the DigiLocker/OTP verification writes ('puneNestAadhaar:<mobile>').
+   A session without a full mobile (loginStaff stores `mobile: ''`) has no badge of its own,
+   and must NOT inherit one from a shared bucket — this grants a privilege, so it fails
+   closed: no identity means not verified. */
 function isViewerVerified(u) {
+  const key = mobileKey('puneNestAadhaar:', u && u.mobile);
+  if (!key) return false;
   try {
-    const v = JSON.parse(localStorage.getItem('puneNestAadhaar:' + (digits(u && u.mobile) || 'anon')));
+    const v = JSON.parse(localStorage.getItem(key));
     return !!(v && v.verified);
   } catch {
     return false;
@@ -85,6 +114,10 @@ export function contactStatus(ownerMobile, propId) {
 export function requestContact(ownerMobile, propId) {
   const u = readUser();
   if (!u) return 'login';
+  // No usable owner identity (e.g. the API returned a masked number and this domain is
+  // not yet server-backed) — refuse rather than write to a bucket we cannot address.
+  // Returning a distinct code keeps the UI honest instead of faking a sent request.
+  if (!isFullMobile(ownerMobile)) return 'unavailable';
   // Badge-not-gate (ADR-019): contact is L1-only — any signed-in user may enquire.
   // The ONLY exception is when the owner has opted into "accept verified contacts
   // only": an unverified requester is then asked to earn the Verified badge first.
@@ -119,19 +152,23 @@ export const pendingContactCount = (ownerMobile) =>
    their phone masked even AFTER they approve a contact request — approved buyers
    are routed to in-app chat / callback instead of the raw number. This is a real
    behavior on top of the always-on request gate, not a duplicate of it. */
-const ownerPrefsKey = (mobile) => 'pnOwnerPrefs:' + (digits(mobile) || 'anon');
+const ownerPrefsKey = (mobile) => mobileKey('pnOwnerPrefs:', mobile);
 export function getOwnerPrefsFor(mobile) {
+  const key = ownerPrefsKey(mobile);
+  if (!key) return {};
   try {
-    return JSON.parse(localStorage.getItem(ownerPrefsKey(mobile))) || {};
+    return JSON.parse(localStorage.getItem(key)) || {};
   } catch {
     return {};
   }
 }
 export const getOwnerPrefs = () => getOwnerPrefsFor(myMobile());
 export function setOwnerPrefs(patch) {
+  const key = ownerPrefsKey(myMobile());
+  if (!key) return getOwnerPrefs();
   const next = Object.assign({}, getOwnerPrefs(), patch);
-  localStorage.setItem(ownerPrefsKey(myMobile()), JSON.stringify(next));
-  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pn:store', { detail: { key: ownerPrefsKey(myMobile()) } }));
+  localStorage.setItem(key, JSON.stringify(next));
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pn:store', { detail: { key } }));
   return next;
 }
 // True when this owner has opted to keep their number masked from approved buyers.

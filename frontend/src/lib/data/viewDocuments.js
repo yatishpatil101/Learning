@@ -1,11 +1,16 @@
 /* ViewDocuments data helper — loads shared documents from the same localStorage
-   keys the HTML uses (puneNestDocs:owner, puneNestDocReq:owner). */
+   keys the HTML uses (puneNestDocs:owner, puneNestDocReq:owner).
+
+   Returns i18n keys rather than English copy: this module has no access to the
+   translator, and baking sentences in here would quietly create a second,
+   untranslated copy deck the locale gates can't see. The caller resolves them.
+   `sub` is `{ key, args }` so a count can be interpolated in any word order. */
 
 export function loadSharedDocuments(owner, reqId, propId, singleDocId) {
   try {
     const docsStore = JSON.parse(localStorage.getItem('puneNestDocs:' + owner)) || {};
     const shared = [];
-    let sub = '';
+    let sub = null;
     let errorState = null;
 
     if (reqId) {
@@ -13,9 +18,9 @@ export function loadSharedDocuments(owner, reqId, propId, singleDocId) {
       const req = reqs.find((r) => r.id === reqId);
       if (!req || req.status !== 'granted') {
         errorState = {
-          title: 'Access not available',
-          text: 'This share link is no longer active or access has been revoked by the owner.',
-          sub: 'Access unavailable',
+          titleKey: 'viewDocs.errRevokedTitle',
+          textKey: 'viewDocs.errRevokedText',
+          subKey: 'viewDocs.errRevokedSub',
         };
         return { shared, sub, errorState };
       }
@@ -32,33 +37,33 @@ export function loadSharedDocuments(owner, reqId, propId, singleDocId) {
       if (sharedDocs.length === 0) {
         // Access was approved, but the owner hasn't uploaded the actual files yet.
         errorState = {
-          title: 'Documents not uploaded yet',
-          text: 'The owner approved your request but hasn’t uploaded these documents yet. Please check back shortly.',
-          sub: 'Approved — awaiting upload',
+          titleKey: 'viewDocs.errPendingTitle',
+          textKey: 'viewDocs.errPendingText',
+          subKey: 'viewDocs.errPendingSub',
         };
         return { shared, sub, errorState };
       }
-      return { shared: sharedDocs, sub: sharedDocs.length + ' document(s) shared for your review.' };
+      return { shared: sharedDocs, sub: { key: 'viewDocs.sharedCount', args: { count: sharedDocs.length } } };
     } else if (propId && singleDocId) {
       const pool = docsStore[propId] || [];
       const doc = pool.find((x) => x.id === singleDocId);
-      return { shared: doc ? [doc] : [], sub: 'Owner preview (view-only).' };
+      return { shared: doc ? [doc] : [], sub: { key: 'viewDocs.ownerPreview' } };
     } else {
       errorState = {
-        title: 'Invalid link',
-        text: 'This document link is missing required information.',
-        sub: 'Invalid link',
+        titleKey: 'viewDocs.errInvalidTitle',
+        textKey: 'viewDocs.errInvalidText',
+        subKey: 'viewDocs.errInvalidSub',
       };
       return { shared, sub, errorState };
     }
-  } catch (e) {
+  } catch {
     return {
       shared: [],
-      sub: 'Error loading documents',
+      sub: null,
       errorState: {
-        title: 'Error',
-        text: 'Unable to load shared documents.',
-        sub: 'Error',
+        titleKey: 'viewDocs.errLoadTitle',
+        textKey: 'viewDocs.errLoadText',
+        subKey: 'viewDocs.errLoadSub',
       },
     };
   }

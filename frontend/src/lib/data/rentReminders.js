@@ -21,14 +21,16 @@ const set = (k, v) => {
   return v;
 };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
 export function ymKey(d = new Date()) {
   return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
 }
-export function ymLabel(ym) {
+/* Intl already ships short month names for hi and mr, so a ledger row reads in
+   the visitor's language. The locale defaults to English rather than the OS
+   locale, so an unthreaded caller can never leak a fourth language into the UI. */
+export function ymLabel(ym, locale = 'en') {
   const [y, m] = ym.split('-');
-  return `${MONTHS[(Number(m) || 1) - 1]} ${y}`;
+  const month = new Intl.DateTimeFormat(locale, { month: 'short' }).format(new Date(Number(y), (Number(m) || 1) - 1, 1));
+  return `${month} ${y}`;
 }
 
 /** All received-rent records for a property: { 'YYYY-MM': {paidAt, amount, receiptId} } */
@@ -44,25 +46,25 @@ export function isMonthPaid(propId, ym) {
  * Status of a property's CURRENT month rent.
  * @returns {{ym:string, label:string, paid:boolean, overdue:boolean, dueDate:Date, dueDay:number}}
  */
-export function currentDueStatus(prop) {
+export function currentDueStatus(prop, locale = 'en') {
   const now = new Date();
   const ym = ymKey(now);
   const dueDay = Math.min(28, Math.max(1, Number(prop.dueDay) || 5));
   const dueDate = new Date(now.getFullYear(), now.getMonth(), dueDay);
   const paid = isMonthPaid(prop.id, ym);
   const overdue = !paid && now.getDate() > dueDay;
-  return { ym, label: ymLabel(ym), paid, overdue, dueDate, dueDay };
+  return { ym, label: ymLabel(ym, locale), paid, overdue, dueDate, dueDay };
 }
 
 /** Last `n` months (most recent first) with paid/amount info for a mini ledger. */
-export function recentMonths(prop, n = 6) {
+export function recentMonths(prop, n = 6, locale = 'en') {
   const log = getRentLog(prop.id);
   const out = [];
   const d = new Date();
   for (let i = 0; i < n; i++) {
     const ym = ymKey(new Date(d.getFullYear(), d.getMonth() - i, 1));
     const rec = log[ym] || null;
-    out.push({ ym, label: ymLabel(ym), paid: !!rec, amount: rec ? rec.amount : (Number(prop.monthlyRent) || 0) });
+    out.push({ ym, label: ymLabel(ym, locale), paid: !!rec, amount: rec ? rec.amount : (Number(prop.monthlyRent) || 0) });
   }
   return out;
 }

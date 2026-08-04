@@ -1,4 +1,4 @@
-/* Shared config for the Google Maps display components (PropertyMap, ShareMap).
+/* Shared config for the Google Maps display components (PropertyMap, FlatmateMap).
    The key lives in .env (VITE_GOOGLE_MAPS_API_KEY), never hardcoded here. */
 
 export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';

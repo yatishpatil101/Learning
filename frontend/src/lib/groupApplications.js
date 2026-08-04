@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/* Flat-share group applications addressed to an owner. Mirrors the prototype's
+/* Flatmate group applications addressed to an owner. Mirrors the prototype's
    `puneNestGroupApplications` localStorage store + seed, with accept/decline. */
 const KEY = 'puneNestGroupApplications';
 const SEED = [

@@ -184,12 +184,12 @@ export function publishManagedProp(id) {
  *
  * Idempotent: returns the existing linked record if one is already present
  * (matched by publishedListingId, or the listing's own `fromManaged` back-link).
- * Never runs for flat-share/flatmate posts — those aren't owned properties.
+ * Never runs for flatmate/flatmate posts — those aren't owned properties.
  * Callers must gate on ownership; this trusts the listing it's handed.
  */
 export function ensureManagedForListing(listing) {
   if (!listing || !listing.id) return null;
-  if (listing.flatmate || listing.shareRequest || listing.shareGroup) return null;
+  if (listing.flatmate || listing.flatmatePost || listing.flatmateGroup) return null;
 
   const all = getManagedProps();
   const existing = all.find((m) => m.publishedListingId === listing.id)

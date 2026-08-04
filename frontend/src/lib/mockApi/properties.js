@@ -2,6 +2,24 @@
 import { rawLoad, rawSave, delay } from './core.js';
 import { isDormant, createdMs } from '../freshness.js';
 import { isFeaturedActive } from '../featured.js';
+
+/* Rooms live in their own localStorage key (store.js `puneNestRoomListings`) and
+   are read directly here — the same trick data/flatmates.js uses — because
+   data/flatSplit.js needs the anti-broker guardrails from data/flatmates.js,
+   which imports this module. Reading the key keeps that chain acyclic.
+
+   A flat being let room by room stays advertised as a whole flat only until the
+   first tenant commits: after that the whole flat genuinely isn't available, so
+   continuing to show it would advertise something that no longer exists. */
+const ROOMS_KEY = 'puneNestRoomListings';
+const isSplitOccupied = (propertyId) => {
+  if (!propertyId) return false;
+  try {
+    const arr = JSON.parse(localStorage.getItem(ROOMS_KEY)) || [];
+    if (!Array.isArray(arr)) return false;
+    return arr.some((r) => r && r.propertyId === propertyId && (Number(r.occupants) || 0) > 0);
+  } catch { return false; }
+};
 import { logStaffActivity } from './staff.js';
 
 const last10 = (m) => String(m || '').replace(/\D/g, '').slice(-10);
@@ -44,14 +62,22 @@ export function applyVerifiedBadgeToListings(mobile) {
 
 /* Social-proof stats (E1/E2, ADR-019). Mock-computed from the catalogue today; moves to a
    backend aggregate later. Counts only live (approved, non-archived) listings so the numbers
-   are honest. `localitySlug` narrows to a locality for the "N verified homes in <area>" line. */
+   are honest. `localitySlug` narrows to a locality for the "N verified homes in <area>" line.
+
+   `verifiedOwners` counts distinct owner *ids* (D31). It used to key the Set on the owner's
+   mobile, which conflates two different people who share a number -- a family landline, or the
+   same broker's number typed against two accounts -- and undercounts. `ownerId` falls back to the
+   mobile only for older seeded rows that predate the field, so the count degrades to the previous
+   behaviour rather than dropping those listings on the floor. */
 export function verifiedStats(localitySlug) {
   const db = rawLoad();
   const live = (db.listings || []).filter(
     (l) => l.status === 'approved' && !l.archived && (!localitySlug || l.localitySlug === localitySlug),
   );
   const verifiedListings = live.filter((l) => l.ownerVerified || l.ownershipVerified).length;
-  const owners = new Set(live.filter((l) => l.ownerVerified).map((l) => last10(l.ownerMobile)));
+  const owners = new Set(
+    live.filter((l) => l.ownerVerified).map((l) => l.ownerId || last10(l.ownerMobile)),
+  );
   return { verifiedListings, totalListings: live.length, verifiedOwners: owners.size };
 }
 
@@ -100,6 +126,9 @@ export function listProperties(filters = {}, sort = 'newest') {
   // includeAllStatuses or an explicit status and still see everything.
   if (!filters.includeAllStatuses && !filters.status) {
     list = list.filter((p) => !(p.real && isDormant(p)));
+    // The owner still sees a split-and-occupied flat in My Listings, labelled
+    // as hidden — it disappears from public search only.
+    list = list.filter((p) => !isSplitOccupied(p.id));
   }
   const out = sortProps(list, sort);
   return delay(out);
@@ -112,7 +141,7 @@ export function getProperty(id) {
 
 export function featuredProperties(limit = 6) {
   const db = rawLoad();
-  const live = db.listings.filter((p) => p.status === 'approved' && !p.archived && !(p.real && isDormant(p)));
+  const live = db.listings.filter((p) => p.status === 'approved' && !p.archived && !(p.real && isDormant(p)) && !isSplitOccupied(p.id));
   const feat = live.filter((p) => isFeaturedActive(p));
   const rest = live.filter((p) => !isFeaturedActive(p));
   return delay([...feat, ...rest].slice(0, limit));

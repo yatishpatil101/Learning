@@ -2,11 +2,26 @@
    Persists to localStorage using the same keys as the HTML prototype for data interop.
    Import rawDb/saveDb/mutateDb from mockApi.js if we need DB collections. */
 
-import { jsPDF } from 'jspdf';
-
-const INCOME_CATS = ['Rent received', 'Deposit received', 'Other income'];
+const INCOME_CATS= ['Rent received', 'Deposit received', 'Other income'];
 const EXPENSE_CATS = ['Society maintenance', 'Property tax', 'Home loan EMI', 'Repairs', 'Insurance', 'Utilities', 'Commission / fees', 'Other expense'];
 export { INCOME_CATS, EXPENSE_CATS };
+
+/* Category ids are stored on every saved transaction and due, so they stay English
+   — renaming the visible copy can never orphan a ledger. Look the id up here to
+   render a translated label. */
+export const CAT_KEYS = {
+  'Rent received': 'fin.catRentReceived',
+  'Deposit received': 'fin.catDepositReceived',
+  'Other income': 'fin.catOtherIncome',
+  'Society maintenance': 'fin.catMaintenance',
+  'Property tax': 'fin.catPropertyTax',
+  'Home loan EMI': 'fin.catEmi',
+  Repairs: 'fin.catRepairs',
+  Insurance: 'fin.catInsurance',
+  Utilities: 'fin.catUtilities',
+  'Commission / fees': 'fin.catCommission',
+  'Other expense': 'fin.catOtherExpense',
+};
 
 const finKey = (mobile, propId) => `puneNestFin:${mobile || 'anon'}:${propId || 'all'}`;
 const basisKey = (mobile, propId) => `puneNestFinBasis:${mobile || 'anon'}:${propId || 'all'}`;
@@ -202,9 +217,13 @@ export function exportTransactionsCSV(mobile, propId) {
 }
 
 /* ---- PDF Export ---- */
-export function exportStatementPDF(mobile, propId, title) {
+// jsPDF (~382 KB) is loaded on demand. This module is pulled into the eager entry
+// graph via the mock provider registry, so a static import here would put the whole
+// PDF library in front of first paint for every visitor.
+export async function exportStatementPDF(mobile, propId, title) {
   const txns = getTransactions(mobile, propId);
   const summary = financeSummary(mobile, propId, 'all');
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
   doc.setFontSize(18);

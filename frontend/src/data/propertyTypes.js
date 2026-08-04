@@ -38,7 +38,7 @@ const BY_KEY = Object.fromEntries(SEARCH_TYPES.map((t) => [t.key, t]));
    Single source of truth for how a PG/Hostel room's occupancy is authored
    (Post a property + admin post-on-behalf) and searched (home + listings filter).
    Standard Indian PG market model (single → dormitory). Deliberately separate
-   from Share-a-Flat's Private/Shared roommate concept. `[key, label]` pairs. */
+   from Flatmates's Private/Shared roommate concept. `[key, label]` pairs. */
 export const PG_SHARING = [
   ['single', 'Single (No Sharing)'],
   ['double', 'Double Sharing'],
@@ -103,6 +103,16 @@ export const matchTypeKey = (key, typeStr) => {
   return def.matches.some((m) => x.includes(m));
 };
 
+/* ---------- residential homes ----------
+   The subset of SEARCH_TYPES that is a home you can be *walked through*. Reels is
+   scoped to these on purpose: an open plot or farm land has no interior to tour, and
+   commercial space is searched by spec (carpet area, floor, frontage) rather than
+   browsed by feel — mixing either into one vertical feed just trains people to swipe
+   past. pg/flatmates are residential but are matched by `shareType`, not `type`, and
+   live in their own stores, so they are not reachable from a `type` string here. */
+export const RESIDENTIAL_KEYS = ['flat', 'house', 'villa'];
+export const isResidentialHome = (typeStr) => RESIDENTIAL_KEYS.some((k) => matchTypeKey(k, typeStr));
+
 /* ---------- commercial subtypes ----------
    Mirrors the "Post a property" COMMERCIAL_SUBTYPES so a commercial listing is
    filterable by the same options it was authored with. `matches` are substrings
@@ -130,3 +140,17 @@ export const matchCommercialKey = (key, typeStr) => {
   const x = (typeStr || '').toLowerCase();
   return def.matches.some((m) => x.includes(m));
 };
+
+/* ---------- land use / zone ----------
+   Open Plot & Farm Land are zoned, not measured in bedrooms. Mirrors the
+   "Post a property" plotZoneOptions so a land listing is searchable by the same
+   zoning the owner declared, and lives here (not in the listings page) because
+   the home hero search offers it too. `[key, label]` pairs. */
+export const LAND_USE = [
+  ['residential', 'Residential'],
+  ['commercial', 'Commercial'],
+  ['industrial', 'Industrial'],
+  ['agricultural', 'Agricultural'],
+  ['mixed', 'Mixed-Use'],
+];
+export const LANDUSE_LBL = Object.fromEntries(LAND_USE);

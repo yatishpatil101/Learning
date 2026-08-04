@@ -2,12 +2,12 @@
 
    A single source of truth for the dashboard "My Properties" tab: every property
    the owner has — whether saved privately via the Rent-o-meter or posted to the
-   marketplace — plus their flatmate / flat-share posts, in one list.
+   marketplace — plus their flatmate / flatmate posts, in one list.
 
    - Posted property listings are bridged to a managed record (idempotently) so
      each carries its passport/tools link and posting auto-adds it here.
    - Private managed props (saved, not yet published) appear as `private` items.
-   - Flatmate / flat-share posts pass through unchanged.
+   - Flatmate / flatmate posts pass through unchanged.
 
    Dedup: a published managed prop is represented once, by its posted listing
    (private items exclude anything already published). */
@@ -18,7 +18,7 @@ import { getManagedProps, ensureManagedForListing } from './managedProperty.js';
 import { getDocsForProp } from './documents.js';
 import { passportPercent } from '../../pages/consumer/owner-hub/helpers.js';
 
-const isProperty = (l) => !l.flatmate && !l.shareRequest && !l.shareGroup;
+const isProperty = (l) => !l.flatmate && !l.flatmatePost && !l.flatmateGroup;
 
 export async function loadOwnerProperties(user) {
   const posted = await loadMyListings(user);

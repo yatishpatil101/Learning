@@ -84,9 +84,9 @@ export function delay(value) {
   const SEED_KEY = 'puneNest_flatmatesSeeded_v1';
   if (localStorage.getItem(SEED_KEY)) return;
   const db = rawLoad();
-  if (!db.shareSeekers || db.shareSeekers.length === 0) {
-    db.shareSeekers = seedDb.shareSeekers || [];
-    db.shareGroups = seedDb.shareGroups || [];
+  if (!db.flatmateSeekers || db.flatmateSeekers.length === 0) {
+    db.flatmateSeekers = seedDb.flatmateSeekers || [];
+    db.flatmateGroups = seedDb.flatmateGroups || [];
     db.groupApplications = seedDb.groupApplications || [];
     rawSave(db);
   }

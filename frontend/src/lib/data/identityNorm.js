@@ -1,10 +1,10 @@
 /* Shared identity normalisers.
  *
  * The single source of truth for how we canonicalise the raw strings that feed
- * every dedup fingerprint (property listings AND flat-share groups/rooms). Kept
+ * every dedup fingerprint (property listings AND flatmate groups/rooms). Kept
  * dependency-free (no localStorage / mockApi) so it is trivial to reason about
  * and to unit-test in pure Node, and so both `propertyIdentity.js` and
- * `shareFlat.js` derive their keys from the exact same primitives.
+ * `flatmates.js` derive their keys from the exact same primitives.
  */
 
 /* Strip everything but digits — used for phone/meter/pincode comparisons. */

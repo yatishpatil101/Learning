@@ -230,7 +230,7 @@ export const localityByName = (name) => {
 export const allLocalities = () => LOCALITIES.concat(COMMUNITY);
 
 // Canonical name list + coord map — the single source the three legacy constant
-// files (list-property, shareflat, homeData) now derive from.
+// files (list-property, flatmates, homeData) now derive from.
 export const localityNames = () => allLocalities().map((l) => l.name);
 export const localityCoordMap = () =>
   Object.fromEntries(allLocalities().filter((l) => l.lat != null && l.lng != null).map((l) => [l.name, [l.lat, l.lng]]));

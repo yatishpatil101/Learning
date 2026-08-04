@@ -77,10 +77,12 @@ export function qualityLabel(score) {
   return 'low';
 }
 
+/* `label` is kept for any caller that still reads it; `labelKey` is the i18n key
+   for the same band, so a translated surface never has to re-derive the mapping. */
 export function qualityColor(score) {
-  if (score >= 80) return { ring: 'text-emerald-400', bg: 'bg-emerald-500/15', text: 'text-emerald-300', label: 'Excellent' };
-  if (score >= 50) return { ring: 'text-amber-400', bg: 'bg-amber-500/15', text: 'text-amber-300', label: 'Good' };
-  return { ring: 'text-rose-400', bg: 'bg-rose-500/15', text: 'text-rose-300', label: 'Needs work' };
+  if (score >= 80) return { ring: 'text-emerald-400', bg: 'bg-emerald-500/15', text: 'text-emerald-300', label: 'Excellent', labelKey: 'ui.qualityExcellent' };
+  if (score >= 50) return { ring: 'text-amber-400', bg: 'bg-amber-500/15', text: 'text-amber-300', label: 'Good', labelKey: 'ui.qualityGood' };
+  return { ring: 'text-rose-400', bg: 'bg-rose-500/15', text: 'text-rose-300', label: 'Needs work', labelKey: 'ui.qualityNeedsWork' };
 }
 
 /**

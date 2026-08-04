@@ -32,7 +32,10 @@ export function priceLabel(p) {
 export function timeAgo(iso) {
   const d = new Date(iso);
   const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
-  if (Number.isNaN(diff)) return iso;
+  // Unparseable input passes through verbatim (callers seed literals like
+  // "Just now"), but ALWAYS as a string — a null/undefined createdAt used to
+  // leak straight back out and blow up callers doing .toLowerCase() on it.
+  if (Number.isNaN(diff)) return String(iso ?? '');
   if (diff <= 0) return 'Today';
   if (diff === 1) return 'Yesterday';
   if (diff < 30) return diff + ' days ago';

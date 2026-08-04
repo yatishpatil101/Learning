@@ -2,6 +2,7 @@ import { myMobile } from '../contact.js';
 import { rawDb } from '../mockApi.js';
 import { get, set } from './internals.js';
 import { getListings } from './listings.js';
+import { referralBonusListings } from './referrals.js';
 
 /* =========================================================================
    Platform fees (single source of truth = back-office Settings → Charges)
@@ -45,9 +46,15 @@ export const isPaidOwnerPlan = () => PAID_OWNER_PLANS.includes(getPlan().id);
    Freemium listing quota — the free plan includes ONE live listing; paid plans
    raise the ceiling. Editing an existing listing never consumes quota; only a
    genuinely new property does (see the paywall in ListProperty).
+
+   Owners can also EARN slots instead of paying: every owner they refer who goes
+   on to post a property unlocks one extra free slot (referralBonusListings).
+   This is the only plan benefit referrals move — boosts, featuring and priority
+   support stay strictly paid.
    ========================================================================= */
 export const PLAN_LISTING_LIMITS = { free: 1, 'owner-free': 1, owner2: 2, owner5: 5 };
-export const listingLimit = () => PLAN_LISTING_LIMITS[getPlan().id] || 1;
+export const planListingLimit = () => PLAN_LISTING_LIMITS[getPlan().id] || 1;
+export const listingLimit = () => planListingLimit() + referralBonusListings();
 /* Active (non-deleted / non-archived) property listings owned by the user. */
 export const activeListingCount = () =>
   getListings().filter((l) => !l.flatmate && !/deleted|archived/i.test(String(l.status || ''))).length;

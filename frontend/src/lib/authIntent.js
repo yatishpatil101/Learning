@@ -3,67 +3,19 @@
    /signup). This module lets the auth screens explain *why* the user landed there
    so the copy matches the action they were attempting — a measurable lift over a
    generic "Welcome Back". An explicit `?reason=` wins; otherwise we infer from the
-   `next` path so most gates need no change. */
+   `next` path so most gates need no change.
 
-// reason key → { heading, sub }. `default` is the plain sign-in copy.
-export const AUTH_INTENTS = {
-  save: {
-    heading: 'Sign in to save this home',
-    sub: 'Keep your favourite properties in one place and pick up right where you left off.',
-  },
-  contact: {
-    heading: 'Sign in to contact the owner',
-    sub: 'Get owner phone numbers and message them directly — zero brokerage, no middlemen.',
-  },
-  alerts: {
-    heading: 'Sign in to save this search',
-    sub: "We'll alert you the moment a matching home is listed.",
-  },
-  schedule: {
-    heading: 'Sign in to book your visit',
-    sub: 'Schedule site visits and manage them from your dashboard.',
-  },
-  checkout: {
-    heading: 'Sign in to complete your purchase',
-    sub: 'Securely upgrade your plan and manage billing in one place.',
-  },
-  services: {
-    heading: 'Sign in to book services',
-    sub: 'Packers, legal, interiors, valuation and more — managed end to end.',
-  },
-  invite: {
-    heading: 'Sign in to complete your Rent Agreement',
-    sub: 'You were invited to add your details & documents. Sign in with the invited number to continue.',
-  },
-  saved: {
-    heading: 'Sign in to see your saved homes',
-    sub: 'Your shortlisted properties, synced across devices.',
-  },
-  notifications: {
-    heading: 'Sign in to view notifications',
-    sub: 'Never miss a price drop or a matching new listing.',
-  },
-  messages: {
-    heading: 'Sign in to open your inbox',
-    sub: 'Chat with owners and our service teams in one place.',
-  },
-  community: {
-    heading: 'Sign in to join the community',
-    sub: 'Connect with residents and explore verified society insights.',
-  },
-  listproperty: {
-    heading: 'Sign in to list your property',
-    sub: 'Reach thousands of verified buyers and tenants — free to post.',
-  },
-  dashboard: {
-    heading: 'Sign in to open your dashboard',
-    sub: 'Your saved homes, visits, alerts and enquiries in one place.',
-  },
-  default: {
-    heading: 'Welcome Back',
-    sub: 'Sign in with your mobile number to access your saved properties',
-  },
-};
+   This resolves to i18n *keys*, not copy. The strings live in
+   i18n/locales/<lang>/auth.json under `auth.intent.*`, so a Marathi visitor sent
+   here by a gate reads the reason in Marathi. Keeping English text here would
+   have made this module a second, untranslated copy deck. */
+
+/** Reason keys, in the order inferReason tries them. Copy lives in auth.json. */
+export const AUTH_REASONS = [
+  'save', 'contact', 'alerts', 'schedule', 'checkout', 'services', 'invite',
+  'saved', 'notifications', 'messages', 'community', 'listproperty', 'dashboard',
+  'default',
+];
 
 // Map a `next` path to a reason key. Order matters (most specific first).
 function inferReason(next) {
@@ -83,16 +35,25 @@ function inferReason(next) {
 }
 
 // Resolve the intent for the auth screen from URLSearchParams.
-// Returns { key, heading, sub, isDefault }.
+// Returns { key, headingKey, subKey, isDefault } — the caller translates.
 export function resolveAuthIntent(params) {
   const explicit = params.get('reason');
-  const key = (explicit && AUTH_INTENTS[explicit] && explicit) || inferReason(params.get('next')) || 'default';
-  return { key, ...AUTH_INTENTS[key], isDefault: key === 'default' };
+  const key = (explicit && AUTH_REASONS.includes(explicit) && explicit) || inferReason(params.get('next')) || 'default';
+  return {
+    key,
+    headingKey: `auth.intent.${key}Heading`,
+    subKey: `auth.intent.${key}Sub`,
+    isDefault: key === 'default',
+  };
 }
 
 // Single post-auth destination shared by Sign In and Sign Up so the same
 // authentication never lands users in two different places. Honours an explicit
 // `next` (the gated flow) and otherwise sends everyone to their dashboard hub.
+// `next` is restricted to a single-slash in-app path: a protocol-relative
+// "//evil.com" is a same-looking string that must never become a destination.
+// Mirrors StaffLogin's safeNext so the two entry points can't drift.
 export function postAuthDest(params) {
-  return params.get('next') || '/dashboard';
+  const next = params.get('next') || '';
+  return /^\/(?!\/)/.test(next) ? next : '/dashboard';
 }
