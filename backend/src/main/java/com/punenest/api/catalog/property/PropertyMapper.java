@@ -1,10 +1,16 @@
 package com.punenest.api.catalog.property;
 
+import com.punenest.api.catalog.listing.ListingCreate;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.identity.user.User;
 import java.util.UUID;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Context;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.ReportingPolicy;
 
 /**
@@ -41,6 +47,44 @@ public interface PropertyMapper {
     PropertyResponse toResponse(Property property, @Context ContactVisibility visibility);
 
     /**
+     * Copy the client-settable half of a create body onto a listing the service already constructed.
+     *
+     * <p><strong>{@code ignoreByDefault = true} turns {@code ListingCreate}'s "deliberately absent"
+     * list into something the compiler enforces.</strong> That Javadoc names {@code status},
+     * {@code owner}, {@code priceUnit}, {@code postedByType}, {@code verified} and {@code featured}
+     * as server-owned "prevents self-escalation / spoofing" — but nothing enforced it: a
+     * {@code p.setStatus(in.status())} added to the service would have compiled, read like the
+     * eighteen mechanical setters around it, and let a listing be born approved. As an allowlist,
+     * a field must be named here to be client-settable, so granting one is a visible diff.
+     *
+     * <p><strong>{@code NullValuePropertyMappingStrategy.IGNORE}</strong> reproduces the three
+     * {@code if (x != null)} guards the hand-written version carried: {@code areaUnit}
+     * ({@code "sqft"}), {@code amenities} and {@code images} (empty lists) have entity-level
+     * defaults that a null in the body must not overwrite. Every other field defaults to null, so
+     * ignoring a null and assigning one are the same outcome.
+     *
+     * <p>{@code localitySlug} is absent on purpose even though it is derived rather than trusted:
+     * the resolver needs {@code lat}/{@code lng}, so the service sets it after this call.
+     */
+    @BeanMapping(ignoreByDefault = true,
+            nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+    @Mapping(target = "bhk", source = "bhk")
+    @Mapping(target = "deposit", source = "deposit")
+    @Mapping(target = "maintenance", source = "maintenance")
+    @Mapping(target = "negotiable", source = "negotiable")
+    @Mapping(target = "area", source = "area")
+    @Mapping(target = "areaUnit", source = "areaUnit")
+    @Mapping(target = "furnishing", source = "furnishing")
+    @Mapping(target = "lat", source = "lat")
+    @Mapping(target = "lng", source = "lng")
+    @Mapping(target = "reraId", source = "reraId")
+    @Mapping(target = "possession", source = "possession")
+    @Mapping(target = "amenities", source = "amenities")
+    @Mapping(target = "images", source = "images")
+    @Mapping(target = "description", source = "description")
+    void applyTo(ListingCreate in, @MappingTarget Property property);
+
+    /**
      * Hand-written owner projection embedded in the detail — the trust boundary. Masked
      * ({@code 98XXXXX210}) unless the caller's gate status for this listing is {@code owner} or
      * {@code approved}, which is exactly what {@link ContactVisibility#REVEALED} encodes. Kept
@@ -64,19 +108,15 @@ public interface PropertyMapper {
     }
 
     /**
-     * Mask a 10-digit mobile to the contract form {@code 98XXXXX210} — first two + last three digits
-     * kept, the middle five replaced by {@code X}. Defensive: anything not a clean 10-digit number is
-     * returned as {@code null} rather than leaking a partial value. {@code private} so MapStruct never
-     * mistakes it for an implicit {@code String→String} mapping and applies it to other fields.
+     * Mask a 10-digit mobile to the contract form {@code 98XXXXX210}. Delegates to
+     * {@link MobileMask} — the single definition shared with every other trust surface, extracted in
+     * slice 4 when this rule was about to acquire a sixth copy. Anything that is not a clean 10-digit
+     * number becomes {@code null} rather than a partial leak.
+     *
+     * <p>{@code private} so MapStruct never mistakes it for an implicit {@code String→String} mapping
+     * and applies it to other fields.
      */
     private String maskMobile(String mobile) {
-        if (mobile == null) {
-            return null;
-        }
-        String digits = mobile.replaceAll("\\D", "");
-        if (digits.length() != 10) {
-            return null;
-        }
-        return digits.substring(0, 2) + "XXXXX" + digits.substring(7);
+        return MobileMask.mask(mobile);
     }
 }

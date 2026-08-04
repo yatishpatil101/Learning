@@ -3,10 +3,13 @@ package com.punenest.api.catalog.listing;
 import com.punenest.api.catalog.locality.LocalityResolver;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Property;
+import com.punenest.api.catalog.property.PropertyMapper;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertySort;
 import com.punenest.api.catalog.property.PropertyStatus;
+import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
@@ -28,8 +31,22 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Domain invariants enforced here, not just in the UI (ADR-019, trust): a new listing is forced
  * {@code pending} with the owner set from the token (never the body); editing a <em>foundation</em>
- * field (price/bhk/type/locality/deal) reverts {@code status} to {@code pending} for re-moderation;
- * restore-from-archive also resets to {@code pending}; removals are soft-deletes only.
+ * field reverts {@code status} to {@code pending} for re-moderation; restore-from-archive also
+ * resets to {@code pending}; removals are soft-deletes only.
+ *
+ * <p><strong>What counts as a foundation field, and why that set.</strong> It is exactly the set a
+ * buyer can <em>search on</em>: {@code price}, {@code bhk}, {@code propertyType}, {@code locality},
+ * {@code deal}, {@code furnishing} and {@code possession} — one per facet accepted by
+ * {@code GET /properties}. Re-moderation exists to stop bait-and-switch, and bait-and-switch is
+ * specifically the act of being approved into one set of search results and then editing your way
+ * into a different, more valuable one. Any facet an owner can change without review is a hole of
+ * exactly that shape, so deriving the rule from the facet list rather than curating it by hand is
+ * what keeps the two in step: a new facet that is not also a foundation field is a new hole, and
+ * {@code ListingFoundationTest} fails until someone has decided which it is.
+ *
+ * <p>{@code furnishing} and {@code possession} were missing from this set until the API polish pass.
+ * Both are live filters, so an approved unfurnished flat could be relabelled "furnished", and an
+ * under-construction listing relabelled "ready to move", with no moderator ever seeing it.
  */
 @Service
 public class ListingService {
@@ -37,12 +54,16 @@ public class ListingService {
     private final PropertyRepository properties;
     private final UserRepository users;
     private final LocalityResolver localities;
+    private final PropertyMapper propertyMapper;
+    private final AuditService audit;
 
     public ListingService(PropertyRepository properties, UserRepository users,
-            LocalityResolver localities) {
+            LocalityResolver localities, PropertyMapper propertyMapper, AuditService audit) {
         this.properties = properties;
         this.users = users;
         this.localities = localities;
+        this.propertyMapper = propertyMapper;
+        this.audit = audit;
     }
 
     /** The caller's own listings (all statuses incl. archived), owner-scoped; contract {@code myListings}. */
@@ -55,7 +76,7 @@ public class ListingService {
     @Transactional(readOnly = true)
     public Property getMine(UUID userId, String idOrSlug) {
         return resolveOwned(userId, idOrSlug)
-                .orElseThrow(() -> new NotFoundException("Listing not found"));
+                .orElseThrow(() -> NotFoundException.of("Listing"));
     }
 
     /**
@@ -67,49 +88,85 @@ public class ListingService {
     @Transactional
     public Property create(UUID userId, ListingCreate in) {
         User owner = users.findById(userId)
-                .orElseThrow(() -> new NotFoundException("Owner not found"));
+                .orElseThrow(() -> NotFoundException.of("Owner"));
         Property p = new Property(owner, in.title(), in.deal(), in.propertyType(),
                 in.price(), in.locality(), in.city());
+        // Everything the client may say. PropertyMapper's allowlist decides what that is, so the
+        // "deliberately absent" set in ListingCreate's Javadoc is enforced rather than described.
+        propertyMapper.applyTo(in, p);
+
+        // Everything it may not. These three are why a listing cannot be born approved or
+        // attributed to someone else.
         p.setStatus(PropertyStatus.PENDING);
         p.setPostedByType(Roles.Wire.OWNER);
         p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
-        p.setBhk(in.bhk());
-        p.setDeposit(in.deposit());
-        p.setMaintenance(in.maintenance());
-        p.setNegotiable(in.negotiable());
-        p.setArea(in.area());
-        if (in.areaUnit() != null) {
-            p.setAreaUnit(in.areaUnit());
-        }
-        p.setFurnishing(in.furnishing());
-        p.setLat(in.lat());
-        p.setLng(in.lng());
-        // After lat/lng: the resolver's geo fallback needs them. Null is an accepted outcome — see
-        // LocalityResolver — and simply leaves the listing out of locality facets until curated.
+        // After the mapper: the resolver's geo fallback needs lat/lng, which it has just set. Null
+        // is an accepted outcome — see LocalityResolver — and simply leaves the listing out of
+        // locality facets until curated.
         p.setLocalitySlug(localities.resolve(in.locality(), in.lat(), in.lng()));
-        p.setReraId(in.reraId());
-        p.setPossession(in.possession());
-        if (in.amenities() != null) {
-            p.setAmenities(in.amenities());
-        }
-        if (in.images() != null) {
-            p.setImages(in.images());
-        }
-        p.setDescription(in.description());
         return properties.saveAndFlush(p);
     }
 
     /**
      * Partial update of an owned listing (contract {@code updateListing}). Only non-null fields are
-     * applied (PATCH). If any foundation field (price/bhk/type/locality/deal) actually changes value,
-     * the listing reverts to {@code pending} so the change is re-moderated; non-foundation edits
-     * (photos, description, furnishing, …) leave the status untouched.
+     * applied (PATCH). If any foundation field actually changes value — the searchable set named in
+     * this class's Javadoc — the listing reverts to {@code pending} so the change is re-moderated;
+     * non-foundation edits (photos, description, deposit, …) leave the status untouched.
      */
     @Transactional
     public Property update(UUID userId, String idOrSlug, ListingUpdate in) {
         Property p = resolveOwned(userId, idOrSlug)
-                .orElseThrow(() -> new NotFoundException("Listing not found"));
+                .orElseThrow(() -> NotFoundException.of("Listing"));
+        if (apply(p, in)) {
+            p.revertToPending();
+        }
+        return p;
+    }
 
+    /**
+     * Field-level correction of <em>anyone's</em> listing by staff or admin (contract
+     * {@code adminUpdateProperty}, {@code PATCH /properties/&#123;id&#125;/admin}).
+     *
+     * <p><strong>A moderator edit does not revert the listing to pending</strong>, and that is the
+     * one behavioural difference from {@link #update}. Re-moderation exists so that a change made by
+     * the owner is seen by a moderator before it goes live; here the moderator <em>is</em> the
+     * change. Reverting would push their own correction into their own queue, so fixing a typo in an
+     * approved listing would take it off the site until somebody re-approved it — and the natural
+     * response to that is to stop correcting listings.
+     *
+     * <p>Audited, unlike the owner path. This is a write to a row belonging to someone else who will
+     * never be told it happened, so "who changed my price" needs an answer that is not "nobody knows".
+     *
+     * <p>Lives here rather than in {@code moderation} because the body is {@code ListingUpdate} —
+     * every field of {@code ListingCreate}, made optional — and a second copy of that mapping would
+     * be a second place for a field to be forgotten. The moderation controller has said so since
+     * slice 6; this is that comment being honoured.
+     */
+    @Transactional
+    public Property updateAsModerator(AuthPrincipal principal, String idOrSlug, ListingUpdate in) {
+        UUID id = parseUuid(idOrSlug);
+        Property p = (id != null ? properties.findById(id) : properties.findBySlug(idOrSlug))
+                .orElseThrow(() -> NotFoundException.of("Listing"));
+        apply(p, in);
+        audit.record(principal, "property.adminUpdate", "property", p.getId().toString(),
+                "owner", p.getOwner() == null ? null : p.getOwner().getId().toString());
+        return p;
+    }
+
+    /**
+     * Apply a PATCH body to a listing. Returns {@code true} when a <em>foundation</em> field
+     * actually changed value — the caller decides what that means.
+     *
+     * <p>The foundation block is deliberately kept first and contiguous: every field in it is a
+     * search facet, and the only thing distinguishing it from the block below is the
+     * {@code foundationChanged = true}. Interleaving the two is how {@code furnishing} ended up in
+     * the wrong one.
+     *
+     * <p>Only non-null fields are applied, so absent and "set to null" are the same request. That is
+     * the documented PATCH semantic for this contract; a client that needs to clear a field sends
+     * the empty value the field's type allows.
+     */
+    private boolean apply(Property p, ListingUpdate in) {
         boolean foundationChanged = false;
         boolean localityChanged = false;
         if (in.price() != null && !in.price().equals(p.getPrice())) {
@@ -135,6 +192,14 @@ public class ListingService {
             p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
             foundationChanged = true;
         }
+        if (in.furnishing() != null && !in.furnishing().equals(p.getFurnishing())) {
+            p.setFurnishing(in.furnishing());
+            foundationChanged = true;
+        }
+        if (in.possession() != null && !in.possession().equals(p.getPossession())) {
+            p.setPossession(in.possession());
+            foundationChanged = true;
+        }
 
         // Non-foundation fields: applied without triggering re-moderation.
         if (in.title() != null) {
@@ -155,9 +220,6 @@ public class ListingService {
         if (in.areaUnit() != null) {
             p.setAreaUnit(in.areaUnit());
         }
-        if (in.furnishing() != null) {
-            p.setFurnishing(in.furnishing());
-        }
         if (in.city() != null) {
             p.setCity(in.city());
         }
@@ -169,9 +231,6 @@ public class ListingService {
         }
         if (in.reraId() != null) {
             p.setReraId(in.reraId());
-        }
-        if (in.possession() != null) {
-            p.setPossession(in.possession());
         }
         if (in.amenities() != null) {
             p.setAmenities(in.amenities());
@@ -191,10 +250,7 @@ public class ListingService {
             p.setLocalitySlug(localities.resolve(p.getLocality(), p.getLat(), p.getLng()));
         }
 
-        if (foundationChanged) {
-            p.revertToPending();
-        }
-        return p;
+        return foundationChanged;
     }
 
     /**
@@ -237,12 +293,12 @@ public class ListingService {
     private Property resolvePermitted(AuthPrincipal principal, String idOrSlug) {
         UUID id = parseUuid(idOrSlug);
         Property p = (id != null ? properties.findById(id) : properties.findBySlug(idOrSlug))
-                .orElseThrow(() -> new NotFoundException("Listing not found"));
+                .orElseThrow(() -> NotFoundException.of("Listing"));
         boolean isOwner = p.getOwner().getId().equals(principal.userId());
         boolean isModerator = Roles.Wire.STAFF.equals(principal.role())
                 || Roles.Wire.ADMIN.equals(principal.role());
         if (!isOwner && !isModerator) {
-            throw new NotFoundException("Listing not found");
+            throw NotFoundException.of("Listing");
         }
         return p;
     }
@@ -257,10 +313,6 @@ public class ListingService {
 
     /** Slug-or-id parse, shared semantics with the public read service. */
     private static UUID parseUuid(String token) {
-        try {
-            return UUID.fromString(token);
-        } catch (IllegalArgumentException notUuid) {
-            return null;
-        }
+        return Ids.parseUuid(token).orElse(null);
     }
 }

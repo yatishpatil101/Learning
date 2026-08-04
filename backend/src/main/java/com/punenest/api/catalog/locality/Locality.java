@@ -4,6 +4,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * A curated locality — the geographic reference table the catalogue keys off (V3 {@code localities}).
@@ -17,12 +23,18 @@ import jakarta.persistence.Table;
  * locality names genuinely have (Hinjawadi/Hinjewadi, Wakad/Wakhad) — which is exactly what
  * {@link LocalityResolver} exists to normalize.
  *
- * <p>Read-only reference data on this slice: rows are seeded/curated
- * ({@code R__seed_reference_data.sql}), never written by application code, so only the columns
- * resolution needs are mapped. Hibernate {@code ddl-auto=validate} ignores unmapped columns.
+ * <p>Read-only reference data: rows are seeded/curated ({@code R__seed_reference_data.sql}), never
+ * written by application code, so there are no setters.
+ *
+ * <p><strong>{@code listing_count} is deliberately unmapped.</strong> It is one of the stored
+ * counters no code has ever maintained, and it counts <em>every</em> property while every surface
+ * that displays it means approved and unarchived ones. The count is computed on read instead
+ * ({@code catalog.property.ListingCounts}); leaving the column off the entity is what makes reading
+ * the wrong number impossible rather than merely discouraged.
  */
 @Entity
 @Table(name = "localities")
+@Getter
 public class Locality {
 
     @Id
@@ -35,6 +47,28 @@ public class Locality {
     @Column(name = "city", nullable = false)
     private String city;
 
+    /** Average asking rent per sq ft. {@code numeric}, so {@link BigDecimal} — never a float. */
+    @Column(name = "avg_rent_psf")
+    private BigDecimal avgRentPsf;
+
+    @Column(name = "avg_buy_psf")
+    private BigDecimal avgBuyPsf;
+
+    @Column(name = "rate_per_sqft")
+    private BigDecimal ratePerSqft;
+
+    /** Absolute average monthly rent in whole rupees. */
+    @Column(name = "avg_rent")
+    private Long avgRent;
+
+    /** Demand index 0-100; the column's CHECK constraint enforces the range. */
+    @Column(name = "demand")
+    private Integer demand;
+
+    /** {@code Buy} / {@code Rent} / {@code Both} — constrained by the column, not by an enum here. */
+    @Column(name = "focus")
+    private String focus;
+
     @Column(name = "lat")
     private Double lat;
 
@@ -45,31 +79,34 @@ public class Locality {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    /**
+     * Editorial copy for the locality page.
+     *
+     * <p>This and the three fields below are empty in every seeded row today. The frontend's
+     * locality page currently gets its narrative from a hard-coded {@code src/data/localityIntel.js},
+     * which is a <em>different</em> model — demand as a text band, connectivity as
+     * (place, icon, distance) triples, plus sub-scores the contract has no fields for. Reshaping it
+     * server-side would mean inventing content rather than moving it, so the columns ship to the
+     * contract's shape and stay empty until somebody authors them.
+     */
+    @Column(name = "about")
+    private String about;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "connectivity", nullable = false)
+    private List<String> connectivity = new ArrayList<>();
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "highlights", nullable = false)
+    private List<String> highlights = new ArrayList<>();
+
+    /** Monthly price history. Stored as jsonb; the element shape is the contract's, verbatim. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "price_trends", nullable = false)
+    private List<PriceTrendPoint> priceTrends = new ArrayList<>();
+
     protected Locality() {
         // JPA
     }
 
-    public String getSlug() {
-        return slug;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public Double getLat() {
-        return lat;
-    }
-
-    public Double getLng() {
-        return lng;
-    }
-
-    public boolean isActive() {
-        return active;
-    }
 }

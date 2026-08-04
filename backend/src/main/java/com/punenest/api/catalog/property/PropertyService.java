@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.property;
 
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.web.Ids;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,7 +57,7 @@ public class PropertyService {
     @Transactional(readOnly = true)
     public Property getPublic(String idOrSlug) {
         Property p = resolve(idOrSlug).filter(Property::isPubliclyVisible)
-                .orElseThrow(() -> new NotFoundException("Property not found"));
+                .orElseThrow(() -> NotFoundException.of("Property"));
         return p;
     }
 
@@ -68,10 +69,6 @@ public class PropertyService {
 
     /** {@code null} when the token isn't a UUID — the signal to fall back to a slug lookup. */
     static UUID tryUuid(String token) {
-        try {
-            return UUID.fromString(token);
-        } catch (IllegalArgumentException notUuid) {
-            return null;
-        }
+        return Ids.parseUuid(token).orElse(null);
     }
 }

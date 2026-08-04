@@ -71,8 +71,10 @@ public class MeListingsController {
     }
 
     /**
-     * {@code PATCH /me/listings/{id}} — partial update. A foundation-field change (price/bhk/type/
-     * locality/deal) reverts the listing to {@code pending}; other edits leave the status untouched.
+     * {@code PATCH /me/listings/{id}} — partial update. A foundation-field change reverts the
+     * listing to {@code pending}; other edits leave the status untouched. The foundation set is the
+     * searchable one — price, bhk, type, locality, deal, furnishing, possession — and is defined
+     * once, in {@link ListingService}.
      */
     @PatchMapping(Routes.MeListings.BY_ID)
     public PropertyResponse update(@CurrentUser AuthPrincipal principal, @PathVariable String id,

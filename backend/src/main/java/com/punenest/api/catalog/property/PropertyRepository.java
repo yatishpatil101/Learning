@@ -64,4 +64,63 @@ public interface PropertyRepository
      */
     List<Property> findByStatusAndArchivedFalseOrderByFeaturedDescCreatedAtDesc(
             String status, Pageable limit);
+
+    /**
+     * Live listings for one society, newest first — the {@code homes} array on the society hub.
+     * Summary projection, so no owner graph and no contact data.
+     */
+    List<Property> findBySocietyIdAndStatusAndArchivedFalseOrderByCreatedAtDesc(
+            UUID societyId, String status, Pageable limit);
+
+    /**
+     * Live-listing counts grouped by locality slug — the whole catalogue in one query.
+     *
+     * <p><strong>Why counts are computed and not stored.</strong> {@code localities.listing_count}
+     * (and its siblings on {@code societies} and {@code cities}) exists in the schema and has never
+     * had a writer. At the time slice 7 was planned, three of fifteen rows already disagreed with
+     * reality — and the disagreement was not drift: the stored number counts <em>every</em>
+     * property, while every surface that displays it means approved and unarchived ones. A stale
+     * counter can be refreshed; a counter that measures the wrong thing was wrong the day it was
+     * written.
+     *
+     * <p>One grouped aggregate per list endpoint, never one count per row. On a catalogue of tens of
+     * localities this is cheaper than the join it replaces, and — unlike a stored column — it cannot
+     * be wrong.
+     *
+     * @return rows of {@code [localitySlug, count]}; localities with no live listing are absent
+     */
+    @Query("""
+            select p.localitySlug, count(p)
+            from Property p
+            where p.status = :status and p.archived = false and p.localitySlug is not null
+            group by p.localitySlug""")
+    List<Object[]> countLiveByLocalitySlug(@Param("status") String status);
+
+    /** Live-listing counts grouped by society id. See {@link #countLiveByLocalitySlug}. */
+    @Query("""
+            select p.societyId, count(p)
+            from Property p
+            where p.status = :status and p.archived = false and p.societyId is not null
+            group by p.societyId""")
+    List<Object[]> countLiveBySocietyId(@Param("status") String status);
+
+    /** Live-listing counts grouped by city name. See {@link #countLiveByLocalitySlug}. */
+    @Query("""
+            select lower(p.city), count(p)
+            from Property p
+            where p.status = :status and p.archived = false
+            group by lower(p.city)""")
+    List<Object[]> countLiveByCity(@Param("status") String status);
+
+    /**
+     * Live-listing count for a single locality.
+     *
+     * <p>The grouped queries above are right for a list endpoint and wrong for a detail one: a
+     * detail read needs one number, and aggregating the whole catalogue to find it does work
+     * proportional to the catalogue rather than to the answer.
+     */
+    long countByLocalitySlugAndStatusAndArchivedFalse(String localitySlug, String status);
+
+    /** Live-listing count for a single society. See {@link #countByLocalitySlugAndStatusAndArchivedFalse}. */
+    long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
 }

@@ -11,6 +11,9 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -37,10 +40,12 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Table(name = "properties")
+@Getter
 public class Property extends SoftDeleteEntity {
 
     /** Human-friendly URL key; nullable + {@code UNIQUE}. Lookups fall back to the UUID id. */
     @Column(name = "slug")
+    @Setter
     private String slug;
 
     /**
@@ -53,63 +58,83 @@ public class Property extends SoftDeleteEntity {
     private User owner;
 
     @Column(name = "title", nullable = false)
+    @Setter
     private String title;
 
     @Column(name = "deal", nullable = false)
+    @Setter
     private String deal;
 
     @Column(name = "property_type", nullable = false)
+    @Setter
     private String propertyType;
 
     @Column(name = "bhk")
+    @Setter
     private BigDecimal bhk;
 
     @Column(name = "price", nullable = false)
+    @Setter
     private Long price;
 
     @Column(name = "price_unit")
+    @Setter
     private String priceUnit;
 
     @Column(name = "deposit")
+    @Setter
     private Long deposit;
 
     @Column(name = "maintenance")
+    @Setter
     private Long maintenance;
 
     @Column(name = "negotiable")
+    @Setter
     private Boolean negotiable;
 
     @Column(name = "area")
+    @Setter
     private BigDecimal area;
 
     @Column(name = "area_unit")
+    @Setter
     private String areaUnit = "sqft";
 
     @Column(name = "carpet_area")
+    @Setter
     private BigDecimal carpetArea;
 
     @Column(name = "built_up_area")
+    @Setter
     private BigDecimal builtUpArea;
 
     @Column(name = "super_built_up_area")
+    @Setter
     private BigDecimal superBuiltUpArea;
 
     @Column(name = "furnishing")
+    @Setter
     private String furnishing;
 
     @Column(name = "floor")
+    @Setter
     private Integer floor;
 
     @Column(name = "total_floors")
+    @Setter
     private Integer totalFloors;
 
     @Column(name = "facing")
+    @Setter
     private String facing;
 
     @Column(name = "possession")
+    @Setter
     private String possession;
 
     @Column(name = "locality", nullable = false)
+    @Setter
     private String locality;
 
     /**
@@ -123,80 +148,118 @@ public class Property extends SoftDeleteEntity {
      * and route on).
      */
     @Column(name = "locality_slug")
+    @Setter
     private String localitySlug;
 
+    /**
+     * The society this listing sits in, as a bare id rather than a {@code @ManyToOne} association.
+     *
+     * <p>Nothing on the listing surface needs a society's name, amenities or occupancy — only the
+     * society hub does, and it starts from the society and looks up its homes. Mapping this as an
+     * association would buy a lazy proxy that every page of search results risks initialising, for
+     * a field no listing response emits. The id is enough to answer "which homes are in this
+     * society?", which is the only question asked of it.
+     */
+    @Column(name = "society_id")
+    @Setter
+    private UUID societyId;
+
     @Column(name = "city", nullable = false)
+    @Setter
     private String city = "Pune";
 
     @Column(name = "lat")
+    @Setter
     private Double lat;
 
     @Column(name = "lng")
+    @Setter
     private Double lng;
 
     @Column(name = "address")
+    @Setter
     private String address;
 
     @Column(name = "pincode")
+    @Setter
     private String pincode;
 
     @Column(name = "rera_id")
+    @Setter
     private String reraId;
 
     @Column(name = "description")
+    @Setter
     private String description;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "amenities", nullable = false)
+    @Setter
     private List<String> amenities = new ArrayList<>();
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "images", nullable = false)
+    @Setter
     private List<String> images = new ArrayList<>();
 
     @Column(name = "cover_image")
+    @Setter
     private String coverImage;
 
     @Column(name = "floor_plan")
+    @Setter
     private String floorPlan;
 
     @Column(name = "video")
+    @Setter
     private String video;
 
     @Column(name = "posted_by_type")
+    @Setter
     private String postedByType;
 
     @Column(name = "status", nullable = false)
+    @Setter
     private String status = PropertyStatus.PENDING;
 
     @Column(name = "featured", nullable = false)
+    @Setter
     private boolean featured = false;
 
     @Column(name = "flag_reason")
+    @Setter
     private String flagReason;
 
     @Column(name = "verified", nullable = false)
+    @Setter
     private boolean verified = false;
 
     @Column(name = "owner_verified", nullable = false)
+    @Setter
     private boolean ownerVerified = false;
 
     @Column(name = "ownership_verified", nullable = false)
+    @Setter
     private boolean ownershipVerified = false;
 
     @Column(name = "society_verified", nullable = false)
+    @Setter
     private boolean societyVerified = false;
 
     @Column(name = "conveyance_done", nullable = false)
+    @Setter
     private boolean conveyanceDone = false;
 
     @Column(name = "docs_count", nullable = false)
+    @Setter
     private int docsCount = 0;
 
     @Column(name = "views", nullable = false)
+    @Setter
     private int views = 0;
 
     @Column(name = "enquiries", nullable = false)
+    @Setter
     private int enquiries = 0;
 
     protected Property() {
@@ -228,375 +291,4 @@ public class Property extends SoftDeleteEntity {
         this.status = PropertyStatus.PENDING;
     }
 
-    public String getSlug() {
-        return slug;
-    }
-
-    public void setSlug(String slug) {
-        this.slug = slug;
-    }
-
-    public User getOwner() {
-        return owner;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getDeal() {
-        return deal;
-    }
-
-    public void setDeal(String deal) {
-        this.deal = deal;
-    }
-
-    public String getPropertyType() {
-        return propertyType;
-    }
-
-    public void setPropertyType(String propertyType) {
-        this.propertyType = propertyType;
-    }
-
-    public BigDecimal getBhk() {
-        return bhk;
-    }
-
-    public void setBhk(BigDecimal bhk) {
-        this.bhk = bhk;
-    }
-
-    public Long getPrice() {
-        return price;
-    }
-
-    public void setPrice(Long price) {
-        this.price = price;
-    }
-
-    public String getPriceUnit() {
-        return priceUnit;
-    }
-
-    public void setPriceUnit(String priceUnit) {
-        this.priceUnit = priceUnit;
-    }
-
-    public Long getDeposit() {
-        return deposit;
-    }
-
-    public void setDeposit(Long deposit) {
-        this.deposit = deposit;
-    }
-
-    public Long getMaintenance() {
-        return maintenance;
-    }
-
-    public void setMaintenance(Long maintenance) {
-        this.maintenance = maintenance;
-    }
-
-    public Boolean getNegotiable() {
-        return negotiable;
-    }
-
-    public void setNegotiable(Boolean negotiable) {
-        this.negotiable = negotiable;
-    }
-
-    public BigDecimal getArea() {
-        return area;
-    }
-
-    public void setArea(BigDecimal area) {
-        this.area = area;
-    }
-
-    public String getAreaUnit() {
-        return areaUnit;
-    }
-
-    public void setAreaUnit(String areaUnit) {
-        this.areaUnit = areaUnit;
-    }
-
-    public BigDecimal getCarpetArea() {
-        return carpetArea;
-    }
-
-    public void setCarpetArea(BigDecimal carpetArea) {
-        this.carpetArea = carpetArea;
-    }
-
-    public BigDecimal getBuiltUpArea() {
-        return builtUpArea;
-    }
-
-    public void setBuiltUpArea(BigDecimal builtUpArea) {
-        this.builtUpArea = builtUpArea;
-    }
-
-    public BigDecimal getSuperBuiltUpArea() {
-        return superBuiltUpArea;
-    }
-
-    public void setSuperBuiltUpArea(BigDecimal superBuiltUpArea) {
-        this.superBuiltUpArea = superBuiltUpArea;
-    }
-
-    public String getFurnishing() {
-        return furnishing;
-    }
-
-    public void setFurnishing(String furnishing) {
-        this.furnishing = furnishing;
-    }
-
-    public Integer getFloor() {
-        return floor;
-    }
-
-    public void setFloor(Integer floor) {
-        this.floor = floor;
-    }
-
-    public Integer getTotalFloors() {
-        return totalFloors;
-    }
-
-    public void setTotalFloors(Integer totalFloors) {
-        this.totalFloors = totalFloors;
-    }
-
-    public String getFacing() {
-        return facing;
-    }
-
-    public void setFacing(String facing) {
-        this.facing = facing;
-    }
-
-    public String getPossession() {
-        return possession;
-    }
-
-    public void setPossession(String possession) {
-        this.possession = possession;
-    }
-
-    public String getLocality() {
-        return locality;
-    }
-
-    public void setLocality(String locality) {
-        this.locality = locality;
-    }
-
-    public String getLocalitySlug() {
-        return localitySlug;
-    }
-
-    public void setLocalitySlug(String localitySlug) {
-        this.localitySlug = localitySlug;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public void setCity(String city) {
-        this.city = city;
-    }
-
-    public Double getLat() {
-        return lat;
-    }
-
-    public void setLat(Double lat) {
-        this.lat = lat;
-    }
-
-    public Double getLng() {
-        return lng;
-    }
-
-    public void setLng(Double lng) {
-        this.lng = lng;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public void setAddress(String address) {
-        this.address = address;
-    }
-
-    public String getPincode() {
-        return pincode;
-    }
-
-    public void setPincode(String pincode) {
-        this.pincode = pincode;
-    }
-
-    public String getReraId() {
-        return reraId;
-    }
-
-    public void setReraId(String reraId) {
-        this.reraId = reraId;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public List<String> getAmenities() {
-        return amenities;
-    }
-
-    public void setAmenities(List<String> amenities) {
-        this.amenities = amenities;
-    }
-
-    public List<String> getImages() {
-        return images;
-    }
-
-    public void setImages(List<String> images) {
-        this.images = images;
-    }
-
-    public String getCoverImage() {
-        return coverImage;
-    }
-
-    public void setCoverImage(String coverImage) {
-        this.coverImage = coverImage;
-    }
-
-    public String getFloorPlan() {
-        return floorPlan;
-    }
-
-    public void setFloorPlan(String floorPlan) {
-        this.floorPlan = floorPlan;
-    }
-
-    public String getVideo() {
-        return video;
-    }
-
-    public void setVideo(String video) {
-        this.video = video;
-    }
-
-    public String getPostedByType() {
-        return postedByType;
-    }
-
-    public void setPostedByType(String postedByType) {
-        this.postedByType = postedByType;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public boolean isFeatured() {
-        return featured;
-    }
-
-    public void setFeatured(boolean featured) {
-        this.featured = featured;
-    }
-
-    public String getFlagReason() {
-        return flagReason;
-    }
-
-    public void setFlagReason(String flagReason) {
-        this.flagReason = flagReason;
-    }
-
-    public boolean isVerified() {
-        return verified;
-    }
-
-    public void setVerified(boolean verified) {
-        this.verified = verified;
-    }
-
-    public boolean isOwnerVerified() {
-        return ownerVerified;
-    }
-
-    public void setOwnerVerified(boolean ownerVerified) {
-        this.ownerVerified = ownerVerified;
-    }
-
-    public boolean isOwnershipVerified() {
-        return ownershipVerified;
-    }
-
-    public void setOwnershipVerified(boolean ownershipVerified) {
-        this.ownershipVerified = ownershipVerified;
-    }
-
-    public boolean isSocietyVerified() {
-        return societyVerified;
-    }
-
-    public void setSocietyVerified(boolean societyVerified) {
-        this.societyVerified = societyVerified;
-    }
-
-    public boolean isConveyanceDone() {
-        return conveyanceDone;
-    }
-
-    public void setConveyanceDone(boolean conveyanceDone) {
-        this.conveyanceDone = conveyanceDone;
-    }
-
-    public int getDocsCount() {
-        return docsCount;
-    }
-
-    public void setDocsCount(int docsCount) {
-        this.docsCount = docsCount;
-    }
-
-    public int getViews() {
-        return views;
-    }
-
-    public void setViews(int views) {
-        this.views = views;
-    }
-
-    public int getEnquiries() {
-        return enquiries;
-    }
-
-    public void setEnquiries(int enquiries) {
-        this.enquiries = enquiries;
-    }
 }

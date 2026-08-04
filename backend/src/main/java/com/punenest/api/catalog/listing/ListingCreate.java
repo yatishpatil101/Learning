@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.listing;
 
 import com.punenest.api.catalog.property.DealIntent;
+import com.punenest.api.catalog.property.Furnishing;
 import com.punenest.api.catalog.property.PropertyPossession;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -52,8 +53,8 @@ public record ListingCreate(
         Boolean negotiable,
         BigDecimal area,
         String areaUnit,
-        @Pattern(regexp = "unfurnished|semi-furnished|furnished",
-                message = "invalid furnishing") String furnishing,
+        @Pattern(regexp = Furnishing.PATTERN,
+                message = Furnishing.PATTERN_MESSAGE) String furnishing,
         @NotBlank String locality,
         @NotBlank String city,
         Double lat,

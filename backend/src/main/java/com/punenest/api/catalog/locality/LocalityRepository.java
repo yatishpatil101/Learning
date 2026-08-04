@@ -26,4 +26,13 @@ public interface LocalityRepository extends JpaRepository<Locality, String> {
      * hundred rows, at which point this becomes a PostGIS/earthdistance query instead.
      */
     List<Locality> findByActiveTrue();
+
+    /**
+     * The public locality list, alphabetical.
+     *
+     * <p>Active only, for the same reason as the finders above, and unpaged for the same reason as
+     * {@link #findByActiveTrue()} — the contract's {@code GET /localities} takes no page parameters
+     * because there are tens of rows, not thousands.
+     */
+    List<Locality> findByActiveTrueOrderByNameAsc();
 }
