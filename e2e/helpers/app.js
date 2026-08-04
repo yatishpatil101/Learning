@@ -1,4 +1,6 @@
 import { expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /* Shared fixtures for the Flatmates e2e suite.
 
@@ -6,6 +8,26 @@ import { expect } from '@playwright/test';
    up, so a test "logs in" and "owns a listing" by writing the same keys the app
    writes. Seeding happens in an init script so it lands BEFORE React boots —
    writing after navigation would race the first render. */
+
+/* The seed listing several contact/deal specs drive, read from the same file the
+   app reads rather than copied into each spec.
+
+   This exists because the copy drifted: P5000's ownerMobile changed to
+   9999047855, but five specs still carried the old 9530047855. They kept
+   "passing" their setup and then asserted against `puneNestContactReq:<old>` —
+   a key nothing ever writes — so the failure surfaced as a confusing empty
+   array rather than "your constant is stale". Deriving it means the next data
+   change can't silently rot the suite. */
+const PROPERTIES = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../frontend/src/data/properties.json', import.meta.url)), 'utf8'),
+);
+export const seedProperty = (id) => {
+  const p = PROPERTIES.find((x) => x.id === id);
+  if (!p) throw new Error(`seedProperty: no listing ${id} in properties.json`);
+  return p;
+};
+/** Owner mobile for a seed listing — the suffix of `puneNestContactReq:` etc. */
+export const ownerMobileOf = (id) => seedProperty(id).ownerMobile;
 
 export const OWNER = { name: 'Test Owner', mobile: '9800000001', role: 'owner' };
 export const SEEKER = { name: 'Test Seeker', mobile: '9800000002', role: 'buyer' };
@@ -224,6 +246,52 @@ export async function open(page, path) {
 export async function openFlatmates(page, query = '') {
   await open(page, '/flatmates' + query);
   await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible();
+}
+
+/* ── Posting flow ──────────────────────────────────────────────────────────
+   The three per-tab post buttons ("Create a group", "List your room", "Post your
+   request") were replaced by ONE `Post` button that opens a chooser: first "do
+   you have a place?", then, for people who don't, "just me or a group?".
+
+   The rationale (see useFlatmateDiscovery.jsx) is that a poster shouldn't have
+   to guess which tab to stand on before they can post. These helpers encode that
+   two-step walk once — seven specs drove the old buttons directly, and inlining
+   the new flow seven times would just recreate the same coupling.
+
+   Every choice is scoped to `.sf-modal`: the seeker cards *behind* the overlay
+   carry their own "Just me" segment control, so an unscoped match resolves to
+   four elements. */
+const chooser = (page) => page.locator('.sf-modal');
+
+/** Open the post chooser and pick "I have a place".
+ *  Note this LEAVES /flatmates — it routes to /list-property?flatmate=1. */
+export async function postHavingPlace(page) {
+  await page.getByRole('button', { name: /^Post$/ }).first().click();
+  await chooser(page).getByRole('button', { name: /I have a place/i }).click();
+}
+
+/** Open the post chooser and pick "still looking" → "just me" → the seeker form. */
+export async function postAsSolo(page) {
+  await page.getByRole('button', { name: /^Post$/ }).first().click();
+  await chooser(page).getByRole('button', { name: /I'm still looking for a place/i }).click();
+  await chooser(page).getByRole('button', { name: /Just me/i }).click();
+}
+
+/** Open the post chooser and pick "still looking" → "we're a group" → group form. */
+export async function postAsGroup(page) {
+  await page.getByRole('button', { name: /^Post$/ }).first().click();
+  await chooser(page).getByRole('button', { name: /I'm still looking for a place/i }).click();
+  await chooser(page).getByRole('button', { name: /We're already a group/i }).click();
+}
+
+/* Switch to the Team up feed.
+   A group you just created has no address yet, so it sorts into Team up — but
+   creation returns you to the default Move in now tab, where the card genuinely
+   is not. Specs that assert on a freshly created group need this hop; without it
+   they fail looking for a card that exists one tab over. */
+export async function switchToTeamUp(page) {
+  await page.getByRole('button', { name: /Team up/ }).first().click();
+  await page.waitForTimeout(300);
 }
 
 /**

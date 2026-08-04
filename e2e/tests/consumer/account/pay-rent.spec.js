@@ -1,0 +1,139 @@
+import { test, expect } from '../../../fixtures/base.js';
+import { USERS } from '../../../helpers/seed.js';
+
+/* /pay-rent — the payment path itself.
+ *
+ * `my-rental` asserts the link into this route and `feature-flags` asserts the
+ * coming-soon/live switch, but nothing exercised what the page is for: the fee
+ * breakdown, the payment, the receipt, and the deposit-financing tab. The
+ * convenience fee is real money — a regression there is a billing bug, not a UI
+ * bug, so it gets an arithmetic assertion rather than "a number is visible".
+ *
+ * Two seeding rules this route made obvious:
+ *
+ *  - Per-user keys (`pnTenancies:<mobile>`) can be written before boot; they are
+ *    read fresh by lib/store/rent.js.
+ *  - `puneNestDB_v5` cannot. mockApi migrates and merges it at module load, so a
+ *    partial object written in an init script leaves the app without settings and
+ *    the page renders nothing at all. Load once, mutate the real DB, then reload —
+ *    the same order feature-flags.spec.js uses.
+ */
+
+const TENANT = USERS.tenant;
+const RENT = 25000;
+
+const tenancyRows = (n) => Array.from({ length: n }, (_, i) => ({
+  id: `tn-e2e-${i}`,
+  propId: `P-e2e-${i}`,
+  title: `${2 + i} BHK in Test Society`,
+  address: 'Baner, Pune',
+  ownerName: 'Test Owner',
+  ownerMobile: '9876500002',
+  rent: RENT + i * 5000,
+  status: 'active',
+  at: Date.now(),
+}));
+
+/** Sign in as a tenant with `tenancies` finalised rentals and the flag on. */
+async function openPayRent(page, { tenancies = 1 } = {}) {
+  await page.addInitScript(({ user, rows }) => {
+    localStorage.setItem('puneNestUser', JSON.stringify(user));
+    localStorage.setItem('puneNestUsers', JSON.stringify([user]));
+    localStorage.setItem(`pnTenancies:${user.mobile}`, JSON.stringify(rows));
+  }, { user: TENANT, rows: tenancyRows(tenancies) });
+
+  await page.goto('/');
+  await page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    db.settings.flags.onlineRentPayment = true;
+    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+  });
+  await page.goto('/pay-rent');
+  await expect(page.getByRole('heading', { name: 'Pay rent', exact: true })).toBeVisible({ timeout: 20_000 });
+}
+
+const tab = (page, name) => page.getByRole('button', { name, exact: true });
+
+test.describe('Pay rent', () => {
+  test('a tenant with no tenancy gets an honest empty state, not a broken form', async ({ page, consoleErrors }) => {
+    await openPayRent(page, { tenancies: 0 });
+
+    await expect(page.getByText('No active rental')).toBeVisible();
+    // The empty state routes back into the funnel rather than dead-ending.
+    await expect(page.getByRole('link', { name: 'Browse rentals' })).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('the fee breakdown is arithmetically correct and totals what the CTA charges', async ({ page }) => {
+    await openPayRent(page);
+
+    await page.getByPlaceholder('25000').fill('30000');
+
+    // 2% convenience fee + 18% GST on the fee = ₹600 + ₹108 → ₹30,708 charged.
+    await expect(page.getByText('₹600', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹108', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Pay ₹30,708' })).toBeVisible();
+  });
+
+  test('paying records the payment, credits the owner and lands in history', async ({ page }) => {
+    await openPayRent(page);
+
+    await page.getByPlaceholder('25000').fill(String(RENT));
+    await page.getByRole('button', { name: /^Pay ₹/ }).click();
+
+    // The page switches to History and the payment is there, marked settled.
+    await expect(tab(page, 'History')).toHaveClass(/active/);
+    await expect(page.getByText('Owner credited')).toBeVisible();
+    await expect(page.getByText('₹25,000', { exact: true })).toBeVisible();
+
+    // A receipt is offered for the HRA claim — the reason a tenant pays here at all.
+    await expect(page.getByRole('button', { name: 'HRA receipt' })).toBeVisible();
+
+    // It survives a reload (written to localStorage, not just component state).
+    await page.reload();
+    await tab(page, 'History').click();
+    await expect(page.getByText('Owner credited')).toBeVisible();
+  });
+
+  test('a tenant with several rentals can choose which one to pay for', async ({ page }) => {
+    await openPayRent(page, { tenancies: 2 });
+
+    /* `NativeSelect` is a themed `.pn-dropdown`, not a real <select> — open the
+       trigger and pick from the portaled menu. */
+    await page.locator('.pn-dropdown__trigger').first().click();
+    await page.locator('.pn-dropdown__menu--portal [role="option"]').nth(1).click();
+
+    // Switching rental repoints the amount at that tenancy's agreed rent.
+    await expect(page.getByPlaceholder('25000')).toHaveValue(String(RENT + 5000));
+  });
+
+  test('deposit financing quotes an EMI and files an approved request', async ({ page }) => {
+    await openPayRent(page);
+
+    await tab(page, 'Deposit financing').click();
+    // ₹1,00,000 over 6 months at 1.5%/mo → (100000 + 9000) / 6 = ₹18,167/mo.
+    await expect(page.getByText('₹18,167/mo')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Finance my deposit' }).click();
+    await expect(tab(page, 'History')).toHaveClass(/active/);
+    await expect(page.getByText('Security deposit')).toBeVisible();
+  });
+
+  test('a landlord payout account can be linked and removed', async ({ page }) => {
+    await openPayRent(page);
+
+    // Name is mandatory — submitting without it must be refused, not saved blank.
+    await page.getByRole('button', { name: 'Verify & link' }).click();
+    await expect(page.getByText("Enter the account holder's name.")).toBeVisible();
+
+    await page.getByPlaceholder('As per bank records').fill('Test Owner');
+    await page.getByPlaceholder('name@okhdfcbank').fill('testowner@okhdfcbank');
+    await page.getByRole('button', { name: 'Verify & link' }).click();
+
+    await expect(page.getByText('testowner@okhdfcbank')).toBeVisible();
+    await expect(page.getByText('Verified', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Remove account' }).click();
+    await expect(page.getByPlaceholder('name@okhdfcbank')).toBeVisible();
+  });
+});
