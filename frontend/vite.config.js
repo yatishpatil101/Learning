@@ -108,7 +108,14 @@ function pwaPlugin() {
       // genuinely lazy, so precaching them would now cost a real 571 KB on install.
       // They fall back to the CacheFirst asset rule below on first actual use.
       globPatterns: [
-        '**/*.{css,html,woff2}',
+        // NOT woff2. Self-hosting put 22 subset files (~857 KB) into dist, and a bare
+        // `**/*.woff2` would precache every one of them on install — including the
+        // Devanagari subsets an English visitor never renders. That is the same bug
+        // described above for vendor-charts: install cost paid up front for bytes
+        // most users never need. Fonts use `font-display: swap`, so a cold offline
+        // load falls back to system type and stays readable; the runtime rule below
+        // caches each subset the first time it is actually used.
+        '**/*.{css,html}',
         'assets/index-*.js',
         'assets/vendor-react-*.js',
         'assets/home-*.js',
@@ -139,6 +146,19 @@ function pwaPlugin() {
           options: {
             cacheName: 'pn-assets',
             expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 },
+          },
+        },
+        {
+          // Self-hosted web fonts. Immutable per URL (the filename encodes family,
+          // weight and subset index, and only changes when fetch-fonts.mjs is re-run),
+          // so CacheFirst is safe. Deliberately runtime rather than precached: each
+          // visitor caches only the subsets their language actually renders.
+          urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/fonts/'),
+          handler: 'CacheFirst',
+          options: {
+            cacheName: 'pn-fonts',
+            expiration: { maxEntries: 24, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            cacheableResponse: { statuses: [0, 200] },
           },
         },
         {
