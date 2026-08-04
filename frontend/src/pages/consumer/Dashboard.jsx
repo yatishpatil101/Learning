@@ -16,7 +16,7 @@ import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
 import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
 import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
-import { getMyRooms, getMyShareRequests, getMyShareGroups } from '../../lib/data/myListings.js';
+import { getMyRooms, getMyFlatmatePosts, getMyFlatmateGroups } from '../../lib/data/myListings.js';
 import { getManagedProps } from '../../lib/data/managedProperty.js';
 import { pendingInviteCount } from '../../lib/serviceFlow.js';
 import OverviewPanel from './dashboard/OverviewPanel.jsx';
@@ -40,14 +40,14 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const chatUnread = useChatUnread();
   // A user is treated as an "owner" (sees listing-management tabs) only once they
-  // have ACTUAL inventory: a property listing, a flatmate room, a flat-share
+  // have ACTUAL inventory: a property listing, a flatmate room, a flatmate
   // request/group, or a private managed property (Owner Hub / Rent-o-meter).
   // Role alone does NOT unlock the management tabs — otherwise a brand-new owner
   // would see empty "My Listings / Enquiries / Finances" dead-ends. The tabs
   // appear the moment they post/register their first property.
   const hasRooms = getMyRooms(user).length > 0;
-  const hasRequests = getMyShareRequests(user).length > 0;
-  const hasGroups = getMyShareGroups(user).length > 0;
+  const hasRequests = getMyFlatmatePosts(user).length > 0;
+  const hasGroups = getMyFlatmateGroups(user).length > 0;
   const hasManaged = getManagedProps().length > 0;
   const isOwner = hasListings() || hasRooms || hasRequests || hasGroups || hasManaged;
   // "My Rental" (the home you rent) shows for buyers/tenants and anyone with a
@@ -85,10 +85,10 @@ export default function Dashboard() {
 
   const {
     listings, enquiries, visits, recent, recommended, alertMatches,
-    contactReqs, photoReqs, shareFlatReqs, docReqs,
+    contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput,
     apps, setStatus,
-    decideContact, decideDocReqs, decideShareFlatReq, mutateVisit, openReview, sendReview,
+    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
   } = useDashboardData({ user, toast });
   const REVIEW_STATUS = REVIEW_STATUS_MAP;
 
@@ -127,7 +127,7 @@ export default function Dashboard() {
     [listings],
   );
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending').length;
-  const pendingShareFlat = shareFlatReqs.filter((r) => r.status === 'pending').length;
+  const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending').length;
   // Buyer document requests, grouped per buyer+property (one due-diligence request =
   // one lead), counting only groups with at least one pending document.
   const docGroups = useMemo(() => buildDocGroups(docReqs), [docReqs]);
@@ -156,11 +156,11 @@ export default function Dashboard() {
   });
   // Counts for the always-visible sidebar/tab badges, so pending work is obvious
   // from any tab — not just Overview. Requests (leads) badge = items genuinely
-  // WAITING ON THE OWNER (pending number + photo + flat-share requests), matching
+  // WAITING ON THE OWNER (pending number + photo + flatmate requests), matching
   // the "Waiting on you" figure in the Requests panel. Already-contactable
   // enquiries aren't counted as attention — they need no accept/decline decision.
   const attentionCounts = {
-    leads: pendingContacts + photoReqs.length + pendingShareFlat + pendingDocGroups.length,
+    leads: pendingContacts + photoReqs.length + pendingFlatmateReqs + pendingDocGroups.length,
     visits: scheduledVisits.length,
     messages: chatUnread,
   };
@@ -181,7 +181,7 @@ export default function Dashboard() {
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} enquiries={enquiries} photoReqs={photoReqs} shareFlatReqs={shareFlatReqs} decideShareFlatReq={decideShareFlatReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} enquiries={enquiries} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':
@@ -198,7 +198,7 @@ export default function Dashboard() {
   };
 
   return (
-    <main className="pt-6 lg:pt-8 pb-20 min-h-[100dvh]">
+    <div className="pt-6 lg:pt-8 pb-20 min-h-[100dvh]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Hi, {firstName(user)} <span className="inline-block">👋</span></h1>
@@ -242,7 +242,7 @@ export default function Dashboard() {
         sendReview={sendReview}
         REVIEW_STATUS={REVIEW_STATUS}
       />
-    </main>
+    </div>
   );
 }
 

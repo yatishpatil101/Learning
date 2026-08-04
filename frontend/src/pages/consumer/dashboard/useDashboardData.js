@@ -4,7 +4,7 @@ import { listEnquiries, listVisits, updateVisit } from '../../../lib/mockApi.js'
 import { listProperties } from '../../../services/propertyService.js';
 import { getContactReqs, setContactStatus } from '../../../lib/contact.js';
 import { getPhotoReqs } from '../../../lib/photoRequests.js';
-import { getShareFlatRequests, decideShareFlatRequest } from '../../../lib/data/shareFlat.js';
+import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
   ensureOwnerReview, addPropReviewReply, markPropReviewRead,
   getRecentProps, getSavedSearches,
@@ -28,7 +28,7 @@ export function useDashboardData({ user, toast }) {
   const [alertMatches, setAlertMatches] = useState([]);
   const [contactReqs, setContactReqs] = useState([]);
   const [photoReqs, setPhotoReqs] = useState([]);
-  const [shareFlatReqs, setShareFlatReqs] = useState([]);
+  const [flatmateReqs, setFlatmateReqs] = useState([]);
   const [docReqs, setDocReqs] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
@@ -39,7 +39,7 @@ export function useDashboardData({ user, toast }) {
     if (user?.mobile) {
       setContactReqs(getContactReqs(user.mobile));
       setPhotoReqs(getPhotoReqs(user.mobile));
-      setShareFlatReqs(getShareFlatRequests(user.mobile));
+      setFlatmateReqs(getFlatmateRequests(user.mobile));
       setDocReqs(getDocRequests(user.mobile));
     }
   }, [user]);
@@ -70,9 +70,9 @@ export function useDashboardData({ user, toast }) {
     }
   };
 
-  const decideShareFlatReq = (reqId, decision) => {
-    decideShareFlatRequest(user.mobile, reqId, decision);
-    setShareFlatReqs(getShareFlatRequests(user.mobile));
+  const decideFlatmateReq = (reqId, decision) => {
+    decideFlatmateRequest(user.mobile, reqId, decision);
+    setFlatmateReqs(getFlatmateRequests(user.mobile));
     toast(decision === 'accepted' ? 'Request accepted — connect in Messages.' : 'Request declined.', decision === 'accepted' ? 'success' : 'info');
   };
 
@@ -142,9 +142,9 @@ export function useDashboardData({ user, toast }) {
 
   return {
     listings, enquiries, visits, recent, recommended, alertMatches,
-    contactReqs, photoReqs, shareFlatReqs, docReqs,
+    contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewTick,
     apps, setStatus,
-    decideContact, decideDocReqs, decideShareFlatReq, mutateVisit, openReview, sendReview,
+    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
   };
 }

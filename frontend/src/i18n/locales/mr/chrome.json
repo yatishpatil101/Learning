@@ -1,0 +1,78 @@
+{
+  "ui": {
+    "selectDate": "तारीख निवडा",
+    "selectDateTitle": "तारीख निवडा",
+    "prevMonth": "मागील महिना",
+    "nextMonth": "पुढील महिना",
+    "month": "महिना",
+    "year": "वर्ष",
+    "selectTime": "वेळ निवडा",
+    "selectTimeTitle": "वेळ निवडा",
+    "confirm": "पुष्टी करा",
+    "hour": "तास",
+    "minute": "मिनिट",
+    "amOrPm": "AM किंवा PM",
+    "clickToEnter": "मूल्य भरण्यासाठी क्लिक करा",
+    "minimum": "किमान",
+    "maximum": "कमाल",
+    "minValueOf": "{{label}} किमान",
+    "maxValueOf": "{{label}} कमाल",
+    "minValueEdit": "{{label}} किमान: {{value}}. बदलण्यासाठी क्लिक करा",
+    "maxValueEdit": "{{label}} कमाल: {{value}}. बदलण्यासाठी क्लिक करा",
+    "minValueInput": "{{label}} किमान मूल्य",
+    "maxValueInput": "{{label}} कमाल मूल्य",
+    "minValuePlain": "किमान मूल्य",
+    "maxValuePlain": "कमाल मूल्य",
+    "add": "जोडा",
+    "addYourOwn": "स्वतःचे जोडा…",
+    "removeItem": "{{label}} काढा",
+    "addCustom": "स्वतःची {{noun}} जोडा",
+    "moreActions": "अधिक पर्याय",
+    "selectPlaceholder": "निवडा…",
+    "searchPlaceholder": "शोधा…",
+    "qualityScore": "गुणवत्ता गुण",
+    "listingQuality": "नोंद गुणवत्ता: {{score}}/100",
+    "qualityShort": "गुणवत्ता: {{score}}/100",
+    "qualityExcellent": "उत्कृष्ट",
+    "qualityGood": "चांगले",
+    "qualityNeedsWork": "सुधारणा हवी",
+    "noMatches": "जुळणारे नाही",
+    "typeToSearch": "शोधण्यासाठी लिहा…",
+    "searching": "शोधत आहे…",
+    "featureNoun": "सुविधा"
+  },
+  "chrome": {
+    "maintenanceTitle": "आम्ही लवकरच परत येऊ",
+    "maintenanceBody": "PuneNest वर नियोजित देखभाल सुरू आहे. थोड्या वेळाने पाहा — तुमची जतन केलेली माहिती सुरक्षित आहे.",
+    "staffSignIn": "कर्मचारी आणि प्रशासक साइन इन →"
+  },
+  "install": {
+    "title": "PuneNest एका टॅपवर ठेवा",
+    "body": "PuneNest होम स्क्रीनवर जोडा — मालकाकडून थेट नवी घरे, ती नोंदवली जाताच. ॲप स्टोअर नाही, डाउनलोड नाही.",
+    "iosBody": "शेअर बटण दाबा, नंतर “Add to Home Screen” निवडा.",
+    "cta": "ॲप इन्स्टॉल करा",
+    "later": "आत्ता नको",
+    "dismiss": "इन्स्टॉल सूचना काढा"
+  },
+  "auth2": {
+    "otpDigit": "OTP अंक {{n}}"
+  },
+  "pmap": {
+    "amenities": "सुविधा",
+    "verified": "पडताळलेले",
+    "mapUnavailable": "नकाशा उपलब्ध नाही",
+    "mapNotConfigured": "परस्परसंवादी नकाशा सध्या सेट केलेला नाही."
+  },
+  "nestor": {
+    "typing": "लिहीत आहे"
+  },
+  "pmf": {
+    "earlyAccess": "लवकर प्रवेश",
+    "beFirst": "पुण्यातील नवीन नोंदी सर्वप्रथम मिळवा",
+    "onTheList": "तुम्ही यादीत आहात — धन्यवाद!",
+    "notifyMe": "मला कळवा",
+    "whatsappNumber": "WhatsApp क्रमांक",
+    "dismissPreview": "पूर्वावलोकन सूचना काढा",
+    "notifySub": "तुमचा ईमेल किंवा WhatsApp द्या — तुमच्या भागात मालक-थेट नवीन घरे आल्यावर आम्ही कळवू."
+  }
+}

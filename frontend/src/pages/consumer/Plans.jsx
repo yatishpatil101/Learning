@@ -103,15 +103,32 @@ function PlanCarousel({ plans, current }) {
         ))}
       </div>
       {plans.length > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
+        <div className="flex items-center justify-center mt-1">
           {plans.map((p, i) => (
             <button
               key={p.id}
               type="button"
               aria-label={p.name}
+              aria-current={i === active ? 'true' : undefined}
               onClick={() => goTo(i)}
-              className={'h-2 rounded-full transition-all ' + (i === active ? 'w-6 bg-teal-400' : 'w-2 bg-white/25')}
-            />
+              /* The dot is drawn by the inner span; the button around it is the
+                 target. The dots themselves were 8x8 — unhittable, on the only
+                 control that reveals the Plus and Pro plans on a phone.
+
+                 Deliberately 24x44, not 44x44. Three dots 44px wide would either
+                 overlap (ambiguous taps, worse than small ones) or have to be
+                 spread far enough apart that they stop reading as one indicator.
+                 24px is the WCAG 2.5.8 AA floor and, with the row's spacing, puts
+                 adjacent centres 32px apart. Height is free, so it takes the full
+                 44px. Swiping the rail remains the primary interaction; these are
+                 indicators that happen to be tappable. */
+              className="grid h-11 w-6 place-items-center"
+            >
+              <span
+                aria-hidden="true"
+                className={'block h-2 rounded-full transition-all ' + (i === active ? 'w-6 bg-teal-400' : 'w-2 bg-white/25')}
+              />
+            </button>
           ))}
         </div>
       )}
@@ -138,7 +155,7 @@ export default function Plans() {
   ];
   const activePlans = persona === 'owner' ? OWNER : SEEKER;
   return (
-    <main className="pt-8 sm:pt-10 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-8 sm:pt-10 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="text-center mb-8 sm:mb-12">
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-emerald-300 mb-3" style={{ background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.25)' }}><Icon name="hand-coins" className="w-3.5 h-3.5" /> {t('misc1.plansBadge')}</span>
         <h1 className="text-3xl sm:text-4xl font-extrabold">{t('misc1.plansTitle')}</h1>
@@ -202,6 +219,6 @@ export default function Plans() {
       </section>
 
       <p className="text-center text-gray-500 text-sm">{t('misc1.plansFooter1')}<span className="text-gray-300 font-medium">{t('misc1.plansFooterBold')}</span></p>
-    </main>
+    </div>
   );
 }

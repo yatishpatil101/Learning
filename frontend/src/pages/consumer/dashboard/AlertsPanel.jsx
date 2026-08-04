@@ -4,7 +4,8 @@ import Icon from '../../../components/Icon.jsx';
 import Switch from '../../../components/ui/Switch.jsx';
 import { getSavedSearches, removeSavedSearch, toggleSearchAlert } from '../../../lib/store.js';
 import { criteriaChips } from '../listings/alertCriteria.js';
-import { shareCriteriaChips, tabMeta } from '../shareflat/alertCriteria.js';
+import { flatmateCriteriaChips, tabMeta } from '../flatmates/alertCriteria.js';
+import { normalizeTab } from '../flatmates/model.js';
 import { Card, SectionHead } from './components.jsx';
 
 const CHANNEL_META = {
@@ -53,9 +54,9 @@ export default function AlertsPanel() {
         <div className="space-y-3">
           {alerts.map((a) => {
             const ch = CHANNEL_META[a.channel] || CHANNEL_META.whatsapp;
-            const isShare = a.kind === 'shareflat';
-            const chips = isShare ? shareCriteriaChips(a) : criteriaChips(a);
-            const viewHref = isShare ? `/share-flat?view=${a.tab || 'flatmates'}` : '/listings';
+            const isShare = a.kind === 'flatmates';
+            const chips = isShare ? flatmateCriteriaChips(a) : criteriaChips(a);
+            const viewHref = isShare ? `/flatmates?view=${normalizeTab(a.tab)}` : '/listings';
             return (
               <div key={a.id} className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">

@@ -8,7 +8,9 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useCompare } from '../../context/CompareContext.jsx';
 import { getSavedProps, unreadNotifCount } from '../../lib/store.js';
 import { useChatUnread } from '../../lib/chat.js';
+import { TOPBAR_SCROLL } from '../../lib/chrome.js';
 import { firstName, initial, roleLabel } from '../../lib/auth.js';
+import { useHelpPath } from '../../lib/useHelp.js';
 
 export default function Navbar() {
   const { t } = useTranslation();
@@ -19,8 +21,14 @@ export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [cityOpen, setCityOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
+  /* Help is the one area whose URL carries the language (/hi/help/...), and
+     HelpLangRoute treats that prefix as authoritative — it calls changeLanguage()
+     on whatever the URL says, and i18n persists that to `pnLang` device-wide.
+     So an unprefixed /help link here is not untidy, it is a language reset: a
+     Hindi reader opening this menu would land on English help and stay English
+     everywhere afterwards. Same reason Footer uses this hook. */
+  const hp = useHelpPath();
   // Bump on any store write (saved / notifications) so the badges below refresh
   // live in the same tab, without waiting for a route change.
   const [, setStoreTick] = useState(0);
@@ -46,12 +54,12 @@ export default function Navbar() {
   // Compare Properties is only relevant while browsing buy/rent listings or a
   // property detail page (mirrors components.js compare:true on listings.html & property.html).
   const showCompare = path.startsWith('/listings') || path.startsWith('/property');
-  // Share-a-Flat is a rent-only feature: surface it only on the Share-a-Flat page
-  // itself or while viewing rent listings (mirrors components.js showShare).
-  const showShare = path.startsWith('/share-flat') || (path.startsWith('/listings') && (dealParam === 'rent' || typeParam === 'pg' || typeParam === 'flatmates'));
+  // Flatmates is a rent-only feature: surface it only on the Flatmates page
+  // itself or while viewing rent listings (mirrors components.js showFlatmates).
+  const showFlatmates = path.startsWith('/flatmates') || (path.startsWith('/listings') && (dealParam === 'rent' || typeParam === 'pg' || typeParam === 'flatmates'));
   const activeKey = path.startsWith('/reels') ? 'reels'
     : path === '/services' ? 'services'
-    : path.startsWith('/share-flat') ? 'share'
+    : path.startsWith('/flatmates') ? 'share'
     : path.startsWith('/listings') ? (dealParam === 'rent' ? 'rent' : 'buy')
     : '';
   const linkCls = (key) =>
@@ -59,20 +67,11 @@ export default function Navbar() {
     (activeKey === key
       ? 'text-white after:absolute after:bottom-0 after:left-1/2 after:-translate-x-1/2 after:w-1.5 after:h-1.5 after:rounded-full after:bg-teal-400'
       : 'text-gray-400 hover:text-white');
-  // Shared mobile menu toggle. Rendered just LEFT of the account pill (or as the
-  // sole trailing control when logged out) so the avatar keeps the rightmost,
-  // half-pill position it has always had.
-  const menuBtn = (
-    <button onClick={() => { setMobileOpen((v) => !v); setAcctOpen(false); }} aria-expanded={mobileOpen} aria-controls="mobile-nav" aria-label="Toggle menu" className="lg:hidden p-2 rounded-xl hover:bg-white/5 transition-all">
-      <Icon name={mobileOpen ? 'x' : 'menu'} className="w-5 h-5 text-gray-300" />
-    </button>
-  );
 
   // Mobile-only control for the left slot on non-home pages. The city is fixed
   // (Pune-only) once you leave home, so instead of the city pill we show a single,
   // compact Back affordance. It's icon-only (no page-name label) to stay minimal
-  // and to keep the bar from overflowing — which is what pushed the account pill
-  // and hamburger off-screen on narrow phones.
+  // and to keep the bar from overflowing.
   const goBack = () => {
     if (location.key && location.key !== 'default') navigate(-1);
     else navigate('/');
@@ -83,7 +82,10 @@ export default function Navbar() {
       onClick={goBack}
       aria-label="Go back"
       title="Go back"
-      className="lg:hidden grid place-items-center h-9 w-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
+      /* tap-extend, not tap-target: this button *is* the drawn tile, so growing its
+         box to 44px would grow the tile too. The transparent ::before keeps the
+         finger target while the square stays at --pn-nav-icon-box. */
+      className="pn-topbar__icon-box tap-extend relative lg:hidden grid place-items-center h-9 w-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
     >
       <Icon name="chevron-left" className="w-4 h-4 text-[#14b8a6]" />
     </button>
@@ -103,42 +105,35 @@ export default function Navbar() {
   );
   const acctItems = (close) => (
     <>
-      {/* Quick actions surfaced only below sm, where the standalone heart / bell /
-         message icons are hidden to make room for Post Property. */}
-      <div className="sm:hidden">
-        {flagEnabled('savedListings') && (
-          <Link to="/saved" onClick={close} className={rowCls + ' justify-between'}>
-            <span className="flex items-center gap-3"><Icon name="heart" className="w-4 h-4 text-gray-400" /> Saved</span>
-            {savedCount > 0 && <span className="min-w-5 h-5 px-1.5 grid place-items-center bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full text-[10px] font-bold text-white">{savedCount}</span>}
-          </Link>
-        )}
-        <Link to="/notifications" onClick={close} className={rowCls + ' justify-between'}>
-          <span className="flex items-center gap-3"><Icon name="bell" className="w-4 h-4 text-gray-400" /> Notifications</span>
-          {unreadCount > 0 && <span className="min-w-5 h-5 px-1.5 grid place-items-center bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full text-[10px] font-bold text-white">{unreadCount}</span>}
-        </Link>
-        {flagEnabled('inAppMessaging') && (
-          <Link to="/messages" onClick={close} className={rowCls + ' justify-between'}>
-            <span className="flex items-center gap-3"><Icon name="message-square" className="w-4 h-4 text-gray-400" /> Messages</span>
-            {chatBadge > 0
-              ? <span className="min-w-5 h-5 px-1.5 grid place-items-center bg-gradient-to-br from-teal-500 to-teal-400 rounded-full text-[10px] font-bold text-white">{chatBadge}</span>
-              : <span className="w-2 h-2 rounded-full bg-teal-400" />}
-          </Link>
-        )}
-        <div className="border-t border-white/10 my-1.5" />
-      </div>
+      {/* Saved / Notifications / Messages used to be duplicated here for phones,
+         where the standalone icons were hidden. They now sit inline in the bar at
+         every width, so repeating them would put the same three destinations on
+         screen twice — and give `a[href="/messages"]` two matches. */}
       {user?.role === 'admin' ? <Link to="/admin" onClick={close} className={rowCls}><Icon name="shield-check" className="w-4 h-4 text-gray-400" /> Admin Panel</Link> : null}
       {user?.role === 'staff' ? <Link to="/ops" onClick={close} className={rowCls}><Icon name="headset" className="w-4 h-4 text-gray-400" /> Ops Console</Link> : null}
       <Link to="/dashboard" onClick={close} className={rowCls}><Icon name="layout-grid" className="w-4 h-4 text-gray-400" /> Dashboard</Link>
       <Link to="/dashboard#profile" onClick={close} className={rowCls}><Icon name="user-cog" className="w-4 h-4 text-gray-400" /> Profile &amp; Settings</Link>
       <Link to="/dashboard#billing" onClick={close} className={rowCls}><Icon name="receipt-indian-rupee" className="w-4 h-4 text-gray-400" /> Plan &amp; Billing</Link>
-      <Link to="/support" onClick={close} className={rowCls}><Icon name="life-buoy" className="w-4 h-4 text-gray-400" /> Help &amp; Support</Link>
+      <Link to={hp('/help')} onClick={close} className={rowCls}><Icon name="book-open" className="w-4 h-4 text-gray-400" /> Help centre</Link>
+      <Link to="/support" onClick={close} className={rowCls}><Icon name="life-buoy" className="w-4 h-4 text-gray-400" /> Contact support</Link>
       <Link to="/plans" onClick={close} className={rowCls}><Icon name="tag" className="w-4 h-4 text-gray-400" /> Pricing &amp; Plans</Link>
     </>
   );
-  const acctRefer = (close) => (
-    <Link to="/refer" onClick={close} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-teal-200 hover:bg-teal-400/10 transition-all">
-      <span className="flex items-center gap-3"><Icon name="gift" className="w-4 h-4 text-teal-300" /> {t('nav.refer')}</span>
-      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-200 px-2 py-0.5 rounded-full bg-teal-400/15">{t('misc1.referForYou')}</span>
+  /* `card` draws the row as a filled, bordered tile instead of a flat menu line.
+     Used at the top of the mobile drawer, where Refer is the one revenue-driving
+     action in the list and has to win against five same-weight rows below it;
+     the desktop dropdown keeps the flat treatment it has today. */
+  const acctRefer = (close, { card = false } = {}) => (
+    <Link
+      to="/refer"
+      onClick={close}
+      className={'flex items-center justify-between gap-3 px-3 rounded-xl text-sm font-semibold text-teal-200 transition-all '
+        + (card
+          ? 'min-h-[44px] py-2.5 bg-teal-400/10 border border-teal-400/30 hover:bg-teal-400/15'
+          : 'py-2.5 hover:bg-teal-400/10')}
+    >
+      <span className="flex items-center gap-3"><Icon name="gift" className="w-4 h-4 text-teal-300 shrink-0" /> {t('nav.refer')}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-200 px-2 py-0.5 rounded-full bg-teal-400/15 shrink-0">{t('misc1.referForYou')}</span>
     </Link>
   );
   const acctLogout = (close) => (
@@ -148,7 +143,12 @@ export default function Navbar() {
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return undefined;
+    const root = document.documentElement;
     let ticking = false;
+    let lastY = window.scrollY;
+    // Thresholds live in lib/chrome.js so the top bar's behaviour is configured
+    // alongside the bottom bar's, rather than as loose constants in this effect.
+    const { hideAfter: HIDE_AFTER, delta: DELTA } = TOPBAR_SCROLL;
     const onScroll = () => {
       if (ticking) return;
       ticking = true;
@@ -157,11 +157,23 @@ export default function Navbar() {
         nav.style.background = `rgba(15,13,26,${Math.min(0.95, 0.6 + y / 400)})`;
         nav.style.boxShadow = y > 50 ? '0 4px 30px rgba(0,0,0,0.3)' : 'none';
         nav.style.borderBottomColor = y > 50 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.06)';
+
+        const moved = y - lastY;
+        if (Math.abs(moved) > DELTA) {
+          // Toggled at every width; only the mobile stylesheet reacts to the class.
+          root.classList.toggle('pn-nav-hidden', moved > 0 && y > HIDE_AFTER);
+          lastY = y;
+        } else if (y <= HIDE_AFTER) {
+          root.classList.remove('pn-nav-hidden');
+        }
         ticking = false;
       });
     };
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      root.classList.remove('pn-nav-hidden');
+    };
   }, []);
 
   useEffect(() => {
@@ -177,26 +189,24 @@ export default function Navbar() {
     return () => document.removeEventListener('click', onDoc);
   }, []);
 
-  // While a mobile drawer (hamburger or account) is open, lock body scroll and
-  // allow Escape to close, so both behave like proper modal surfaces. The
-  // account menu is a drawer only below lg; at lg+ it's a dropdown that must not
-  // lock scroll.
+  // While the mobile account drawer is open, lock body scroll and allow Escape to
+  // close, so it behaves like a proper modal surface. It is a drawer only below lg;
+  // at lg+ it's a dropdown that must not lock scroll.
   useEffect(() => {
-    if (!mobileOpen && !acctOpen) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') { setMobileOpen(false); setAcctOpen(false); } };
+    if (!acctOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setAcctOpen(false); };
     document.addEventListener('keydown', onKey);
     const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
-    const shouldLock = mobileOpen || (acctOpen && isMobile);
     const prev = document.body.style.overflow;
-    if (shouldLock) document.body.style.overflow = 'hidden';
+    if (isMobile) document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
-      if (shouldLock) document.body.style.overflow = prev;
+      if (isMobile) document.body.style.overflow = prev;
     };
-  }, [mobileOpen, acctOpen]);
+  }, [acctOpen]);
 
-  // Close any open drawer/menu whenever the route changes (a link was followed).
-  useEffect(() => { setMobileOpen(false); setAcctOpen(false); }, [location.pathname, location.search]);
+  // Close the account menu whenever the route changes (a link was followed).
+  useEffect(() => { setAcctOpen(false); }, [location.pathname, location.search]);
 
   return (
     <>
@@ -206,14 +216,18 @@ export default function Navbar() {
     </a>
     <nav
       ref={navRef}
-      className="fixed top-0 left-0 w-full z-50 transition-all duration-500"
+      className="pn-topbar pn-safe-x fixed top-0 left-0 right-0 z-50 transition-all duration-500"
       style={{ background: 'rgba(15,13,26,0.6)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 md:h-[72px]">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-teal-400 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shadow-sm shadow-teal-500/20">
+        <div className="pn-topbar__row flex items-center justify-between gap-2">
+          {/* min-w-0 so this side yields first: with Saved / Notifications / Messages
+             now inline, a 360px bar showing the city pill AND a compare badge has no
+             slack left. Shrinking here truncates the city label rather than pushing
+             the account pill off the edge. */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2 group">
+              <div className="pn-topbar__icon-box w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-teal-400 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shadow-sm shadow-teal-500/20">
                 <Icon name="home" className="w-5 h-5 text-white" />
               </div>
               <span className="hidden sm:inline text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">PuneNest</span>
@@ -227,11 +241,11 @@ export default function Navbar() {
                 aria-expanded={cityOpen}
                 aria-haspopup="listbox"
                 aria-label={`City: ${city}`}
-                className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
+                className="pn-topbar__pill tap-extend relative flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300 min-w-0"
               >
-                <Icon name="map-pin" className="w-4 h-4 text-[#14b8a6]" />
-                <span className="text-sm font-semibold text-gray-200">{city}</span>
-                <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400 transition-transform duration-300" style={{ transform: cityOpen ? 'rotate(180deg)' : '' }} />
+                <Icon name="map-pin" className="w-4 h-4 text-[#14b8a6] shrink-0" />
+                <span className="text-sm font-semibold text-gray-200 truncate">{city}</span>
+                <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400 transition-transform duration-300 shrink-0" style={{ transform: cityOpen ? 'rotate(180deg)' : '' }} />
               </button>
               {cityOpen ? (
                 <div role="listbox" aria-label="Select city" className="absolute left-0 mt-2 w-56 rounded-2xl bg-[#15122a] border border-white/10 shadow-2xl shadow-black/50 p-1.5 z-[60]">
@@ -275,52 +289,68 @@ export default function Navbar() {
           <div className="hidden lg:flex items-center gap-1">
             <Link to="/listings?deal=buy" className={linkCls('buy')}>{t('nav.buy')}</Link>
             <Link to="/listings?deal=rent" className={linkCls('rent')}>{t('nav.rent')}</Link>
-            {showShare ? <Link to="/share-flat" className={linkCls('share')}>{t('nav.shareFlat')}</Link> : null}
+            {showFlatmates ? <Link to="/flatmates" className={linkCls('share')}>{t('nav.flatmates')}</Link> : null}
             {!isHome ? <Link to="/reels" className={linkCls('reels')}>{t('nav.reels')}</Link> : null}
             <Link to="/services" className={linkCls('services')}>{t('nav.services')}</Link>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link to="/list-property" className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Desktop-only. Below lg the bottom tab bar owns Post — it has the raised
+                centre slot in the thumb arc, which is a better home for the primary
+                supply-side CTA than the top-right corner. Two competing Post buttons
+                also made the mobile bar crowd out the account pill on narrow phones. */}
+            <Link to="/list-property" className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
               <Icon name="plus-circle" className="w-4 h-4" />
-              <span className="sm:hidden">{t('nav.post')}</span>
-              <span className="hidden sm:inline">{t('nav.postProperty')}</span>
+              {t('nav.postProperty')}
             </Link>
             {flagEnabled('compareProperties') && (showCompare || compareCount > 0) ? (
-              <Link to="/compare" className="relative p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Compare Properties">
+              <Link to="/compare" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Compare Properties" aria-label="Compare properties">
                 <Icon name="git-compare" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                 {compareCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{compareCount}</span>}
               </Link>
             ) : null}
             {isIn ? (
               <>
+                {/* Saved / Notifications / Messages sit inline at every width, immediately
+                    before the account pill. They used to be `hidden sm:inline-flex`, with
+                    phones reaching them through the account drawer — two taps and a
+                    context switch for the three screens a returning user checks most.
+                    Below sm they draw at 32px (see .pn-topbar__action) so the row still
+                    fits a 360px bar; above sm the geometry is exactly as before. */}
                 {flagEnabled('savedListings') && (
-                  <Link to="/saved" className="relative hidden sm:inline-flex p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group">
+                  <Link to="/saved" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
                     <Icon name="heart" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                     {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
                   </Link>
                 )}
-                <Link to="/notifications" className="relative hidden sm:inline-flex p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Notifications">
+                <Link to="/notifications" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Notifications" aria-label="Notifications">
                   <Icon name="bell" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                   {unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{unreadCount}</span>}
                 </Link>
                 {flagEnabled('inAppMessaging') && (
-                  <Link to="/messages" className="relative hidden sm:inline-flex p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Messages">
+                  <Link to="/messages" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Messages" aria-label="Messages">
                     <Icon name="message-square" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                     {chatBadge > 0
                       ? <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{chatBadge}</span>
                       : <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-teal-400 ring-2 ring-[#0f0d1a]" />}
                   </Link>
                 )}
-                {menuBtn}
                 <div className="relative -mr-4 sm:mr-0" ref={acctRef}>
-                  <button onClick={(e) => { e.stopPropagation(); setMobileOpen(false); setAcctOpen((v) => !v); }} aria-label="Account menu" aria-haspopup="menu" aria-expanded={acctOpen} className="flex items-center gap-2 pl-1 pr-3.5 sm:pr-2.5 py-1 rounded-l-full rounded-r-none sm:rounded-full bg-white/5 border border-r-0 sm:border-r border-teal-400/30 hover:border-teal-400/50 transition-all">
+                  {/* pr-2 below sm, not pr-3.5: the pill deliberately bleeds off the
+                     right edge here (-mr-4 cancels the container padding, and the right
+                     side is square), so padding on that side is dead space between the
+                     chevron and the screen edge rather than a visible inset. Trimming it
+                     also pulls the whole action row right, because the row is
+                     justify-between and this pill is its last item. 8px is the floor —
+                     any less and the chevron reads as jammed against the bezel. */}
+                  <button onClick={(e) => { e.stopPropagation(); setAcctOpen((v) => !v); }} aria-label="Account menu" aria-haspopup="menu" aria-expanded={acctOpen} className="pn-topbar__pill tap-extend relative flex items-center gap-1.5 sm:gap-2 pl-1 pr-2 sm:pr-2.5 py-1 rounded-l-full rounded-r-none sm:rounded-full bg-white/5 border border-r-0 sm:border-r border-teal-400/30 hover:border-teal-400/50 transition-all">
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-xs font-bold text-white">{initial(user)}</span>
                     <span className="hidden sm:inline text-sm font-semibold text-gray-100">{firstName(user)}</span>
                     <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400" style={{ transform: acctOpen ? 'rotate(180deg)' : '' }} />
                   </button>
                   {/* Desktop (lg+): anchored dropdown. On smaller screens the account
-                     menu renders as a right drawer (see below) to match the hamburger. */}
+                     menu renders as a right drawer (see below), which suits a
+                     thumb-height list better than a corner-anchored popover. */}
                   {acctOpen ? (
                     <div className="hidden lg:block absolute right-0 mt-2 w-64 rounded-2xl bg-[#15122a] border border-white/10 shadow-2xl shadow-black/50 p-2 z-[60] max-h-[80vh] overflow-y-auto">
                       <div className="py-1">{acctIdentity}</div>
@@ -334,83 +364,22 @@ export default function Navbar() {
                 </div>
               </>
             ) : (
-              <>
-                <Link to="/signin" className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
-                  <Icon name="log-in" className="w-4 h-4" /> Sign In
-                </Link>
-                {menuBtn}
-              </>
+              /* Visible at every width. It used to be `hidden sm:inline-flex`, with the
+                 hamburger drawer carrying Sign In on small phones — now that the drawer
+                 is gone this is the only sign-in affordance, so it can't be hidden. */
+              <Link to="/signin" className="pn-topbar__pill tap-extend relative inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
+                <Icon name="log-in" className="w-4 h-4" /> Sign In
+              </Link>
             )}
           </div>
         </div>
       </div>
     </nav>
 
-    {/* Mobile navigation — right-anchored slide-in drawer with a dimmed backdrop.
-       Standard mobile pattern: a compact panel (not the whole screen) that
-       visually connects to the top-right hamburger. Body scroll locks and
-       Escape/backdrop close it. */}
-    <div
-      className={'lg:hidden fixed inset-0 z-[80] transition-opacity duration-300 ' + (mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')}
-      aria-hidden={!mobileOpen}
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-      <aside
-        id="mobile-nav"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Menu"
-        className={'absolute top-0 right-0 h-full w-[300px] max-w-[85vw] bg-[#15122a] border-l border-white/10 shadow-2xl shadow-black/50 flex flex-col transition-transform duration-300 ease-out ' + (mobileOpen ? 'translate-x-0' : 'translate-x-full')}
-      >
-        <div className="flex items-center justify-between px-5 h-16 border-b border-white/5 shrink-0">
-          <span className="text-base font-semibold text-white">Menu</span>
-          <button onClick={() => setMobileOpen(false)} aria-label="Close menu" className="p-2 -mr-2 rounded-xl hover:bg-white/5 transition-all">
-            <Icon name="x" className="w-5 h-5 text-gray-300" />
-          </button>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Mobile">
-          {[
-            { to: '/listings?deal=buy', label: t('nav.buy'), icon: 'tag' },
-            { to: '/listings?deal=rent', label: t('nav.rent'), icon: 'key' },
-            { to: '/share-flat', label: t('nav.shareFlat'), icon: 'users' },
-            { to: '/reels', label: t('nav.reels'), icon: 'video' },
-            { to: '/services', label: t('nav.services'), icon: 'sparkles' },
-            { to: '/refer', label: t('nav.refer'), icon: 'gift', highlight: true },
-          ].map((it) => (
-            <Link
-              key={it.to}
-              to={it.to}
-              onClick={() => setMobileOpen(false)}
-              className={'group flex items-center gap-3.5 px-3 py-3 rounded-xl text-[15px] transition-all ' + (it.highlight
-                ? 'font-semibold text-white bg-gradient-to-r from-teal-500/15 via-teal-500/[.06] to-transparent hover:from-teal-500/25 hover:via-teal-500/10'
-                : 'text-gray-200 hover:text-white hover:bg-white/5')}
-            >
-              <span className={'w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ' + (it.highlight ? 'bg-gradient-to-br from-teal-400 to-orange-400 shadow-sm shadow-teal-500/25 group-hover:scale-105 transition-transform' : 'bg-white/5')}>
-                <Icon name={it.icon} className={'w-[18px] h-[18px] ' + (it.highlight ? 'text-white' : 'text-[#14b8a6]')} />
-              </span>
-              {it.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="p-3 border-t border-white/5 shrink-0 space-y-2">
-          <Link to="/list-property" onClick={() => setMobileOpen(false)} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#0d9488] to-[#14b8a6] hover:shadow-lg hover:shadow-teal-500/25 transition-all">
-            <Icon name="plus-circle" className="w-4 h-4" /> Post Property
-          </Link>
-          {!isIn ? (
-            <Link to="/signin" onClick={() => setMobileOpen(false)} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-center text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all sm:hidden">
-              <Icon name="log-in" className="w-4 h-4" /> Sign In
-            </Link>
-          ) : null}
-        </div>
-      </aside>
-    </div>
-
-    {/* Mobile account menu — same right-drawer pattern as the hamburger, so the
-       two triggers behave consistently. Rendered outside <nav> because the nav's
-       backdrop-filter would otherwise trap position:fixed. Only mounts when
-       signed in; at lg+ the anchored dropdown above is used instead. */}
+    {/* Mobile account menu — a right-anchored slide-in drawer with a dimmed backdrop.
+       Rendered outside <nav> because the nav's backdrop-filter would otherwise trap
+       position:fixed. Only mounts when signed in; at lg+ the anchored dropdown above
+       is used instead. */}
     {isIn ? (
       <div
         ref={acctDrawerRef}
@@ -426,12 +395,22 @@ export default function Navbar() {
         >
           <div className="flex items-center justify-between gap-2 px-4 h-16 border-b border-white/5 shrink-0">
             {acctIdentity}
-            <button onClick={() => setAcctOpen(false)} aria-label="Close menu" className="p-2 -mr-2 rounded-xl hover:bg-white/5 transition-all shrink-0">
+            <button onClick={() => setAcctOpen(false)} aria-label="Close menu" className="tap-target p-2 -mr-2 rounded-xl hover:bg-white/5 transition-all shrink-0">
               <Icon name="x" className="w-5 h-5 text-gray-300" />
             </button>
           </div>
           <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Account">
-            {acctOpen && acctItems(() => setAcctOpen(false))}
+            {/* Refer leads the drawer. It was previously rendered only in the desktop
+                dropdown, so phone users — the majority — never saw it at all. First
+                position because a referral is the one item here the user isn't already
+                looking for; below the fold of five identical rows it goes unread. */}
+            {acctOpen ? (
+              <>
+                {acctRefer(() => setAcctOpen(false), { card: true })}
+                <div className="border-t border-white/10 my-2" />
+                {acctItems(() => setAcctOpen(false))}
+              </>
+            ) : null}
           </nav>
           <div className="p-3 border-t border-white/5 shrink-0 space-y-1">
             {acctLogout(() => setAcctOpen(false))}

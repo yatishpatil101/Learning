@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -15,7 +16,7 @@ import Select from '../../components/ui/Select.jsx';
 import {
   NAMES, DEMAND_W, fmtRs, scoreOf, rentOf, yieldOf, puneAvgPrice, puneAvgYoy,
   buildTrend, metricVal, metricFmt, trendGradient, slugifyLoc, haversineKm,
-  INTEL_GEO, bestForTags,
+  INTEL_GEO, bestForTags, DEMAND_KEYS,
 } from './locality/helpers.js';
 import InventoryBar from './locality/InventoryBar.jsx';
 import AlertButton from './locality/AlertButton.jsx';
@@ -31,6 +32,7 @@ import LeaderboardCard from './locality/LeaderboardCard.jsx';
 import EmergingPanel from './locality/EmergingPanel.jsx';
 
 export default function Locality() {
+  const { t, i18n } = useTranslation();
   const rootRef = useScrollReveal();
   const { isIn } = useAuth();
   const { toast } = useToast();
@@ -123,18 +125,18 @@ export default function Locality() {
 
   // ----- charts -----
   const trend = useMemo(() => {
-    const t = buildTrend(L.price, L.yoy, range), p = buildTrend(puneAvgPrice, puneAvgYoy, range);
+    const tr = buildTrend(L.price, L.yoy, range, i18n.language), p = buildTrend(puneAvgPrice, puneAvgYoy, range, i18n.language);
     return {
-      labels: t.labels,
+      labels: tr.labels,
       datasets: [
-        { label: current, data: t.actual, borderColor: '#14b8a6', backgroundColor: trendGradient, fill: true, tension: 0.4, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5, spanGaps: false },
-        { label: 'Forecast', data: t.fc, borderColor: '#f59e0b', borderDash: [6, 5], fill: false, tension: 0.4, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5 },
-        { label: 'Pune avg', data: p.actual, borderColor: '#6366f1', fill: false, tension: 0.4, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, borderDash: [2, 3] },
+        { label: current, data: tr.actual, borderColor: '#14b8a6', backgroundColor: trendGradient, fill: true, tension: 0.4, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5, spanGaps: false },
+        { label: t('locality.trendForecast'), data: tr.fc, borderColor: '#f59e0b', borderDash: [6, 5], fill: false, tension: 0.4, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5 },
+        { label: t('locality.trendPuneAvgShort'), data: p.actual, borderColor: '#6366f1', fill: false, tension: 0.4, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, borderDash: [2, 3] },
       ],
     };
-  }, [current, range, L]);
+  }, [current, range, L, t, i18n.language]);
 
-  const scoreLabel = sc >= 8.5 ? 'Excellent' : sc >= 8 ? 'Very Good' : sc >= 7.5 ? 'Good' : 'Average';
+  const scoreLabel = sc >= 8.5 ? 'locality.scoreExcellent' : sc >= 8 ? 'locality.scoreVeryGood' : sc >= 7.5 ? 'locality.scoreGood' : 'locality.scoreAverage';
 
   const cmpNames = [...cmp];
   const cmpFmt = metricFmt(cmpMetric);
@@ -147,7 +149,14 @@ export default function Locality() {
     return rows;
   }, [sort]);
 
-  const pulse = [['Demand', L.demand, 'flame', L.demand === 'Very High' ? 'text-rose-400' : L.demand === 'High' ? 'text-amber-400' : 'text-teal-400'], ['New launches (1 yr)', L.launches + ' projects', 'building-2', 'text-teal-400'], ['Avg. property age', '~' + L.age + ' yrs', 'calendar-clock', 'text-teal-300'], ['Buyer interest', L.buyer + '/100', 'users', 'text-emerald-400']];
+  /* Each pulse entry is [labelKey, valueKeyOrTemplate, icon, colour]; composed
+     values carry their own args so the card can render them in any language. */
+  const pulse = [
+    ['locality.pulseDemand', DEMAND_KEYS[L.demand] || L.demand, 'flame', L.demand === 'Very High' ? 'text-rose-400' : L.demand === 'High' ? 'text-amber-400' : 'text-teal-400'],
+    ['locality.pulseLaunches', { key: 'locality.pulseProjects', args: { count: L.launches } }, 'building-2', 'text-teal-400'],
+    ['locality.pulseAge', { key: 'locality.pulseAgeVal', args: { count: L.age } }, 'calendar-clock', 'text-teal-300'],
+    ['locality.pulseBuyer', { key: 'locality.pulseBuyerVal', args: { score: L.buyer } }, 'users', 'text-emerald-400'],
+  ];
 
   const locId = activeName.toLowerCase();
   useEffect(() => {
@@ -156,20 +165,20 @@ export default function Locality() {
   const locReviews = reviews[locId] || [];
   const postReview = (e) => {
     e.preventDefault();
-    if (!isIn) { toast('Please sign in to post a review.', 'error'); return; }
-    if (addEntityReview('locality', locId, { rating: pick, text: revText.trim() }) === 'login') { toast('Please sign in to post a review.', 'error'); return; }
+    if (!isIn) { toast(t('locality.signInReview'), 'error'); return; }
+    if (addEntityReview('locality', locId, { rating: pick, text: revText.trim() }) === 'login') { toast(t('locality.signInReview'), 'error'); return; }
     setReviews((r) => ({ ...r, [locId]: getEntityReviews('locality', locId) }));
-    setRevText(''); setPick(5); toast('Thanks for your review!');
+    setRevText(''); setPick(5); toast(t('locality.reviewThanks'));
   };
 
   // Locality alert — reuses the same saved-search/alert layer as the listings
   // "Create a property alert" flow, so it lands in the dashboard Alerts panel and
   // fires on new matches. Sign-in gated, mirroring the review gate above.
   const setLocalityAlert = () => {
-    if (!isIn) { toast('Please sign in to set up an alert.', 'error'); return; }
+    if (!isIn) { toast(t('locality.signInAlert'), 'error'); return; }
     const rec = buildAlertRecord({ deal: 'rent', localities: [activeSlug] }, { [activeSlug]: activeName });
     addSavedSearch(rec);
-    toast(`Alert on — we'll ping you about new homes in ${activeName}.`);
+    toast(t('locality.alertOn', { name: activeName }));
   };
 
   // Shared UI fragments used by both the full dashboard and the emerging panel.
@@ -205,33 +214,33 @@ export default function Locality() {
   const leaderboardBlock = <LeaderboardCard rows={lbRows} current={current} onSort={onSort} onLoad={load} />;
 
   const tabs = [
-    { key: 'overview', label: 'Overview', icon: 'bar-chart-3', content: (
+    { key: 'overview', label: t('locality.tabOverview'), icon: 'bar-chart-3', content: (
       <div className="grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-5 sm:gap-6">{trendBlock}{livabilityBlock}</div>
     ) },
-    { key: 'compare', label: 'Compare', icon: 'scale', content: (
+    { key: 'compare', label: t('locality.tabCompare'), icon: 'scale', content: (
       <div className="space-y-5 sm:space-y-6">{compareBlock}{leaderboardBlock}</div>
     ) },
-    { key: 'area', label: 'Area', icon: 'map-pin', content: (
+    { key: 'area', label: t('locality.tabArea'), icon: 'map-pin', content: (
       <div className="space-y-5 sm:space-y-6">{mapCard}<div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">{pulseBlock}{connBlock}</div></div>
     ) },
-    societiesBlock ? { key: 'societies', label: 'Societies', icon: 'building-2', content: societiesBlock } : null,
-    { key: 'reviews', label: 'Reviews', icon: 'star', content: reviewsBlock },
+    societiesBlock ? { key: 'societies', label: t('locality.tabSocieties'), icon: 'building-2', content: societiesBlock } : null,
+    { key: 'reviews', label: t('locality.tabReviews'), icon: 'star', content: reviewsBlock },
   ].filter(Boolean);
 
   return (
     <div ref={rootRef} className="loc-page">
-      <main className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      <div className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5 mb-7 reveal">
             <div>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-4"><Icon name="bar-chart-3" className="w-4 h-4" /> Live Market Insights · Pune</div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-white">Locality insights &amp; <span className="gradient-text">price trends</span></h1>
-              <p className="text-gray-400 text-sm mt-2">Explore prices, appreciation, livability and forecasts for <span className="text-teal-400 font-semibold">{current}</span>.</p>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium mb-4"><Icon name="bar-chart-3" className="w-4 h-4" /> {t('locality.eyebrow')}</div>
+              <h1 className="text-3xl sm:text-4xl font-bold text-white"><Trans i18nKey="locality.title" components={{ 1: <span className="gradient-text" /> }} /></h1>
+              <p className="text-gray-400 text-sm mt-2"><Trans i18nKey="locality.intro" values={{ name: current }} components={{ 1: <span className="text-teal-400 font-semibold" /> }} /></p>
               {bestFor.length ? (
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {bestFor.map(([label, ic]) => (
-                    <span key={label} className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-300"><Icon name={ic} className="w-3.5 h-3.5" /> {label}</span>
+                  {bestFor.map(([labelKey, ic]) => (
+                    <span key={labelKey} className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-300"><Icon name={ic} className="w-3.5 h-3.5" /> {t(labelKey)}</span>
                   ))}
                 </div>
               ) : null}
@@ -243,13 +252,13 @@ export default function Locality() {
                   onChange={load}
                   options={NAMES}
                   searchable
-                  placeholder="Search a locality…"
-                  ariaLabel="Search a locality"
+                  placeholder={t('locality.searchPlaceholder')}
+                  ariaLabel={t('locality.searchAria')}
                   className="w-full"
                 />
               </div>
               <div className="seg flex rounded-xl p-1 bg-white/5 border border-white/10 shrink-0">
-                {[1, 2, 3].map((b) => <button key={b} onClick={() => setBhk(b)} className={'px-2.5 sm:px-3 py-2 rounded-lg text-xs font-semibold ' + (bhk === b ? 'active' : 'text-gray-400')}>{b} BHK</button>)}
+                {[1, 2, 3].map((b) => <button key={b} onClick={() => setBhk(b)} className={'px-2.5 sm:px-3 py-2 rounded-lg text-xs font-semibold ' + (bhk === b ? 'active' : 'text-gray-400')}>{t('locality.bhk', { count: b })}</button>)}
               </div>
             </div>
           </div>
@@ -266,19 +275,19 @@ export default function Locality() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <div className="kpi glass-card rounded-2xl p-4 sm:p-5 reveal">
               <div className="flex items-center justify-between mb-3"><div className="w-10 h-10 rounded-xl bg-teal-400/15 flex items-center justify-center"><Icon name="ruler" className="w-5 h-5 text-teal-400" /></div><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">▲ {L.yoy.toFixed(1)}%</span></div>
-              <p className="text-2xl font-bold text-white">{fmtRs(L.price)}</p><p className="text-gray-500 text-xs mt-0.5">Avg. price / sq.ft.</p>
+              <p className="text-2xl font-bold text-white">{fmtRs(L.price)}</p><p className="text-gray-500 text-xs mt-0.5">{t('locality.kpiAvgPrice')}</p>
             </div>
             <div className="kpi glass-card rounded-2xl p-4 sm:p-5 reveal">
               <div className="w-10 h-10 rounded-xl bg-emerald-400/15 flex items-center justify-center mb-3"><Icon name="trending-up" className="w-5 h-5 text-emerald-400" /></div>
-              <p className="text-2xl font-bold text-emerald-400">+{L.yoy.toFixed(1)}%</p><p className="text-gray-500 text-xs mt-0.5">YoY appreciation</p>
+              <p className="text-2xl font-bold text-emerald-400">+{L.yoy.toFixed(1)}%</p><p className="text-gray-500 text-xs mt-0.5">{t('locality.kpiYoy')}</p>
             </div>
             <div className="kpi glass-card rounded-2xl p-4 sm:p-5 reveal">
               <div className="w-10 h-10 rounded-xl bg-teal-400/15 flex items-center justify-center mb-3"><Icon name="key-round" className="w-5 h-5 text-teal-400" /></div>
-              <p className="text-2xl font-bold text-white">{fmtRs(rentOf(current, bhk))}</p><p className="text-gray-500 text-xs mt-0.5">Avg. {bhk} BHK rent / mo</p>
+              <p className="text-2xl font-bold text-white">{fmtRs(rentOf(current, bhk))}</p><p className="text-gray-500 text-xs mt-0.5">{t('locality.kpiRent', { count: bhk })}</p>
             </div>
             <div className="kpi glass-card rounded-2xl p-4 sm:p-5 reveal">
               <div className="w-10 h-10 rounded-xl bg-amber-400/15 flex items-center justify-center mb-3"><Icon name="percent" className="w-5 h-5 text-amber-400" /></div>
-              <p className="text-2xl font-bold text-white">{yieldOf(current, bhk).toFixed(1)}%</p><p className="text-gray-500 text-xs mt-0.5">Rental yield</p>
+              <p className="text-2xl font-bold text-white">{yieldOf(current, bhk).toFixed(1)}%</p><p className="text-gray-500 text-xs mt-0.5">{t('locality.kpiYield')}</p>
             </div>
           </div>
 
@@ -287,14 +296,14 @@ export default function Locality() {
 
           {/* CTA */}
           <div className="mt-6 glass-card rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 reveal">
-            <div><p className="text-white font-semibold">Like <span className="text-teal-400">{current}</span>?</p><p className="text-gray-400 text-sm">Browse verified, broker-free properties in this locality.</p></div>
+            <div><p className="text-white font-semibold"><Trans i18nKey="locality.ctaLike" values={{ name: current }} components={{ 1: <span className="text-teal-400" /> }} /></p><p className="text-gray-400 text-sm">{t('locality.ctaSub')}</p></div>
             <div className="flex flex-wrap items-center gap-3">
               {alertBtn}
-              <Link to={`/listings?q=${encodeURIComponent(current)}`} className="btn-teal px-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2"><Icon name="search" className="w-4 h-4" /> View Properties</Link>
+              <Link to={`/listings?q=${encodeURIComponent(current)}`} className="btn-teal px-5 py-3 rounded-xl text-white text-sm font-semibold flex items-center gap-2"><Icon name="search" className="w-4 h-4" /> {t('locality.ctaView')}</Link>
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

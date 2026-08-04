@@ -10,7 +10,19 @@ import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
 import './i18n';
+// Ahead of index.css so the @font-face declarations land before anything sets
+// font-family. A JS import rather than a CSS `@import`, per the repo convention:
+// postcss.config.js loads only tailwindcss + autoprefixer, so the JS graph is the
+// one mechanism guaranteed to bundle this correctly.
+import './styles/fonts.css';
 import './styles/index.css';
+// Global rather than imported by DateField/TimeField. Those are lazy route
+// components, so a component-level import only ships `.pn-cal` inside their
+// chunk — and the mobile bottom-sheet rules then do not exist for anything that
+// renders picker markup without pulling the component in. That regressed
+// `mobile/phase3.spec.js`, which measures `.pn-cal` on a route with no date
+// field: the element came back position:static with no rule matching at all.
+import './styles/components/date-time-fields.css';
 
 // Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
 initPmf();

@@ -83,8 +83,14 @@
     "catBuyDesc": "Properties you want to buy",
     "catRentLabel": "For Rent",
     "catRentDesc": "Rentals you shortlisted",
-    "catShareLabel": "Flatmates & Flat-shares",
-    "catShareShort": "Flatmates",
-    "catShareDesc": "Shared living saves"
+    "catFlatmatesLabel": "Flatmates & Rooms",
+    "catFlatmatesShort": "Flatmates",
+    "catFlatmatesDesc": "Shared living saves",
+    "guestTitle": "Saved on this device",
+    "guestBody": "Sign in to sync your shortlist across devices and get price-drop alerts.",
+    "guestCta": "Sign in",
+    "swipeToRemove": "Swipe a card left to remove it",
+    "removedTitle": "Removed {{title}}",
+    "undo": "Undo"
   }
 }

@@ -81,7 +81,7 @@ export default function ScheduleVisit() {
 
   return (
     <div ref={rootRef}>
-      <main className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      <div className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <Link to={listingId ? `/property/${listingId}` : '/listings'} className="inline-flex items-center gap-2 text-gray-400 hover:text-teal-400 text-sm mb-6 transition-colors"><Icon name="arrow-left" className="w-4 h-4" /> {listingId ? t('misc1.svBackToProperty') : t('misc1.svBackToListings')}</Link>
 
@@ -197,7 +197,7 @@ export default function ScheduleVisit() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

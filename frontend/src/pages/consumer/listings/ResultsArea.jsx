@@ -7,7 +7,7 @@ import NotifyMeCard from './NotifyMeCard.jsx';
 import MapGate from './MapGate.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import Button from '../../../components/ui/Button.jsx';
-import { shareFlatUrl } from './matchers.js';
+import { flatmatesUrl } from './matchers.js';
 import { RANGE } from './filterState.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
@@ -42,25 +42,14 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
   if (f.bhk.size) broadeners.push({ id: 'bhk', label: t('listings.broadenAnyBhk'), apply: () => set({ bhk: new Set() }) });
   if (f.types.size) broadeners.push({ id: 'type', label: t('listings.broadenAnyType'), apply: () => set({ types: new Set(), commercialTypes: new Set() }) });
 
-  const filtersBtn = (
-    <button
-      type="button"
-      onClick={onOpenFilters}
-      className="lg:hidden inline-flex items-center gap-1.5 px-3 h-10 rounded-xl border border-teal-400/40 bg-teal-500/15 text-teal-100 text-sm font-semibold hover:bg-teal-500/25 hover:border-teal-400/60 t-all shrink-0"
-    >
-      <Icon name="sliders-horizontal" className="w-4 h-4" /> {t('listings.filters')}
-      {activeChips.length ? (
-        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-400 text-gray-900 text-[10px] font-bold leading-none">{activeChips.length}</span>
-      ) : null}
-    </button>
-  );
+
 
   const viewToggles = (
-    <div className="flex items-center gap-1.5 sm:gap-2">
-      <span className="text-xs text-gray-500 mr-1 hidden sm:inline">{t('listings.viewLabel')}</span>
-      <button onClick={() => setView('grid')} aria-pressed={view === 'grid'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'grid' ? ' active' : ' text-gray-500')} title={t('listings.gridView')}><Icon name="layout-grid" className="w-4 h-4" /></button>
-      <button onClick={() => setView('list')} aria-pressed={view === 'list'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'list' ? ' active' : ' text-gray-500')} title={t('listings.listView')}><Icon name="list" className="w-4 h-4" /></button>
-      {flagEnabled('mapSearch') && <button onClick={() => setView('map')} aria-pressed={view === 'map'} className={'view-btn w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'map' ? ' active' : ' text-gray-500')} title={t('listings.mapView')}><Icon name="map" className="w-4 h-4" /></button>}
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <span className="text-sm text-gray-400 mr-0.5 sm:mr-1">{t('listings.viewLabel')}</span>
+      <button onClick={() => setView('grid')} aria-pressed={view === 'grid'} aria-label={t('listings.gridView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'grid' ? ' active' : ' text-gray-500')} title={t('listings.gridView')}><Icon name="layout-grid" className="w-4 h-4" /></button>
+      <button onClick={() => setView('list')} aria-pressed={view === 'list'} aria-label={t('listings.listView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'list' ? ' active' : ' text-gray-500')} title={t('listings.listView')}><Icon name="list" className="w-4 h-4" /></button>
+      {flagEnabled('mapSearch') && <button onClick={() => setView('map')} aria-pressed={view === 'map'} aria-label={t('listings.mapView')} className={'view-btn w-11 h-11 sm:w-10 sm:h-10 rounded-lg border border-white/10 flex items-center justify-center t-all' + (view === 'map' ? ' active' : ' text-gray-500')} title={t('listings.mapView')}><Icon name="map" className="w-4 h-4" /></button>}
     </div>
   );
 
@@ -74,7 +63,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
         { value: 'price-high', label: t('listings.sortPriceHigh') },
         { value: 'newest', label: t('listings.sortNewest') },
       ]}
-      className="w-[116px] sm:w-40"
+      className="pn-dd-sort"
       ariaLabel={t('listings.sortAria')}
     />
   );
@@ -95,11 +84,11 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
                     <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="w-full pl-9 pr-[76px] sm:pr-3 h-10 rounded-xl glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
+                    <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="w-full pl-9 pr-[84px] sm:pr-3 h-11 sm:h-10 rounded-xl glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
                     {/* Mobile: inline save + submit icons keep smart search to a single row */}
                     <div className="sm:hidden absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
-                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-8 h-8 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
+                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-9 h-9 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="hidden sm:flex gap-2">
@@ -113,23 +102,17 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                   the (tall) results column so it stays stuck under the header across the
                   whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              <div className="sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
-                {filtersBtn}
-                <div className="ml-auto flex items-center gap-2">
-                  {viewToggles}
-                  {sortSelect}
-                </div>
+              <div className="pn-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+                {viewToggles}
+                {sortSelect}
               </div>
 
               {/* Tablet & desktop: single row — count left, controls right (unchanged). */}
               <div className="hidden sm:flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-6 list-reveal" style={{ animationDelay: '180ms' }}>
                 {countLine}
                 <div className="flex items-center justify-end gap-3">
-                  {filtersBtn}
-                  <div className="flex items-center gap-3">
-                    {viewToggles}
-                    {sortSelect}
-                  </div>
+                  {viewToggles}
+                  {sortSelect}
                 </div>
               </div>
 
@@ -153,13 +136,13 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
               ) : null}
 
               {f.deal === 'rent' && f.types.has('flatmates') ? (
-                <Link to={shareFlatUrl(f, locNameBySlug)} className="flex items-center gap-4 mb-6 rounded-2xl border border-teal-500/25 bg-gradient-to-r from-teal-500/10 to-teal-400/5 px-5 py-4 hover:border-teal-400/50 transition-all group">
+                <Link to={flatmatesUrl(f, locNameBySlug)} className="flex items-center gap-4 mb-6 rounded-2xl border border-teal-500/25 bg-gradient-to-r from-teal-500/10 to-teal-400/5 px-5 py-4 hover:border-teal-400/50 transition-all group">
                   <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="users-round" className="w-5 h-5 text-teal-300" /></div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-white font-semibold text-sm">{t('listings.shareFlatTitle')}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{t('listings.shareFlatBrowse')} <span className="text-teal-300 font-medium">{t('listings.shareFlatRooms')}</span>{t('listings.shareFlatSplit')}</p>
+                    <p className="text-white font-semibold text-sm">{t('listings.flatmatesTitle')}</p>
+                    <p className="text-gray-400 text-xs mt-0.5">{t('listings.flatmatesBrowse')} <span className="text-teal-300 font-medium">{t('listings.flatmatesRooms')}</span>{t('listings.flatmatesSplit')}</p>
                   </div>
-                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-teal-300 text-sm font-semibold group-hover:gap-2.5 transition-all">{t('listings.shareFlatCta')} <Icon name="arrow-right" className="w-4 h-4" /></span>
+                  <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-teal-300 text-sm font-semibold group-hover:gap-2.5 transition-all">{t('listings.flatmatesCta')} <Icon name="arrow-right" className="w-4 h-4" /></span>
                 </Link>
               ) : null}
 
@@ -290,6 +273,28 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 ><Icon name="chevron-right" className="w-4 h-4" /></button>
               </div>
               )}
+
+              {/* Filtering is the most-repeated action in the search journey, but the
+                  controls bar is pinned to the *top* of the page — the hardest place
+                  to reach one-handed. This pill puts the same action in the thumb arc
+                  without moving the bar (which still carries context on scroll).
+                  lg:hidden + docked to --pn-bottom-inset, so it clears the bottom nav
+                  and never renders on desktop. Anchored bottom-LEFT: the Nestor FAB owns
+                  the bottom-right corner and literally intercepted taps on this pill when
+                  it sat there (caught by mobile-sheets-and-actions.spec.js). */}
+              <button
+                type="button"
+                onClick={onOpenFilters}
+                aria-label={activeChips.length ? t('listings.filtersActiveAria', { count: activeChips.length }) : t('listings.filters')}
+                className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 pr-4 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : '')}
+                style={{ bottom: 'calc(var(--pn-bottom-inset) + 0.75rem)' }}
+              >
+                <Icon name="sliders-horizontal" className="w-[18px] h-[18px] text-teal-300" />
+                {t('listings.filters')}
+                {activeChips.length ? (
+                  <span className="filter-fab__count inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold leading-none">{activeChips.length}</span>
+                ) : null}
+              </button>
             </div>
   );
 }

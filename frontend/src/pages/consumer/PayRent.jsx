@@ -112,7 +112,7 @@ export default function PayRent() {
   if (!flagEnabled('onlineRentPayment')) return <PayRentComingSoon />;
 
   return (
-    <main className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       <h1 className="text-2xl sm:text-3xl font-extrabold mb-1">{tr('misc.prTitle')}</h1>
       <p className="text-gray-400 text-sm mb-6">{tr('misc.prSubtitle')}</p>
 
@@ -259,6 +259,6 @@ export default function PayRent() {
           </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }

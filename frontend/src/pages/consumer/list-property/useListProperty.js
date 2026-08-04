@@ -7,8 +7,10 @@ import { useFormDraft } from '../../../lib/hooks';
 import {
   getListing, parseAmount,
   canPostListing, activeListingCount, listingLimit,
+  creditReferrerForListing,
 } from '../../../lib/store';
 import { formatIndian } from './format.js';
+import { haptic } from '../../../lib/haptics.js';
 import {
   isResidentialType, isLandType, isCommercialType, isHouseType, isPgType,
 } from './constants.js';
@@ -29,14 +31,16 @@ export default function useListProperty() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
-  // Entry from Share-a-Flat's "List your room" — a sitting tenant looking for a
+  // Entry from Flatmates's "List your room" — a sitting tenant looking for a
   // replacement flatmate. Pre-selects the flatmate track + tenant host role so
   // they land on a ready-to-fill room form instead of re-picking those choices.
-  const shareMode = searchParams.get('share') === '1';
+  const flatmateMode = searchParams.get('flatmate') === '1';
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [rentMode, setRentMode] = useState(() => (shareMode && !editId ? 'flatmate' : 'whole')); // whole | flatmate
+  const [rentMode, setRentMode] = useState(() => (flatmateMode && !editId ? 'flatmate' : 'whole')); // whole | flatmate
   const [showSuccess, setShowSuccess] = useState(false);
+  // The rent listing just published, when it's eligible to be let room by room.
+  const [postedListing, setPostedListing] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -78,10 +82,10 @@ export default function useListProperty() {
   );
 
   useEffect(() => {
-    // Prefill the room-listing intent when arriving from Share-a-Flat. Runs after
+    // Prefill the room-listing intent when arriving from Flatmates. Runs after
     // the draft restore above so the tenant's intent wins over a stale draft, and
     // is skipped in edit mode so it never overwrites an existing listing.
-    if (shareMode && !editId) {
+    if (flatmateMode && !editId) {
       setForm((f) => ({ ...f, deal: 'rent', propertyType: 'flat', hostRole: 'tenant' }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,7 +213,15 @@ export default function useListProperty() {
     if (currentStep === 2 && !locationSet) err.location = true;
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
     setErrors({});
-    if (currentStep < 3) { setCurrentStep(currentStep + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      /* Two beats, not one: this is progress through the posting funnel, not a
+         toggle. It also fires only on a *successful* advance — the early return
+         above means a validation failure stays silent, so the tick means "you got
+         through", never "something happened". */
+      haptic('step');
+    }
   };
   const prevStep = () => {
     if (currentStep > 1) { setCurrentStep(currentStep - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -236,9 +248,18 @@ export default function useListProperty() {
       return;
     }
     clearFormDraft();
+    // A referred owner posting a property unlocks one extra free listing slot for
+    // whoever referred them. Deduped, so only their first post ever counts.
+    if (!editId) creditReferrerForListing();
     triggerConfetti();
+    // A brand-new rent listing can also be let room by room — offered on the
+    // success screen while the owner is still thinking about how to fill it.
+    // Sale listings and edits can never be split.
+    const splittable = !editId && res?.listing?.deal === 'rent';
+    if (splittable) setPostedListing(res.listing);
     setShowSuccess(true);
-    setTimeout(() => navigate('/dashboard'), 3200);
+    // Don't yank the screen away mid-decision while that offer is on it.
+    if (!splittable) setTimeout(() => navigate('/dashboard'), 3200);
   };
 
   const submitProperty = () => {
@@ -272,9 +293,10 @@ export default function useListProperty() {
   return {
     ...media,
     ...location,
-    t, navigate, editId, shareMode,
+    t, navigate, editId, flatmateMode,
     currentStep, setCurrentStep, rentMode, setRentMode, isFlatmateMode,
     showSuccess, showResetConfirm, setShowResetConfirm, errors,
+    postedListing,
     editApproved, editChanges, showIdentityGuard, setShowIdentityGuard,
     showDupGuard, setShowDupGuard, dupExistingId, canPost,
     form, setForm, progressState,

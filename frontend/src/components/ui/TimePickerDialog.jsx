@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Select from './Select.jsx';
 import { parseTime, formatTime, to12h, HOUR_OPTIONS, minuteOptions } from '../../lib/timeOfDay.js';
 
@@ -18,9 +19,11 @@ import { parseTime, formatTime, to12h, HOUR_OPTIONS, minuteOptions } from '../..
  * @param {number} [props.minuteStep=5] - Minute granularity.
  * @param {() => void} props.onClose
  * @param {(value: string) => void} props.onConfirm
- * @param {string} [props.ariaLabel='Select time']
+ * @param {string} [props.ariaLabel] - Defaults to the translated "Select time".
  */
-export default function TimePickerDialog({ open, value, anchorRef, format = '12h', minuteStep = 5, onClose, onConfirm, ariaLabel = 'Select time' }) {
+export default function TimePickerDialog({ open, value, anchorRef, format = '12h', minuteStep = 5, onClose, onConfirm, ariaLabel }) {
+  const { t } = useTranslation();
+  const dialogLabel = ariaLabel || t('ui.selectTime');
   const panelRef = useRef(null);
   const seed = parseTime(value) || { h24: 10, min: 0 };
   const [draft, setDraft] = useState(seed);
@@ -53,6 +56,13 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
     const anchor = anchorRef?.current;
     const panel = panelRef.current;
     if (!anchor || !panel) return;
+    // Mirrors DatePickerDialog: below 640px the shared `.pn-cal` rules dock this
+    // panel as a bottom sheet, so anchoring must stand down and clear itself.
+    if (window.matchMedia('(max-width: 639.98px)').matches) {
+      panel.style.left = '';
+      panel.style.top = '';
+      return;
+    }
     const r = anchor.getBoundingClientRect();
     const pw = panel.offsetWidth;
     const ph = panel.offsetHeight;
@@ -118,11 +128,11 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
       tabIndex={-1}
       role="dialog"
       aria-modal="false"
-      aria-label={ariaLabel}
+      aria-label={dialogLabel}
       className={`pn-cal pn-timepicker${shown ? ' is-open' : ''}`}
     >
       <div className="pn-cal__head">
-        <h3 className="pn-cal__title">Select Time</h3>
+        <h3 className="pn-cal__title">{t('ui.selectTimeTitle')}</h3>
         <span className="pn-timepicker__readout" aria-hidden="true">{to12h(draft)}</span>
       </div>
 
@@ -132,7 +142,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
           value={String(hour12)}
           options={HOUR_OPTIONS}
           searchable={false}
-          ariaLabel="Hour"
+          ariaLabel={t('ui.hour')}
           onChange={(v) => setHour12(+v)}
         />
         <span className="pn-timepicker__colon" aria-hidden="true">:</span>
@@ -141,10 +151,10 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
           value={String(draft.min - (draft.min % minuteStep))}
           options={minuteOptions(minuteStep)}
           searchable={false}
-          ariaLabel="Minute"
+          ariaLabel={t('ui.minute')}
           onChange={(v) => setMinute(+v)}
         />
-        <div className="pn-timepicker__mer" role="group" aria-label="AM or PM">
+        <div className="pn-timepicker__mer" role="group" aria-label={t('ui.amOrPm')}>
           {['AM', 'PM'].map((m) => (
             <button
               key={m}
@@ -160,7 +170,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
       </div>
 
       <button type="button" className="pn-cal__confirm" onClick={() => onConfirm?.(formatTime(draft, format))}>
-        Confirm
+        {t('ui.confirm')}
       </button>
     </div>,
     document.body,

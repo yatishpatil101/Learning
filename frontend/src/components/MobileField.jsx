@@ -20,6 +20,7 @@ export default function MobileField({
   disabled = false,
   id,
   autoFocus = false,
+  enterKeyHint = 'next',
 }) {
   const [touched, setTouched] = useState(false);
   const clean = sanitize(value);
@@ -37,7 +38,7 @@ export default function MobileField({
       {/* Country code chip */}
       <span
         className={
-          'inline-flex items-center gap-1.5 h-10 px-3.5 rounded-xl border bg-white/5 text-sm font-medium text-gray-300 select-none whitespace-nowrap flex-shrink-0 '
+          'inline-flex items-center gap-1.5 h-11 sm:h-10 px-3.5 rounded-xl border bg-white/5 text-sm font-medium text-gray-300 select-none whitespace-nowrap flex-shrink-0 '
           + borderCls
         }
       >
@@ -52,6 +53,9 @@ export default function MobileField({
         inputMode="numeric"
         maxLength={10}
         autoComplete="tel-national"
+        // A phone number is almost never the last field in these forms, so the
+        // keyboard's action key should move the user on rather than say "return".
+        enterKeyHint={enterKeyHint}
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus={autoFocus}
         disabled={disabled}
@@ -60,7 +64,7 @@ export default function MobileField({
         onBlur={() => setTouched(true)}
         placeholder={placeholder}
         className={
-          'flex-1 min-w-0 h-10 px-4 rounded-xl border bg-white/5 text-white text-sm placeholder-gray-500 outline-none transition-colors '
+          'flex-1 min-w-0 h-11 sm:h-10 px-4 rounded-xl border bg-white/5 text-white text-sm placeholder-gray-500 outline-none transition-colors '
           + borderCls + ' ' + focusCls
           + ' focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20'
           + (disabled ? ' opacity-50 cursor-not-allowed' : '')

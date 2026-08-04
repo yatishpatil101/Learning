@@ -33,7 +33,6 @@
     "svBookVisit": "विज़िट बुक करें",
     "svBookVisitSub": "प्रत्यक्ष या वीडियो टूर शेड्यूल करने के लिए एक प्रॉपर्टी चुनें.",
     "svBrowseListings": "लिस्टिंग ब्राउज़ करें",
-
     "contactErrName": "कृपया अपना नाम दर्ज करें",
     "contactErrPhone": "वैध 10-अंकों का मोबाइल नंबर दर्ज करें",
     "contactErrEmail": "वैध ईमेल पता दर्ज करें",
@@ -59,7 +58,7 @@
     "contactVerifiedOwner": "सत्यापित मालिक",
     "contactHiddenPrivacy": "मालिक की निजता के लिए छिपाया गया",
     "contactRequestIt": "इसे पाने के लिए पूछताछ भेजें",
-  "contactDirectTitle": "मालिक से सीधे संपर्क करें",
+    "contactDirectTitle": "मालिक से सीधे संपर्क करें",
     "contactViewOwnerProfile": "मालिक की प्रोफ़ाइल देखें",
     "contactSupportTitle": "मदद चाहिए?",
     "contactSupportHours": "हमारी सपोर्ट टीम सभी दिन सुबह 9 से रात 9 बजे तक उपलब्ध है.",
@@ -69,7 +68,6 @@
     "contactCall": "कॉल करें",
     "contactWhatsappShort": "WhatsApp",
     "contactEmailShort": "ईमेल",
-
     "emiBadge": "होम लोन कैलकुलेटर",
     "emiTitle": "EMI कैलकुलेटर",
     "emiSubtitle": "अपनी मासिक होम लोन किस्तों का अनुमान लगाएँ और बजट बनाएँ.",
@@ -100,7 +98,6 @@
     "emiPrincipalPaid": "मूलधन चुकाया",
     "emiInterestPaid": "ब्याज चुकाया",
     "emiBalance": "शेष राशि",
-
     "plansSeekerFreeName": "खोजकर्ता मुफ़्त",
     "plansSeekerFreeSub": "हमेशा के लिए",
     "plansSeekerFreeTag": "अपनी खोज शुरू करने के लिए ज़रूरी सब कुछ",
@@ -170,7 +167,6 @@
     "plansFrequentlyAsked": "अक्सर पूछे जाने वाले",
     "plansFooter1": "अभी भी सवाल हैं? संपर्क करें हमारी ",
     "plansFooterBold": "सपोर्ट टीम से.",
-
     "referCodeCopied": "रेफरल कोड कॉपी हो गया!",
     "referShareMsg": "PuneNest पर मेरे साथ जुड़ें — भारत का ब्रोकर-मुक्त प्रॉपर्टी प्लेटफ़ॉर्म. शुरू करने के लिए मेरा कोड {{code}} इस्तेमाल करें: {{link}}",
     "referBadge": "रेफर करें और कमाएँ",
@@ -203,6 +199,10 @@
     "referFreeRentAgreement": "मुफ़्त रेंट एग्रीमेंट",
     "referOwnerTrackPost": " (कीमत {{fee}}).",
     "referProgressLabel": "प्रगति",
+    "referBalanceContacts": "बचे हुए मुफ़्त मालिक संपर्क",
+    "referBalanceSlots_one": "बचे लिस्टिंग स्लॉट ({{count}} रेफ़रल से)",
+    "referBalanceSlots_other": "बचे लिस्टिंग स्लॉट ({{count}} रेफ़रल से)",
+    "referOwnerSlotTrack": "आपके रेफ़र किए हर मालिक के प्रॉपर्टी पोस्ट करने पर एक अतिरिक्त मुफ़्त लिस्टिंग स्लॉट मिलता है।",
     "referRewardRate": "इनाम दर",
     "referPerksLabel": "आपको क्या मिलता है",
     "referOwnerPerk1": "ई-स्टांप और रजिस्ट्रेशन हम संभालते हैं",

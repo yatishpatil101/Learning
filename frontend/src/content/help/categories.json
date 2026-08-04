@@ -1,0 +1,268 @@
+{
+  "sections": [
+    {
+      "id": "basics",
+      "order": 1,
+      "title": "Start here",
+      "description": "How PuneNest works, and what to do first.",
+      "i18n": {
+        "hi": {
+          "title": "यहाँ से शुरू करें",
+          "description": "PuneNest कैसे काम करता है, और पहले क्या करें।"
+        },
+        "mr": {
+          "title": "इथून सुरुवात करा",
+          "description": "PuneNest कसे काम करते आणि आधी काय करावे."
+        }
+      }
+    },
+    {
+      "id": "tenants",
+      "order": 2,
+      "title": "For tenants & buyers",
+      "description": "Searching, visiting, renting and buying without a broker.",
+      "i18n": {
+        "hi": {
+          "title": "किरायेदारों और खरीदारों के लिए",
+          "description": "बिना दलाल के खोजना, देखना, किराये पर लेना और खरीदना।"
+        },
+        "mr": {
+          "title": "भाडेकरू आणि खरेदीदारांसाठी",
+          "description": "दलालाशिवाय शोधणे, पाहणे, भाड्याने घेणे आणि खरेदी करणे."
+        }
+      }
+    },
+    {
+      "id": "owners",
+      "order": 3,
+      "title": "For owners & landlords",
+      "description": "Listing your property, managing enquiries and closing faster.",
+      "i18n": {
+        "hi": {
+          "title": "मालिकों और मकान-मालिकों के लिए",
+          "description": "प्रॉपर्टी लिस्ट करना, पूछताछ संभालना और जल्दी सौदा करना।"
+        },
+        "mr": {
+          "title": "मालक आणि घरमालकांसाठी",
+          "description": "मालमत्ता नोंदवणे, चौकशी हाताळणे आणि लवकर व्यवहार पूर्ण करणे."
+        }
+      }
+    },
+    {
+      "id": "services",
+      "order": 4,
+      "title": "Services, payments & legal",
+      "description": "Rent agreements, packers, loans, valuations and billing.",
+      "i18n": {
+        "hi": {
+          "title": "सेवाएँ, भुगतान और कानूनी",
+          "description": "रेंट एग्रीमेंट, पैकर्स, ऋण, मूल्यांकन और बिलिंग।"
+        },
+        "mr": {
+          "title": "सेवा, देयके आणि कायदेशीर",
+          "description": "भाडेकरार, पॅकर्स, कर्ज, मूल्यांकन आणि बिलिंग."
+        }
+      }
+    },
+    {
+      "id": "staff",
+      "order": 5,
+      "title": "Staff & ops",
+      "description": "Internal runbooks. Visible to PuneNest staff only.",
+      "access": "staff",
+      "i18n": {
+        "hi": {
+          "title": "स्टाफ़ और ऑप्स",
+          "description": "आंतरिक रनबुक। केवल PuneNest स्टाफ़ को दिखते हैं।"
+        },
+        "mr": {
+          "title": "स्टाफ आणि ऑप्स",
+          "description": "अंतर्गत रनबुक. फक्त PuneNest स्टाफला दिसतात."
+        }
+      }
+    }
+  ],
+  "categories": [
+    {
+      "id": "getting-started",
+      "section": "basics",
+      "order": 1,
+      "title": "Getting started",
+      "description": "What PuneNest is, how zero brokerage works, and how to set up your account.",
+      "icon": "rocket",
+      "i18n": {
+        "hi": {
+          "title": "शुरुआत करें",
+          "description": "PuneNest क्या है, ज़ीरो ब्रोकरेज कैसे काम करता है, और अपना खाता कैसे बनाएँ।"
+        },
+        "mr": {
+          "title": "सुरुवात करा",
+          "description": "PuneNest म्हणजे काय, झिरो ब्रोकरेज कसे चालते आणि खाते कसे तयार करावे."
+        }
+      }
+    },
+    {
+      "id": "trust-safety",
+      "section": "basics",
+      "order": 2,
+      "title": "Trust & safety",
+      "description": "How we verify owners and listings, and how to spot and report a scam.",
+      "icon": "shield-check",
+      "i18n": {
+        "hi": {
+          "title": "भरोसा और सुरक्षा",
+          "description": "हम मालिकों और लिस्टिंग को कैसे सत्यापित करते हैं, और धोखाधड़ी कैसे पहचानें और रिपोर्ट करें।"
+        },
+        "mr": {
+          "title": "विश्वास आणि सुरक्षा",
+          "description": "आम्ही मालक व जाहिराती कशा पडताळतो, आणि फसवणूक कशी ओळखावी व कळवावी."
+        }
+      }
+    },
+    {
+      "id": "account",
+      "section": "basics",
+      "order": 3,
+      "title": "Account & privacy",
+      "description": "Sign-in, profile, notifications, language and your data.",
+      "icon": "user-circle",
+      "i18n": {
+        "hi": {
+          "title": "खाता और निजता",
+          "description": "साइन-इन, प्रोफ़ाइल, सूचनाएँ, भाषा और आपका डेटा।"
+        },
+        "mr": {
+          "title": "खाते आणि गोपनीयता",
+          "description": "साइन-इन, प्रोफाइल, सूचना, भाषा आणि तुमचा डेटा."
+        }
+      }
+    },
+    {
+      "id": "search-visits",
+      "section": "tenants",
+      "order": 4,
+      "title": "Searching & visits",
+      "description": "Filters, saved searches, map view, shortlists and scheduling site visits.",
+      "icon": "search",
+      "i18n": {
+        "hi": {
+          "title": "खोज और विज़िट",
+          "description": "फ़िल्टर, सहेजी गई खोजें, मैप व्यू, शॉर्टलिस्ट और साइट विज़िट बुक करना।"
+        },
+        "mr": {
+          "title": "शोध आणि भेटी",
+          "description": "फिल्टर, जतन केलेले शोध, नकाशा दृश्य, शॉर्टलिस्ट आणि भेटींचे नियोजन."
+        }
+      }
+    },
+    {
+      "id": "renting",
+      "section": "tenants",
+      "order": 5,
+      "title": "Renting a home",
+      "description": "Contacting owners, deposits, agreements, move-in and flatmates.",
+      "icon": "key",
+      "i18n": {
+        "hi": {
+          "title": "घर किराये पर लेना",
+          "description": "मालिकों से संपर्क, डिपॉज़िट, एग्रीमेंट, शिफ्टिंग और फ्लैटमेट।"
+        },
+        "mr": {
+          "title": "घर भाड्याने घेणे",
+          "description": "मालकांशी संपर्क, अनामत, करार, स्थलांतर आणि फ्लॅटमेट."
+        }
+      }
+    },
+    {
+      "id": "listing",
+      "section": "owners",
+      "order": 6,
+      "title": "Listing your property",
+      "description": "Posting a listing, photos, pricing and getting verified faster.",
+      "icon": "house",
+      "i18n": {
+        "hi": {
+          "title": "अपनी प्रॉपर्टी लिस्ट करना",
+          "description": "लिस्टिंग डालना, फ़ोटो, कीमत तय करना और जल्दी सत्यापित होना।"
+        },
+        "mr": {
+          "title": "तुमची मालमत्ता नोंदवणे",
+          "description": "जाहिरात टाकणे, फोटो, किंमत ठरवणे आणि लवकर पडताळणी."
+        }
+      }
+    },
+    {
+      "id": "owner-tools",
+      "section": "owners",
+      "order": 7,
+      "title": "Managing enquiries",
+      "description": "Leads, tenant profiles, visit scheduling and closing the deal.",
+      "icon": "users",
+      "i18n": {
+        "hi": {
+          "title": "पूछताछ संभालना",
+          "description": "लीड, किरायेदार प्रोफ़ाइल, विज़िट शेड्यूल और सौदा पक्का करना।"
+        },
+        "mr": {
+          "title": "चौकशी हाताळणे",
+          "description": "लीड, भाडेकरू प्रोफाइल, भेटीचे नियोजन आणि व्यवहार पूर्ण करणे."
+        }
+      }
+    },
+    {
+      "id": "payments",
+      "section": "services",
+      "order": 8,
+      "title": "Plans & payments",
+      "description": "Plan comparison, invoices, rent payments, refunds and receipts.",
+      "icon": "credit-card",
+      "i18n": {
+        "hi": {
+          "title": "प्लान और भुगतान",
+          "description": "प्लान की तुलना, इनवॉइस, किराया भुगतान, रिफ़ंड और रसीदें।"
+        },
+        "mr": {
+          "title": "योजना आणि देयके",
+          "description": "योजनांची तुलना, इनव्हॉइस, भाडे भरणा, परतावा आणि पावत्या."
+        }
+      }
+    },
+    {
+      "id": "services",
+      "section": "services",
+      "order": 9,
+      "title": "Home services",
+      "description": "Rent agreements, packers & movers, legal checks, loans and valuations.",
+      "icon": "concierge-bell",
+      "i18n": {
+        "hi": {
+          "title": "होम सर्विसेज़",
+          "description": "रेंट एग्रीमेंट, पैकर्स एंड मूवर्स, कानूनी जाँच, ऋण और मूल्यांकन।"
+        },
+        "mr": {
+          "title": "घरगुती सेवा",
+          "description": "भाडेकरार, पॅकर्स अँड मूव्हर्स, कायदेशीर तपासणी, कर्ज आणि मूल्यांकन."
+        }
+      }
+    },
+    {
+      "id": "ops-playbook",
+      "section": "staff",
+      "order": 10,
+      "title": "Ops playbook",
+      "description": "Verification SLAs, escalation paths and ticket handling for internal teams.",
+      "icon": "clipboard-text",
+      "access": "staff",
+      "i18n": {
+        "hi": {
+          "title": "ऑप्स प्लेबुक",
+          "description": "सत्यापन SLA, एस्केलेशन पथ और आंतरिक टीमों के लिए टिकट प्रबंधन।"
+        },
+        "mr": {
+          "title": "ऑप्स प्लेबुक",
+          "description": "पडताळणी SLA, एस्केलेशन मार्ग आणि अंतर्गत संघांसाठी तिकीट हाताळणी."
+        }
+      }
+    }
+  ]
+}

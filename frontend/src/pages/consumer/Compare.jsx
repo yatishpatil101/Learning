@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { jsPDF } from 'jspdf';
+import '../../styles/routes/compare.css';
 import Icon from '../../components/Icon.jsx';
 import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
@@ -195,7 +196,7 @@ export default function Compare() {
 
   return (
     <div>
-      <main className="pb-20 min-h-[100dvh]">
+      <div className="pb-20 min-h-[100dvh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
@@ -359,7 +360,7 @@ export default function Compare() {
             <p>{t('compare.tipStart')} <span className="text-emerald-400 font-medium">{t('compare.best')}</span> {t('compare.tipEnd')}</p>
           </div>
         </div>
-      </main>
+      </div>
 
       {modal ? (
         <div className="fixed inset-0 z-[60] modal-overlay flex items-center justify-center p-4" onClick={() => setModal(false)}>

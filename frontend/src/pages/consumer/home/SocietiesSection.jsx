@@ -102,7 +102,7 @@ export default function SocietiesSection() {
       onClick={() => scrollByPage(dir)}
       disabled={!enabled}
       aria-label={label}
-      className="grid place-items-center w-9 h-9 rounded-full glass border border-white/10 text-gray-200 transition-all hover:border-teal-400/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10 disabled:hover:text-gray-200"
+      className="hscroll-arrow grid place-items-center w-9 h-9 rounded-full glass border border-white/10 text-gray-200 transition-all hover:border-teal-400/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-white/10 disabled:hover:text-gray-200"
     >
       <Icon name={icon} className="w-4 h-4" />
     </button>
@@ -111,7 +111,7 @@ export default function SocietiesSection() {
   return (
     <section className="relative section-y">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between gap-3 mb-3 reveal">
+        <div className="section-head flex items-end justify-between gap-3 sm:mb-3 reveal">
           <div className="min-w-0">
             <p className="text-teal-400 text-xs font-semibold tracking-widest uppercase mb-1.5">Browse by society</p>
             <h2 className="text-2xl sm:text-3xl font-bold">Explore Pune societies</h2>
@@ -156,6 +156,15 @@ export default function SocietiesSection() {
           <div className="cat-fade cat-fade--left" aria-hidden="true" style={{ opacity: fadeLeft ? 1 : 0, transition: 'opacity .3s ease' }} />
           <div className="cat-fade cat-fade--right" aria-hidden="true" style={{ opacity: fadeRight ? 1 : 0, transition: 'opacity .3s ease' }} />
         </div>
+
+        {/* Mobile equivalent of the desktop-only header link — same pattern as
+           Featured / Categories, so no rail loses its escape hatch on a phone. */}
+        <button
+          onClick={() => navigate('/societies')}
+          className="sm:hidden mt-4 w-full inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-teal-400 hover:bg-white/10 hover:text-teal-300 transition-all"
+        >
+          View all societies <Icon name="arrow-right" className="w-4 h-4" />
+        </button>
       </div>
     </section>
   );

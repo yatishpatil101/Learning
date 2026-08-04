@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
+import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { propertyKind } from './derivations.js';
@@ -124,9 +125,14 @@ export function PriceInsights({ p }) {
           )}
         </div>
 
-        {/* Affordability / EMI */}
-        <div className="glass-strong rounded-2xl p-6">
-          <h3 className="font-semibold text-white mb-1 flex items-center gap-2"><Icon name="calculator" className="w-4 h-4 text-brand-teal-2" /> {t('property.affordability')}</h3>
+        {/* Affordability / EMI — collapsed on phones with the EMI itself as the
+            summary, so the answer is visible without ~400px of sliders. */}
+        <MobileCollapse
+          className="glass-strong rounded-2xl p-6"
+          headerClassName="mb-1"
+          summary={'₹' + fmtNum(emi)}
+          header={<h3 className="font-semibold text-white flex items-center gap-2"><Icon name="calculator" className="w-4 h-4 text-brand-teal-2" /> {t('property.affordability')}</h3>}
+        >
           <p className="text-xs text-slate-400 mb-4">{t('property.estimateEmi')}</p>
           <div className="mb-4">
             <div className="flex justify-between items-center text-xs text-slate-400 mb-1.5"><span>{t('property.downPayment')}</span>
@@ -134,7 +140,7 @@ export function PriceInsights({ p }) {
                 <input type="number" min={10} max={50} value={dp} aria-label={t('property.downPaymentAria')}
                   onChange={(e) => setDp(e.target.value)}
                   onBlur={() => setDp((d) => Math.min(50, Math.max(10, Math.round(+d) || 10)))}
-                  className="w-12 bg-white/10 border border-white/10 rounded px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                  inputMode="numeric" className="w-16 sm:w-12 min-h-[44px] sm:min-h-0 bg-white/10 border border-white/10 rounded px-2 sm:px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
                 <span className="text-white font-semibold">%</span>
               </span>
             </div>
@@ -146,7 +152,7 @@ export function PriceInsights({ p }) {
                 <input type="number" min={5} max={30} value={tenure} aria-label={t('property.loanTenureAria')}
                   onChange={(e) => setTenure(e.target.value)}
                   onBlur={() => setTenure((t2) => Math.min(30, Math.max(5, Math.round(+t2) || 5)))}
-                  className="w-12 bg-white/10 border border-white/10 rounded px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                  inputMode="numeric" className="w-16 sm:w-12 min-h-[44px] sm:min-h-0 bg-white/10 border border-white/10 rounded px-2 sm:px-1 py-0.5 text-right text-white font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400" />
                 <span className="text-white font-semibold">{t('property.yrs')}</span>
               </span>
             </div>
@@ -158,21 +164,28 @@ export function PriceInsights({ p }) {
             <p className="text-[11px] text-slate-500 pt-1">{t('property.emiIndicative')}</p>
           </div>
           {flagEnabled('emiCalculator') && <Link to="/emi-calculator" className="mt-4 w-full block text-center py-2.5 rounded-xl border border-brand-teal-2/40 text-brand-teal-3 text-sm font-semibold hover:bg-brand-teal-1/10 transition-smooth">{t('property.fullEmiCalculator')}</Link>}
-        </div>
+        </MobileCollapse>
       </div>
 
-      {/* The real cost to buy — acquisition costs buyers routinely miss. */}
-      <div className="glass rounded-2xl p-6 sm:p-8 mt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="receipt-indian-rupee" className="w-6 h-6 text-brand-teal-3" /></div>
-            <div>
-              <p className="font-bold text-white text-lg">{t('property.realCostToBuy')}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{t('property.realCostSub')}</p>
+      {/* The real cost to buy — acquisition costs buyers routinely miss. Collapsed
+          on phones: the all-in figure already sits in the header, so the four cost
+          tiles and the disclaimer stay one tap away instead of ~450px of scroll. */}
+      <MobileCollapse
+        className="glass rounded-2xl p-6 sm:p-8 mt-6"
+        headerClassName="flex-wrap mb-5"
+        header={(
+          <>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="receipt-indian-rupee" className="w-6 h-6 text-brand-teal-3" /></div>
+              <div>
+                <p className="font-bold text-white text-lg">{t('property.realCostToBuy')}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t('property.realCostSub')}</p>
+              </div>
             </div>
-          </div>
-          <span className="tag tag-teal flex items-center gap-1.5"><Icon name="wallet" className="w-3.5 h-3.5" /> {t('property.allInApprox', { amount: fmtINR(allIn) })}</span>
-        </div>
+            <span className="tag tag-teal flex items-center gap-1.5"><Icon name="wallet" className="w-3.5 h-3.5" /> {t('property.allInApprox', { amount: fmtINR(allIn) })}</span>
+          </>
+        )}
+      >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {costTile('tag', t('property.basePrice'), fmtINR(p.price), 'price.base')}
           {costTile('scale', t('property.stampDuty'), fmtINR(stampDuty), 'price.stampDuty')}
@@ -197,7 +210,7 @@ export function PriceInsights({ p }) {
           <Icon name="info" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           {t('property.disclaimerPre', { kind: isCommercial ? t('property.commercialUnits') : t('property.homesWord') })}{needsTds ? t('property.disclaimerTds') : ''}{t('property.disclaimerRates')}{isCommercial ? '' : t('property.disclaimerWomen')}{t('property.disclaimerPost')}
         </p>
-      </div>
+      </MobileCollapse>
     </section>
   );
 }

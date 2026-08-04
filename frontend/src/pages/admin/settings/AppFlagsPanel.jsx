@@ -49,6 +49,7 @@ const APP_FLAG_SECTIONS = [
     icon: CreditCard,
     flags: [
       { key: 'subscriptionPlans', label: 'Subscription plans', desc: 'Tiered plans for owners (Basic, Pro, Premium)' },
+      { key: 'referralRewards', label: 'Referral rewards', desc: 'Let users earn free owner contacts and listing slots by referring instead of paying. Off = paid plans are the only way past a quota.' },
       { key: 'onlineRentPayment', label: 'Online rent payment', desc: 'Tenant-to-owner rent payment processing' },
       { key: 'depositFinancing', label: 'Deposit financing', desc: 'Security deposit loan/EMI option for tenants' },
       { key: 'societySaaS', label: 'Society SaaS', desc: 'Society management module (maintenance, notices)' },

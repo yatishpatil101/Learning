@@ -27,7 +27,7 @@ import {
   reportSocietyContent,
   getSocietyLocationFix, proposeSocietyLocation,
 } from '../../../lib/store.js';
-import { TAB_IDS, REVIEW_CATS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
+import { TAB_IDS, REVIEW_CATS, REVIEW_CAT_KEYS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
 import { baselineBars, genericSociety } from './helpers.jsx';
 
 export function useSocietyHub() {
@@ -141,9 +141,9 @@ export function useSocietyHub() {
   const bars = useMemo(() => {
     const acc = {}; const cnt = {};
     reviews.forEach((r) => Object.entries(r.categories || {}).forEach(([k, v]) => { acc[k] = (acc[k] || 0) + v; cnt[k] = (cnt[k] || 0) + 1; }));
-    if (!showEstimate) return REVIEW_CATS.filter((k) => cnt[k]).map((k) => ({ label: k, value: +(acc[k] / cnt[k]).toFixed(1) }));
+    if (!showEstimate) return REVIEW_CATS.filter((k) => cnt[k]).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: +(acc[k] / cnt[k]).toFixed(1) }));
     const base = baselineBars(soc);
-    return REVIEW_CATS.map((k) => ({ label: k, value: cnt[k] ? +(((acc[k] / cnt[k]) + base[k]) / 2).toFixed(1) : base[k] }));
+    return REVIEW_CATS.map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: cnt[k] ? +(((acc[k] / cnt[k]) + base[k]) / 2).toFixed(1) : base[k] }));
   }, [soc, reviews, showEstimate]);
   const overall = useMemo(() => {
     if (!showEstimate) return rating.count ? +rating.avg.toFixed(1) : 0;
@@ -395,23 +395,32 @@ export function useSocietyHub() {
   const eventDots = useMemo(() => { const m = {}; boardEvents.forEach((e) => { if (e.date) m[e.date] = (m[e.date] || 0) + 1; }); return m; }, [boardEvents]);
   const dayEvents = useMemo(() => boardEvents.filter((e) => e.date === calDay).sort((a, b) => (a.time || '').localeCompare(b.time || '')), [boardEvents, calDay]);
 
+  /* Stats and living facts carry label *keys* and, where the value itself is
+     composed copy ("1.2/unit", "6 total"), a value key plus its interpolation
+     args. The raw datum stays separate from its presentation so the page can
+     render either language without this hook knowing which one is active. */
   const stats = [
-    ['home', 'Total units', soc.units != null ? fmtNum(soc.units) : null],
-    ['building-2', 'Towers', soc.towers != null ? String(soc.towers) : null],
-    ['calendar', 'Built', soc.year ? `${soc.year} · ${age}y` : null],
-    ['users', 'Occupancy', soc.occupancy != null ? `${soc.occupancy}%` : null],
+    ['home', 'society.statUnits', soc.units != null ? fmtNum(soc.units) : null],
+    ['building-2', 'society.statTowers', soc.towers != null ? String(soc.towers) : null],
+    ['calendar', 'society.statBuilt', soc.year ? { key: 'society.builtValue', args: { year: soc.year, age } } : null],
+    ['users', 'society.statOccupancy', soc.occupancy != null ? `${soc.occupancy}%` : null],
   ].filter((s) => s[2] != null);
   const living = [
-    ['droplets', 'Water', soc.water], ['zap', 'Power backup', soc.power], ['car', 'Parking', soc.parkingRatio != null ? `${soc.parkingRatio}/unit` : null],
-    ['move-vertical', 'Lifts', soc.lifts != null ? `${soc.lifts} total` : null], ['shield-check', 'Security', soc.security],
-    ['indian-rupee', 'Maintenance', soc.maintenancePerSqft != null ? `₹${soc.maintenancePerSqft}/sqft` : null], ['paw-print', 'Pets', soc.petPolicy], ['utensils', 'Food policy', soc.vegPolicy],
+    ['droplets', 'society.livingWater', soc.water],
+    ['zap', 'society.livingPower', soc.power],
+    ['car', 'society.livingParking', soc.parkingRatio != null ? { key: 'society.parkingPerUnit', args: { ratio: soc.parkingRatio } } : null],
+    ['move-vertical', 'society.livingLifts', soc.lifts != null ? { key: 'society.liftsTotal', args: { count: soc.lifts } } : null],
+    ['shield-check', 'society.livingSecurity', soc.security],
+    ['indian-rupee', 'society.livingMaintenance', soc.maintenancePerSqft != null ? { key: 'society.maintenancePerSqft', args: { rate: soc.maintenancePerSqft } } : null],
+    ['paw-print', 'society.livingPets', soc.petPolicy],
+    ['utensils', 'society.livingFood', soc.vegPolicy],
   ].filter((l) => l[2] != null && l[2] !== '');
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: 'file-text', show: true },
-    { id: 'homes', label: 'Homes', icon: 'building-2', show: listings.length > 0, count: listings.length },
-    { id: 'reviews', label: 'Reviews & Q&A', icon: 'star', show: true, count: rating.count || 0 },
-    { id: 'community', label: 'Community', icon: 'users', show: true, count: contribCounts.all || 0 },
-    { id: 'location', label: 'Location', icon: 'map-pin', show: !soc._generic },
+    { id: 'overview', labelKey: 'society.tabOverview', icon: 'file-text', show: true },
+    { id: 'homes', labelKey: 'society.tabHomes', icon: 'building-2', show: listings.length > 0, count: listings.length },
+    { id: 'reviews', labelKey: 'society.tabReviews', icon: 'star', show: true, count: rating.count || 0 },
+    { id: 'community', labelKey: 'society.tabCommunity', icon: 'users', show: true, count: contribCounts.all || 0 },
+    { id: 'location', labelKey: 'society.tabLocation', icon: 'map-pin', show: !soc._generic },
   ].filter((t) => t.show);
   const current = tabs.some((t) => t.id === activeTab) ? activeTab : 'overview';
   const selectTab = (id) => {

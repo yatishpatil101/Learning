@@ -4,6 +4,7 @@ import { fmtINR, fmtNum } from '../../../../lib/format.js';
 import { computeQualityScore, qualityTips, qualityColor } from '../../../../lib/qualityScore.js';
 import { getPropReview, propReviewUnread, isDealClosed, isDealReserved } from '../../../../lib/store.js';
 import { listingFreshness } from '../../../../lib/freshness.js';
+import { canSplitIntoRooms, isFlatSplit, roomsForProperty, splitOccupants } from '../../../../lib/data/flatSplit.js';
 import StatChip from './StatChip.jsx';
 import { renderOverflow } from './OverflowActions.jsx';
 import { isFeaturedActive } from '../../../../lib/featured.js';
@@ -17,6 +18,7 @@ import {
 export default function ListingCard({
   l, user, leadsFor, featuringOn, canFeature, navigate, openReview,
   onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onWaReminder, onDelete,
+  onSplit, onUnsplit,
 }) {
   const rev = getPropReview(l.id);
   const unread = propReviewUnread(l.id);
@@ -53,8 +55,15 @@ export default function ListingCard({
     else if (rev.status === 'verified') reviewChip = { label: 'Verified', cls: 'bg-emerald-500/15 text-emerald-300', icon: 'shield-check' };
   }
   const StatusTag = statusPill.onClick ? 'button' : 'span';
-  const editHref = l.shareGroup ? '/share-flat?view=groups' : l.shareRequest ? '/share-flat' : l.flatmate ? '/list-property?share=1' : `/list-property?edit=${l.id}`;
-  const viewHref = l.shareGroup ? '/share-flat?view=groups' : l.flatmate ? '/share-flat' : `/property/${l.id}`;
+  /* Letting room by room is only offered on a rent listing the owner already has
+     live — that's what supplies the verified propertyId every room inherits, and
+     what keeps the whole-flat listing in place rather than replacing it. */
+  const splitEligible = !l.flatmate && !closed && !reserved && canSplitIntoRooms(l);
+  const split = splitEligible && isFlatSplit(l.id);
+  const splitRooms = split ? roomsForProperty(l.id).length : 0;
+  const movedIn = split ? splitOccupants(l.id) : 0;
+  const editHref = l.flatmateGroup ? '/flatmates?view=team-up' : l.flatmatePost ? '/flatmates' : l.flatmate ? '/list-property?flatmate=1' : `/list-property?edit=${l.id}`;
+  const viewHref = l.flatmateGroup ? '/flatmates?view=team-up' : l.flatmate ? '/flatmates' : `/property/${l.id}`;
   // Days remaining on the free first-verify Featured perk, for the badge tooltip/label.
   const featuredDaysLeft = l.featuredUntil ? Math.max(0, Math.ceil((l.featuredUntil - Date.now()) / 86400000)) : 0;
 
@@ -81,6 +90,10 @@ export default function ListingCard({
   const overflowActions = [
     (!l.flatmate && !closed && !reserved && l.status === 'approved') && { icon: 'handshake', label: 'Mark under offer', onClick: () => onMarkUnderOffer(l) },
     (!l.flatmate && !closed && (reserved || l.status === 'approved')) && { icon: 'check-circle', label: `Finalize ${isSale ? 'sale' : 'rental'}`, onClick: () => onFinalize(l) },
+    // Splitting is reversible only while the flat is still empty — once someone
+    // has moved in, withdrawing the rooms would erase a live tenancy.
+    (splitEligible && !split) && { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) },
+    (split && movedIn === 0) && { icon: 'undo-2', label: 'Stop letting room by room', onClick: () => onUnsplit && onUnsplit(l) },
     featureItem,
   ].filter(Boolean);
   const overflowItems = [
@@ -103,7 +116,18 @@ export default function ListingCard({
             </p>
             {l.flatmate && (
               <div className="mt-1.5">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="users-round" className="w-3 h-3" /> {l.shareGroup ? 'Flat-share group' : l.shareRequest ? 'Flat-share request' : 'Flatmate'}</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="users-round" className="w-3 h-3" /> {l.flatmateGroup ? 'Flatmate group' : l.flatmatePost ? 'Flatmate request' : 'Flatmate'}</span>
+              </div>
+            )}
+            {/* Once someone moves into a room the flat can no longer be let whole,
+                so the whole-flat listing is pulled from public search. Saying so
+                here is the difference between a feature and a silent disappearance. */}
+            {split && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-300 font-semibold inline-flex items-center gap-1"><Icon name="layout-grid" className="w-3 h-3" /> {splitRooms} room{splitRooms > 1 ? 's' : ''} listed</span>
+                {movedIn > 0
+                  ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 font-semibold inline-flex items-center gap-1"><Icon name="eye-off" className="w-3 h-3" /> {movedIn} moved in · whole-flat listing hidden</span>
+                  : <span className="text-[10px] text-gray-500">Whole-flat listing still live</span>}
               </div>
             )}
           </div>
@@ -196,7 +220,7 @@ export default function ListingCard({
           </Link>
         )}
         {waReminder && (
-          <button onClick={waReminder.onClick} className={quietCls} title="Send the interested buyer a WhatsApp nudge to reconfirm availability">
+          <button onClick={waReminder.onClick} className={quietCls} aria-label="Send the interested buyer a WhatsApp nudge to reconfirm availability" title="Send the interested buyer a WhatsApp nudge to reconfirm availability">
             <Icon name={waReminder.icon} className="w-3.5 h-3.5" /> {waReminder.label}
           </button>
         )}

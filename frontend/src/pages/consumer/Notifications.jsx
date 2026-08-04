@@ -38,7 +38,7 @@ const D = 24 * H;
 const now = Date.now();
 const SEED = [
   { id: 'n-match-baner', type: 'match', read: false, at: now - 10 * 60_000, title: '3 new properties match your search', desc: 'New 3 BHK flats listed in Baner under ₹1.3 Cr.', link: '/listings?type=buy&q=baner' },
-  { id: 'n-share-hinjawadi', type: 'share', read: false, at: now - 1 * H, title: 'A flatmate match near Hinjawadi', desc: 'A verified working professional is looking to share a 2 BHK in Hinjawadi.', link: '/listings?type=flatmate&q=hinjawadi' },
+  { id: 'n-flatmate-hinjawadi', type: 'share', read: false, at: now - 1 * H, title: 'A flatmate match near Hinjawadi', desc: 'A verified working professional is looking for a flatmate for a 2 BHK in Hinjawadi.', link: '/listings?type=flatmate&q=hinjawadi' },
   { id: 'n-enquiry-priya', type: 'enquiry', read: false, at: now - 2 * H, title: 'Priya Kulkarni sent an enquiry', desc: '"Is the 3 BHK in Baner still available for a weekend visit?"', link: '/dashboard#enquiries' },
   { id: 'n-price-kp', type: 'price', read: false, at: now - 5 * H, title: 'Price dropped on a saved property', desc: '4 BHK Villa, Koregaon Park reduced by ₹15 Lakh.', link: '/saved' },
   { id: 'n-visit-wakad', type: 'visit', read: true, at: now - 1 * D, title: 'Visit confirmed for Saturday', desc: 'Site visit at 11:00 AM for 2 BHK Flat, Wakad.', link: '/schedule-visit' },
@@ -174,7 +174,7 @@ export default function Notifications() {
   let delayIdx = 0;
 
   return (
-    <main ref={rootRef} className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+    <div ref={rootRef} className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-5 sm:mb-6 reveal">
           <div>
@@ -239,6 +239,6 @@ export default function Notifications() {
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

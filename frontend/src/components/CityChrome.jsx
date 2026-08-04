@@ -40,19 +40,29 @@ export default function CityChrome() {
   return (
     <>
       {showBar ? (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-[18px] z-[1200] w-[min(680px,calc(100%-24px))]">
-          <div className="flex items-center gap-3 rounded-2xl border border-white/12 bg-[#15122a]/95 px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur flex-wrap">
-            <span className="text-lg">🚧</span>
-            <span className="text-[12.5px] leading-snug text-gray-300 flex-1 min-w-0">
-              PuneNest isn't live in <b className="text-white">{city}</b> yet — join the waitlist and we'll notify you the moment we launch.
-            </span>
-            <button onClick={() => openWaitlist(city)} className="btn btn-primary btn-sm flex-shrink-0">
-              Join the waitlist
-            </button>
-            <button onClick={() => setCity('Pune')} className="btn btn-secondary btn-sm flex-shrink-0">
-              Switch to Pune
-            </button>
-            <button onClick={dismiss} aria-label="Dismiss" className="flex-shrink-0 px-1 text-xl leading-none text-gray-400 hover:text-white">
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--pn-bottom-inset)+18px)] z-[1200] w-[min(680px,calc(100%-24px))]">
+          {/* Phones stack (copy row, then a full-width button row) because the copy
+              collapsed to a 1-word column when everything shared one flex line. */}
+          <div className="relative flex flex-col gap-2.5 rounded-2xl border border-white/12 bg-[#15122a]/95 px-4 py-3 pr-10 shadow-2xl shadow-black/50 backdrop-blur sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:pr-4">
+            <div className="flex items-start gap-2.5 sm:flex-1 sm:min-w-0 sm:items-center">
+              <span className="text-lg leading-none">🚧</span>
+              <span className="text-[12.5px] leading-snug text-gray-300">
+                PuneNest isn't live in <b className="text-white">{city}</b> yet — join the waitlist and we'll notify you the moment we launch.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 sm:flex-shrink-0 sm:gap-3">
+              <button onClick={() => openWaitlist(city)} className="btn btn-primary btn-sm flex-1 sm:flex-none">
+                Join the waitlist
+              </button>
+              <button onClick={() => setCity('Pune')} className="btn btn-secondary btn-sm flex-1 sm:flex-none">
+                Switch to Pune
+              </button>
+            </div>
+            <button
+              onClick={dismiss}
+              aria-label="Dismiss"
+              className="absolute right-2 top-2 px-1 text-xl leading-none text-gray-400 hover:text-white sm:static sm:flex-shrink-0"
+            >
               &times;
             </button>
           </div>
@@ -60,7 +70,19 @@ export default function CityChrome() {
       ) : null}
 
       {modal ? (
-        <CityModal modal={modal} user={user} onClose={closeModal} onSubmit={(payload, msg) => { requestCity(payload); closeModal(); setCity('Pune'); toast(msg, 'success'); }} />
+        <CityModal
+          modal={modal}
+          user={user}
+          onClose={closeModal}
+          onSubmit={(payload, msg) => {
+            requestCity(payload);
+            closeModal();
+            // Only relocate when they're stranded on a city that isn't live (a persisted
+            // pick, or one an admin took offline) — picking from the dropdown never moved them.
+            if (!live) setCity('Pune');
+            toast(msg, 'success');
+          }}
+        />
       ) : null}
     </>
   );

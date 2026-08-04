@@ -120,7 +120,7 @@ export default function PropertyValuation() {
 
   return (
     <div ref={rootRef}>
-      <main>
+      <div>
         {/* Hero + estimate. A dark, valuation-specific gradient (deep emerald/graphite)
             keeps the estimator card and its select options legible — the old bright-teal
             --hero-gradient washed the translucent controls out. */}
@@ -345,7 +345,7 @@ export default function PropertyValuation() {
             </div>
           </div>
         </section>
-      </main>
+      </div>
     </div>
   );
 }

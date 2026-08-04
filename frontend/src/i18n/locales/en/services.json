@@ -7,6 +7,18 @@
       "heroSubtitle": "From discovering your home to loans, legal, moving and interiors — PuneNest brings every step of your property journey under one roof, broker-free.",
       "exploreServices": "Explore Services",
       "browseProperties": "Browse Properties",
+      "mostBooked": "Most booked",
+      "spotlight": {
+        "badge": "Most booked service",
+        "title": "Rent Agreement, done online",
+        "sub": "Maharashtra-registered rent agreement without a single trip to the office. Fill the form, we handle stamp duty, biometric and delivery.",
+        "chip": {
+          "govt": "Govt-registered",
+          "doorstep": "Doorstep biometric",
+          "fast": "Ready in 48 hrs"
+        },
+        "cta": "Start rent agreement"
+      },
       "stat": {
         "verifiedProperties": "Verified Properties",
         "happyFamilies": "Happy Families",

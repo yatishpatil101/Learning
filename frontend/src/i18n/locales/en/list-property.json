@@ -5,13 +5,11 @@
     "optional": "(optional)",
     "startOver": "Start over",
     "startOverAria": "Start over — clear all entered details",
-
     "page": {
       "badge": "List with PuneNest",
       "title": "List your property",
       "subtitle": "Reach thousands of genuine buyers and tenants in Pune"
     },
-
     "stepNav": {
       "ariaLabel": "Listing progress",
       "stepNum": "Step {{n}}",
@@ -22,11 +20,9 @@
       "inProgress": "In progress",
       "upNext": "Up next"
     },
-
     "meter": {
       "complete": "complete"
     },
-
     "steps": {
       "detailsTitle": "Property details",
       "detailsSubtitle": "Tell us about your property",
@@ -39,12 +35,10 @@
       "flatmatePhotosTitle": "Photos",
       "flatmatePhotosSubtitle": "Show the whole place — a flatmate lives in the full home, not just the room"
     },
-
     "word": {
       "room": "room",
       "property": "property"
     },
-
     "fields": {
       "propertyFor": "Property For *",
       "whatToDo": "What would you like to do? *",
@@ -142,7 +136,6 @@
       "pgBuildingNameReq": "PG / Building Name *",
       "buildingSocietyNameReq": "Building / Society Name *"
     },
-
     "opt": {
       "sale": "Sale",
       "rent": "Rent",
@@ -177,14 +170,12 @@
       "allowed": "Allowed",
       "notAllowed": "Not Allowed"
     },
-
     "subMode": {
       "wholeTitle": "Rent out the whole place",
       "wholeDesc": "Lease your entire flat or home to a tenant.",
       "flatmateTitle": "Find a flatmate",
       "flatmateDesc": "Have a spare room? Share your flat & split the rent."
     },
-
     "host": {
       "ownTitle": "I own this home",
       "ownDesc": "Listing a spare room in a property you own.",
@@ -196,7 +187,6 @@
       "agreementHint": "Ops verifies this before your listing shows the badge. You can list without it — you'll just appear as identity-verified.",
       "consentHelp": "Shared with Ops to confirm the owner is aware of this replacement search."
     },
-
     "toggle": {
       "powerBackup": "Power Backup",
       "powerBackupSub": "DG / inverter available",
@@ -219,7 +209,6 @@
       "homeLoan": "Home Loan Available",
       "homeLoanSub": "Property is approved by banks for home loans"
     },
-
     "help": {
       "furnitureIncluded": "Select the furniture & appliances that come with the {{what}}, or add your own.",
       "camPerSqft": "₹ per sq.ft / month.",
@@ -244,7 +233,6 @@
       "reraHelp": "A MahaRERA number reassures buyers and ranks higher in search. Leave blank for resale or unregistered properties.",
       "roomPhotosHelp": "A photo or two of the room helps you find a flatmate faster."
     },
-
     "ph": {
       "eg1050": "e.g. 1050",
       "eg1200": "e.g. 1200",
@@ -301,7 +289,6 @@
       "notePlaceholder": "Tell potential flatmates about the flat, the vibe, and who you're looking for…",
       "areaSearch": "Search a locality, society or area — e.g. Baner"
     },
-
     "aria": {
       "furnitureItem": "furniture item",
       "availableFrom": "Available from date",
@@ -309,7 +296,6 @@
       "suitableFor": "Suitable for",
       "fixtures": "Fixtures and fittings"
     },
-
     "err": {
       "bhk": "Select the number of bedrooms.",
       "bathrooms": "Select the number of bathrooms.",
@@ -339,23 +325,20 @@
       "deposit": "Enter the security deposit.",
       "monthlyRent": "Enter the monthly rent.",
       "projectCommercial": "Enter the building / complex name.",
-      "projectPg": "Enter the PG / building name.",
-      "docsLand": "Upload the 7/12 Extract (Satbara) — it's the ownership proof required to submit.",
-      "docsBuy": "Upload Index II (ownership proof) to submit — it's the only required document.",
-      "docsRent": "Upload an Ownership Proof (Index II / Tax Receipt / Electricity Bill) to submit."
+      "projectPg": "Enter the PG / building name."
     },
-
     "unit": {
       "perMo": "/mo",
       "perMonth": "/month",
       "perBed": "/bed",
       "perYr": "/yr"
     },
-
     "depositMonths_one": "{{count}} month",
     "depositMonths_other": "{{count}} months",
-
     "photoUploader": {
+      "takePhoto": "Take photo",
+      "remove": "Remove photo",
+      "confirmRemove": "Remove this photo?",
       "defaultLabel": "Property Photos *",
       "dropTitle": "Drag & drop or click to upload",
       "dropSub": "PNG, JPG up to 10MB each. Max 20 photos.",
@@ -366,7 +349,6 @@
       "photoCount_one": "{{count}} photo",
       "photoCount_other": "{{count}} photos"
     },
-
     "photosDocs": {
       "videoUploadTitle": "Click to upload a walkthrough video",
       "videoUploadSub": "MP4, MOV, WebM up to 50MB",
@@ -380,30 +362,27 @@
       "docsWhyBody3": "approve a request. Verified owners get a",
       "docsWhyVerifiedOwner": "Verified Owner",
       "docsWhyBody4": "badge and noticeably more serious enquiries.",
-      "docsLandPre": "The",
+      "docsLandPre": "Every document is optional — the",
       "docsLandTerm": "7/12 Extract (Satbara)",
-      "docsLandPost": "is required to list — it's the ownership proof for land in Maharashtra. JPG, PNG or PDF up to 5MB each.",
-      "docsBuyPre": "Only the",
+      "docsLandPost": "is the ownership proof for land in Maharashtra and earns your Verified Owner badge. JPG, PNG or PDF up to 5MB each.",
+      "docsBuyPre": "Every document is optional — an",
       "docsBuyTerm": "ownership proof",
-      "docsBuyPost": "is required to list. JPG, PNG or PDF up to 5MB each.",
-      "docsRentPre": "An",
+      "docsBuyPost": "earns your Verified Owner badge. You can publish now and add it later. JPG, PNG or PDF up to 5MB each.",
+      "docsRentPre": "Every document is optional — an",
       "docsRentTerm": "Ownership Proof",
-      "docsRentPost": "earns your Verified Owner badge. JPG, PNG or PDF up to 5MB each.",
+      "docsRentPost": "earns your Verified Owner badge. You can publish now and add it later. JPG, PNG or PDF up to 5MB each.",
       "submitProperty": "Submit Property"
     },
-
     "flatmate": {
       "photosHint": "Add photos of the whole flat/home — the offered room, plus shared spaces like the living room, kitchen and balcony. Listings with photos get far more replies.",
       "postFind": "Post & Find Flatmates"
     },
-
     "areaSearch": {
       "searchAria": "Search location",
       "search": "Search",
       "searching": "Searching…",
       "notfound": "Couldn't find that area. Try a nearby locality or drag the pin to the spot."
     },
-
     "society": {
       "placeholder": "e.g. Skyline Heights",
       "verified": "Verified",
@@ -414,11 +393,9 @@
       "verifiedNote": "Verified society — linked to its PuneNest hub.",
       "pendingNote": "Added to PuneNest — pending verification by our team."
     },
-
     "locationPicker": {
       "unavailable": "Map picker unavailable"
     },
-
     "editPolicy": {
       "editingLiveTitle": "You're editing a live listing",
       "editingTitle": "You're editing your listing",
@@ -436,7 +413,6 @@
       "live": "Live",
       "updateUnderReview": "Update under review"
     },
-
     "paywall": {
       "title": "You've used your free listing",
       "bodyPre": "Your plan includes",
@@ -444,15 +420,20 @@
       "liveListing_other": "live listings",
       "bodyMid": "and you currently have",
       "bodyEnd": "Upgrade to an Owner plan to post more — your existing listing stays live and free.",
+      "bodyEndRefer": "Refer another owner or upgrade to post more — your existing listing stays live and free.",
       "tip": "Tip: editing your current listing is always free and doesn't use a slot.",
       "ownerPlan": "Owner plan",
       "feat1": "List up to 2 properties",
       "feat2": "Priority verification",
       "feat3": "All owner tools included",
       "upgradePost": "Upgrade & post",
-      "comparePlans": "Compare plans"
+      "comparePlans": "Compare plans",
+      "referTitle": "Refer an owner",
+      "referFree": "Free",
+      "referBody": "Invite another owner. The moment they post their first property, you unlock one extra free listing slot — no payment needed.",
+      "referCta": "Get my referral link",
+      "orPay": "Or upgrade"
     },
-
     "success": {
       "flatmateTitle": "Flatmate Listing Posted!",
       "updatedTitle": "Listing Updated!",
@@ -462,7 +443,17 @@
       "newBody": "Our team will verify and publish your listing within 24 hours. You'll receive a notification once it's live.",
       "goToListings": "Go to My Listings"
     },
-
+    "split": {
+      "nudgeTitle": "Want to let it one room at a time?",
+      "nudgeBody": "Set a rent per room and reach people who can't take a whole flat. Your whole-flat listing stays live until the first tenant moves in — so you lose nothing by trying both.",
+      "nudgeCta": "Let room by room",
+      "done_one": "{{count}} room is now live in Flatmates",
+      "done_other": "{{count}} rooms are now live in Flatmates",
+      "donePending_one": "{{count}} room listed — it'll show as owner-verified once this property is approved",
+      "donePending_other": "{{count}} rooms listed — they'll show as owner-verified once this property is approved",
+      "liveNote": "Your rooms are live in Flatmates",
+      "failed": "Could not list the rooms — please check the details."
+    },
     "verifyNudge": {
       "title": "Stand out — get your Verified badge",
       "body": "Verified owners rank higher in search and earn buyer trust. As a thank-you, your first verified listing gets a free 7-day Featured boost. It's optional and takes about a minute via DigiLocker.",
@@ -471,7 +462,6 @@
       "modalSubtitle": "Verify with DigiLocker to earn your badge — your listing ranks higher and your first one gets a free 7-day Featured boost.",
       "done": "You're Verified — your listings now rank higher."
     },
-
     "modal": {
       "startOverTitle": "Start over?",
       "keepEditing": "Keep editing",

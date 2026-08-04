@@ -85,6 +85,34 @@ export default function AdminLocalities() {
     { key: 'tier', header: 'Tier', render: (l) => <Badge status={l.tier === 'community' ? 'pending' : 'approved'}>{l.tier === 'community' ? 'Community' : 'Curated'}</Badge> },
   ];
 
+  /* Stacked-card fallback below `sm` (see Table.jsx). Both tabs share one renderer;
+     Verify/Dismiss only appear on the pending tab, at 44px. */
+  const localityCard = (l) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{l.name}</div>
+          <div className="mt-0.5 text-xs text-gray-400">{l.slug}{tab === 'pending' ? ` · ${fmtDate(l.at)}` : ''}</div>
+        </div>
+        <div className="shrink-0">
+          {tab === 'pending'
+            ? <Badge status="pending">Community</Badge>
+            : <Badge status={l.tier === 'community' ? 'pending' : 'approved'}>{l.tier === 'community' ? 'Community' : 'Curated'}</Badge>}
+        </div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <span>{coordStr(l)}</span>
+        {tab === 'pending' ? (<><span className="text-gray-600">·</span><span>PIN {l.pincode || '—'}</span></>) : null}
+      </div>
+      {tab === 'pending' ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+          {actBtn('Verify', teal, () => verify(l))}
+          {actBtn('Dismiss', plain, () => dismiss(l))}
+        </div>
+      ) : null}
+    </div>
+  );
+
   const KPIS = [
     { label: 'Localities', value: fmtNum(directory.length), icon: MapPin, tab: 'directory' },
     { label: 'Pending review', value: fmtNum(pending.length), icon: Sparkles, tab: 'pending' },
@@ -124,7 +152,7 @@ export default function AdminLocalities() {
           : 'Every locality search, filters and SEO key off — curated seed set plus promoted community localities.'}
       </p>
 
-      <Table columns={cols} rows={rows} rowKey={(l) => l.slug} pageSize={10} label={tab} empty={empty} />
+      <Table columns={cols} rows={rows} rowKey={(l) => l.slug} pageSize={10} label={tab} empty={empty} mobileCard={localityCard} />
     </div>
   );
 }

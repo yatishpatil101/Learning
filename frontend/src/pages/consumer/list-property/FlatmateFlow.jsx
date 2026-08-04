@@ -27,7 +27,7 @@ const FlatmateFlow = ({
   form, set, errors, money,
   photos, handlePhotoUpload, removePhoto, setPhotoCategory,
   currentStep, prevStep, nextStep, submitFlatmate, onReset,
-  mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus,
+  mapSearch, onMapSearchChange, runMapSearch, mapSearchStatus, geoFillStatus,
   flyTo, onLocalityChange, onPinMove, locationSet, onAreaSelect,
 }) => {
   const { t } = useTranslation();
@@ -37,8 +37,43 @@ const FlatmateFlow = ({
       <div className="lp-step">
         <StepHeader title={t('listProperty.steps.flatmateLocationTitle')} subtitle={t('listProperty.steps.flatmateLocationSubtitle')} onReset={onReset} />
 
-        {/* Address — full location so a flatmate seeker can place the flat,
-            mirroring the whole-place address grid. Locality drives the map. */}
+        {/* Map first — the host pins the exact spot and we reverse-geocode it to
+            pre-fill the address fields below, exactly as the whole-place flow does.
+            Order matters: the address grid must come AFTER the pin, otherwise every
+            field the host types first is marked hand-edited and auto-fill (which
+            never clobbers a manual entry) has nothing left to fill. */}
+        <div className="mb-6" data-err="location">
+          <label className={`${lbl} mb-1`}>{t('listProperty.fields.pinFlatLocation')}</label>
+          <p className="text-gray-500 text-xs mb-3">{t('listProperty.help.pinPropertyHint')}</p>
+          <div className="mb-2">
+            <AreaSearch
+              value={mapSearch}
+              onChange={onMapSearchChange}
+              onRunSearch={runMapSearch}
+              onSelectPlace={onAreaSelect}
+              status={mapSearchStatus}
+              placeholder={t('listProperty.ph.areaSearch')}
+            />
+          </div>
+          <div style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${errors.location ? 'rgba(248,113,113,.6)' : 'rgba(255,255,255,.1)'}` }}>
+            <LocationPicker lat={form.propLat} lng={form.propLng} flyTo={flyTo} onMove={(la, ln) => onPinMove(la, ln)} />
+          </div>
+          {locationSet ? (
+            <p className="text-emerald-300/90 text-xs mt-2 flex items-center gap-1.5">
+              <MapPin className="w-3 h-3 text-emerald-400" /> {t('listProperty.help.locationSet', { lat: Number(form.propLat).toFixed(4), lng: Number(form.propLng).toFixed(4) })}
+            </p>
+          ) : (
+            <p className="text-gray-500 text-xs mt-2">
+              <MapPin className="w-3 h-3 inline text-teal-400" /> {t('listProperty.help.searchOrDragFlat')}
+            </p>
+          )}
+          {geoFillStatus === 'filling' && <p className="text-gray-500 text-xs mt-1.5">{t('listProperty.help.fillingAddress')}</p>}
+          {geoFillStatus === 'done' && <p className="text-teal-300/80 text-xs mt-1.5 flex items-center gap-1.5"><MapPin className="w-3 h-3 text-teal-400" /> {t('listProperty.help.filledAddress')}</p>}
+          <FieldError show={!!errors.location}>{t('listProperty.err.locationFlat')}</FieldError>
+        </div>
+
+        {/* Address — auto-filled from the pin where possible; the host confirms or
+            completes anything we couldn't resolve. Mirrors the whole-place grid. */}
         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={lbl}>{t('listProperty.fields.locality')}</label>
@@ -48,7 +83,7 @@ const FlatmateFlow = ({
           <div>
             <label className={lbl}>{isHouse ? t('listProperty.fields.houseBuildingName') : t('listProperty.fields.societyBuilding')}</label>
             {isHouse ? (
-              <input value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
+              <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
             ) : (
               <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} pincode={form.pincode} invalid={!!errors.society} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
             )}
@@ -76,36 +111,6 @@ const FlatmateFlow = ({
           </div>
         </div>
 
-        {/* Map — the same picker the whole-place flow uses, so a room share is
-            geo-pinned instead of tied to a bare locality name. */}
-        <div className="mb-6" data-err="location">
-          <label className={`${lbl} mb-1`}>{t('listProperty.fields.pinFlatLocation')}</label>
-          <p className="text-gray-500 text-xs mb-3">{t('listProperty.help.searchOrDragFlat')}</p>
-          <div className="mb-2">
-            <AreaSearch
-              value={mapSearch}
-              onChange={onMapSearchChange}
-              onRunSearch={runMapSearch}
-              onSelectPlace={onAreaSelect}
-              status={mapSearchStatus}
-              placeholder={t('listProperty.ph.areaSearch')}
-            />
-          </div>
-          <div style={{ height: 280, borderRadius: 14, overflow: 'hidden', border: `1px solid ${errors.location ? 'rgba(248,113,113,.6)' : 'rgba(255,255,255,.1)'}` }}>
-            <LocationPicker lat={form.propLat} lng={form.propLng} flyTo={flyTo} onMove={(la, ln) => onPinMove(la, ln)} />
-          </div>
-          {locationSet ? (
-            <p className="text-emerald-300/90 text-xs mt-2 flex items-center gap-1.5">
-              <MapPin className="w-3 h-3 text-emerald-400" /> {t('listProperty.help.locationSet', { lat: Number(form.propLat).toFixed(4), lng: Number(form.propLng).toFixed(4) })}
-            </p>
-          ) : (
-            <p className="text-gray-500 text-xs mt-2">
-              <MapPin className="w-3 h-3 inline text-teal-400" /> {t('listProperty.help.pickLocalityFlat')}
-            </p>
-          )}
-          <FieldError show={!!errors.location}>{t('listProperty.err.locationFlat')}</FieldError>
-        </div>
-
         {/* Flatmate pricing — the tenant's share, not the whole rent. */}
         <div className="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -131,7 +136,7 @@ const FlatmateFlow = ({
           </div>
         </div>
 
-        <div className="flex justify-between">
+        <div className="flex justify-between lp-step-actions">
           <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
           <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
         </div>
@@ -160,7 +165,7 @@ const FlatmateFlow = ({
         <textarea rows={3} value={form.note} onChange={(e) => set('note', e.target.value)} placeholder={t('listProperty.ph.notePlaceholder')} className={`${fld} resize-none`} />
       </div>
 
-      <div className="flex justify-between">
+      <div className="flex justify-between lp-step-actions">
         <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
         <button onClick={submitFlatmate} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">
           <Users className="w-4 h-4" /> {t('listProperty.flatmate.postFind')}

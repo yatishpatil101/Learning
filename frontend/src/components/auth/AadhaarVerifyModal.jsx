@@ -147,7 +147,7 @@ export default function AadhaarVerifyModal({
               </div>
             </div>
 
-            <div className="flex-shrink-0 px-5 pt-4 pb-5 border-t border-white/10 bg-[#14121f]">
+            <div className="flex-shrink-0 px-5 pt-4 pb-[calc(1.25rem+var(--pn-safe-b))] border-t border-white/10 bg-[#14121f]">
               <div className="flex flex-col sm:flex-row gap-3">
                 <button type="button" onClick={startDigilocker} className="btn-teal w-full sm:flex-1 px-6 py-3 rounded-xl text-white font-semibold text-sm inline-flex items-center justify-center gap-2">
                   <Icon name="external-link" className="w-4 h-4" /> {t('verify.continue')}

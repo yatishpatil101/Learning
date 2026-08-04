@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
@@ -184,7 +184,7 @@ export default function Support() {
 
   return (
     <div ref={rootRef}>
-      <main className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      <div className="pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8 reveal">
             <div className="inline-flex items-center gap-2 px-3 py-1 mb-3 rounded-full bg-teal-500/10 border border-teal-500/20">
@@ -198,6 +198,23 @@ export default function Support() {
               {tr('misc.supportSubtitle')}
             </p>
           </div>
+
+          {/* Deflection: most tickets are questions the help centre already answers,
+              and a self-served answer arrives in seconds rather than hours. Offered
+              before the form, not after, or nobody reads it. */}
+          <Link
+            to="/help"
+            className="reveal mb-6 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 transition-colors hover:border-teal-400/40 hover:bg-white/[0.05]"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-400/10">
+              <Icon name="book-open" className="w-4 h-4 text-teal-400" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-white">{tr('help.deflectTitle')}</span>
+              <span className="block text-xs text-gray-500">{tr('help.deflectBody')}</span>
+            </span>
+            <Icon name="arrow-right" className="w-4 h-4 shrink-0 text-gray-500" />
+          </Link>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-6">
             {/* Raise a ticket */}
@@ -220,7 +237,7 @@ export default function Support() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Thread modal */}
       <TicketThreadModal

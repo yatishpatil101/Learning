@@ -1,13 +1,23 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import Modal from '../ui/Modal.jsx';
 import DateField from '../ui/DateField.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import { parseWhen, formatWhen } from '../../lib/visitWhen.js';
 
-const CAL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const CAL_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/* Intl ships month and weekday names for hi and mr, so the calendar chrome reads
+   in the visitor's language without a hand-maintained table to drift. */
+const calMonths = (locale) => {
+  const f = new Intl.DateTimeFormat(locale, { month: 'long' });
+  return Array.from({ length: 12 }, (_, i) => f.format(new Date(2024, i, 1)));
+};
+const calDays = (locale) => {
+  const f = new Intl.DateTimeFormat(locale, { weekday: 'short' });
+  // 2024-01-07 was a Sunday, so this walks Sun→Sat in the calendar's own order.
+  return Array.from({ length: 7 }, (_, i) => f.format(new Date(2024, 0, 7 + i)));
+};
 
 const dateKeyOf = (d) =>`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -32,10 +42,10 @@ const STATUS_CLS = {
   cancelled: 'bg-rose-500/15 text-rose-300',
   'no-show': 'bg-rose-500/15 text-rose-300',
 };
-const STATUS_LABEL = { scheduled: 'Awaiting confirmation', confirmed: 'Confirmed', completed: 'Visited', cancelled: 'Cancelled', 'no-show': 'No-show' };
+const STATUS_KEYS = { scheduled: 'visits.stScheduled', confirmed: 'visits.stConfirmed', completed: 'visits.stCompleted', cancelled: 'visits.stCancelled', 'no-show': 'visits.stNoShow' };
 
-const StatusBadge = ({ status }) => (
-  <span className={'text-[11px] px-2 py-0.5 rounded-full font-semibold ' + (STATUS_CLS[status] || 'bg-white/10 text-gray-300')}>{STATUS_LABEL[status] || status}</span>
+const StatusBadge = ({ status, t }) => (
+  <span className={'text-[11px] px-2 py-0.5 rounded-full font-semibold ' + (STATUS_CLS[status] || 'bg-white/10 text-gray-300')}>{STATUS_KEYS[status] ? t(STATUS_KEYS[status]) : status}</span>
 );
 
 const btnConfirm = 'px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/25 flex items-center gap-1';
@@ -61,21 +71,27 @@ const LegendDot = ({ cls, label }) => (
 const waDigits = (m) => (m || '').replace(/\D/g, '').replace(/^91/, '');
 const btnWhatsapp = 'px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/25 flex items-center gap-1';
 
-function visitWaMessage(v, isOwner, dateStr, timeLabel) {
-  const listing = (v.listing || 'the property').split(' in ')[0];
-  const whenBit = [dateStr && `on ${dateStr}`, timeLabel && `at ${timeLabel}`].filter(Boolean).join(' ');
+function visitWaMessage(v, isOwner, dateStr, timeLabel, t) {
+  const listing = (v.listing || t('visits.propertyFallback')).split(' in ')[0];
+  // Built as whole sentences per status: word order differs across languages, so
+  // stitching fragments would read as broken Hindi/Marathi.
+  const when = [dateStr && t('visits.whenOn', { date: dateStr }), timeLabel && t('visits.whenAt', { time: timeLabel })].filter(Boolean).join(' ');
+  const name = v.customer || t('visits.thereFallback');
   if (isOwner) {
-    const hi = `Hi ${v.customer || 'there'}, `;
-    if (v.status === 'confirmed') return `${hi}your visit to ${listing} is confirmed ${whenBit}. See you then! — PuneNest`;
-    if (v.status === 'cancelled' || v.status === 'no-show') return `${hi}unfortunately the visit to ${listing} ${whenBit} has been cancelled. Happy to help you reschedule. — PuneNest`;
-    return `${hi}regarding your visit request for ${listing}${whenBit ? ` ${whenBit}` : ''}. Let me know if the slot works and I'll confirm it. — PuneNest`;
+    if (v.status === 'confirmed') return t('visits.waConfirmed', { name, listing, when });
+    if (v.status === 'cancelled' || v.status === 'no-show') return t('visits.waCancelled', { name, listing, when });
+    return t('visits.waPending', { name, listing, when });
   }
-  return `Hi, regarding my visit to ${listing}${whenBit ? ` ${whenBit}` : ''} (booked via PuneNest). Could you confirm the slot?`;
+  return t('visits.waSeeker', { listing, when });
 }
 
 const waHref = (mobile, text) => `https://wa.me/91${waDigits(mobile)}?text=${encodeURIComponent(text)}`;
 
 export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
+  const CAL_MONTHS = useMemo(() => calMonths(locale), [locale]);
+  const CAL_DAYS = useMemo(() => calDays(locale), [locale]);
   // Render straight from the `visits` prop (the single source in Dashboard) so
   // confirm/cancel/reschedule/visited persist and stay in sync with the leads
   // badge + Action Center. `onUpdate(id, patch)` lifts the change to the parent.
@@ -83,7 +99,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
 
   const updateVisit = (id, status) => {
     onUpdate?.(id, { status });
-    const msg = status === 'confirmed' ? 'Visit confirmed' : status === 'cancelled' ? 'Visit cancelled' : status === 'completed' ? 'Marked as visited' : 'Visit updated';
+    const msg = status === 'confirmed' ? t('visits.confirmedToast') : status === 'cancelled' ? t('visits.cancelledToast') : status === 'completed' ? t('visits.visitedToast') : t('visits.updatedToast');
     toast(msg, 'success');
   };
 
@@ -107,7 +123,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     const mode = parseWhen(reschedule.when).mode || 'in-person';
     onUpdate?.(id, { when: formatWhen(reDate, reTime, mode), status: 'scheduled' });
     closeReschedule();
-    toast('Visit rescheduled', 'success');
+    toast(t('visits.rescheduledToast'), 'success');
   };
 
   const today = new Date();
@@ -155,8 +171,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
   const dayTag = (d) => {
     if (!d) return '';
     const diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - startOfToday) / 86400000);
-    if (diff === 0) return 'Today';
-    if (diff === 1) return 'Tomorrow';
+    if (diff === 0) return t('visits.today');
+    if (diff === 1) return t('visits.tomorrow');
     return '';
   };
 
@@ -164,17 +180,17 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
   const UpcomingRow = ({ v }) => {
     const p = parsed.get(v.id) || {};
     const d = p.date;
-    const dateStr = d ? d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Date TBD';
+    const dateStr = d ? d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }) : t('visits.dateTbd');
     const tag = dayTag(d);
     const isPast = d && d < startOfToday;
-    const who = isOwner ? v.customer : `Your ${p.mode || 'visit'}`;
+    const who = isOwner ? v.customer : t('visits.yourVisitMode', { mode: p.mode || t('visits.visitWord') });
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
         <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="calendar-clock" className="w-5 h-5 text-teal-400" /></div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-white text-sm font-medium truncate">{v.listing}</p>
-            <StatusBadge status={v.status} />
+            <StatusBadge status={v.status} t={t} />
           </div>
           <p className="text-gray-500 text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
             <span className="text-gray-300">{who}</span>
@@ -191,18 +207,18 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
           {(() => {
             const target = isOwner ? v.mobile : v.ownerMobile;
             if (!waDigits(target)) return null;
-            const text = visitWaMessage(v, isOwner, tag || dateStr, p.timeLabel);
+            const text = visitWaMessage(v, isOwner, tag || dateStr, p.timeLabel, t);
             return (
-              <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp} aria-label={isOwner ? `WhatsApp ${v.customer || 'visitor'}` : 'WhatsApp the owner'}>
-                <Icon name="message-circle" className="w-3.5 h-3.5" /> WhatsApp
+              <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp} aria-label={isOwner ? t('visits.waVisitor', { name: v.customer || t('visits.visitorFallback') }) : t('visits.waOwner')}>
+                <Icon name="message-circle" className="w-3.5 h-3.5" /> {t('visits.whatsapp')}
               </a>
             );
           })()}
-          {v.status === 'scheduled' && isOwner && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> Confirm</button>}
-          {v.status === 'confirmed' && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> Mark visited</button>}
-          <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> Reschedule</button>
-          <button onClick={() => updateVisit(v.id, 'cancelled')} className={btnCancel}><Icon name="x" className="w-3.5 h-3.5" /> Cancel</button>
-          <Link to={`/property/${v.listingId}`} className={btnGhost}><Icon name="arrow-right" className="w-3.5 h-3.5" /> Property</Link>
+          {v.status === 'scheduled' && isOwner && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> {t('visits.confirm')}</button>}
+          {v.status === 'confirmed' && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> {t('visits.markVisited')}</button>}
+          <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>
+          <button onClick={() => updateVisit(v.id, 'cancelled')} className={btnCancel}><Icon name="x" className="w-3.5 h-3.5" /> {t('visits.cancel')}</button>
+          <Link to={`/property/${v.listingId}`} className={btnGhost}><Icon name="arrow-right" className="w-3.5 h-3.5" /> {t('visits.property')}</Link>
         </div>
       </div>
     );
@@ -212,16 +228,18 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     <Card className="p-6">
       <SectionHead
         icon="calendar-clock"
-        title={isOwner ? 'Upcoming visits' : 'Your upcoming visits'}
-        sub={upcoming.length ? `${upcoming.length} visit${upcoming.length > 1 ? 's' : ''} — ${isOwner ? 'confirm, reschedule or cancel' : 'reschedule or cancel anytime'}` : 'Nothing scheduled right now'}
-        action={<Link to="/schedule-visit" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">Schedule new →</Link>}
+        title={isOwner ? t('visits.upcomingOwner') : t('visits.upcomingSeeker')}
+        sub={upcoming.length
+          ? (isOwner ? t('visits.upcomingSubOwner', { count: upcoming.length }) : t('visits.upcomingSubSeeker', { count: upcoming.length }))
+          : t('visits.nothingScheduled')}
+        action={<Link to="/schedule-visit" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">{t('visits.scheduleNew')}</Link>}
       />
       {upcoming.length === 0 ? (
         <div className="text-center py-8">
           <div className="w-12 h-12 rounded-2xl bg-teal-400/15 flex items-center justify-center mx-auto mb-3"><Icon name="calendar-check" className="w-6 h-6 text-teal-400" /></div>
-          <p className="text-white font-semibold text-sm">No visits scheduled</p>
-          <p className="text-gray-400 text-xs mt-1 max-w-xs mx-auto">{isOwner ? 'When buyers or tenants book a site visit on your listings, it shows up here to confirm.' : 'Book a site visit from any property and track it here.'}</p>
-          <Link to="/listings" className="btn-outline inline-flex items-center justify-center gap-2 mt-4 py-2.5 px-4 rounded-xl text-sm"><Icon name="search" className="w-4 h-4" /> Browse listings</Link>
+          <p className="text-white font-semibold text-sm">{t('visits.noneTitle')}</p>
+          <p className="text-gray-400 text-xs mt-1 max-w-xs mx-auto">{isOwner ? t('visits.noneOwner') : t('visits.noneSeeker')}</p>
+          <Link to="/listings" className="btn-outline inline-flex items-center justify-center gap-2 mt-4 py-2.5 px-4 rounded-xl text-sm"><Icon name="search" className="w-4 h-4" /> {t('visits.browseListings')}</Link>
         </div>
       ) : (
         <div className="space-y-2.5">{upcoming.map((v) => <UpcomingRow key={v.id} v={v} />)}</div>
@@ -232,19 +250,19 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
   const VisitGroup = ({ list, icon, iconCls, title }) => (
     list.length > 0 ? (
       <Card className="p-6">
-        <SectionHead icon={icon} iconCls={iconCls} title={title} sub={`${list.length} visit${list.length > 1 ? 's' : ''}`} />
+        <SectionHead icon={icon} iconCls={iconCls} title={title} sub={t('visits.countSub', { count: list.length })} />
         <div className="space-y-2.5">
           {list.map((v) => {
             const p = parsed.get(v.id) || {};
-            const dateStr = p.date ? p.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date TBD';
+            const dateStr = p.date ? p.date.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }) : t('visits.dateTbd');
             return (
               <div key={v.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                 <div className={`w-10 h-10 rounded-xl ${iconCls.includes('emerald') ? 'bg-emerald-500/15' : 'bg-rose-500/15'} flex items-center justify-center flex-shrink-0`}><Icon name={icon} className={`w-5 h-5 ${iconCls}`} /></div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium truncate">{v.listing}</p>
-                  <p className="text-gray-500 text-xs">{isOwner ? v.customer : 'Your visit'} · {dateStr}</p>
+                  <p className="text-gray-500 text-xs">{isOwner ? v.customer : t('visits.yourVisit')} · {dateStr}</p>
                 </div>
-                <Link to={`/property/${v.listingId}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 font-semibold hover:bg-white/10">View property</Link>
+                <Link to={`/property/${v.listingId}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 font-semibold hover:bg-white/10">{t('visits.viewProperty')}</Link>
               </div>
             );
           })}
@@ -257,44 +275,44 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     <Modal
       open={!!reschedule}
       onClose={closeReschedule}
-      title={reschedule ? `Reschedule · ${reschedule.listing}` : 'Reschedule visit'}
+      title={reschedule ? t('visits.rescheduleTitle', { title: reschedule.listing }) : t('visits.rescheduleVisit')}
       size="sm"
       footer={(
         <>
-          <button onClick={closeReschedule} className={btnGhost}>Cancel</button>
-          <button onClick={saveReschedule} disabled={!reDate || !reTime} className={btnConfirm + ' disabled:opacity-40 disabled:cursor-not-allowed'}><Icon name="calendar-check" className="w-3.5 h-3.5" /> Save new slot</button>
+          <button onClick={closeReschedule} className={btnGhost}>{t('visits.cancel')}</button>
+          <button onClick={saveReschedule} disabled={!reDate || !reTime} className={btnConfirm + ' disabled:opacity-40 disabled:cursor-not-allowed'}><Icon name="calendar-check" className="w-3.5 h-3.5" /> {t('visits.saveSlot')}</button>
         </>
       )}
     >
       {reschedule ? (
         <div className="space-y-3">
-          <p className="text-sm text-gray-400">{isOwner ? reschedule.customer : 'Your visit'}</p>
-          <label className="block text-xs font-semibold text-gray-300">New visit date</label>
+          <p className="text-sm text-gray-400">{isOwner ? reschedule.customer : t('visits.yourVisit')}</p>
+          <label className="block text-xs font-semibold text-gray-300">{t('visits.newDate')}</label>
           <DateField
             value={reDate}
             onChange={(iso) => setReDate(iso)}
             className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white"
-            ariaLabel="New visit date"
+            ariaLabel={t('visits.newDate')}
           />
-          <label className="block text-xs font-semibold text-gray-300 pt-1">Time of day</label>
+          <label className="block text-xs font-semibold text-gray-300 pt-1">{t('visits.timeOfDay')}</label>
           <TimeField
             value={reTime}
             onChange={setReTime}
             className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white"
-            ariaLabel="New visit time"
+            ariaLabel={t('visits.newTime')}
           />
-          <p className="text-xs text-gray-500">The visit returns to “Awaiting confirmation” so the {isOwner ? 'visitor' : 'owner'} can re-confirm the new time.</p>
+          <p className="text-xs text-gray-500">{isOwner ? t('visits.reconfirmVisitor') : t('visits.reconfirmOwner')}</p>
           {(() => {
             const target = isOwner ? reschedule.mobile : reschedule.ownerMobile;
             if (!waDigits(target) || !reDate || !reTime) return null;
-            const label = new Date(reDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-            const listing = (reschedule.listing || 'the property').split(' in ')[0];
+            const label = new Date(reDate + 'T00:00:00').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+            const listing = (reschedule.listing || t('visits.propertyFallback')).split(' in ')[0];
             const text = isOwner
-              ? `Hi ${reschedule.customer || 'there'}, can we move your visit to ${listing} to ${label} at ${reTime}? Please confirm and I'll lock it in. — PuneNest`
-              : `Hi, could we reschedule my visit to ${listing} to ${label} at ${reTime}? (via PuneNest)`;
+              ? t('visits.waReschedOwner', { name: reschedule.customer || t('visits.thereFallback'), listing, date: label, time: reTime })
+              : t('visits.waReschedSeeker', { listing, date: label, time: reTime });
             return (
               <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp + ' w-full justify-center'}>
-                <Icon name="message-circle" className="w-3.5 h-3.5" /> Notify new time on WhatsApp
+                <Icon name="message-circle" className="w-3.5 h-3.5" /> {t('visits.notifyWa')}
               </a>
             );
           })()}
@@ -309,11 +327,11 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       <div className="space-y-6">
         <Card className="p-10 text-center">
           <div className="w-14 h-14 rounded-2xl bg-teal-400/15 flex items-center justify-center mx-auto mb-4"><Icon name="calendar-check" className="w-7 h-7 text-teal-400" /></div>
-          <h3 className="text-white font-bold">No visits yet</h3>
-          <p className="text-gray-400 text-sm mt-1.5 max-w-sm mx-auto">{isOwner ? 'Site-visit requests on your listings will appear here so you can confirm, reschedule or cancel them.' : 'Book a site visit from any property to line up a viewing — you can track and manage it here.'}</p>
+          <h3 className="text-white font-bold">{t('visits.emptyTitle')}</h3>
+          <p className="text-gray-400 text-sm mt-1.5 max-w-sm mx-auto">{isOwner ? t('visits.emptyOwner') : t('visits.emptySeeker')}</p>
           <div className="flex items-center justify-center gap-2.5 mt-5">
-            <Link to="/listings" className="btn-outline inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm"><Icon name="search" className="w-4 h-4" /> Browse listings</Link>
-            <Link to="/schedule-visit" className="btn-teal inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm text-white"><Icon name="calendar-check" className="w-4 h-4" /> Schedule a visit</Link>
+            <Link to="/listings" className="btn-outline inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm"><Icon name="search" className="w-4 h-4" /> {t('visits.browseListings')}</Link>
+            <Link to="/schedule-visit" className="btn-teal inline-flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm text-white"><Icon name="calendar-check" className="w-4 h-4" /> {t('visits.scheduleVisit')}</Link>
           </div>
         </Card>
       </div>
@@ -323,19 +341,19 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
   // ─── WEEK VIEW (per-day agenda — real slot time when known, else "Time TBD") ───
   if (weekView) {
     const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekView); d.setDate(weekView.getDate() + i); return d; });
-    const weekLabel = `${weekDays[0].toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    const weekLabel = `${weekDays[0].toLocaleDateString(locale, { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
     return (
       <div className="space-y-6">
         <Card className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={backToMonth} className="flex items-center gap-1.5 text-sm text-teal-400 hover:text-teal-300 font-medium"><Icon name="arrow-left" className="w-4 h-4" /> Month view</button>
+            <button onClick={backToMonth} className="flex items-center gap-1.5 text-sm text-teal-400 hover:text-teal-300 font-medium"><Icon name="arrow-left" className="w-4 h-4" /> {t('visits.monthView')}</button>
             <div className="flex items-center gap-3">
               <button onClick={prevWeek} className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 text-gray-400"><Icon name="chevron-left" className="w-4 h-4" /></button>
               <h3 className="text-white font-semibold text-sm">{weekLabel}</h3>
               <button onClick={nextWeek} className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 text-gray-400"><Icon name="chevron-right" className="w-4 h-4" /></button>
             </div>
-            <Link to="/schedule-visit" className="text-teal-400 text-xs font-medium hover:text-teal-300">+ New visit</Link>
+            <Link to="/schedule-visit" className="text-teal-400 text-xs font-medium hover:text-teal-300">{t('visits.newVisit')}</Link>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -349,7 +367,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                     {dayVisits.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-400 font-semibold">{dayVisits.length}</span>}
                   </div>
                   {dayVisits.length === 0 ? (
-                    <p className="text-[11px] text-gray-600">No visits</p>
+                    <p className="text-[11px] text-gray-600">{t('visits.noVisits')}</p>
                   ) : (
                     <div className="space-y-1.5">
                       {dayVisits.map((v) => {
@@ -358,7 +376,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                         return (
                           <Link key={v.id} to={`/property/${v.listingId}`} className={'block rounded-lg border px-2 py-1.5 ' + colors}>
                             <p className="text-[11px] font-bold truncate leading-tight">{v.listing.split(' in ')[0]}</p>
-                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || 'Time TBD'} · {isOwner ? v.customer : 'You'}</p>
+                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || t('visits.timeTbd')} · {isOwner ? v.customer : t('visits.you')}</p>
                           </Link>
                         );
                       })}
@@ -380,20 +398,20 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
       <UpcomingCard />
 
       <Card className="p-4 sm:p-6">
-        <SectionHead icon="calendar-check" iconCls="text-teal-400" title="Visit calendar" sub="Every scheduled, confirmed and past visit at a glance" action={<Link to="/schedule-visit" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">Schedule new →</Link>} />
+        <SectionHead icon="calendar-check" iconCls="text-teal-400" title={t('visits.calendarTitle')} sub={t('visits.calendarSub')} action={<Link to="/schedule-visit" className="text-teal-400 text-sm font-medium hover:text-teal-300 whitespace-nowrap">{t('visits.scheduleNew')}</Link>} />
         <div className="flex items-center justify-between mt-4 mb-4">
           <button onClick={prevMonth} className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-gray-400 transition"><Icon name="chevron-left" className="w-4 h-4" /></button>
           <div className="text-center">
             <h3 className="text-white font-semibold text-sm">{CAL_MONTHS[calMonth]} {calYear}</h3>
-            <p className="text-gray-500 text-[10px] mt-0.5">Click a day to see the weekly schedule</p>
+            <p className="text-gray-500 text-[10px] mt-0.5">{t('visits.clickDay')}</p>
           </div>
           <button onClick={nextMonth} className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-gray-400 transition"><Icon name="chevron-right" className="w-4 h-4" /></button>
         </div>
 
-        <div role="note" aria-label="Calendar legend" className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mb-3 text-[11px] font-medium">
-          <LegendDot cls="bg-amber-400" label="Scheduled" />
-          <LegendDot cls="bg-emerald-400" label="Confirmed / visited" />
-          <LegendDot cls="bg-rose-400" label="Cancelled" />
+        <div role="note" aria-label={t('visits.legendAria')} className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mb-3 text-[11px] font-medium">
+          <LegendDot cls="bg-amber-400" label={t('visits.legScheduled')} />
+          <LegendDot cls="bg-emerald-400" label={t('visits.legConfirmed')} />
+          <LegendDot cls="bg-rose-400" label={t('visits.legCancelled')} />
         </div>
 
         <div className="rounded-xl overflow-hidden ring-1 ring-white/[0.06] bg-black/20">
@@ -431,7 +449,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                         </div>
                       );
                     })}
-                    {dayVisits.length > 2 && <div className="text-[9px] text-gray-500 font-medium pl-0.5">+{dayVisits.length - 2} more</div>}
+                    {dayVisits.length > 2 && <div className="text-[9px] text-gray-500 font-medium pl-0.5">{t('visits.moreCount', { count: dayVisits.length - 2 })}</div>}
                   </div>
                   {hasVisit && (
                     <div className="flex sm:hidden flex-wrap gap-1 mt-0.5">
@@ -449,8 +467,8 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
         </div>
       </Card>
 
-      <VisitGroup list={completed} icon="check-circle" iconCls="text-emerald-400" title="Completed visits" />
-      <VisitGroup list={cancelled} icon="x-circle" iconCls="text-rose-400" title="Cancelled visits" />
+      <VisitGroup list={completed} icon="check-circle" iconCls="text-emerald-400" title={t('visits.completedTitle')} />
+      <VisitGroup list={cancelled} icon="x-circle" iconCls="text-rose-400" title={t('visits.cancelledTitle')} />
       <RescheduleModal />
     </div>
   );

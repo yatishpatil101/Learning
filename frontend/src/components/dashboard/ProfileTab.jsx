@@ -1,5 +1,5 @@
 import { useState, useId } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import Switch from '../ui/Switch.jsx';
@@ -17,6 +17,7 @@ import {
   exportUserData, deleteMyData,
   isAadhaarVerified,
 } from '../../lib/store.js';
+import { helpPath, splitLangPrefix } from '../../lib/helpUrl.js';
 
 const Card = ({ children, className = '' }) => <div className={'glass-card rounded-2xl ' + className}>{children}</div>;
 const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub }) => (
@@ -96,6 +97,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const { logout } = useAuth();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ name: user?.name || '', mobile: user?.mobile || '', email: user?.email || '', city: user?.city || 'Pune' });
   const [prefs, setPrefs] = useState(() => getNotifPrefs());
   const [app, setApp] = useState(() => getAppPrefs());
@@ -117,6 +119,13 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     i18n.changeLanguage(v);
     setNotifPrefs({ language: v });
     setPrefs((p) => ({ ...p, language: v }));
+    // Help pages carry the language in the URL (see lib/helpUrl.js). Changing the
+    // language from a help page has to rewrite that prefix, or HelpLangRoute
+    // reads the stale prefix on the next render and switches the language back.
+    const { lang: urlLang, rest } = splitLangPrefix(location.pathname);
+    if (rest.startsWith('/help') && urlLang !== v) {
+      navigate(helpPath(rest, v) + location.search, { replace: true });
+    }
     toast('Language updated', 'success');
   };
 

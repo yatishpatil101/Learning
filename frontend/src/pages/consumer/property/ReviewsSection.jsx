@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
 import { myMobile, hasCompletedVisit, myVisitStatus, getTenanciesFor } from '../../../lib/store.js';
@@ -81,7 +82,18 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
           <p className="text-slate-300 text-sm">{t('property.noReviewsYet')}</p>
         </div>
       ) : (
-        <>
+        /* On phones the reviews block is ~900px of summary grid + filters + cards
+           sitting under the amenities list. Collapse it behind its own rating
+           summary; the header row is `lg:hidden`, so desktop is unchanged. */
+        <MobileCollapse
+          headerClassName="lg:hidden mb-4"
+          label={t('property.ratingsReviews')}
+          header={(
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+              <Stars value={summary.avg} size={14} /> {summary.avg.toFixed(1)} · {t('property.reviews', { count: summary.count })}
+            </span>
+          )}
+        >
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-5 flex flex-col items-center justify-center text-center">
               <div className="text-4xl font-extrabold text-white mb-1">{summary.avg.toFixed(1)}</div>
@@ -115,7 +127,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             {[['all', t('property.filterAll')], ['visit', t('property.filterVisited')], ['tenant', t('property.filterResidents')]].map(([id, lbl]) => {
               const n = id === 'all' ? summary.count : reviews.filter((r) => r.context === id).length;
-              return <button key={id} type="button" onClick={() => setFilter(id)} className={'px-3 py-1.5 rounded-lg text-xs font-medium ' + (filter === id ? 'bg-brand-teal-1/20 text-brand-teal-3 border border-brand-teal-2/30' : 'text-slate-400 border border-white/8 hover:text-white')}>{lbl} ({n})</button>;
+              return <button key={id} type="button" onClick={() => setFilter(id)} className={'inline-flex items-center min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded-lg text-xs font-medium ' + (filter === id ? 'bg-brand-teal-1/20 text-brand-teal-3 border border-brand-teal-2/30' : 'text-slate-400 border border-white/8 hover:text-white')}>{lbl} ({n})</button>;
             })}
           </div>
           <div>
@@ -143,7 +155,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
               </div>
             )) : <p className="text-slate-500 text-sm py-4">{t('property.noReviewsFilter')}</p>}
           </div>
-        </>
+        </MobileCollapse>
       )}
 
       {modal ? <ReviewModal user={user} onClose={() => setModal(false)} onSubmit={submit} /> : null}

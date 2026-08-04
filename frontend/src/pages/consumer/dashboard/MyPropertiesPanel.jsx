@@ -13,7 +13,7 @@ const TOOLS = [
    list, each showing its status (Private / Under review / Live / Rented / Sold)
    and passport progress. The Rent-o-meter is the "add / value a property" tool,
    not a rival list. Visible to everyone: the tools are the acquisition wedge for
-   not-yet-owners, and flat-share posters manage their posts here too. */
+   not-yet-owners, and flatmate posters manage their posts here too. */
 export default function MyPropertiesPanel({ listings, user, toast, REVIEW_STATUS, openReview }) {
   return (
     <div className="space-y-6">

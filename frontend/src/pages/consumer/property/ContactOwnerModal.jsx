@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
 import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../../lib/contact.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { queueOwnerChat } from '../../../lib/chat.js';
-import { isAadhaarVerified } from '../../../lib/store.js';
+import { isAadhaarVerified, canRevealContact, consumeContact } from '../../../lib/store.js';
 import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const { t } = useTranslation();
   const [msg, setMsg] = useState('');
   const [verify, setVerify] = useState(false); // opt-in badge modal for verified-only owners
+  const [quotaOpen, setQuotaOpen] = useState(false); // free contacts spent → refer or upgrade
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = String(p.id || '');
@@ -34,6 +36,11 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
       onClose();
       return;
     }
+    // Free contact quota spent → offer the referral (free) or Seeker Plus route.
+    if (status === 'none' && !canRevealContact()) {
+      setQuotaOpen(true);
+      return;
+    }
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: propId, owner: String(p.owner || '') });
     const res = requestContact(ownerMobile, propId);
@@ -42,6 +49,14 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
       setVerify(true);
       return;
     }
+    // Listing withdrawn / owner contact pulled → nothing was requested, so no quota is spent.
+    if (res === 'unavailable') {
+      toast(t('property.contactUnavailable'), 'error');
+      onClose();
+      return;
+    }
+    // Only a genuinely NEW request burns quota — repeats return the existing status.
+    if (res === 'pending') consumeContact();
     toast(t('property.requestSentNumber'), 'success');
     onClose();
   };
@@ -140,7 +155,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
             </div>
           </div>
         )}
-        <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={3} className="w-full px-4 py-3 rounded-xl text-white text-sm resize-none border border-white/10 bg-white/[0.03] focus:border-brand-teal-2 outline-none mb-3" placeholder={t('property.messagePlaceholder')} />
+        <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={3} enterKeyHint="send" className="w-full px-4 py-3 rounded-xl text-white text-sm resize-none border border-white/10 bg-white/[0.03] focus:border-brand-teal-2 outline-none mb-3" placeholder={t('property.messagePlaceholder')} />
         <button onClick={sendEnquiry} className="btn-teal w-full flex items-center justify-center gap-2 py-2.5 px-4"><Icon name="send" className="w-4 h-4" /> {t('property.sendEnquiry')}</button>
         <p className="text-[11px] text-slate-500 mt-3 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.numberStaysPrivate')}</p>
       </div>
@@ -156,6 +171,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
           }}
         />
       )}
+      {quotaOpen && <ContactsExhaustedModal onClose={() => setQuotaOpen(false)} />}
     </div>
   );
 }

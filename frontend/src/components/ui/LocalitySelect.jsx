@@ -47,7 +47,7 @@ export default function LocalitySelect({
   // One session token per typing burst groups the suggestion calls with the final
   // details fetch into a single billable Places session; reset after each resolve.
   const tokenRef = useRef(null);
-  // The details fetch is async and this control often lives in a modal (ShareFlat)
+  // The details fetch is async and this control often lives in a modal (Flatmates)
   // that can close mid-resolve — don't fire onSelect into an unmounted parent.
   const mountedRef = useRef(true);
   useEffect(() => {

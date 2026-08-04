@@ -1,0 +1,81 @@
+{
+  "owner": {
+    "notFound": "Owner not found",
+    "notFoundBody": "This profile may have been removed or the link is incorrect.",
+    "browseListings": "Browse listings",
+
+    "verifiedOwner": "Verified Owner",
+    "zeroBrokerage": "Zero Brokerage",
+    "roleLine": "Property Owner · Direct dealing, no middlemen",
+    "reviewCount_one": "({{count}} review)",
+    "reviewCount_other": "({{count}} reviews)",
+
+    "call": "Call",
+    "whatsapp": "WhatsApp",
+    "message": "Message",
+    "report": "Report",
+    "reportAria": "Report this owner",
+
+    "statListed": "Properties Listed",
+    "statMemberSince": "Member Since",
+    "statVerified": "Verified Listings",
+    "statResponse": "Avg. Response Time",
+
+    "aboutTitle": "About the Owner",
+    "aboutBody": "{{name}} is a verified property owner listing directly on PuneNest. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
+    "badgeVerifiedOwner": "Verified Owner",
+    "badgeOwnershipVerified": "Ownership Verified",
+    "badgeNumberProtected": "Number Protected",
+
+    "listingsTitle": "Properties by this Owner",
+    "viewAll": "View all",
+    "noListings": "This owner has no active listings.",
+    "perMonth": "/mo",
+
+    "reviewsTitle": "Reviews & Ratings",
+    "reviewsSub": "From buyers & tenants who dealt with this owner directly.",
+    "noReviews": "No reviews yet",
+    "reviewsSummary_one": "{{count}} review",
+    "reviewsSummary_other": "{{count}} reviews",
+    "rateExperience": "Rate your experience with this owner",
+    "starAria": "{{count}} star",
+    "reviewPlaceholder": "Share your experience...",
+    "postReview": "Post Review",
+    "errRating": "Please add a star rating",
+    "errComment": "Please write a short comment",
+    "reviewPosted": "Thanks! Your review has been posted.",
+    "today": "Today",
+
+    "noBrokerageNote": "No brokerage. Deal directly.",
+    "contactTitle": "Contact owner directly",
+    "chatWhatsapp": "Chat on WhatsApp",
+    "approvedPrefersChat": "Approved — owner prefers in-app chat",
+    "requestPending": "Request sent — awaiting owner",
+    "requestDeclined": "Owner declined the request",
+    "numberHidden": "Number hidden for the owner's privacy.",
+    "requestNumber": "Request number",
+    "emailSupport": "Email PuneNest support",
+    "scheduleVisit": "Schedule a Visit",
+    "visit": "Visit",
+
+    "toastVerificationRequired": "This owner accepts verified contacts only. Get the Verified badge from your profile to reach them.",
+    "toastUnavailable": "Owner contact is unavailable for this listing right now. Please try again later.",
+    "toastRequestSent": "Request sent — you'll get the number once the owner approves.",
+    "toastApproved": "Owner has shared their number with you.",
+    "toastDeclined": "The owner declined your request.",
+
+    "reportTitle": "Report this owner",
+    "reportSubtitle": "Our team reviews every report and keeps it confidential.",
+    "reportSuccess": "Thanks for flagging this. Our team will review this owner.",
+
+    "waIntro": "Hi {{name}}, I saw your profile on PuneNest and I'm interested in your listings. Are they still available?",
+    "waFallbackName": "there",
+
+    "seedReview1": "Dealt directly with the owner — completely transparent, no brokerage at all. Answered every question and the flat was exactly as listed.",
+    "seedReview2": "Quick to respond on WhatsApp and very flexible with visit timings. Smooth, honest owner.",
+    "seedReview3": "Genuine owner with verified documents. Saved a lot by avoiding broker commission.",
+    "seedDate1": "2 weeks ago",
+    "seedDate2": "1 month ago",
+    "seedDate3": "2 months ago"
+  }
+}

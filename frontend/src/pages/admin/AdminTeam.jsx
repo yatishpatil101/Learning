@@ -208,6 +208,31 @@ export default function AdminTeam() {
     ) },
   ];
 
+  /* Stacked-card fallback below `sm` (see Table.jsx). Edit / suspend / remove are
+     44px here — at 28px in the table they were the smallest targets on the page. */
+  const memberCard = (m) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-white">{m.name}</div>
+          <div className="mt-0.5 text-xs text-gray-400">+91 {m.mobile}{m.email ? ` · ${m.email}` : ''}</div>
+        </div>
+        <div className="shrink-0"><StatusPill status={m.status} /></div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <RolePill role={m.role} />
+        <span>{accessSummary(m)}</span>
+      </div>
+      <div className="mt-3 flex items-center gap-2 border-t border-white/5 pt-3">
+        <button onClick={() => openEditMember(m)} aria-label={`Edit ${m.name}`} className="tap-target rounded-lg text-gray-300"><Pencil className="h-4 w-4" /></button>
+        <button onClick={() => toggleMemberStatus(m)} aria-label={`${m.status === 'active' ? 'Suspend' : 'Reactivate'} ${m.name}`} className="tap-target rounded-lg text-gray-300">
+          {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+        </button>
+        <button onClick={() => removeMember(m)} aria-label={`Remove ${m.name}`} className="tap-target rounded-lg text-red-300"><Trash2 className="h-4 w-4" /></button>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
@@ -234,6 +259,7 @@ export default function AdminTeam() {
           empty="No team members yet — add your first internal account."
           pageSize={12}
           label="members"
+          mobileCard={memberCard}
         />
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>

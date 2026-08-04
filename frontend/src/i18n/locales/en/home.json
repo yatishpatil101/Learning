@@ -9,6 +9,10 @@
       "trustZeroBrokerage": "Zero brokerage",
       "trustNoSpam": "No spam calls — number stays private",
       "trustAssured": "PuneNest Assured",
+      "trustAadhaarShort": "Aadhaar-verified",
+      "trustZeroBrokerageShort": "Zero brokerage",
+      "trustNoSpamShort": "No spam calls",
+      "trustAssuredShort": "PuneNest Assured",
       "exploreMap": "Explore properties on map",
       "recent": "Recent:",
       "popular": "Popular:",
@@ -31,6 +35,8 @@
       "bhkLabel": "BHK",
       "roomForLabel": "Room for",
       "sharingLabel": "Sharing",
+      "commercialTypeLabel": "Commercial type",
+      "landUseLabel": "Land use",
       "kind": {
         "society": "Society",
         "landmark": "Landmark"
@@ -66,8 +72,8 @@
       "eyebrow": "Pick up where you left off",
       "title": "Recently viewed"
     },
-    "shareFlat": {
-      "badge": "New · Share a Flat",
+    "flatmates": {
+      "badge": "New · Flatmates",
       "headingLead": "Can't afford a whole flat?",
       "headingHighlight": "Find a flatmate.",
       "body": "Whole-flat rents are steep for one person. Post what you're looking for, browse genuine seekers in your locality & budget, and split the rent together — broker-free and number-protected.",
@@ -79,7 +85,7 @@
       "perMonthWhole": "/mo whole flat",
       "yourShare": "Your share",
       "perMonth": "/mo",
-      "lookingToShare": "looking to share in Pune"
+      "lookingForFlatmate": "looking for a flatmate in Pune"
     },
     "why": {
       "eyebrow": "Why PuneNest",

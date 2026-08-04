@@ -106,7 +106,12 @@ export default function useProperty() {
   const parkingLabel = p.parkingSpaces ? String(p.parkingSpaces) : '—';
   const emi = Math.round((p.price * 0.0072) / 100) * 100;
   const possessionLabel = p.construction === 'new' ? tr('property.underConstruction') : tr('property.readyToMove');
-  const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${p.type} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
+  /* A listing can reach the detail page with no `type` (older seeds, partial
+     imports, hand-written fixtures). Derive the label once and defensively —
+     an unguarded p.type.toLowerCase() white-screened the whole page. */
+  const typeLabel = p.type || tr('property.typeFallback');
+  const typeLower = String(typeLabel).toLowerCase();
+  const title = `${p.bhkNum ? p.bhkNum + ' BHK ' : ''}${typeLabel} for ${isRent ? 'Rent' : 'Sale'} in ${p.locality}`;
   const priceStr = isRent ? `₹${(p.price || 0).toLocaleString('en-IN')}/month` : fmtINR(p.price);
 
   // Live-activity signals — derived from this listing's real popularity (views /
@@ -125,7 +130,7 @@ export default function useProperty() {
   if (isLand) {
     details = [
       ['maximize', tr('property.plotArea'), p.area ? p.area.toLocaleString('en-IN') + ' sq.ft.' : '—', 'keydetail.plotArea'],
-      ['layout-grid', tr('property.plotZone'), p.form?.plotZone || p.type || '—', 'keydetail.plotZone'],
+      ['layout-grid', tr('property.plotZone'), p.form?.plotZone || typeLabel, 'keydetail.plotZone'],
       ['compass', tr('property.facing'), deriveFacing(p), 'keydetail.facing'],
       ['calendar-check', tr('property.possession'), p.available || possessionLabel, 'keydetail.available'],
       ['indian-rupee', perUnitLabel, perUnitVal, isRent ? 'keydetail.perUnitRent' : 'keydetail.perUnitBuy'],
@@ -182,15 +187,15 @@ export default function useProperty() {
   const amenPhrase = (p.amenities || []).map((a) => AMEN_LABEL[a] || a).join(', ') || tr('property.modernAmenities');
   const overviewMore = isLand
     ? tr('property.overviewLand', {
-        type: p.type.toLowerCase(),
+        type: typeLower,
         locality: p.locality,
         zone: p.form?.plotZone ? tr('property.overviewLandZone', { zone: String(p.form.plotZone).toLowerCase() }) : '',
       })
     : kind === 'commercial'
-      ? tr('property.overviewCommercial', { type: p.type.toLowerCase(), locality: p.locality, amenities: amenPhrase })
+      ? tr('property.overviewCommercial', { type: typeLower, locality: p.locality, amenities: amenPhrase })
       : tr('property.overviewResidential', {
           bhk: p.bhkNum ? p.bhkNum + ' BHK ' : '',
-          type: p.type.toLowerCase(),
+          type: typeLower,
           locality: p.locality,
           amenities: amenPhrase,
         });
@@ -201,12 +206,16 @@ export default function useProperty() {
   };
 
   const tags = [];
+  /* Two tiers, deliberately: the first badge states a fact about the property and
+     stays neutral; every verification claim shares one emerald so the trust block
+     reads as a set rather than four unrelated colours. Each carries an icon — a
+     mixed row of some-with, some-without is what made these look scattered. */
   // Sale: possession status. Rent: furnishing (possession is a buy concept, meaningless for rentals).
-  if (!isRent) tags.push([possessionLabel, 'tag-teal', null, p.construction === 'new' ? 'tag.underConstruction' : 'tag.readyToMove']);
-  else if (!isLand && furnishLabel !== '—') tags.push([furnishLabel, 'tag-teal', 'sofa', 'tag.furnishing']);
-  if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-indigo', 'user-check', 'tag.verifiedOwner']);
+  if (!isRent) tags.push([possessionLabel, '', p.construction === 'new' ? 'hard-hat' : 'key', p.construction === 'new' ? 'tag.underConstruction' : 'tag.readyToMove']);
+  else if (!isLand && furnishLabel !== '—') tags.push([furnishLabel, '', 'sofa', 'tag.furnishing']);
+  if (p.ownerVerified) tags.push([tr('property.verifiedOwner'), 'tag-emerald', 'user-check', 'tag.verifiedOwner']);
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
-  if (p.rera) tags.push([tr('property.reraApproved'), 'tag-coral', null, 'tag.rera']);
+  if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
 
   // Persist a "more photos" request so the owner sees it in their dashboard.
   // Sign-in gate only (no PII exposed); can't request photos on your own listing.

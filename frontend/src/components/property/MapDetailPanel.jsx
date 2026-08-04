@@ -118,7 +118,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
           <div className="pn-mdp-media">
             <img src={gallery[shot]} alt={p.title} />
             <span className={'pn-mdp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'For Rent' : 'For Sale'}</span>
-            <button type="button" className={'pn-mdp-heart' + (saved ? ' is-on' : '')} onClick={toggleSave} aria-label={saved ? 'Saved' : 'Save property'}><Icon name="heart" /></button>
+            <button type="button" className={'pn-mdp-heart' + (saved ? ' is-on' : '')} onClick={toggleSave} aria-label={saved ? 'Saved' : 'Save property'}><Icon name="heart" weight={saved ? 'fill' : 'regular'} /></button>
             {gallery.length > 1 ? (
               <>
                 <button type="button" className="pn-mdp-nav is-prev" onClick={() => setShot((i) => (i - 1 + gallery.length) % gallery.length)} aria-label="Previous photo"><Icon name="chevron-left" /></button>

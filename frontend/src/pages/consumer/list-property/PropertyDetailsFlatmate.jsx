@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select';
 import FeatureSelector from '../../../components/ui/FeatureSelector';
 import { Pill, FieldError, ToggleRow } from './controls.jsx';
-import AgreementUpload from '../shareflat/AgreementUpload.jsx';
+import AgreementUpload from '../flatmates/AgreementUpload.jsx';
 import { fld, lbl, lbl3 } from './styles.js';
 import { facingOptions, ageOptions, floorOptions, totalFloorsOptions, furnitureFor, lifestyleTags } from './constants.js';
 import { toDecimal } from './sanitize.js';
@@ -51,7 +51,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                             )}
                             <div>
                               <label className={lbl}>{tr('listProperty.fields.homeOwnerMobile')} <span className="text-gray-500 font-normal">{tr('listProperty.optional')}</span></label>
-                              <input inputMode="numeric" maxLength={10} value={form.ownerConsentMobile} onChange={(e) => set('ownerConsentMobile', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder={tr('listProperty.ph.tenDigit')} className={fld} />
+                              <input type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} value={form.ownerConsentMobile} onChange={(e) => set('ownerConsentMobile', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder={tr('listProperty.ph.tenDigit')} className={fld} />
                               <p className="text-xs text-gray-500 mt-1">{tr('listProperty.host.consentHelp')}</p>
                             </div>
                           </div>
@@ -90,7 +90,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                       </div>
 
                       {/* Attached washroom — a top-3 question for room seekers, so it's
-                          asked explicitly and shown as a chip + filter on Share-a-Flat. */}
+                          asked explicitly and shown as a chip + filter on Flatmates. */}
                       <div className="mb-6">
                         <label className={lbl3}>{tr('listProperty.fields.washroomForRoom')}</label>
                         <div className="flex flex-wrap gap-2.5">
@@ -236,7 +236,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         </div>
                       </div>
 
-                      <div className="flex justify-end">
+                      <div className="flex justify-end lp-step-actions">
                         <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">
                           {tr('listProperty.next')} <ArrowRight className="w-4 h-4" />
                         </button>

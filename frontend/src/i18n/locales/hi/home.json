@@ -9,6 +9,10 @@
       "trustZeroBrokerage": "शून्य ब्रोकरेज",
       "trustNoSpam": "कोई स्पैम कॉल नहीं — नंबर निजी रहता है",
       "trustAssured": "PuneNest अश्योर्ड",
+      "trustAadhaarShort": "आधार-सत्यापित",
+      "trustZeroBrokerageShort": "शून्य ब्रोकरेज",
+      "trustNoSpamShort": "कोई स्पैम कॉल नहीं",
+      "trustAssuredShort": "PuneNest अश्योर्ड",
       "exploreMap": "मानचित्र पर संपत्तियाँ देखें",
       "recent": "हाल के:",
       "popular": "लोकप्रिय:",
@@ -31,6 +35,8 @@
       "bhkLabel": "BHK",
       "roomForLabel": "किसके लिए कमरा",
       "sharingLabel": "शेयरिंग",
+      "commercialTypeLabel": "वाणिज्यिक प्रकार",
+      "landUseLabel": "भूमि उपयोग",
       "kind": {
         "society": "सोसाइटी",
         "landmark": "लैंडमार्क"
@@ -66,8 +72,8 @@
       "eyebrow": "जहाँ छोड़ा था वहीं से जारी रखें",
       "title": "हाल ही में देखे गए"
     },
-    "shareFlat": {
-      "badge": "नया · फ्लैट शेयर करें",
+    "flatmates": {
+      "badge": "नया · फ्लैटमेट्स",
       "headingLead": "पूरा फ्लैट नहीं ले सकते?",
       "headingHighlight": "फ्लैटमेट खोजें।",
       "body": "एक व्यक्ति के लिए पूरे फ्लैट का किराया महँगा होता है. आप जो ढूँढ़ रहे हैं वह पोस्ट करें, अपने इलाके व बजट में असली इच्छुक लोग देखें और किराया आपस में बाँटें — बिना दलाल और नंबर सुरक्षित.",
@@ -79,7 +85,7 @@
       "perMonthWhole": "/माह पूरा फ्लैट",
       "yourShare": "आपका हिस्सा",
       "perMonth": "/माह",
-      "lookingToShare": "पुणे में शेयर करना चाहते हैं"
+      "lookingForFlatmate": "पुणे में फ्लैटमेट ढूंढ रहे हैं"
     },
     "why": {
       "eyebrow": "PuneNest क्यों",

@@ -1,0 +1,78 @@
+{
+  "ui": {
+    "selectDate": "Select date",
+    "selectDateTitle": "Select Date",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "month": "Month",
+    "year": "Year",
+    "selectTime": "Select time",
+    "selectTimeTitle": "Select Time",
+    "confirm": "Confirm",
+    "hour": "Hour",
+    "minute": "Minute",
+    "amOrPm": "AM or PM",
+    "clickToEnter": "Click to enter a value",
+    "minimum": "Minimum",
+    "maximum": "Maximum",
+    "minValueOf": "{{label}} minimum",
+    "maxValueOf": "{{label}} maximum",
+    "minValueEdit": "{{label}} minimum: {{value}}. Click to edit",
+    "maxValueEdit": "{{label}} maximum: {{value}}. Click to edit",
+    "minValueInput": "{{label}} minimum value",
+    "maxValueInput": "{{label}} maximum value",
+    "minValuePlain": "Minimum value",
+    "maxValuePlain": "Maximum value",
+    "add": "Add",
+    "addYourOwn": "Add your own…",
+    "removeItem": "Remove {{label}}",
+    "addCustom": "Add a custom {{noun}}",
+    "moreActions": "More actions",
+    "selectPlaceholder": "Select…",
+    "searchPlaceholder": "Search…",
+    "qualityScore": "Quality Score",
+    "listingQuality": "Listing quality: {{score}}/100",
+    "qualityShort": "Quality: {{score}}/100",
+    "qualityExcellent": "Excellent",
+    "qualityGood": "Good",
+    "qualityNeedsWork": "Needs work",
+    "noMatches": "No matches",
+    "typeToSearch": "Type to search…",
+    "searching": "Searching…",
+    "featureNoun": "feature"
+  },
+  "chrome": {
+    "maintenanceTitle": "We’ll be right back",
+    "maintenanceBody": "PuneNest is undergoing scheduled maintenance. Please check back shortly — your saved data is safe.",
+    "staffSignIn": "Staff & Admin sign in →"
+  },
+  "install": {
+    "title": "Keep PuneNest one tap away",
+    "body": "Add PuneNest to your home screen — owner-direct homes the moment they list. No app store, no downloads.",
+    "iosBody": "Tap the Share button, then choose “Add to Home Screen”.",
+    "cta": "Install app",
+    "later": "Not now",
+    "dismiss": "Dismiss install prompt"
+  },
+  "auth2": {
+    "otpDigit": "OTP digit {{n}}"
+  },
+  "pmap": {
+    "amenities": "Amenities",
+    "verified": "Verified",
+    "mapUnavailable": "Map unavailable",
+    "mapNotConfigured": "The interactive map isn’t configured right now."
+  },
+  "nestor": {
+    "typing": "Typing"
+  },
+  "pmf": {
+    "earlyAccess": "Early access",
+    "beFirst": "Be the first to get new Pune listings",
+    "onTheList": "You’re on the list — thank you!",
+    "notifyMe": "Notify me",
+    "whatsappNumber": "WhatsApp number",
+    "dismissPreview": "Dismiss preview notice",
+    "notifySub": "Drop your email or WhatsApp and we’ll notify you when fresh owner-direct homes go live in your area."
+  }
+}

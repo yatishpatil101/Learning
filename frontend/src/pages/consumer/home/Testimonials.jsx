@@ -9,7 +9,7 @@ export default function Testimonials() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         {/* heading — left-aligned */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8 reveal">
+        <div className="section-head flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:mb-8 reveal">
           <div>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs font-semibold mb-3">
               <Icon name="heart-handshake" className="w-3.5 h-3.5" /> {t('home.testimonials.badge')}
@@ -116,7 +116,7 @@ export default function Testimonials() {
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-500 to-emerald-400 flex items-center justify-center text-white text-xs font-bold shrink-0">SS</div>
                 <div>
                   <p className="text-white text-sm font-semibold">Sana Shaikh</p>
-                  <p className="text-gray-500 text-xs">Flatmate via Share-a-Flat</p>
+                  <p className="text-gray-500 text-xs">Flatmate via Flatmates</p>
                 </div>
               </div>
             </div>

@@ -100,16 +100,16 @@ const LocationPricingStep = ({
                      confirms or completes anything we couldn't resolve. */}
                   <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><label className={lbl}>{t('listProperty.fields.locality')}</label><LocalitySelect value={form.locality} onChange={(v) => onLocalityChange(v)} onSelect={(sel) => onLocalityChange(sel.name, sel)} placeholder={t('listProperty.ph.selectLocality')} options={localities} dataErr="locality" invalid={!!errors.locality} /><FieldError show={!!errors.locality}>{t('listProperty.err.locality')}</FieldError></div>
-                    {!land && <div><label className={lbl}>{unitLabel}</label><input value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>}
-                    {!land && <div><label className={lbl}>{blockLabel}</label><input value={form.tower} maxLength={30} onChange={(e) => set('tower', cleanText(e.target.value))} placeholder={blockPlaceholder} className={fld} /></div>}
+                    {!land && <div><label className={lbl}>{unitLabel}</label><input autoComplete="address-line2" value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>}
+                    {!land && <div><label className={lbl}>{blockLabel}</label><input autoComplete="address-line2" value={form.tower} maxLength={30} onChange={(e) => set('tower', cleanText(e.target.value))} placeholder={blockPlaceholder} className={fld} /></div>}
                     <div><label className={lbl}>{projectLabel}</label>{(!land && !commercial) ? (
                       <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} pincode={form.pincode} invalid={!!errors.society} placeholder={projectPlaceholder} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
                     ) : (
-                      <input value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={projectPlaceholder} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
+                      <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={projectPlaceholder} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
                     )}<FieldError show={!!errors.society}>{projectError}</FieldError></div>
-                    <div><label className={lbl}>{t('listProperty.fields.streetRoad')}</label><input value={form.street} maxLength={60} onChange={(e) => set('street', cleanText(e.target.value))} placeholder={t('listProperty.ph.egBanerRoad')} className={fld} /></div>
-                    <div><label className={lbl}>{t('listProperty.fields.landmark')}</label><input value={form.landmark} maxLength={60} onChange={(e) => set('landmark', cleanText(e.target.value))} placeholder={t('listProperty.ph.egDMart')} className={fld} /></div>
-                    <div><label className={lbl}>{t('listProperty.fields.pincodeReq')}</label><input inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, ''))} data-err="pincode" placeholder="411045" className={`${fld} ${errors.pincode ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.pincode}>{t('listProperty.err.pincode')}</FieldError></div>
+                    <div><label className={lbl}>{t('listProperty.fields.streetRoad')}</label><input autoComplete="address-line1" value={form.street} maxLength={60} onChange={(e) => set('street', cleanText(e.target.value))} placeholder={t('listProperty.ph.egBanerRoad')} className={fld} /></div>
+                    <div><label className={lbl}>{t('listProperty.fields.landmark')}</label><input autoComplete="address-line3" value={form.landmark} maxLength={60} onChange={(e) => set('landmark', cleanText(e.target.value))} placeholder={t('listProperty.ph.egDMart')} className={fld} /></div>
+                    <div><label className={lbl}>{t('listProperty.fields.pincodeReq')}</label><input autoComplete="postal-code" inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, ''))} data-err="pincode" placeholder="411045" className={`${fld} ${errors.pincode ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.pincode}>{t('listProperty.err.pincode')}</FieldError></div>
                     {!land && (
                       <div className="sm:col-span-2">
                         <label className={lbl}>{t('listProperty.fields.electricityConsumerNo')} <span className="text-gray-500 font-normal">{t('listProperty.optional')}</span></label>
@@ -238,7 +238,7 @@ const LocationPricingStep = ({
                               <FieldError show={!!errors.deposit}>{t('listProperty.err.deposit')}</FieldError>
                               <div className="flex flex-wrap gap-2 mt-2">
                                 {[1, 2, 3].map((m) => (
-                                  <button key={m} type="button" onClick={() => setDepositMonths(m)} className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
+                                  <button key={m} type="button" onClick={() => setDepositMonths(m)} className="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 text-xs sm:text-[11px] px-3 sm:px-2.5 py-1 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
                                 ))}
                               </div>
                             </div>
@@ -265,7 +265,7 @@ const LocationPricingStep = ({
                           <FieldError show={!!errors.deposit}>{t('listProperty.err.deposit')}</FieldError>
                           <div className="flex flex-wrap gap-2 mt-2">
                             {[1, 2, 3, 6].map((m) => (
-                              <button key={m} type="button" onClick={() => setDepositMonths(m)} className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
+                              <button key={m} type="button" onClick={() => setDepositMonths(m)} className="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 text-xs sm:text-[11px] px-3 sm:px-2.5 py-1 rounded-full border border-white/10 text-gray-400 hover:border-teal-400/40 hover:text-teal-300 transition-all">{t('listProperty.depositMonths', { count: m })}</button>
                             ))}
                           </div>
                         </div>
@@ -373,7 +373,7 @@ const LocationPricingStep = ({
                     </>
                   )}
 
-                  <div className="flex justify-between">
+                  <div className="flex justify-between lp-step-actions">
                     <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
                     <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">{t('listProperty.next')} <ArrowRight className="w-4 h-4" /></button>
                   </div>

@@ -1,6 +1,9 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
+import useSheetViewport from '../../lib/useSheetViewport.js';
+import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
 /**
@@ -11,7 +14,7 @@ import PoweredByGoogle from './PoweredByGoogle.jsx';
  * @param {string[]} props.values - Currently selected values.
  * @param {(values: string[]) => void} props.onChange - Callback with the next selection.
  * @param {Array<{value: string, label: string}>|string[]} props.options - Menu options.
- * @param {string} [props.placeholder='Select…'] - Placeholder when nothing is selected.
+ * @param {string} [props.placeholder] - Placeholder when nothing is selected; defaults to the translated "Select…".
  * @param {boolean} [props.searchable] - Force search input (auto-enabled for ≥8 options).
  * @param {string} [props.className] - Additional class on the trigger wrapper.
  * @param {boolean} [props.disabled] - Disable interaction.
@@ -26,7 +29,7 @@ const MultiSelect = forwardRef(function MultiSelect({
   values = [],
   onChange,
   options = [],
-  placeholder = 'Select…',
+  placeholder,
   searchable,
   className,
   disabled,
@@ -36,8 +39,13 @@ const MultiSelect = forwardRef(function MultiSelect({
   autoClose,
   asyncSearch,
   onPick,
-  noResultsText = 'No matches',
+  noResultsText,
 }, ref) {
+  const { t } = useTranslation();
+  /* Resolved at render rather than as a default parameter: a default is evaluated
+     against whatever language was active on first mount and would never follow a
+     later switch. */
+  const noResults = noResultsText || t('ui.noMatches');
   const opts = useMemo(
     () => options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)),
     [options],
@@ -55,6 +63,10 @@ const MultiSelect = forwardRef(function MultiSelect({
   useImperativeHandle(ref, () => triggerRef.current, []);
   const [portalOpen, setPortalOpen] = useState(false);
   const listId = useId();
+  /* On phones the menu docks to the bottom edge as a sheet instead of hanging off
+     the trigger: an anchored panel there opens under the thumb's own hand and is
+     routinely half-covered by the keyboard when the field is searchable. */
+  const sheet = useSheetViewport();
 
   const selectedSet = useMemo(() => new Set(values), [values]);
   const summary = useMemo(
@@ -136,6 +148,9 @@ const MultiSelect = forwardRef(function MultiSelect({
     const trigger = triggerRef.current;
     const menu = menuRef.current;
     if (!trigger || !menu) return;
+    // Sheet mode is laid out entirely in CSS. Drop any inline geometry a previous
+    // desktop-width pass wrote, or it would out-specify the sheet rules.
+    if (sheet) { menu.removeAttribute('style'); return; }
     const r = trigger.getBoundingClientRect();
     menu.style.position = 'fixed';
     menu.style.right = 'auto';
@@ -152,7 +167,7 @@ const MultiSelect = forwardRef(function MultiSelect({
     if (r.bottom + 8 + mh > window.innerHeight && r.top - 8 - mh > 0) {
       menu.style.top = `${r.top - 8 - mh}px`;
     }
-  }, []);
+  }, [sheet]);
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -167,6 +182,14 @@ const MultiSelect = forwardRef(function MultiSelect({
       window.removeEventListener('resize', onAnchor);
     };
   }, [open, position, visible.length]);
+
+  /* A sheet covers the page, so the page behind it must not scroll with it. */
+  useEffect(() => {
+    if (!open || !sheet) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open, sheet]);
 
   // Focus the search box once after the menu is anchored — mirrors Select and
   // avoids the inline ref callback re-focusing (and stealing focus) on every
@@ -185,6 +208,9 @@ const MultiSelect = forwardRef(function MultiSelect({
     if (!has && onPick) onPick(opt);
     if (autoClose) close();
   }, [onChange, selectedSet, values, autoClose, close, onPick]);
+
+  /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
+  const swipe = useSwipeDismiss(close);
 
   const onKeyDown = (e) => {
     if (disabled) return;
@@ -242,7 +268,7 @@ const MultiSelect = forwardRef(function MultiSelect({
         onKeyDown={onKeyDown}
       >
         <span className={classNames('pn-dropdown__value', !summary && 'is-placeholder')}>
-          {summary || placeholder}
+          {summary || (placeholder || t('ui.selectPlaceholder'))}
         </span>
         <svg className="pn-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 9l6 6 6-6" />
@@ -251,62 +277,68 @@ const MultiSelect = forwardRef(function MultiSelect({
 
       {open && typeof document !== 'undefined'
         ? createPortal(
-            <div
-              ref={menuRef}
-              className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', portalOpen && 'is-portal-open')}
-              role="listbox"
-              aria-multiselectable="true"
-              id={listId}
-              aria-label={ariaLabel}
-            >
-              {isSearchable ? (
-                <div className="pn-dropdown__search">
-                  <input
-                    value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      setActiveIndex(0);
-                    }}
-                    onKeyDown={onKeyDown}
-                    placeholder="Search…"
-                    ref={searchRef}
-                  />
-                </div>
-              ) : null}
+            <>
+              {/* Scrim: a sheet is a modal surface, so the page behind it has to
+                  read as dismissed rather than merely covered. */}
+              {sheet ? <div className="pn-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
+              <div
+                ref={menuRef}
+                {...(sheet ? swipe : null)}
+                className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', sheet && 'pn-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                role="listbox"
+                aria-multiselectable="true"
+                id={listId}
+                aria-label={ariaLabel}
+              >
+                {isSearchable ? (
+                  <div className="pn-dropdown__search">
+                    <input
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setActiveIndex(0);
+                      }}
+                      onKeyDown={onKeyDown}
+                      placeholder={t('ui.searchPlaceholder')}
+                      ref={searchRef}
+                    />
+                  </div>
+                ) : null}
 
-              {visible.length === 0 ? (
-                <div className="pn-dropdown__empty">
-                  {loading ? 'Searching…' : noResultsText}
-                </div>
-              ) : (
-                visible.map((o, i) => (
-                  <button
-                    type="button"
-                    key={`${o.value}-${i}`}
-                    role="option"
-                    aria-selected={selectedSet.has(o.value)}
-                    disabled={o.disabled}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    onClick={() => toggle(o)}
-                    className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
-                  >
-                    <span className="opt-label">
-                      {o.label}
-                      {o.sublabel ? <span className="opt-sub"> {o.sublabel}</span> : null}
-                    </span>
-                    <svg className="opt-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </button>
-                ))
-              )}
+                {visible.length === 0 ? (
+                  <div className="pn-dropdown__empty">
+                    {loading ? t('ui.searching') : noResults}
+                  </div>
+                ) : (
+                  visible.map((o, i) => (
+                    <button
+                      type="button"
+                      key={`${o.value}-${i}`}
+                      role="option"
+                      aria-selected={selectedSet.has(o.value)}
+                      disabled={o.disabled}
+                      onMouseEnter={() => setActiveIndex(i)}
+                      onClick={() => toggle(o)}
+                      className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
+                    >
+                      <span className="opt-label">
+                        {o.label}
+                        {o.sublabel ? <span className="opt-sub"> {o.sublabel}</span> : null}
+                      </span>
+                      <svg className="opt-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                  ))
+                )}
 
-              {usingAsync ? (
-                <div className="pn-dropdown__attrib">
-                  <PoweredByGoogle />
-                </div>
-              ) : null}
-            </div>,
+                {usingAsync ? (
+                  <div className="pn-dropdown__attrib">
+                    <PoweredByGoogle />
+                  </div>
+                ) : null}
+              </div>
+            </>,
             document.body,
           )
         : null}

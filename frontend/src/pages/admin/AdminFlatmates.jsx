@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Inbox, Users, UsersRound, Flag } from 'lucide-react';
 import { rawDb, mutateDb, logAudit, addInternalNote } from '../../lib/mockApi.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
@@ -43,15 +43,15 @@ function ModActions({ item, onAct, approveStatus = 'live' }) {
 function loadFlatmates() {
   const db = rawDb();
   return {
-    seekers: db.shareSeekers || db.flatmates?.filter?.((f) => f.kind === 'seeker') || [],
-    groups: db.shareGroups || db.flatmates?.filter?.((f) => f.kind === 'group') || [],
+    seekers: db.flatmateSeekers || db.flatmates?.filter?.((f) => f.kind === 'seeker') || [],
+    groups: db.flatmateGroups || db.flatmates?.filter?.((f) => f.kind === 'group') || [],
     apps: db.groupApplications || db.flatmateApplications || [],
   };
 }
 
 function setFlatStatus(id, status) {
   mutateDb((db) => {
-    const colls = ['shareSeekers', 'shareGroups', 'flatmates'];
+    const colls = ['flatmateSeekers', 'flatmateGroups', 'flatmates'];
     for (const col of colls) {
       const item = (db[col] || []).find((x) => x.id === id);
       if (item) { item.modStatus = status; return; }
@@ -78,7 +78,7 @@ export default function AdminFlatmates() {
     const note = (status === 'flagged' || status === 'removed') ? window.prompt('Internal note (optional):') : null;
     setFlatStatus(id, status);
     if (note) addInternalNote('flatmate', id, note, status);
-    logAudit('Flat-Share', `Set ${id} → ${status}`);
+    logAudit('Flatmate', `Set ${id} → ${status}`);
     reload();
     toast(msg || status);
   };
@@ -86,7 +86,7 @@ export default function AdminFlatmates() {
     const note = (status === 'flagged' || status === 'removed') ? window.prompt('Internal note (optional):') : null;
     setAppStatus(id, status);
     if (note) addInternalNote('flatmate-app', id, note, status);
-    logAudit('Flat-Share', `Application ${id} → ${status}`);
+    logAudit('Flatmate', `Application ${id} → ${status}`);
     reload();
     toast(msg || status);
   };
@@ -215,7 +215,7 @@ export default function AdminFlatmates() {
 
   return (
     <div>
-      <PageHeader title="Flat-Share" subtitle="Moderate flatmate seekers, groups & applications." />
+      <PageHeader title="Flatmate" subtitle="Moderate flatmate seekers, groups & applications." />
 
       {/* KPI tiles */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -241,12 +241,12 @@ export default function AdminFlatmates() {
 
       {tab === 'seekers' ? (
         <div>
-          <p className="mb-2 text-xs text-gray-400">Moderate flatmate seekers. Removed or rejected posts disappear from the public Share-a-Flat board.</p>
+          <p className="mb-2 text-xs text-gray-400">Moderate flatmate seekers. Removed or rejected posts disappear from the public Flatmates board.</p>
           <Table columns={seekerCols} rows={seekers} pageSize={10} label="seekers" empty="No seekers yet." mobileCard={seekerCard} />
         </div>
       ) : tab === 'groups' ? (
         <div>
-          <p className="mb-2 text-xs text-gray-400">Moderate flat-share groups that pool tenants to split a whole flat.</p>
+          <p className="mb-2 text-xs text-gray-400">Moderate flatmate groups that pool tenants to split a whole flat.</p>
           <Table columns={groupCols} rows={groups} pageSize={10} label="groups" empty="No groups yet." mobileCard={groupCard} />
         </div>
       ) : (

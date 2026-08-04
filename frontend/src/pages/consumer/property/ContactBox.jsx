@@ -3,15 +3,21 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
+import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
 import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../../lib/contact.js';
+import { canRevealContact, consumeContact, contactsRemaining } from '../../../lib/store.js';
+import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactBox({ p, isIn, toast }) {
   const { t } = useTranslation();
+  const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = p.id || '';
   const [status, setStatus] = useState(() => contactStatus(ownerMobile, propId));
   const [verifyOpen, setVerifyOpen] = useState(false);
+  const [quotaOpen, setQuotaOpen] = useState(false);
+  const [left, setLeft] = useState(() => contactsRemaining());
   // An owner can approve a request yet still keep their number masked (Settings ▸
   // Owner phone privacy) — approved buyers are routed to in-app chat instead.
   const ownerHides = status === 'approved' && ownerHidesNumber(ownerMobile);
@@ -20,6 +26,11 @@ export function ContactBox({ p, isIn, toast }) {
   const request = () => {
     if (!isIn) {
       toast(t('property.signInRequestNumber'), 'info');
+      return;
+    }
+    // Free contact quota spent → offer the referral (free) or Seeker Plus route.
+    if (status === 'none' && !canRevealContact()) {
+      setQuotaOpen(true);
       return;
     }
     track('contact_click', { action: 'request_number', id: propId });
@@ -31,9 +42,12 @@ export function ContactBox({ p, isIn, toast }) {
       return;
     }
     setStatus(contactStatus(ownerMobile, propId));
+    // Only a genuinely NEW request burns quota — repeats return the existing status.
+    if (res === 'pending') { consumeContact(); setLeft(contactsRemaining()); }
     if (res === 'pending') toast(t('property.requestSentNumber'), 'success');
     else if (res === 'approved') toast(t('property.ownerSharedNumber'), 'success');
     else if (res === 'declined') toast(t('property.ownerDeclinedRequest'), 'info');
+    else if (res === 'unavailable') toast(t('property.contactUnavailable'), 'error');
   };
 
   return (
@@ -71,6 +85,15 @@ export function ContactBox({ p, isIn, toast }) {
             <>
               <p className="text-[11px] text-slate-500 mt-0.5">{t('property.hiddenPrivacy')}</p>
               <Button onClick={request} variant="primary" size="sm" fullWidth icon="lock-keyhole" className="mt-2">{t('property.requestNumber')}</Button>
+              {isIn && Number.isFinite(left) && (
+                <p className="text-[11px] mt-1.5 text-center" data-testid="contacts-left">
+                  {left > 0 ? (
+                    <span className="text-slate-500">{t('property.contactsLeft', { count: left })}</span>
+                  ) : (
+                    <span className="text-amber-300">{t(flagEnabled('referralRewards') ? 'property.contactsLeftNoneReferHint' : 'property.contactsLeftNone')}</span>
+                  )}
+                </p>
+              )}
             </>
           )}
         </>
@@ -83,6 +106,7 @@ export function ContactBox({ p, isIn, toast }) {
           onVerified={() => { toast(t('property.identityVerifiedToast'), 'success'); request(); }}
         />
       )}
+      {quotaOpen && <ContactsExhaustedModal onClose={() => setQuotaOpen(false)} />}
     </div>
   );
 }

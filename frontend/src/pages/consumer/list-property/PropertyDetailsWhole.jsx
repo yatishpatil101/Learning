@@ -379,7 +379,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         </>
                       )}
 
-                      <div className="flex justify-end">
+                      <div className="flex justify-end lp-step-actions">
                         <button onClick={nextStep} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20">
                           {tr('listProperty.next')} <ArrowRight className="w-4 h-4" />
                         </button>

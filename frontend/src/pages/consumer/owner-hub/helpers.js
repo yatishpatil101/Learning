@@ -9,11 +9,11 @@ export function passportChecklist(prop, docCount = 0) {
   const rentReady = prop.rented ? !!(prop.monthlyRent && prop.tenantName) : true;
   const furnished = !!prop.furnishing;
   return [
-    { key: 'basics', label: 'Property basics', done: basics },
-    { key: 'furnishing', label: 'Furnishing set', done: furnished },
-    { key: 'valued', label: 'Valuation saved', done: valued },
-    { key: 'docs', label: 'At least one document', done: hasDoc },
-    { key: 'rent', label: prop.rented ? 'Rent & tenant set' : 'Occupancy set', done: rentReady },
+    { key: 'basics', labelKey: 'ownerHub.ckBasics', done: basics },
+    { key: 'furnishing', labelKey: 'ownerHub.ckFurnishing', done: furnished },
+    { key: 'valued', labelKey: 'ownerHub.ckValued', done: valued },
+    { key: 'docs', labelKey: 'ownerHub.ckDocs', done: hasDoc },
+    { key: 'rent', labelKey: prop.rented ? 'ownerHub.ckRent' : 'ownerHub.ckOccupancy', done: rentReady },
   ];
 }
 

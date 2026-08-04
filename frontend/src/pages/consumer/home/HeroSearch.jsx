@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { NEARBY, TYPE_OPTS, PG_SHARING, popularFor } from '../../../data/homeData.js';
+import { NEARBY, TYPE_OPTS, PG_SHARING, COMMERCIAL_TYPES, LAND_USE, popularFor } from '../../../data/homeData.js';
 import { pushRecentSearch } from '../../../lib/store.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
@@ -13,7 +13,14 @@ import { cityHasData } from '../../../lib/geoConfig.js';
 import PoweredByGoogle from '../../../components/ui/PoweredByGoogle.jsx';
 import Button from '../../../components/ui/Button.jsx';
 
-export default function HeroSearch() {
+// `idPrefix` exists because the mobile search sheet renders a second instance of
+// this panel while the hero's copy is still in the DOM (display:none below lg).
+// Duplicate element ids are invalid HTML and break aria-controls resolution, so
+// the sheet namespaces its own. Default keeps the historic ids untouched.
+export default function HeroSearch({ idPrefix = '' }) {
+  const inputId = `${idPrefix}hero-search-input`;
+  const listboxId = `${idPrefix}loc-listbox`;
+  const optId = (i) => `${idPrefix}loc-opt-${i}`;
   const { t: tr } = useTranslation();
   const navigate = useNavigate();
   // Active city gates the instant registry (Pune-only today) and the popular empty-state,
@@ -33,8 +40,10 @@ export default function HeroSearch() {
   const [tokens, setTokens] = useState([]);
   const [query, setQuery] = useState('');
   const [typeKey, setTypeKey] = useState('');
-  const [bhkVal, setBhkVal] = useState('BHK');
-  const [open, setOpen] = useState(null); // 'loc' | 'type' | 'bhk' | null
+  // Third dropdown's chosen option KEY ('' = nothing picked). Which option family
+  // it holds follows the property type — see `detail` below.
+  const [detailVal, setDetailVal] = useState('');
+  const [open, setOpen] = useState(null); // 'loc' | 'type' | 'detail' | null
   const [activeIdx, setActiveIdx] = useState(-1);
   // Long-tail Google Places suggestions layered under the instant registry results,
   // plus a resolving flag while a picked place's coordinates are being fetched.
@@ -73,15 +82,24 @@ export default function HeroSearch() {
   }, [open]);
 
   const typeLabel = (TYPE_OPTS[tab].find(([k]) => k === typeKey) || [])[1] || tr('home.search.typePlaceholder');
-  const isFlatmate = typeKey === 'flatmates';
-  const isPg = typeKey === 'pg';
-  const bhkPlaceholders = ['BHK', 'Room for', 'Sharing'];
-  const bhkLabel = isFlatmate ? tr('home.search.roomForLabel') : isPg ? tr('home.search.sharingLabel') : tr('home.search.bhkLabel');
-  const bhkOpts = isFlatmate
-    ? ['Anyone', 'Women', 'Men']
-    : isPg
-      ? PG_SHARING.map(([, label]) => label)
-      : ['1 RK', '1 BHK', '2 BHK', '3 BHK', '3+ BHK'];
+
+  /* ---------- type-aware third dropdown ----------
+     Bedrooms are meaningless for a shop, an open plot or a farm, so each property
+     type gets the sub-filter the Listings filter panel already offers it — same
+     options, same URL params (`ctype` / `landuse` / `sharing` / `bhk`) — instead of
+     a BHK list that can only produce a dead-end search.
+     `opts` are [key, label] pairs; `param` is the Listings URL param the key
+     travels in (null for flatmates, which routes to /flatmates instead). */
+  const DETAIL = {
+    flatmates: { icon: 'users', label: tr('home.search.roomForLabel'), param: null, opts: [['any', 'Anyone'], ['female', 'Women'], ['male', 'Men']] },
+    pg: { icon: 'bed-double', label: tr('home.search.sharingLabel'), param: 'sharing', opts: PG_SHARING },
+    commercial: { icon: 'briefcase', label: tr('home.search.commercialTypeLabel'), param: 'ctype', opts: COMMERCIAL_TYPES },
+    plot: { icon: 'map', label: tr('home.search.landUseLabel'), param: 'landuse', opts: LAND_USE },
+    farmland: { icon: 'trees', label: tr('home.search.landUseLabel'), param: 'landuse', opts: LAND_USE },
+  };
+  const BHK_DETAIL = { icon: 'bed-double', label: tr('home.search.bhkLabel'), param: 'bhk', opts: [['0', '1 RK'], ['1', '1 BHK'], ['2', '2 BHK'], ['3', '3 BHK'], ['3plus', '3+ BHK']] };
+  const detail = DETAIL[typeKey] || BHK_DETAIL;
+  const detailLabel = (detail.opts.find(([k]) => k === detailVal) || [])[1] || detail.label;
 
   const chosenKeys = useMemo(() => new Set(tokens.map((t) => `${t.kind}:${t.id}`)), [tokens]);
 
@@ -204,14 +222,13 @@ export default function HeroSearch() {
   useEffect(() => { setActiveIdx(-1); }, [query, tokens, open]);
   useEffect(() => {
     if (activeIdx < 0 || !listRef.current) return;
-    listRef.current.querySelector(`#loc-opt-${activeIdx}`)?.scrollIntoView({ block: 'nearest' });
-  }, [activeIdx]);
+    listRef.current.querySelector(`#${optId(activeIdx)}`)?.scrollIntoView({ block: 'nearest' });
+  }, [activeIdx, idPrefix]);
 
-  const switchTab = (t) => { setTab(t); setTypeKey(''); setBhkVal('BHK'); };
-  const pickType = (key) => { setTypeKey(key); setBhkVal('BHK'); setOpen(null); };
-
-  const BHK_KEY = { '1 RK': '0', '1 BHK': '1', '2 BHK': '2', '3 BHK': '3', '3+ BHK': '3plus' };
-  const SHARING_KEY = Object.fromEntries(PG_SHARING.map(([k, label]) => [label, k]));
+  const switchTab = (t) => { setTab(t); setTypeKey(''); setDetailVal(''); };
+  // Clearing the detail on type change matters: the option families are disjoint,
+  // so a leftover '2 BHK' must never ride along with a newly picked Open Plot.
+  const pickType = (key) => { setTypeKey(key); setDetailVal(''); setOpen(null); };
 
   const recordSearch = (url, parts) => {
     const label = parts.filter(Boolean).join(' · ');
@@ -222,14 +239,12 @@ export default function HeroSearch() {
     if (tab === 'rent' && typeKey === 'flatmates') {
       const locTok = tokens.find((t) => t.kind === 'locality');
       const loc = locTok ? locTok.label : query.trim();
-      let g = '';
-      if (bhkVal === 'Men') g = 'male';
-      else if (bhkVal === 'Women') g = 'female';
-      const sp = new URLSearchParams({ view: 'rooms' });
+      const g = detailVal === 'male' || detailVal === 'female' ? detailVal : '';
+      const sp = new URLSearchParams({ view: 'move-in' });
       if (loc) sp.set('loc', loc);
       if (g) sp.set('g', g);
-      const url = '/share-flat?' + sp.toString();
-      recordSearch(url, ['Flatmate', loc, bhkVal !== 'Room for' ? bhkVal : '']);
+      const url = '/flatmates?' + sp.toString();
+      recordSearch(url, ['Flatmate', loc, detailVal ? detailLabel : '']);
       navigate(url);
       return;
     }
@@ -252,11 +267,10 @@ export default function HeroSearch() {
     Object.entries(parts).forEach(([k, v]) => p.set(k, v));
     if (!effTokens.length && query.trim()) p.set('q', query.trim());
     if (typeKey) p.set('ptype', typeKey);
-    if (isPg && SHARING_KEY[bhkVal]) p.set('sharing', SHARING_KEY[bhkVal]);
-    else if (BHK_KEY[bhkVal]) p.set('bhk', BHK_KEY[bhkVal]);
+    if (detailVal && detail.param) p.set(detail.param, detailVal);
     const url = '/listings?' + p.toString();
     const locLabel = effTokens.length ? effTokens.map((t) => t.label).join(', ') : query.trim();
-    recordSearch(url, [tab === 'rent' ? 'Rent' : 'Buy', typeKey ? typeLabel : '', !bhkPlaceholders.includes(bhkVal) ? bhkVal : '', locLabel]);
+    recordSearch(url, [tab === 'rent' ? 'Rent' : 'Buy', typeKey ? typeLabel : '', detailVal ? detailLabel : '', locLabel]);
     navigate(url);
   };
 
@@ -284,10 +298,11 @@ export default function HeroSearch() {
 
   return (
     <div ref={wrapRef} className="hero-search-wrap max-w-3xl mx-auto mb-8">
-      {/* Tabs */}
+      {/* Tabs — min-h-[44px] below sm because switching Buy/Rent is a first-class
+         decision and py-2 alone lands at ~34px, under the touch minimum. */}
       <div className="flex items-center justify-center gap-2 mb-4">
-        <button onClick={() => switchTab('buy')} className={'search-tab px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ' + (tab === 'buy' ? 'pill-active' : 'text-gray-400 bg-white/5 hover:bg-white/10')}>{tr('home.search.buy')}</button>
-        <button onClick={() => switchTab('rent')} className={'search-tab px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ' + (tab === 'rent' ? 'pill-active' : 'text-gray-400 bg-white/5 hover:bg-white/10')}>{tr('home.search.rent')}</button>
+        <button onClick={() => switchTab('buy')} className={'search-tab min-h-[44px] sm:min-h-0 px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ' + (tab === 'buy' ? 'pill-active' : 'text-gray-400 bg-white/5 hover:bg-white/10')}>{tr('home.search.buy')}</button>
+        <button onClick={() => switchTab('rent')} className={'search-tab min-h-[44px] sm:min-h-0 px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ' + (tab === 'rent' ? 'pill-active' : 'text-gray-400 bg-white/5 hover:bg-white/10')}>{tr('home.search.rent')}</button>
       </div>
 
       <div className="glass-strong rounded-2xl p-2 sm:p-3">
@@ -306,19 +321,21 @@ export default function HeroSearch() {
                 </span>
               ))}
               <input
+                id={inputId}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setOpen('loc'); }}
                 onFocus={() => setOpen('loc')}
                 onKeyDown={onLocKeyDown}
                 type="text"
                 autoComplete="off"
+                enterKeyHint="search"
                 role="combobox"
                 aria-label={tr('home.search.ariaSearch')}
-                aria-controls="loc-listbox"
+                aria-controls={listboxId}
                 aria-autocomplete="list"
                 aria-haspopup="listbox"
                 aria-expanded={open === 'loc'}
-                aria-activedescendant={open === 'loc' && activeIdx >= 0 ? `loc-opt-${activeIdx}` : undefined}
+                aria-activedescendant={open === 'loc' && activeIdx >= 0 ? optId(activeIdx) : undefined}
                 placeholder={tokens.length ? tr('home.search.placeholderAdd') : hasData ? tr('home.search.placeholderTry') : tr('home.search.placeholderCity', { city })}
                 className="flex-1 min-w-[140px] bg-transparent text-sm text-white placeholder-gray-500 outline-none"
               />
@@ -326,11 +343,11 @@ export default function HeroSearch() {
             </div>
             {open === 'loc' && rows.length ? (
               <div className="absolute left-0 top-full mt-2 w-[22rem] max-w-full rounded-xl search-dropdown p-1.5 z-[70] flex flex-col max-h-[min(18rem,60vh)]">
-                <div id="loc-listbox" ref={listRef} role="listbox" aria-label={heading} className="min-h-0 flex-1 overflow-y-auto search-dd-scroll">
+                <div id={listboxId} ref={listRef} role="listbox" aria-label={heading} className="min-h-0 flex-1 overflow-y-auto search-dd-scroll">
                   {rows.map((e, i) => (
                     <div key={`${e.kind}:${e.id}`}>
                       <button
-                        id={`loc-opt-${i}`}
+                        id={optId(i)}
                         type="button"
                         role="option"
                         aria-selected={i === activeIdx}
@@ -402,17 +419,17 @@ export default function HeroSearch() {
             ) : null}
           </div>
 
-          {/* BHK / Flatmate */}
+          {/* Type-aware detail — BHK, PG sharing, flatmate gender, commercial subtype or land use */}
           <div className="relative">
-            <button type="button" aria-haspopup="listbox" aria-expanded={open === 'bhk'} onClick={() => setOpen(open === 'bhk' ? null : 'bhk')} className={'w-full flex items-center gap-2 bg-white/5 rounded-xl px-4 py-3 text-sm hover:bg-white/10 transition-all whitespace-nowrap ' + (!bhkPlaceholders.includes(bhkVal) ? 'text-white' : 'text-gray-400 hover:text-white')}>
-              <Icon name={isFlatmate ? 'users' : 'bed-double'} className="w-4 h-4" />
-              <span>{bhkPlaceholders.includes(bhkVal) ? bhkLabel : bhkVal}</span>
+            <button type="button" aria-haspopup="listbox" aria-expanded={open === 'detail'} onClick={() => setOpen(open === 'detail' ? null : 'detail')} className={'w-full flex items-center gap-2 bg-white/5 rounded-xl px-4 py-3 text-sm hover:bg-white/10 transition-all whitespace-nowrap ' + (detailVal ? 'text-white' : 'text-gray-400 hover:text-white')}>
+              <Icon name={detail.icon} className="w-4 h-4" />
+              <span>{detailLabel}</span>
               <Icon name="chevron-down" className="w-3 h-3 ml-auto" />
             </button>
-            {open === 'bhk' ? (
+            {open === 'detail' ? (
               <div className="absolute left-0 top-full mt-2 flex flex-col w-max min-w-full max-w-[calc(100vw-2rem)] max-h-[min(13rem,55vh)] search-dd-scroll rounded-xl search-dropdown shadow-2xl shadow-black/40 p-1.5 z-[60] text-left">
-                {bhkOpts.map((v) => (
-                  <button key={v} className="search-dd-opt" onClick={() => { setBhkVal(v); setOpen(null); }}>{v}</button>
+                {detail.opts.map(([key, label]) => (
+                  <button key={key} className="search-dd-opt" onClick={() => { setDetailVal(key); setOpen(null); }}>{label}</button>
                 ))}
               </div>
             ) : null}

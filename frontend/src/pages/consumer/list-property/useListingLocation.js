@@ -61,14 +61,21 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   };
   // Fields we auto-fill from a geocode, in the order we surface them.
   const AUTOFILL_FIELDS = ['pincode', 'street', 'locality', 'society'];
+  // Fields worth a reverse-geocode follow-up when a place pick can't supply them.
+  // `society` is excluded: a reverse lookup only yields address components, never a
+  // trustworthy building name, so we'd be guessing at the one field that must be exact.
+  const PIN_FALLBACK_FIELDS = ['pincode', 'street', 'locality'];
   // Fill the address from a geocode result (reverse-pin OR a place pick). Ownership is
   // explicit: a field is ours to write UNLESS the owner has hand-edited it (tracked in
   // userEditedRef via set()). `replace` (a deliberate new place pick / search) writes
   // every non-user field — filling the new value or CLEARING one the new place can't
   // supply — so a corrective re-search never leaves a stale value behind. A pin refine
   // (replace=false) only fills gaps, so nudging the pin won't wipe a searched address.
-  const applyAddressFill = (geo, replace = false) => {
-    if (!geo) { setGeoFillStatus(''); return; }
+  // `onlyFields` narrows the write to a subset (used by the gap-filling follow-up).
+  // Returns each field's effective value after the fill, so callers can see what's
+  // still missing without waiting for the setForm to land.
+  const applyAddressFill = (geo, replace = false, onlyFields = AUTOFILL_FIELDS) => {
+    if (!geo) { setGeoFillStatus(''); return null; }
     // Resolve the locality: prefer a canonical Pune locality — matched by fuzzy name
     // OR the nearest area within ~2.5 km of the pin, so an off-list or differently
     // spelled area (e.g. an unlisted "Rajiv Gandhi Infotech Park") still lands on the
@@ -83,7 +90,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     const cur = formRef.current;
     const edited = userEditedRef.current;
     const fills = {};
-    for (const f of AUTOFILL_FIELDS) {
+    for (const f of onlyFields) {
       if (edited[f]) continue;                              // the owner edited it — never touch
       if (replace) {
         // Deliberate new place: adopt the new value, or clear a stale one it can't supply.
@@ -103,7 +110,31 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
         return next;
       });
     }
-    setGeoFillStatus(willFill ? 'done' : '');
+    // A follow-up lookup that fills nothing must not retract a "filled from the map"
+    // hint an earlier pass earned — but it still clears an in-flight 'filling'.
+    setGeoFillStatus((s) => (willFill || s === 'done' ? 'done' : ''));
+    const after = {};
+    for (const f of AUTOFILL_FIELDS) after[f] = f in fills ? fills[f] : cur[f];
+    return after;
+  };
+  // Fill the address from a picked place, then top up whatever the place couldn't
+  // supply from a reverse-geocode of the same spot. Area-level places (a locality,
+  // a road) carry no postal_code in their address components, so a dropdown pick
+  // would otherwise leave the pincode blank even though the coordinates resolve it
+  // fine. The reverse lookup only writes fields still empty, so the place's own
+  // (more precise) values and anything the owner typed always win.
+  const applyPlaceFill = async (lat, lng, geo, replace = false) => {
+    const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    lastGeoRef.current = key;
+    const after = applyAddressFill({ lat, lng, ...geo }, replace);
+    if (!after) return;
+    const edited = userEditedRef.current;
+    const gaps = PIN_FALLBACK_FIELDS.filter((f) => !edited[f] && !after[f]);
+    if (!gaps.length) return;
+    setGeoFillStatus('filling');
+    const rev = await reverseGeocode(lat, lng);
+    if (lastGeoRef.current !== key) return; // a newer pin superseded this lookup
+    applyAddressFill({ ...rev, lat, lng }, false, gaps);
   };
   // Recenter the pin on a spot. When `geo` (a resolved forward/search result) is
   // passed we fill the address from its own components — more precise than, and
@@ -115,8 +146,7 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
     setLocationSet(true);
     if (errors.location) setErrors((prev) => { const n = { ...prev }; delete n.location; return n; });
     if (geo) {
-      lastGeoRef.current = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
-      applyAddressFill({ lat, lng, ...geo }, replace);
+      applyPlaceFill(lat, lng, geo, replace);
     } else {
       autofillFromPin(lat, lng, replace);
     }
@@ -181,12 +211,11 @@ export default function useListingLocation({ setForm, formRef, errors, setErrors
   const onAreaSelect = (details) => {
     if (!details || details.lat == null || details.lng == null) return;
     setMapSearchStatus('');
-    lastGeoRef.current = `${Number(details.lat).toFixed(5)},${Number(details.lng).toFixed(5)}`;
     setForm((prev) => ({ ...prev, propLat: details.lat, propLng: details.lng }));
     setFlyTo([details.lat, details.lng]);
     setLocationSet(true);
     if (errors.location) setErrors((prev) => { const n = { ...prev }; delete n.location; return n; });
-    applyAddressFill(details, true);
+    applyPlaceFill(details.lat, details.lng, details, true);
   };
 
   return {

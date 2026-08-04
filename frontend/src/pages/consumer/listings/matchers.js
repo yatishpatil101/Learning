@@ -60,17 +60,17 @@ export const tenantLabel = (t) => {
   return 'Bachelors';
 };
 
-/* Deep-link from the Flatmates filter into the dedicated Share-a-Flat finder,
-   carrying locality + gender preference (mirrors buildShareFlatUrl in the HTML). */
-export function shareFlatUrl(f, locName) {
-  const params = new URLSearchParams({ view: 'rooms' });
+/* Deep-link from the Flatmates filter into the dedicated Flatmates finder,
+   carrying locality + gender preference (mirrors buildFlatmatesUrl in the HTML). */
+export function flatmatesUrl(f, locName) {
+  const params = new URLSearchParams({ view: 'move-in' });
   const slug = [...f.localities][0];
   if (slug && locName[slug]) params.set('loc', locName[slug]);
   const hasF = f.tenants.has('bachelor-female');
   const hasM = f.tenants.has('bachelor-male');
   if (hasF && !hasM) params.set('g', 'female');
   else if (hasM && !hasF) params.set('g', 'male');
-  return '/share-flat?' + params.toString();
+  return '/flatmates?' + params.toString();
 }
 
 /* Deterministic per-listing rental attributes (tenants / availability / pets /
@@ -117,7 +117,7 @@ export function enrichRent(p) {
     // hashes >= 2^31 and index PG_SHARING out of bounds (undefined[0] crash).
     if (shareType === 'pg') sharing = PG_SHARING[(h >>> 24) % PG_SHARING.length][0];
   } else if (!nonResidential && p.bhkNum === 2 && h % 3 === 0) {
-    // A few 2 BHKs are offered as shared flatmate units too.
+    // A few 2 BHKs are offered as flatmate units too.
     shareType = 'flatmates';
     room = 'shared';
   }

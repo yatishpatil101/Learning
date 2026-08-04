@@ -125,6 +125,37 @@ export default function OpsQueue({ title, subtitle, team = null }) {
     },
   ];
 
+  /* Ops staff genuinely work this queue from a phone between site visits, so the
+     table gets a stacked-card fallback below `sm` (see Table.jsx). Claim/Resolve
+     are the two actions that must survive to mobile — they're 44px here. */
+  const ticketCard = (t) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{t.customer}</div>
+          <div className="mt-0.5 text-xs text-gray-400">{t.id} · {t.mobile}</div>
+        </div>
+        <div className="shrink-0"><Badge status={t.status} /></div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <span className={classNames('font-medium capitalize', PRIORITY[t.priority])}>{t.priority}</span>
+        {showTeam ? (<><span className="text-gray-600">·</span><span className="capitalize">{t.team}</span></>) : null}
+        <span className="text-gray-600">·</span>
+        <span>{t.assignedTo || 'Unassigned'}</span>
+        {t.value ? (<><span className="text-gray-600">·</span><span>{fmtINR(t.value)}</span></>) : null}
+      </div>
+      {t.detail ? <div className="mt-2 text-sm text-gray-300">{t.detail}</div> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+        {t.status === 'new' ? (
+          <button onClick={() => claim(t)} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 text-sm text-indigo-300"><Hand className="h-4 w-4" />Claim</button>
+        ) : t.status === 'in_progress' ? (
+          <button onClick={() => setTicketStatus(t.id, 'done')} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 text-sm text-emerald-300"><Check className="h-4 w-4" />Resolve</button>
+        ) : null}
+        <button onClick={() => { setDetail(t); setNote(''); }} className="tap-target inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 text-sm text-gray-300"><ExternalLink className="h-4 w-4" />Open</button>
+      </div>
+    </div>
+  );
+
   const doExport = () =>
     exportCsv(
       `punenest-${team || 'requests'}.csv`,
@@ -172,7 +203,13 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         </button>
       </div>
 
-      <Table columns={columns} rows={rows} onRowClick={(t) => { setDetail(t); setNote(''); }} empty="No tickets in this queue." />
+      {/* pageSize matches AdminSupport, which renders the same `listTickets` data —
+          this queue was the only one that never got it, so it rendered every ticket
+          at once (measured 1,857 DOM nodes / 34 rows on /ops/requests, and it grows
+          with the backlog). Field-ops staff open this on a phone, where a long DOM
+          costs both scroll distance and layout time. Table already implements the
+          pager, so this is the same one prop every sibling table passes. */}
+      <Table columns={columns} rows={rows} onRowClick={(t) => { setDetail(t); setNote(''); }} pageSize={10} label="tickets" empty="No tickets in this queue." mobileCard={ticketCard} />
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `${detail.id} · ${detail.service}` : ''} size="lg">
         {detail ? (

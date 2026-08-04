@@ -1,9 +1,10 @@
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { useState } from 'react';
-import { referralCode, referralLink, getReferralStats, addReferralInvite, referralListingsTarget, referralContactsPerReward, referralFreeAgreements, referralContactsEarned, fee } from '../../lib/store.js';
+import { useEffect, useState } from 'react';
+import { referralCode, referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, referralContactsEarned, referralBonusListings, contactsRemaining, listingLimit, activeListingCount, fee } from '../../lib/store.js';
 
 const FEE_RENT_AGREEMENT = fee('rentAgreementPlatform');
 
@@ -11,6 +12,10 @@ export default function Refer() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { flagEnabled } = useAppFlags();
+  // Quota rewards (free contacts / listing slots) are Ops-switchable. The rent
+  // agreement track below is part of the base referral program and always runs.
+  const quotaRewards = flagEnabled('referralRewards');
   const role = user?.role || null;
 
   const CODE = referralCode();
@@ -21,6 +26,13 @@ export default function Refer() {
   const invited = stats.invited || 0, listed = stats.listed || 0, joined = stats.joined || 0;
   const free = referralFreeAgreements();
   const contacts = referralContactsEarned();
+  const bonusSlots = referralBonusListings();
+  const left = contactsRemaining();
+  const slotsLeft = Math.max(0, listingLimit() - activeListingCount());
+
+  // Collect anything friends have earned for us since the last visit so the
+  // numbers below are the real, spendable balance.
+  useEffect(() => { if (claimReferralCredits()) setStats(getReferralStats()); }, []);
 
   const shareText = () => t('misc1.referShareMsg', { code: CODE, link: LINK });
 
@@ -74,7 +86,7 @@ export default function Refer() {
   const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
   return (
-    <main className="pt-6 pb-14 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-6 pb-14 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="text-center mb-6">
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-amber-300 mb-3" style={{ background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.25)' }}><Icon name="gift" className="w-3.5 h-3.5" /> {t('misc1.referBadge')}</span>
         <h1 className="text-3xl sm:text-4xl font-extrabold">{t('misc1.referTitle')}</h1>
@@ -141,13 +153,35 @@ export default function Refer() {
 
       <section className="mb-5 sm:mb-6">
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4 flex items-center gap-2"><Icon name="sparkles" className="w-4 h-4 text-teal-400" /> {t('misc1.referYourRewards')}</h2>
-        <div className="grid md:grid-cols-2 gap-4 sm:gap-5 items-stretch">
+
+        {/* Live, spendable balance — what the referrals have actually unlocked. */}
+        {quotaRewards && (
+          <div className="grid sm:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-5" data-testid="refer-balance">
+            <div className="glass rounded-2xl px-5 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center shrink-0"><Icon name="phone-call" className="w-[18px] h-[18px] text-teal-400" /></div>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold text-teal-300" data-testid="refer-balance-contacts">{Number.isFinite(left) ? left : '∞'}</p>
+                <p className="text-gray-500 text-[11px]">{t('misc1.referBalanceContacts')}</p>
+              </div>
+            </div>
+            <div className="glass rounded-2xl px-5 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0"><Icon name="home" className="w-[18px] h-[18px] text-emerald-400" /></div>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold text-emerald-300" data-testid="refer-balance-slots">{slotsLeft}</p>
+                <p className="text-gray-500 text-[11px]">{t('misc1.referBalanceSlots', { count: bonusSlots })}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className={`grid gap-4 sm:gap-5 items-stretch ${quotaRewards ? 'md:grid-cols-2' : ''}`}>
           {/* Owner track */}
           <div className="glass rounded-2xl p-5 sm:p-6 relative flex flex-col">
             {role === 'owner' && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
             <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center mb-3"><Icon name="file-check-2" className="w-5 h-5 text-teal-400" /></div>
             <h3 className="text-lg font-extrabold">{t('misc1.referListHomeTitle')}</h3>
-            <p className="text-teal-300 text-sm font-medium mt-0.5 mb-4">{t('misc1.referOwnerTrackPre')}<b>{t('misc1.referFreeRentAgreement')}</b>{t('misc1.referOwnerTrackPost', { fee: FEE_RENT_AGREEMENT })}</p>
+            {quotaRewards && <p className="text-teal-300 text-sm font-medium mt-0.5 mb-3">{t('misc1.referOwnerSlotTrack')}</p>}
+            <p className="text-gray-400 text-xs mb-4">{t('misc1.referOwnerTrackPre')}<b className="text-gray-200">{t('misc1.referFreeRentAgreement')}</b>{t('misc1.referOwnerTrackPost', { fee: FEE_RENT_AGREEMENT })}</p>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-gray-400">{t('misc1.referProgressLabel')}</span>
               <span className="text-xs font-bold text-teal-300">{listed % L_TARGET} / {L_TARGET}</span>
@@ -176,8 +210,9 @@ export default function Refer() {
             </div>
           </div>
 
-          {/* Seeker track */}
-          <div className="glass rounded-2xl p-5 sm:p-6 relative flex flex-col">
+          {/* Seeker track — pure contact-quota reward, so it goes when Ops does. */}
+          {quotaRewards && (
+          <div className="glass rounded-2xl p-5 sm:p-6 relative flex flex-col" data-testid="refer-seeker-track">
             {role && role !== 'owner' && <span className="absolute top-4 right-4 text-[10px] font-bold uppercase tracking-wider text-teal-300 px-2 py-0.5 rounded-full bg-teal-500/15">{t('misc1.referForYou')}</span>}
             <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center mb-3"><Icon name="phone-call" className="w-5 h-5 text-teal-400" /></div>
             <h3 className="text-lg font-extrabold">{t('misc1.referJoinSearchTitle')}</h3>
@@ -206,6 +241,7 @@ export default function Refer() {
               <div><p className="text-xl font-extrabold text-teal-300">{contacts}</p><p className="text-gray-500 text-[11px]">{t('misc1.referContactsEarned')}</p></div>
             </div>
           </div>
+          )}
         </div>
       </section>
 
@@ -224,6 +260,6 @@ export default function Refer() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

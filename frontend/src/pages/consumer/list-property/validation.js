@@ -1,4 +1,4 @@
-import { isResidentialType, isCommercialType, isLandType, isPgType, requiredDocKeyFor } from './constants.js';
+import { isResidentialType, isCommercialType, isLandType, isPgType } from './constants.js';
 
 /* A required value only counts once it survives trimming — a field full of
    spaces is as empty as a blank one. */
@@ -16,7 +16,13 @@ export const scrollToError = (err) => {
     const el = document.querySelector(`[data-err="${first}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const f = el.matches('input,select,textarea') ? el : el.querySelector('input,select,textarea');
+      /* Custom Select/MultiSelect render their trigger as a <button>, and the very
+         first field of step 1 (propertyType) is one — so a selector limited to
+         input/select/textarea scrolled to the field but left focus on the Next
+         button the user had just pressed. `button,[tabindex]` matches the shared
+         useFieldErrors helper in lib/hooks.js; the two must not drift again. */
+      const FOCUSABLE = 'input,select,textarea,button,[tabindex]';
+      const f = el.matches(FOCUSABLE) ? el : el.querySelector(FOCUSABLE);
       f?.focus?.({ preventScroll: true });
     }
   });
@@ -59,10 +65,12 @@ export const validateStep2 = (form) => {
   }
   return err;
 };
+// Documents are entirely optional: the ownership proof earns a Verified Owner badge,
+// it doesn't gate publishing. Photos remain required — a listing without them is
+// unusable to a seeker, whereas an unverified one is merely unbadged.
 export const validateStep3 = (form, documents, photos) => {
   const err = {};
   if (!photos || !photos.length) err.photos = true;
-  if (!documents[requiredDocKeyFor(form.deal, form.propertyType)]) err.documents = true;
   return err;
 };
 

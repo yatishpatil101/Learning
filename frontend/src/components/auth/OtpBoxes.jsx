@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /* 6-box OTP input (ports the .otp-box flow from signin/signup.html):
    auto-advance, backspace to previous, paste-to-fill. Controlled via `value`. */
 export default function OtpBoxes({ value = '', onChange, error }) {
+  const { t } = useTranslation();
   const refs = useRef([]);
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function OtpBoxes({ value = '', onChange, error }) {
             onKeyDown={(e) => onKeyDown(i, e)}
             onPaste={onPaste}
             className={cls}
-            aria-label={`OTP digit ${i + 1}`}
+              aria-label={t('auth2.otpDigit', { n: i + 1 })}
           />
         );
       })}

@@ -268,7 +268,10 @@ export default function Listings() {
     <>
       <MobileFilterDrawer drawer={drawer} setDrawer={setDrawer} f={f} set={set} localities={localities} onAddLocality={addLocalityOption} clearAll={clearAll} total={results.length} />
 
-      <main className="pt-[72px] sm:pt-[92px] pb-20">
+      {/* Own top offset (this route is selfPadded), derived from the navbar token plus
+          a breathing gap rather than restating the bar's height. The gaps make ≥768px
+          resolve to the 92px it hardcoded before; phones inherit the shorter bar. */}
+      <div className="pt-[calc(var(--pn-nav-h)+8px)] sm:pt-[calc(var(--pn-nav-h)+20px)] pb-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="hidden sm:flex items-center gap-2 text-sm mb-3 list-reveal" style={{ animationDelay: '0ms' }}>
             <Link to="/" className="text-gray-500 hover:text-teal-400 t-all flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('listings.breadcrumbHome')}</Link>
@@ -276,22 +279,23 @@ export default function Listings() {
             <span className="text-gray-300" aria-current="page">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</span>
           </nav>
 
-          <div className="flex flex-col gap-[11px] sm:flex-row sm:gap-3 sm:items-center sm:justify-between mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '60ms' }}>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</h1>
+          {/* One row at every width. The toggle used to be a full-bleed bar stacked under
+              the heading, which spent ~90px of first-viewport height on two words and a
+              lot of empty pill. It now hugs its labels and sits beside a shortened
+              phone-width heading — the full "Properties for …" wording returns at sm,
+              where there is room for it. */}
+          <div className="flex flex-row items-center justify-between gap-2.5 sm:gap-3 mb-3.5 sm:mb-5 list-reveal" style={{ animationDelay: '60ms' }}>
+            <h1 className="min-w-0 text-3xl font-bold text-white leading-tight">
+              <span className="sm:hidden">{f.deal === 'rent' ? tr('listings.titleShortForRent', { city }) : tr('listings.titleShortForSale', { city })}</span>
+              <span className="hidden sm:inline">{f.deal === 'rent' ? tr('listings.titleForRent', { city }) : tr('listings.titleForSale', { city })}</span>
+            </h1>
             {hasData ? <DealToggle deal={f.deal} onChange={switchDeal} className="shrink-0 lg:hidden" /> : null}
           </div>
 
-          {hasData && f.deal === 'rent' && !f.types.has('flatmates') ? (
-            <Link
-              to="/share-flat"
-              className="group lg:hidden inline-flex items-center gap-2 self-start mb-[18px] sm:mb-5 pl-1.5 pr-3.5 h-9 rounded-full text-sm font-medium bg-teal-500/10 border border-teal-400/25 text-teal-100 hover:bg-teal-500/[.18] hover:border-teal-400/40 t-all list-reveal"
-              style={{ animationDelay: '80ms' }}
-            >
-              <span className="grid place-items-center w-6 h-6 rounded-full bg-teal-500/20 shrink-0"><Icon name="users" className="w-3.5 h-3.5 text-teal-300" /></span>
-              {tr('listings.shareFlatDiscover')}
-              <Icon name="arrow-right" className="w-3.5 h-3.5 text-teal-300/80 group-hover:translate-x-0.5 t-all" />
-            </Link>
-          ) : null}
+          {/* The Rent tab used to carry a "Looking to share? Browse flatmates & rooms"
+              pill here. Flatmates is now a permanent slot in the mobile bottom nav, so
+              the pill was a second entry point to a destination already one tap away —
+              and it pushed the first result card further below the fold. */}
 
           {!hasData ? (
             <div className="py-10 sm:py-16">
@@ -313,7 +317,7 @@ export default function Listings() {
           </div>
           )}
         </div>
-      </main>
+      </div>
     </>
   );
 }

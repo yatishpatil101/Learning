@@ -1,15 +1,17 @@
+import { useTranslation } from 'react-i18next';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import Icon from '../../../components/Icon.jsx';
 import { LOC } from '../../../data/localityIntel.js';
-import { NAMES, SUBKEYS, SUB_ICON } from './helpers.js';
+import { NAMES, SUBKEYS, SUB_ICON, SUB_KEYS } from './helpers.js';
 
 export default function LivabilityCard({ current, vsLoc, setVsLoc, sc, scoreLabel, livRank, L }) {
+  const { t } = useTranslation();
   return (
     <div className="glass-card rounded-2xl p-5 sm:p-6 reveal">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-white">Livability</h2>
+        <h2 className="text-lg font-bold text-white">{t('locality.livTitle')}</h2>
         <div className="w-1/2 max-w-[220px]">
-          <NativeSelect value={vsLoc} onChange={(e) => setVsLoc(e.target.value)} className="field text-xs bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-gray-300"><option value="">Compare with…</option>{NAMES.filter((n) => n !== current).map((n) => <option key={n} value={n}>{n}</option>)}</NativeSelect>
+          <NativeSelect value={vsLoc} onChange={(e) => setVsLoc(e.target.value)} className="field text-xs bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-gray-300"><option value="">{t('locality.livCompareWith')}</option>{NAMES.filter((n) => n !== current).map((n) => <option key={n} value={n}>{n}</option>)}</NativeSelect>
         </div>
       </div>
       <div className="flex items-end gap-4 mb-5">
@@ -18,8 +20,8 @@ export default function LivabilityCard({ current, vsLoc, setVsLoc, sc, scoreLabe
           <span className="text-base text-gray-500 font-semibold">/10</span>
         </div>
         <div className="pb-0.5">
-          <p className="text-teal-400 font-bold leading-tight">{scoreLabel}</p>
-          <p className="text-gray-500 text-xs mt-0.5">Ranked #{livRank} of {NAMES.length} tracked Pune areas</p>
+          <p className="text-teal-400 font-bold leading-tight">{t(scoreLabel)}</p>
+          <p className="text-gray-500 text-xs mt-0.5">{t('locality.livRank', { rank: livRank, total: NAMES.length })}</p>
         </div>
       </div>
       <div className="space-y-2.5">
@@ -29,7 +31,7 @@ export default function LivabilityCard({ current, vsLoc, setVsLoc, sc, scoreLabe
           return (
             <div key={k} className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0"><Icon name={SUB_ICON[k] || 'star'} className="w-4 h-4 text-teal-300" /></span>
-              <span className="text-xs font-medium text-gray-300 w-[68px] shrink-0">{k}</span>
+              <span className="text-xs font-medium text-gray-300 w-[68px] shrink-0">{t(SUB_KEYS[k] || k)}</span>
               <div className="flex-1 relative h-2.5 rounded-full bg-white/[0.08]">
                 <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${v * 10}%`, background: 'linear-gradient(90deg,#0d9488,#2dd4bf)' }} />
                 {cmpV != null ? <span className="absolute top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-indigo-400" style={{ left: `calc(${cmpV * 10}% - 1.5px)` }} title={`${vsLoc}: ${cmpV}`} /> : null}

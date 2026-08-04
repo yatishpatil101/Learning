@@ -7,8 +7,8 @@ import {
 import { mutateDb } from '../../../lib/mockApi';
 import { addDocument } from '../../../lib/data/documents.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
-import { evaluateHostEligibility, enqueueShareReview } from '../../../lib/data/shareFlat.js';
-import { hasAgreementEvidence } from '../shareflat/helpers.js';
+import { evaluateHostEligibility, enqueueFlatmateReview } from '../../../lib/data/flatmates.js';
+import { hasAgreementEvidence } from '../flatmates/helpers.js';
 import { formatIndian } from './format.js';
 import { COMMERCIAL_SUBTYPES, PG_SHARING, isResidentialType, isPgType, isCommercialType, isLandType, isHouseType } from './constants.js';
 import { matchLocalityToCanonical, slugifyLocality } from '../../../data/localities.js';
@@ -350,7 +350,10 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
       /* localStorage quota — listing core is tiny, so this should not happen;
          swallow so the success flow still completes. */
     }
-    return { ok: true };
+    // The record travels back so the success screen can offer to let a brand-new
+    // rent listing room by room, at the moment the owner is already thinking
+    // about how to fill it.
+    return { ok: true, listing: record };
 };
 
 export const persistFlatmate = ({ form, user, photos }) => {
@@ -362,7 +365,7 @@ export const persistFlatmate = ({ form, user, photos }) => {
     const gender = form.lookingFor || 'any';
     const lifestyle = form.lifestyle || [];
 
-    // Host eligibility mirrors the flat-share GROUPS flow. Identity is guaranteed
+    // Host eligibility mirrors the flatmate GROUPS flow. Identity is guaranteed
     // by the Aadhaar gate (the floor). 'owner' lists their own flat (trust is
     // earned once Ops verifies the listing docs); a 'tenant' self-attests a
     // registered agreement, so tenant posts are routed to the Ops review queue.
@@ -429,7 +432,7 @@ export const persistFlatmate = ({ form, user, photos }) => {
     // Tenant declarations are self-attested, and contested addresses are fuzzy —
     // both go to Ops to verify. Owner tier is vetted via the listing's own docs.
     if (verificationTier === 'tenant' || guard.flagForReview) {
-      enqueueShareReview({
+      enqueueFlatmateReview({
         roomId: id,
         kind: 'room',
         host: (user && user.name) || '',

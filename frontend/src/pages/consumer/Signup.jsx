@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Trans, useTranslation } from 'react-i18next';
 import { ArrowRight, BadgeCheck, Bell, CalendarCheck, CheckCircle2, Loader2, Mail, Send, ShieldCheck, User, UserCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useMobileInput } from '../../lib/hooks.js';
@@ -14,15 +15,16 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
-import { setReferredBy } from '../../lib/store.js';
+import { setReferredBy, creditReferrerForJoin } from '../../lib/store.js';
 
 const BENEFITS = [
-  [Bell, 'Instant alerts', 'Get notified the moment a matching home is listed.'],
-  [ShieldCheck, 'RERA-compliant', 'Verified, RERA-compliant listings only.'],
-  [CalendarCheck, 'Book visits', 'Book site visits in a single tap.'],
+  [Bell, 'auth.benefitAlertsTitle', 'auth.benefitAlertsDesc'],
+  [ShieldCheck, 'auth.benefitReraTitle', 'auth.benefitReraDesc'],
+  [CalendarCheck, 'auth.benefitVisitsTitle', 'auth.benefitVisitsDesc'],
 ];
 
 function LeftPanel() {
+  const { t } = useTranslation();
   const { city } = useCity();
   const hasData = cityHasData(city);
   return (
@@ -30,24 +32,26 @@ function LeftPanel() {
       <div className="inline-flex items-center gap-2 rounded-full border border-teal-400/25 bg-teal-400/[.08] px-3.5 py-1.5 mt-6 mb-6">
         <span className="auth-live-dot inline-block w-1.5 h-1.5 rounded-full bg-teal-300" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-200">
-          {hasData ? `${city}'s owner-direct marketplace` : `Launching in ${city} soon`}
+          {hasData ? t('auth.marketplaceEyebrow', { city }) : t('auth.launchingSoon', { city })}
         </span>
       </div>
       <h1 className="text-4xl font-extrabold text-white leading-tight mb-4">
-        Create your account &amp;{' '}
-        <span className="gradient-text">unlock {city}&apos;s best</span>{' '}
+        {t('auth.signupTitleLead')}{' '}
+        <span className="gradient-text">{t('auth.signupTitleAccent', { city })}</span>{' '}
         <RotatingNoun words={['Homes', 'Offices', 'Shops', 'Plots']} wordClassName="gradient-text" />
       </h1>
       <p className="text-gray-400 text-lg mb-10 leading-relaxed">
-        Save properties, set instant alerts, schedule visits and connect <span className="text-teal-300 font-medium">directly with verified owners</span> — no brokers, zero brokerage.
+        {t('auth.signupBlurbLead')}{' '}
+        <span className="text-teal-300 font-medium">{t('auth.signupBlurbAccent')}</span>{' '}
+        {t('auth.signupBlurbTail')}
       </p>
       <div className="space-y-4">
-        {BENEFITS.map(([Ic, title, desc]) => (
-          <div key={title} className="flex items-center gap-3">
+        {BENEFITS.map(([Ic, titleKey, descKey]) => (
+          <div key={titleKey} className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-teal-400/15 border border-teal-400/20 flex items-center justify-center flex-shrink-0">
               <Ic className="w-4 h-4 text-teal-400" />
             </div>
-            <p className="text-gray-300 text-sm">{desc}</p>
+            <p className="text-gray-300 text-sm">{t(descKey)}</p>
           </div>
         ))}
       </div>
@@ -56,6 +60,7 @@ function LeftPanel() {
 }
 
 export default function Signup() {
+  const { t } = useTranslation();
   const { register } = useAuth();
   const authIsLive = isHttpDomain('auth');
   const navigate = useNavigate();
@@ -77,9 +82,9 @@ export default function Signup() {
   const cityKnown = cityHasData(city);
   const mobileIntro = (
     <MobileAuthIntro
-      eyebrow={cityKnown ? `Live in ${city}` : `Launching in ${city}`}
-      tagline={`Save homes, get instant alerts and book visits across ${city} — free, zero brokerage.`}
-      chips={BENEFITS.map(([Ic, title]) => [Ic, title])}
+      eyebrow={cityKnown ? t('auth.liveIn', { city }) : t('auth.launchingIn', { city })}
+      tagline={t('auth.signupTagline', { city })}
+      chips={BENEFITS.map(([Ic, titleKey]) => [Ic, t(titleKey)])}
     />
   );
 
@@ -116,7 +121,12 @@ export default function Signup() {
       });
       setDone(true);
       const ref = params.get('ref');
-      if (ref) setReferredBy(ref);
+      if (ref) {
+        setReferredBy(ref);
+        // Queue the referrer's +15 free owner contacts. They collect it via
+        // claimReferralCredits() on their next session.
+        creditReferrerForJoin();
+      }
       setTimeout(() => navigate(postAuthDest(params), { replace: true }), 1000);
     } catch (err) {
       setCreateError(err?.message || 'We could not create your account. Please try again.');
@@ -132,65 +142,71 @@ export default function Signup() {
           <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-teal-400/20 to-teal-600/20 rounded-2xl flex items-center justify-center mx-auto mb-3.5 sm:mb-4 border border-teal-400/20">
             <UserCircle className="w-6 h-6 sm:w-7 sm:h-7 text-teal-400" />
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">Create Account</h2>
-          <p className="text-gray-400 text-sm">Sign up in seconds with your mobile number</p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">{t('auth.createAccount')}</h2>
+          <p className="text-gray-400 text-sm">{t('auth.createAccountSub')}</p>
         </div>
 
         {isNew ? (
           <div className="mb-6 rounded-xl border border-teal-500/20 bg-teal-500/[0.07] p-3.5 flex gap-3 slide-up slide-up-delay-1">
             <BadgeCheck className="w-5 h-5 text-teal-400 flex-shrink-0 mt-0.5" />
             <p className="text-teal-100/90 text-xs leading-relaxed">
-              Looks like you're new to PuneNest — we couldn't find an account for that number. Finish creating your account below to continue.
+              {t('auth.newHereBanner')}
             </p>
           </div>
         ) : !intent.isDefault ? (
           <div className="mb-6 rounded-xl border border-teal-500/20 bg-teal-500/[0.07] p-3.5 flex gap-3 slide-up slide-up-delay-1">
             <BadgeCheck className="w-5 h-5 text-teal-400 flex-shrink-0 mt-0.5" />
             <p className="text-teal-100/90 text-xs leading-relaxed">
-              <span className="font-semibold">{intent.heading}.</span> {intent.sub}
+              <span className="font-semibold">{t(intent.headingKey)}.</span> {t(intent.subKey)}
             </p>
           </div>
         ) : null}
 
         <form onSubmit={submit} className="space-y-5" noValidate>
           <div className="slide-up slide-up-delay-2">
-            <label htmlFor="signup-name" className="block text-sm font-medium text-gray-300 mb-2">Full Name <span className="text-rose-400">*</span></label>
+            <label htmlFor="signup-name" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.fullName')} <span className="text-rose-400">*</span></label>
             <div className="relative">
               <User className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input id="signup-name" autoFocus autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setErrs((x) => ({ ...x, name: false })); }} type="text" placeholder="Enter your full name" className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.name ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
+              <input id="signup-name" autoFocus autoComplete="name" enterKeyHint="next" value={name} onChange={(e) => { setName(e.target.value); setErrs((x) => ({ ...x, name: false })); }} type="text" placeholder={t('auth.fullNamePlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.name ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
             </div>
-            {errs.name ? <p className="text-red-400 text-xs mt-1.5 ml-1">Please enter your name</p> : null}
+            {errs.name ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errName')}</p> : null}
           </div>
 
           <div className="slide-up slide-up-delay-3">
-            <label htmlFor="signup-email" className="block text-sm font-medium text-gray-300 mb-2">Email <span className="text-gray-500 font-normal">(optional)</span></label>
+            <label htmlFor="signup-email" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.email')} <span className="text-gray-500 font-normal">{t('auth.emailOptional')}</span></label>
             <div className="relative">
               <Mail className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input id="signup-email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setErrs((x) => ({ ...x, email: false })); }} type="email" placeholder="you@example.com" className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.email ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
+              <input id="signup-email" autoComplete="email" enterKeyHint="next" value={email} onChange={(e) => { setEmail(e.target.value); setErrs((x) => ({ ...x, email: false })); }} type="email" placeholder={t('auth.emailPlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.email ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
             </div>
-            {errs.email ? <p className="text-red-400 text-xs mt-1.5 ml-1">Please enter a valid email</p> : null}
+            {errs.email ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errEmail')}</p> : null}
           </div>
 
           <div className="slide-up slide-up-delay-3">
-            <label htmlFor="signup-mobile" className="block text-sm font-medium text-gray-300 mb-2">Mobile Number <span className="text-rose-400">*</span></label>
-            <MobileField id="signup-mobile" value={mobile.value} onChange={(v) => { mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} placeholder="Enter mobile number" />
-            {errs.mobile ? <p className="text-red-400 text-xs mt-1.5 ml-1">Please enter a valid 10-digit mobile number</p> : null}
+            <label htmlFor="signup-mobile" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.mobileNumber')} <span className="text-rose-400">*</span></label>
+            <MobileField id="signup-mobile" enterKeyHint="send" value={mobile.value} onChange={(v) => { mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} placeholder={t('auth.mobilePlaceholder')} />
+            {errs.mobile ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errMobile')}</p> : null}
           </div>
 
           <div>
             <label className="flex items-start gap-2.5 cursor-pointer group">
-              <input type="checkbox" checked={terms} onChange={(e) => { setTerms(e.target.checked); setErrs((x) => ({ ...x, terms: false })); }} className="accent-teal-500 w-4 h-4 mt-0.5" />
+              <input type="checkbox" checked={terms} onChange={(e) => { setTerms(e.target.checked); setErrs((x) => ({ ...x, terms: false })); }} className="accent-teal-500 w-5 h-5 sm:w-4 sm:h-4 mt-0.5" />
               <span className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
-                I agree to PuneNest's <Link to="/terms" className="text-teal-400 hover:text-teal-300">Terms of Service</Link> and <Link to="/privacy" className="text-teal-400 hover:text-teal-300">Privacy Policy</Link>
+                <Trans
+                  i18nKey="auth.termsAgree"
+                  components={{
+                    1: <Link to="/terms" className="text-teal-400 hover:text-teal-300" />,
+                    3: <Link to="/privacy" className="text-teal-400 hover:text-teal-300" />,
+                  }}
+                />
               </span>
             </label>
-            {errs.terms ? <p className="text-red-400 text-xs mt-1.5 ml-1">Please accept the terms to continue</p> : null}
+            {errs.terms ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errTerms')}</p> : null}
           </div>
 
           {!otp.otpSent ? (
             <>
               <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
-                <Send className="w-4 h-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
+                <Send className="w-4 h-4" /> {otp.sending ? t('auth.sending') : t('auth.sendOtp')}
               </button>
               {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
             </>
@@ -198,34 +214,34 @@ export default function Signup() {
             <>
               <div className="space-y-4">
                 <div className="text-center">
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Enter OTP</label>
-                  <p className="text-xs text-gray-500 mb-4">We've sent a 6-digit code via SMS to <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.enterOtp')}</label>
+                  <p className="text-xs text-gray-500 mb-4">{t('auth.otpSentTo')} <span className="text-teal-400 font-medium">+91 {mobile.value}</span></p>
                 </div>
                 <OtpBoxes value={otp.otp} onChange={(v) => { otp.setOtp(v); otp.setOtpError(false); setCreateError(null); }} error={otp.otpError || !!createError} />
-                {otp.otpError ? <p className="text-red-400 text-xs text-center">Please enter the complete 6-digit OTP</p> : null}
+                {otp.otpError ? <p className="text-red-400 text-xs text-center">{t('auth.errOtp')}</p> : null}
                 {createError ? <p className="text-red-400 text-xs text-center">{createError}</p> : null}
                 {otp.sendError ? <p className="text-red-400 text-xs text-center">{otp.sendError}</p> : null}
-                {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">Demo mode — enter any 6 digits to continue.</p>}
+                {authIsLive ? null : <p className="text-[11px] text-gray-600 text-center">{t('auth.demoMode')}</p>}
                 <div className="flex items-center justify-center gap-2 text-sm">
-                  <span className="text-gray-500">Didn't receive it?</span>
+                  <span className="text-gray-500">{t('auth.didntReceive')}</span>
                   <button type="button" onClick={() => otp.resend(mobile.value)} disabled={!otp.canResend} className="text-teal-400 hover:text-teal-300 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                    {otp.canResend ? 'Resend OTP' : `Resend in ${otp.seconds}s`}
+                    {otp.canResend ? t('auth.resendOtp') : t('auth.resendIn', { seconds: otp.seconds })}
                   </button>
                 </div>
               </div>
 
-              <button type="submit" disabled={creating || done} className="btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
-                {done ? <><CheckCircle2 className="w-5 h-5" /> Account created! Redirecting…</>
-                  : creating ? <><Loader2 className="w-5 h-5 animate-spin" /> Creating account…</>
-                  : <>Create Account <ArrowRight className="w-4 h-4" /></>}
+              <button type="submit" disabled={creating || done} className="pn-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+                {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
+                  : creating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.creatingAccount')}</>
+                  : <>{t('auth.createAccount')} <ArrowRight className="w-4 h-4" /></>}
               </button>
             </>
           )}
         </form>
 
         <p className="text-center text-sm text-gray-500 mt-7">
-          Already have an account?
-          <Link to="/signin" className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">Sign In</Link>
+          {t('auth.haveAccount')}
+          <Link to="/signin" className="text-teal-400 hover:text-teal-300 font-semibold transition-colors ml-1">{t('auth.signIn')}</Link>
         </p>
       </div>
     </AuthShell>
