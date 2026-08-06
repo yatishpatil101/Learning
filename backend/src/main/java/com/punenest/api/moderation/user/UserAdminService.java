@@ -178,7 +178,8 @@ public class UserAdminService {
         return new UserResponse(full.id(), full.name(), MobileMask.mask(full.mobile()), full.email(),
                 full.role(), full.team(), full.status(), full.verified(), full.city(),
                 full.mobileVerified(), full.aadhaarVerified(), full.verifiedContactOnly(),
-                full.listingsCount(), full.joinedAt(), full.lastActive(), full.createdAt());
+                full.hideNumber(), full.listingsCount(), full.joinedAt(), full.lastActive(),
+                full.createdAt());
     }
 
     private User load(String id) {

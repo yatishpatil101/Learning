@@ -1,0 +1,82 @@
+/* EMI calculator route styles (Tier 1) - extracted from index.css.
+   Imported from pages/consumer/EmiCalculator.jsx (lazy route => separate chunk).
+   --emi-pct is set inline by EmiCalculator.jsx. */
+
+/* EMI calculator range sliders + num field.
+
+   The fill percentage arrives as --emi-pct from EmiCalculator.jsx; the gradient is
+   built here so a media query can restyle the rail (see the coarse-pointer block
+   below). */
+.emi-page input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  outline: none;
+  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
+}
+
+.emi-page input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  cursor: pointer;
+  border: 3px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+  transition: transform .15s;
+}
+
+.emi-page input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.emi-page input[type=range]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  cursor: pointer;
+  border: 3px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+}
+
+.emi-page input[type=range]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
+}
+
+/* These sliders predate the .rng touch block above and never got the same
+   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px â€”
+   both well under the 44px floor, on the three controls this page exists for.
+
+   The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
+   than a slider. Only the element grows, with the gradient pinned to a centred 6px
+   band so the visual is byte-identical while the finger gets a 32px strip. This is
+   the same trade .tap-extend makes for icon buttons â€” extend the target, not the
+   drawing. Painting the band requires background-size/position, which is why the
+   gradient moved out of the component's inline style. */
+@media (pointer: coarse) {
+  .emi-page input[type=range] {
+    height: 32px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 6px;
+  }
+
+  .emi-page input[type=range]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .emi-page input[type=range]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.num-field:focus {
+  border-color: var(--teal-2) !important;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  outline: none;
+}

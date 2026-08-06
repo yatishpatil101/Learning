@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -8,10 +8,16 @@ import SharedReportModal, { OWNER_REPORT_REASONS } from '../../components/Report
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { digits, fmtPhone } from '../../lib/contact.js';
+import { dayLabel, relTime, canRevealParty, lastAt } from '../../lib/chat.js';
 import {
-  loadConversations, saveConversations, readConversations,
-  dayLabel, relTime, canRevealParty, lastAt,
-} from '../../lib/chat.js';
+  listConversations,
+  getConversation,
+  replyToConversation,
+  markConversationRead,
+  drainPendingChats,
+} from '../../services/conversationService.js';
+import { isHttpDomain } from '../../services/config.js';
+import { useConversationUnread } from '../../context/ConversationContext.jsx';
 
 const shareMap = (t) => ({
   phone: { icon: 'phone', text: t('misc.msgSharedContact') },
@@ -34,7 +40,16 @@ export default function Messages() {
   const { flagEnabled } = useAppFlags();
   const SHARE_MAP = shareMap(tr);
   const QUICK_REPLIES = quickReplies(tr);
-  const [convs, setConvs] = useState(loadConversations);
+  const { refresh: refreshChatBadge } = useConversationUnread();
+  /**
+   * Demo theatre, mock-only.
+   *
+   * The canned auto-reply and the typing dots exist so the prototype's threads feel alive with
+   * nobody on the other end. Against the API the other end is a real person: fabricating a reply
+   * from them would put words in their mouth, and the message would not exist on their device.
+   */
+  const simulated = !isHttpDomain('conversation');
+  const [convs, setConvs] = useState([]);
   const [tab, setTab] = useState('chats');
   const [activeId, setActiveId] = useState(null);
   const [search, setSearch] = useState('');
@@ -48,7 +63,47 @@ export default function Messages() {
   const msgsRef = useRef(null);
 
   const [msgTick, setMsgTick] = useState(0); // triggers scroll on new messages
-  const persist = (next) => { const saved = saveConversations(next); setConvs(saved); setMsgTick((t) => t + 1); return saved; };
+  /**
+   * Optimistic local update.
+   *
+   * This used to be `saveConversations(next)` — write the whole array to localStorage and re-render
+   * from what came back. Against the API there is no "write the whole array": each change is its own
+   * request, and awaiting one before repainting puts a round trip between the keystroke and the
+   * bubble. So this now updates only what is on screen, and every caller separately fires the one
+   * request that corresponds to what the user did.
+   */
+  const persist = (next) => { setConvs(next); setMsgTick((t) => t + 1); return next; };
+
+  /** Re-read from whichever provider is active, and keep the navbar badge in step. */
+  const reload = useCallback(async () => {
+    const list = await listConversations().catch(() => []);
+    setConvs(list);
+    refreshChatBadge();
+    return list;
+  }, [refreshChatBadge]);
+
+  /**
+   * Pull one thread's transcript in.
+   *
+   * **The inbox does not carry messages.** `ConversationDto.messages` is `NON_NULL` and the
+   * contract omits it from the list — a hundred threads would otherwise mean a hundred full
+   * transcripts to render a hundred one-line previews. So a row arrives with `messages: []` and
+   * the thread has to be read separately, on open, which is also when the user first needs it.
+   *
+   * The mock returns whole conversations from its single store, so this is a no-op there. That
+   * asymmetry is exactly the kind the seam exists to hide: without this the page worked perfectly
+   * on mocks and opened an empty thread against the API.
+   */
+  const hydrate = useCallback((id) => {
+    getConversation(id)
+      .then((full) => {
+        if (!full) return;
+        setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...full, unread: 0 } : c)));
+        setMsgTick((t) => t + 1);
+      })
+      .catch(() => {});
+  }, []);
+
   const get = (id) => convs.find((c) => c.id === id);
   const active = activeId ? get(activeId) : null;
   // Seed the "already auto-replied" set from persisted flags so a page reload
@@ -56,7 +111,28 @@ export default function Messages() {
   const repliedRef = useRef(new Set());
   const replyTimer = useRef(null);
   useEffect(() => () => { if (replyTimer.current) clearTimeout(replyTimer.current); }, []);
-  useEffect(() => { readConversations().forEach((c) => { if (c._replied) repliedRef.current.add(c.id); }); }, []);
+
+  /**
+   * Load the inbox, having first tried to send anything staged.
+   *
+   * Order matters: a staged chat whose contact gate has since opened becomes a real thread, and
+   * draining before reading means it appears once, as itself, rather than twice — once staged and
+   * once live.
+   */
+  useEffect(() => {
+    let alive = true;
+    drainPendingChats()
+      .catch(() => null)
+      .then(() => listConversations())
+      .then((list) => {
+        if (!alive) return;
+        setConvs(list);
+        list.forEach((c) => { if (c._replied) repliedRef.current.add(c.id); });
+        refreshChatBadge();
+      })
+      .catch(() => { if (alive) setConvs([]); });
+    return () => { alive = false; };
+  }, [refreshChatBadge]);
 
   useEffect(() => {
     const onResize = () => setNarrow((wrapRef.current?.clientWidth || 9999) < 720);
@@ -87,19 +163,27 @@ export default function Messages() {
   // Auto-open the first active conversation on desktop (matches chat.js init).
   // A `?c=<id>` or `?openProp=<propertyId>` deep-link opens that specific thread on
   // any width — this is how a listing hands the buyer straight into the owner chat.
+  //
+  // This has to wait for the inbox. `convs` used to be seeded synchronously from localStorage, so
+  // a mount-time effect saw the whole list; behind the seam the list arrives from a request, and a
+  // mount-time effect sees `[]` and silently opens nothing. So it runs on every `convs` change and
+  // latches itself off the first time it has something to look at.
+  const autoOpened = useRef(false);
   useEffect(() => {
+    if (autoOpened.current || convs.length === 0) return;
+    autoOpened.current = true;
     const params = new URLSearchParams(window.location.search);
     const want = params.get('c');
     const openProp = params.get('openProp');
     const target = (want && convs.find((c) => c.id === want))
       || (openProp && convs.find((c) => c.propertyId === openProp && c.youAre === 'buyer'));
-    if (target) { setActiveId(target.id); setShowThread(true); return; }
+    if (target) { setActiveId(target.id); setShowThread(true); hydrate(target.id); return; }
     const wide = (wrapRef.current?.clientWidth || window.innerWidth) >= 720;
     if (!wide) return;
     const first = convs.find((c) => c.state === 'active');
-    if (first) { setActiveId(first.id); setShowThread(true); }
+    if (first) { setActiveId(first.id); setShowThread(true); hydrate(first.id); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [convs]);
 
   const incoming = convs.filter((c) => c.state === 'incoming').length;
   const inTab = (c) => (tab === 'requests' ? c.state === 'incoming' || c.state === 'pending' : c.state === 'active');
@@ -107,8 +191,12 @@ export default function Messages() {
   const items = convs.filter(inTab).filter((c) => !q || c.party.name.toLowerCase().includes(q) || c.property.title.toLowerCase().includes(q));
 
   const openConv = (id) => {
-    const next = convs.map((c) => (c.id === id ? { ...c, unread: 0 } : c));
-    persist(next); setActiveId(id); setAttachOpen(false);
+    // Optimistic: the badge clears on tap, not on the round trip. `markConversationRead` is
+    // idempotent on both providers, which is what makes firing it on every open safe.
+    persist(convs.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
+    markConversationRead(id).then(refreshChatBadge).catch(() => {});
+    hydrate(id);
+    setActiveId(id); setAttachOpen(false);
     if ((wrapRef.current?.clientWidth || window.innerWidth) < 720) {
       window.history.pushState({ pcThread: true }, '');
     }
@@ -118,18 +206,27 @@ export default function Messages() {
     const text = String(raw || '').trim(); if (!text || !active) return;
     const at = Date.now();
     const targetId = activeId;
+    // Paint the bubble first; the request follows. A failed send re-reads the thread, so the
+    // message disappears rather than sitting there looking delivered.
     persist(convs.map((c) => (c.id === targetId ? { ...c, at, messages: [...c.messages, { from: 'me', text, at, read: false }] } : c)));
     setDraft('');
-    // Auto-reply once per conversation (ref guards against rapid re-sends).
-    if (!repliedRef.current.has(targetId)) {
+    replyToConversation(targetId, text)
+      .then(refreshChatBadge)
+      .catch(() => {
+        toast(tr('misc.msgSendFailed'), 'error');
+        reload();
+      });
+    // Auto-reply once per conversation (ref guards against rapid re-sends). Mock-only: see
+    // `simulated`. Against the API the reply comes from a person, or it does not come.
+    if (simulated && !repliedRef.current.has(targetId)) {
       repliedRef.current.add(targetId);
       setTyping(true);
       replyTimer.current = setTimeout(() => {
         replyTimer.current = null;
         const rAt = Date.now();
-        setConvs((cur) => saveConversations(cur.map((c) => (c.id === targetId
+        setConvs((cur) => cur.map((c) => (c.id === targetId
           ? { ...c, _replied: true, at: rAt, messages: [...c.messages.map((m) => (m.from === 'me' ? { ...m, read: true } : m)), { from: 'them', text: tr('misc.msgAutoReply'), at: rAt }] }
-          : c))));
+          : c)));
         setTyping(false);
         setMsgTick((t) => t + 1);
       }, 1400);
@@ -148,13 +245,36 @@ export default function Messages() {
     const card = SHARE_MAP[kind]; if (!card) return;
     const text = kind === 'location' ? tr('misc.msgSharedLocation') + active.property.loc : card.text;
     const at = Date.now();
+    // The wire has no attachment or card type — `MessageCreate` carries `body` alone — so a share
+    // chip sends its text and the icon is a local decoration. The recipient sees the sentence,
+    // which is the part that carries the meaning.
     persist(convs.map((c) => (c.id === activeId ? { ...c, at, messages: [...c.messages, { from: 'me', type: 'card', icon: card.icon, text, at, read: false }] } : c)));
+    replyToConversation(activeId, text).then(refreshChatBadge).catch(() => reload());
   };
+  /**
+   * Accept / decline exist only on the mock.
+   *
+   * They act on `state === 'incoming'`, and no live thread is ever `incoming`: on the server a
+   * conversation cannot exist until an approved contact request already exists, so the accepting has
+   * happened one layer up, in the contact gate. The buttons that call these are rendered behind that
+   * same state check, so in http mode they never appear rather than needing to be disabled.
+   */
   const accept = (id) => { persist(convs.map((c) => (c.id === id ? { ...c, state: 'active', at: Date.now(), messages: [...c.messages, { type: 'system', text: tr('misc.msgAcceptedSystem') }] } : c))); setTab('chats'); };
   const decline = (id) => { persist(convs.filter((c) => c.id !== id)); setActiveId(null); setShowThread(false); };
 
   const wrapCls = 'pc-wrap' + (narrow ? ' is-narrow' : '') + (showThread ? ' show-thread' : '');
-  const revealed = canRevealParty(active);
+  // The reveal is a gate read, so it lands after render. It starts closed and only ever opens,
+  // which is the safe direction: a thread briefly showing a masked number is a cosmetic delay,
+  // whereas defaulting to revealed would flash a number the owner may not have shared.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setRevealed(false);
+    canRevealParty(active)
+      .then((ok) => alive && setRevealed(ok))
+      .catch(() => alive && setRevealed(false));
+    return () => { alive = false; };
+  }, [active]);
   const partyDigits = active ? digits(active.party?.mobile) : '';
   const showQuick = active && active.state === 'active' && active.youAre === 'buyer' && active.messages.length > 0 && active.messages[active.messages.length - 1].from === 'them';
 

@@ -82,6 +82,10 @@ export async function request(path, opts = {}) {
 export const get = (path, query, opts) => request(path, { ...opts, method: 'GET', query });
 export const post = (path, body, opts) => request(path, { ...opts, method: 'POST', body });
 export const patch = (path, body, opts) => request(path, { ...opts, method: 'PATCH', body });
+// PUT carries no body on the endpoints that use it so far (`/me/saved/{id}` is an idempotent
+// set-membership write, where the URL is the whole request). `body` stays in the signature because
+// a bodyless PUT is a property of those endpoints, not of the verb.
+export const put = (path, body, opts) => request(path, { ...opts, method: 'PUT', body });
 export const del = (path, opts) => request(path, { ...opts, method: 'DELETE' });
 
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────

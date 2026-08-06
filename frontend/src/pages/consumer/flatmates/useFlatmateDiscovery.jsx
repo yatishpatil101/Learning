@@ -203,11 +203,13 @@ export function useFlatmateDiscovery({ tab, setTab, viewMode, requests, rooms, g
 
   const budgetLbl = filters.budget >= 40000 ? t('flatmates.any') : '≤ ' + inr(filters.budget);
 
-  /* ─── Unified sizing scale for this page ───
-     control: h-9 (36px) — all filter pills, dropdowns, toggles, sort buttons
-     tab:     h-10 (40px) — primary navigation tabs
-     cta:     h-11 (44px) — primary action buttons (Post, Create group)
-     All controls use text-sm (14px) and rounded-xl (12px) for consistency. */
+  /* ─── Sizing scale for this page ───
+     tab / cta: h-10 (40px), rounded-full — nav tabs and the primary Post button
+     filter:    h-9  (36px), rounded-xl   — dropdowns and filter controls
+     sheet cta: h-11 (44px)               — the one full-width mobile action
+     Text is text-sm (14px) throughout, dropping to text-[13px] on narrow phones.
+     (This block used to claim h-9/rounded-xl for *all* controls, which the very
+     next line contradicted — the tabs have always been h-10/rounded-full.) */
   const seg = (active) => 'seg text-sm font-semibold px-4 h-10 inline-flex items-center rounded-full text-gray-300 box-border' + (active ? ' active' : '');
   // Smart search: parse natural language queries into filter values. The search
   // box doubles as a live literal text filter, so once we've translated a sentence

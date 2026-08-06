@@ -7,11 +7,11 @@ import { getOwner } from '../../lib/mockApi.js';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../lib/contact.js';
-import { getEntityReviews, addEntityReview, canRevealContact, consumeContact } from '../../lib/store.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
+import { getEntityReviews, addEntityReview } from '../../lib/store.js';
+import { messagesLinkForProp } from '../../lib/chat.js';
+import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal, { OWNER_REPORT_REASONS } from '../../components/ReportModal.jsx';
-import ContactsExhaustedModal from '../../components/property/ContactsExhaustedModal.jsx';
 
 /* Demo reviews shown before any real one is posted. Names stay as written — they
    are people's names, not copy — but the review text and relative dates are keyed
@@ -63,8 +63,6 @@ export default function Owner() {
   const [hover, setHover] = useState(0);
   const [revText, setRevText] = useState('');
   const [reported, setReported] = useState(false);
-  const [status, setStatus] = useState('none');
-  const [quotaOpen, setQuotaOpen] = useState(false); // free contacts spent → refer or upgrade
   const { isIn } = useAuth();
   const { toast } = useToast();
 
@@ -78,10 +76,6 @@ export default function Owner() {
   useEffect(() => {
     setReviews([...getEntityReviews('owner', id).map(mapStored), ...SEED_REVIEWS]);
   }, [id]);
-
-  useEffect(() => {
-    if (owner && owner.mobile) setStatus(contactStatus(owner.mobile, ''));
-  }, [owner]);
 
   const initials = useMemo(() => (owner ? (owner.name || 'A').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase() : ''), [owner]);
 
@@ -97,8 +91,18 @@ export default function Owner() {
 
   const memberSince = (owner.joinedAt || '2024').slice(0, 4);
   const masked = maskPhone(owner.mobile);
-  const ownerHides = status === 'approved' && ownerHidesNumber(owner.mobile);
-  const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
+  /* The number is revealed here only to the owner themselves.
+
+     This page used to reveal it to anyone holding an approved request against *any* of this
+     owner's listings — which is a cross-listing grant, and the contact gate is deliberately
+     per-listing: approval on a Baner 2BHK says nothing about the same owner's Kothrud shop. The
+     profile is the one surface with no listing in context, so it has no gate to ask about, and
+     there is no server endpoint for "approved for this owner in general" because that permission
+     does not exist. Contact is therefore requested on a listing, where the grant it creates is
+     the grant the user is actually being shown.
+
+     `isOwnerViewer` is a local identity comparison, not a permission lookup — no round trip. */
+  const revealed = isOwnerViewer(owner.mobile);
 
   const latestListing = owner.listings?.length ? [...owner.listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
@@ -119,28 +123,10 @@ export default function Owner() {
     toast(t('owner.reviewPosted'), 'success');
   };
 
-  const requestNumber = () => {
-    if (!isIn) {
-      navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
-      return;
-    }
-    // Free contact quota spent → offer the referral (free) or Seeker Plus route.
-    if (status === 'none' && !canRevealContact()) { setQuotaOpen(true); return; }
-    const res = requestContact(owner.mobile, '');
-    if (res === 'verification_required') { toast(t('owner.toastVerificationRequired'), 'info'); return; }
-    if (res === 'unavailable') { toast(t('owner.toastUnavailable'), 'error'); return; }
-    setStatus(contactStatus(owner.mobile, ''));
-    // Only a genuinely NEW request burns quota — repeats return the existing status.
-    if (res === 'pending') consumeContact();
-    if (res === 'pending') toast(t('owner.toastRequestSent'), 'success');
-    else if (res === 'approved') toast(t('owner.toastApproved'), 'success');
-    else if (res === 'declined') toast(t('owner.toastDeclined'), 'info');
-  };
-
   const messageOwner = () => {
     if (!isIn) { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname + window.location.search)}`); return; }
     if (latestListing) {
-      queueOwnerChat(latestListing, { firstMessage: waText });
+        queuePendingChat(latestListing, { firstMessage: waText });
       navigate(messagesLinkForProp(latestListing));
     } else {
       navigate('/contact');
@@ -187,10 +173,10 @@ export default function Owner() {
                     <a href={`https://wa.me/91${digits(owner.mobile)}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 rounded-xl border border-emerald-500/20 text-emerald-400 text-sm font-medium hover:bg-emerald-500/10 flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4" /> {t('owner.whatsapp')}</a>
                   </>
                 ) : (
-                  <>
-                    <button onClick={requestNumber} className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-200 text-sm font-medium hover:bg-white/5 flex items-center gap-2"><Icon name="phone" className="w-4 h-4 text-teal-400" /> {t('owner.call')}</button>
-                    <button onClick={requestNumber} className="px-4 py-2.5 rounded-xl border border-emerald-500/20 text-emerald-400 text-sm font-medium hover:bg-emerald-500/10 flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4" /> {t('owner.whatsapp')}</button>
-                  </>
+                  /* No Call/WhatsApp here for visitors: the number is granted per listing, so the
+                     honest affordance is to send them to one. Message is unaffected — in-app chat
+                     is L1 and needs no number. */
+                  <a href="#owner-listings" className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-200 text-sm font-medium hover:bg-white/5 flex items-center gap-2"><Icon name="lock-keyhole" className="w-4 h-4 text-teal-400" /> {t('owner.contactViaListing')}</a>
                 )}
                 <button onClick={messageOwner} type="button" className="btn-teal px-4 py-2.5 rounded-xl text-white text-sm font-semibold flex items-center gap-2"><Icon name="send" className="w-4 h-4" /> {t('owner.message')}</button>
                 <button onClick={() => setReported(true)} type="button" className="px-4 py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-500/30 flex items-center gap-2 transition-all"><Icon name="flag" className="w-4 h-4" /> {t('owner.report')}</button>
@@ -218,7 +204,7 @@ export default function Owner() {
               </div>
 
               {/* Listings */}
-              <div className="glass-card rounded-2xl p-6">
+              <div id="owner-listings" className="glass-card rounded-2xl p-6 scroll-mt-28">
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="text-lg font-bold text-white">{t('owner.listingsTitle')}</h2>
                   <Link to="/listings" className="text-teal-400 text-sm hover:text-teal-300">{t('owner.viewAll')}</Link>
@@ -296,18 +282,10 @@ export default function Owner() {
                   ) : (
                     <>
                       <div className="flex items-center gap-3 py-3 px-4 rounded-xl border border-white/10 text-gray-300 text-sm"><Icon name="phone-off" className="w-4 h-4 text-gray-500" /> <span className="tracking-wider">{masked}</span></div>
-                      {ownerHides ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20"><Icon name="message-circle" className="w-3.5 h-3.5" /> {t('owner.approvedPrefersChat')}</span>
-                      ) : status === 'pending' ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-amber-300 font-medium px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20"><Icon name="clock" className="w-3.5 h-3.5" /> {t('owner.requestPending')}</span>
-                      ) : status === 'declined' ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium px-3 py-1.5 rounded-lg bg-white/5 border border-white/10"><Icon name="x-circle" className="w-3.5 h-3.5" /> {t('owner.requestDeclined')}</span>
-                      ) : (
-                        <>
-                          <p className="text-gray-500 text-xs mt-2 mb-2.5">{t('owner.numberHidden')}</p>
-                          <div className="hidden lg:block"><button onClick={requestNumber} className="btn-teal inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold"><Icon name="lock-keyhole" className="w-4 h-4" /> {t('owner.requestNumber')}</button></div>
-                        </>
-                      )}
+                      {/* No request button here either — the number is granted per listing, so the
+                          only honest next step from a profile is to open one. */}
+                      <p className="text-gray-500 text-xs mt-2 mb-2.5">{t('owner.numberHidden')}</p>
+                      <a href="#owner-listings" className="btn-teal inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold"><Icon name="lock-keyhole" className="w-4 h-4" /> {t('owner.contactViaListing')}</a>
                     </>
                   )}
                   <a href="mailto:hello@punenest.com" className="flex items-center gap-3 py-3 px-4 rounded-xl border border-white/10 text-gray-200 text-sm hover:bg-white/5 transition-all"><Icon name="mail" className="w-4 h-4 text-teal-400" /> {t('owner.emailSupport')}</a>
@@ -327,11 +305,7 @@ export default function Owner() {
           </>
         ) : (
           <>
-            {status === 'none' ? (
-              <button onClick={requestNumber} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="lock-keyhole" className="w-4 h-4" /> {t('owner.requestNumber')}</button>
-            ) : (
-              <button onClick={messageOwner} type="button" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="send" className="w-4 h-4" /> {t('owner.message')}</button>
-            )}
+            <button onClick={messageOwner} type="button" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4"><Icon name="send" className="w-4 h-4" /> {t('owner.message')}</button>
             <Link to={scheduleHref()} className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl border border-white/15 text-slate-200 text-sm font-semibold py-3 px-4"><Icon name="calendar-check" className="w-4 h-4" /> {t('owner.visit')}</Link>
           </>
         )}
@@ -349,7 +323,6 @@ export default function Owner() {
           toast={toast}
         />
       )}
-      {quotaOpen && <ContactsExhaustedModal onClose={() => setQuotaOpen(false)} />}
     </div>
   );
 }

@@ -49,7 +49,7 @@ export default defineConfig({
     stdout: 'ignore',
     stderr: 'pipe',
     env: {
-      VITE_API_DOMAINS: 'auth,property',
+      VITE_API_DOMAINS: 'auth,property,notification,conversation',
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
     },

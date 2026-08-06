@@ -6,6 +6,7 @@ import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -49,24 +50,30 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ConversationService {
 
+    /** Notification body cap. Two rendered lines in the inbox; anything more is thread content. */
+    private static final int PREVIEW_CHARS = 140;
+
     private final ConversationRepository conversations;
     private final ConversationMessageRepository messages;
     private final ConversationMapper mapper;
     private final UserRepository users;
     private final PropertyRepository properties;
     private final ContactRequestRepository contactRequests;
+    private final Notifier notifier;
     private final AuditService audit;
 
     public ConversationService(ConversationRepository conversations,
             ConversationMessageRepository messages, ConversationMapper mapper,
             UserRepository users, PropertyRepository properties,
-            ContactRequestRepository contactRequests, AuditService audit) {
+            ContactRequestRepository contactRequests, Notifier notifier,
+            AuditService audit) {
         this.conversations = conversations;
         this.messages = messages;
         this.mapper = mapper;
         this.users = users;
         this.properties = properties;
         this.contactRequests = contactRequests;
+        this.notifier = notifier;
         this.audit = audit;
     }
 
@@ -156,6 +163,7 @@ public class ConversationService {
         User author = users.findById(caller.userId()).orElse(null);
         return new MessageDto(
                 sent.getId().toString(),
+                sent.getAuthorId().toString(),
                 author == null ? null : author.getName(),
                 sent.getAuthorRole(),
                 sent.getBody(),
@@ -179,7 +187,54 @@ public class ConversationService {
                 conversation.getId(), author.userId(), author.role(), body));
         conversation.setLastMessage(body);
         conversations.saveAndFlush(conversation);
+        notifyRecipient(conversation, author, body);
         return message;
+    }
+
+    /**
+     * Tell the other participant a message arrived.
+     *
+     * <p>Messaging had no notification writer at all, which made the inbox that ships alongside it
+     * near-useless: until now the only code in the platform creating a notification was the flatmate
+     * family, so a buyer who had never touched flatmates saw an empty inbox no matter how much
+     * activity their listings generated (tech-debt D92). A new message is the most obvious thing a
+     * person wants to be told about, and this is where every message is written.
+     *
+     * <p><strong>Through the {@link Notifier} port, not the notification repository.</strong>
+     * Notifications live in {@code engagement}, which ranks at the same layer as {@code leads}, so
+     * importing it directly is a same-rank reference and a cycle. {@code ArchitectureBoundaryTest}
+     * caught exactly that on the first full run — the port is the codebase's existing answer, the
+     * same one {@code ContactGate} uses for the contact reveal.
+     *
+     * <p><strong>Same transaction as the message, deliberately.</strong> The two facts are one event:
+     * a message nobody was told about is a message that did not arrive.
+     *
+     * <p>The body is truncated rather than sent whole: a notification is a summons to the thread,
+     * not a copy of it, and a 4,000-character message would otherwise arrive in full in a list the
+     * UI renders two lines of.
+     */
+    private void notifyRecipient(Conversation conversation, AuthPrincipal author, String body) {
+        UUID recipient = conversation.other(author.userId());
+        if (recipient == null || recipient.equals(author.userId())) {
+            return;
+        }
+        String senderName = users.findById(author.userId())
+                .map(User::getName)
+                .filter(n -> !n.isBlank())
+                .orElse("Someone");
+        notifier.notify(recipient, "message.received",
+                senderName + " sent you a message", preview(body), "/messages");
+    }
+
+    /** First line, capped — enough to recognise the thread, not enough to replace opening it. */
+    private static String preview(String body) {
+        if (body == null) {
+            return "";
+        }
+        String firstLine = body.strip().lines().findFirst().orElse("");
+        return firstLine.length() <= PREVIEW_CHARS
+                ? firstLine
+                : firstLine.substring(0, PREVIEW_CHARS - 1).strip() + "…";
     }
 
     /**

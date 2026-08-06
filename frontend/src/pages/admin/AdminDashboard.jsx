@@ -9,7 +9,7 @@ import {
   getAdminKpis, getAnalytics, getSettings, listEnquiries,
   listVisits, listTickets, listDeals, listUsers,
 } from '../../lib/mockApi.js';
-import { listProperties } from '../../services/propertyService.js';
+import { listForModeration } from '../../services/propertyService.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { slaMetrics, computeSmartAlerts, dailyOpsScorecard } from '../../lib/data/analytics-extra.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -84,7 +84,7 @@ export default function AdminDashboard() {
     let alive = true;
     Promise.all([
       getAdminKpis(),
-      listProperties({ includeAllStatuses: true }, 'newest'),
+      listForModeration({}, 'newest'),
       listEnquiries(),
       listVisits(),
       listTickets(),

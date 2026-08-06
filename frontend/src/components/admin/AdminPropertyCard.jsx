@@ -238,7 +238,7 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
                 <button onClick={() => actions.onEdit(l)} title="Edit" className={iconBtn}><Pencil className="h-4 w-4" /></button>
               ) : null}
               {actions.onFeature ? (
-                <button onClick={() => actions.onFeature(l.id)} title={l.featured ? 'Unfeature' : 'Feature'} className={classNames(iconBtn, l.featured && 'border-amber-400/40 bg-amber-500/20 text-amber-300')}>
+                <button onClick={() => actions.onFeature(l)} title={l.featured ? 'Unfeature' : 'Feature'} className={classNames(iconBtn, l.featured && 'border-amber-400/40 bg-amber-500/20 text-amber-300')}>
                   <Star className="h-4 w-4" fill={l.featured ? 'currentColor' : 'none'} />
                 </button>
               ) : null}

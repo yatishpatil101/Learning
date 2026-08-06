@@ -5,7 +5,8 @@ import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { getEntityReviews, addEntityReview, addSavedSearch } from '../../lib/store.js';
+import { getEntityReviews, addEntityReview } from '../../lib/store.js';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { localityBySlug, localityByName } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
 import { LOC } from '../../data/localityIntel.js';
@@ -30,11 +31,13 @@ import MarketPulseCard from './locality/MarketPulseCard.jsx';
 import ConnectivityCard from './locality/ConnectivityCard.jsx';
 import LeaderboardCard from './locality/LeaderboardCard.jsx';
 import EmergingPanel from './locality/EmergingPanel.jsx';
+import '../../styles/routes/locality.css';
 
 export default function Locality() {
   const { t, i18n } = useTranslation();
   const rootRef = useScrollReveal();
   const { isIn } = useAuth();
+  const { create: createSavedSearch } = useSavedSearches();
   const { toast } = useToast();
   const [params] = useSearchParams();
   const { slug } = useParams();
@@ -177,7 +180,7 @@ export default function Locality() {
   const setLocalityAlert = () => {
     if (!isIn) { toast(t('locality.signInAlert'), 'error'); return; }
     const rec = buildAlertRecord({ deal: 'rent', localities: [activeSlug] }, { [activeSlug]: activeName });
-    addSavedSearch(rec);
+    createSavedSearch(rec);
     toast(t('locality.alertOn', { name: activeName }));
   };
 

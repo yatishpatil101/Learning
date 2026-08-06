@@ -26,7 +26,15 @@ export const listProperties = _listProperties;
 export const getProperty = _getProperty;
 export const featuredProperties = _featuredProperties;
 export const addListing = _addListing;
-export const setListingStatus = _setListingStatus;
+
+/**
+ * `(id, status, reason)` — the third argument is accepted and **ignored** here. The API records it
+ * on the audit row; there is no audit store in the mock, so a rejection reason has nowhere to go.
+ * Declared rather than silently absent so the two providers' signatures match and a caller passing
+ * a reason is not misled into thinking the mock lost it by accident.
+ */
+export const setListingStatus = (id, status, _reason) => _setListingStatus(id, status);
+
 export const toggleFeatured = _toggleFeatured;
 
 /**
@@ -35,6 +43,17 @@ export const toggleFeatured = _toggleFeatured;
  * two providers disagree about the very number the http one exists to get right.
  */
 export const countProperties = (filters) => _listProperties(filters).then((l) => l.length);
+
+/**
+ * The moderation queue: every listing at every status, including archived.
+ *
+ * There is one store here, so this is the ordinary search with both widenings forced on; against the
+ * API it is a separate, role-gated endpoint. Forced rather than passed through, because an
+ * unfiltered moderation read means *everything* — the caller narrows with `status`/`archived`, and
+ * the http provider's `toModerationQuery` defaults the same way.
+ */
+export const listForModeration = (filters = {}, sort = 'newest') =>
+  _listProperties({ ...filters, includeAllStatuses: true, includeArchived: true }, sort);
 
 /** Mirrors the http provider: unknown ids are dropped, and the result follows `ids` order. */
 export const getPropertiesByIds = (ids = []) =>

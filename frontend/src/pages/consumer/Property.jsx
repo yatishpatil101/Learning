@@ -2,7 +2,8 @@ import { Link } from 'react-router';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { digits } from '../../lib/contact.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chat.js';
+import { queuePendingChat } from '../../services/conversationService.js';
 import useSheetViewport from '../../lib/useSheetViewport.js';
 import { Gallery } from './property/Gallery.jsx';
 import PropertySkeleton from './property/PropertySkeleton.jsx';
@@ -97,7 +98,7 @@ export default function Property() {
       <div className="pn-sticky-cta lg:hidden">
         {contactApproved ? (
           flagEnabled('inAppMessaging') ? (
-            <Link to={messagesLinkForProp(p)} onClick={() => queueOwnerChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
+            <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
             </Link>
           ) : (

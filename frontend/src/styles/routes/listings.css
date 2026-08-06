@@ -1,0 +1,487 @@
+/* Listings route styles (Tier 1) - extracted from index.css.
+   Imported from pages/consumer/Listings.jsx (lazy route => separate chunk).
+   Owners: pages/consumer/listings/{Card,ResultsArea,FilterControls,filtersPanel/*}.jsx + components/ui/DualRange.jsx (listings-only). */
+
+.card-hover:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+}
+
+.card-hover:hover .card-img {
+  transform: scale(1.08);
+}
+
+/* Base .card-img { transition } is SHARED with property SimilarProperties.jsx -> kept global in index.css. */
+
+.heart-btn.active svg {
+  fill: #f43f5e;
+  color: #f43f5e;
+}
+
+.heart-btn:active {
+  transform: scale(0.85);
+}
+
+/* Horizontal breathing room so the range thumbs at 0%/100% aren't clipped
+   by the sidebar's overflow-y (which computes overflow-x to auto). */
+.rng-wrap {
+  padding: 0 9px;
+}
+
+.rng {
+  position: relative;
+  height: 24px;
+}
+
+.rng-track {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.rng-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal-1), var(--teal-2));
+}
+
+.rng input[type=range] {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.rng input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  border: 2px solid #0f0d1a;
+  box-shadow: 0 0 0 1px var(--teal-2);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.rng input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+}
+
+.rng input[type=range]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--teal-2);
+  border: 2px solid #0f0d1a;
+  cursor: pointer;
+}
+
+/* A 16px thumb is a mouse-sized target: on touch it is under half the 44px floor,
+   and a price range is one of the most-dragged controls in the search funnel.
+   Grow the thumb to 28px on coarse pointers and grow the row around it so the
+   track stays centred and the thumb isn't clipped at 0%/100%. Desktop keeps the
+   16px thumb â€” the pointer there is a cursor, not a fingertip. */
+@media (pointer: coarse) {
+  .rng-wrap {
+    padding: 0 15px;
+  }
+
+  .rng {
+    height: 32px;
+  }
+
+  .rng-track {
+    top: 14px;
+  }
+
+  .rng input[type=range] {
+    top: 2px;
+    height: 28px;
+  }
+
+  .rng input[type=range]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  .rng input[type=range]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* The two labels under the track ("â‚¹0" / "â‚¹5 Cr+") are also buttons â€” tapping one
+     swaps it for a text input so an exact figure can be typed, which is the only way
+     to set a precise budget on a phone. They are drawn as small underlined values
+     because that is what they are; making them look like buttons would turn a quiet
+     row of numbers into two competing controls. So extend the target, not the box.
+
+     Centred 44px is safe here: the pair sits at opposite ends of a justify-between
+     row, so the boxes cannot meet, and the 12px gap above them puts the top edge
+     clear of the thumb's travel. */
+  .rng-val {
+    position: relative;
+  }
+
+  .rng-val::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.custom-cb {
+  display: none;
+}
+
+.custom-cb+label {
+  position: relative;
+  padding-left: 26px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: color 0.2s;
+  font-size: 13px;
+}
+
+.custom-cb+label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.custom-cb+label::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg) scale(0);
+  width: 5px;
+  height: 10px;
+  border: solid #0f0d1a;
+  border-width: 0 2px 2px 0;
+  transition: transform 0.2s;
+}
+
+.custom-cb:checked+label {
+  color: #fff;
+}
+
+.custom-cb:checked+label::before {
+  background: var(--teal-2);
+  border-color: var(--teal-2);
+}
+
+.custom-cb:checked+label::after {
+  transform: translateY(-55%) rotate(45deg) scale(1);
+}
+
+.filter-group .grid .custom-cb+label {
+  white-space: nowrap;
+}
+
+.custom-radio {
+  display: none;
+}
+
+.custom-radio+label {
+  position: relative;
+  padding-left: 26px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: color 0.2s;
+  font-size: 13px;
+}
+
+.custom-radio+label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.custom-radio+label::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  width: 8px;
+  height: 8px;
+  background: #0f0d1a;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.custom-radio:checked+label {
+  color: #fff;
+}
+
+.custom-radio:checked+label::before {
+  background: var(--teal-2);
+  border-color: var(--teal-2);
+}
+
+.custom-radio:checked+label::after {
+  transform: translateY(-50%) scale(1);
+}
+
+.toggle-ui {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.toggle-ui::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: all 0.3s ease;
+}
+
+.toggle-cb:checked+.toggle-ui {
+  background: var(--teal-2);
+}
+
+.toggle-cb:checked+.toggle-ui::after {
+  transform: translateX(18px);
+}
+
+.view-btn.active {
+  background: rgba(79, 70, 229, 0.3);
+  color: #fff;
+  border-color: rgba(79, 70, 229, 0.5);
+}
+
+/* Collapsible filter groups */
+.fg-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.fg-summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.fg-summary.active {
+  color: #5eead4;
+}
+
+.fg-chev {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.filter-group.collapsed .fg-chev {
+  transform: rotate(-90deg);
+}
+
+.filter-group.collapsed .fg-header {
+  margin-bottom: 0;
+}
+
+.fg-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.35s ease, opacity 0.25s ease;
+  opacity: 1;
+}
+
+.fg-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.filter-group.collapsed .fg-body {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  contain: layout size;
+}
+
+/* .filter-overlay/.filter-panel (+ .open) are SHARED with flatmates FilterBar.jsx -> kept global in index.css, not here. */
+
+/* Floating "Filters" control on the mobile listings page.
+
+   It floats over a scrolling column of property photos, so its backdrop is
+   unpredictable â€” a bright interior one moment, a dark card the next. A flat teal
+   fill dissolves into the light shots, and ringing it in page-background black
+   just reads as a sticker cut out and pasted on.
+
+   So it takes the same liquid glass as the bottom nav 12px below it: one blur +
+   one saturation boost + a light top edge, tinted with the app's indigo/teal
+   rather than neutral grey. Those alphas were already set by the worst case
+   (near-white imagery directly behind the bar), so legibility is carried by the
+   material itself and no outline is needed to prop it up. saturate() is what
+   keeps the blur from turning the app's teal into grey mud.
+
+   Colour is spent only where it carries meaning: the icon, the edge, and the
+   active count. A fully teal chip would fight the Post FAB for primary-action
+   status, which it should never win. */
+.filter-fab {
+  /* Shares the bottom nav's left inset, so the two capsules sit on one vertical
+     edge instead of being 4px out of register. */
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  background: linear-gradient(180deg, rgba(45, 41, 120, 0.78), rgba(14, 12, 24, 0.88));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 10px rgba(13, 148, 136, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 160ms ease;
+}
+
+.filter-fab:active {
+  transform: scale(0.96);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* The press scale is pure feedback flourish; the shadow drop already reports the
+   tap, so the movement is the only part worth cutting. */
+@media (prefers-reduced-motion: reduce) {
+
+  .filter-fab,
+  .filter-fab:active {
+    transform: none;
+    transition: box-shadow 160ms ease;
+  }
+}
+
+/* Same fallback the bottom nav takes: without backdrop-filter a translucent fill
+   is just unreadable text over content, so those browsers get an opaque capsule.
+   Firefox on Android and older WebViews land here. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .filter-fab {
+    background: #17142b;
+  }
+}
+
+/* Filters are on. The capsule earns a teal edge only now, because only now does
+   it carry state the user needs to catch from the corner of their eye. */
+.filter-fab.is-active {
+  border-color: rgba(45, 212, 191, 0.42);
+}
+
+/* Solid teal on glass â€” the one saturated element, so the eye lands on how many
+   filters are applied before it reads the word. */
+.filter-fab__count {
+  background: #2dd4bf;
+  color: #0b1f1c;
+}
+
+.page-btn {
+  min-width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.page-btn:hover {
+  background: rgba(79, 70, 229, 0.2);
+  color: #fff;
+}
+
+.page-btn.active {
+  background: var(--brand-gradient);
+  color: #fff;
+}
+
+.badge-verified {
+  background: var(--brand-gradient);
+}
+
+.badge-premium {
+  background: linear-gradient(135deg, #f97316, #fb923c);
+}
+
+.badge-new {
+  background: var(--brand-gradient);
+}
+
+.badge-furnished {
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+}
+
+.badge-rera {
+  background: linear-gradient(135deg, #059669, #10b981);
+}
+
+.badge-verified-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+}
+
+.badge-verified-icon svg {
+  width: 16px;
+  height: 16px;
+}

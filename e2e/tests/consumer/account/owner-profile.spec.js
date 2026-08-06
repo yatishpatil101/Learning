@@ -46,19 +46,26 @@ test.describe('Owner profile — /owner/:id', () => {
     expect(await page.locator('a[href^="/property/"]').count()).toBeGreaterThan(0);
   });
 
-  test('exposes contact CTAs that gate on sign-in for a signed-out visitor', async ({ page }) => {
+  test('routes contact through a listing rather than granting it profile-wide', async ({ page }) => {
     await seedConsent(page);
     await page.goto(`/owner/${OWNER_ID}`);
 
+    // In-app chat is L1 and needs no number, so Message stays available to anyone.
     await expect(page.getByRole('button', { name: 'Message' })).toBeVisible();
-    // Number is protected until requested — Call/WhatsApp render as request buttons.
-    await expect(page.getByRole('button', { name: 'Call' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'WhatsApp' })).toBeVisible();
 
-    // Requesting the number while signed out bounces to sign-in (contact reason).
-    await page.getByRole('button', { name: 'Call' }).click();
-    await expect(page).toHaveURL(/\/signin/);
-    await expect(page).toHaveURL(/reason=contact/);
+    // The number is NOT requestable here. The contact gate is per listing: an approval on one
+    // property is not an approval on this owner's others, so a profile-level request would be
+    // granting a permission the system does not model. Call/WhatsApp used to render as request
+    // buttons here and must not come back.
+    await expect(page.getByRole('button', { name: 'Call' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'WhatsApp' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Request number' })).toHaveCount(0);
+
+    // The number stays masked, and the CTA points at the listings where the gate actually lives.
+    await expect(page.getByText(/^\+91 \d\d••• •••\d\d$/).first()).toBeVisible();
+    const viaListing = page.getByRole('link', { name: 'Contact via a listing' }).first();
+    await expect(viaListing).toBeVisible();
+    await expect(viaListing).toHaveAttribute('href', '#owner-listings');
   });
 
   test('shows a not-found state for an unknown owner id', async ({ page }) => {

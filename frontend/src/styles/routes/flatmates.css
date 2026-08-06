@@ -350,3 +350,61 @@
   border-color: rgba(251, 113, 133, .4);
   background: rgba(251, 113, 133, .12);
 }
+
+/* sf-page: List|Map segmented control + match/fresh badges (moved from index.css; .sf-page-scoped, Flatmates route only). */
+/* List | Map segmented control â€” height matches the search field (h-10). Inner
+   buttons are rounded-full and inset by 4px so their corners are concentric with
+   the container's, eliminating the corner-collision of the old pill-in-pill. */
+.sf-page .sf-seg {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 4px;
+  gap: 4px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 9999px;
+  box-sizing: border-box;
+}
+
+.sf-page .sf-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  height: 100%;
+  padding: 0 0.95rem;
+  border-radius: 9999px;
+  font-size: .875rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  white-space: nowrap;
+  transition: color .2s ease, background .2s ease;
+}
+
+.sf-page .sf-seg__btn:hover:not(.is-active) {
+  color: #fff;
+}
+
+.sf-page .sf-seg__btn.is-active {
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(20, 184, 166, .25);
+}
+
+.sf-page .sf-match-great {
+  background: var(--brand-gradient);
+  box-shadow: 0 2px 10px rgba(20, 184, 166, .25);
+}
+
+.sf-page .sf-match-good {
+  background: rgba(20, 184, 166, .14);
+  border: 1px solid rgba(20, 184, 166, .4);
+  color: #5eead4;
+}
+
+.sf-page .sf-fresh {
+  background: rgba(251, 191, 36, .14);
+  border: 1px solid rgba(251, 191, 36, .4);
+  color: #fcd34d;
+}

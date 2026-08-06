@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
@@ -6,9 +6,9 @@ import Icon from '../../../components/Icon.jsx';
 import { fmtINR, timeAgo } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
+import { useSaved } from '../../../context/SavedContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
 import { haptic } from '../../../lib/haptics.js';
 import { emiOf, tenantLabel } from './matchers.js';
 import { AMEN_LBL, FURN_LBL, SHARING_LBL } from './constants.js';
@@ -21,19 +21,23 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const navigate = useNavigate();
   const { flagEnabled } = useAppFlags();
   const compare = useCompare();
+  const savedList = useSaved();
   const { toast } = useToast();
-  const [saved, setSaved] = useState(() => isSavedProp(p.id));
+  // Read from the shared set rather than per-card state: thirty cards asking the network the same
+  // question thirty times is what this context exists to prevent.
+  const saved = savedList.has(p.id);
   const showCompare = flagEnabled('compareProperties');
   const inCompare = compare ? compare.has(p.id) : false;
   const handleHeart = (e) => {
     e.preventDefault();
     if (!isIn) { navigate(`/signin?reason=save&next=${encodeURIComponent('/listings')}`); return; }
-    const nowSaved = toggleSavedProp(p.id);
-    setSaved(nowSaved);
+    savedList.toggle(p.id);
     /* Saving is the one action on a results card that changes state without moving
        the user anywhere: the card stays put and a small heart changes colour, which
        is easy to miss mid-scroll with a thumb over it. The tick is the confirmation
-       the visual can't reliably give. No-op on iOS and under reduce-motion. */
+       the visual can't reliably give. No-op on iOS and under reduce-motion.
+       Fired on the tap, not on the response — the toggle is optimistic, and haptics
+       that arrive a round trip late read as lag rather than as feedback. */
     haptic('tick');
   };
   const handleCompare = (e) => {

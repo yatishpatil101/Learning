@@ -1,3 +1,8 @@
+// Tier 1 route styles for the split-screen auth pages (.auth-page). Hoisted out
+// of index.css, where it sat under the "Listings page" heading. The .otp-* box
+// styles stay global in index.css (OtpBoxes.jsx is shared with list-property).
+import '../../styles/routes/auth.css';
+
 /* Split-screen auth layout: decorative left panel (desktop) + form card (ports
    signin/signup.html main layout). `left` is the desktop panel content; `children`
    is the form card. `mobileIntro` is a compact brand/trust block shown ONLY below

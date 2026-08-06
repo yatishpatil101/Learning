@@ -1,25 +1,14 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { fmtINR } from '../../../lib/format.js';
-import { getSavedProps } from '../../../lib/store.js';
-import { listProperties } from '../../../services/propertyService.js';
+import { useSaved } from '../../../context/SavedContext.jsx';
 import { Card, SectionHead } from './components.jsx';
 
 export default function SavedPanel() {
-  // The user's REAL saved properties (per-user store), resolved against the live
-  // catalog — no seed placeholders masquerading as saved homes.
-  const [saved, setSaved] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    const ids = getSavedProps();
-    if (!ids.length) { setSaved([]); return undefined; }
-    listProperties({ includeAllStatuses: true }, 'newest').then((all) => {
-      if (!alive) return;
-      const byId = new Map(all.map((p) => [p.id, p]));
-      setSaved(ids.map((id) => byId.get(id)).filter(Boolean).slice(0, 6));
-    });
-    return () => { alive = false; };
-  }, []);
+  /* The shortlist arrives as property rows, so this panel no longer resolves ids itself. It used
+     to fetch the *entire catalogue* (`listProperties({ includeAllStatuses: true })`) and index it
+     just to look up six saved homes — a whole-database read to render a preview card. */
+  const { items } = useSaved();
+  const saved = items.slice(0, 6);
 
   return (
     <Card className="p-6">

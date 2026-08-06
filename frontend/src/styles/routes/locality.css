@@ -1,0 +1,60 @@
+/* Locality insights page (Tier 1 - route CSS, imported from pages/consumer/Locality.jsx; also covers the child EmergingPanel). Moved from index.css. All rules are .loc-page-scoped. */
+.loc-page .field {
+  transition: all .25s ease;
+}
+
+/* Tab-panel content is user-triggered, not scroll-triggered: keep it visible
+   immediately (scroll-reveal never fires for panels swapped in below the fold). */
+.loc-page [role="tabpanel"] .reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.loc-page .kpi {
+  transition: transform .3s cubic-bezier(.4, 0, .2, 1), border-color .3s;
+}
+
+.loc-page .kpi:hover {
+  transform: translateY(-4px);
+  border-color: rgba(20, 184, 166, .3);
+}
+
+.loc-page .chip {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1);
+  transition: all .2s ease;
+  cursor: pointer;
+}
+
+.loc-page .chip:hover {
+  border-color: rgba(20, 184, 166, .4);
+  color: #fff;
+}
+
+.loc-page .chip.on {
+  background: rgba(20, 184, 166, .18);
+  border-color: var(--teal-2);
+  color: #5eead4;
+}
+
+.loc-page .lb-row {
+  transition: background .2s ease;
+  cursor: pointer;
+}
+
+.loc-page .lb-row:hover {
+  background: rgba(20, 184, 166, .06);
+}
+
+.loc-page .lb-row.active {
+  background: rgba(20, 184, 166, .1);
+}
+
+.loc-page th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.loc-page th.sortable:hover {
+  color: #5eead4;
+}

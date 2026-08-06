@@ -242,7 +242,13 @@ paths:
             never returned by this facet.
           schema: { $ref: '#/components/schemas/PropertyPossession' }
         - { name: q, in: query, description: Free-text search, schema: { type: string } }
-        - { name: status, in: query, schema: { $ref: '#/components/schemas/PropertyStatus' } }
+        - name: status
+          in: query
+          description: >
+            Can only *narrow within* approved on this anonymous endpoint — the public floor
+            (`approved`, non-archived) is unconditional, so any other value yields an empty page
+            rather than unapproved rows. Use `listPropertiesForModeration` to search every status.
+          schema: { $ref: '#/components/schemas/PropertyStatus' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
         - { $ref: '#/components/parameters/Sort' }
@@ -1244,6 +1250,58 @@ paths:
   # No new column: `reviews.status` already carries moderation state, and every read filters
   # status = 'published' -- including the rating aggregate -- so 'rejected' removes the review from
   # the listing and from the score it was moving. See V18 for the reasoning in full.
+  /admin/properties:
+    get:
+      tags: [Moderation]
+      summary: Listing moderation queue
+      operationId: listPropertiesForModeration
+      description: >
+        Listings of every status including archived, newest first. The moderation writes
+        (`setPropertyStatus`, `toggleFeatured`, `flagProperty`, `clearFlag`, `adminUpdateProperty`)
+        all address a listing by id and shipped without any read that could produce one for an
+        unapproved listing: `searchProperties` pins `status='approved' AND archived=false`
+        unconditionally — it takes no principal, so it cannot relax for staff — and `myListings` is
+        scoped to the caller's own account. Unlike `searchProperties`, `status` here *widens*.
+        Owner contact is masked, as on every ops surface.
+      x-roles: [staff, admin]
+      parameters:
+        - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: locality, in: query, schema: { type: string }, description: 'Locality *slug*, as on searchProperties' }
+        - { name: bhk, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: minPrice, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: maxPrice, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: furnishing, in: query, schema: { $ref: '#/components/schemas/Furnishing' } }
+        - { name: possession, in: query, schema: { $ref: '#/components/schemas/PropertyPossession' } }
+        - { name: q, in: query, description: Free-text over title + locality, schema: { type: string } }
+        - name: status
+          in: query
+          description: Narrow to one moderation status. Omit for every status.
+          schema: { $ref: '#/components/schemas/PropertyStatus' }
+        - name: archived
+          in: query
+          description: >
+            Tri-state. Omit for both live and archived listings; `true` for archived only; `false`
+            for live only. A separate axis from `status` — archiving preserves the moderation state
+            the listing was archived from.
+          schema: { type: boolean }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: Paged listings, every status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Property' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /admin/reviews:
     get:
       tags: [Moderation]
@@ -1515,14 +1573,44 @@ paths:
       tags: [Leads & Contact]
       summary: View incoming contact requests (owner)
       operationId: myContactRequests
+      description: >
+        Newest first, owner-scoped. Paged: this collection grows with inbound demand rather than with
+        the owner's own actions, so a popular listing is exactly what makes it large. Use
+        `myPendingContactCount` for the "waiting on you" badge - counting one page under-reports.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Requests
+          description: Paged requests
           content:
             application/json:
               schema:
-                type: array
-                items: { $ref: '#/components/schemas/ContactRequest' }
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ContactRequest' }
+  /me/contact-requests/pending-count:
+    get:
+      tags: [Leads & Contact]
+      summary: Count of contact requests awaiting the owner
+      operationId: myPendingContactCount
+      description: >
+        The owner's "waiting on you" badge. Counted server-side because `myContactRequests` is paged:
+        filtering one page client-side is the wrong number precisely for the owner who has enough
+        leads to need the badge.
+      responses:
+        '200':
+          description: Pending count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: { type: integer, example: 3 }
   /me/contact-requests/{reqId}:
     parameters: [ { $ref: '#/components/parameters/ReqId' } ]
     patch:
@@ -4196,6 +4284,11 @@ components:
       required: [body]
       properties:
         body: { type: string, maxLength: 4000 }
+        # NOT IMPLEMENTED. Declared here since the contract was first written; the Java
+        # `MessageCreate` record carries `body` only, and there is no upload surface for chat.
+        # Kept rather than deleted because the client's share chips (contact / document / location /
+        # visit) are the eventual consumers - but they currently send plain text, and a reader of
+        # this schema must not assume otherwise.
         attachments:
           type: array
           items: { type: string, format: uri }
@@ -4203,7 +4296,13 @@ components:
       type: object
       properties:
         id: { type: string }
-        author: { type: string }
+        authorId:
+          type: string
+          description: >
+            Who wrote it. **Use this, not `author`, to decide whether a message is the reader's
+            own.** `author` is a display name, and attributing by name works until two users share
+            one - at which point a stranger's message renders on the reader's side of the thread.
+        author: { type: [string, 'null'], description: Display name, absent if the account has none }
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
@@ -4221,8 +4320,8 @@ components:
         # the other side of that same thread sees `98XXXXX210`. Being in a conversation is not
         # itself a reveal -- if it were, starting one would route around the contact gate.
         counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
-        propertyId: { type: string, nullable: true }
-        propertyTitle: { type: string, nullable: true }
+        propertyId: { type: [string, 'null'] }
+        propertyTitle: { type: [string, 'null'] }
         lastMessage: { type: string, description: Preview of the most recent message }
         unread: { type: integer, description: Unread message count for the current user }
         updatedAt: { type: string, format: date-time }
@@ -4279,7 +4378,7 @@ components:
         id: { type: string }
         name: { type: string }
         mobile: { $ref: '#/components/schemas/Mobile' }
-        email: { type: string, format: email, nullable: true }
+        email: { type: [string, 'null'], format: email }
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
         status: { type: string, enum: [active, suspended, archived] }
@@ -4298,6 +4397,8 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         avatar: { type: string, format: uri }
+        city: { type: string, description: 'Home city. The profile form has always sent this; the contract lacked it, so it was accepted and silently dropped (D20).' }
+        hideNumber: { type: boolean, description: 'Owner preference - stay masked even after approving a contact request; reach me in-app instead. Not a second gate: approval still unlocks the conversation (D5).' }
 
     # ---- Catalog & Search ----
     PropertySummary:
@@ -4363,7 +4464,8 @@ components:
             views: { type: integer, description: Denormalized view counter }
             enquiries: { type: integer, description: Denormalized enquiry counter }
             featured: { type: boolean }
-            flagReason: { type: string, nullable: true, description: Admin moderation flag; empty when unflagged }
+            flagReason: { type: [string, 'null'], description: Admin moderation flag; empty when unflagged }
+            archived: { type: boolean, description: Soft-delete flag. A separate axis from status - always false on the public detail read; meaningful on /me/listings and /admin/properties. }
             ownerVerified: { type: boolean }
             ownershipVerified: { type: boolean }
             societyVerified: { type: boolean }
@@ -4382,7 +4484,7 @@ components:
               description: Admin post-on-behalf onboarding pipeline (staff-created listings).
               properties:
                 postedByAdmin: { type: boolean }
-                postedByStaff: { type: string, nullable: true }
+                postedByStaff: { type: [string, 'null'] }
                 pipelineStage: { type: string, enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed] }
                 claimLinkSent: { type: boolean }
                 photosUploaded: { type: boolean }
@@ -4438,8 +4540,7 @@ components:
         parkingRatio: { type: number }
         lifts: { type: integer }
         security:
-          type: string
-          nullable: true
+          type: [string, 'null']
           example: 3-tier + CCTV
           description: >-
             Security arrangement, free text. Spec fix S25: was a boolean. "Gated", "3-tier + CCTV"
@@ -4449,7 +4550,7 @@ components:
         power: { type: string }
         petPolicy: { type: string }
         vegPolicy: { type: string }
-        rera: { type: string, nullable: true, description: MahaRERA registration id; empty if none }
+        rera: { type: [string, 'null'], description: MahaRERA registration id; empty if none }
         registration: { type: boolean, description: Society registered }
         conveyance: { type: boolean, description: Conveyance deed done }
         amenities: { type: array, items: { type: string } }
@@ -4544,8 +4645,17 @@ components:
       type: object
       required: [status]
       properties:
-        status: { $ref: '#/components/schemas/PropertyStatus' }
-        reason: { type: string }
+        status:
+          type: string
+          # Deliberately NOT $ref PropertyStatus. That enum has five values; this operation accepts
+          # three. `flagged` is reached through flagProperty (which also records a reason) and
+          # `archived` through archiveProperty (a separate axis, and owner-or-staff rather than
+          # staff-only), so allowing either here would be a second, reason-less way to do something
+          # the API already models properly. The implementation 400s on the other two; before this
+          # was narrowed the contract promised five and delivered three.
+          enum: [pending, approved, rejected]
+          description: Moderation decision. Use flagProperty / archiveProperty for the other states.
+        reason: { type: string, description: Recorded on the audit row; required by convention when rejecting }
     Offer:
       type: object
       properties:
@@ -4665,8 +4775,8 @@ components:
         status: { type: string, enum: [none, pending, verified, failed] }
         source: { type: string, enum: [digilocker], description: Verification source (Cashfree Secure ID DigiLocker). }
         maskedAadhaar: { type: string, example: 'XXXX XXXX 1234', description: Last-4 only; the full number is never stored. }
-        mobileMatch: { type: boolean, nullable: true, description: Soft signal â€” whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
-        verifiedAt: { type: string, format: date-time, nullable: true }
+        mobileMatch: { type: [boolean, 'null'], description: Soft signal â€” whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
+        verifiedAt: { type: [string, 'null'], format: date-time }
     DigilockerWebhook:
       type: object
       description: Cashfree Secure ID DigiLocker callback payload (provider â†’ backend).
@@ -4728,10 +4838,9 @@ components:
                 payment_status: { type: string, enum: [SUCCESS, FAILED, PENDING, USER_DROPPED] }
                 payment_amount: { type: string, example: '17000.00' }
                 payment_group: { type: string, example: upi }
-                payment_time: { type: string, format: date-time, nullable: true }
+                payment_time: { type: [string, 'null'], format: date-time }
             error_details:
-              type: object
-              nullable: true
+              type: [object, 'null']
               description: Present on PAYMENT_FAILED_WEBHOOK.
               properties:
                 error_code: { type: string }
@@ -4822,6 +4931,7 @@ components:
         status: { type: string, enum: [owner, approved, pending, declined, none], description: 'Gate state for this caller vs this listing: owner (viewer owns it), approved, pending, declined, or none (no request yet).' }
         verifiedContactOnly: { type: boolean, description: True when the owner accepts verified contacts only â€” caller needs the L2 badge (ADR-019). }
         verificationRequired: { type: boolean, description: True when this specific request is blocked pending the caller's Verified badge. }
+        ownerHidesNumber: { type: boolean, description: 'True when the owner has opted to stay masked even after approving. The client should offer chat instead of a call; approval still stands (D5).' }
     ContactRequestCreate:
       type: object
       required: [propertyId]
@@ -4836,8 +4946,7 @@ components:
         requester: { $ref: '#/components/schemas/Party' }
         status: { type: string, enum: [pending, approved, declined] }
         contact:
-          type: object
-          nullable: true
+          type: [object, 'null']
           description: Present only after the gate is passed & owner grants.
           properties:
             name: { type: string }
@@ -4940,9 +5049,8 @@ components:
         # there would assert "vacant the whole time", which reads as a failing property rather
         # than an inapplicable question, and would drag any portfolio average down with it.
         occupancyRate:
-          type: number
+          type: [number, 'null']
           format: float
-          nullable: true
           minimum: 0
           maximum: 1
           description: >
@@ -4969,7 +5077,7 @@ components:
         platformFee: { $ref: '#/components/schemas/Money' }
         gst: { $ref: '#/components/schemas/Money' }
         dueDate: { type: string, format: date }
-        paidDate: { type: string, format: date, nullable: true }
+        paidDate: { type: [string, 'null'], format: date }
         status: { type: string, enum: [due, paid, overdue, failed] }
         method: { type: string, enum: [upi, netbanking, card, autopay, cash] }
         reference: { type: string }
@@ -5138,11 +5246,11 @@ components:
         requester: { $ref: '#/components/schemas/Party' }
         categories: { type: array, items: { type: string } }
         status: { type: string, enum: [pending, granted, declined, expired] }
-        shareToken: { type: string, nullable: true }
+        shareToken: { type: [string, 'null'] }
         # Slice-10 spec fix S37. A grant is time-boxed, so the token has a deadline; without it
         # on the wire the client cannot tell a live grant from one about to lapse, and the
         # 'expired' status appears out of nowhere.
-        expiresAt: { type: string, format: date-time, nullable: true }
+        expiresAt: { type: [string, 'null'], format: date-time }
         acknowledgedDisclaimer: { type: boolean, description: Buyer accepted the sensitive-docs disclaimer }
         createdAt: { type: string, format: date-time }
     # Slice-10 spec fix S35. DocumentRequest.acknowledgedDisclaimer is described as "Buyer
@@ -5168,8 +5276,8 @@ components:
         team: { $ref: '#/components/schemas/Team' }
         priority: { type: string, enum: [low, medium, high, urgent] }
         status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
-        propertyId: { type: string, nullable: true }
-        assignee: { type: string, nullable: true, readOnly: true, description: Assignee display name. Set via TicketUpdate.assigneeId (S42). }
+        propertyId: { type: [string, 'null'] }
+        assignee: { type: [string, 'null'], readOnly: true, description: Assignee display name. Set via TicketUpdate.assigneeId (S42). }
         service: { type: string, description: Service catalogue display name }
         customer: { type: string, description: Requester name }
         mobile: { $ref: '#/components/schemas/Mobile' }
@@ -5232,8 +5340,8 @@ components:
         id: { type: string }
         type: { type: string, example: rent-agreement }
         status: { type: string, enum: [new, assigned, in-progress, draft-shared, approved, completed, cancelled] }
-        propertyId: { type: string, nullable: true }
-        assignee: { type: string, nullable: true }
+        propertyId: { type: [string, 'null'] }
+        assignee: { type: [string, 'null'] }
         timeline:
           type: array
           items:
@@ -5279,7 +5387,7 @@ components:
         startDate: { type: string, format: date }
         durationMonths: { type: integer }
         status: { type: string, enum: [draft, e-sign-pending, registered, active, expired] }
-        documentUrl: { type: string, format: uri, nullable: true }
+        documentUrl: { type: [string, 'null'], format: uri }
     OwnerKyc:
       type: object
       description: |
@@ -5287,8 +5395,8 @@ components:
         from the values the owner submitted (the raw PAN/Aadhaar are never stored or returned),
         and `bankVerified`/`status` come from the KYC provider, never from the client.
       properties:
-        panMasked: { type: string, nullable: true, example: 'XXXXX1234X' }
-        aadhaarMasked: { type: string, nullable: true, example: 'XXXX XXXX 1234' }
+        panMasked: { type: [string, 'null'], example: 'XXXXX1234X' }
+        aadhaarMasked: { type: [string, 'null'], example: 'XXXX XXXX 1234' }
         bankVerified: { type: boolean }
         status: { type: string, enum: [pending, verified, rejected] }
     # Slice-10 spec fix S36. PUT used to accept OwnerKyc itself, which invited the client to send
@@ -5327,17 +5435,17 @@ components:
         by `getSubscription` when the caller has never subscribed (the operation declares only a
         200, and an empty object is friendlier to the plan screen than a 404).
       properties:
-        id: { type: string, nullable: true }
-        planId: { type: string, nullable: true }
+        id: { type: [string, 'null'] }
+        planId: { type: [string, 'null'] }
         # Slice-13 spec fix S50. `pending` added: the row exists from the moment the gateway
         # order is created, and calling that state `active` would give an unpaid subscriber the
         # plan's benefits for as long as they never complete checkout.
-        status: { type: string, nullable: true, enum: [pending, active, past-due, cancelled, expired] }
-        startedAt: { type: string, format: date-time, nullable: true }
-        renewsAt: { type: string, format: date-time, nullable: true }
+        status: { type: [string, 'null'], enum: [pending, active, past-due, cancelled, expired] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        renewsAt: { type: [string, 'null'], format: date-time }
         # Slice-13 spec fix S50. The gateway order id, mirroring `RentPayment.reference`. Null
         # once nothing is owed; it is the only handle a client has on the checkout it must open.
-        paymentRef: { type: string, nullable: true }
+        paymentRef: { type: [string, 'null'] }
     SubscribeRequest:
       type: object
       required: [planId]
@@ -5361,15 +5469,15 @@ components:
         # Slice-13 spec fix S51. Null until the payment webhook confirms: the window is measured
         # from the moment the money arrives, not from the moment checkout was opened, so a
         # buyer who pays an hour later still gets the full pack.
-        startsAt: { type: string, format: date-time, nullable: true }
-        endsAt: { type: string, format: date-time, nullable: true }
+        startsAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
         # Slice-13 spec fix S51. `pending` added, for the same reason as Subscription.status:
         # `201` is only the order being created, and an `active` boost that was never paid for
         # is free promotion.
         status: { type: string, enum: [pending, active, expired] }
         # Slice-13 spec fix S51. The gateway order id to hand to the checkout SDK; null when the
         # pack is free.
-        paymentRef: { type: string, nullable: true }
+        paymentRef: { type: [string, 'null'] }
     ServiceOffering:
       type: object
       properties:
@@ -5385,7 +5493,7 @@ components:
         offeringId: { type: string }
         status: { type: string, enum: [placed, scheduled, in-progress, completed, cancelled] }
         amount: { $ref: '#/components/schemas/Money' }
-        scheduledFor: { type: string, format: date-time, nullable: true }
+        scheduledFor: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
     ServiceOrderCreate:
       type: object
@@ -5430,8 +5538,8 @@ components:
         velocityHigh: { type: boolean }
         activated: { type: boolean }
         at: { type: string, format: date-time }
-        handledBy: { type: string, nullable: true }
-        handledAt: { type: string, format: date-time, nullable: true }
+        handledBy: { type: [string, 'null'] }
+        handledAt: { type: [string, 'null'], format: date-time }
     # ---- Engagement ----
     SavedSearch:
       type: object
@@ -5507,8 +5615,7 @@ components:
             accuracy:  { type: integer, minimum: 1, maximum: 5 }
           additionalProperties: false
         recommend:
-          type: boolean
-          nullable: true
+          type: [boolean, 'null']
           description: >
             Nullable on purpose: the UI distinguishes "did not say" (omit the recommend line)
             from "would not recommend" (`r.recommend != null`), so `false` and absent are not
@@ -5605,7 +5712,7 @@ components:
         id: { type: string, example: s1 }
         name: { type: string }
         gender: { type: string, enum: [any, male, female] }
-        age: { type: integer, minimum: 18, nullable: true }
+        age: { type: [integer, 'null'], minimum: 18 }
         occupation: { type: string, example: UX Designer }
         budget: { $ref: '#/components/schemas/Money' }
         localities:
@@ -5626,8 +5733,8 @@ components:
         verified: { type: boolean, description: Mirrors the seeker's DigiLocker L2 badge at post time (ADR-009a). }
         modStatus: { $ref: '#/components/schemas/FlatmateModStatus' }
         mobile: { $ref: '#/components/schemas/Mobile' }
-        lat: { type: number, format: double, nullable: true }
-        lng: { type: number, format: double, nullable: true }
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
         createdAt: { type: string, format: date-time }
     FlatmateSeekerPostCreate:
       type: object
@@ -5654,7 +5761,7 @@ components:
       properties:
         id: { type: string, example: rm7 }
         type: { type: string, enum: [flatmate] }
-        propertyId: { type: string, nullable: true, description: Parent rent listing when this room came from a flat split — the key that ties sibling rooms into one occupancy ledger and one joint agreement. }
+        propertyId: { type: [string, 'null'], description: Parent rent listing when this room came from a flat split — the key that ties sibling rooms into one occupancy ledger and one joint agreement. }
         roomKind: { $ref: '#/components/schemas/RoomKind' }
         roomType: { type: string, enum: ['Private room', 'Shared room'] }
         attachedBath: { type: string, enum: [attached, shared], description: Derived from `roomKind` on split rooms (master implies attached); asked explicitly on single-room posts. }
@@ -5665,7 +5772,7 @@ components:
         occupants: { type: integer, minimum: 0, maximum: 3, description: People actually living in THIS room. Emergent — tenants decide, the owner only records it. }
         maxOccupants: { type: integer, minimum: 1, default: 3, description: How many people may live in the whole FLAT (the society's rule) — the only ceiling the owner declares. }
         flatCommitted: { type: integer, readOnly: true, description: Derived — people moved into this flat across every sibling room. }
-        flatMax: { type: integer, readOnly: true, nullable: true }
+        flatMax: { type: [integer, 'null'], readOnly: true }
         shareMax: { type: integer, readOnly: true, minimum: 1, maximum: 3, description: 'Derived — the most people who could still take this room: min(3 - occupants, flatMax - flatCommitted). Always 1 when priceBasis is `person`.' }
         seatsTotal: { type: integer, minimum: 1, description: Seat model, used by single spare-room posts instead of the occupancy ledger. }
         seatsOpen: { type: integer, minimum: 0 }
@@ -5681,8 +5788,8 @@ components:
         flatNumber: { type: string }
         locality: { type: string }
         localities: { type: array, items: { type: string } }
-        lat: { type: number, format: double, nullable: true }
-        lng: { type: number, format: double, nullable: true }
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
         bhk: { type: string, enum: ['1', '2', '3', '4'], description: "'4' means 4+." }
         flatType: { type: string, example: 3 BHK }
         homeTypeLabel: { type: string, example: Flat }
@@ -5744,7 +5851,7 @@ components:
               name: { type: string }
               initials: { type: string, maxLength: 2 }
               verified: { type: boolean }
-        propertyId: { type: string, nullable: true }
+        propertyId: { type: [string, 'null'] }
         hostRole: { $ref: '#/components/schemas/HostRole' }
         verificationTier: { $ref: '#/components/schemas/VerificationTier' }
         agreementDeclared: { type: boolean }
@@ -5785,7 +5892,7 @@ components:
         name: { type: string, maxLength: 200 }
         size: { type: integer, minimum: 0 }
         mime: { type: string, enum: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] }
-        url: { type: string, format: uri, nullable: true }
+        url: { type: [string, 'null'], format: uri }
         tooLarge: { type: boolean, default: false }
     FlatSplitRequest:
       type: object
@@ -5841,7 +5948,7 @@ components:
         requesterMobile: { $ref: '#/components/schemas/Mobile' }
         status: { type: string, enum: [pending, accepted, declined] }
         requestedAt: { type: string, format: date-time }
-        decidedAt: { type: string, format: date-time, nullable: true }
+        decidedAt: { type: [string, 'null'], format: date-time }
     FlatmateReview:
       type: object
       description: >
@@ -5852,8 +5959,8 @@ components:
       properties:
         id: { type: string }
         kind: { type: string, enum: [room, group] }
-        roomId: { type: string, nullable: true }
-        groupId: { type: string, nullable: true }
+        roomId: { type: [string, 'null'] }
+        groupId: { type: [string, 'null'] }
         host: { type: string }
         hostMobile: { $ref: '#/components/schemas/Mobile' }
         address: { type: string }
@@ -5970,8 +6077,12 @@ components:
         newUsers7d: { type: integer }
         dealsClosed30d: { type: integer }
         revenue30d:
-          allOf: [ { $ref: '#/components/schemas/Money' } ]
-          nullable: true
+          # 3.1 spelling of a nullable $ref. `nullable: true` alongside an `allOf` was the 3.0
+          # idiom; in 3.1 that keyword does not exist, so it said nothing and this field read as
+          # non-nullable. A type array cannot express it either — the null has to be a branch.
+          anyOf:
+            - { $ref: '#/components/schemas/Money' }
+            - { type: 'null' }
           # S61: this endpoint is x-roles [staff, admin] but /admin/finance is [admin] only,
           # so serving staff a revenue figure here contradicts the very next operation. Null for
           # staff, populated for admin - ops keeps its scorecard without being handed the one
@@ -6056,25 +6167,25 @@ components:
         archived: { type: boolean }
         createdAt: { type: string, format: date-time }
         # announcements
-        title: { type: string, nullable: true }
-        body: { type: string, nullable: true }
-        severity: { type: string, nullable: true }
-        startsAt: { type: string, format: date-time, nullable: true }
-        endsAt: { type: string, format: date-time, nullable: true }
-        active: { type: boolean, nullable: true }
+        title: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        severity: { type: [string, 'null'] }
+        startsAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
+        active: { type: [boolean, 'null'] }
         # services
-        name: { type: string, nullable: true }
-        icon: { type: string, nullable: true }
-        description: { type: string, nullable: true }
-        link: { type: string, nullable: true }
+        name: { type: [string, 'null'] }
+        icon: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        link: { type: [string, 'null'] }
         # faqs
-        question: { type: string, nullable: true }
-        answer: { type: string, nullable: true }
-        category: { type: string, nullable: true }
+        question: { type: [string, 'null'] }
+        answer: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
         # banners
-        image: { type: string, nullable: true }
-        headline: { type: string, nullable: true }
-        position: { type: integer, nullable: true }
+        image: { type: [string, 'null'] }
+        headline: { type: [string, 'null'] }
+        position: { type: [integer, 'null'] }
     ContentItemWrite:
       type: object
       description: >
@@ -6108,7 +6219,7 @@ components:
         action: { type: string, example: property.approve }
         entity: { type: string, example: property }
         entityId: { type: string }
-        checker: { type: string, nullable: true, description: Approver in maker-checker flows. }
+        checker: { type: [string, 'null'], description: Approver in maker-checker flows. }
         at: { type: string, format: date-time }
         metadata: { type: object, additionalProperties: true }
     SocietyLead:

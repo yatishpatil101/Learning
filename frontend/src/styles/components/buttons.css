@@ -1,0 +1,181 @@
+/* ============================================================================
+   Button system — Tier 0 (shared across routes)
+   Hoisted out of index.css, where it sat under the "Property page" heading even
+   though .btn-* / .pn-btn* are used by components/auth, components/dashboard,
+   components/society, pages/admin, CityChrome.jsx and ServiceTracker.jsx.
+   Loaded from main.jsx after index.css. Note the radius-hierarchy override in
+   index.css ("Radius hierarchy") uses !important, so it still wins from there.
+   ============================================================================ */
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   BUTTON SYSTEM â€” single source of truth. Three tiers:
+     .btn-primary   â†’ the one main action per view (teal gradient)
+     .btn-secondary â†’ supporting actions (outline/ghost)
+     .btn-icon      â†’ compact square icon-only utility button
+   Sizes: .btn-sm (32px) Â· default (40px) Â· .btn-lg (48px).
+   Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
+   long tail of existing buttons inherits this system without per-file edits.
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.btn,
+.btn-teal,
+.btn-outline,
+.pn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: var(--btn-h);
+  padding: 0 1.125rem;
+  border-radius: var(--btn-radius);
+  font-family: inherit;
+  font-size: var(--control-font);
+  font-weight: var(--control-weight-action);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #fff;
+  box-sizing: border-box;
+  user-select: none;
+  text-decoration: none;
+  transition: background-color .25s ease, border-color .25s ease, box-shadow .25s ease, transform .25s ease, filter .25s ease;
+}
+
+.btn:focus-visible,
+.btn-teal:focus-visible,
+.btn-outline:focus-visible,
+.pn-btn:focus-visible {
+  outline: 2px solid var(--teal-2);
+  outline-offset: 2px;
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"],
+.btn.is-disabled,
+.btn-teal:disabled,
+.btn-outline:disabled,
+.pn-btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn.is-loading {
+  pointer-events: none;
+}
+
+/* Tier 1 â€” primary */
+.btn-primary,
+.btn-teal,
+.pn-btn-primary {
+  background: var(--btn-primary-grad);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--btn-primary-shadow);
+}
+
+.btn-primary:hover,
+.btn-teal:hover,
+.pn-btn-primary:hover {
+  box-shadow: var(--btn-primary-shadow-hover);
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active,
+.btn-teal:active,
+.pn-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Tier 2 â€” secondary */
+.btn-secondary,
+.btn-outline,
+.pn-btn-ghost {
+  background: var(--control-bg);
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, .14);
+  box-shadow: none;
+}
+
+.btn-secondary:hover,
+.btn-outline:hover,
+.pn-btn-ghost:hover {
+  border-color: rgba(20, 184, 166, .5);
+  color: #fff;
+  background: rgba(20, 184, 166, .08);
+}
+
+.btn-secondary:active,
+.btn-outline:active,
+.pn-btn-ghost:active {
+  transform: translateY(1px);
+}
+
+/* Tier 3 â€” compact icon-only */
+.btn-icon {
+  width: var(--btn-h);
+  height: var(--btn-h);
+  padding: 0;
+  gap: 0;
+  flex: none;
+  background: var(--control-bg);
+  border-color: rgba(255, 255, 255, .1);
+  color: #cbd5e1;
+}
+
+.btn-icon:hover {
+  background: var(--control-bg-hover);
+  border-color: rgba(255, 255, 255, .2);
+  color: #fff;
+}
+
+/* Sizes */
+.btn-sm,
+.pn-btn-sm {
+  height: var(--btn-h-sm);
+  padding: 0 .7rem;
+  font-size: .8rem;
+}
+
+.btn-lg {
+  height: var(--btn-h-lg);
+  padding: 0 1.5rem;
+}
+
+.btn-icon.btn-sm {
+  width: var(--btn-h-sm);
+  padding: 0;
+}
+
+.btn-icon.btn-lg {
+  width: var(--btn-h-lg);
+  padding: 0;
+}
+
+/* Color modifiers (apply on primary) */
+.btn-success,
+.pn-btn-success {
+  background: #10b981;
+  color: #052018;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn-success:hover,
+.pn-btn-success:hover {
+  filter: brightness(1.08);
+}
+
+.btn-danger,
+.pn-btn-danger {
+  background: rgba(244, 63, 94, .15);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, .3);
+  box-shadow: none;
+}
+
+.btn-danger:hover,
+.pn-btn-danger:hover {
+  background: rgba(244, 63, 94, .25);
+}

@@ -9,10 +9,11 @@ import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { contactStatus } from '../../../lib/contact.js';
+import { useContactGate } from './useContactGate.js';
 import { requestMorePhotos } from '../../../lib/photoRequests.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../../lib/chat.js';
-import { isSavedProp, pushRecentProp, getLastSearch } from '../../../lib/store.js';
+import { messagesLinkForProp } from '../../../lib/chat.js';
+import { queuePendingChat } from '../../../services/conversationService.js';
+import { pushRecentProp, getLastSearch } from '../../../lib/store.js';
 import { AMEN_LABEL, deriveFloor, deriveFacing, deriveAge, propertyKind } from './derivations.js';
 
 const PROP_TAB_IDS = ['overview', 'amenities', 'location', 'pricing', 'trust'];
@@ -22,7 +23,6 @@ export default function useProperty() {
   const { id } = useParams();
   const [p, setP] = useState(undefined);
   const [active, setActive] = useState(0);
-  const [saved, setSaved] = useState(() => isSavedProp(id));
   const [ovOpen, setOvOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -32,6 +32,10 @@ export default function useProperty() {
   const { isIn, user } = useAuth();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
+  // Keyed on the route param rather than `p.id` so the gate is requested in parallel with the
+  // listing instead of waiting for it — and because hooks cannot live below this function's
+  // `p === undefined` early return, where the old synchronous read sat.
+  const { gate: contactGate } = useContactGate(id);
   const rootRef = useScrollReveal([p]);
   const lbTouchX = useRef(null);
   const location = useLocation();
@@ -78,14 +82,14 @@ export default function useProperty() {
   if (!p) return { notFound: true, tr };
 
   const ownerMob = String(p.ownerMobile || '');
-  const contactApproved = contactStatus(ownerMob, p.id) === 'approved' || contactStatus(ownerMob, p.id) === 'owner';
+  const contactApproved = contactGate.status === 'approved' || contactGate.status === 'owner';
   const canChat = flagEnabled('inAppMessaging');
 
   // "Contact Owner" starts an in-app chat. It's L1 contact (badge-not-gate): any
   // signed-in user may reach the owner — queue a pending request (owner accepts in
   // Messages) and open the thread. The number-reveal channel lives separately in
   // the OwnerCard. When in-app messaging is off, fall back to the enquiry popup.
-  const startChatRequest = () => { queueOwnerChat(p); navigate(messagesLinkForProp(p)); };
+  const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const handleContact = () => {
     if (!isIn) { toast(tr('property.signInContact'), 'info'); return; }
     if (!canChat) { setContactOpen(true); return; }
@@ -256,11 +260,11 @@ export default function useProperty() {
   };
 
   return {
-    tr, p, active, setActive, saved, setSaved, ovOpen, setOvOpen, lightbox, setLightbox,
+    tr, p, active, setActive, ovOpen, setOvOpen, lightbox, setLightbox,
     tourOpen, setTourOpen, reportOpen, setReportOpen, contactOpen, setContactOpen,
     visitOpen, setVisitOpen,
     isIn, user, toast, flagEnabled, rootRef, lbTouchX, gallery, activeTab,
-    startChatRequest, handleContact, ownerMob, contactApproved, canChat, isOwner, isAdmin, isApproved,
+    startChatRequest, handleContact, ownerMob, contactApproved, ownerHidesNumber: contactGate.ownerHidesNumber, canChat, isOwner, isAdmin, isApproved,
     isRent, kind, isLand, baths, furnishLabel, parkingLabel, emi, possessionLabel, title, priceStr,
     viewingNow, visitsScheduled, enquiriesThisWeek, perUnitLabel, perUnitVal, details, highlights,
     topHighlights, amenPhrase, overviewMore, waShare, tags, requestPhotos, returnTo, backToMap,

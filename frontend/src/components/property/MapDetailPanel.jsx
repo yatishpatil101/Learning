@@ -4,11 +4,13 @@ import Icon from '../Icon.jsx';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
-import { isSavedProp, toggleSavedProp } from '../../lib/store.js';
+import { useSaved } from '../../context/SavedContext.jsx';
 import { cityLabelFor } from '../../lib/geoConfig.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../lib/chat.js';
+import { messagesLinkForProp } from '../../lib/chat.js';
+import { queuePendingChat } from '../../services/conversationService.js';
 import { ContactOwnerModal } from '../../pages/consumer/property/ContactOwnerModal.jsx';
 import { ScheduleVisitModal } from '../../pages/consumer/property/ScheduleVisitModal.jsx';
+import '../../styles/routes/property-map-detail.css';
 
 const titleOf = (p) => {
   if (p.shareType === 'pg') return 'PG / Hostel';
@@ -46,13 +48,14 @@ const factsOf = (p) => {
 export default function MapDetailPanel({ property: p, list, locName, activeIndex, onClose, onSelect, fromSearch, onOpenFull, scheduleEnabled, chatEnabled, isIn, toast }) {
   const navigate = useNavigate();
   const [shot, setShot] = useState(0);
-  const [saved, setSaved] = useState(false);
+  const savedList = useSaved();
+  const saved = savedList.has(p?.id);
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
 
   const gallery = p ? (p.gallery && p.gallery.length ? p.gallery : [p.image]) : [];
 
-  useEffect(() => { setShot(0); setSaved(isSavedProp(p?.id)); }, [p?.id]);
+  useEffect(() => { setShot(0); }, [p?.id]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -89,7 +92,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   // any signed-in user may reach the owner. Queue a pending in-app chat request
   // (owner accepts in Messages) and open the thread. Falls back to the enquiry
   // popup when in-app messaging is disabled.
-  const startChatRequest = () => { queueOwnerChat(p); navigate(messagesLinkForProp(p)); };
+  const startChatRequest = () => { queuePendingChat(p); navigate(messagesLinkForProp(p)); };
   const contact = () => {
     if (!isIn) { toast('Please sign in to contact owner', 'info'); return; }
     if (!chatEnabled) { setContactOpen(true); return; }
@@ -98,7 +101,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
   const schedule = () => { if (!isIn) { toast('Please sign in to schedule a visit', 'info'); return; } setVisitOpen(true); };
   const toggleSave = () => {
     if (!isIn) { toast('Please sign in to save properties', 'info'); return; }
-    setSaved(toggleSavedProp(p.id));
+    savedList.toggle(p.id);
   };
 
   return (

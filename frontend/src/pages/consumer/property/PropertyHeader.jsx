@@ -13,8 +13,8 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
   const {
     tags, priceStr, isRent, isLand, tr, emi, title, p,
     viewingNow, enquiriesThisWeek, visitsScheduled, perUnitVal, kind,
-    setReportOpen, isIn, toast, contactApproved, ownerMob, handleContact, canChat,
-    flagEnabled, setVisitOpen, saved, setSaved,
+    setReportOpen, isIn, toast, contactApproved, ownerHidesNumber, ownerMob, handleContact, canChat,
+    flagEnabled, setVisitOpen,
   } = ctx;
   return (
           <section className="fade-in grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 section-mb">
@@ -146,7 +146,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
 
             {/* Right */}
             <div className="space-y-4">
-              <OwnerCard p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} ownerMob={ownerMob} onContact={handleContact} canChat={canChat} />
+              <OwnerCard p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} ownerHidesNumber={ownerHidesNumber} ownerMob={ownerMob} onContact={handleContact} canChat={canChat} />
 
               {/* Primary engagement — for a first-time buyer a site visit is the #1 next step,
                   so it leads the sidebar. Offers / finalisation sit below. */}
@@ -163,7 +163,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
               <DealPanel p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} />
 
               {flagEnabled('emiCalculator') && !isLand && !isRent && <Link to="/emi-calculator" className="flex items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
-              {flagEnabled('compareProperties') && <CompareToggleBar p={p} saved={saved} setSaved={setSaved} />}
+              {flagEnabled('compareProperties') && <CompareToggleBar p={p} />}
             </div>
           </section>
   );

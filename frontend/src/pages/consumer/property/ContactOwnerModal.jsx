@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
-import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../../lib/contact.js';
+import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { requestContact } from '../../../services/contactService.js';
+import { useContactGate } from './useContactGate.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
-import { queueOwnerChat } from '../../../lib/chat.js';
+import { queuePendingChat } from '../../../services/conversationService.js';
 import { isAadhaarVerified, canRevealContact, consumeContact } from '../../../lib/store.js';
 import { track, captureLead } from '../../../lib/pmf.js';
 
@@ -14,11 +16,13 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const [msg, setMsg] = useState('');
   const [verify, setVerify] = useState(false); // opt-in badge modal for verified-only owners
   const [quotaOpen, setQuotaOpen] = useState(false); // free contacts spent → refer or upgrade
+  const [busy, setBusy] = useState(false);
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = String(p.id || '');
-  const status = contactStatus(ownerMobile, propId);
-  const ownerHides = status === 'approved' && ownerHidesNumber(ownerMobile);
+  const { gate, loading } = useContactGate(propId);
+  const status = gate.status;
+  const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
   // B1: seeker nudge at value moment — only when owner is verified and seeker is not yet.
   const seekerVerified = isAadhaarVerified();
@@ -30,7 +34,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
-  const request = () => {
+  const request = async () => {
     if (!isIn) {
       toast(t('property.signInRequestNumber'), 'info');
       onClose();
@@ -43,22 +47,31 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
     }
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: propId, owner: String(p.owner || '') });
-    const res = requestContact(ownerMobile, propId);
-    // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
-    if (res === 'verification_required') {
-      setVerify(true);
-      return;
-    }
-    // Listing withdrawn / owner contact pulled → nothing was requested, so no quota is spent.
-    if (res === 'unavailable') {
+
+    setBusy(true);
+    try {
+      const next = await requestContact(propId);
+      // Only a genuinely NEW request burns quota — a repeat press returns the existing status.
+      if (next.status === 'pending' && status !== 'pending') consumeContact();
+      toast(t('property.requestSentNumber'), 'success');
+      onClose();
+    } catch (err) {
+      // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
+      if (err?.code === 'verification_required') {
+        setVerify(true);
+        return;
+      }
+      if (err?.status === 401) {
+        toast(t('property.signInRequestNumber'), 'info');
+        onClose();
+        return;
+      }
+      // Listing withdrawn / owner contact pulled — nothing was requested, so no quota is spent.
       toast(t('property.contactUnavailable'), 'error');
       onClose();
-      return;
+    } finally {
+      setBusy(false);
     }
-    // Only a genuinely NEW request burns quota — repeats return the existing status.
-    if (res === 'pending') consumeContact();
-    toast(t('property.requestSentNumber'), 'success');
-    onClose();
   };
 
   // Sending an enquiry/message is L1-only (badge-not-gate): any signed-in user may
@@ -73,7 +86,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
     track('contact_click', { action: 'send_enquiry', id: propId });
     captureLead({ context: 'send_enquiry', property: propId, owner: String(p.owner || ''), message: msg.trim() });
     if (flagEnabled('inAppMessaging')) {
-      queueOwnerChat(p, { firstMessage: msg.trim() || undefined });
+      queuePendingChat(p, { firstMessage: msg.trim() || undefined });
       toast(t('property.enquirySentChat'), 'success');
     } else {
       toast(t('property.enquirySent'), 'success');
@@ -130,7 +143,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
                     </span>
                   )}
                   {status !== 'pending' && status !== 'declined' && (
-                    <button type="button" onClick={request} className="btn-teal inline-flex items-center gap-1.5 py-2 px-3.5 text-xs rounded-[10px]">
+                    <button type="button" onClick={request} disabled={busy || loading} className="btn-teal inline-flex items-center gap-1.5 py-2 px-3.5 text-xs rounded-[10px] disabled:opacity-60">
                       <Icon name="lock-keyhole" className="w-3.5 h-3.5" /> {t('property.requestNumber')}
                     </button>
                   )}

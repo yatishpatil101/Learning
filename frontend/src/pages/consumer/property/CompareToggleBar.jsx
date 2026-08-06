@@ -2,19 +2,23 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
+import { useSaved } from '../../../context/SavedContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { shareOrCopy } from '../../../lib/share.js';
-import { toggleSavedProp } from '../../../lib/store.js';
 
-export function CompareToggleBar({ p, saved, setSaved }) {
+/**
+ * `saved`/`setSaved` used to be threaded in from the property page. They are gone: the shortlist is
+ * one shared set now, so lifting this component's copy of it through props would just be a second
+ * source of the same truth, free to disagree with the heart on the card behind it.
+ */
+export function CompareToggleBar({ p }) {
   const { t } = useTranslation();
   const { has, toggle, count } = useCompare();
+  const savedList = useSaved();
+  const saved = savedList.has(p.id);
   const { toast } = useToast();
   const inCompare = has(p.id);
-  const handleSave = () => {
-    const nowSaved = toggleSavedProp(p.id);
-    setSaved(nowSaved);
-  };
+  const handleSave = () => savedList.toggle(p.id);
 
   // Share the listing, falling back to a clipboard copy where the OS share sheet
   // doesn't exist (desktop, and any browser without navigator.share). The cancel

@@ -18,6 +18,10 @@ export const addSavedSearch = (o) => {
   return rec;
 };
 export const removeSavedSearch = (id) => set(savedSearchKey(), getSavedSearches().filter((s) => s.id !== id));
+/* Write the whole list back. The provider needs this to patch a record's alert fields: without it
+   the only write primitive is `toggleSearchAlert`, which flips a boolean and so cannot express the
+   server's four-state `alertFrequency` at all. */
+export const saveSavedSearches = (arr) => set(savedSearchKey(), arr);
 export const toggleSearchAlert = (id) => {
   const arr = getSavedSearches();
   arr.forEach((s) => { if (s.id === id) s.alerts = !s.alerts; });

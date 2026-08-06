@@ -156,16 +156,12 @@
 }
 
 @media (min-width: 768px) {
-  :root {
-    --pn-nav-h: 72px;
-  }
+  :root { --pn-nav-h: 72px; }
 }
 
 /* The bar's real height, driven by the token rather than by utility classes on the
    element â€” see --pn-nav-h above. */
-.pn-topbar__row {
-  height: var(--pn-nav-h);
-}
+.pn-topbar__row { height: var(--pn-nav-h); }
 
 /* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
 
@@ -181,9 +177,7 @@
 
    Above sm this block is inert and every pill keeps the geometry it has today. */
 @media (max-width: 639.98px) {
-  .pn-topbar__pill {
-    height: var(--pn-nav-pill-h);
-  }
+  .pn-topbar__pill { height: var(--pn-nav-pill-h); }
 
   /* Square controls (logo tile, Back). These keep .tap-target rather than
      .tap-extend: their box is already invisible chrome around a drawn tile, so the
@@ -207,17 +201,11 @@
    that is the desktop-safety argument, and it is structural rather than a
    promise. */
 @media (max-width: 1023.98px) {
-  .pn-topbar {
-    transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
-  }
+  .pn-topbar { transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1); }
 
-  .pn-nav-hidden {
-    --pn-top-inset: 0px;
-  }
+  .pn-nav-hidden { --pn-top-inset: 0px; }
 
-  .pn-nav-hidden .pn-topbar {
-    transform: translateY(-100%);
-  }
+  .pn-nav-hidden .pn-topbar { transform: translateY(-100%); }
 
   /* Opt-in for sticky sub-headers. Declared after @tailwind utilities, so it wins
      over the element's own `top-[var(--pn-nav-h)]` below lg while leaving that
@@ -231,9 +219,7 @@
 @media (prefers-reduced-motion: reduce) {
 
   .pn-topbar,
-  .pn-docks-under-nav {
-    transition: none;
-  }
+  .pn-docks-under-nav { transition: none; }
 }
 
 /* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
@@ -248,18 +234,14 @@
 }
 
 @media (min-width: 1024px) {
-  .has-bottom-nav {
-    --pn-bottom-inset: var(--pn-safe-b);
-  }
+  .has-bottom-nav { --pn-bottom-inset: var(--pn-safe-b); }
 }
 
 /* Full-bleed routes (reels) keep the inset *token* â€” their own chrome positions off it â€”
    but not the reservation: the tab bar is a capsule floating over the media, so the media
    is supposed to pass under it. Reserving the strip here drew a dead band across the
    bottom of every reel and made the bar look like a wall rather than a floating control. */
-.has-bottom-nav.route-fullbleed {
-  padding-bottom: 0;
-}
+.has-bottom-nav.route-fullbleed { padding-bottom: 0; }
 
 /* Floating "liquid glass" tab bar.
 
@@ -307,9 +289,7 @@
    so those browsers get an opaque capsule instead. Firefox on Android and older
    WebViews land here. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .pn-bottom-nav {
-    background: #17142b;
-  }
+  .pn-bottom-nav { background: #17142b; }
 }
 
 /* Travelling active indicator. Geometry (translateX + width) is set inline by
@@ -336,19 +316,15 @@
 /* Added by BottomNav.jsx one paint after the first measurement â€” see the comment there.
    Until then the indicator must be able to jump to its measured slot without animating,
    or every page load slides it in from the left edge. */
-.pn-bottom-nav__indicator.is-animated {
-  transition:
+.pn-bottom-nav__indicator.is-animated { transition:
     transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
     width 340ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 180ms linear;
-}
+    opacity 180ms linear; }
 
 /* The slide is decorative: it only re-states where the user already is. Cutting it is
    free, so the whole travel goes and only the fade survives. */
 @media (prefers-reduced-motion: reduce) {
-  .pn-bottom-nav__indicator.is-animated {
-    transition: opacity 180ms linear;
-  }
+  .pn-bottom-nav__indicator.is-animated { transition: opacity 180ms linear; }
 }
 
 /* Raised centre action. It breaks the capsule's top edge on purpose â€” that overlap is
@@ -373,18 +349,12 @@
   transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.pn-bottom-nav__tab:active {
-  transform: scale(0.93);
-}
+.pn-bottom-nav__tab:active { transform: scale(0.93); }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-bottom-nav__tab {
-    transition: none;
-  }
+  .pn-bottom-nav__tab { transition: none; }
 
-  .pn-bottom-nav__tab:active {
-    transform: none;
-  }
+  .pn-bottom-nav__tab:active { transform: none; }
 }
 
 /* 11px, in rem so the label honours the browser/OS font-size setting instead of being
@@ -431,9 +401,7 @@
   /* Icon-only. The tab keeps its accessible name via aria-label on the Link, so hiding
      the visible text costs nothing to a screen reader. 44px is the tap-target floor
      exactly, not a value chosen for looks. */
-  .pn-bottom-nav__label {
-    display: none;
-  }
+  .pn-bottom-nav__label { display: none; }
 
   .pn-bottom-nav__tab {
     justify-content: center;
@@ -542,17 +510,13 @@
   [role="button"],
   [role="tab"],
   summary,
-  label {
-    -webkit-tap-highlight-color: transparent;
-  }
+  label { -webkit-tap-highlight-color: transparent; }
 
   a:active,
   button:not(:disabled):active,
   [role="button"]:active,
   [role="tab"]:active,
-  summary:active {
-    opacity: 0.72;
-  }
+  summary:active { opacity: 0.72; }
 }
 
 /* Below 640px the default button (40px) and the compact button (32px) both fail the
@@ -578,17 +542,11 @@
   padding-bottom: var(--section-gap);
 }
 
-.section-pt {
-  padding-top: var(--section-gap);
-}
+.section-pt { padding-top: var(--section-gap); }
 
-.section-pb {
-  padding-bottom: var(--section-gap);
-}
+.section-pb { padding-bottom: var(--section-gap); }
 
-.section-mb {
-  margin-bottom: var(--section-gap);
-}
+.section-mb { margin-bottom: var(--section-gap); }
 
 .section-hero {
   padding-top: var(--section-gap-lg);
@@ -617,9 +575,7 @@
     --section-head-gap: 1.25rem;
   }
 
-  .section-head {
-    margin-bottom: var(--section-head-gap);
-  }
+  .section-head { margin-bottom: var(--section-head-gap); }
 
   /* For sections that hard-code their own padding instead of using the token
      (they need a different desktop value), this pulls the mobile half back onto
@@ -648,9 +604,7 @@
   cursor: pointer;
 }
 
-.pn-control:hover {
-  background: var(--control-bg-hover);
-}
+.pn-control:hover { background: var(--control-bg-hover); }
 
 .pn-control.active,
 .pn-control[aria-pressed="true"] {
@@ -666,9 +620,7 @@
   color: #fff;
 }
 
-.pn-control--action:hover {
-  filter: brightness(1.08);
-}
+.pn-control--action:hover { filter: brightness(1.08); }
 
 .pn-control--ghost {
   background: transparent;
@@ -734,18 +686,14 @@ body {
 :lang(hi) .leading-tight,
 :lang(mr) .leading-tight,
 :lang(hi) .leading-snug,
-:lang(mr) .leading-snug {
-  line-height: 1.45 !important;
-}
+:lang(mr) .leading-snug { line-height: 1.45 !important; }
 
 :lang(hi) .tracking-widest,
 :lang(mr) .tracking-widest,
 :lang(hi) .tracking-wider,
 :lang(mr) .tracking-wider,
 :lang(hi) .tracking-wide,
-:lang(mr) .tracking-wide {
-  letter-spacing: normal;
-}
+:lang(mr) .tracking-wide { letter-spacing: normal; }
 
 /* Clamped text measures its box in lines, so the taller Devanagari line box has
    to be accounted for or the last line is sliced through the descenders. */
@@ -754,9 +702,7 @@ body {
 :lang(hi) .line-clamp-2,
 :lang(mr) .line-clamp-2,
 :lang(hi) .line-clamp-3,
-:lang(mr) .line-clamp-3 {
-  line-height: 1.55;
-}
+:lang(mr) .line-clamp-3 { line-height: 1.55; }
 
 /* Devanagari runs 15â€“30% longer than the same English sentence, so buttons and
    chips sized to fit English copy overflow. Let them grow instead of clipping. */
@@ -774,9 +720,7 @@ body {
    2 BHK, 15 August), so numeric runs keep Outfit's tabular figures rather than
    inheriting Noto's proportional ones and jittering in aligned columns. */
 :lang(hi) .tabular-nums,
-:lang(mr) .tabular-nums {
-  font-family: 'Outfit', system-ui, sans-serif;
-}
+:lang(mr) .tabular-nums { font-family: 'Outfit', system-ui, sans-serif; }
 
 /* â”€â”€ Prevent browser autofill from overriding dark theme backgrounds â”€â”€ */
 input:-webkit-autofill,
@@ -792,52 +736,34 @@ input:-webkit-autofill:focus {
 h1,
 h2,
 h3,
-h4 {
-  text-wrap: balance;
-}
+h4 { text-wrap: balance; }
 
 /* â”€â”€ Radius hierarchy â”€â”€
    Pill shape is reserved for nav CTAs, hero search tabs, and filter chips.
    Cards, modals, forms use --radius (16px). Inner elements use 8px. â”€â”€ */
 .btn-teal,
 .btn-outline,
-.pn-btn {
-  border-radius: 10px !important;
-}
+.pn-btn { border-radius: 10px !important; }
 
 .badge-verified,
-.badge-premium,
-.badge-new,
-.badge-furnished,
-.badge-rera {
-  border-radius: 6px !important;
-}
+.badge-rera { border-radius: 6px !important; }
 
 /* Keep pills for: nav Post Property, Sign In, hero Buy/Rent tabs, popular-locality chips */
 .search-tab,
-.loc-chip,
-.bhk-pill {
-  border-radius: var(--control-radius-pill) !important;
-}
+.loc-chip { border-radius: var(--control-radius-pill) !important; }
 
 /* â”€â”€ Tabular figures on all price and stat numbers â”€â”€ */
 .price-marker,
 .rd-val,
 .rd-val-lg,
 .pn-lb-caption,
-[class*="font-extrabold"] {
-  font-variant-numeric: tabular-nums;
-}
+[class*="font-extrabold"] { font-variant-numeric: tabular-nums; }
 
 /* â”€â”€ Active/press feedback on all interactive controls â”€â”€ */
 button:active:not(:disabled),
-a[role="button"]:active {
-  transform: scale(0.97) translateY(1px);
-}
+a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
-.pn-control--action:active {
-  transform: scale(0.97) translateY(1px) !important;
-}
+.pn-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
 /* â”€â”€ Tinted shadows â€” brand hue instead of pure black â”€â”€ */
 .property-card:hover {
@@ -856,17 +782,11 @@ a[role="button"]:active {
 }
 
 /* â”€â”€ Section subtext max-width â€” prevents lines stretching too wide â”€â”€ */
-.section-desc {
-  max-width: 60ch;
-}
+.section-desc { max-width: 60ch; }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
+::-webkit-scrollbar { width: 6px; }
 
-::-webkit-scrollbar-track {
-  background: var(--brand-dark);
-}
+::-webkit-scrollbar-track { background: var(--brand-dark); }
 
 ::-webkit-scrollbar-thumb {
   background: var(--teal-1);
@@ -894,13 +814,9 @@ a[role="button"]:active {
 }
 
 .filter-scroll:hover,
-.filter-scroll:focus-within {
-  scrollbar-color: rgba(20, 184, 166, 0.45) transparent;
-}
+.filter-scroll:focus-within { scrollbar-color: rgba(20, 184, 166, 0.45) transparent; }
 
-.filter-scroll::-webkit-scrollbar {
-  width: 6px;
-}
+.filter-scroll::-webkit-scrollbar { width: 6px; }
 
 .filter-scroll::-webkit-scrollbar-track {
   background: transparent;
@@ -914,35 +830,21 @@ a[role="button"]:active {
 }
 
 .filter-scroll:hover::-webkit-scrollbar-thumb,
-.filter-scroll:focus-within::-webkit-scrollbar-thumb {
-  background: rgba(20, 184, 166, 0.45);
-}
+.filter-scroll:focus-within::-webkit-scrollbar-thumb { background: rgba(20, 184, 166, 0.45); }
 
-.filter-scroll:hover::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 184, 166, 0.7);
-}
+.filter-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.7); }
 
 /* â”€â”€ Hero gradient animation â”€â”€ */
 @keyframes heroGradient {
-  0% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
 
-  25% {
-    background-position: 50% 100%;
-  }
+  25% { background-position: 50% 100%; }
 
-  50% {
-    background-position: 100% 50%;
-  }
+  50% { background-position: 100% 50%; }
 
-  75% {
-    background-position: 50% 0%;
-  }
+  75% { background-position: 50% 0%; }
 
-  100% {
-    background-position: 0% 50%;
-  }
+  100% { background-position: 0% 50%; }
 }
 
 .hero-bg {
@@ -956,45 +858,29 @@ a[role="button"]:active {
 @keyframes float1 {
 
   0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
+  100% { transform: translate(0, 0) rotate(0deg); }
 
-  33% {
-    transform: translate(30px, -40px) rotate(60deg);
-  }
+  33% { transform: translate(30px, -40px) rotate(60deg); }
 
-  66% {
-    transform: translate(-20px, 30px) rotate(120deg);
-  }
+  66% { transform: translate(-20px, 30px) rotate(120deg); }
 }
 
 @keyframes float2 {
 
   0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
+  100% { transform: translate(0, 0) rotate(0deg); }
 
-  33% {
-    transform: translate(-40px, 20px) rotate(-45deg);
-  }
+  33% { transform: translate(-40px, 20px) rotate(-45deg); }
 
-  66% {
-    transform: translate(25px, -35px) rotate(-90deg);
-  }
+  66% { transform: translate(25px, -35px) rotate(-90deg); }
 }
 
 @keyframes float3 {
 
   0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg) scale(1);
-  }
+  100% { transform: translate(0, 0) rotate(0deg) scale(1); }
 
-  50% {
-    transform: translate(35px, 25px) rotate(180deg) scale(1.15);
-  }
+  50% { transform: translate(35px, 25px) rotate(180deg) scale(1.15); }
 }
 
 .shape {
@@ -1070,29 +956,17 @@ a[role="button"]:active {
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.hero-word:nth-child(1) {
-  animation-delay: 0.05s;
-}
+.hero-word:nth-child(1) { animation-delay: 0.05s; }
 
-.hero-word:nth-child(2) {
-  animation-delay: 0.12s;
-}
+.hero-word:nth-child(2) { animation-delay: 0.12s; }
 
-.hero-word:nth-child(3) {
-  animation-delay: 0.19s;
-}
+.hero-word:nth-child(3) { animation-delay: 0.19s; }
 
-.hero-word:nth-child(4) {
-  animation-delay: 0.26s;
-}
+.hero-word:nth-child(4) { animation-delay: 0.26s; }
 
-.hero-word:nth-child(5) {
-  animation-delay: 0.33s;
-}
+.hero-word:nth-child(5) { animation-delay: 0.33s; }
 
-.hero-word:nth-child(6) {
-  animation-delay: 0.40s;
-}
+.hero-word:nth-child(6) { animation-delay: 0.40s; }
 
 .hero-sub {
   opacity: 0;
@@ -1134,9 +1008,7 @@ a[role="button"]:active {
   }
 }
 
-.ticker-ping {
-  animation: tickerPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
+.ticker-ping { animation: tickerPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
 
 /* â”€â”€ Scroll reveal â”€â”€ */
 .reveal {
@@ -1151,45 +1023,27 @@ a[role="button"]:active {
 }
 
 /* â”€â”€ Card image zoom â”€â”€ */
-.card-img-wrap {
-  overflow: hidden;
-}
+.card-img-wrap { overflow: hidden; }
 
-.card-img-wrap img {
-  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-}
+.card-img-wrap img { transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
-.property-card:hover .card-img-wrap img {
-  transform: scale(1.08);
-}
+.property-card:hover .card-img-wrap img { transform: scale(1.08); }
 
 /* â”€â”€ Heart animation â”€â”€ */
 @keyframes heartPop {
-  0% {
-    transform: scale(1);
-  }
+  0% { transform: scale(1); }
 
-  30% {
-    transform: scale(1.35);
-  }
+  30% { transform: scale(1.35); }
 
-  60% {
-    transform: scale(0.9);
-  }
+  60% { transform: scale(0.9); }
 
-  100% {
-    transform: scale(1);
-  }
+  100% { transform: scale(1); }
 }
 
-.heart-pop {
-  animation: heartPop 0.4s ease;
-}
+.heart-pop { animation: heartPop 0.4s ease; }
 
 /* â”€â”€ Glow hover for category cards â”€â”€ */
-.cat-card {
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
-}
+.cat-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease; }
 
 .cat-card:hover {
   transform: translateY(-8px);
@@ -1240,25 +1094,17 @@ a[role="button"]:active {
 @keyframes ctaFloat1 {
 
   0%,
-  100% {
-    transform: translate(0, 0);
-  }
+  100% { transform: translate(0, 0); }
 
-  50% {
-    transform: translate(20px, -20px);
-  }
+  50% { transform: translate(20px, -20px); }
 }
 
 @keyframes ctaFloat2 {
 
   0%,
-  100% {
-    transform: translate(0, 0);
-  }
+  100% { transform: translate(0, 0); }
 
-  50% {
-    transform: translate(-15px, 15px);
-  }
+  50% { transform: translate(-15px, 15px); }
 }
 
 /* â”€â”€ Glass (with fallback for browsers without backdrop-filter support) â”€â”€ */
@@ -1277,17 +1123,11 @@ a[role="button"]:active {
 }
 
 @supports not (backdrop-filter: blur(1px)) {
-  .glass {
-    background: rgba(20, 18, 40, 0.92);
-  }
+  .glass { background: rgba(20, 18, 40, 0.92); }
 
-  .glass-strong {
-    background: rgba(20, 18, 40, 0.95);
-  }
+  .glass-strong { background: rgba(20, 18, 40, 0.95); }
 
-  .glass-card {
-    background: rgba(20, 18, 40, 0.94);
-  }
+  .glass-card { background: rgba(20, 18, 40, 0.94); }
 }
 
 /* Opaque dropdown surface */
@@ -1309,9 +1149,7 @@ a[role="button"]:active {
   scrollbar-color: rgba(20, 184, 166, 0.7) rgba(255, 255, 255, 0.06);
 }
 
-.search-dd-scroll::-webkit-scrollbar {
-  width: 8px;
-}
+.search-dd-scroll::-webkit-scrollbar { width: 8px; }
 
 .search-dd-scroll::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.06);
@@ -1324,9 +1162,7 @@ a[role="button"]:active {
   border-radius: 999px;
 }
 
-.search-dd-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 184, 166, 0.95);
-}
+.search-dd-scroll::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.95); }
 
 /* Shared option row for the Type / BHK dropdowns. Uses the app-standard option
    metrics (--control-h height, --dd-option-pad, --dd-option-radius, teal hover)
@@ -1460,9 +1296,7 @@ a[role="button"]:active {
   flex-shrink: 0;
 }
 
-.loc-sugg-meta .loc-sugg-kind {
-  margin-left: 0;
-}
+.loc-sugg-meta .loc-sugg-kind { margin-left: 0; }
 
 .loc-sugg-count {
   font-size: 11px;
@@ -1472,28 +1306,18 @@ a[role="button"]:active {
   flex-shrink: 0;
 }
 
-.loc-sugg--empty .loc-sugg-count {
-  color: #64748b;
-}
+.loc-sugg--empty .loc-sugg-count { color: #64748b; }
 
-.loc-sugg--empty .truncate {
-  color: #94a3b8;
-}
+.loc-sugg--empty .truncate { color: #94a3b8; }
 
 .loc-sugg:hover .loc-sugg-count,
-.loc-sugg.active .loc-sugg-count {
-  color: #99f6e4;
-}
+.loc-sugg.active .loc-sugg-count { color: #99f6e4; }
 
 .loc-sugg--empty:hover .loc-sugg-count,
-.loc-sugg--empty.active .loc-sugg-count {
-  color: #94a3b8;
-}
+.loc-sugg--empty.active .loc-sugg-count { color: #94a3b8; }
 
 .loc-sugg:hover .loc-sugg-kind,
-.loc-sugg.active .loc-sugg-kind {
-  color: #94a3b8;
-}
+.loc-sugg.active .loc-sugg-kind { color: #94a3b8; }
 
 .loc-sugg--stack {
   height: auto;
@@ -1510,9 +1334,7 @@ a[role="button"]:active {
 }
 
 .loc-sugg:hover .loc-sugg-sub,
-.loc-sugg.active .loc-sugg-sub {
-  color: #94a3b8;
-}
+.loc-sugg.active .loc-sugg-sub { color: #94a3b8; }
 
 /* "Powered by Google" attribution mark (required by Places ToS off-map). The
    letter colours are Google's fixed brand palette, applied inline in the
@@ -1547,9 +1369,7 @@ a[role="button"]:active {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.pn-dropdown__attrib .pbg {
-  justify-content: flex-start;
-}
+.pn-dropdown__attrib .pbg { justify-content: flex-start; }
 
 /* Attribution footer inside the hero locality dropdown â€” kept last, bottom-left, out of focus. */
 .loc-attrib {
@@ -1558,9 +1378,7 @@ a[role="button"]:active {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.loc-attrib .pbg {
-  justify-content: flex-start;
-}
+.loc-attrib .pbg { justify-content: flex-start; }
 
 .hero-search-wrap {
   position: relative;
@@ -1578,9 +1396,7 @@ a[role="button"]:active {
 }
 
 /* â”€â”€ Category scroll hide scrollbar â”€â”€ */
-.cat-scroll::-webkit-scrollbar {
-  display: none;
-}
+.cat-scroll::-webkit-scrollbar { display: none; }
 
 .cat-scroll {
   -ms-overflow-style: none;
@@ -1588,9 +1404,7 @@ a[role="button"]:active {
 }
 
 /* Generic scrollbar-hide utility (e.g. the mobile navbar's inline primary nav). */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 .no-scrollbar {
   -ms-overflow-style: none;
@@ -1608,13 +1422,9 @@ a[role="button"]:active {
   transition: opacity 0.3s ease;
 }
 
-.hscroll-fade--left {
-  left: 0;
-}
+.hscroll-fade--left { left: 0; }
 
-.hscroll-fade--right {
-  right: 0;
-}
+.hscroll-fade--right { right: 0; }
 
 /* â”€â”€ Pill active â”€â”€ */
 .pill-active {
@@ -1623,14 +1433,10 @@ a[role="button"]:active {
 }
 
 /* â”€â”€ Sleek hover for search button (no gimmicky pulse) â”€â”€ */
-.search-btn:hover {
-  box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28);
-}
+.search-btn:hover { box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28); }
 
 /* Feature card glow */
-.feature-card {
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
-}
+.feature-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease; }
 
 .feature-card:hover {
   transform: translateY(-6px);
@@ -1638,426 +1444,30 @@ a[role="button"]:active {
 }
 
 /* FAQ */
-details.faq {
-  transition: border-color .2s ease;
-}
+details.faq { transition: border-color .2s ease; }
 
-details.faq[open] {
-  border-color: rgba(20, 184, 166, .35);
-}
+details.faq[open] { border-color: rgba(20, 184, 166, .35); }
 
-details.faq summary::-webkit-details-marker {
-  display: none;
-}
+details.faq summary::-webkit-details-marker { display: none; }
 
-details.faq[open] .faq-ico {
-  transform: rotate(180deg);
-}
+details.faq[open] .faq-ico { transform: rotate(180deg); }
 
-.faq-ico {
-  transition: transform .2s ease;
-}
+.faq-ico { transition: transform .2s ease; }
 
 /* ============================================================================
    Listings page (ported verbatim from listings.html <style>)
    ============================================================================ */
-.t-all {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.t-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
-.card-hover:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
-}
+/* .card-hover:hover* / .heart-btn / .rng* (DualRange) / .custom-cb / .custom-radio moved to styles/routes/listings.css (Tier 1). Base .card-img below is SHARED with property SimilarProperties.jsx so it stays global. */
 
-.card-hover:hover .card-img {
-  transform: scale(1.08);
-}
+.card-img { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 
-.card-img {
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* .bhk-pill and .deal-tab rules deleted (dead code, no usages in src/). */
 
-.heart-btn.active svg {
-  fill: #f43f5e;
-  color: #f43f5e;
-}
+/* .toggle-ui/.toggle-cb, .view-btn, collapsible .fg-* filter groups moved to styles/routes/listings.css (Tier 1). */
 
-.heart-btn:active {
-  transform: scale(0.85);
-}
-
-/* Horizontal breathing room so the range thumbs at 0%/100% aren't clipped
-   by the sidebar's overflow-y (which computes overflow-x to auto). */
-.rng-wrap {
-  padding: 0 9px;
-}
-
-.rng {
-  position: relative;
-  height: 24px;
-}
-
-.rng-track {
-  position: absolute;
-  top: 10px;
-  left: 0;
-  right: 0;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.rng-fill {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--teal-1), var(--teal-2));
-}
-
-.rng input[type=range] {
-  position: absolute;
-  top: 2px;
-  left: 0;
-  width: 100%;
-  height: 20px;
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  pointer-events: none;
-}
-
-.rng input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  pointer-events: auto;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  border: 2px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
-  cursor: pointer;
-  transition: transform 0.15s;
-}
-
-.rng input[type=range]::-webkit-slider-thumb:hover {
-  transform: scale(1.18);
-}
-
-.rng input[type=range]::-moz-range-thumb {
-  pointer-events: auto;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  border: 2px solid #0f0d1a;
-  cursor: pointer;
-}
-
-/* A 16px thumb is a mouse-sized target: on touch it is under half the 44px floor,
-   and a price range is one of the most-dragged controls in the search funnel.
-   Grow the thumb to 28px on coarse pointers and grow the row around it so the
-   track stays centred and the thumb isn't clipped at 0%/100%. Desktop keeps the
-   16px thumb â€” the pointer there is a cursor, not a fingertip. */
-@media (pointer: coarse) {
-  .rng-wrap {
-    padding: 0 15px;
-  }
-
-  .rng {
-    height: 32px;
-  }
-
-  .rng-track {
-    top: 14px;
-  }
-
-  .rng input[type=range] {
-    top: 2px;
-    height: 28px;
-  }
-
-  .rng input[type=range]::-webkit-slider-thumb {
-    width: 28px;
-    height: 28px;
-  }
-
-  .rng input[type=range]::-moz-range-thumb {
-    width: 28px;
-    height: 28px;
-  }
-
-  /* The two labels under the track ("â‚¹0" / "â‚¹5 Cr+") are also buttons â€” tapping one
-     swaps it for a text input so an exact figure can be typed, which is the only way
-     to set a precise budget on a phone. They are drawn as small underlined values
-     because that is what they are; making them look like buttons would turn a quiet
-     row of numbers into two competing controls. So extend the target, not the box.
-
-     Centred 44px is safe here: the pair sits at opposite ends of a justify-between
-     row, so the boxes cannot meet, and the 12px gap above them puts the top edge
-     clear of the thumb's travel. */
-  .rng-val {
-    position: relative;
-  }
-
-  .rng-val::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 44px;
-    height: 44px;
-    transform: translate(-50%, -50%);
-  }
-}
-
-.custom-cb {
-  display: none;
-}
-
-.custom-cb+label {
-  position: relative;
-  padding-left: 26px;
-  cursor: pointer;
-  color: #94a3b8;
-  transition: color 0.2s;
-  font-size: 13px;
-}
-
-.custom-cb+label::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.custom-cb+label::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 50%;
-  transform: translateY(-50%) rotate(45deg) scale(0);
-  width: 5px;
-  height: 10px;
-  border: solid #0f0d1a;
-  border-width: 0 2px 2px 0;
-  transition: transform 0.2s;
-}
-
-.custom-cb:checked+label {
-  color: #fff;
-}
-
-.custom-cb:checked+label::before {
-  background: var(--teal-2);
-  border-color: var(--teal-2);
-}
-
-.custom-cb:checked+label::after {
-  transform: translateY(-55%) rotate(45deg) scale(1);
-}
-
-.filter-group .grid .custom-cb+label {
-  white-space: nowrap;
-}
-
-.custom-radio {
-  display: none;
-}
-
-.custom-radio+label {
-  position: relative;
-  padding-left: 26px;
-  cursor: pointer;
-  color: #94a3b8;
-  transition: color 0.2s;
-  font-size: 13px;
-}
-
-.custom-radio+label::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-radius: 50%;
-  transition: all 0.2s;
-}
-
-.custom-radio+label::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 50%;
-  transform: translateY(-50%) scale(0);
-  width: 8px;
-  height: 8px;
-  background: #0f0d1a;
-  border-radius: 50%;
-  transition: transform 0.2s;
-}
-
-.custom-radio:checked+label {
-  color: #fff;
-}
-
-.custom-radio:checked+label::before {
-  background: var(--teal-2);
-  border-color: var(--teal-2);
-}
-
-.custom-radio:checked+label::after {
-  transform: translateY(-50%) scale(1);
-}
-
-.bhk-pill {
-  height: var(--control-h);
-  display: inline-flex;
-  align-items: center;
-  padding: 0 1.125rem;
-  border-radius: var(--control-radius);
-  cursor: pointer;
-  font-size: var(--control-font);
-  font-weight: 500;
-  border: var(--control-border);
-  color: #94a3b8;
-  background: var(--control-bg);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  user-select: none;
-  box-sizing: border-box;
-}
-
-.bhk-pill:hover {
-  border-color: rgba(20, 184, 166, 0.4);
-  color: #fff;
-}
-
-.bhk-pill.active {
-  background: var(--brand-gradient);
-  border-color: var(--teal-2);
-  color: #fff;
-}
-
-.deal-tab {
-  color: #94a3b8;
-  transition: all 0.25s ease;
-}
-
-.deal-tab.active {
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
-}
-
-.toggle-ui {
-  width: 40px;
-  height: 22px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  position: relative;
-  transition: all 0.3s ease;
-  flex-shrink: 0;
-  display: inline-block;
-}
-
-.toggle-ui::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: all 0.3s ease;
-}
-
-.toggle-cb:checked+.toggle-ui {
-  background: var(--teal-2);
-}
-
-.toggle-cb:checked+.toggle-ui::after {
-  transform: translateX(18px);
-}
-
-.view-btn.active {
-  background: rgba(79, 70, 229, 0.3);
-  color: #fff;
-  border-color: rgba(79, 70, 229, 0.5);
-}
-
-/* Collapsible filter groups */
-.fg-header {
-  cursor: pointer;
-  user-select: none;
-}
-
-.fg-summary {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 500;
-  color: #64748b;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-}
-
-.fg-summary.active {
-  color: #5eead4;
-}
-
-.fg-chev {
-  width: 16px;
-  height: 16px;
-  color: #94a3b8;
-  transition: transform 0.3s ease;
-  flex-shrink: 0;
-  margin-left: 6px;
-}
-
-.filter-group.collapsed .fg-chev {
-  transform: rotate(-90deg);
-}
-
-.filter-group.collapsed .fg-header {
-  margin-bottom: 0;
-}
-
-.fg-body {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.35s ease, opacity 0.25s ease;
-  opacity: 1;
-}
-
-.fg-body-inner {
-  overflow: hidden;
-  min-height: 0;
-}
-
-.filter-group.collapsed .fg-body {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  pointer-events: none;
-  contain: layout size;
-}
-
-#listingsMap {
-  z-index: 1;
-}
+#listingsMap { z-index: 1; }
 
 .price-marker {
   position: relative;
@@ -2083,6 +1493,8 @@ details.faq[open] .faq-ico {
   border: 5px solid transparent;
   border-top-color: var(--coral-1);
 }
+
+/* .filter-overlay/.filter-panel are SHARED (listings ResultsArea + flatmates FilterBar) so they stay global here; .filter-fab* (listings-only) moved to styles/routes/listings.css (Tier 1). */
 
 .filter-overlay {
   position: fixed;
@@ -2115,81 +1527,7 @@ details.faq[open] .faq-ico {
   overflow-x: hidden;
 }
 
-.filter-panel.open {
-  transform: translateX(0);
-}
-
-/* Floating "Filters" control on the mobile listings page.
-
-   It floats over a scrolling column of property photos, so its backdrop is
-   unpredictable â€” a bright interior one moment, a dark card the next. A flat teal
-   fill dissolves into the light shots, and ringing it in page-background black
-   just reads as a sticker cut out and pasted on.
-
-   So it takes the same liquid glass as the bottom nav 12px below it: one blur +
-   one saturation boost + a light top edge, tinted with the app's indigo/teal
-   rather than neutral grey. Those alphas were already set by the worst case
-   (near-white imagery directly behind the bar), so legibility is carried by the
-   material itself and no outline is needed to prop it up. saturate() is what
-   keeps the blur from turning the app's teal into grey mud.
-
-   Colour is spent only where it carries meaning: the icon, the edge, and the
-   active count. A fully teal chip would fight the Post FAB for primary-action
-   status, which it should never win. */
-.filter-fab {
-  /* Shares the bottom nav's left inset, so the two capsules sit on one vertical
-     edge instead of being 4px out of register. */
-  left: calc(env(safe-area-inset-left, 0px) + 12px);
-  background: linear-gradient(180deg, rgba(45, 41, 120, 0.78), rgba(14, 12, 24, 0.88));
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.5),
-    0 2px 10px rgba(13, 148, 136, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 160ms ease;
-}
-
-.filter-fab:active {
-  transform: scale(0.96);
-  box-shadow:
-    0 6px 16px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
-/* The press scale is pure feedback flourish; the shadow drop already reports the
-   tap, so the movement is the only part worth cutting. */
-@media (prefers-reduced-motion: reduce) {
-
-  .filter-fab,
-  .filter-fab:active {
-    transform: none;
-    transition: box-shadow 160ms ease;
-  }
-}
-
-/* Same fallback the bottom nav takes: without backdrop-filter a translucent fill
-   is just unreadable text over content, so those browsers get an opaque capsule.
-   Firefox on Android and older WebViews land here. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .filter-fab {
-    background: #17142b;
-  }
-}
-
-/* Filters are on. The capsule earns a teal edge only now, because only now does
-   it carry state the user needs to catch from the corner of their eye. */
-.filter-fab.is-active {
-  border-color: rgba(45, 212, 191, 0.42);
-}
-
-/* Solid teal on glass â€” the one saturated element, so the eye lands on how many
-   filters are applied before it reads the word. */
-.filter-fab__count {
-  background: #2dd4bf;
-  color: #0b1f1c;
-}
+.filter-panel.open { transform: translateX(0); }
 
 .fade-up {
   opacity: 0;
@@ -2202,28 +1540,7 @@ details.faq[open] .faq-ico {
   transform: translateY(0);
 }
 
-.sort-dropdown {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-}
-
-.sort-dropdown option,
-.near-select option,
-.near-select optgroup {
-  background: #1a1730;
-  color: #e2e8f0;
-}
-
-.near-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-}
+/* .sort-dropdown and .near-select rules deleted (dead code, no usages in src/). */
 
 /* â”€â”€ Native <select> themed via @layer to avoid !important conflicts with Tailwind â”€â”€ */
 @layer components {
@@ -2239,9 +1556,7 @@ details.faq[open] .faq-ico {
     cursor: pointer;
   }
 
-  select:hover {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2314b8a6' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  }
+  select:hover { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2314b8a6' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); }
 
   select:focus,
   select:focus-visible {
@@ -2301,9 +1616,7 @@ details.faq[open] .faq-ico {
     padding-left: 1.25rem;
   }
 
-  .legal-prose li {
-    margin-bottom: 0.375rem;
-  }
+  .legal-prose li { margin-bottom: 0.375rem; }
 
   .legal-prose a {
     color: var(--teal-2);
@@ -2311,21 +1624,13 @@ details.faq[open] .faq-ico {
     text-underline-offset: 2px;
   }
 
-  .legal-prose strong {
-    color: #e2e8f0;
-  }
+  .legal-prose strong { color: #e2e8f0; }
 
-  .legal-toc summary {
-    list-style: none;
-  }
+  .legal-toc summary { list-style: none; }
 
-  .legal-toc summary::-webkit-details-marker {
-    display: none;
-  }
+  .legal-toc summary::-webkit-details-marker { display: none; }
 
-  .legal-toc-caret {
-    transition: transform 0.2s ease;
-  }
+  .legal-toc-caret { transition: transform 0.2s ease; }
 
   /* â”€â”€ Help centre / documentation prose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
      Styles the HTML compiled from src/content/help/**.md. Kept separate from
@@ -2337,9 +1642,7 @@ details.faq[open] .faq-ico {
     color: #94a3b8;
   }
 
-  .doc-prose > * + * {
-    margin-top: 1.125rem;
-  }
+  .doc-prose > * + * { margin-top: 1.125rem; }
 
   .doc-prose h2 {
     font-size: 1.25rem;
@@ -2377,14 +1680,10 @@ details.faq[open] .faq-ico {
     padding-left: 1.25rem;
   }
 
-  .doc-prose li {
-    margin-bottom: 0.4375rem;
-  }
+  .doc-prose li { margin-bottom: 0.4375rem; }
 
   .doc-prose li > ul,
-  .doc-prose li > ol {
-    margin-top: 0.4375rem;
-  }
+  .doc-prose li > ol { margin-top: 0.4375rem; }
 
   .doc-prose a {
     color: var(--teal-2);
@@ -2392,9 +1691,7 @@ details.faq[open] .faq-ico {
     text-underline-offset: 2px;
   }
 
-  .doc-prose a:hover {
-    text-decoration-thickness: 2px;
-  }
+  .doc-prose a:hover { text-decoration-thickness: 2px; }
 
   .doc-prose strong {
     color: #e2e8f0;
@@ -2468,9 +1765,7 @@ details.faq[open] .faq-ico {
   }
 
   @media (min-width: 768px) {
-    .doc-prose table {
-      white-space: normal;
-    }
+    .doc-prose table { white-space: normal; }
   }
 
   /* Callouts â€” emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
@@ -2482,13 +1777,9 @@ details.faq[open] .faq-ico {
     background: rgb(255 255 255 / 0.03);
   }
 
-  .doc-prose .doc-callout p {
-    margin: 0;
-  }
+  .doc-prose .doc-callout p { margin: 0; }
 
-  .doc-prose .doc-callout p + p {
-    margin-top: 0.5rem;
-  }
+  .doc-prose .doc-callout p + p { margin-top: 0.5rem; }
 
   .doc-prose .doc-callout__label {
     font-size: 0.6875rem;
@@ -2498,60 +1789,38 @@ details.faq[open] .faq-ico {
     margin-bottom: 0.375rem !important;
   }
 
-  .doc-prose .doc-callout--note {
-    border-left-color: var(--teal-2);
-  }
+  .doc-prose .doc-callout--note { border-left-color: var(--teal-2); }
 
-  .doc-prose .doc-callout--note .doc-callout__label {
-    color: var(--teal-2);
-  }
+  .doc-prose .doc-callout--note .doc-callout__label { color: var(--teal-2); }
 
-  .doc-prose .doc-callout--tip {
-    border-left-color: #a78bfa;
-  }
+  .doc-prose .doc-callout--tip { border-left-color: #a78bfa; }
 
-  .doc-prose .doc-callout--tip .doc-callout__label {
-    color: #a78bfa;
-  }
+  .doc-prose .doc-callout--tip .doc-callout__label { color: #a78bfa; }
 
   .doc-prose .doc-callout--warning {
     border-left-color: #fbbf24;
     background: rgb(251 191 36 / 0.06);
   }
 
-  .doc-prose .doc-callout--warning .doc-callout__label {
-    color: #fbbf24;
-  }
+  .doc-prose .doc-callout--warning .doc-callout__label { color: #fbbf24; }
 
   .doc-prose .doc-callout--important {
     border-left-color: #f87171;
     background: rgb(248 113 113 / 0.06);
   }
 
-  .doc-prose .doc-callout--important .doc-callout__label {
-    color: #f87171;
-  }
+  .doc-prose .doc-callout--important .doc-callout__label { color: #f87171; }
 
-  .doc-toc summary {
-    list-style: none;
-  }
+  .doc-toc summary { list-style: none; }
 
-  .doc-toc summary::-webkit-details-marker {
-    display: none;
-  }
+  .doc-toc summary::-webkit-details-marker { display: none; }
 
-  .doc-toc[open] .doc-toc-caret {
-    transform: rotate(180deg);
-  }
+  .doc-toc[open] .doc-toc-caret { transform: rotate(180deg); }
 
-  .legal-toc[open] .legal-toc-caret {
-    transform: rotate(180deg);
-  }
+  .legal-toc[open] .legal-toc-caret { transform: rotate(180deg); }
 }
 
-select option {
-  padding: 8px 10px;
-}
+select option { padding: 8px 10px; }
 
 select option:checked {
   background-color: rgba(20, 184, 166, 0.22);
@@ -2559,493 +1828,9 @@ select option:checked {
   font-weight: 600;
 }
 
-/* â”€â”€ Custom dropdown (.pn-dropdown) â€” ported verbatim from the HTML dropdowns.css
-   so the React <Select> matches the enhanced native selects exactly. â”€â”€ */
-:root {
-  --dd-bg: rgba(255, 255, 255, 0.05);
-  --dd-bg-hover: rgba(255, 255, 255, 0.08);
-  --dd-border: rgba(255, 255, 255, 0.12);
-  --dd-border-hover: rgba(255, 255, 255, 0.24);
-  --dd-text: #e5e7eb;
-  --dd-muted: #94a3b8;
-  --dd-placeholder: #9ca3af;
-  --dd-accent: var(--teal-2);
-  --dd-accent-soft: rgba(20, 184, 166, 0.15);
-  --dd-accent-line: rgba(20, 184, 166, 0.45);
-  --dd-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.07);
-  --dd-ease: cubic-bezier(0.4, 0, 0.2, 1);
-  --dd-speed: 0.22s;
-  --dd-radius-sm: 0.6rem;
-  --dd-trigger-radius: 999px;
-  --dd-trigger-pad: 0 var(--control-px);
-  --dd-trigger-height: var(--control-h);
-  --dd-trigger-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-  --dd-trigger-shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.30);
-  --dd-trigger-shadow-open: 0 0 0 3px var(--dd-accent-soft), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --dd-menu-solid: #1c1a2b;
-  --dd-menu-radius: 1.1rem;
-  --dd-menu-pad: 0.5rem;
-  --dd-menu-gap: 0.4rem;
-  --dd-option-radius: 0.8rem;
-  --dd-option-pad: 0.55rem 1rem;
-  --dd-option-slide: 2px;
-  --dd-option-hover: rgba(20, 184, 166, 0.14);
-}
+/* .pn-dropdown component (base + .pn-dd-sort/.pn-dd-photocat variants + .pn-action-sheet) moved to styles/components/dropdown.css (Tier 0). */
 
-.pn-dropdown {
-  position: relative;
-  display: inline-block;
-  width: 100%;
-  font-size: 0.875rem;
-}
-
-.pn-dropdown--sm {
-  width: var(--dd-sm-w, auto);
-  --dd-trigger-pad: 0 0.7rem;
-}
-
-.pn-dropdown--sm .pn-dropdown__trigger {
-  font-size: 0.78rem;
-  gap: 0.4rem;
-}
-
-.pn-dropdown--sm .pn-dropdown__chev {
-  width: 0.85rem;
-  height: 0.85rem;
-}
-
-/* Listings sort picker: shares one row with the view toggles, so it needs a fixed
-   pill width rather than the base `width: 100%` above - that declaration sits
-   after @tailwind utilities, so a w-* utility on the same element loses to it.
-   Stays shrinkable so very narrow phones ellipsis the label instead of wrapping
-   the row. */
-.pn-dropdown.pn-dd-sort {
-  flex: 0 1 126px;
-  width: 126px;
-}
-
-@media (min-width: 640px) {
-  .pn-dropdown.pn-dd-sort {
-    flex-basis: 10rem;
-    width: 10rem;
-  }
-}
-
-/* Photo-category picker: a subtle caption laid directly ON the thumbnail (over a
-   gradient scrim), so it reads as part of the photo â€” not a strip below it. Stays
-   quiet (borderless, 20px tall) with white text for legibility over the image;
-   the chevron alone invites a click to change the room type. */
-.pn-dropdown--sm.pn-dd-photocat {
-  width: 100%;
-  --dd-trigger-pad: 0 0.4rem;
-}
-
-.pn-dd-photocat .pn-dropdown__trigger {
-  height: 20px;
-  min-height: 20px;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-}
-
-.pn-dd-photocat .pn-dropdown__chev {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.pn-dd-photocat .pn-dropdown__trigger:hover {
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.pn-dropdown__trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  height: var(--dd-trigger-height, auto);
-  padding: var(--dd-trigger-pad);
-  background: var(--dd-bg);
-  border: 1px solid var(--dd-border);
-  border-radius: var(--dd-trigger-radius);
-  box-shadow: var(--dd-trigger-shadow);
-  color: var(--dd-text);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 400;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--dd-speed) var(--dd-ease), box-shadow var(--dd-speed) var(--dd-ease), background-color var(--dd-speed) var(--dd-ease);
-}
-
-.pn-dropdown__trigger:hover {
-  border-color: var(--dd-border-hover);
-  background: var(--dd-bg-hover);
-  box-shadow: var(--dd-trigger-shadow-hover);
-}
-
-.pn-dropdown__trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.pn-dropdown__value {
-  flex: 1;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.pn-dropdown__value.is-placeholder {
-  color: var(--dd-placeholder);
-}
-
-.pn-dropdown__value .pn-dropdown__prefix {
-  color: var(--dd-muted);
-  font-weight: 500;
-  margin-right: 0.4rem;
-}
-
-.pn-dropdown__chev {
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-  color: var(--dd-muted);
-  transition: transform var(--dd-speed) var(--dd-ease), color var(--dd-speed) var(--dd-ease);
-}
-
-.pn-dropdown.is-open>.pn-dropdown__trigger {
-  border-color: var(--dd-accent);
-  box-shadow: var(--dd-trigger-shadow-open);
-}
-
-.pn-dropdown.is-open .pn-dropdown__chev {
-  transform: rotate(180deg);
-  color: var(--dd-accent);
-}
-
-.pn-dropdown__menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 70;
-  display: flex;
-  flex-direction: column;
-  gap: var(--dd-menu-gap);
-  padding: var(--dd-menu-pad);
-  background: var(--dd-menu-solid);
-  background-image: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--dd-menu-radius);
-  box-shadow: var(--dd-shadow);
-  max-height: 17rem;
-  overflow-y: auto;
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  transform-origin: top center;
-  pointer-events: none;
-  transition: opacity var(--dd-speed) var(--dd-ease), transform var(--dd-speed) var(--dd-ease);
-}
-
-.pn-dropdown.is-open .pn-dropdown__menu {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-.pn-dropdown__menu--portal {
-  position: fixed;
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  pointer-events: none;
-}
-
-.pn-dropdown__menu--portal.is-portal-open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-/* â”€â”€ Dropdown as a bottom sheet (phones) â”€â”€
-   Select/MultiSelect anchor their portaled menu to the trigger with inline
-   geometry. On a phone that lands the list under the user's own hand, and for a
-   searchable field the keyboard then eats most of what's left. Below 640px the
-   component stops writing inline geometry (see `sheet` in Select/MultiSelect) and
-   these rules take over: full-width, docked to the bottom edge, scrim behind,
-   grab handle on top. Desktop never gets the class, so nothing here applies. */
-.pn-dropdown__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 9998;
-  background: rgba(0, 0, 0, 0.6);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
-}
-
-.pn-dropdown__menu--sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  top: auto;
-  z-index: 9999;
-  width: auto;
-  max-width: none;
-  max-height: 70dvh;
-  padding: 0 0.5rem calc(0.5rem + var(--pn-safe-b));
-  border-width: 1px 0 0;
-  border-radius: 1.25rem 1.25rem 0 0;
-  transform: translateY(100%);
-  transform-origin: bottom center;
-  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.pn-dropdown__menu--sheet.is-portal-open {
-  transform: translateY(0);
-}
-
-/* Grab handle. Sticky rather than static because the sheet is itself the
-   scrolling element, and a handle that scrolls away can't be dragged. */
-.pn-dropdown__menu--sheet::before {
-  content: '';
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  flex: 0 0 auto;
-  align-self: center;
-  width: 2.25rem;
-  height: 0.25rem;
-  margin: 0.625rem 0 0.5rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.pn-dropdown__menu--sheet .pn-dropdown__option {
-  white-space: normal;
-}
-
-/* Both the handle and the search box are sticky; park the search below the
-   handle so they don't pile up at top: 0. */
-.pn-dropdown__menu--sheet .pn-dropdown__search {
-  top: 1.375rem;
-}
-
-/* Overflow ("More") menu presented as an action sheet on phones â€” same docking,
-   scrim and handle as the dropdown sheet above, but the panel's own look comes
-   from utility classes in Menu.jsx. */
-.pn-action-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  top: auto;
-  z-index: 9999;
-  max-height: 70dvh;
-  overflow-y: auto;
-  padding-bottom: calc(0.375rem + var(--pn-safe-b));
-  border-width: 1px 0 0;
-  border-radius: 1.25rem 1.25rem 0 0;
-  animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.pn-action-sheet::before {
-  content: '';
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  flex: 0 0 auto;
-  align-self: center;
-  width: 2.25rem;
-  height: 0.25rem;
-  margin: 0.375rem 0 0.5rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pn-action-sheet {
-    animation: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pn-dropdown__menu--sheet {
-    transition: opacity 0.15s linear;
-    transform: none;
-  }
-}
-
-.pn-dropdown__search {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin-bottom: 0.1rem;
-  padding-bottom: 0.3rem;
-  background: var(--dd-menu-solid);
-  box-shadow: 0 -9px 0 var(--dd-menu-solid), 0 7px 0 var(--dd-menu-solid);
-}
-
-.pn-dropdown__search input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--dd-radius-sm);
-  color: var(--dd-text);
-  font: inherit;
-  font-size: 0.82rem;
-  outline: none;
-  transition: border-color var(--dd-speed) var(--dd-ease), box-shadow var(--dd-speed) var(--dd-ease);
-}
-
-.pn-dropdown__search input::placeholder {
-  color: var(--dd-placeholder);
-}
-
-.pn-dropdown__search input:focus {
-  border-color: var(--dd-accent);
-  box-shadow: 0 0 0 3px var(--dd-accent-soft);
-}
-
-.pn-dropdown__option {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  height: var(--control-h);
-  padding: var(--dd-option-pad);
-  background: transparent;
-  border: 0;
-  border-radius: var(--dd-option-radius);
-  color: #cbd5e1;
-  font: inherit;
-  font-size: 0.875rem;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.15s var(--dd-ease), color 0.15s var(--dd-ease), transform 0.15s var(--dd-ease);
-}
-
-.pn-dropdown__option .opt-icon {
-  width: 1rem;
-  height: 1rem;
-  color: var(--dd-accent);
-  flex-shrink: 0;
-}
-
-.pn-dropdown__option .opt-label {
-  flex: 1;
-  white-space: nowrap;
-}
-
-.pn-dropdown.dd-type-filter .pn-dropdown__value {
-  padding-left: 0.3rem;
-}
-
-.pn-dropdown__option .opt-icon {
-  width: 1.05rem;
-  height: 1.05rem;
-  flex-shrink: 0;
-  color: var(--dd-muted);
-  transition: color 0.15s var(--dd-ease);
-}
-
-.pn-dropdown__option:hover .opt-icon,
-.pn-dropdown__option.is-active .opt-icon,
-.pn-dropdown__option[aria-selected="true"] .opt-icon {
-  color: var(--dd-accent);
-}
-
-.pn-dropdown__option .opt-badge {
-  flex-shrink: 0;
-  min-width: 1.25rem;
-  padding: 0 0.4rem;
-  height: 1.25rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--dd-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.pn-dropdown__option:hover .opt-badge,
-.pn-dropdown__option.is-active .opt-badge,
-.pn-dropdown__option[aria-selected="true"] .opt-badge {
-  background: var(--dd-accent);
-  color: #04231e;
-}
-
-.pn-dropdown__option .opt-sub {
-  color: var(--dd-muted);
-  font-size: 0.78rem;
-}
-
-.pn-dropdown__option .opt-check {
-  width: 1rem;
-  height: 1rem;
-  margin-left: auto;
-  color: var(--dd-accent);
-  opacity: 0;
-  transform: scale(0.8);
-  transition: opacity 0.15s var(--dd-ease), transform 0.15s var(--dd-ease);
-}
-
-.pn-dropdown__option:hover,
-.pn-dropdown__option.is-active {
-  background: var(--dd-option-hover);
-  color: #ffffff;
-  transform: translateX(var(--dd-option-slide));
-}
-
-.pn-dropdown__option[aria-selected="true"] {
-  color: #ffffff;
-}
-
-.pn-dropdown__option[aria-selected="true"] .opt-check {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.pn-dropdown__empty {
-  padding: 0.75rem 0.8rem;
-  color: var(--dd-muted);
-  font-size: 0.82rem;
-  text-align: center;
-}
-
-.pn-dropdown__group {
-  padding: 0.5rem 0.8rem 0.25rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dd-muted);
-}
-
-.page-btn {
-  min-width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-
-.page-btn:hover {
-  background: rgba(79, 70, 229, 0.2);
-  color: #fff;
-}
+/* .page-btn/.page-btn:hover moved to styles/routes/listings.css (Tier 1). */
 
 /* Skeleton shimmer (listing load transition) */
 .skeleton {
@@ -3074,19 +1859,13 @@ select option:checked {
    person to touch the shimmer will be looking here. The surface stays visible â€”
    only the sweep stops â€” so the placeholder still reads as "content pending". */
 @media (prefers-reduced-motion: reduce) {
-  .skeleton::after {
-    animation: none;
-  }
+  .skeleton::after { animation: none; }
 }
 
-html.pn-reduce-motion .skeleton::after {
-  animation: none;
-}
+html.pn-reduce-motion .skeleton::after { animation: none; }
 
 @keyframes pnShimmer {
-  100% {
-    transform: translateX(100%);
-  }
+  100% { transform: translateX(100%); }
 }
 
 /* Staggered "step by step" entrance for listing sections + cards. Matches the
@@ -3116,157 +1895,7 @@ html.pn-reduce-motion .skeleton::after {
   }
 }
 
-/* â”€â”€ Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) â”€â”€ */
-/* Base page canvas. The left half is painted over by .auth-left; this gradient is
-   what shows through the right (form) column, so it lifts that side out of flat
-   black into a deep teal-navy console that matches the brand without competing
-   with the card. Mobile hides this behind .auth-mobile-bg. */
-.auth-page {
-  position: relative;
-  background: radial-gradient(125% 120% at 84% 14%, #17243f 0%, #111a2d 44%, #0d1322 72%, var(--brand-dark) 100%);
-}
-
-@media (min-width: 1024px) {
-
-  /* Soft teal aura behind the form card so the right half reads as lit, not empty. */
-  .auth-page::after {
-    content: '';
-    position: absolute;
-    z-index: 0;
-    right: 6%;
-    top: 18%;
-    width: 40vw;
-    max-width: 560px;
-    height: 62%;
-    border-radius: 50%;
-    background: radial-gradient(closest-side, rgba(20, 184, 166, .16), rgba(20, 184, 166, .05) 55%, transparent 76%);
-    filter: blur(30px);
-    pointer-events: none;
-  }
-}
-
-.auth-page .auth-left {
-  background: linear-gradient(135deg, #0f172a 0%, #134e4a 40%, var(--teal-1) 70%, #0f172a 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.auth-page .auth-left::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle at 30% 70%, rgba(20, 184, 166, .1) 0%, transparent 50%), radial-gradient(circle at 70% 30%, rgba(13, 148, 136, .15) 0%, transparent 50%);
-  animation: pnPanelGlow 15s ease-in-out infinite;
-}
-
-@keyframes pnPanelGlow {
-
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-
-  50% {
-    transform: translate(-5%, 5%);
-  }
-}
-
-.auth-page .floating-shape {
-  position: absolute;
-  border-radius: 50%;
-  opacity: .15;
-  animation: pnFloatShape 8s ease-in-out infinite;
-}
-
-.auth-page .floating-shape:nth-child(2) {
-  animation-delay: -2s;
-  animation-duration: 10s;
-}
-
-.auth-page .floating-shape:nth-child(3) {
-  animation-delay: -4s;
-  animation-duration: 12s;
-}
-
-.auth-page .floating-shape:nth-child(4) {
-  animation-delay: -6s;
-  animation-duration: 9s;
-}
-
-@keyframes pnFloatShape {
-
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg) scale(1);
-  }
-
-  25% {
-    transform: translateY(-30px) rotate(5deg) scale(1.05);
-  }
-
-  50% {
-    transform: translateY(-15px) rotate(-3deg) scale(.95);
-  }
-
-  75% {
-    transform: translateY(-25px) rotate(4deg) scale(1.02);
-  }
-}
-
-.auth-page .slide-up {
-  opacity: 0;
-  transform: translateY(30px);
-  animation: pnSlideUp .7s cubic-bezier(.4, 0, .2, 1) forwards;
-}
-
-.auth-page .slide-up-delay-1 {
-  animation-delay: .1s;
-}
-
-.auth-page .slide-up-delay-2 {
-  animation-delay: .2s;
-}
-
-.auth-page .slide-up-delay-3 {
-  animation-delay: .3s;
-}
-
-.auth-page .slide-up-delay-4 {
-  animation-delay: .4s;
-}
-
-@keyframes pnSlideUp {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.auth-page .slide-right {
-  opacity: 0;
-  transform: translateX(-40px);
-  animation: pnSlideRight .8s cubic-bezier(.4, 0, .2, 1) forwards;
-}
-
-@keyframes pnSlideRight {
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.auth-page .stat-card {
-  background: rgba(255, 255, 255, .08);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, .1);
-}
-
-.auth-page .country-prefix {
-  background: rgba(255, 255, 255, .08);
-}
+/* .auth-page split-screen OTP login (both fragments, wrapping the .otp-* island below) moved to styles/routes/auth.css (Tier 1). */
 
 /* OTP box styles â€” global (used on signin, signup, staff-login, list-property) */
 .otp-container {
@@ -3295,9 +1924,7 @@ html.pn-reduce-motion .skeleton::after {
 }
 
 @media (max-width: 380px) {
-  .otp-container {
-    gap: 6px;
-  }
+  .otp-container { gap: 6px; }
 }
 
 .otp-box:focus {
@@ -3316,198 +1943,12 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, .15);
 }
 
-.auth-page .send-otp-btn {
-  background: linear-gradient(135deg, rgba(20, 184, 166, .15), rgba(79, 70, 229, .15));
-  border: 1px solid rgba(20, 184, 166, .3);
-  transition: all .3s cubic-bezier(.4, 0, .2, 1);
-}
+/* .auth-page OTP button + role chips + mobile edge-lit theme moved to styles/routes/auth.css (Tier 1). */
 
-.auth-page .send-otp-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(20, 184, 166, .25), rgba(79, 70, 229, .25));
-  border-color: rgba(20, 184, 166, .5);
-  transform: translateY(-1px);
-}
-
-.auth-page .send-otp-btn:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-.auth-page .role-chip {
-  cursor: pointer;
-  transition: all .3s cubic-bezier(.4, 0, .2, 1);
-  border: 1px solid rgba(255, 255, 255, .1);
-  background: rgba(255, 255, 255, .03);
-}
-
-.auth-page .role-chip:hover {
-  border-color: rgba(20, 184, 166, .4);
-  background: rgba(20, 184, 166, .06);
-}
-
-.auth-page .role-chip.selected {
-  border-color: var(--teal-2);
-  background: rgba(20, 184, 166, .12);
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
-}
-
-/* â”€â”€ Mobile auth "edge-lit proptech" theme (â‰¤lg) â”€â”€
-   Desktop keeps its split-screen; mobile hides the left panel, so we give the
-   whole screen a techy identity: an ambient teal aurora + fine tech-grid backdrop
-   behind a lit, gradient-ring form card. Reuses brand teal tokens only. */
-.auth-page .auth-mobile-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: radial-gradient(150% 100% at 50% -12%, #16223d 0%, #0f1526 42%, var(--brand-dark) 78%);
-}
-
-.auth-page .auth-mobile-bg::before {
-  content: '';
-  position: absolute;
-  inset: -25%;
-  background: radial-gradient(42% 30% at 50% 3%, rgba(45, 212, 191, .30), transparent 70%), radial-gradient(38% 30% at 84% 16%, rgba(20, 184, 166, .22), transparent 72%), radial-gradient(44% 32% at 12% 24%, rgba(13, 148, 136, .22), transparent 72%);
-  filter: blur(8px);
-  animation: pnAuroraDrift 22s ease-in-out infinite;
-}
-
-.auth-page .auth-mobile-bg::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
-  background-size: 34px 34px;
-  -webkit-mask-image: radial-gradient(125% 66% at 50% 0%, #000 20%, transparent 74%);
-  mask-image: radial-gradient(125% 66% at 50% 0%, #000 20%, transparent 74%);
-}
-
-@keyframes pnAuroraDrift {
-
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-
-  50% {
-    transform: translate(-4%, 3%) scale(1.06);
-  }
-}
-
-/* Glowing brand badge + live-status dot (rendered only in the mobile intro). */
-.auth-page .auth-brand-badge {
-  box-shadow: 0 10px 26px -6px rgba(20, 184, 166, .6), inset 0 0 0 1px rgba(45, 212, 191, .28);
-}
-
-.auth-page .auth-live-dot {
-  position: relative;
-  box-shadow: 0 0 8px rgba(45, 212, 191, .9);
-}
-
-.auth-page .auth-live-dot::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  background: rgba(45, 212, 191, .45);
-  animation: pnLivePulse 2s ease-out infinite;
-}
-
-@keyframes pnLivePulse {
-  0% {
-    transform: scale(.5);
-    opacity: .7;
-  }
-
-  100% {
-    transform: scale(1.9);
-    opacity: 0;
-  }
-}
-
-@media (max-width: 1023px) {
-
-  /* Lit "console" card: translucent gradient fill, teal drop-glow, and a 1px
-     gradient ring that catches light on the top-left edge. */
-  .auth-page .auth-card {
-    position: relative;
-    background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .022));
-    border: 1px solid rgba(255, 255, 255, .08);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 24px 60px -26px rgba(20, 184, 166, .5), 0 34px 90px -52px rgba(0, 0, 0, .9);
-  }
-
-  .auth-page .auth-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(158deg, rgba(45, 212, 191, .6), rgba(20, 184, 166, .08) 34%, transparent 62%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-page .auth-mobile-bg::before {
-    animation: none;
-  }
-
-  .auth-page .auth-live-dot::after {
-    animation: none;
-  }
-}
-
-.page-btn.active {
-  background: var(--brand-gradient);
-  color: #fff;
-}
-
-.badge-verified {
-  background: var(--brand-gradient);
-}
-
-.badge-premium {
-  background: linear-gradient(135deg, #f97316, #fb923c);
-}
-
-.badge-new {
-  background: var(--brand-gradient);
-}
-
-.badge-furnished {
-  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
-}
-
-.badge-rera {
-  background: linear-gradient(135deg, #059669, #10b981);
-}
-
-.badge-verified-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45);
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-}
-
-.badge-verified-icon svg {
-  width: 16px;
-  height: 16px;
-}
+/* .page-btn.active + .badge-* moved to styles/routes/listings.css (Tier 1). */
 
 /* List view card (redesigned row) â€” ported from listings.html */
-.list-card {
-  display: block;
-}
+.list-card { display: block; }
 
 .list-card .lr {
   display: flex;
@@ -3537,9 +1978,7 @@ html.pn-reduce-motion .skeleton::after {
   padding: 18px 20px;
 }
 
-.list-card .lr-info {
-  min-width: 0;
-}
+.list-card .lr-info { min-width: 0; }
 
 .list-card .lr-aside {
   flex-shrink: 0;
@@ -3569,14 +2008,10 @@ html.pn-reduce-motion .skeleton::after {
   white-space: nowrap;
 }
 
-.list-card:hover .lr-cta {
-  gap: 7px;
-}
+.list-card:hover .lr-cta { gap: 7px; }
 
 @media (max-width: 768px) {
-  .list-card .lr {
-    flex-direction: column;
-  }
+  .list-card .lr { flex-direction: column; }
 
   .list-card .lr-img {
     width: 100%;
@@ -3602,9 +2037,7 @@ html.pn-reduce-motion .skeleton::after {
 /* ============================================================================
    Property page (ported verbatim from property.html <style>)
    ============================================================================ */
-.transition-smooth {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.transition-smooth { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
 .fade-in {
   opacity: 0;
@@ -3629,13 +2062,9 @@ html.pn-reduce-motion .skeleton::after {
   border-radius: 1rem;
 }
 
-.main-image-wrapper img {
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.main-image-wrapper img { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 
-.main-image-wrapper:hover img {
-  transform: scale(1.05);
-}
+.main-image-wrapper:hover img { transform: scale(1.05); }
 
 .thumbnail {
   cursor: pointer;
@@ -3651,13 +2080,9 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: 0 0 16px rgba(20, 184, 166, 0.3);
 }
 
-.thumbnail img {
-  transition: transform 0.3s ease;
-}
+.thumbnail img { transition: transform 0.3s ease; }
 
-.thumbnail:hover img {
-  transform: scale(1.1);
-}
+.thumbnail:hover img { transform: scale(1.1); }
 
 /* Chip used in list context — rent inventory, tenant list, price insights and the
    similar-property cards. Stays boxed; only the property-header rail below opts out. */
@@ -3673,9 +2098,7 @@ html.pn-reduce-motion .skeleton::after {
   display: inline-flex;
 }
 
-.tag:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
+.tag:hover { background: rgba(255, 255, 255, 0.12); }
 
 /* Property-header trust panel — ONE tile, not N badges.
 
@@ -3736,9 +2159,7 @@ html.pn-reduce-motion .skeleton::after {
   color: #64748b;
 }
 
-.tag-strip .tag-emerald svg {
-  color: #34d399;
-}
+.tag-strip .tag-emerald svg { color: #34d399; }
 
 /* No box of its own to outline, so the focus ring supplies one. */
 .tag-strip .tag:focus-visible {
@@ -3803,179 +2224,7 @@ html.pn-reduce-motion .skeleton::after {
   border-color: rgba(20, 184, 166, 0.25);
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   BUTTON SYSTEM â€” single source of truth. Three tiers:
-     .btn-primary   â†’ the one main action per view (teal gradient)
-     .btn-secondary â†’ supporting actions (outline/ghost)
-     .btn-icon      â†’ compact square icon-only utility button
-   Sizes: .btn-sm (32px) Â· default (40px) Â· .btn-lg (48px).
-   Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
-   long tail of existing buttons inherits this system without per-file edits.
-   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-.btn,
-.btn-teal,
-.btn-outline,
-.pn-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  height: var(--btn-h);
-  padding: 0 1.125rem;
-  border-radius: var(--btn-radius);
-  font-family: inherit;
-  font-size: var(--control-font);
-  font-weight: var(--control-weight-action);
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #fff;
-  box-sizing: border-box;
-  user-select: none;
-  text-decoration: none;
-  transition: background-color .25s ease, border-color .25s ease, box-shadow .25s ease, transform .25s ease, filter .25s ease;
-}
-
-.btn:focus-visible,
-.btn-teal:focus-visible,
-.btn-outline:focus-visible,
-.pn-btn:focus-visible {
-  outline: 2px solid var(--teal-2);
-  outline-offset: 2px;
-}
-
-.btn:disabled,
-.btn[aria-disabled="true"],
-.btn.is-disabled,
-.btn-teal:disabled,
-.btn-outline:disabled,
-.pn-btn:disabled {
-  opacity: .55;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.btn.is-loading {
-  pointer-events: none;
-}
-
-/* Tier 1 â€” primary */
-.btn-primary,
-.btn-teal,
-.pn-btn-primary {
-  background: var(--btn-primary-grad);
-  color: #fff;
-  border-color: transparent;
-  box-shadow: var(--btn-primary-shadow);
-}
-
-.btn-primary:hover,
-.btn-teal:hover,
-.pn-btn-primary:hover {
-  box-shadow: var(--btn-primary-shadow-hover);
-  filter: brightness(1.05);
-  transform: translateY(-1px);
-}
-
-.btn-primary:active,
-.btn-teal:active,
-.pn-btn-primary:active {
-  transform: translateY(0);
-}
-
-/* Tier 2 â€” secondary */
-.btn-secondary,
-.btn-outline,
-.pn-btn-ghost {
-  background: var(--control-bg);
-  color: #e5e7eb;
-  border-color: rgba(255, 255, 255, .14);
-  box-shadow: none;
-}
-
-.btn-secondary:hover,
-.btn-outline:hover,
-.pn-btn-ghost:hover {
-  border-color: rgba(20, 184, 166, .5);
-  color: #fff;
-  background: rgba(20, 184, 166, .08);
-}
-
-.btn-secondary:active,
-.btn-outline:active,
-.pn-btn-ghost:active {
-  transform: translateY(1px);
-}
-
-/* Tier 3 â€” compact icon-only */
-.btn-icon {
-  width: var(--btn-h);
-  height: var(--btn-h);
-  padding: 0;
-  gap: 0;
-  flex: none;
-  background: var(--control-bg);
-  border-color: rgba(255, 255, 255, .1);
-  color: #cbd5e1;
-}
-
-.btn-icon:hover {
-  background: var(--control-bg-hover);
-  border-color: rgba(255, 255, 255, .2);
-  color: #fff;
-}
-
-/* Sizes */
-.btn-sm,
-.pn-btn-sm {
-  height: var(--btn-h-sm);
-  padding: 0 .7rem;
-  font-size: .8rem;
-}
-
-.btn-lg {
-  height: var(--btn-h-lg);
-  padding: 0 1.5rem;
-}
-
-.btn-icon.btn-sm {
-  width: var(--btn-h-sm);
-  padding: 0;
-}
-
-.btn-icon.btn-lg {
-  width: var(--btn-h-lg);
-  padding: 0;
-}
-
-/* Color modifiers (apply on primary) */
-.btn-success,
-.pn-btn-success {
-  background: #10b981;
-  color: #052018;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.btn-success:hover,
-.pn-btn-success:hover {
-  filter: brightness(1.08);
-}
-
-.btn-danger,
-.pn-btn-danger {
-  background: rgba(244, 63, 94, .15);
-  color: #fda4af;
-  border-color: rgba(244, 63, 94, .3);
-  box-shadow: none;
-}
-
-.btn-danger:hover,
-.pn-btn-danger:hover {
-  background: rgba(244, 63, 94, .25);
-}
+/* → moved to styles/components/buttons.css (Tier 0 — shared, loaded from main.jsx) */
 
 .icon-btn {
   width: 48px;
@@ -4041,13 +2290,9 @@ html.pn-reduce-motion .skeleton::after {
 }
 
 @keyframes pnLbFade {
-  from {
-    opacity: 0;
-  }
+  from { opacity: 0; }
 
-  to {
-    opacity: 1;
-  }
+  to { opacity: 1; }
 }
 
 .pn-lb-stage {
@@ -4088,9 +2333,7 @@ html.pn-reduce-motion .skeleton::after {
   transition: all 0.2s ease;
 }
 
-.pn-lb-close:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
+.pn-lb-close:hover { background: rgba(255, 255, 255, 0.16); }
 
 .pn-lb-nav {
   width: 48px;
@@ -4310,13 +2553,9 @@ html.pn-reduce-motion .skeleton::after {
 }
 
 @keyframes pnSheetUp {
-  from {
-    transform: translateY(100%);
-  }
+  from { transform: translateY(100%); }
 
-  to {
-    transform: none;
-  }
+  to { transform: none; }
 }
 
 .pn-sticky-cta {
@@ -4376,9 +2615,7 @@ html.pn-reduce-motion .skeleton::after {
     padding-right: 0.75rem;
   }
 
-  .lp-step-actions>button:last-child {
-    flex: 1.6 1 0;
-  }
+  .lp-step-actions>button:last-child { flex: 1.6 1 0; }
 
   /* Auth submit. The signin/signup card is short enough on a desktop viewport,
      but with the software keyboard up on a ~640px device the primary action is
@@ -4398,20 +2635,7 @@ html.pn-reduce-motion .skeleton::after {
 /* ============================================================================
    Owner page (ported from owner.html <style>)
    ============================================================================ */
-.glass-card {
-  background: rgba(255, 255, 255, .05);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, .08);
-}
-
-/* Dashboard "tools" row: opaque cards so backdrop-filter can't blur the contrasty
-   edge of the listings panel above into a faint horizontal band across each card. */
-.dash-tools-row .glass-card {
-  background: rgba(20, 18, 40, .94);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
+/* → moved to styles/components/surfaces.css (Tier 0 — shared, loaded from main.jsx) */
 
 .prop-row {
   background: rgba(255, 255, 255, .04);
@@ -4424,17 +2648,11 @@ html.pn-reduce-motion .skeleton::after {
   transform: translateY(-2px);
 }
 
-.prop-row img {
-  transition: transform .5s ease;
-}
+.prop-row img { transition: transform .5s ease; }
 
-.prop-row:hover img {
-  transform: scale(1.06);
-}
+.prop-row:hover img { transform: scale(1.06); }
 
-.cover {
-  background: var(--hero-gradient);
-}
+.cover { background: var(--hero-gradient); }
 
 .star-pick i,
 .star-pick button {
@@ -4443,9 +2661,7 @@ html.pn-reduce-motion .skeleton::after {
 }
 
 .star-pick i:hover,
-.star-pick button:hover {
-  transform: scale(1.2);
-}
+.star-pick button:hover { transform: scale(1.2); }
 
 .field:focus {
   border-color: var(--teal-2) !important;
@@ -4460,9 +2676,7 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: 0 0 0 3px rgba(248, 113, 113, .22) !important;
 }
 
-.pn-shake {
-  animation: pnShake .38s ease;
-}
+.pn-shake { animation: pnShake .38s ease; }
 
 /* One-place styling for the inline required-field message (FieldError component). */
 .pn-field-error {
@@ -4475,25 +2689,15 @@ html.pn-reduce-motion .skeleton::after {
 @keyframes pnShake {
 
   0%,
-  100% {
-    transform: translateX(0);
-  }
+  100% { transform: translateX(0); }
 
-  20% {
-    transform: translateX(-5px);
-  }
+  20% { transform: translateX(-5px); }
 
-  40% {
-    transform: translateX(5px);
-  }
+  40% { transform: translateX(5px); }
 
-  60% {
-    transform: translateX(-3px);
-  }
+  60% { transform: translateX(-3px); }
 
-  80% {
-    transform: translateX(3px);
-  }
+  80% { transform: translateX(3px); }
 }
 
 .ro-opt {
@@ -4501,9 +2705,7 @@ html.pn-reduce-motion .skeleton::after {
   transition: all .2s ease;
 }
 
-.ro-opt:hover {
-  background: rgba(255, 255, 255, .04);
-}
+.ro-opt:hover { background: rgba(255, 255, 255, .04); }
 
 .ro-opt.sel {
   border-color: rgba(244, 63, 94, .5);
@@ -4511,9 +2713,7 @@ html.pn-reduce-motion .skeleton::after {
   color: #fff;
 }
 
-.ro-opt .ro-dot {
-  transition: all .2s ease;
-}
+.ro-opt .ro-dot { transition: all .2s ease; }
 
 .ro-opt.sel .ro-dot {
   border-color: #f43f5e;
@@ -4540,9 +2740,7 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
 }
 
-.faq-q {
-  cursor: pointer;
-}
+.faq-q { cursor: pointer; }
 
 .faq-a {
   max-height: 0;
@@ -4550,26 +2748,18 @@ html.pn-reduce-motion .skeleton::after {
   transition: max-height .35s ease;
 }
 
-.faq-item.open .faq-a {
-  max-height: 320px;
-}
+.faq-item.open .faq-a { max-height: 320px; }
 
-.faq-item.open .faq-chev {
-  transform: rotate(180deg);
-}
+.faq-item.open .faq-chev { transform: rotate(180deg); }
 
-.faq-chev {
-  transition: transform .3s ease;
-}
+.faq-chev { transition: transform .3s ease; }
 
 /* Service hero quick-quote form. The card sits over the bright teal hero gradient,
    which washed the translucent controls teal and hid the select placeholders. Give
    every control the same legible, slightly-opaque surface, and align the custom
    select trigger to the rounded-rect inputs instead of the global pill so the form
    reads as one consistent set of fields. Scoped to the form via .svc-quote. */
-.svc-quote {
-  background: rgba(9, 14, 26, .72);
-}
+.svc-quote { background: rgba(9, 14, 26, .72); }
 
 .svc-quote .field,
 .svc-quote .pn-dropdown__trigger,
@@ -4584,9 +2774,7 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: none;
 }
 
-.svc-quote .pn-dropdown__value.is-placeholder {
-  color: #9ca3af;
-}
+.svc-quote .pn-dropdown__value.is-placeholder { color: #9ca3af; }
 
 .svc-quote .pn-dropdown__trigger:hover {
   background: rgba(2, 6, 23, .62);
@@ -4691,9 +2879,7 @@ html.pn-reduce-motion .skeleton::after {
   background: rgba(255, 255, 255, .06);
 }
 
-.notif.unread {
-  border-left: 3px solid var(--teal-2);
-}
+.notif.unread { border-left: 3px solid var(--teal-2); }
 
 .seg {
   height: var(--control-h);
@@ -4714,9 +2900,7 @@ html.pn-reduce-motion .skeleton::after {
 
 /* Rent/Buy intent switch on the listings page â€” brand-gradient active pill,
    concentric inner buttons (matches the List|Map .sf-seg pattern). */
-.deal-seg-btn {
-  transition: color .2s ease, background .2s ease, box-shadow .2s ease;
-}
+.deal-seg-btn { transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
 
 .deal-seg-btn.is-active {
   background: var(--brand-gradient);
@@ -4730,96 +2914,13 @@ html.pn-reduce-motion .skeleton::after {
   box-shadow: 0 0 40px rgba(20, 184, 166, .12);
 }
 
-details>summary {
-  list-style: none;
-}
+details>summary { list-style: none; }
 
-details>summary::-webkit-details-marker {
-  display: none;
-}
+details>summary::-webkit-details-marker { display: none; }
 
-details[open] .faq-chevron {
-  transform: rotate(180deg);
-}
+details[open] .faq-chevron { transform: rotate(180deg); }
 
-/* EMI calculator range sliders + num field.
-
-   The fill percentage arrives as --emi-pct from EmiCalculator.jsx; the gradient is
-   built here so a media query can restyle the rail (see the coarse-pointer block
-   below). */
-.emi-page input[type=range] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 6px;
-  border-radius: 999px;
-  outline: none;
-  background: linear-gradient(90deg, var(--teal-2) var(--emi-pct, 0%), rgba(255, 255, 255, 0.1) var(--emi-pct, 0%));
-}
-
-.emi-page input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  cursor: pointer;
-  border: 3px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
-  transition: transform .15s;
-}
-
-.emi-page input[type=range]::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-}
-
-.emi-page input[type=range]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--teal-2);
-  cursor: pointer;
-  border: 3px solid #0f0d1a;
-  box-shadow: 0 0 0 1px var(--teal-2);
-}
-
-.emi-page input[type=range]:focus-visible {
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .25);
-}
-
-/* These sliders predate the .rng touch block above and never got the same
-   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px â€”
-   both well under the 44px floor, on the three controls this page exists for.
-
-   The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
-   than a slider. Only the element grows, with the gradient pinned to a centred 6px
-   band so the visual is byte-identical while the finger gets a 32px strip. This is
-   the same trade .tap-extend makes for icon buttons â€” extend the target, not the
-   drawing. Painting the band requires background-size/position, which is why the
-   gradient moved out of the component's inline style. */
-@media (pointer: coarse) {
-  .emi-page input[type=range] {
-    height: 32px;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 100% 6px;
-  }
-
-  .emi-page input[type=range]::-webkit-slider-thumb {
-    width: 28px;
-    height: 28px;
-  }
-
-  .emi-page input[type=range]::-moz-range-thumb {
-    width: 28px;
-    height: 28px;
-  }
-}
-
-.num-field:focus {
-  border-color: var(--teal-2) !important;
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
-  outline: none;
-}
+/* EMI calculator range sliders + .num-field moved to styles/routes/emi.css (Tier 1, lazy EmiCalculator.jsx => own chunk). */
 
 /* Tenant profile + Checkout */
 .fld {
@@ -4833,13 +2934,9 @@ details[open] .faq-chevron {
   outline: none;
 }
 
-.fld:focus {
-  border-color: rgba(20, 184, 166, .5);
-}
+.fld:focus { border-color: rgba(20, 184, 166, .5); }
 
-.fld::placeholder {
-  color: #64748b;
-}
+.fld::placeholder { color: #64748b; }
 
 label.lbl {
   display: block;
@@ -4857,9 +2954,7 @@ label.lbl {
   transition: all .2s;
 }
 
-.method:hover {
-  border-color: rgba(255, 255, 255, .2);
-}
+.method:hover { border-color: rgba(255, 255, 255, .2); }
 
 .method.active {
   border-color: rgba(20, 184, 166, .6);
@@ -4874,9 +2969,7 @@ label.lbl {
   cursor: pointer;
 }
 
-.pick:hover {
-  border-color: rgba(20, 184, 166, .4);
-}
+.pick:hover { border-color: rgba(20, 184, 166, .4); }
 
 .pick.sel {
   border-color: var(--teal-2);
@@ -4898,9 +2991,7 @@ label.lbl {
   gap: 6px;
 }
 
-.soc-page .star {
-  color: #f59e0b;
-}
+.soc-page .star { color: #f59e0b; }
 
 /* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
 .sr-only {
@@ -4915,95 +3006,7 @@ label.lbl {
   border: 0;
 }
 /* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
-/* Saved properties page */
-.saved-page .property-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.saved-page .property-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(20, 184, 166, 0.2);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 40px rgba(20, 184, 166, 0.05);
-}
-
-.saved-page .property-card .card-image {
-  overflow: hidden;
-}
-
-.saved-page .property-card .card-image img {
-  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.saved-page .property-card:hover .card-image img {
-  transform: scale(1.08);
-}
-
-.saved-page .property-card.removing {
-  opacity: 0;
-  transform: scale(0.95) translateY(10px);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.saved-page .remove-btn {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.saved-page .remove-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-
-.saved-page .fade-in-delay-1 {
-  transition-delay: 0.1s;
-}
-
-.saved-page .fade-in-delay-2 {
-  transition-delay: 0.2s;
-}
-
-.saved-page .fade-in-delay-3 {
-  transition-delay: 0.3s;
-}
-
-.saved-page .type-badge {
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(79, 70, 229, 0.15));
-  border: 1px solid rgba(20, 184, 166, 0.2);
-}
-
-.saved-page .tab-count {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
-}
-
-.saved-page .saved-tab.active .tab-count {
-  background: rgba(20, 184, 166, 0.2);
-  border-color: rgba(20, 184, 166, 0.4);
-  color: #5eead4;
-}
-
-.saved-page .empty-state {
-  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-
-.saved-page .heart-pulse {
-  animation: heartPulse 2s ease-in-out infinite;
-}
-
-@keyframes heartPulse {
-
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.1);
-  }
-}
+/* Saved / shortlist page moved to styles/routes/saved.css (Tier 1). */
 
 /* Pay rent tabs */
 .tabbtn {
@@ -5035,9 +3038,7 @@ label.lbl {
   transition: color .2s ease, border-color .2s ease;
 }
 
-.pn-detail-tab:hover {
-  color: #fff;
-}
+.pn-detail-tab:hover { color: #fff; }
 
 .pn-detail-tab.is-active {
   color: #5eead4;
@@ -5045,9 +3046,7 @@ label.lbl {
 }
 
 /* Option info tooltips (<Tip/>) â€” hover/focus/tap a tile to learn what it means */
-[data-tip] {
-  cursor: help;
-}
+[data-tip] { cursor: help; }
 
 [data-tip]:focus-visible {
   outline: 2px solid var(--teal-2);
@@ -5095,71 +3094,10 @@ label.lbl {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-tip {
-    animation: none;
-  }
+  .pn-tip { animation: none; }
 }
 
-/* Locality insights page */
-.loc-page .field {
-  transition: all .25s ease;
-}
-
-/* Tab-panel content is user-triggered, not scroll-triggered: keep it visible
-   immediately (scroll-reveal never fires for panels swapped in below the fold). */
-.loc-page [role="tabpanel"] .reveal {
-  opacity: 1;
-  transform: none;
-}
-
-.loc-page .kpi {
-  transition: transform .3s cubic-bezier(.4, 0, .2, 1), border-color .3s;
-}
-
-.loc-page .kpi:hover {
-  transform: translateY(-4px);
-  border-color: rgba(20, 184, 166, .3);
-}
-
-.loc-page .chip {
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  transition: all .2s ease;
-  cursor: pointer;
-}
-
-.loc-page .chip:hover {
-  border-color: rgba(20, 184, 166, .4);
-  color: #fff;
-}
-
-.loc-page .chip.on {
-  background: rgba(20, 184, 166, .18);
-  border-color: var(--teal-2);
-  color: #5eead4;
-}
-
-.loc-page .lb-row {
-  transition: background .2s ease;
-  cursor: pointer;
-}
-
-.loc-page .lb-row:hover {
-  background: rgba(20, 184, 166, .06);
-}
-
-.loc-page .lb-row.active {
-  background: rgba(20, 184, 166, .1);
-}
-
-.loc-page th.sortable {
-  cursor: pointer;
-  user-select: none;
-}
-
-.loc-page th.sortable:hover {
-  color: #5eead4;
-}
+/* Locality insights page moved to styles/routes/locality.css (Tier 1). */
 
 /* â†’ moved to styles/routes/property-map.css (loaded with its route chunk) */
 /* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
@@ -5183,38 +3121,18 @@ label.lbl {
   max-height: none !important;
 }
 
-.gm-style .gm-style-iw-tc::after {
-  background: var(--brand-card);
-}
+.gm-style .gm-style-iw-tc::after { background: var(--brand-card); }
 
-.gm-style .pn-gm-iw-prop .pn-mp-card {
-  width: 268px;
-}
+.gm-style .pn-gm-iw-prop .pn-mp-card { width: 268px; }
 
-.gm-style .pn-gm-iw-share .pn-sp {
-  width: 252px;
-}
+.gm-style .pn-gm-iw-share .pn-sp { width: 252px; }
 
 /* Hide the Google fullscreen control. On cloud-styled (mapId) maps the
    fullscreenControl:false option is ignored, so we strip the button here.
    (mapTypeControl / streetViewControl are honoured via <Map> props.) */
-.gm-style .gm-fullscreen-control {
-  display: none !important;
-}
+.gm-style .gm-fullscreen-control { display: none !important; }
 
-/* View-documents secure viewer */
-.vd-page {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  user-select: none;
-}
-
-.vd-page .glass-nav {
-  background: rgba(15, 13, 26, .85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
-}
+/* View-documents secure viewer moved to styles/routes/view-documents.css (Tier 1). */
 
 /* â†’ moved to styles/routes/messages.css (loaded with its route chunk) */
 /* Mobile: Messages is a native, full-screen chat. Drop the marketing footer +
@@ -5223,16 +3141,12 @@ label.lbl {
 @media (max-width: 767px) {
 
   .route-messages>footer,
-  .route-messages>.pn-assistant-slot {
-    display: none;
-  }
+  .route-messages>.pn-assistant-slot { display: none; }
 
   /* Focused mobile auth funnel (/signin, /signup, /staff-login): drop the marketing
      footer + floating assistant so nothing overlaps the form CTA. Desktop keeps both. */
   .route-auth>footer,
-  .route-auth>.pn-assistant-slot {
-    display: none;
-  }
+  .route-auth>.pn-assistant-slot { display: none; }
 
   .messages-page {
     padding-top: 0;
@@ -5253,68 +3167,10 @@ label.lbl {
   }
 
   /* A touch more headroom for message bubbles on small screens. */
-  .messages-page .pc-msgs {
-    padding: 14px 14px 6px;
-  }
+  .messages-page .pc-msgs { padding: 14px 14px 6px; }
 }
 
 /* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
-/* List | Map segmented control â€” height matches the search field (h-10). Inner
-   buttons are rounded-full and inset by 4px so their corners are concentric with
-   the container's, eliminating the corner-collision of the old pill-in-pill. */
-.sf-page .sf-seg {
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  padding: 4px;
-  gap: 4px;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 9999px;
-  box-sizing: border-box;
-}
-
-.sf-page .sf-seg__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: .5rem;
-  height: 100%;
-  padding: 0 0.95rem;
-  border-radius: 9999px;
-  font-size: .875rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  white-space: nowrap;
-  transition: color .2s ease, background .2s ease;
-}
-
-.sf-page .sf-seg__btn:hover:not(.is-active) {
-  color: #fff;
-}
-
-.sf-page .sf-seg__btn.is-active {
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(20, 184, 166, .25);
-}
-
-.sf-page .sf-match-great {
-  background: var(--brand-gradient);
-  box-shadow: 0 2px 10px rgba(20, 184, 166, .25);
-}
-
-.sf-page .sf-match-good {
-  background: rgba(20, 184, 166, .14);
-  border: 1px solid rgba(20, 184, 166, .4);
-  color: #5eead4;
-}
-
-.sf-page .sf-fresh {
-  background: rgba(251, 191, 36, .14);
-  border: 1px solid rgba(251, 191, 36, .4);
-  color: #fcd34d;
-}
 
 .sf-modal {
   position: fixed;
@@ -5363,9 +3219,7 @@ label.lbl {
   box-sizing: border-box;
 }
 
-.pn-input::placeholder {
-  color: #9ca3af;
-}
+.pn-input::placeholder { color: #9ca3af; }
 
 .pn-input:focus {
   border-color: rgba(20, 184, 166, .5);
@@ -5388,9 +3242,7 @@ label.lbl {
    itself is handled by base/`sm:` Tailwind classes in Modal.jsx; this only adds
    the grab handle and the slide-up, both of which are mobile-only. */
 @media (max-width: 639.98px) {
-  .pn-modal-sheet {
-    animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-  }
+  .pn-modal-sheet { animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
 
   .pn-modal-sheet::before {
     content: '';
@@ -5411,23 +3263,17 @@ label.lbl {
 
   /* Sheets: keep the position change, drop the slide-up */
   .pn-modal,
-  .pn-modal-sheet {
-    animation: none;
-  }
+  .pn-modal-sheet { animation: none; }
 
   /* Hero */
-  .hero-bg {
-    animation: none;
-  }
+  .hero-bg { animation: none; }
 
   .shape,
   .shape-1,
   .shape-2,
   .shape-3,
   .shape-4,
-  .shape-5 {
-    animation: none;
-  }
+  .shape-5 { animation: none; }
 
   .hero-word,
   .hero-sub,
@@ -5440,33 +3286,21 @@ label.lbl {
     opacity: 1;
   }
 
-  .ticker-ping {
-    animation: none;
-  }
+  .ticker-ping { animation: none; }
 
   /* Cards & interactions */
-  .heart-pop {
-    animation: none;
-  }
+  .heart-pop { animation: none; }
 
   .property-card,
-  .cat-card {
-    transition: none;
-  }
+  .cat-card { transition: none; }
 
-  .card-img-wrap img {
-    transition: none;
-  }
+  .card-img-wrap img { transition: none; }
 
   .property-card:hover,
-  .cat-card:hover {
-    transform: none;
-  }
+  .cat-card:hover { transform: none; }
 
   /* CTA floating shapes */
-  [class*="ctaFloat"] {
-    animation: none;
-  }
+  [class*="ctaFloat"] { animation: none; }
 
   /* Scroll reveal â€” show immediately */
   .reveal {
@@ -5482,14 +3316,10 @@ label.lbl {
   }
 
   /* Services card pop */
-  .svc-pop {
-    animation: none;
-  }
+  .svc-pop { animation: none; }
 
   /* General transitions â€” keep colors but disable motion */
-  .t-all {
-    transition: color 0.2s, background-color 0.2s, border-color 0.2s;
-  }
+  .t-all { transition: color 0.2s, background-color 0.2s, border-color 0.2s; }
 }
 
 /* User-toggled "Reduce motion" (Settings â–¸ Appearance). Mirrors the OS-level
@@ -5504,9 +3334,7 @@ html.pn-reduce-motion .shape-5,
 html.pn-reduce-motion .ticker-ping,
 html.pn-reduce-motion .heart-pop,
 html.pn-reduce-motion .svc-pop,
-html.pn-reduce-motion [class*="ctaFloat"] {
-  animation: none;
-}
+html.pn-reduce-motion [class*="ctaFloat"] { animation: none; }
 
 html.pn-reduce-motion .hero-word,
 html.pn-reduce-motion .hero-sub,
@@ -5521,14 +3349,10 @@ html.pn-reduce-motion .hero-ticker {
 
 html.pn-reduce-motion .property-card,
 html.pn-reduce-motion .cat-card,
-html.pn-reduce-motion .card-img-wrap img {
-  transition: none;
-}
+html.pn-reduce-motion .card-img-wrap img { transition: none; }
 
 html.pn-reduce-motion .property-card:hover,
-html.pn-reduce-motion .cat-card:hover {
-  transform: none;
-}
+html.pn-reduce-motion .cat-card:hover { transform: none; }
 
 html.pn-reduce-motion .reveal {
   opacity: 1;
@@ -5546,24 +3370,16 @@ html.pn-reduce-motion .list-reveal {
    ============================================================================ */
 
 /* Default cross-fade for route changes â€” fast and subtle */
-::view-transition-old(root) {
-  animation: 150ms ease-out both fade-out;
-}
+::view-transition-old(root) { animation: 150ms ease-out both fade-out; }
 
-::view-transition-new(root) {
-  animation: 200ms ease-in both fade-in;
-}
+::view-transition-new(root) { animation: 200ms ease-in both fade-in; }
 
 @keyframes fade-out {
-  to {
-    opacity: 0;
-  }
+  to { opacity: 0; }
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
+  from { opacity: 0; }
 }
 
 /* Shared element morph: property card image â†’ property hero image.
@@ -5575,566 +3391,16 @@ html.pn-reduce-motion .list-reveal {
 }
 
 /* Keep the image visible during transition (no fade, just morph position/size) */
-::view-transition-image-pair(property-hero-*) {
-  isolation: auto;
-}
+::view-transition-image-pair(property-hero-*) { isolation: auto; }
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
 
   ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none;
-  }
+  ::view-transition-new(root) { animation: none; }
 }
 
-/* ===== Map detail drawer (stay-on-map masterâ€“detail) ===== */
-.pn-mdp {
-  position: fixed;
-  z-index: 150;
-  display: flex;
-  flex-direction: column;
-  background: var(--brand-card);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-  overflow: hidden;
-}
-
-/* Desktop: right-docked column clear of the map controls */
-@media (min-width: 768px) {
-  .pn-mdp {
-    top: 84px;
-    right: 24px;
-    width: 384px;
-    max-height: calc(100vh - 108px);
-    border-radius: 18px;
-    animation: pnMdpIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-/* Mobile: bottom sheet */
-@media (max-width: 767px) {
-  .pn-mdp {
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-height: 86vh;
-    border-radius: 20px 20px 0 0;
-    border-bottom: none;
-    animation: pnMdpUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-@keyframes pnMdpIn {
-  from {
-    opacity: 0;
-    transform: translateX(18px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes pnMdpUp {
-  from {
-    opacity: 0;
-    transform: translateY(40px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.pn-mdp-grip {
-  display: none;
-}
-
-@media (max-width: 767px) {
-  .pn-mdp-grip {
-    display: block;
-    width: 40px;
-    height: 4px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.22);
-    margin: 8px auto 2px;
-    flex: none;
-  }
-}
-
-.pn-mdp-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  flex: none;
-}
-
-.pn-mdp-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #e5e7eb;
-}
-
-.pn-mdp-step i {
-  font-style: normal;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.pn-mdp-step button {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e5e7eb;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.pn-mdp-step button:hover:not(:disabled) {
-  background: rgba(13, 148, 136, 0.22);
-}
-
-.pn-mdp-step button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.pn-mdp-step button svg {
-  width: 15px;
-  height: 15px;
-}
-
-.pn-mdp-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.pn-mdp-close:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.pn-mdp-close svg {
-  width: 16px;
-  height: 16px;
-}
-
-.pn-mdp-scroll {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.pn-mdp-scroll::-webkit-scrollbar {
-  width: 7px;
-}
-
-.pn-mdp-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-
-.pn-mdp-media {
-  position: relative;
-  height: 208px;
-  flex: none;
-  background: #0b0a14;
-}
-
-.pn-mdp-media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.pn-mdp-deal {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  padding: 3px 10px;
-  border-radius: 7px;
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.pn-mdp-deal.is-rent {
-  background: rgba(13, 148, 136, 0.72);
-  color: #ccfbf1;
-}
-
-.pn-mdp-deal.is-sale {
-  background: rgba(5, 150, 105, 0.72);
-  color: #d1fae5;
-}
-
-.pn-mdp-heart {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: background 0.15s ease;
-}
-
-.pn-mdp-heart:hover {
-  background: rgba(0, 0, 0, 0.62);
-}
-
-.pn-mdp-heart svg {
-  width: 17px;
-  height: 17px;
-}
-
-.pn-mdp-heart.is-on {
-  background: rgba(244, 63, 94, 0.9);
-}
-
-.pn-mdp-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: background 0.15s ease;
-}
-
-.pn-mdp-nav:hover {
-  background: rgba(0, 0, 0, 0.62);
-}
-
-.pn-mdp-nav.is-prev {
-  left: 10px;
-}
-
-.pn-mdp-nav.is-next {
-  right: 10px;
-}
-
-.pn-mdp-nav svg {
-  width: 17px;
-  height: 17px;
-}
-
-.pn-mdp-count {
-  position: absolute;
-  bottom: 10px;
-  right: 12px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  backdrop-filter: blur(4px);
-}
-
-.pn-mdp-info {
-  padding: 14px 16px 18px;
-}
-
-.pn-mdp-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.pn-mdp-tag {
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.pn-mdp-tag.is-teal {
-  background: rgba(13, 148, 136, 0.16);
-  border: 1px solid rgba(13, 148, 136, 0.32);
-  color: #99f6e4;
-}
-
-.pn-mdp-tag.is-indigo {
-  background: rgba(99, 102, 241, 0.16);
-  border: 1px solid rgba(99, 102, 241, 0.32);
-  color: #c7d2fe;
-}
-
-.pn-mdp-tag.is-emerald {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.32);
-  color: #a7f3d0;
-}
-
-.pn-mdp-tag.is-coral {
-  background: rgba(244, 114, 94, 0.16);
-  border: 1px solid rgba(244, 114, 94, 0.32);
-  color: #fecdd3;
-}
-
-.pn-mdp-price {
-  font-size: 26px;
-  font-weight: 800;
-  color: #fff;
-  line-height: 1.05;
-  letter-spacing: -0.015em;
-  font-variant-numeric: tabular-nums;
-}
-
-.pn-mdp-price i {
-  font-style: normal;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.pn-mdp-emi {
-  margin-top: 4px;
-  font-size: 11.5px;
-  color: var(--teal-3);
-  font-weight: 600;
-}
-
-.pn-mdp-title {
-  margin-top: 10px;
-  font-size: 17px;
-  font-weight: 700;
-  color: #fff;
-  line-height: 1.25;
-}
-
-.pn-mdp-loc {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 5px;
-  font-size: 12.5px;
-  color: #9ca3af;
-}
-
-.pn-mdp-loc svg {
-  width: 14px;
-  height: 14px;
-  color: var(--teal-3);
-  flex-shrink: 0;
-}
-
-.pn-mdp-facts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 12px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.pn-mdp-fact {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.pn-mdp-fact>svg {
-  width: 17px;
-  height: 17px;
-  color: var(--teal-3);
-  flex-shrink: 0;
-}
-
-.pn-mdp-fact>div {
-  min-width: 0;
-  line-height: 1.2;
-}
-
-.pn-mdp-fact b {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #e5e7eb;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pn-mdp-fact span {
-  display: block;
-  font-size: 10px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.pn-mdp-sect {
-  margin-top: 16px;
-}
-
-.pn-mdp-sect-hd {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #6b7280;
-  margin-bottom: 8px;
-}
-
-.pn-mdp-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.pn-mdp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(13, 148, 136, 0.12);
-  border: 1px solid rgba(13, 148, 136, 0.28);
-  font-size: 11px;
-  font-weight: 600;
-  color: #ccfbf1;
-}
-
-.pn-mdp-chip svg {
-  width: 12px;
-  height: 12px;
-  color: var(--teal-3);
-}
-
-.pn-mdp-desc {
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: #94a3b8;
-}
-
-.pn-mdp-actions {
-  flex: none;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: var(--brand-card);
-}
-
-.pn-mdp-cta-row {
-  display: flex;
-  gap: 8px;
-}
-
-.pn-mdp-btn {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.12s ease, filter 0.15s ease;
-}
-
-.pn-mdp-btn:active {
-  transform: scale(0.98);
-}
-
-.pn-mdp-btn svg {
-  width: 15px;
-  height: 15px;
-}
-
-.pn-mdp-btn.is-primary {
-  background: var(--teal-2);
-  color: #04221d;
-  border: none;
-}
-
-.pn-mdp-btn.is-primary:hover {
-  filter: brightness(1.06);
-}
-
-.pn-mdp-btn.is-ghost {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e5e7eb;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.pn-mdp-btn.is-ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.pn-mdp-full {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 8px;
-  border-radius: 11px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--teal-3);
-  text-decoration: none;
-}
-
-.pn-mdp-full:hover {
-  color: #5eead4;
-}
-
-.pn-mdp-full svg {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.2s ease;
-}
-
-.pn-mdp-full:hover svg {
-  transform: translateX(3px);
-}
-
+/* pn-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active and .pn-back-search rules below intentionally stay here (not .pn-mdp-scoped). */
 /* Active marker highlight on the map */
 .price-marker.is-active {
   background: #fff;
@@ -6145,9 +3411,7 @@ html.pn-reduce-motion .list-reveal {
   z-index: 500;
 }
 
-.price-marker.is-active::after {
-  border-top-color: #fff;
-}
+.price-marker.is-active::after { border-top-color: #fff; }
 
 /* Back-to-search button on the property page */
 .pn-back-search {
@@ -6176,12 +3440,6 @@ html.pn-reduce-motion .list-reveal {
   height: 16px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pn-mdp {
-    animation: none;
-  }
-}
-
 /* ============================================================================
    Mobile space optimization (consumer pages only, <640px).
    Reclaims vertical space so content/tiles sit higher on the fold:
@@ -6196,39 +3454,25 @@ html.pn-reduce-motion .list-reveal {
     letter-spacing: -0.01em;
   }
 
-  .consumer-main :is(h1, h2, h3).text-7xl {
-    font-size: 3.6rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-7xl { font-size: 3.6rem; }
 
   /* 4.5  -> 3.6  */
-  .consumer-main :is(h1, h2, h3).text-6xl {
-    font-size: 3rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-6xl { font-size: 3rem; }
 
   /* 3.75 -> 3.0  */
-  .consumer-main :is(h1, h2, h3).text-5xl {
-    font-size: 2.4rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-5xl { font-size: 2.4rem; }
 
   /* 3.0  -> 2.4  */
-  .consumer-main :is(h1, h2, h3).text-4xl {
-    font-size: 1.8rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-4xl { font-size: 1.8rem; }
 
   /* 2.25 -> 1.8  */
-  .consumer-main :is(h1, h2, h3).text-3xl {
-    font-size: 1.5rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-3xl { font-size: 1.5rem; }
 
   /* 1.875 -> 1.5 */
-  .consumer-main :is(h1, h2, h3).text-2xl {
-    font-size: 1.2rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-2xl { font-size: 1.2rem; }
 
   /* 1.5  -> 1.2  */
-  .consumer-main :is(h1, h2, h3).text-xl {
-    font-size: 1rem;
-  }
+  .consumer-main :is(h1, h2, h3).text-xl { font-size: 1rem; }
 
   /* 1.25 -> 1.0  */
 }
@@ -6243,9 +3487,7 @@ html.pn-reduce-motion .list-reveal {
 
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
   select,
-  textarea {
-    font-size: 16px !important;
-  }
+  textarea { font-size: 16px !important; }
 }
 /* ============================================================================
    Mobile bottom-chrome consumers (see the --pn-bottom-inset block near the top).
@@ -6292,23 +3534,17 @@ html.pn-reduce-motion .list-reveal {
   background: #14b8a6;
 }
 
-.pn-autosave-flash.is-on {
-  opacity: 1;
-}
+.pn-autosave-flash.is-on { opacity: 1; }
 
 /* Below lg the tab bar owns the bottom edge, so clear it. Every route that
    autosaves a form mounts the bar; the two that do not (messages, auth) pin their
    own control to that edge, which this clears just the same. */
 @media (max-width: 1023.98px) {
-  .pn-autosave-flash {
-    bottom: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset) + 16px);
-  }
+  .pn-autosave-flash { bottom: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset) + 16px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-autosave-flash {
-    transition: none;
-  }
+  .pn-autosave-flash { transition: none; }
 }
 
 /* Home hero search: the "add area" chip on a suggestion row only reads as an ADD
@@ -6326,7 +3562,5 @@ html.pn-reduce-motion .list-reveal {
    under the touch minimum â€” and redundant next to native swipe + the HScroll fade.
    Remove them on coarse pointers rather than growing them. */
 @media (pointer: coarse) {
-  .hscroll-arrow {
-    display: none;
-  }
+  .hscroll-arrow { display: none; }
 }

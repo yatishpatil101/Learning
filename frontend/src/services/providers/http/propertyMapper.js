@@ -150,10 +150,11 @@ export function toViewModel(p) {
     amenities: p.amenities ?? [],
 
     // ── gaps: present in the mock shape, absent from the contract ───────────────────────────
-    // `archived` is a server-side soft-delete flag that no response DTO exposes — public search
-    // already excludes archived rows, so a card can only ever be live. Pinned to `false` rather
-    // than left undefined because `matchesFilters`-style callers test it directly.
-    archived: false,
+    // Soft-delete flag. Always `false` on public reads (archived rows are excluded server-side) and
+    // meaningful only on the two status-complete lists, `/me/listings` and `/admin/properties`.
+    // Defaulted rather than assumed: it was hard-coded `false` here until the moderation queue
+    // shipped, which made every archived row in an ops list look live.
+    archived: p.archived ?? false,
     construction: translateConstruction(CONSTRUCTION_FROM_WIRE, p.possession, 'from the server'),
   };
 }
@@ -208,8 +209,9 @@ const SORTS = {
  * the difference is visible in the console instead of surfacing as "the admin list is missing rows".
  *
  * - `includeArchived` / `includeAllStatuses`: admin-only widenings. The public search is hard-floored
- *   to approved + non-archived server-side and cannot be widened by a query param (proved by
- *   `searchStatusParamCannotWidenPastApproved`) — by design, not an oversight.
+ *   to approved + non-archived server-side and cannot be widened by a query param — by design, not
+ *   an oversight. A caller that genuinely needs those rows wants `listForModeration`, which is a
+ *   different endpoint behind a different authorization, not a flag on this one.
  * - `real`: marks genuine user posts, which the mock uses to hide "dormant" listings from buyers.
  *   Freshness/dormancy is not modelled server-side yet.
  */
@@ -217,6 +219,28 @@ const UNSUPPORTED = ['includeArchived', 'includeAllStatuses', 'real'];
 
 export const unsupportedFilters = (filters = {}) =>
   UNSUPPORTED.filter((k) => filters[k] !== undefined && filters[k] !== false);
+
+/**
+ * Filters → the `GET /admin/properties` query string.
+ *
+ * Same facets as {@link toQuery} plus the two axes only the moderation queue has — and **the default
+ * is no filtering on either**. An unfiltered moderation read means every listing at every status,
+ * including archived, because that is what a queue is; anything narrower has to be asked for.
+ *
+ * That default is the opposite of {@link toQuery}'s and the inversion is deliberate. While this was
+ * reached by inferring `includeAllStatuses`/`includeArchived` from the caller's filters, re-imposing
+ * the public floor when a flag was absent was the safe reading. Now that the caller names the
+ * operation, carrying those flags forward would mean `listForModeration({})` returned exactly the
+ * approved rows the public search already returns — an admin queue showing 16 of 38 listings and no
+ * error to explain the other 22.
+ *
+ * `status` and `archived` still narrow it when supplied, which is what the tab filters use.
+ */
+export function toModerationQuery(filters = {}, sort = 'newest') {
+  const q = toQuery(filters, sort);
+  if (filters.archived !== undefined) q.archived = filters.archived;
+  return q;
+}
 
 /**
  * View model → `ListingCreate` for `POST /me/listings`.

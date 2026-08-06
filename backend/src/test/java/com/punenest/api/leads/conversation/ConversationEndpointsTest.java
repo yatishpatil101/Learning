@@ -261,6 +261,77 @@ class ConversationEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.counterpartyName").value("Owner"));
         }
 
+        /**
+         * {@code authorId} is what a client must use to render a message on the correct side of the
+         * thread. It was added because the only alternative on the wire was {@code author}, a
+         * display <em>name</em> — and attributing identity by name works right up until two users
+         * share one, at which point a stranger's message appears as the reader's own.
+         */
+        @Test
+        @DisplayName("a message carries its author's id, not just a display name")
+        void messageCarriesAuthorId() throws Exception {
+            User owner = user("9830000151", Roles.Wire.OWNER, "Same Name");
+            User buyer = user("9830000152", Roles.Wire.BUYER, "Same Name");
+            Property p = listing(owner);
+            approve(buyer, p);
+            String id = id(start(buyer, owner, p, 201));
+            reply(owner, id, "replying", 201);
+
+            // Both people are called "Same Name", so `author` cannot separate them and `authorId`
+            // is the only field that can. That is the whole reason this test uses a duplicate name.
+            mvc.perform(get(Routes.Conversations.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.messages[0].authorId").value(buyer.getId().toString()))
+                    .andExpect(jsonPath("$.messages[1].authorId").value(owner.getId().toString()));
+        }
+
+        /**
+         * Messaging shipped without a notification writer, which is most of why the notification
+         * inbox was empty for anyone who had not used flatmates (tech-debt D92). A new message is
+         * the single most obvious thing to be told about.
+         */
+        @Test
+        @DisplayName("a message notifies the recipient — and only the recipient")
+        void messageNotifiesTheOtherSide() throws Exception {
+            User owner = user("9830000153", Roles.Wire.OWNER, "Owner");
+            User buyer = user("9830000154", Roles.Wire.BUYER, "Buyer");
+            Property p = listing(owner);
+            approve(buyer, p);
+            String id = id(start(buyer, owner, p, 201));
+
+            // Opening the thread notified the owner...
+            assertThat(notificationsFor(owner)).hasSize(1);
+            assertThat(notificationsFor(owner).getFirst().get("type")).isEqualTo("message.received");
+            assertThat((String) notificationsFor(owner).getFirst().get("title")).contains("Buyer");
+            // ...and nobody notifies you about your own message.
+            assertThat(notificationsFor(buyer)).isEmpty();
+
+            reply(owner, id, "sure, come by", 201);
+            assertThat(notificationsFor(buyer)).hasSize(1);
+            assertThat(notificationsFor(owner)).hasSize(1);
+        }
+
+        /** A notification is a summons to the thread, not a copy of it. */
+        @Test
+        @DisplayName("a long message is truncated in the notification body")
+        void longMessageIsPreviewed() throws Exception {
+            User owner = user("9830000155", Roles.Wire.OWNER, "Owner");
+            User buyer = user("9830000156", Roles.Wire.BUYER, "Buyer");
+            Property p = listing(owner);
+            approve(buyer, p);
+
+            String wall = "x".repeat(1000);
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body(owner.getMobile(), p.getId().toString(), wall)))
+                    .andExpect(status().isCreated());
+
+            String delivered = (String) notificationsFor(owner).getFirst().get("body");
+            assertThat(delivered).hasSizeLessThan(200).endsWith("…");
+        }
+
         @Test
         @DisplayName("unread counts the other side's messages, and read clears them")
         void unreadAccounting() throws Exception {
@@ -416,6 +487,12 @@ class ConversationEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].unread").value(expected));
+    }
+
+    /** Read straight from the table: the notification is a side effect, not part of any response. */
+    private java.util.List<java.util.Map<String, Object>> notificationsFor(User user) {
+        return jdbc.queryForList(
+                "select type, title, body from notifications where user_id = ?", user.getId());
     }
 
     private static String body(String mobile, String propertyId, String text) {

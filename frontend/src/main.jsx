@@ -6,6 +6,10 @@ import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { CityProvider } from './context/CityContext.jsx';
 import { CompareProvider } from './context/CompareContext.jsx';
+import { SavedProvider } from './context/SavedContext.jsx';
+import { SavedSearchProvider } from './context/SavedSearchContext.jsx';
+import { NotificationProvider } from './context/NotificationContext.jsx';
+import { ConversationProvider } from './context/ConversationContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
@@ -16,6 +20,13 @@ import './i18n';
 // one mechanism guaranteed to bundle this correctly.
 import './styles/fonts.css';
 import './styles/index.css';
+// Tier 0 — shared across routes, so they load globally right after index.css
+// rather than from any one route chunk. Both were hoisted out of index.css,
+// where they sat under route-named headings ("Property page" / "Owner page")
+// despite being used app-wide; extracting those routes would have deleted them
+// from every other route.
+import './styles/components/buttons.css';
+import './styles/components/surfaces.css';
 // Global rather than imported by DateField/TimeField. Those are lazy route
 // components, so a component-level import only ships `.pn-cal` inside their
 // chunk — and the mobile bottom-sheet rules then do not exist for anything that
@@ -23,6 +34,10 @@ import './styles/index.css';
 // `mobile/phase3.spec.js`, which measures `.pn-cal` on a route with no date
 // field: the element came back position:static with no rule matching at all.
 import './styles/components/date-time-fields.css';
+// The custom <Select>/<MultiSelect>/<Menu> dropdown skin (.pn-dropdown), used by
+// six shared UI components across every route. It sat under the "Listings page"
+// heading in index.css purely because that's the prototype it was ported from.
+import './styles/components/dropdown.css';
 
 // Boot the temporary PMF-test overlay (GA4). No-op unless VITE_PMF_MODE=on.
 initPmf();
@@ -51,11 +66,23 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <CityProvider>
-          <CompareProvider>
-            <ToastProvider>
-              {withMaps(<App />)}
-            </ToastProvider>
-          </CompareProvider>
+          {/* Inside AuthProvider: the shortlist is caller-scoped, so it loads on sign-in and
+              clears on sign-out by watching that context. */}
+          <SavedProvider>
+            <SavedSearchProvider>
+              {/* Same reasoning: the inbox is caller-scoped, so the unread count loads on sign-in
+                  and zeroes on sign-out rather than reading an anonymous store. */}
+              <NotificationProvider>
+                <ConversationProvider>
+                  <CompareProvider>
+                    <ToastProvider>
+                      {withMaps(<App />)}
+                    </ToastProvider>
+                  </CompareProvider>
+                </ConversationProvider>
+              </NotificationProvider>
+            </SavedSearchProvider>
+          </SavedProvider>
         </CityProvider>
       </AuthProvider>
     </BrowserRouter>

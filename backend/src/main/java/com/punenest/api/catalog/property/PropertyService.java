@@ -42,6 +42,29 @@ public class PropertyService {
         return properties.findAll(PropertySpecs.publicSearch(filters), PropertySort.sanitize(pageable));
     }
 
+    /**
+     * Moderation search (contract {@code listPropertiesForModeration}) — the same facets with
+     * <strong>no visibility floor</strong>, so pending, rejected, flagged and archived listings are
+     * returned.
+     *
+     * <p>This is the read that the four moderation writes shipped without. A moderator could set a
+     * status, feature, flag or unflag any listing whose id they already held, but nothing on the
+     * platform could <em>enumerate</em> the rows needing a decision: {@link #search} is hard-floored
+     * to approved, and {@code GET /me/listings} is scoped to the caller's own {@code owner_id}. A
+     * verification queue that cannot list its own backlog is a write API with no read.
+     *
+     * <p><strong>Unauthorized by design.</strong> No principal is taken and no role is checked here —
+     * the guard is {@code @PreAuthorize} on the single controller method, matching how the rest of
+     * the moderation surface is written. Any new caller of this method is therefore a caller that
+     * must carry its own authorization, and the fact that it takes no principal is the reminder.
+     */
+    @Transactional(readOnly = true)
+    public Page<Property> searchForModeration(PropertySearchQuery filters, Boolean archived,
+            Pageable pageable) {
+        return properties.findAll(
+                PropertySpecs.adminSearch(filters, archived), PropertySort.sanitize(pageable));
+    }
+
     /** Featured-first live listings for the homepage (contract {@code featuredProperties}). */
     @Transactional(readOnly = true)
     public List<Property> featured() {

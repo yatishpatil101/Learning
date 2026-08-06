@@ -5,7 +5,7 @@ import { setListingStatus, toggleFeatured } from '../../../services/propertyServ
 import { confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
 import { closeDeal, reopenDeal, markUnderOffer, deleteRoom, isPaidOwnerPlan } from '../../../lib/store.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
-import { getContactReqs } from '../../../lib/contact.js';
+import { myContactRequests } from '../../../services/contactService.js';
 import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
 import { publishManagedProp, deleteManagedProp } from '../../../lib/data/managedProperty.js';
 import { splitFlat, unsplitFlat } from '../../../lib/data/flatSplit.js';
@@ -30,10 +30,20 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
   const { flagEnabled } = useAppFlags();
   const navigate = useNavigate();
   // Real per-listing leads = buyers who requested this owner's contact for that
-  // property. Recomputed when the list changes so counts stay in sync after actions.
-  const contactReqs = useMemo(() => getContactReqs(user?.mobile), [user, listingsState]);
+  // property. Refetched when the list changes so counts stay in sync after actions.
+  const [contactReqs, setContactReqs] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    if (!user?.mobile) { setContactReqs([]); return undefined; }
+    myContactRequests()
+      .then((res) => alive && setContactReqs(res.items))
+      // Lead counts are decoration on this panel; the listing actions beside them are the point.
+      // A failed count renders as zero rather than blanking the owner's listings.
+      .catch(() => alive && setContactReqs([]));
+    return () => { alive = false; };
+  }, [user, listingsState]);
   const leadsFor = useCallback(
-    (id) => contactReqs.filter((r) => r.propId === id).length,
+    (id) => contactReqs.filter((r) => r.propertyId === id).length,
     [contactReqs],
   );
   // Featuring is a paid promotion: paid owner plans can toggle it themselves;

@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { getSavedProps, toggleSavedProp, addSavedSearch } from '../../lib/store.js';
-import { getPropertiesByIds } from '../../services/propertyService.js';
+import { useSaved } from '../../context/SavedContext.jsx';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { fmtINR } from '../../lib/format.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import '../../styles/routes/saved.css';
 
 const FLATMATE_SAVED_KEY = 'puneNestFlatmateSaved';
 
@@ -55,41 +56,36 @@ export default function Saved() {
   const [pendingRemoval, setPendingRemoval] = useState(() => new Set());
   const undoTimers = useRef(new Map());
 
-  const [dynamicSaved, setDynamicSaved] = useState([]);
+  const savedList = useSaved();
+  const { create: createSavedSearch } = useSavedSearches();
 
-  // Load hearted properties from pnSavedProps store on mount
-  useEffect(() => {
-    const savedIds = getSavedProps();
-    if (savedIds.length) {
-      // Resolve the saved ids directly — the page only ever renders these, so downloading the
-      // catalogue to filter it down to them scaled with the market rather than with the user.
-      getPropertiesByIds(savedIds).then((matched) => {
-        const cardsFromStore = matched.map((p) => {
-          const isRent = p.deal === 'rent';
-          return {
-            id: p.id,
-            cat: isRent ? 'rent' : 'buy',
-            title: p.title || p.type || 'Property',
-            loc: p.locality ? `${p.locality}, Pune` : 'Pune',
-            price: typeof p.price === 'number' ? (isRent ? `₹${p.price.toLocaleString('en-IN')}/mo` : fmtINR(p.price)) : (p.price || ''),
-            priceNum: typeof p.price === 'number' ? p.price : 0,
-            createdAt: p.createdAt || 0,
-            statusLabel: statusLabelFor(p.status),
-            deal: isRent ? 'rent' : 'buy',
-            localitySlug: p.locality || '',
-            bhkNum: p.bhkNum || null,
-            badge: isRent ? 'For Rent' : 'For Sale',
-            bhk: p.bhk || (p.bhkNum ? `${p.bhkNum} BHK` : ''),
-            area: p.area ? `${p.area.toLocaleString('en-IN')} sq.ft.` : '',
-            bath: p.bath ? `${p.bath} Bath` : '',
-            img: p.image || p.img || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80',
-            fromStore: true,
-          };
-        });
-        setDynamicSaved(cardsFromStore);
-      });
-    }
-  }, []);
+  /* Saved properties come from the shared shortlist, which already holds the rows: the page used to
+     read a list of ids and then fetch each property, so a shortlist of thirty cost thirty-one
+     requests to render. This is a pure reshape of rows already in hand — hence useMemo, not an
+     effect with its own fetch. Flatmate saves are a separate localStorage feature and still load
+     below; only the property half moved. */
+  const dynamicSaved = useMemo(() => savedList.items.map((p) => {
+    const isRent = p.deal === 'rent';
+    return {
+      id: p.id,
+      cat: isRent ? 'rent' : 'buy',
+      title: p.title || p.type || 'Property',
+      loc: p.locality ? `${p.locality}, Pune` : 'Pune',
+      price: typeof p.price === 'number' ? (isRent ? `₹${p.price.toLocaleString('en-IN')}/mo` : fmtINR(p.price)) : (p.price || ''),
+      priceNum: typeof p.price === 'number' ? p.price : 0,
+      createdAt: p.createdAt || 0,
+      statusLabel: statusLabelFor(p.status),
+      deal: isRent ? 'rent' : 'buy',
+      localitySlug: p.locality || '',
+      bhkNum: p.bhkNum || null,
+      badge: isRent ? 'For Rent' : 'For Sale',
+      bhk: p.bhk || (p.bhkNum ? `${p.bhkNum} BHK` : ''),
+      area: p.area ? `${p.area.toLocaleString('en-IN')} sq.ft.` : '',
+      bath: p.bath ? `${p.bath} Bath` : '',
+      img: p.image || p.img || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80',
+      fromStore: true,
+    };
+  }), [savedList.items]);
 
   const [cards, setCards] = useState(() => {
     const savedMap = {};
@@ -133,10 +129,10 @@ export default function Saved() {
           localStorage.setItem(FLATMATE_SAVED_KEY, JSON.stringify(savedMap));
         } catch (e) {}
       }
-      // If it came from pnSavedProps store, also unsave there
+      // If it came from the shortlist, unsave it there — `dynamicSaved` is derived from the
+      // context, so the card disappears when that write lands rather than from a second local list.
       if (card && card.fromStore) {
-        toggleSavedProp(id);
-        setDynamicSaved((arr) => arr.filter((c) => c.id !== id));
+        savedList.toggle(id);
       } else {
         setCards((arr) => arr.filter((c) => c.id !== id));
       }
@@ -187,7 +183,7 @@ export default function Saved() {
       budget: !isRent && lo ? [lo, hi] : undefined,
       rent: isRent && lo ? [lo, hi] : undefined,
     };
-    addSavedSearch({ ...buildAlertRecord(f), query: '' });
+    createSavedSearch({ ...buildAlertRecord(f), query: '' });
     toast(tr('saved.alertToast'), 'success');
   };
 

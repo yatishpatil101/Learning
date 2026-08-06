@@ -30,8 +30,8 @@ public class UserService {
     }
 
     /**
-     * Apply a partial profile update (contract {@code UserUpdate}: name/email/avatar only). Null fields
-     * are left untouched. Server-owned identity/trust fields are not accepted, so this can't escalate.
+     * Apply a partial profile update (contract {@code UserUpdate}). Null fields are left untouched.
+     * Server-owned identity/trust fields are not accepted, so this can't escalate.
      */
     @Transactional
     public User updateMe(UUID userId, UserUpdate patch) {
@@ -44,6 +44,12 @@ public class UserService {
         }
         if (patch.avatar() != null) {
             user.setAvatar(patch.avatar());
+        }
+        if (patch.city() != null) {
+            user.setCity(patch.city());
+        }
+        if (patch.hideNumber() != null) {
+            user.setHideNumber(patch.hideNumber());
         }
         return user;
     }

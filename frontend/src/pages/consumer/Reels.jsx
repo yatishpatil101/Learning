@@ -6,7 +6,7 @@ import '../../styles/routes/reels.css';
 import { fmtINR, rentLabel } from '../../lib/format.js';
 import { listProperties } from '../../lib/mockApi.js';
 import { isResidentialHome } from '../../data/propertyTypes.js';
-import { getSavedProps, toggleSavedProp } from '../../lib/store.js';
+import { useSaved } from '../../context/SavedContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 
 /* The feed is the live catalogue, not a curated list — it used to be eight hardcoded
@@ -88,7 +88,8 @@ export default function Reels() {
      already carries `views`, which is real. The heart stays because double-tap is the
      gesture this surface is built on. */
   const [liked, setLiked] = useState(() => new Set());
-  const [saved, setSaved] = useState(() => new Set(getSavedProps()));
+  // The context exposes the same `has(id)` the local Set did, so the markup below is unchanged.
+  const saved = useSaved();
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(!prefersReducedMotion());
   const [burst, setBurst] = useState(null); // { id, key }
@@ -183,9 +184,10 @@ export default function Reels() {
 
   const doBurst = (id) => { like(id, true); setBurst({ id, key: ++burstSeq.current }); };
 
-  const save = (r) => {
-    const nowSaved = toggleSavedProp(r.id);
-    setSaved((s) => { const next = new Set(s); if (nowSaved) next.add(r.id); else next.delete(r.id); return next; });
+  const save = async (r) => {
+    // Toast on the settled state, not the intent: if the write failed the context rolls back, and
+    // "Saved" over a property that was not saved is worse than no toast at all.
+    const nowSaved = await saved.toggle(r.id);
     toast(nowSaved ? t('reels.savedToast', { title: r.title }) : t('reels.removedToast', { title: r.title }), nowSaved ? 'success' : 'info');
   };
 

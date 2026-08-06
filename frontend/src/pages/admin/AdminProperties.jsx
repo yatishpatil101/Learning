@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
-import { listProperties, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
+import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
 import { logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
 import { ensureReview, getReview, markReviewRead, decideReview, findDuplicateClusters } from '../../lib/data/properties-admin.js';
 import { submitNote } from '../../components/ui/InternalNote.jsx';
@@ -84,11 +84,11 @@ export default function AdminProperties() {
   const [bulkReason, setBulkReason] = useState('');
   const [internalNote, setInternalNote] = useState('');
 
-  const refresh = () => listProperties({ includeAllStatuses: true, includeArchived: true }, 'newest').then(setAll);
+  const refresh = () => listForModeration({}, 'newest').then(setAll);
 
   useEffect(() => {
     let alive = true;
-    listProperties({ includeAllStatuses: true, includeArchived: true }, 'newest').then((rows) => { if (alive) setAll(rows); });
+    listForModeration({}, 'newest').then((rows) => { if (alive) setAll(rows); });
     return () => { alive = false; };
   }, []);
 
@@ -216,28 +216,150 @@ export default function AdminProperties() {
 
   // ---- actions ----
   const findListing = (id) => (all || []).find((l) => l.id === id);
-  const doFeature = async (id) => { const rec = await toggleFeatured(id); if (rec) logAudit('Listing', `${rec.featured ? 'Featured' : 'Unfeatured'} "${rec.title}"`); toast(rec && rec.featured ? 'Marked as featured' : 'Removed from featured'); refresh(); };
-  const doClearFlag = (l) => { if (!window.confirm(`Clear the flag on "${l.title}"?`)) return; clearFlag(l.id); setPipelineStage(l.id, 'live'); logAudit('Listing', `Cleared flag & published "${l.title}"`); toast('Flag cleared — listing published', 'success'); refresh(); };
+
+  // Every moderation call is awaited and every failure is surfaced. Against the API these are real
+  // network writes that can 403 (self-dealing is refused server-side, so staff cannot moderate their
+  // own listing), 404 or fail outright; the earlier fire-and-forget form produced an unhandled
+  // rejection *and* a green success toast for the same click, which is worse than either alone.
+  //
+  // None of them reads the resolved value: the API returns no body for any moderation decision, so
+  // the new state is derived from the row already on screen and confirmed by the `refresh()` below.
+  const doFeature = async (l) => {
+    try {
+      await toggleFeatured(l.id);
+    } catch (err) {
+      toast(`Could not update featured: ${err.message}`, 'error');
+      return;
+    }
+    const nowFeatured = !l.featured;
+    logAudit('Listing', `${nowFeatured ? 'Featured' : 'Unfeatured'} "${l.title}"`);
+    toast(nowFeatured ? 'Marked as featured' : 'Removed from featured');
+    refresh();
+  };
+  const doClearFlag = async (l) => {
+    if (!window.confirm(`Clear the flag on "${l.title}"?`)) return;
+    try {
+      await clearFlag(l.id);
+    } catch (err) {
+      toast(`Could not clear the flag: ${err.message}`, 'error');
+      return;
+    }
+    setPipelineStage(l.id, 'live');
+    logAudit('Listing', `Cleared flag & published "${l.title}"`);
+    toast('Flag cleared — listing published', 'success');
+    refresh();
+  };
   const doArchive = (l) => { setArchiveFor(l); setArchiveReason(''); setInternalNote(''); };
   const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); logAudit('Listing', `Archived "${archiveFor.title}"${archiveReason.trim() ? ' — ' + archiveReason.trim() : ''}`); setArchiveFor(null); toast('Listing archived'); refresh(); };
   const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } logAudit('Listing', `Restored "${l.title}" from archive`); toast('Listing restored — moved to pending review', 'success'); refresh(); };
   const openFlag = (l) => { setFlagFor(l); setFlagReason(''); setInternalNote(''); };
-  const submitFlag = () => { const r = flagReason.trim(); if (!r) { toast('Add a reason before flagging', 'error'); return; } flagListing(flagFor.id, r); submitNote('listing', flagFor.id, internalNote, 'Flagged'); logAudit('Listing', `Flagged "${flagFor.title}" — ${r}`); setFlagFor(null); toast('Listing flagged'); refresh(); };
+  const submitFlag = async () => {
+    const r = flagReason.trim();
+    if (!r) { toast('Add a reason before flagging', 'error'); return; }
+    try {
+      await flagListing(flagFor.id, r);
+    } catch (err) {
+      toast(`Could not flag: ${err.message}`, 'error');
+      return;
+    }
+    submitNote('listing', flagFor.id, internalNote, 'Flagged');
+    logAudit('Listing', `Flagged "${flagFor.title}" — ${r}`);
+    setFlagFor(null);
+    toast('Listing flagged');
+    refresh();
+  };
   const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhk || '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
-  const submitEdit = () => { const title = edit.title.trim(); const price = +edit.price; const area = edit.area === '' ? '' : +edit.area; const loc = edit.locality.trim(); if (!title) return toast('Title is required', 'error'); if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error'); if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error'); if (!loc) return toast('Locality is required', 'error'); updateListingFields(edit.id, { title, price, area: area || edit._ref.area, bhk: edit.bhk.trim(), type: edit.type.trim(), locality: loc, deal: edit.deal, status: edit.status }); logAudit('Listing', `Edited "${title}" (${edit.id})`); setEdit(null); toast('Listing updated', 'success'); refresh(); };
+  /**
+   * Field edits and a status change are two different operations against the API — `ListingUpdate`
+   * deliberately omits `status` so a PATCH cannot self-escalate — so a modal that changes both has
+   * to make two calls. Sending them together used to look like it worked: the status simply
+   * vanished from the request body and the dropdown silently did nothing.
+   */
+  const submitEdit = async () => {
+    const title = edit.title.trim();
+    const price = +edit.price;
+    const area = edit.area === '' ? '' : +edit.area;
+    const loc = edit.locality.trim();
+    if (!title) return toast('Title is required', 'error');
+    if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error');
+    if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error');
+    if (!loc) return toast('Locality is required', 'error');
+    try {
+      await updateListingFields(edit.id, { title, price, area: area || edit._ref.area, bhk: edit.bhk.trim(), type: edit.type.trim(), locality: loc, deal: edit.deal });
+      if (edit.status && edit.status !== edit._ref.status) await setListingStatus(edit.id, edit.status);
+    } catch (err) {
+      toast(`Could not save: ${err.message}`, 'error');
+      return;
+    }
+    logAudit('Listing', `Edited "${title}" (${edit.id})`);
+    setEdit(null);
+    toast('Listing updated', 'success');
+    refresh();
+  };
   const openReview = (l) => { setReview(l); };
   const handleReminder = async (l) => { await sendOwnerReminder(l.id); toast(`Reminder sent to ${l.owner} (+91 ${l.ownerMobile || ''})`, 'success'); refresh(); };
   const handleConfirmReminder = async (l) => { const tpl = freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale'; await sendWhatsappTemplate(l.id, tpl); logAudit('Listing', `Sent availability-confirmation WhatsApp to ${l.owner || 'owner'} for "${l.title}"`); toast(`WhatsApp sent to ${l.owner} (+91 ${l.ownerMobile || ''}) to confirm availability`, 'success'); refresh(); };
   const advancePipeline = async (id, newStage) => { await setPipelineStage(id, newStage); logAudit('Pipeline', `Moved listing ${id} to "${PIPELINE_STAGES.find((s) => s.key === newStage)?.label}"`); toast('Pipeline stage updated', 'success'); refresh(); };
 
   // ---- bulk ----
-  const bulkFeature = () => { if (!selAllIds.length) return; if (!window.confirm(`Toggle featured for ${selAllIds.length} listing(s)?`)) return; selAllIds.forEach((id) => toggleFeatured(id)); logAudit('Listings', `Toggled featured for ${selAllIds.length} listing(s)`); toast(`${selAllIds.length} listing(s) updated`); setSelAll(new Set()); refresh(); };
-  // `allSettled`, not `all`: a partial failure still archived some listings, and reporting "12
-  // archived" when 3 failed — or throwing away the 9 that succeeded — are both lies. Report what
+  // `allSettled`, not `all`: a partial failure still applied to some listings, and reporting "12
+  // approved" when 3 failed — or throwing away the 9 that succeeded — are both lies. Report what
   // actually happened and refresh either way, since the table is now out of date regardless.
+  //
+  // Partial failure is the expected case here, not a remote one: the server refuses self-dealing,
+  // so a staff member selecting a page that includes one of their own listings gets a 403 for that
+  // row and success for the rest.
+  const bulkFeature = async () => {
+    if (!selAllIds.length) return;
+    if (!window.confirm(`Toggle featured for ${selAllIds.length} listing(s)?`)) return;
+    const results = await Promise.allSettled(selAllIds.map((id) => toggleFeatured(id)));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    const done = results.length - failed;
+    if (done) logAudit('Listings', `Toggled featured for ${done} listing(s)`);
+    if (failed) toast(`${done} updated, ${failed} failed`, 'error');
+    else toast(`${done} listing(s) updated`);
+    setSelAll(new Set());
+    refresh();
+  };
   const bulkArchive = async () => { if (!selAllIds.length) return; if (!window.confirm(`Archive ${selAllIds.length} listing(s)?`)) return; const results = await Promise.allSettled(selAllIds.map((id) => archiveListing(id, 'Bulk archive'))); const failed = results.filter((r) => r.status === 'rejected').length; const done = results.length - failed; if (done) logAudit('Listings', `Bulk archived ${done} listing(s)`); if (failed) toast(`${done} archived, ${failed} failed`, 'error'); else toast(`${done} listing(s) archived`); setSelAll(new Set()); refresh(); };
-  const bulkApprove = () => { if (!selVerIds.length) return; if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return; selVerIds.forEach((id) => { const l = findListing(id); if (!l) return; ensureReview(l); decideReview(id, 'approved'); setListingStatus(id, 'approved'); updateListingFields(id, { flagReason: '' }); }); logAudit('Listings', `Bulk approved ${selVerIds.length} listing(s)`); toast(`${selVerIds.length} listing(s) approved`, 'success'); setSelVer(new Set()); refresh(); };
-  const submitBulkReject = () => { const reason = bulkReason.trim(); if (!reason) { toast('Add a reason before rejecting', 'error'); return; } selVerIds.forEach((id) => { const l = findListing(id); if (!l) return; ensureReview(l); decideReview(id, 'rejected', reason); setListingStatus(id, 'rejected'); }); logAudit('Listings', `Bulk rejected ${selVerIds.length} listing(s)`); toast(`${selVerIds.length} listing(s) rejected`, 'error'); setBulkRejectOpen(false); setBulkReason(''); setSelVer(new Set()); refresh(); };
+  const bulkApprove = async () => {
+    if (!selVerIds.length) return;
+    if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return;
+    const results = await Promise.allSettled(selVerIds.map(async (id) => {
+      const l = findListing(id);
+      if (!l) return;
+      ensureReview(l);
+      decideReview(id, 'approved');
+      await setListingStatus(id, 'approved');
+    }));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    const done = results.length - failed;
+    if (done) logAudit('Listings', `Bulk approved ${done} listing(s)`);
+    if (failed) toast(`${done} approved, ${failed} failed`, 'error');
+    else toast(`${done} listing(s) approved`, 'success');
+    setSelVer(new Set());
+    refresh();
+  };
+  const submitBulkReject = async () => {
+    const reason = bulkReason.trim();
+    if (!reason) { toast('Add a reason before rejecting', 'error'); return; }
+    const results = await Promise.allSettled(selVerIds.map(async (id) => {
+      const l = findListing(id);
+      if (!l) return;
+      ensureReview(l);
+      decideReview(id, 'rejected', reason);
+      await setListingStatus(id, 'rejected', reason);
+    }));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    const done = results.length - failed;
+    if (done) logAudit('Listings', `Bulk rejected ${done} listing(s)`);
+    if (failed) toast(`${done} rejected, ${failed} failed`, 'error');
+    else toast(`${done} listing(s) rejected`, 'error');
+    setBulkRejectOpen(false);
+    setBulkReason('');
+    setSelVer(new Set());
+    refresh();
+  };
 
   // ---- export ----
   const exportCurrentCsv = () => {

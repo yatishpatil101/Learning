@@ -4,7 +4,8 @@ import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile, hasCompletedVisit, myVisitStatus, getTenanciesFor } from '../../../lib/store.js';
+import { myMobile, getTenanciesFor } from '../../../lib/store.js';
+import { listVisits } from '../../../services/visitService.js';
 import { Stars } from './Stars.jsx';
 import { loadReviews, saveReview } from './reviews.js';
 import { ReviewModal } from './ReviewModal.jsx';
@@ -46,13 +47,38 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   const owner = String(p.ownerMobile || '');
   const isOwner = isIn && digits(myMobile()) === digits(owner);
   const hasTenancy = getTenanciesFor(myMobile()).some((t) => t.propId === p.id);
-  const eligible = isIn && !isOwner && (hasCompletedVisit(owner, p.id) || hasTenancy);
+
+  /* The anti-fake-review gate: only someone who actually visited (or lived there) may rate.
+
+     This used to read the owner's localStorage bucket directly, keyed on the owner's mobile — which
+     a visitor cannot reliably address once the number is masked. The seam asks the same question of
+     the caller's own visits instead, so it works off the identity the session already proves.
+
+     Failing closed on error: an unreachable visit list means "not eligible", which shows the
+     book-a-visit prompt. Failing open would let anyone rate any property. */
+  const [myVisit, setMyVisit] = useState(null);
+  useEffect(() => {
+    if (!isIn || !p.id) { setMyVisit(null); return undefined; }
+    let alive = true;
+    listVisits()
+      .then((all) => {
+        if (!alive) return;
+        const mine = all.filter((v) => v.propertyId === p.id);
+        if (mine.some((v) => v.status === 'completed')) setMyVisit('completed');
+        else if (mine.some((v) => v.status === 'scheduled' || v.status === 'confirmed')) setMyVisit('scheduled');
+        else setMyVisit(null);
+      })
+      .catch(() => { if (alive) setMyVisit(null); });
+    return () => { alive = false; };
+  }, [isIn, p.id]);
+
+  const eligible = isIn && !isOwner && (myVisit === 'completed' || hasTenancy);
 
   const openRate = () => {
     if (!isIn) { toast(t('property.signInRate'), 'info'); return; }
     if (isOwner) { toast(t('property.cantReviewOwn'), 'info'); return; }
     if (!eligible) {
-      if (myVisitStatus(owner, p.id) === 'scheduled') toast(t('property.visitBookedReview'), 'info');
+      if (myVisit === 'scheduled') toast(t('property.visitBookedReview'), 'info');
       else toast(t('property.bookVisitFirst'), 'info');
       return;
     }

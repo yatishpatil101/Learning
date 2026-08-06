@@ -1,8 +1,7 @@
-import { useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import Switch from '../../../components/ui/Switch.jsx';
-import { getSavedSearches, removeSavedSearch, toggleSearchAlert } from '../../../lib/store.js';
+import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { criteriaChips } from '../listings/alertCriteria.js';
 import { flatmateCriteriaChips, tabMeta } from '../flatmates/alertCriteria.js';
 import { normalizeTab } from '../flatmates/model.js';
@@ -20,11 +19,13 @@ const fmtDate = (ts) => {
 };
 
 export default function AlertsPanel() {
-  const [alerts, setAlerts] = useState(() => getSavedSearches());
+  // Shared with the Overview stat card and the match-count effect, so deleting an alert here no
+  // longer leaves the count above it claiming the old number until a reload.
+  const { searches: alerts, toggleAlerts, remove } = useSavedSearches();
   const activeCount = alerts.filter((a) => a.alerts).length;
 
-  const onToggle = (id) => { toggleSearchAlert(id); setAlerts(getSavedSearches()); };
-  const onDelete = (id) => { removeSavedSearch(id); setAlerts(getSavedSearches()); };
+  const onToggle = (id) => toggleAlerts(id);
+  const onDelete = (id) => remove(id);
 
   return (
     <Card className="p-6">

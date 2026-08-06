@@ -1,17 +1,20 @@
-/* Single source of truth for buyer↔owner conversations.
-   Everything chat-related (the /messages inbox, the dashboard preview, the navbar
-   unread badge, and the property→chat bridge) reads and writes through here so the
-   feature can never fork into two schemas again. State lives in localStorage under
-   `pnConversations`; `pnPendingRequests` is the hand-off queue a listing uses to
-   drop a buyer straight into a conversation. */
+/* The mock store for buyer↔owner conversations.
+   State lives in localStorage under `pnConversations`; `pnPendingRequests` is the hand-off queue a
+   listing uses to drop a buyer straight into a conversation.
 
-import { useSyncExternalStore } from 'react';
-import { contactStatus, digits } from './contact.js';
+   **This is no longer what the app reads.** Since the conversations slice, every consumer goes
+   through `services/conversationService.js`, and this file is reached only by
+   `providers/mock/conversationProvider.js` — it is one of two backends behind that seam, not the
+   source of truth. Its reactivity hooks were removed for that reason: a localStorage-backed
+   `useChatUnread` sitting next to `ConversationContext` is an invitation to wire the navbar to the
+   store that is empty in http mode. */
+
+import { contactStatus } from '../services/contactService.js';
+import { digits } from './contact.js';
 import { rawDb } from './mockApi.js';
 
 export const KEY = 'pnConversations';
 const QUEUE_KEY = 'pnPendingRequests';
-const CHANGE_EVENT = 'pn-convs-change';
 
 const MIN = 60000;
 const HOUR = 3600000;
@@ -62,7 +65,7 @@ function parse(raw) {
   return [...convs].sort(byRecent);
 }
 
-// Cached snapshot so useSyncExternalStore gets a stable reference between changes.
+// Cached snapshot so repeated reads between writes do not re-parse and re-sort the whole list.
 let _cache = { raw: undefined, val: [] };
 export function readConversations() {
   const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(KEY);
@@ -75,7 +78,6 @@ export function saveConversations(next) {
   const sorted = [...next].sort(byRecent);
   try { localStorage.setItem(KEY, JSON.stringify(sorted)); } catch { /* quota */ }
   _cache = { raw: JSON.stringify(sorted), val: sorted };
-  try { window.dispatchEvent(new CustomEvent(CHANGE_EVENT)); } catch { /* ssr */ }
   return sorted;
 }
 
@@ -117,26 +119,6 @@ export function unreadCount(convs = readConversations()) {
   return convs.reduce((n, c) => n + (c.unread || 0) + (c.state === 'incoming' ? 1 : 0), 0);
 }
 
-function subscribe(cb) {
-  window.addEventListener(CHANGE_EVENT, cb);
-  window.addEventListener('storage', cb);
-  return () => {
-    window.removeEventListener(CHANGE_EVENT, cb);
-    window.removeEventListener('storage', cb);
-  };
-}
-
-// Reactive conversation list for the navbar/dashboard. Read-only — the /messages
-// page owns mutations.
-export function useConversations() {
-  return useSyncExternalStore(subscribe, readConversations, () => []);
-}
-
-export function useChatUnread() {
-  const convs = useConversations();
-  return unreadCount(convs);
-}
-
 /* ---------- time helpers (epoch → display) ---------- */
 
 export function formatTime(at, fallback = '') {
@@ -170,13 +152,16 @@ export function relTime(at, fallback = '') {
 // the same privacy gate the rest of the app enforces. When you are the owner in a
 // thread, the buyer reached out to you, but their number stays hidden until you
 // accept the request (state 'active'), mirroring the buyer's own privacy.
-export function canRevealParty(conv) {
+//
+// Async on the buyer side because the gate is a server read now. The owner side stays
+// synchronous-in-spirit — it is decided by the thread's own state, which is already in hand —
+// but the function returns a promise either way so callers have one shape to await.
+export async function canRevealParty(conv) {
   if (!conv) return false;
   if (conv.youAre !== 'buyer') return conv.state === 'active';
-  const mobile = conv.party?.mobile;
-  if (!mobile) return false;
-  const st = contactStatus(mobile, conv.propertyId);
-  return st === 'approved' || st === 'owner';
+  if (!conv.propertyId) return false;
+  const { status } = await contactStatus(conv.propertyId);
+  return status === 'approved' || status === 'owner';
 }
 
 /* ---------- property → chat bridge (unchanged behaviour, richer party) ---------- */

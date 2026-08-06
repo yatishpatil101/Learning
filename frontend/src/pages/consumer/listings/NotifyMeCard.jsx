@@ -4,6 +4,8 @@ import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { addDemandAlert } from '../../../lib/mockApi.js';
 import { addSavedSearch, myMobile } from '../../../lib/store.js';
+import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildAlertRecord, criteriaChips, demandTypeLabel } from './alertCriteria.js';
 
 const CHANNELS = [
@@ -22,6 +24,8 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const [mobile, setMobile] = useState(() => myMobile() || '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
+  const { isIn } = useAuth();
+  const { create: createSavedSearch } = useSavedSearches();
 
   const localityNames = [...filters.localities].map((s) => locNameBySlug[s] || s);
   const record = buildAlertRecord(filters, locNameBySlug);
@@ -34,7 +38,12 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
 
     // User-owned, manageable alert (surfaced in dashboard → Alerts).
     // Persists the full filter set so matching/display stays complete.
-    addSavedSearch({ ...record, query: '', channel, mobile });
+    //
+    // Signed in → the seam, where ownership comes from the token. Signed out → localStorage: the
+    // API's create is caller-scoped and takes no mobile, so there is nothing to call for the very
+    // visitor this card exists to capture (D85). The demand signal below is unaffected either way.
+    if (isIn) createSavedSearch({ ...record, query: '', channel });
+    else addSavedSearch({ ...record, query: '', channel, mobile });
 
     // Admin demand-gap signal — one per selected locality (or one blank if none).
     const demandType = demandTypeLabel(record);

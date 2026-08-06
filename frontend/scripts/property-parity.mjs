@@ -23,7 +23,11 @@
  * Coverage note: the owner-scoped and mutating operations (`myListings`, `archiveListing`,
  * `restoreListing`) are checked for *existence* on both providers but not driven, because they need
  * a real session and would write to the dev DB. Their behaviour is covered by the backend's own
- * tests and by manual exercise; only their presence in the seam is enforced here.
+ * tests and by manual exercise; only their presence in the seam is enforced here. The four
+ * moderation decisions are treated the same way, with one addition: each is *called* against a
+ * nonexistent id, purely to prove it issues an HTTP request rather than throwing a "not shipped
+ * yet" error. That distinction is invisible to a surface check — a stub and an implementation are
+ * both functions — and it is exactly what was wrong before this slice.
  *
  * Exit code 0 = shapes agree, 1 = drift found (suitable for CI).
  */
@@ -51,9 +55,8 @@ const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
 
 const mock = await load('../src/services/providers/mock/propertyProvider.js');
 const live = await load('../src/services/providers/http/propertyProvider.js');
-const { toViewModel, toViewModelList, toQuery } = await load(
-  '../src/services/providers/http/propertyMapper.js',
-);
+const { toModerationQuery, toQuery, toViewModel, toViewModelList, unsupportedFilters } =
+  await load('../src/services/providers/http/propertyMapper.js');
 
 const failures = [];
 const warnings = [];
@@ -304,6 +307,95 @@ for (const row of resolved) {
     failures.push(`getPropertiesByIds returned a row missing required field(s): ${missing.join(', ')}`);
     break;
   }
+}
+
+// ─── Moderation: the queue, and the four decisions ────────────────────────────────────────────
+//
+// The writes are not driven here for the same reason `myListings`/`archiveListing` are not: they
+// need a staff session and would mutate the dev DB. Their behaviour is covered by
+// `PropertyModerationQueueTest`. What is checked here is everything that can go wrong *in the seam*
+// — which is where the previous version of this slice was broken, not in the backend.
+
+// 1. The four are implemented, not stubs. They were `notShipped` throwers pointing at guessed paths
+//    (`PATCH /admin/properties/{id}/status`) that never existed; the real routes had shipped months
+//    earlier. A stub and an implementation are both functions, so the surface check above cannot
+//    tell them apart — calling one is the only way to know.
+for (const fn of ['setListingStatus', 'toggleFeatured', 'flagListing', 'clearFlag']) {
+  try {
+    await live[fn]('definitely-not-a-real-listing', 'approved');
+    failures.push(`${fn}() resolved for a nonexistent listing — it is not reaching the server`);
+  } catch (err) {
+    if (!err?.status) {
+      failures.push(
+        `${fn}() threw a non-HTTP error (${err?.message}) — it is still a stub rather than a request`,
+      );
+    }
+  }
+}
+
+// 2. The queue is not public. This is the one moderation assertion that needs no token, and it is
+//    also the most important: `/admin/properties` returns every listing at every status, including
+//    other people's unpublished drafts.
+const anonQueue = await api('/admin/properties');
+if (anonQueue.status !== 401 && anonQueue.status !== 403) {
+  failures.push(
+    `GET /admin/properties returned ${anonQueue.status} to an anonymous caller — the moderation `
+    + 'queue must never be readable without a staff session',
+  );
+}
+
+// 3. The moderation read is a *separate operation*, on both providers. It was briefly inferred from
+//    `includeAllStatuses`/`includeArchived` inside `listProperties`, which broke every owner's
+//    dashboard: `useDashboardData.js` passes `includeAllStatuses: true` on a consumer page and was
+//    routed to the staff-only endpoint, earning a 403. Asserting the surfaces match is what keeps
+//    the two providers from disagreeing about which operations exist.
+for (const [name, mod] of [['mock', mock], ['live', live]]) {
+  if (typeof mod.listForModeration !== 'function') {
+    failures.push(`${name} provider has no listForModeration — the admin list has no operation to call`);
+  }
+}
+
+// ...and the public search must still refuse to honour the widenings, rather than quietly
+// re-acquiring the inference. A consumer page passing these must get the public floor and a warning.
+const stillUnsupported = unsupportedFilters({ includeAllStatuses: true, includeArchived: true });
+if (stillUnsupported.length !== 2) {
+  failures.push(
+    'listProperties no longer reports includeAllStatuses/includeArchived as unsupported — either it '
+    + 'is silently dropping them, or the moderation routing has been folded back into public search',
+  );
+}
+
+// 4. An unfiltered moderation read must filter on **neither** axis. This is the inverse of the
+//    public search's default, and it is the assertion that matters most here: while the routing was
+//    inferred from `includeAllStatuses`/`includeArchived`, an absent flag re-imposed the public
+//    floor — so `listForModeration({})` returned precisely the approved rows public search already
+//    returns. The admin table showed 16 of 38 listings and reported no error at all.
+const unfiltered = toModerationQuery({});
+if (unfiltered.archived !== undefined || unfiltered.status !== undefined) {
+  failures.push(
+    'toModerationQuery({}) must not filter on status or archived — an unfiltered moderation read is '
+    + `the whole queue, got archived=${unfiltered.archived} status=${unfiltered.status}`,
+  );
+}
+// ...and it must still narrow when asked, which is what the admin tab filters do.
+if (toModerationQuery({ status: 'pending' }).status !== 'pending') {
+  failures.push('toModerationQuery dropped an explicit status filter');
+}
+if (toModerationQuery({ archived: true }).archived !== true) {
+  failures.push('toModerationQuery dropped an explicit archived filter');
+}
+
+// 5. `archived` reaches the view model. It was hard-coded `false` in the mapper until the queue
+//    shipped — defensible while every list was public, fatal on an ops list, where it made every
+//    archived row look live and emptied the Archived filter.
+if (toViewModel({ id: 'x', archived: true }).archived !== true) {
+  failures.push(
+    'toViewModel drops the `archived` flag — an ops list cannot distinguish archived listings, and '
+    + 'the Archived filter silently returns nothing',
+  );
+}
+if (toViewModel({ id: 'x' }).archived !== false) {
+  failures.push('toViewModel must default `archived` to false, not undefined (callers test it directly)');
 }
 
 report();

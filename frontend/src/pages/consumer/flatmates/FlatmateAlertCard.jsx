@@ -3,6 +3,8 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { addSavedSearch, myMobile } from '../../../lib/store.js';
+import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
 import { TAB_MOVE_IN } from './model.js';
 
@@ -22,6 +24,8 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
   const [mobile, setMobile] = useState(() => myMobile() || '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
+  const { isIn } = useAuth();
+  const { create: createSavedSearch } = useSavedSearches();
 
   // Per-tab copy so the invitation reads naturally for each share intent. Keyed
   // off the two live tabs — and `word` is a plural NOUN, not the tab label, so the
@@ -36,7 +40,17 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('flatmates.invalidMobile'), 'error'); return; }
-    addSavedSearch({ ...record, channel, mobile });
+    /* Two paths, because the server only models one of them.
+
+       Signed in → the seam. Ownership comes from the token, so `mobile` is redundant and is
+       deliberately not sent; passing it would only invite the API's anonymous-capture guard.
+
+       Signed out → localStorage, as before. `POST /me/saved-searches` is caller-scoped and takes
+       no mobile, so there is nothing to call for a visitor who has not signed in — and this card
+       exists precisely to capture that visitor. Keeping it local means the alert is still claimed
+       when they later sign in on this device, which is the behaviour it has always had (D85). */
+    if (isIn) createSavedSearch({ ...record, channel });
+    else addSavedSearch({ ...record, channel, mobile });
     setSent(true);
     toast(t('flatmates.alertCreatedChannel', { channel: channel === 'sms' ? 'SMS' : 'WhatsApp' }), 'success');
   };

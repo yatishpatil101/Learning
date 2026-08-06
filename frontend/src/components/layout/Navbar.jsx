@@ -6,8 +6,9 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useCompare } from '../../context/CompareContext.jsx';
-import { getSavedProps, unreadNotifCount } from '../../lib/store.js';
-import { useChatUnread } from '../../lib/chat.js';
+import { useNotifications } from '../../context/NotificationContext.jsx';
+import { useConversationUnread } from '../../context/ConversationContext.jsx';
+import { useSaved } from '../../context/SavedContext.jsx';
 import { TOPBAR_SCROLL } from '../../lib/chrome.js';
 import { firstName, initial, roleLabel } from '../../lib/auth.js';
 import { useHelpPath } from '../../lib/useHelp.js';
@@ -18,6 +19,9 @@ export default function Navbar() {
   const { city, setCity, openRequest, cities } = useCity();
   const { flagEnabled } = useAppFlags();
   const { count: compareCount } = useCompare();
+  const saved = useSaved();
+  const { unread: notifUnread } = useNotifications();
+  const { unread: chatUnread } = useConversationUnread();
   const location = useLocation();
   const navigate = useNavigate();
   const [cityOpen, setCityOpen] = useState(false);
@@ -31,6 +35,10 @@ export default function Navbar() {
   const hp = useHelpPath();
   // Bump on any store write (saved / notifications) so the badges below refresh
   // live in the same tab, without waiting for a route change.
+  //
+  // The notification badge no longer needs this — `NotificationContext` listens for `pn:store`
+  // itself, because against the API the count is a request rather than a synchronous read and so
+  // cannot be recomputed during render. The listener stays for the remaining store-backed badges.
   const [, setStoreTick] = useState(0);
   useEffect(() => {
     const bump = () => setStoreTick((n) => n + 1);
@@ -41,9 +49,10 @@ export default function Navbar() {
   const cityRef = useRef(null);
   const acctRef = useRef(null);
   const acctDrawerRef = useRef(null);
-  const savedCount = isIn ? getSavedProps().length : 0;
-  const unreadCount = isIn ? unreadNotifCount() : 0;
-  const chatUnread = useChatUnread();
+  // `count` is the server's total, not the length of a page, so the badge stays right for a
+  // shortlist longer than one page. The context is already empty when signed out.
+  const savedCount = isIn ? saved.count : 0;
+  const unreadCount = isIn ? notifUnread : 0;
   const chatBadge = isIn ? chatUnread : 0;
 
   // Active-link detection mirroring components.js navHtml().

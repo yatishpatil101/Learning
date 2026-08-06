@@ -64,6 +64,18 @@ public record PropertyResponse(
         int enquiries,
         boolean featured,
         String flagReason,
+        /**
+         * The soft-delete flag. Always {@code false} on the public detail read — {@code getPublic}
+         * filters archived rows out — and meaningful only on the two status-complete reads,
+         * {@code GET /me/listings} and {@code GET /admin/properties}.
+         *
+         * <p>Emitted because {@code archived} is a <em>separate axis</em> from {@code status}, not a
+         * sixth status value: archiving preserves the moderation state it was archived from, and
+         * restoring resets to {@code pending}. Without this field a client reading either
+         * status-complete list has no way to tell a live pending listing from an archived one, and
+         * the only safe assumption — "not archived" — is wrong for exactly the rows that matter.
+         */
+        boolean archived,
         boolean ownerVerified,
         boolean ownershipVerified,
         boolean societyVerified,

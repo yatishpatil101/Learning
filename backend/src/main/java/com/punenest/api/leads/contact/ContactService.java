@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -130,21 +132,44 @@ public class ContactService {
      * requesters — regardless of inbox size.
      */
     @Transactional(readOnly = true)
-    public List<ContactRequestResponse> myRequests(UUID ownerId) {
+    public Page<ContactRequestResponse> myRequests(UUID ownerId, Pageable pageable) {
         List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(ownerId);
         if (ownedPropertyIds.isEmpty()) {
-            return List.of();
+            return Page.empty(pageable);
         }
-        List<ContactRequest> rows = contactRequests.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds);
+        Page<ContactRequest> rows =
+                contactRequests.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
         Map<UUID, User> requesters = users.findAllById(
-                        rows.stream().map(ContactRequest::getRequesterId).distinct().toList())
+                        rows.getContent().stream()
+                                .map(ContactRequest::getRequesterId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
-        return rows.stream()
-                .map(row -> contactMapper.toResponse(row, requesters.get(row.getRequesterId()),
-                        visibilityOf(row.getStatus())))
-                .toList();
+        return rows.map(row -> contactMapper.toResponse(row, requesters.get(row.getRequesterId()),
+                visibilityOf(row.getStatus())));
+    }
+
+    /**
+     * Contract {@code myPendingContactCount} — how many requests are waiting on this owner.
+     *
+     * <p><strong>Why this is an endpoint and not a client-side filter.</strong> It used to be one:
+     * the owner's dashboard fetched the whole inbox and counted the pending rows. That is only
+     * correct while the inbox is unpaged, and paging it (D78) would have quietly turned the badge
+     * into "pending requests on page one" — a number that is wrong in exactly the situation the
+     * badge exists for, an owner with a lot of leads. Counted in the database, it is right at any
+     * inbox size and costs one integer instead of an inbox.
+     *
+     * <p>Owner-scoped by the same property-id set as the inbox itself; an owner with no listings
+     * gets {@code 0} without a second query.
+     */
+    @Transactional(readOnly = true)
+    public long myPendingCount(UUID ownerId) {
+        List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(ownerId);
+        if (ownedPropertyIds.isEmpty()) {
+            return 0L;
+        }
+        return contactRequests.countByPropertyIdInAndStatus(
+                ownedPropertyIds, ContactRequestStatuses.PENDING);
     }
 
     /**
@@ -184,15 +209,19 @@ public class ContactService {
     private ContactStatusResponse describe(UUID viewerId, Property property) {
         User owner = property.getOwner();
         boolean verifiedContactOnly = owner != null && owner.isVerifiedContactOnly();
+        // The owner's own view is never affected by their own hide-number preference — it is about
+        // who else sees the number — so this is reported as false on the owner branch below.
+        boolean ownerHidesNumber = owner != null && owner.isHideNumber();
 
         if (owner != null && owner.getId().equals(viewerId)) {
-            return new ContactStatusResponse(ContactStatuses.OWNER, verifiedContactOnly, false);
+            return new ContactStatusResponse(ContactStatuses.OWNER, verifiedContactOnly, false, false);
         }
         String status = contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId())
                 .map(ContactRequest::getStatus)
                 .orElse(ContactStatuses.NONE);
         return new ContactStatusResponse(
-                status, verifiedContactOnly, verifiedContactOnly && !hasBadge(viewerId));
+                status, verifiedContactOnly, verifiedContactOnly && !hasBadge(viewerId),
+                ownerHidesNumber);
     }
 
     /**

@@ -1,3 +1,4 @@
+import '../../styles/routes/listings.css';
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -5,7 +6,8 @@ import Icon from '../../components/Icon.jsx';
 import { listLocalities, logSearchIntent } from '../../lib/mockApi.js';
 import { listProperties } from '../../services/propertyService.js';
 import { useToast } from '../../context/ToastContext.jsx';
-import { addSavedSearch, setLastSearch, getLastSearch } from '../../lib/store.js';
+import { setLastSearch, getLastSearch } from '../../lib/store.js';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { buildAlertRecord } from './listings/alertCriteria.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useCity } from '../../context/CityContext.jsx';
@@ -34,6 +36,7 @@ export default function Listings() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const { create: createSavedSearch } = useSavedSearches();
   const { user, isIn } = useAuth();
   const { flagEnabled } = useAppFlags();
 
@@ -261,7 +264,7 @@ export default function Listings() {
       navigate(`/listings?deal=${parsed.deal}`);
     }
     const record = buildAlertRecord(parsed ? parsed.next : f, locNameBySlug);
-    addSavedSearch({ ...record, label: typed || record.label, query: typed });
+    createSavedSearch({ ...record, label: typed || record.label, query: typed });
     toast(tr('listings.searchSavedToast'), 'success');
   };
   return (

@@ -11,6 +11,20 @@ const USER_KEY = 'puneNestUser';
 
 export const digits = (num) => String(num || '').replace(/\D/g, '');
 
+/* The gate object every contact read resolves to (see services/contactService.js), in its
+   "nothing is known" form: not signed in, unknown listing, or still loading.
+
+   It lives here rather than in either provider because all three of the mock provider, the http
+   provider and useContactGate need the same default, and `lib/` is the one module they can all
+   import without a cycle — the providers cannot import the service that loads them. Every field
+   is the safe answer: no status, and no reveal. */
+export const NO_CONTACT_GATE = Object.freeze({
+  status: 'none',
+  verifiedContactOnly: false,
+  verificationRequired: false,
+  ownerHidesNumber: false,
+});
+
 /* A usable identity is a full 10-digit Indian mobile, and nothing else.
    The API masks owner numbers to '98XXXXX210' (first two + last three, ADR contact
    gate) and maskPhone() renders '+91 98••• •••10'. Stripping non-digits from either
@@ -93,6 +107,11 @@ function isViewerVerified(u) {
     return false;
   }
 }
+
+/* The signed-in viewer's own badge. Exported so the contact provider can report
+   `verificationRequired` on a *read* — the gate has to be describable before the user
+   presses anything, or the "Verify to contact" prompt only ever appears after a failure. */
+export const viewerIsVerified = () => isViewerVerified(readUser());
 
 function findContactReq(ownerMobile, propId) {
   const mine = myMobile();

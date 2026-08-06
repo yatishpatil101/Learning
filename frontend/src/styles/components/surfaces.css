@@ -1,0 +1,26 @@
+/* ============================================================================
+   Surfaces — Tier 0 (shared across routes)
+   Hoisted out of index.css, where .glass-card sat under the "Owner page"
+   heading despite ~120 references from components/dashboard, ServiceLanding,
+   ServiceTracker and pages/consumer. Loaded from main.jsx after index.css.
+
+   Known issue (pre-existing, not introduced here): the
+   `@supports not (backdrop-filter: blur(1px))` fallback in index.css still
+   declares .glass-card earlier in the cascade, so at equal specificity this
+   file wins and the fallback never applies. Only affects engines without
+   backdrop-filter support. Fix = move that fallback below this block.
+   ============================================================================ */
+.glass-card {
+  background: rgba(255, 255, 255, .05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+/* Dashboard "tools" row: opaque cards so backdrop-filter can't blur the contrasty
+   edge of the listings panel above into a faint horizontal band across each card. */
+.dash-tools-row .glass-card {
+  background: rgba(20, 18, 40, .94);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

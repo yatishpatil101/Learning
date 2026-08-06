@@ -74,6 +74,7 @@ cross-viewport spec:**
 | `/listings` search + filters + map | search-listings | consumer/search/listings-locality-filter(-registry), consumer/search/type-aware-filters, consumer/search/search-property-types, consumer/search/commercial-type-filter, consumer/search/filter-slider-manual-entry, `consumer/search/near-a-place-*`, consumer/search/location-recovery, consumer/search/qa-location-search, consumer/search/map-popup, consumer/search/map-panel-contact, consumer/search/listings-responsive-controls | ✅ |
 | `/property/:id` detail | consumer/property/detail | consumer/property/detail, consumer/property/detail-improvements, consumer/property/detail-sale, consumer/property/infotips, consumer/property/chat-owner, consumer/property/dedup, consumer/property/dup-modal | ✅ |
 | Contact reveal + badge-not-gate | contact-gate-leads | contact-owner-gate, contact-badge-not-gate | ✅ |
+| Contact grant is per listing, not per owner | contact-gate-leads | owner-profile ("routes contact through a listing") | ✅ |
 | Free-contact quota + exhausted modal | contact-gate-leads | referral-rewards | ✅ |
 | `/owner/:id` public owner profile | consumer/account/owner-hub | owner-profile | ✅ |
 | `/compare` | (search-listings) | consumer/search/compare | ✅ |
@@ -90,6 +91,9 @@ cross-viewport spec:**
 | `/support` tickets + FAQ | support-tickets | support-tickets | ✅ |
 | `/notifications` | saved-alerts | notifications, consumer/property/alerts | ✅ |
 | `/saved` | saved-alerts | saved (desktop), mobile/inbox-saved (mobile) | ✅ |
+| Shortlist is one shared set — heart, navbar badge and `/saved` agree | saved-alerts | saved, consumer/property/reels, consumer/account/dashboard | ✅ |
+| Saved searches + alert toggle, one shared list | saved-alerts | consumer/property/alerts, consumer/flatmates/alerts, consumer/account/notifications | ✅ |
+| Visits — book, confirm, reschedule, cancel; caller-scoped | consumer/property/detail | consumer/property/scheduled-visits | ✅ |
 | `/plans` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/checkout` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/refer` | plans-billing-refer | refer, referral-rewards | ✅ |
@@ -169,6 +173,9 @@ stylesheet bug below survived a 178-file suite.
 |---|---|---|---|
 | `/admin` dashboard + RBAC nav | (all) | admin/consolidation, admin/rbac | ✅ |
 | `/admin/properties` verification queue | property-verification | admin/properties, admin/duplicates | ✅ |
+| `/admin/properties` **against the live API** — the moderation queue and its decisions | property-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/notifications` **against the live API** — inbox read, seed suppression, mark-all-read | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/messages` **against the live API** — inbox read, seed suppression, thread hydration on open, author attribution, reply round trip | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/admin/analytics` | analytics | admin/analytics | ✅ |
 | `/admin/users` + KYC | users-kyc | admin/users | ✅ |
 | `/admin/finance` | finance | admin/finance | ✅ |

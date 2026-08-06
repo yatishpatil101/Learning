@@ -2,11 +2,18 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
-import { digits, ownerHidesNumber } from '../../../lib/contact.js';
-import { queueOwnerChat, messagesLinkForProp } from '../../../lib/chat.js';
+import { digits } from '../../../lib/contact.js';
+import { messagesLinkForProp } from '../../../lib/chat.js';
+import { queuePendingChat } from '../../../services/conversationService.js';
 import { ContactBox } from './ContactBox.jsx';
 
-export function OwnerCard({ p, isIn, toast, contactApproved, ownerMob, onContact, canChat }) {
+/**
+ * `ownerHidesNumber` arrives as a prop rather than being looked up here. It is part of the same
+ * gate answer that produced `contactApproved`, so passing it down keeps the WhatsApp button and
+ * the number reveal deciding from one value — a second lookup could disagree with the first and
+ * offer a direct channel to an owner who asked to stay masked.
+ */
+export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = false, ownerMob, onContact, canChat }) {
   const { t } = useTranslation();
   return (
     <div className="glass-strong rounded-2xl p-5">
@@ -39,7 +46,7 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerMob, onContact
       <div className="flex gap-2">
         {contactApproved && canChat ? (
           <div className="hidden lg:flex flex-1">
-            <Link to={messagesLinkForProp(p)} onClick={() => queueOwnerChat(p, { active: true })} className="w-full flex items-center justify-center gap-1.5 rounded-lg btn-teal text-xs font-semibold py-2 px-3 shadow-none"><Icon name="message-circle" className="w-3.5 h-3.5" /> {t('property.chatWithOwner')}</Link>
+            <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="w-full flex items-center justify-center gap-1.5 rounded-lg btn-teal text-xs font-semibold py-2 px-3 shadow-none"><Icon name="message-circle" className="w-3.5 h-3.5" /> {t('property.chatWithOwner')}</Link>
           </div>
         ) : (
           <div className="hidden lg:flex flex-1">
@@ -48,7 +55,7 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerMob, onContact
         )}
         <Link to={`/owner/${p.ownerId}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] py-2 sm:min-h-0 rounded-lg border border-white/10 text-slate-300 text-[13px] sm:text-xs font-medium hover:bg-white/5 transition-smooth"><Icon name="user" className="w-3.5 h-3.5" /> {t('property.profile')}</Link>
       </div>
-      {contactApproved && !ownerHidesNumber(ownerMob) && (
+      {contactApproved && !ownerHidesNumber && (
         <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in your property "${p.title}" listed on PuneNest. Is it still available?`)}`} target="_blank" rel="noopener noreferrer" className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-emerald-600 min-h-[44px] py-2.5 sm:min-h-0 text-sm font-semibold text-white hover:bg-emerald-500 transition">
           <Icon name="message-circle" className="w-4 h-4" /> {t('property.chatOnWhatsapp')}
         </a>

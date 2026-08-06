@@ -1,39 +1,53 @@
 /**
- * Mock saved/preferences provider — wraps store.js saved props/searches + plans/boosts
+ * Mock saved provider — the localStorage counterpart to `providers/http/savedProvider.js`.
+ *
+ * Storage stays where it was (`pnSavedProps:<mobile>`, a bare array of ids in `lib/store`), so the
+ * React app and the older HTML prototype still share a shortlist. What changes is the *shape on the
+ * way out*: the seam returns property view models, because that is what `GET /me/saved` returns.
+ * Resolving ids to properties therefore happens here rather than in the page, which is the whole
+ * point — a call site must not be able to tell which provider answered it.
+ *
+ * The previous version of this file also wrapped saved searches, plans, boosts and service orders.
+ * Those had no consumers and belong to four other backend controllers; they were removed rather
+ * than carried forward. See `services/savedService.js` for the reasoning.
  */
-import {
-  getSavedProps as _getSavedProps,
-  isSavedProp as _isSavedProp,
-  toggleSavedProp as _toggleSavedProp,
-  getSavedSearches as _getSavedSearches,
-  addSavedSearch as _addSavedSearch,
-  removeSavedSearch as _removeSavedSearch,
-  toggleSearchAlert as _toggleSearchAlert,
-  getPlan as _getPlan,
-  setPlan as _setPlan,
-  isBoosted as _isBoosted,
-  boostListing as _boostListing,
-  getServiceOrders as _getServiceOrders,
-  addServiceOrder as _addServiceOrder,
-} from '../../../lib/store.js';
+import { getProperty } from '../../../lib/mockApi.js';
+import { getSavedProps, toggleSavedProp } from '../../../lib/store.js';
 
-// Saved properties
-export const getSavedProps = () => Promise.resolve(_getSavedProps());
-export const isSavedProp = (id) => Promise.resolve(_isSavedProp(id));
-export const toggleSavedProp = (id) => Promise.resolve(_toggleSavedProp(id));
+/** Mirrors the server's page default so paging behaves identically on mocks. */
+const DEFAULT_SIZE = 20;
 
-// Saved searches
-export const getSavedSearches = () => Promise.resolve(_getSavedSearches());
-export const addSavedSearch = (o) => Promise.resolve(_addSavedSearch(o));
-export const removeSavedSearch = (id) => Promise.resolve(_removeSavedSearch(id));
-export const toggleSearchAlert = (id) => Promise.resolve(_toggleSearchAlert(id));
+/**
+ * The shortlist as property view models.
+ *
+ * Ids that no longer resolve are dropped rather than returned as holes: a saved listing can
+ * legitimately be archived later, and one dead id must not blank the page or render an empty card.
+ * `total` counts the resolved rows, so it agrees with what the user can actually see.
+ */
+export async function listSaved({ page = 0, size = DEFAULT_SIZE } = {}) {
+  // `getSavedProps` appends on save, so the raw array is oldest-first. The server returns
+  // newest-first; reverse here so "most recently saved" means the same thing on both providers.
+  const ids = [...getSavedProps()].reverse();
+  const resolved = (await Promise.all(ids.map((id) => getProperty(id)))).filter(Boolean);
+  const start = page * size;
+  return {
+    items: resolved.slice(start, start + size),
+    total: resolved.length,
+    page,
+    size,
+  };
+}
 
-// Plans & boosts
-export const getPlan = () => Promise.resolve(_getPlan());
-export const setPlan = (p) => Promise.resolve(_setPlan(p));
-export const isBoosted = (id) => Promise.resolve(_isBoosted(id));
-export const boostListing = (id, days) => Promise.resolve(_boostListing(id, days));
+/**
+ * `toggleSavedProp` is the only primitive the store exposes, so the idempotent set/clear the
+ * contract requires is expressed as "toggle only if that would move it the right way". Without the
+ * membership check, saving something already saved would silently *remove* it — the exact bug a
+ * double-tap or a retry would produce.
+ */
+export async function saveProperty(propertyId) {
+  if (!getSavedProps().includes(propertyId)) toggleSavedProp(propertyId);
+}
 
-// Service orders
-export const getServiceOrders = () => Promise.resolve(_getServiceOrders());
-export const addServiceOrder = (o) => Promise.resolve(_addServiceOrder(o));
+export async function unsaveProperty(propertyId) {
+  if (getSavedProps().includes(propertyId)) toggleSavedProp(propertyId);
+}

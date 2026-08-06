@@ -4,7 +4,9 @@ import Icon from '../../../components/Icon.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
 import ContactsExhaustedModal from '../../../components/property/ContactsExhaustedModal.jsx';
-import { contactStatus, requestContact, maskPhone, fmtPhone, digits, ownerHidesNumber } from '../../../lib/contact.js';
+import { maskPhone, fmtPhone, digits } from '../../../lib/contact.js';
+import { requestContact } from '../../../services/contactService.js';
+import { useContactGate } from './useContactGate.js';
 import { canRevealContact, consumeContact, contactsRemaining } from '../../../lib/store.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
@@ -14,16 +16,18 @@ export function ContactBox({ p, isIn, toast }) {
   const { flagEnabled } = useAppFlags();
   const ownerMobile = String(p.ownerMobile || '');
   const propId = p.id || '';
-  const [status, setStatus] = useState(() => contactStatus(ownerMobile, propId));
+  const { gate, loading, setGate } = useContactGate(propId);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [left, setLeft] = useState(() => contactsRemaining());
+  const status = gate.status;
   // An owner can approve a request yet still keep their number masked (Settings ▸
   // Owner phone privacy) — approved buyers are routed to in-app chat instead.
-  const ownerHides = status === 'approved' && ownerHidesNumber(ownerMobile);
+  const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
 
-  const request = () => {
+  const request = async () => {
     if (!isIn) {
       toast(t('property.signInRequestNumber'), 'info');
       return;
@@ -35,19 +39,28 @@ export function ContactBox({ p, isIn, toast }) {
     }
     track('contact_click', { action: 'request_number', id: propId });
     captureLead({ context: 'request_number', property: String(propId) });
-    const res = requestContact(ownerMobile, propId);
-    // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
-    if (res === 'verification_required') {
-      setVerifyOpen(true);
-      return;
+
+    setBusy(true);
+    try {
+      const next = await requestContact(propId);
+      setGate(next);
+      // Only a genuinely NEW request burns quota — a repeat press returns the existing status,
+      // which is why this reads the result rather than assuming the press created something.
+      if (next.status === 'pending' && status !== 'pending') {
+        consumeContact();
+        setLeft(contactsRemaining());
+      }
+      if (next.status === 'pending') toast(t('property.requestSentNumber'), 'success');
+      else if (next.status === 'approved') toast(t('property.ownerSharedNumber'), 'success');
+      else if (next.status === 'declined') toast(t('property.ownerDeclinedRequest'), 'info');
+    } catch (err) {
+      // Owner accepts verified contacts only → offer the opt-in badge flow instead of a request.
+      if (err?.code === 'verification_required') setVerifyOpen(true);
+      else if (err?.status === 401) toast(t('property.signInRequestNumber'), 'info');
+      else toast(t('property.contactUnavailable'), 'error');
+    } finally {
+      setBusy(false);
     }
-    setStatus(contactStatus(ownerMobile, propId));
-    // Only a genuinely NEW request burns quota — repeats return the existing status.
-    if (res === 'pending') { consumeContact(); setLeft(contactsRemaining()); }
-    if (res === 'pending') toast(t('property.requestSentNumber'), 'success');
-    else if (res === 'approved') toast(t('property.ownerSharedNumber'), 'success');
-    else if (res === 'declined') toast(t('property.ownerDeclinedRequest'), 'info');
-    else if (res === 'unavailable') toast(t('property.contactUnavailable'), 'error');
   };
 
   return (
@@ -69,7 +82,14 @@ export function ContactBox({ p, isIn, toast }) {
             <Icon name="phone-off" className="w-4 h-4 text-slate-500" />
             <span className="tracking-wider">{maskPhone(ownerMobile)}</span>
           </div>
-          {ownerHides ? (
+          {loading ? (
+            /* The gate is a network read now. `NO_CONTACT_GATE` renders as "no request made",
+               which is also the state that shows the request button — so rendering the action row
+               before the answer lands flashes "Request number" at a buyer who was already
+               approved, then corrects itself. Hold the row instead; the masked number above is
+               true in every state, so there is nothing misleading on screen meanwhile. */
+            <div className="mt-2 h-9 rounded-lg bg-white/5 animate-pulse" aria-hidden="true" />
+          ) : ownerHides ? (
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-300 font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
               <Icon name="message-circle" className="w-3.5 h-3.5" /> {t('property.approvedPrefersChat')}
             </p>
@@ -84,7 +104,7 @@ export function ContactBox({ p, isIn, toast }) {
           ) : (
             <>
               <p className="text-[11px] text-slate-500 mt-0.5">{t('property.hiddenPrivacy')}</p>
-              <Button onClick={request} variant="primary" size="sm" fullWidth icon="lock-keyhole" className="mt-2">{t('property.requestNumber')}</Button>
+              <Button onClick={request} disabled={busy} variant="primary" size="sm" fullWidth icon="lock-keyhole" className="mt-2">{t('property.requestNumber')}</Button>
               {isIn && Number.isFinite(left) && (
                 <p className="text-[11px] mt-1.5 text-center" data-testid="contacts-left">
                   {left > 0 ? (

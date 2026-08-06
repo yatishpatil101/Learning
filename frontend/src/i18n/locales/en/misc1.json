@@ -3,6 +3,8 @@
     "svErrName": "Please enter your name",
     "svErrPhone": "Enter a valid 10-digit mobile number",
     "svToastRequested": "Visit requested! The owner will confirm your slot.",
+    "svToastAlreadyBooked": "You already have a visit booked on this property. Manage it from your dashboard.",
+    "svToastFailed": "Could not request that visit. Please try again.",
     "svBackToProperty": "Back to property",
     "svBackToListings": "Back to listings",
     "svVisiting": "Visiting",

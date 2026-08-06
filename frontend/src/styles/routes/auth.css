@@ -1,0 +1,300 @@
+/* Auth pages (sign in / sign up / staff login): split-screen OTP login. Tier 1, imported from components/auth/AuthShell.jsx. Ported verbatim from index.css, where it sat under the "Listings page" heading. NOTE: the .otp-* box styles stay global in index.css \u2014 OtpBoxes.jsx is shared with list-property, not just auth. */
+
+/* â”€â”€ Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) â”€â”€ */
+/* Base page canvas. The left half is painted over by .auth-left; this gradient is
+   what shows through the right (form) column, so it lifts that side out of flat
+   black into a deep teal-navy console that matches the brand without competing
+   with the card. Mobile hides this behind .auth-mobile-bg. */
+.auth-page {
+  position: relative;
+  background: radial-gradient(125% 120% at 84% 14%, #17243f 0%, #111a2d 44%, #0d1322 72%, var(--brand-dark) 100%);
+}
+
+@media (min-width: 1024px) {
+
+  /* Soft teal aura behind the form card so the right half reads as lit, not empty. */
+  .auth-page::after {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    right: 6%;
+    top: 18%;
+    width: 40vw;
+    max-width: 560px;
+    height: 62%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(20, 184, 166, .16), rgba(20, 184, 166, .05) 55%, transparent 76%);
+    filter: blur(30px);
+    pointer-events: none;
+  }
+}
+
+.auth-page .auth-left {
+  background: linear-gradient(135deg, #0f172a 0%, #134e4a 40%, var(--teal-1) 70%, #0f172a 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-page .auth-left::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 70%, rgba(20, 184, 166, .1) 0%, transparent 50%), radial-gradient(circle at 70% 30%, rgba(13, 148, 136, .15) 0%, transparent 50%);
+  animation: pnPanelGlow 15s ease-in-out infinite;
+}
+
+@keyframes pnPanelGlow {
+
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-5%, 5%);
+  }
+}
+
+.auth-page .floating-shape {
+  position: absolute;
+  border-radius: 50%;
+  opacity: .15;
+  animation: pnFloatShape 8s ease-in-out infinite;
+}
+
+.auth-page .floating-shape:nth-child(2) {
+  animation-delay: -2s;
+  animation-duration: 10s;
+}
+
+.auth-page .floating-shape:nth-child(3) {
+  animation-delay: -4s;
+  animation-duration: 12s;
+}
+
+.auth-page .floating-shape:nth-child(4) {
+  animation-delay: -6s;
+  animation-duration: 9s;
+}
+
+@keyframes pnFloatShape {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  25% {
+    transform: translateY(-30px) rotate(5deg) scale(1.05);
+  }
+
+  50% {
+    transform: translateY(-15px) rotate(-3deg) scale(.95);
+  }
+
+  75% {
+    transform: translateY(-25px) rotate(4deg) scale(1.02);
+  }
+}
+
+.auth-page .slide-up {
+  opacity: 0;
+  transform: translateY(30px);
+  animation: pnSlideUp .7s cubic-bezier(.4, 0, .2, 1) forwards;
+}
+
+.auth-page .slide-up-delay-1 {
+  animation-delay: .1s;
+}
+
+.auth-page .slide-up-delay-2 {
+  animation-delay: .2s;
+}
+
+.auth-page .slide-up-delay-3 {
+  animation-delay: .3s;
+}
+
+.auth-page .slide-up-delay-4 {
+  animation-delay: .4s;
+}
+
+@keyframes pnSlideUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-page .slide-right {
+  opacity: 0;
+  transform: translateX(-40px);
+  animation: pnSlideRight .8s cubic-bezier(.4, 0, .2, 1) forwards;
+}
+
+@keyframes pnSlideRight {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.auth-page .stat-card {
+  background: rgba(255, 255, 255, .08);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, .1);
+}
+
+.auth-page .country-prefix {
+  background: rgba(255, 255, 255, .08);
+}
+
+/* .otp-* box styles live in index.css (global, shared via OtpBoxes.jsx). */
+
+.auth-page .send-otp-btn {
+  background: linear-gradient(135deg, rgba(20, 184, 166, .15), rgba(79, 70, 229, .15));
+  border: 1px solid rgba(20, 184, 166, .3);
+  transition: all .3s cubic-bezier(.4, 0, .2, 1);
+}
+
+.auth-page .send-otp-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(20, 184, 166, .25), rgba(79, 70, 229, .25));
+  border-color: rgba(20, 184, 166, .5);
+  transform: translateY(-1px);
+}
+
+.auth-page .send-otp-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.auth-page .role-chip {
+  cursor: pointer;
+  transition: all .3s cubic-bezier(.4, 0, .2, 1);
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .03);
+}
+
+.auth-page .role-chip:hover {
+  border-color: rgba(20, 184, 166, .4);
+  background: rgba(20, 184, 166, .06);
+}
+
+.auth-page .role-chip.selected {
+  border-color: var(--teal-2);
+  background: rgba(20, 184, 166, .12);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
+}
+
+/* â”€â”€ Mobile auth "edge-lit proptech" theme (â‰¤lg) â”€â”€
+   Desktop keeps its split-screen; mobile hides the left panel, so we give the
+   whole screen a techy identity: an ambient teal aurora + fine tech-grid backdrop
+   behind a lit, gradient-ring form card. Reuses brand teal tokens only. */
+.auth-page .auth-mobile-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(150% 100% at 50% -12%, #16223d 0%, #0f1526 42%, var(--brand-dark) 78%);
+}
+
+.auth-page .auth-mobile-bg::before {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  background: radial-gradient(42% 30% at 50% 3%, rgba(45, 212, 191, .30), transparent 70%), radial-gradient(38% 30% at 84% 16%, rgba(20, 184, 166, .22), transparent 72%), radial-gradient(44% 32% at 12% 24%, rgba(13, 148, 136, .22), transparent 72%);
+  filter: blur(8px);
+  animation: pnAuroraDrift 22s ease-in-out infinite;
+}
+
+.auth-page .auth-mobile-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(125% 66% at 50% 0%, #000 20%, transparent 74%);
+  mask-image: radial-gradient(125% 66% at 50% 0%, #000 20%, transparent 74%);
+}
+
+@keyframes pnAuroraDrift {
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate(-4%, 3%) scale(1.06);
+  }
+}
+
+/* Glowing brand badge + live-status dot (rendered only in the mobile intro). */
+.auth-page .auth-brand-badge {
+  box-shadow: 0 10px 26px -6px rgba(20, 184, 166, .6), inset 0 0 0 1px rgba(45, 212, 191, .28);
+}
+
+.auth-page .auth-live-dot {
+  position: relative;
+  box-shadow: 0 0 8px rgba(45, 212, 191, .9);
+}
+
+.auth-page .auth-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: rgba(45, 212, 191, .45);
+  animation: pnLivePulse 2s ease-out infinite;
+}
+
+@keyframes pnLivePulse {
+  0% {
+    transform: scale(.5);
+    opacity: .7;
+  }
+
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1023px) {
+
+  /* Lit "console" card: translucent gradient fill, teal drop-glow, and a 1px
+     gradient ring that catches light on the top-left edge. */
+  .auth-page .auth-card {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .022));
+    border: 1px solid rgba(255, 255, 255, .08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 24px 60px -26px rgba(20, 184, 166, .5), 0 34px 90px -52px rgba(0, 0, 0, .9);
+  }
+
+  .auth-page .auth-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(158deg, rgba(45, 212, 191, .6), rgba(20, 184, 166, .08) 34%, transparent 62%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-page .auth-mobile-bg::before {
+    animation: none;
+  }
+
+  .auth-page .auth-live-dot::after {
+    animation: none;
+  }
+}

@@ -19,6 +19,12 @@
     "seed": "node scripts/generate-seed.mjs",
     "parity:auth": "node scripts/contract-parity.mjs",
     "parity:property": "node scripts/property-parity.mjs",
+    "parity:contact": "node scripts/contact-parity.mjs",
+    "parity:saved": "node scripts/saved-parity.mjs",
+    "parity:saved-search": "node scripts/saved-search-parity.mjs",
+    "parity:visit": "node scripts/visit-parity.mjs",
+    "parity:notification": "node scripts/notification-parity.mjs",
+    "parity:conversation": "node scripts/conversation-parity.mjs",
     "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },

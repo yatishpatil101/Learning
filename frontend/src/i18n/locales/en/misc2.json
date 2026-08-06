@@ -85,6 +85,7 @@
     "msgQuick2": "Can we schedule a visit?",
     "msgQuick3": "Is the price negotiable?",
     "msgAutoReply": "Got it, thanks! I'll get back to you shortly.",
+    "msgSendFailed": "Message not sent — check your connection and try again.",
     "msgSharedLocation": "Shared location: ",
     "msgAcceptedSystem": "You accepted the chat request.",
     "msgMessages": "Messages",

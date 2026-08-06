@@ -6,18 +6,17 @@ import HScroll from '../../components/ui/HScroll.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { listProperties } from '../../services/propertyService.js';
 import { countMatches } from './listings/alertCriteria.js';
+import { useSaved } from '../../context/SavedContext.jsx';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
+import { useNotifications } from '../../context/NotificationContext.jsx';
 import {
-  getNotifications,
-  seedNotifsIfEmpty,
-  markAllNotifsRead,
-  markNotifRead,
-  dismissNotif,
-  mergeNotifs,
-  getSavedSearches,
-  getSavedProps,
-  getNotifPrefs,
-  inQuietHours,
-} from '../../lib/store.js';
+  listNotifications,
+  markAllRead,
+  markRead as markOneRead,
+  dismiss as dismissOne,
+} from '../../services/notificationService.js';
+import { isHttpDomain } from '../../services/config.js';
+import { seedNotifsIfEmpty, getNotifPrefs, inQuietHours } from '../../lib/store.js';
 
 const ICONS = {
   match: ['home', 'text-teal-400', 'bg-teal-400/15'],
@@ -66,12 +65,46 @@ const safeLink = (link) => (typeof link === 'string' && SAFE_LINK_RE.test(link) 
 
 export default function Notifications() {
   const { t, i18n } = useTranslation();
+  /**
+   * The seeded demo set is a **mock-only** affordance and must not run against the API.
+   *
+   * `seedNotifsIfEmpty` writes eight fabricated rows into localStorage. On mocks that is the demo
+   * inbox. In http mode the same call would merge invented notifications into a real one — indelible
+   * (they are not the server's to delete), unreadable from any other device, and indistinguishable
+   * from genuine platform messages. So the seed is gated on the domain rather than on emptiness.
+   */
+  const seeded = isHttpDomain('notification');
   const [notifs, setNotifs] = useState(() => {
+    if (seeded) return [];
     seedNotifsIfEmpty(SEED);
-    return getNotifications();
+    return [];
   });
   const [filter, setFilter] = useState('all');
+  const saved = useSaved();
+  const { searches } = useSavedSearches();
+  const { refresh: refreshBadge } = useNotifications();
   const rootRef = useScrollReveal([filter]);
+
+  // Derived (client-side) notifications, computed from the user's own saved searches and saved
+  // properties. Held separately from the list so a re-derivation cannot duplicate server rows: the
+  // provider merges the two on every read and lets the server win on any id collision.
+  const [derived, setDerived] = useState([]);
+
+  /**
+   * Load the inbox: server rows (or localStorage on mocks) merged with whatever has been derived.
+   *
+   * Re-runs whenever `derived` changes, which is how the two halves converge — the first pass shows
+   * the stored inbox, and the alert pass adds to it once the saved searches and shortlist land.
+   */
+  useEffect(() => {
+    let alive = true;
+    listNotifications(derived)
+      .then((list) => { if (alive) setNotifs(list); })
+      // An unreachable inbox renders empty rather than throwing the page away. The bell already
+      // shows nothing in that case, so the two agree.
+      .catch(() => { if (alive) setNotifs([]); });
+    return () => { alive = false; };
+  }, [derived]);
 
   // Merge in real-data notifications derived from the user's own saved searches
   // (new matches) and saved properties (availability). Deduped by stable id, so
@@ -82,8 +115,7 @@ export default function Notifications() {
     // hours both suppress the non-critical live match/price notifications.
     const prefs = getNotifPrefs();
     if (!prefs.matchAlerts || inQuietHours(prefs)) return () => { alive = false; };
-    const searches = getSavedSearches();
-    const savedIds = getSavedProps();
+    const savedIds = [...saved.ids];
     if (!searches.length && !savedIds.length) return () => { alive = false; };
     listProperties({}).then((props) => {
       if (!alive) return;
@@ -119,10 +151,12 @@ export default function Notifications() {
           });
         }
       }
-      if (extra.length) setNotifs(mergeNotifs(extra));
+      if (extra.length) setDerived(extra);
     });
     return () => { alive = false; };
-  }, []);
+    // Both lists arrive asynchronously now, so this has to re-run once they land — on the first
+    // pass they are still empty and the match/availability nudges would be skipped for everyone.
+  }, [saved.ids, searches]);
 
   const sorted = useMemo(() => [...notifs].sort((a, b) => (b.at || 0) - (a.at || 0)), [notifs]);
   const list = useMemo(() => sorted.filter((n) => filter === 'all' || n.type === filter), [sorted, filter]);
@@ -134,9 +168,34 @@ export default function Notifications() {
     return [['today', today], ['earlier', earlier]].filter(([, arr]) => arr.length);
   }, [list]);
 
-  const markAll = () => setNotifs(markAllNotifsRead());
-  const markRead = (id) => setNotifs(markNotifRead(id));
-  const dismiss = (id) => setNotifs(dismissNotif(id));
+  /**
+   * Every mutation is optimistic, then reconciled.
+   *
+   * These were synchronous localStorage writes returning the whole new list, which the page set
+   * directly. Against the API each is a request, and awaiting one before repainting puts a network
+   * round trip between the tap and the row greying out. So the local list is updated immediately,
+   * the write is fired, and the bell is refreshed once it lands — the same pattern `SavedContext`
+   * uses for hearts, and for the same reason.
+   *
+   * A failed write is not rolled back here: the next `listNotifications` re-reads the server and the
+   * row simply comes back unread. Rolling back a *read* flag would be more surprising than letting
+   * it correct itself, unlike a saved heart, where the wrong state invites a second write.
+   */
+  const markAll = async () => {
+    setNotifs((cur) => cur.map((n) => (n.read ? n : { ...n, read: true })));
+    await markAllRead();
+    refreshBadge();
+  };
+  const markRead = async (id) => {
+    setNotifs((cur) => cur.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n)));
+    await markOneRead(id);
+    refreshBadge();
+  };
+  const dismiss = async (id) => {
+    setNotifs((cur) => cur.filter((n) => n.id !== id));
+    await dismissOne(id);
+    refreshBadge();
+  };
 
   // Localise a notification at render time. Known seeds resolve by id; live
   // match/price items resolve from their stored `key` + `vars`; anything else

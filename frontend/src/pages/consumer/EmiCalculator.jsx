@@ -1,3 +1,4 @@
+import '../../styles/routes/emi.css';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';

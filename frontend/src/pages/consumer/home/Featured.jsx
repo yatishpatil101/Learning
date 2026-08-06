@@ -6,7 +6,7 @@ import Icon from '../../../components/Icon.jsx';
 import { featuredProperties } from '../../../services/propertyService.js';
 import { priceLabel } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { isSavedProp, toggleSavedProp } from '../../../lib/store.js';
+import { useSaved } from '../../../context/SavedContext.jsx';
 import { verifiedStats } from '../../../lib/mockApi.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
 
@@ -25,13 +25,14 @@ function FeaturedCard({ p, priority = false }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { isIn } = useAuth();
-  const [saved, setSaved] = useState(() => isSavedProp(p.id));
+  const savedList = useSaved();
+  const saved = savedList.has(p.id);
 
   const handleSave = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (!isIn) { navigate('/signin?reason=save&next=/'); return; }
-    setSaved(toggleSavedProp(p.id));
+    savedList.toggle(p.id);
   };
 
   return (

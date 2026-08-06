@@ -8,12 +8,11 @@ import TimeField from '../../components/ui/TimeField.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { scheduleVisit } from '../../lib/mockApi.js';
+import { scheduleVisit } from '../../services/visitService.js';
 import { getProperty } from '../../services/propertyService.js';
 import { priceLabel, fmtNum, avatarFor } from '../../lib/format.js';
-import { addVisitRequest } from '../../lib/store.js';
 import { cityLabelFor } from '../../lib/geoConfig.js';
-import { formatWhen, displayDate, todayIso } from '../../lib/visitWhen.js';
+import { displayDate, todayIso } from '../../lib/visitWhen.js';
 import AutosaveBanner from '../../components/AutosaveBanner.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../lib/hooks.js';
@@ -36,6 +35,9 @@ export default function ScheduleVisit() {
   const [visitTime, setVisitTime] = useState('10:30 AM');
   const [form, setForm] = useState({ name: '', phone: '', msg: '' });
   const [booked, setBooked] = useState(false);
+  // Booking is a network write now: hold the button so a double-tap cannot fire two requests, the
+  // second of which the server would reject as a duplicate live visit.
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const draft = useFormDraft('pnDraft:schedule-visit', form, setForm);
   const formRef = useRef(null);
@@ -60,21 +62,41 @@ export default function ScheduleVisit() {
       { name: 'phone', ok: /^[6-9]\d{9}$/.test(d), msg: t('misc1.svErrPhone') },
     ], toast);
     if (!ok) return;
-    if (isIn) {
-      const when = formatWhen(visitDate, visitTime, mode);
-      const label = propTitle || 'Property visit';
-      const propId = listingId || listing?.id || '';
-      scheduleVisit({ listingId: propId, listing: label, customer: form.name, mobile: form.phone, when, note: form.msg });
-      if (ownerMobile) {
-        addVisitRequest(ownerMobile, {
-          propId, propTitle: label, visitorName: form.name,
-          phone: form.phone, date: displayDate(visitDate), time: visitTime, mode, note: form.msg,
-        });
-      }
+    if (!isIn) {
+      draft.clear();
+      setBooked(true);
+      toast(t('misc1.svToastRequested'), 'success');
+      return;
     }
-    draft.clear();
-    setBooked(true);
-    toast(t('misc1.svToastRequested'), 'success');
+
+    /* One write, not two. This used to call `scheduleVisit` (the global collection) *and*
+       `addVisitRequest` (the owner's bucket) — two records of one real-world event, which then
+       drifted the moment either was updated alone. The seam writes once; the mock provider still
+       feeds the admin collection internally until that slice ships. */
+    setBusy(true);
+    scheduleVisit({
+      propertyId: listingId || listing?.id || '',
+      listing: propTitle || 'Property visit',
+      ownerMobile,
+      visitorName: form.name,
+      phone: form.phone,
+      dateIso: visitDate,
+      time: visitTime,
+      mode,
+      note: form.msg,
+    })
+      .then(() => {
+        draft.clear();
+        setBooked(true);
+        toast(t('misc1.svToastRequested'), 'success');
+      })
+      .catch((e) => {
+        // A live visit already exists on this listing. The server refuses rather than moving the
+        // slot, so say so instead of showing a success screen for a booking that did not happen.
+        if (e?.code === 'visit_exists') toast(t('misc1.svToastAlreadyBooked'), 'info');
+        else toast(t('misc1.svToastFailed'), 'error');
+      })
+      .finally(() => setBusy(false));
   };
 
   const field = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
@@ -159,7 +181,7 @@ export default function ScheduleVisit() {
                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-gray-300"><Icon name="calendar" className="w-3.5 h-3.5 text-teal-400" /> {displayDate(visitDate)}</span>
                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-gray-300"><Icon name="clock" className="w-3.5 h-3.5 text-teal-400" /> {visitTime}</span>
                   </div>
-                  <button onClick={confirm} className="btn-teal w-full mt-3 py-3.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2"><Icon name="calendar-check" className="w-4 h-4" /> {t('misc1.svConfirmVisit')}</button>
+                  <button onClick={confirm} disabled={busy} className="btn-teal w-full mt-3 py-3.5 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><Icon name="calendar-check" className="w-4 h-4" /> {t('misc1.svConfirmVisit')}</button>
                 </>
               )}
             </div>

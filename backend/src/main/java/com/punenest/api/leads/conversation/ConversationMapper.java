@@ -148,6 +148,7 @@ public class ConversationMapper {
                     User author = people.get(m.getAuthorId());
                     return new MessageDto(
                             m.getId().toString(),
+                            m.getAuthorId().toString(),
                             author == null ? null : author.getName(),
                             m.getAuthorRole(),
                             m.getBody(),

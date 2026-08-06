@@ -27,6 +27,10 @@ import java.time.Instant;
  * @param mobileVerified     L1 trust floor — the participation gate
  * @param aadhaarVerified    DigiLocker badge (alias of {@code verified}) — signal, not a gate
  * @param verifiedContactOnly owner preference: accept contact only from L2-verified users
+ * @param hideNumber         owner preference: stay masked even after approving a contact request
+ *                           (D5). Read back here so the profile screen can render the toggle it
+ *                           just set; the reveal decision itself is made server-side in
+ *                           {@code ContactGateService}, never by the client reading this
  * @param listingsCount      active listings (owners)
  * @param joinedAt           first sign-up time
  * @param lastActive         last activity time, nullable
@@ -46,6 +50,7 @@ public record UserResponse(
         boolean mobileVerified,
         boolean aadhaarVerified,
         boolean verifiedContactOnly,
+        boolean hideNumber,
         int listingsCount,
         Instant joinedAt,
         Instant lastActive,

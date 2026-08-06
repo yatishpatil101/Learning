@@ -8,12 +8,39 @@ const LISTING = {
   price: 25000, status: 'approved', real: true, ownerMobile: '9800000001', views: 7,
 };
 
+/* Visits against the owner's OWN listing.
+   These used to be left to the seeded demo catalogue, which worked only because the visit read was
+   unscoped and handed every user the entire collection — including strangers' visits. Now that both
+   reads are caller-scoped (matching the server's `/visits` and `/me/visit-requests`), the fixture
+   has to own the data it asserts on. Dates are relative so the rows never age out of "Upcoming". */
+const dayAhead = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+const VISITS = [
+  {
+    id: 'V-TEST-1', propId: 'L-TEST-1', propTitle: 'Test 2 BHK, Baner',
+    visitorName: 'Asha Kulkarni', visitorMobile: '9811111111', phone: '9811111111',
+    date: dayAhead(3), time: '10:30 AM', mode: 'in-person', note: '',
+    status: 'scheduled', createdAt: Date.now(), completedAt: 0,
+  },
+  {
+    id: 'V-TEST-2', propId: 'L-TEST-1', propTitle: 'Test 2 BHK, Baner',
+    visitorName: 'Rohit More', visitorMobile: '9822222222', phone: '9822222222',
+    date: dayAhead(5), time: '3:00 PM', mode: 'in-person', note: '',
+    status: 'scheduled', createdAt: Date.now() - 1000, completedAt: 0,
+  },
+];
+
 async function loginOwner(page) {
-  await page.addInitScript(({ u, l }) => {
+  await page.addInitScript(({ u, l, v }) => {
     localStorage.setItem('puneNestUser', JSON.stringify(u));
     localStorage.setItem('puneNestUsers', JSON.stringify([u]));
     localStorage.setItem('puneNestListings:' + u.mobile, JSON.stringify(l));
-  }, { u: OWNER, l: [LISTING] });
+    // The owner's own visit-request bucket — where a real booking against their listing lands.
+    localStorage.setItem('puneNestPropVisitReqs:' + u.mobile, JSON.stringify(v));
+  }, { u: OWNER, l: [LISTING], v: VISITS });
 }
 
 test.describe('Scheduled Visits', () => {

@@ -5,6 +5,7 @@ import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
 import { loadSharedDocuments } from '../../lib/data/viewDocuments.js';
+import '../../styles/routes/view-documents.css';
 
 function drawWatermark(ctx, w, h, label) {
   ctx.save();

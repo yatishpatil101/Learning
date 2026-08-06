@@ -134,9 +134,23 @@ public class PropertyModerationService {
         }
     }
 
-    private Property load(String id) {
-        return Ids.parseUuid(id)
+    /**
+     * Resolve the path token to a listing, accepting a <strong>slug or a UUID</strong>.
+     *
+     * <p>It was UUID-only, which made these five routes the odd ones out on {@code /properties/{id}}:
+     * the public read ({@code PropertyService.resolve}) and archive/restore
+     * ({@code ListingService.resolvePermitted}) both accept either. That inconsistency is invisible
+     * until something takes an id from one route and uses it on another — which is precisely what
+     * the admin UI does, because a listing's public URL key is its slug. Approve worked from a hand-
+     * typed UUID and 404'd from the screen, for a listing the moderator was looking at.
+     *
+     * <p>No visibility filter here, deliberately: unlike the public read this must resolve pending,
+     * rejected, flagged and archived rows — they are the ones being moderated.
+     */
+    private Property load(String idOrSlug) {
+        return Ids.parseUuid(idOrSlug)
                 .flatMap(properties::findById)
+                .or(() -> properties.findBySlug(idOrSlug))
                 .orElseThrow(() -> NotFoundException.of("Property"));
     }
 }

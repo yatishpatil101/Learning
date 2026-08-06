@@ -4,6 +4,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -30,15 +32,33 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
     boolean existsByRequesterIdAndPropertyIdAndStatus(UUID requesterId, UUID propertyId, String status);
 
     /**
-     * The owner's inbox: every request against the listings they own, newest first.
+     * The owner's inbox: every request against the listings they own, newest first, paged.
      *
      * <p>Takes the owner's property ids rather than an owner id because {@code contact_requests} has
      * no {@code owner_id} column — ownership lives on {@code properties}. Passing the id set keeps
      * this query inside the {@code leads} context and inside
      * {@code idx_contact_requests_property}, and it is a single round trip regardless of inbox size
-     * (no N+1). An empty collection short-circuits to an empty list without a query.
+     * (no N+1). An empty collection short-circuits to an empty page without a query.
+     *
+     * <p><strong>Paged as of the contact-integration slice (tech-debt D78).</strong> It was a bare
+     * array on the argument that an owner's inbox is small — but this is the one collection on the
+     * platform that grows with <em>demand</em> rather than with the owner's own actions: every buyer
+     * who wants a number adds a row, so the owner whose listing is doing well is precisely the one
+     * the unpaged read punishes.
      */
-    List<ContactRequest> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds);
+    Page<ContactRequest> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds,
+            Pageable pageable);
+
+    /**
+     * How many of the owner's requests are still waiting on them.
+     *
+     * <p>Exists because paging the inbox broke the way this number used to be produced: the client
+     * fetched the whole array and filtered it. That is correct only while "the whole array" and "one
+     * page" are the same thing. Counted in the database instead — the badge is then right regardless
+     * of how many pages the inbox has, and the client no longer downloads an inbox to display an
+     * integer.
+     */
+    long countByPropertyIdInAndStatus(Collection<UUID> propertyIds, String status);
 
     /**
      * Whether {@code requesterId} holds an approved contact request against any listing owned by

@@ -38,8 +38,37 @@ a domain flip. Zero results = zero leaks.
 | Domain | Service | Provider(s) | Notes |
 |---|---|---|---|
 | `auth` | `authService.js` | mock + **http** | Live: login, staff-login, refresh, logout, `GET/PATCH /auth/me` |
-| `property` | `propertyService.js` | mock + **http** | Live: search, detail, featured, counts, by-id, `/me/listings`, archive/restore. Admin moderation still mock-only |
-| others (saved, visit, deal, finance, document, content, admin, …) | — | mock | No backend controller yet |
+| `property` | `propertyService.js` | mock + **http** | Live: search, detail, featured, counts, by-id, `/me/listings`, archive/restore, **and the full moderation surface** — `GET /admin/properties` plus approve/reject, feature, flag, clear-flag |
+| `contact` | `contactService.js` | mock + **http** | Live: gate status, request, owner inbox (paged), respond, pending count. Keyed on `propertyId` — the grant is per listing |
+| `saved` | `savedService.js` | mock + **http** | Live: `GET /me/saved` (rows, not ids), idempotent PUT/DELETE. Membership is answered from `SavedContext`, never per card |
+| `savedSearch` | `savedSearchService.js` | mock + **http** | Live: list/create/patch/delete. Seam flattens the server's `filters` jsonb onto the record and derives `alerts` from `alertFrequency`. Anonymous lead capture stays local (D85) |
+| `visit` | `visitService.js` | mock + **http** | Live: `/visits` (mine) and `/me/visit-requests` (on my listings), create, status. Seam carries the human `when` string; `visitWhen` converts to/from the wire's ISO slot. Reschedule has no endpoint (D87) |
+| `notification` | `notificationService.js` | mock + **http** | Live: `GET /notifications` (paged), `POST /notifications/read`. Dismiss is a client tombstone — no endpoint. Client-derived alerts merge in. Preferences stay on `lib/` |
+| `conversation` | `conversationService.js` | mock + **http** | Live: inbox (paged), start, detail, reply, mark-read. `pending` is a client staging queue; `incoming` + accept/decline are mock-only |
+| others (document, content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
+
+Eight domains, eight services, eight mock providers, eight http providers — the counts match
+exactly, and that is the invariant to keep. A provider without a service is unreachable; a service
+without a provider throws.
+
+`dealService.js` and `financeService.js` were **deleted** in the saved slice. Both had zero importers
+— only the barrel referenced them, and the barrel itself is imported nowhere — so they were seam
+files that had never been wired to anything. Their mock providers went with them. A dead service is
+worse than a missing one: it reads as coverage that does not exist.
+
+Four more mock providers — `admin`, `content`, `document`, `listing` — were deleted afterwards for
+the mirror-image reason: they had no service, so `createProvider` was never called with those names
+and nothing could reach them. They were not inert, though. `config.js` resolves providers with
+`import.meta.glob(..., { eager: true })`, so every file matching `providers/mock/*Provider.js` is
+pulled into the main bundle whether or not a service exists for it; removing them took it from
+1864 KB to 1848 KB. Each was a pure pass-through (`Promise.resolve(_fn())`) over `lib/` functions
+the pages already import directly, so nothing changed behaviourally — the wrappers had simply been
+built ahead of a seam that never arrived.
+
+The old `savedProvider.js` bundled five unrelated domains (saved properties, saved searches, plans,
+boosts, service orders) behind one name. On the server those are five separate controllers, so the
+bundle would have pinned five backend slices behind one provider. It was narrowed to saved
+properties; the other four had no consumers.
 
 `propertyService.js` exports 15 symbols: `listProperties`, `getProperty`, `featuredProperties`,
 `countProperties`, `getPropertiesByIds`, `myListings`, `addListing`, `setListingStatus`,
@@ -65,9 +94,277 @@ service method that can never be implemented:
 
 - `setPipelineStage`, `sendOwnerReminder`, `confirmListingFresh`, `applyVerifiedBadgeToListings`,
   `verifiedStats` — growth/ops features that are mock-only by design.
-- Admin moderation (`setListingStatus`, `toggleFeatured`, `flagListing`, `clearFlag`) is in the seam
-  but **throws in http mode**, pending the admin slice. Deliberate: failing loudly beats a silent
-  no-op on a moderation action.
+- `logAudit` on the admin pages stays mock-only **deliberately**, not pending. The server writes its
+  own `audit_log` row inside `PropertyModerationService` for every status change, feature toggle,
+  flag and clear; wiring the client's `logAudit` to the API would record the same action twice, from
+  a source that can be neither trusted nor correlated. The client-side log is a mock affordance for
+  the demo Audit page, and it stops at the seam.
+- `decideReview` / `ensureReview` (maker-checker case files) remain on `lib/` for now — the endpoints
+  exist per-listing (`/properties/{id}/verification`) but the queue cannot be enumerated
+  (`PropertyReviewRepository` has only `findByPropertyId`), so a live Verification tab would be able
+  to decide a case it cannot list. Recorded in tech-debt.
+
+## The listing moderation slice
+
+The four moderation writes had shipped on the server months before anything could call them, and the
+http provider's stubs pointed at paths that were guessed rather than looked up
+(`PATCH /admin/properties/{id}/status`; the real route is `PATCH /properties/{id}/status`). That was
+the visible half. The invisible half mattered more.
+
+**There was no way for a moderator to list properties at all.** `PropertySpecs.publicSearch` pins
+`archived = false AND status = 'approved'` unconditionally, and `PropertyController.search` takes no
+principal, so it cannot relax for staff — a staff caller got byte-identical results to an anonymous
+one, and `?status=pending` returned an **empty page** because the param can only AND onto an
+already-pinned `approved`. The only status-complete list was `GET /me/listings`, scoped to the
+caller's own `owner_id`. So `AdminProperties` in http mode asked for `includeAllStatuses` +
+`includeArchived`, had both silently dropped as "unsupported", and rendered the approved-only public
+catalogue: a Verification Queue that could never contain anything, presented as an empty backlog.
+
+`GET /admin/properties` (`PropertySpecs.adminSearch`, staff/admin) is the fix. Three decisions in it
+are worth keeping:
+
+- **A separate spec method, not an `includeAll` flag on `publicSearch`.** A flag would leave the
+  anonymous search one mistyped argument away from serving unapproved listings. A second method can
+  only be reached by a caller that named it, and every caller can be enumerated by grep.
+- **A separate path, not a role branch inside `GET /properties`.** The public search is opened *by
+  path* in `SecurityConfig`; a role check inside it would put the unapproved catalogue behind a
+  runtime `if` on an endpoint whose matcher says `permitAll`.
+- **`status` widens here and narrows there.** That asymmetry is the entire point, so both halves are
+  asserted in `PropertyModerationQueueTest` — each test checks the queue returns a row *and* that
+  public search does not. Asserting only the first would still pass if someone later merged the two
+  specifications, which is the change this endpoint most needs protecting from.
+
+### `listForModeration` is a separate seam operation — and that was learned the hard way
+
+The obvious client shape was `listProperties({ includeAllStatuses: true, includeArchived: true })`,
+with the http provider noticing those flags and routing to `/admin/properties`. The reasoning was
+"a consumer page never sets them". **That was simply false.**
+[useDashboardData.js](frontend/src/pages/consumer/dashboard/useDashboardData.js#L158) passes
+`includeAllStatuses: true` — it wants a catalogue to resolve visit titles against — so every owner
+opening their dashboard was routed to a staff-only endpoint and got a **403**. The live e2e caught
+it; nothing else would have, because on mocks the flag is honoured and the page works.
+
+The rule it produced is the same one the server applies a layer down: **an authorization-relevant
+routing decision must be named by the caller, never inferred from an ambiguous flag.** So
+`propertyService` exports `listForModeration` alongside `listProperties`, the mock provider
+implements both, and reaching the queue requires asking for it.
+
+A second bug hid behind the first. While the routing was inferred, an *absent* flag re-imposed the
+public floor — which was the safe reading then, and wrong the moment the operation became explicit:
+`listForModeration({})` returned exactly the approved rows public search already returns. The admin
+table showed 16 of 38 listings and reported no error. **An unfiltered moderation read filters on
+neither axis**, the inverse of `toQuery`'s default, and the parity harness asserts it.
+
+### `archived` had to go on the wire
+
+No response DTO exposed it, so `propertyMapper` hard-coded `archived: false`. Defensible while every
+list was public — an archived row cannot appear in one — and fatal on an ops list, where it made
+every archived listing look live and left the Archived filter permanently empty. It is now on
+`Property`, which also fixes `GET /me/listings`, where an owner's archived listings had the same
+problem.
+
+`archived` is a **separate axis from `status`**, not a sixth status value: archiving preserves the
+moderation state it was archived from, and restoring resets to `pending`. Hence the tri-state
+`archived` query param — omitted means both, and "everything" and "only the live ones" are different
+questions that a two-valued flag cannot distinguish.
+
+### The four writes resolve with no value
+
+The contract declares a bare `200`/`204` with no schema for all four, on the reasoning that a
+moderator can predict the effect of the request they sent. The mock still returns the updated record;
+**nothing may read it**, because a caller that does works on mocks and silently reads `undefined`
+against the API. `AdminProperties.doFeature` did exactly that (`rec.featured`) and would have worded
+every toast "Removed from featured". It now derives the new state from the row already on screen.
+
+Echoing the row back was considered and rejected: the obvious re-read, `GET /properties/{id}`,
+enforces the public floor and so 404s for pending, rejected, flagged and archived listings — the
+result of every action on this page.
+
+### Three server behaviours the seam passes through rather than hides
+
+- **`clearFlag` sets `approved` unconditionally.** It does not restore the pre-flag status, so a
+  `pending` listing that is flagged and then cleared reaches `approved` without ever passing the
+  queue. The mock's "clear flag & publish" matches, by accident rather than design.
+- **`denySelfDealing` returns 403** when the actor owns the listing. Partial failure in bulk actions
+  is therefore an expected case, not a remote one — which is why every bulk path now uses
+  `Promise.allSettled` and reports what actually happened.
+- **Moderation routes are UUID-only.** Unlike the public read they do not resolve a slug, so an id
+  taken from a public URL 404s.
+
+### Call-site defects this exposed
+
+The page's moderation calls were fire-and-forget `forEach` loops. Against mocks that is harmless;
+against the API each is an unhandled rejection *and* a green success toast for the same click. All
+are now awaited, bulk paths use `allSettled`, and toasts report the real outcome.
+
+The edit modal's status dropdown was a silent no-op in http mode: it went through
+`updateListingFields` → `ListingUpdate`, which **deliberately omits `status`** so a PATCH cannot
+self-escalate, so the field simply vanished from the request body. Field edits and a status change
+are two different operations against the API and the modal now makes two calls.
+
+`bulkApprove` used to follow every approval with `updateListingFields(id, {flagReason: ''})` —
+another silent no-op against the API, since `ListingUpdate` has no `flagReason` and the patch
+serialised to `{}`. The mock's `setListingStatus` now clears the flag on approve, mirroring the
+server (`PropertyModerationService` nulls `flag_reason` only on approve), and the extra call is gone.
+
+### `PAGE_SIZE` was above the server's ceiling
+
+The provider asked for `size=500`; `spring.data.web.pageable.max-page-size=100` clamped it. So every
+list silently returned at most 100 rows while `warnIfTruncated` compared `totalElements` against 500
+and stayed quiet for everything in between — the guard that existed to make the ceiling audible was
+muted by the ceiling it was guarding. It is now 100, and the check compares against the rows actually
+returned, which is correct regardless of what either constant says.
+
+## The notifications slice
+
+Two endpoints — `GET /notifications` (paged) and `POST /notifications/read` — so the wiring is the
+smallest of any slice so far. What made it a design slice is that **most of what the page does has
+no server home**, and each gap needed a different answer rather than one blanket policy.
+
+| Behaviour | Lives | Why |
+|---|---|---|
+| list, mark read, mark all read | server | the two endpoints |
+| `dismiss` | client tombstones (`pnDismissedNotifs`) | no `DELETE /notifications/{id}` |
+| saved-search / saved-property alerts | client-derived, merged per read | computed from `countMatches`; the server has no slot |
+| `pushNotificationFor` | mock only, **permanently** | writing into another user's inbox is a server-side effect, never a client call |
+| preferences + quiet hours | `lib/` only | no endpoint at all; `ProfileTab` untouched |
+
+### The vocabulary mismatch that would have been invisible
+
+The server emits dotted namespaces — `flatmate.interest`, `flatmate.review.approved`,
+`flatmate.request.accepted`, `flatmate.agreement.reissue`. The page's `ICONS` and `FILTERS` maps use
+a flat set — `match | enquiry | price | visit | share | document | service | system`. **They do not
+overlap at all.**
+
+Because the page reads `ICONS[n.type] || ICONS.system`, nothing throws. It degrades two ways:
+
+1. Every server notification renders as the grey "system" glyph — merely ugly.
+2. **The filter chips match nothing.** Selecting "Matches", "Price" or any other chip empties the
+   page. A user whose inbox is entirely server-fed would conclude the filters are broken.
+
+`notificationMapper.js` translates by longest prefix; an unrecognised type falls back to `system`
+**and warns once**, so the next type the backend invents is audible rather than silently grey. The
+parity harness drives every type the backend actually writes today and asserts each lands inside the
+UI vocabulary — mutation-verified by mapping one to a nonexistent chip and watching it fail.
+
+### `at` must be a number, and the wire sends a string
+
+`createdAt` is an ISO instant; the page sorts on `at`, groups Today/Earlier from it and computes
+`Date.now() - at`. An ISO string sorts *lexicographically* — which for same-format timestamps is
+mostly the right order, so this survives casual testing — and makes every relative time `NaN`. The
+mapper `Date.parse`s it, and the harness asserts the type, also mutation-verified.
+
+### Dismiss is a tombstone, and that is a deliberate trade
+
+There is no delete endpoint. The options were: hide the X in http mode (removes a control that works
+today), throw (a dead button), or record locally which rows the user has hidden. The tombstone wins
+because it is honest about being a local preference — it does not sync across devices and clearing
+site data brings the row back, both documented on the provider. Recorded as debt so a real endpoint
+replaces it rather than joining it.
+
+### The seed must not run against the API
+
+`seedNotifsIfEmpty` writes eight fabricated rows to localStorage. On mocks that is the demo inbox;
+in http mode the same call would merge invented notifications into a real one — indelible (not the
+server's to delete), invisible from any other device, and indistinguishable from genuine platform
+messages. The page gates the seed on `isHttpDomain('notification')`, and the live e2e asserts the
+seeded ids never appear in storage.
+
+### What "live" currently means here
+
+Only the flatmate flows call `new Notification(...)` server-side — five call sites, all in
+`FlatmateSeekerService`, `FlatmateSupplyService` and `FlatmateModerationService`. Nothing in
+property, contact, visit, saved-search, offers, deals or documents writes a row. **A non-flatmates
+user's live inbox is legitimately empty**, which is why the client-derived alerts are load-bearing
+rather than a nicety: without them the flip would trade a populated demo for a truthful blank page.
+The gap is in the writers, not the seam.
+
+**Partly closed by the conversations slice** — `ConversationService.send` now writes a
+`message.received` notification to the other participant, so the two features finally reinforce each
+other. Everything else in D92 still stands.
+
+## The conversations slice
+
+Five endpoints (inbox, start, detail, reply, mark-read) and ten frontend files. The wiring was
+routine; **the shape gap was the slice**, because the mock's conversation is a *richer document*
+than the server's rather than a differently-named one.
+
+### The `state` machine does not exist server-side
+
+`ConversationService.related` requires an approved contact request in one direction or the other
+before a thread can be created at all. So a live thread is always `active` — there is nothing left
+to accept, because the contact gate did the accepting one layer up.
+
+The mock's three states map like this:
+
+| Mock state | Live | Why |
+|---|---|---|
+| `active` | every server thread | the only state that survives |
+| `pending` | **client staging queue** | composed but not sendable: the gate has not opened |
+| `incoming` | never | it means "they asked, I have not accepted", which is a contact-gate concept |
+
+`accept` and `decline` render behind `state === 'incoming'`, so in http mode they simply never
+appear — no gating needed, which is the nicer version of "mock-only".
+
+### Staging, and why the button is not just disabled
+
+"Message owner" is reachable from a property page *before* the gate opens, where `POST /messages`
+answers 403. Three options, one honest:
+
+- **Hide the button until contact is approved** — matches the server exactly, and makes the property
+  page's primary CTA appear and disappear depending on state the user cannot see.
+- **Let it throw** — a dead button with an error nobody can act on.
+- **Stage it and send when the gate opens** — what shipped.
+
+The staged row carries `state: 'pending'` and a `staged:` id, so nothing can mistake it for a server
+thread or try to reply into it. `drainPendingChats` runs before every inbox read, and **re-reads the
+listing** rather than trusting anything stored at queue time — the owner's mobile is masked until
+the gate opens, so a number captured at queue time would be a masked string sent as if it were real.
+An entry the server still refuses stays queued; silently dropping a message the user composed is the
+worst outcome available.
+
+### `authorId` was added to the contract
+
+`MessageDto` carried `author` — a **display name** — and no id. The client has to decide which side
+of the thread each bubble belongs on, so it would have had to compare names. That works until two
+users share one, at which point a stranger's message renders on the reader's own side, styled as
+theirs. Nothing throws and nothing logs; the thread just quietly misattributes who said what.
+
+`authorId` is one field and it makes the question answerable. The mapper keys on it, the parity
+harness drives a same-name counterparty to prove it, and `ConversationEndpointsTest` creates two
+users called "Same Name" for the same reason. When identity is unknown the fallback is `them`:
+misattributing a stranger's words *to* the reader is the worse of the two errors.
+
+### What degrades, and how visibly
+
+| Mock field | Live | Behaviour |
+|---|---|---|
+| `property.{price,loc,img}` | absent | title renders; the rest would be one property read per inbox row |
+| `party.online` | absent | pinned `false` — there is no presence service, and `undefined` reads as "online" under a truthiness check |
+| `youAre` | absent | derived from `counterpartyRole`; an approximation, documented as one |
+| message `type: 'card'`, `icon` | absent | share chips send their text and lose the icon — the sentence carries the meaning |
+| auto-reply, typing dots | — | mock-only. Against the API the other end is a person; fabricating a reply would put words in their mouth |
+
+The contract declares `MessageCreate.attachments` and the Java record does not implement it. That
+divergence is now marked in the spec rather than left to be discovered.
+
+### The inbox does not carry the transcripts
+
+`ConversationDto.messages` is `NON_NULL` and the *list* contract omits it — a hundred one-line
+previews would otherwise cost a hundred full transcripts. So a live row arrives with `messages: []`
+and the thread is read separately, on open, which is also the moment the user first needs it.
+
+The mock has one store and returns whole objects, so opening a thread was free there. The page
+therefore worked perfectly on mocks and opened an **empty thread** against the API. Two things fell
+out of fixing it, and they are the same lesson:
+
+- The list read and the detail read are now different operations, and every caller that shows a
+  thread has to make the second one. `hydrate(id)` exists so there is exactly one place to forget.
+- **Replacing a synchronous store with a fetched one changes *when* every reader runs.** `convs`
+  used to be seeded from localStorage during `useState`, so a mount-time effect saw the whole
+  inbox. Behind the seam it arrives from a request, and the `?c=<id>` deep-link effect — untouched
+  by the migration — ran against `[]` and silently opened nothing. It now latches on the first
+  non-empty list instead. Nothing in the http provider was wrong; the *timing contract* changed.
 
 `lib/data/myListings.js` is the one `lib/ → services/` import in the codebase. The layering concern
 was real but hypothetical; the correctness gain is concrete, and the absence of a cycle was verified

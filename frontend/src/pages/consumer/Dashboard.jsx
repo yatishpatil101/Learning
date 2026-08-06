@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { useSaved } from '../../context/SavedContext.jsx';
+import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { firstName } from '../../lib/auth.js';
-import { useChatUnread } from '../../lib/chat.js';
+import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import {
-  hasListings, getSavedProps, getSavedSearches, getFollowedSocieties,
+  hasListings, getFollowedSocieties,
   isAadhaarVerified, getRecentSearches, getTenancies,
 } from '../../lib/store.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
@@ -34,11 +36,13 @@ import { buildDocGroups, buildActionItems, buildOwnerStats, buildSeekerStats } f
 export default function Dashboard() {
   const { t: tr } = useTranslation();
   const { user, update, logout } = useAuth();
+  const saved = useSaved();
+  const savedSearches = useSavedSearches();
   const { flagEnabled } = useAppFlags();
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
-  const chatUnread = useChatUnread();
+  const { unread: chatUnread } = useConversationUnread();
   // A user is treated as an "owner" (sees listing-management tabs) only once they
   // have ACTUAL inventory: a property listing, a flatmate room, a flatmate
   // request/group, or a private managed property (Owner Hub / Rent-o-meter).
@@ -132,8 +136,8 @@ export default function Dashboard() {
   // one lead), counting only groups with at least one pending document.
   const docGroups = useMemo(() => buildDocGroups(docReqs), [docReqs]);
   const pendingDocGroups = docGroups.filter((g) => g.pendingIds.length > 0);
-  const savedCount = getSavedProps().length;
-  const alertCount = getSavedSearches().length;
+  const savedCount = saved.count;
+  const alertCount = savedSearches.count;
   const followCount = getFollowedSocieties().length;
   // Returning-seeker resume: the user's own recent searches (persistent, per-user).
   // Only seekers get the "continue your search" hero; owners have their own flow.

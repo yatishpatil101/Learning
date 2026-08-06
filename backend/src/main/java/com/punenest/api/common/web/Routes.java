@@ -210,6 +210,20 @@ public final class Routes {
 
         public static final String BASE = "/me/contact-requests";
 
+        /**
+         * The owner's "waiting on you" badge — a count, not a list.
+         *
+         * <p>Declared as a sibling of {@link #BASE} rather than a query parameter on it because it
+         * answers a different question with a different shape. It exists because {@link #BASE} is
+         * paged: the badge used to be a client-side filter over the whole inbox, which stops being
+         * the right number the moment the inbox has a second page (tech-debt D78).
+         *
+         * <p>Ordered before {@link #BY_ID} in this class for readability only — Spring matches the
+         * literal segment ahead of the {@code {reqId}} template regardless of declaration order, so
+         * {@code pending-count} can never be parsed as a request id.
+         */
+        public static final String PENDING_COUNT = BASE + "/pending-count";
+
         /** {@code reqId}, not {@code id} — the contract's {@code ReqId} path parameter. */
         public static final String BY_ID = BASE + "/{reqId}";
     }
@@ -885,6 +899,25 @@ public final class Routes {
          * anonymous one. Distance in the URL space is worth having here.
          */
         public static final String ADMIN_REVIEWS = "/admin/reviews";
+
+        /**
+         * Staff/admin — the listing moderation queue.
+         *
+         * <p>Added for exactly the reason {@link #ADMIN_REVIEWS} was, and the omission was worse
+         * here: {@link #PROPERTY_STATUS}, {@link #PROPERTY_FEATURED} and {@link #PROPERTY_FLAG} all
+         * shipped with no read that could find a listing to act on. {@code GET /properties} pins
+         * {@code status = 'approved' AND archived = false} unconditionally — it takes no principal,
+         * so it cannot relax for staff — and {@code GET /me/listings} is scoped to the caller's own
+         * {@code owner_id}. Between them there was no way to enumerate the pending backlog, which is
+         * the one list a verification queue exists to show.
+         *
+         * <p>Deliberately {@code /admin/properties} rather than widening {@code GET /properties} for
+         * staff: the public search is opened by path in {@code SecurityConfig}, so a role branch
+         * inside it would put the unapproved catalogue behind a runtime {@code if} on an endpoint
+         * whose matcher says {@code permitAll}. A separate path keeps the authorization decision
+         * where it can be read off the routing table.
+         */
+        public static final String ADMIN_PROPERTIES = "/admin/properties";
 
         /**
          * Ops — the flatmate host-verification queue.

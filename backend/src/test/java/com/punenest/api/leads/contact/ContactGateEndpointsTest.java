@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -98,7 +99,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(idleOwner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0));
     }
 
     @Test
@@ -157,7 +158,7 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(ContactStatuses.APPROVED));
     }
 
-    /** Mock-shape parity: exactly the three keys {@code frontend/src/lib/contact.js} reads. */
+    /** Mock-shape parity: exactly the four keys {@code frontend/src/lib/contact.js} reads. */
     @Test
     void contactStatus_shapeMatchesTheFrontendMock() throws Exception {
         User owner = user("9820000005", "owner");
@@ -165,10 +166,11 @@ class ContactGateEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get(Routes.Contacts.STATUS).param("propertyId", p.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$.length()").value(4))
                 .andExpect(jsonPath("$.status").exists())
                 .andExpect(jsonPath("$.verifiedContactOnly").exists())
-                .andExpect(jsonPath("$.verificationRequired").exists());
+                .andExpect(jsonPath("$.verificationRequired").exists())
+                .andExpect(jsonPath("$.ownerHidesNumber").exists());
     }
 
     // ---------------- POST /contacts/request ----------------
@@ -189,8 +191,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(ContactStatuses.PENDING));
 
-        assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId())))
-                .hasSize(1);
+        assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId()),
+                Pageable.unpaged())).hasSize(1);
     }
 
     @Test
@@ -204,8 +206,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(ContactStatuses.OWNER));
 
-        assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId())))
-                .isEmpty();
+        assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId()),
+                Pageable.unpaged())).isEmpty();
     }
 
     /**
@@ -280,12 +282,12 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(mine.getId().toString()))
-                .andExpect(jsonPath("$[0].status").value(ContactRequestStatuses.PENDING))
-                .andExpect(jsonPath("$[0].requester.mobile").value("98XXXXX016"))
-                .andExpect(jsonPath("$[0].requester.role").value("buyer"))
-                .andExpect(jsonPath("$[0].contact").doesNotExist());
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(mine.getId().toString()))
+                .andExpect(jsonPath("$.content[0].status").value(ContactRequestStatuses.PENDING))
+                .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX016"))
+                .andExpect(jsonPath("$.content[0].requester.role").value("buyer"))
+                .andExpect(jsonPath("$.content[0].contact").doesNotExist());
     }
 
     @Test
@@ -371,8 +373,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         // ...and reveals the buyer to the owner, symmetrically.
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$[0].contact.mobile").value("9820000023"))
-                .andExpect(jsonPath("$[0].requester.mobile").value("98XXXXX023"));
+                .andExpect(jsonPath("$.content[0].contact.mobile").value("9820000023"))
+                .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX023"));
     }
 
     @Test

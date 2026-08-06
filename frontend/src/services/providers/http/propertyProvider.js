@@ -7,16 +7,16 @@
  * and reviewable on its own.
  *
  * **Not everything the mock does has a server counterpart yet.** The catalogue slice shipped public
- * search/detail plus the owner write path; admin moderation (approve/reject, feature, flag) is the
- * unshipped admin slice. Those methods throw a named, actionable error rather than silently writing
- * to `localStorage` — a write that lands in a different store than the reads come from produces a UI
- * that contradicts itself on the next refresh, which is far harder to diagnose than a thrown error.
- * Same convention as `httpAuthProvider.staffLogin`.
+ * search/detail plus the owner write path; the moderation slice added the queue and the four
+ * decisions. What remains mock-only is named at each call site rather than silently no-oped — a
+ * write that lands in a different store than the reads come from produces a UI that contradicts
+ * itself on the next refresh, which is far harder to diagnose than a thrown error.
  */
-import { get, patch, post } from '../../http.js';
+import { del, get, patch, post } from '../../http.js';
 import {
   toListingCreate,
   toListingUpdate,
+  toModerationQuery,
   toQuery,
   toViewModel,
   toViewModelList,
@@ -24,20 +24,57 @@ import {
 } from './propertyMapper.js';
 
 /**
- * The mock returns every matching row; the API pages with a server default of 20. Callers like
- * Compare, Societies and LocationInsights aggregate over the whole result set client-side, so a
- * silent 20-row cap would show subtly wrong numbers rather than an obvious failure.
+ * The mock returns every matching row; the API pages. Callers like Compare, Societies and the admin
+ * tables aggregate over the whole result set client-side, so a silent cap would show subtly wrong
+ * numbers rather than an obvious failure.
  *
- * Asking for one large page keeps those callers correct on a Pune-sized catalogue while staying
- * inside the server's sort whitelist and page-size ceiling. It is explicitly a bridge, not an
- * architecture: `warnIfTruncated` makes the ceiling audible the moment it is reached, which is the
- * signal to move those aggregates to server-side endpoints.
+ * **100 because that is the server's actual ceiling** — `spring.data.web.pageable.max-page-size=100`
+ * clamps anything larger. This constant read 500 before the moderation slice, which meant every
+ * request silently returned at most 100 rows while `warnIfTruncated` compared against 500 and stayed
+ * quiet for everything between the two. The guard that existed to make the ceiling audible was
+ * itself muted by the ceiling it was guarding.
  */
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 100;
 
+/**
+ * Public search, or the moderation queue when the caller asks for rows the public floor cannot
+ * return.
+ *
+ * The two are one method because `propertyService.listProperties` is one method and no page may care
+ * which endpoint answered. The branch is on the *filters*, not on the session: `/admin/properties`
+ * needs a staff token, a consumer page never sets these flags, and an ops page always does.
+ */
+/**
+ * Public, anonymous search. Always floored to approved + non-archived server-side.
+ *
+ * The admin widenings are **not** honoured here and warn instead — see {@link listForModeration},
+ * which is a different endpoint behind a different authorization.
+ */
 export async function listProperties(filters = {}, sort = 'newest') {
   warnUnsupported(filters);
   const page = await get('/properties', { ...toQuery(filters, sort), size: PAGE_SIZE }, { auth: false });
+  warnIfTruncated(page);
+  return toViewModelList(page);
+}
+
+/**
+ * `GET /admin/properties` — every listing at every status, including archived. Staff/admin only.
+ *
+ * **A separate operation rather than a flag on {@link listProperties}, and the distinction is
+ * load-bearing.** The first cut of this slice inferred the routing from the filters — if a caller
+ * passed `includeAllStatuses` or `includeArchived`, the request went to the moderation queue — on
+ * the reasoning that "a consumer page never sets those". That was simply false:
+ * `useDashboardData.js` passes `includeAllStatuses: true` to fetch a catalogue to resolve visit
+ * titles against, and every owner opening their dashboard was sent to a staff-only endpoint and got
+ * a 403.
+ *
+ * It is the same rule the server applies one layer down, where `PropertySpecs.adminSearch` is a
+ * separate method rather than a boolean on `publicSearch`: an authorization-relevant routing
+ * decision must be *named by the caller*, never inferred from an ambiguous flag. Reaching the queue
+ * now requires asking for it, and every caller can be found by grep.
+ */
+export async function listForModeration(filters = {}, sort = 'newest') {
+  const page = await get('/admin/properties', { ...toModerationQuery(filters, sort), size: PAGE_SIZE });
   warnIfTruncated(page);
   return toViewModelList(page);
 }
@@ -135,20 +172,61 @@ export async function restoreListing(id) {
   return toViewModel(await patch(`/properties/${encodeURIComponent(id)}/restore`, {}));
 }
 
-// ─── Admin moderation: no endpoint yet ─────────────────────────────────────────────────────────
+// ─── Admin moderation ──────────────────────────────────────────────────────────────────────────
 
-const notShipped = (fn, endpoint) => () => {
-  throw new Error(
-    `[property] ${fn}() has no live endpoint yet (needs ${endpoint}, part of the unshipped admin ` +
-      'slice). Run admin flows with the property domain on mocks — remove "property" from ' +
-      'VITE_API_DOMAINS — until the admin slice ships.',
-  );
-};
+/**
+ * All four decisions resolve with **no value**, and that is the contract's design rather than a gap
+ * in this provider: `setPropertyStatus`, `toggleFeatured`, `flagProperty` and `clearFlag` each
+ * declare a bare `200`/`204` with no schema, on the reasoning that a moderator can predict the
+ * effect of the request they sent and the UI re-reads the queue afterwards anyway.
+ *
+ * Echoing the row back would mean a second round trip per action, and the obvious one —
+ * `GET /properties/{id}` — is unusable here: it enforces the public floor, so it 404s for pending,
+ * rejected, flagged and archived listings, i.e. for the result of every action on this list. The
+ * moderation queue has no by-id route, so the only faithful re-read is the list refresh the caller
+ * already performs.
+ *
+ * **The mock returns the updated record.** Nothing may depend on that: a caller which reads the
+ * resolved value works on mocks and silently reads `undefined` against the API, which is precisely
+ * the class of bug the seam exists to prevent. `propertyService` documents these four as
+ * "resolves when applied, throws on failure" for both providers.
+ */
+export async function setListingStatus(id, status, reason) {
+  // `reason` is recorded on the audit row and is what makes a rejection reviewable afterwards.
+  // The server accepts only `pending | approved | rejected` and answers 400 otherwise: `flagged`
+  // belongs to `flagListing` (which also records why) and `archived` to `archiveListing`
+  // (owner-or-staff, a different authorization). Routing either through here would be a second,
+  // reason-less way to do something the API already models properly.
+  const body = reason ? { status, reason } : { status };
+  await patch(`/properties/${encodeURIComponent(id)}/status`, body);
+}
 
-export const setListingStatus = notShipped('setListingStatus', 'PATCH /admin/properties/{id}/status');
-export const toggleFeatured = notShipped('toggleFeatured', 'PATCH /admin/properties/{id}/featured');
-export const flagListing = notShipped('flagListing', 'POST /admin/properties/{id}/flag');
-export const clearFlag = notShipped('clearFlag', 'DELETE /admin/properties/{id}/flag');
+/**
+ * Toggle homepage merchandising. No precondition server-side — a pending or archived listing can be
+ * marked featured; it simply will not surface, because the featured strip re-filters on approved.
+ */
+export async function toggleFeatured(id) {
+  await post(`/properties/${encodeURIComponent(id)}/toggle-featured`, {});
+}
+
+/**
+ * Raise a moderation flag. Sets status to `flagged` server-side, taking the listing off the public
+ * site, and persists the reason to `flag_reason` (defaulted to "Flagged" when blank).
+ */
+export async function flagListing(id, reason) {
+  await post(`/properties/${encodeURIComponent(id)}/flag`, { reason });
+}
+
+/**
+ * Clear a flag. **Sets status to `approved` unconditionally** — it does not restore the status the
+ * listing held before it was flagged, so a `pending` listing that is flagged and then cleared
+ * reaches `approved` without ever passing the verification queue. That is the server's documented
+ * behaviour, and the mock's "clear flag & publish" happens to match it, so the seam passes it
+ * through rather than simulating a restore the API cannot perform.
+ */
+export async function clearFlag(id) {
+  await del(`/properties/${encodeURIComponent(id)}/flag`);
+}
 
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
@@ -157,19 +235,24 @@ function warnUnsupported(filters) {
   if (dropped.length) {
     console.warn(
       `[property] Filter(s) ${dropped.join(', ')} have no server-side equivalent and were not ` +
-        'applied. `/properties` is public search only — it is hard-floored to approved + ' +
-          'non-archived server-side, so status/moderation filters cannot be expressed until the ' +
-          'admin slice ships.',
+        'applied. Freshness/dormancy is not modelled server-side yet.',
     );
   }
 }
 
+/**
+ * Make the page ceiling audible. Compares against what actually came back rather than against
+ * {@link PAGE_SIZE}: the server clamps the requested size to its own maximum, so a constant that
+ * drifts above that maximum silences this warning for every result set between the two — which is
+ * exactly what happened while `PAGE_SIZE` was 500 and the server's ceiling was 100.
+ */
 function warnIfTruncated(page) {
-  if (page?.totalElements > PAGE_SIZE) {
+  const returned = page?.content?.length ?? 0;
+  if ((page?.totalElements ?? 0) > returned) {
     console.warn(
-      `[property] ${page.totalElements} listings matched but only ${PAGE_SIZE} were fetched. ` +
-        'Client-side aggregates (Societies, Locality, Compare, LocationInsights) are now reading a ' +
-        'partial catalogue and need server-side aggregate endpoints.',
+      `[property] ${page.totalElements} listings matched but only ${returned} were fetched. ` +
+        'Client-side aggregates (Societies, Locality, Compare, LocationInsights) and the admin ' +
+        'tables are now reading a partial catalogue and need server-side aggregates or paging.',
     );
   }
 }

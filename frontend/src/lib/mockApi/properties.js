@@ -147,11 +147,22 @@ export function featuredProperties(limit = 6) {
   return delay([...feat, ...rest].slice(0, limit));
 }
 
+/**
+ * Approve / reject / return to pending.
+ *
+ * Approving **clears any moderation flag**, mirroring the server
+ * (`PropertyModerationService.setStatus` nulls `flag_reason` only on approve). Without this the
+ * admin page had to follow every approval with a second `updateListingFields(id, {flagReason: ''})`
+ * call — which was a no-op against the API, because `ListingUpdate` has no `flagReason` field and
+ * the patch serialised to an empty body. Rejecting deliberately keeps the reason: it is why the
+ * listing was taken down.
+ */
 export function setListingStatus(id, status) {
   const db = rawLoad();
   const it = db.listings.find((p) => p.id === id);
   if (it) {
     it.status = status;
+    if (status === 'approved') it.flagReason = '';
     rawSave(db);
   }
   return delay(it);

@@ -80,6 +80,17 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private boolean verifiedContactOnly = false;
 
+    /**
+     * Owner preference: stay masked even after approving a contact request (V31, tech-debt D5).
+     *
+     * <p>Not a second gate — an owner who hides their number still approves requests, and the buyer
+     * still gets a conversation. The only thing withheld is the ten digits. Lives here rather than on
+     * the listing because the number is the person's, not the flat's.
+     */
+    @Column(name = "hide_number", nullable = false)
+    @Setter
+    private boolean hideNumber = false;
+
     @Column(name = "listings_count", nullable = false)
     private int listingsCount = 0;
 

@@ -366,9 +366,11 @@ export const persistFlatmate = ({ form, user, photos }) => {
     const lifestyle = form.lifestyle || [];
 
     // Host eligibility mirrors the flatmate GROUPS flow. Identity is guaranteed
-    // by the Aadhaar gate (the floor). 'owner' lists their own flat (trust is
-    // earned once Ops verifies the listing docs); a 'tenant' self-attests a
-    // registered agreement, so tenant posts are routed to the Ops review queue.
+    // by L1 sign-in (the floor) — not by an Aadhaar gate. Under badge-not-gate,
+    // Aadhaar is an opt-in badge that earns visibility, never a precondition for
+    // posting. 'owner' lists their own flat (trust is earned once Ops verifies the
+    // listing docs); a 'tenant' self-attests a registered agreement, so tenant
+    // posts are routed to the Ops review queue.
     const role = form.hostRole === 'tenant' ? 'tenant' : 'owner';
     // Tenant tier requires both the declaration AND the uploaded agreement Ops verifies.
     // Declared-without-upload stays identity tier (still lists, just no host badge).
