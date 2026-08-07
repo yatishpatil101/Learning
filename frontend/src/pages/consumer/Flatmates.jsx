@@ -141,11 +141,16 @@ export default function Flatmates() {
         />
       )}
 
-      {/* Report post modal — shared platform-wide component */}
+      {/* Report post modal — shared platform-wide component.
+
+          `share`, not `user`: this modal ships SHARE_REPORT_REASONS, and the server validates the
+          reason against the target type. `filled` is not something you can say about a person, so
+          every flatmate report was a 400 waiting to happen — the mock stored it anyway, which is
+          why it survived. A room, a group and a seeker are all *posts*. */}
       {reportTarget && (
         <ReportModal
           target={reportTarget}
-          kind={reportTarget.kind || 'user'}
+          kind={reportTarget.kind || 'share'}
           reasons={SHARE_REPORT_REASONS}
           title={t('flatmates.reportTitle')}
           success={t('flatmates.reportSuccess')}

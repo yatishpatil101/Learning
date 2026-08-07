@@ -32,7 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * Contract + behaviour proof for the finalization sub-slice (A3), driven through the real filter
  * chain against the live Flyway'd Postgres under {@code ddl-auto=validate}.
  *
- * <p>Covers every test in the Â§11 bar: request with registered counterparty, unregistered mobile,
+ * <p>Covers every test in the §11 bar: request with registered counterparty, unregistered mobile,
  * body propertyId mismatch, auto-decline atomicity, initiator self-accept, stranger scoping,
  * soft cancel, /me/finalization-requests scoping, mobile masking, duplicate prevention, illegal
  * transition, money round-trip, and route-constant agreement.
@@ -85,7 +85,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
-    // ---- Â§11 test 1: request with a registered counterparty â†’ 200, row stored pending ----
+    // ---- §11 test 1: request with a registered counterparty → 200, row stored pending ----
 
     @Test
     void requestFinalization_registeredCounterparty_returns200Pending() throws Exception {
@@ -106,7 +106,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.counterparty.id").value(owner.getId().toString()));
     }
 
-    // ---- Â§11 test 2: unregistered mobile â†’ 422 ----
+    // ---- §11 test 2: unregistered mobile → 422 ----
 
     @Test
     void requestFinalization_unregisteredMobile_returns400() throws Exception {
@@ -127,7 +127,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                         org.hamcrest.Matchers.containsString("listing owner")));
     }
 
-    // ---- Â§11 test 3: body propertyId mismatching path â†’ 400 (S4) ----
+    // ---- §11 test 3: body propertyId mismatching path → 400 (S4) ----
 
     @Test
     void requestFinalization_bodyPropertyIdMismatch_returns400() throws Exception {
@@ -144,7 +144,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // ---- Â§11 test 4: auto-decline â€” three requests, accept one â†’ siblings declined, deal closed ----
+    // ---- §11 test 4: auto-decline — three requests, accept one → siblings declined, deal closed ----
 
     @Test
     void acceptFinalization_autoDeclinesSiblingsAndClosesDeal() throws Exception {
@@ -180,7 +180,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         assertThat(dealStatus).isEqualTo(DealStatuses.CLOSED);
     }
 
-    // ---- Â§11 test 5: atomicity â€” force deal close failure â†’ nothing committed ----
+    // ---- §11 test 5: atomicity — force deal close failure → nothing committed ----
 
     @Test
     void acceptFinalization_dealAlreadyClosed_rollsBackEverything() throws Exception {
@@ -196,21 +196,21 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         jdbc.update("INSERT INTO deals (id, property_id, deal, status) VALUES (?, ?, 'rent', 'closed')",
                 UUID.randomUUID(), p.getId());
 
-        // Attempt to accept â€” should fail (deal already closed cannot transition to closed again).
+        // Attempt to accept — should fail (deal already closed cannot transition to closed again).
         mvc.perform(post("/finalization/requests/" + reqId1 + "/accept")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isConflict());
 
-        // Assert: both requests remain pending â€” nothing committed.
+        // Assert: both requests remain pending — nothing committed.
         assertThat(finalizationRepo.findById(UUID.fromString(reqId1)).orElseThrow().getStatus())
                 .isEqualTo(FinalizationStatuses.PENDING);
         assertThat(finalizationRepo.findById(UUID.fromString(reqId2)).orElseThrow().getStatus())
                 .isEqualTo(FinalizationStatuses.PENDING);
     }
 
-    // ---- Â§11 test 6: initiator attempting to accept own request â†’ 403, row stays pending ----
+    // ---- §11 test 6: initiator attempting to accept own request → 403, row stays pending ----
 
     @Test
     void initiatorCannotAcceptOwnRequest() throws Exception {
@@ -230,7 +230,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .isEqualTo(FinalizationStatuses.PENDING);
     }
 
-    // ---- Â§11 test 7: complete stranger â†’ 404 each ----
+    // ---- §11 test 7: complete stranger → 404 each ----
 
     @Test
     void stranger_allOperations_return404() throws Exception {
@@ -266,7 +266,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---- Â§11 test 8: cancel â†’ 204, status='cancelled', row still physically exists ----
+    // ---- §11 test 8: cancel → 204, status='cancelled', row still physically exists ----
 
     @Test
     void cancelFinalization_returns204_softTransition() throws Exception {
@@ -287,7 +287,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         assertThat(count).isEqualTo(1);
     }
 
-    // ---- Â§11 test 9: /me/finalization-requests returns only caller's requests ----
+    // ---- §11 test 9: /me/finalization-requests returns only caller's requests ----
 
     @Test
     void myFinalizationRequests_returnsOnlyCallersRequests() throws Exception {
@@ -315,7 +315,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].propertyId").value(p2.getId().toString()));
     }
 
-    // ---- Â§11 test 10: mobile masking â€” masked while pending, revealed on accepted ----
+    // ---- §11 test 10: mobile masking — masked while pending, revealed on accepted ----
 
     @Test
     void mobileMasking_maskedWhilePending_revealedOnAccepted() throws Exception {
@@ -325,7 +325,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
 
         requestFinalization(buyer, p, owner, 5000000L);
 
-        // Owner views status â€” buyer's mobile should be masked.
+        // Owner views status — buyer's mobile should be masked.
         MvcResult pendingResult = mvc.perform(get("/finalization/" + p.getId() + "/status")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
@@ -351,7 +351,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         assertThat(dto.initiator().mobile()).isEqualTo("9876543210");
     }
 
-    // ---- Â§11 test 11: duplicate live request â†’ 409 ----
+    // ---- §11 test 11: duplicate live request → 409 ----
 
     @Test
     void duplicateLiveRequest_returns409() throws Exception {
@@ -370,7 +370,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- Â§11 test 12: illegal transition â€” accept already declined â†’ 409 ----
+    // ---- §11 test 12: illegal transition — accept already declined → 409 ----
 
     @Test
     void illegalTransition_acceptDeclinedRequest_returns409() throws Exception {
@@ -387,7 +387,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                         .content("{}"))
                 .andExpect(status().isOk());
 
-        // Attempt to accept the now-declined request â†’ 409.
+        // Attempt to accept the now-declined request → 409.
         mvc.perform(post("/finalization/requests/" + reqId + "/accept")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -395,7 +395,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- Â§11 test 13: money round-trip â€” large value survives as long ----
+    // ---- §11 test 13: money round-trip — large value survives as long ----
 
     @Test
     void moneyRoundTrips_largeValueNoPrecisionLoss() throws Exception {
@@ -413,7 +413,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.agreedPrice").value(largeAmount));
     }
 
-    // ---- Â§11 test 14: route-constant â†” SecurityConfig agreement ----
+    // ---- §11 test 14: route-constant ↔ SecurityConfig agreement ----
 
     @Test
     void everyFinalizationRouteConstantIsServedByAController() {

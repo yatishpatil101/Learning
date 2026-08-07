@@ -9,13 +9,14 @@ import { listProperties } from '../../../services/propertyService.js';
 import { fnvHash } from '../../../lib/hash.js';
 import { listingsInSociety } from '../../../data/societies.js';
 import { commuteInfo, connectivityFor } from '../property/locationIntel.js';
+import { createEntityReview, listEntityReviews } from '../../../services/reviewService.js';
 import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
 import {
-  getEntityReviews, addEntityReview, entityRating, digits,
+  digits,
   isSocietyFollowed, toggleFollowSociety,
   getSocietyQA, addSocietyQuestion, addSocietyAnswer,
   resolveSociety, requestSocietyClaim,
-  residentStatus, isVerifiedResident, requestResidentVerification,
+  residentStatus, requestResidentVerification,
   verifiedResidentForUnit, unitKeyOf,
   isSocietyAdmin, committeeResidentReqs, setResidentStatus,
   suggestSocietyDetails, getSocietySuggestion,
@@ -107,8 +108,24 @@ export function useSocietyHub() {
   const [locFix, setLocFix] = useState(null);
   const [locOpen, setLocOpen] = useState(false);
 
+  /**
+   * Keyed on `soc.slug`, not `soc.id`.
+   *
+   * Every other call on this page — follow, Q&A, resident status, board, WhatsApp — already used the
+   * slug; reviews were the one holdout. That mattered once the target became the server: `soc.id` is
+   * a synthetic `S01` minted by `data/societies.js`, whereas the database keys societies by UUID and
+   * accepts the slug as an alias. The slugs agree across both (`green-meadows-baner`), the ids never
+   * could, so this was the difference between reviews resolving and silently returning nothing.
+   */
   useEffect(() => {
-    setReviews(getEntityReviews('society', soc.id));
+    let alive = true;
+    listEntityReviews('society', soc.slug)
+      .then((res) => { if (alive) setReviews(res.items); })
+      .catch(() => { if (alive) setReviews([]); });
+    return () => { alive = false; };
+  }, [soc.slug]);
+
+  useEffect(() => {
     setQa(getSocietyQA(soc.slug));
     setFollowed(isSocietyFollowed(soc.slug));
     setResStat(residentStatus(soc.slug));
@@ -133,7 +150,20 @@ export function useSocietyHub() {
     return () => document.removeEventListener('keydown', onKey);
   }, [claim, resOpen, boardOpen, waOpen, reportFor]);
 
-  const rating = entityRating('society', soc.id);
+  /**
+   * Computed from the reviews already loaded rather than from a second store read.
+   *
+   * `entityRating()` re-read localStorage and reduced over it, which cannot work once the reviews
+   * come from a request. The provider fetches up to 100 in one page and warns when there are more,
+   * so for any real society this is the whole corpus — and the server's own aggregate for a society
+   * (`avgRating` / `reviewCount` on the Society contract) is the authority once societies join the
+   * seam. Until then, one source: the list on screen.
+   */
+  const rating = useMemo(() => {
+    if (!reviews.length) return { avg: 0, count: 0 };
+    const sum = reviews.reduce((a, r) => a + (+r.rating || 0), 0);
+    return { avg: Math.round((sum / reviews.length) * 10) / 10, count: reviews.length };
+  }, [reviews]);
   // Estimated (baseline-blended) ratings are only honest for societies with real,
   // confirmed specs — i.e. NOT thin and NOT community-sourced. Everyone else shows
   // real resident reviews only (or "Not rated yet").
@@ -196,8 +226,23 @@ export function useSocietyHub() {
     toast(now ? `Following ${soc.name} — we'll alert you on new listings` : 'Unfollowed', now ? 'success' : 'info');
   };
   const submitReview = () => requireSignedIn(() => {
-    addEntityReview('society', soc.id, { rating: pick, text: revText.trim(), resident: isVerifiedResident(soc.slug) });
-    setReviews(getEntityReviews('society', soc.id)); setRevText(''); setPick(5); setRateOpen(false); toast('Thanks for reviewing this society!', 'success');
+    /**
+     * No `resident` flag.
+     *
+     * This used to send `resident: isVerifiedResident(soc.slug)` — a client-side lookup, stored
+     * alongside the review and rendered as a "Verified resident" badge. The server derives standing
+     * itself and its `ReviewCreate` has no such field, so the flag was believed on mocks and
+     * discarded live. A badge that a browser can assert about itself is not evidence, and evidence
+     * is the only thing that makes a stranger's rating worth reading.
+     */
+    createEntityReview('society', soc.slug, { rating: pick, text: revText.trim() })
+      .then((saved) => (saved === 'login' ? null : listEntityReviews('society', soc.slug)))
+      .then((res) => {
+        if (!res) return;
+        setReviews(res.items); setRevText(''); setPick(5); setRateOpen(false);
+        toast('Thanks for reviewing this society!', 'success');
+      })
+      .catch(() => toast('Your review could not be posted. Please try again.', 'error'));
   });
   const submitQuestion = () => {
     if (!qText.trim()) return;

@@ -13,8 +13,8 @@
 -- --------------------
 -- Until now the 38 listings and 78 users that make the local app look like a product lived in
 -- exactly one place: a single Postgres database on one laptop. No script created them, so
--- `DROP DATABASE` â€” or a Flyway checksum mismatch severe enough to force a rebuild, which is
--- precisely what happened on 2026-08-04 â€” destroyed a dataset nothing could regenerate. That is
+-- `DROP DATABASE` — or a Flyway checksum mismatch severe enough to force a rebuild, which is
+-- precisely what happened on 2026-08-04 — destroyed a dataset nothing could regenerate. That is
 -- recorded as tech-debt D81. This file closes it: the demo data is now source, versioned with the
 -- schema that shapes it, and a rebuilt database comes back identical.
 --
@@ -42,21 +42,21 @@
 -- location (`spring.flyway.locations` in application-dev.properties). This is load-bearing:
 --
 --   * `mvn verify` runs 733 tests against `punenest_test`, and 126 of those assertions are exact
---     counts â€” a test inserts four listings and asserts `totalElements == 2` after the
+--     counts — a test inserts four listings and asserts `totalElements == 2` after the
 --     approved/archived filter. Seeding 38 more listings turns every one of those into
 --     `expected 2, got 21`. The suite's isolation model is transaction rollback, which protects it
 --     from *other tests*, not from data that was already committed before it started.
 --   * The `prod` profile must never see it at all.
 --
 -- So: one database for local development, populated and never truncated (which is what this
--- enables); a separate empty one for the test suite. `docs/LOCAL_DEV.md` Â§1 has the full rationale.
+-- enables); a separate empty one for the test suite. `docs/LOCAL_DEV.md` §1 has the full rationale.
 --
 -- WHAT IS AND IS NOT IN HERE
 -- --------------------------
--- In:  users, properties, conversations, messages, contact_requests, visits â€” the data a developer
+-- In:  users, properties, conversations, messages, contact_requests, visits — the data a developer
 --      needs to see a populated app.
 -- Out: `otp_codes` and `refresh_tokens`. Both were present in the source database (61 and 30 rows)
---      and both are session residue with short expiries â€” seeding them would ship a set of
+--      and both are session residue with short expiries — seeding them would ship a set of
 --      pre-issued tokens and already-expired login codes to every developer's machine, which is
 --      noise at best and a bad habit at worst.
 -- Out: localities, cities, settings, platform_fees. Those are reference data and are already
@@ -317,7 +317,7 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
     ON CONFLICT DO NOTHING;
 INSERT INTO public.contact_requests (id, property_id, requester_id, status, message, created_at, updated_at) VALUES ('2f941a03-28ca-5cdd-820c-2e8b47db87b2', '3b7a0839-a64a-5686-b459-6589e78fbd8e', 'c68b2dc8-89a7-5180-b94c-8daa349ff2fc', 'approved', 'Hi, is this still available? Looking to move in next month.', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.contact_requests (id, property_id, requester_id, status, message, created_at, updated_at) VALUES ('d9b96dff-b035-594c-aa91-2d27350c8bf9', '8996ddbc-d9ea-5ca3-83bb-fd14c3f430f7', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'pending', 'Interested â€” can we schedule a visit this weekend?', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.contact_requests (id, property_id, requester_id, status, message, created_at, updated_at) VALUES ('d9b96dff-b035-594c-aa91-2d27350c8bf9', '8996ddbc-d9ea-5ca3-83bb-fd14c3f430f7', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'pending', 'Interested — can we schedule a visit this weekend?', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.contact_requests (id, property_id, requester_id, status, message, created_at, updated_at) VALUES ('f4ff12f6-3b6a-515f-8018-14ede383022a', '0dcd8871-ffdd-56d6-b989-be6f53aa579e', '74feff4f-f669-5adc-93d5-bd1ad0d0e2a9', 'approved', 'Is the price negotiable? Zero brokerage confirmed?', '2026-07-29 22:33:54.213947+05:30', '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -343,7 +343,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('85bc4b3e-0f25-5725-aef1-f766f3619484', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '19bdc371-5496-5930-af29-5ef3d8e6bb8b', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('560fe46b-1774-5fe3-994c-9ac4e9e01ccf', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'buyer', 'Great â€” can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('560fe46b-1774-5fe3-994c-9ac4e9e01ccf', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'buyer', 'Great — can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('63a30090-835e-59b7-934f-7457cdfcafdb', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '19bdc371-5496-5930-af29-5ef3d8e6bb8b', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -351,7 +351,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f625e133-7909-5808-b9dc-d08d18fe0378', '60547b23-b982-53e5-a5de-625bd964aa20', 'de87779e-383b-5916-bc80-b3ee85c4fcab', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('d6711a4e-b087-5837-b4e1-4b8ac0dce40a', '60547b23-b982-53e5-a5de-625bd964aa20', '74feff4f-f669-5adc-93d5-bd1ad0d0e2a9', 'buyer', 'Great â€” can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('d6711a4e-b087-5837-b4e1-4b8ac0dce40a', '60547b23-b982-53e5-a5de-625bd964aa20', '74feff4f-f669-5adc-93d5-bd1ad0d0e2a9', 'buyer', 'Great — can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('39b678e9-eff9-5114-b11d-b41f1e6d2561', '60547b23-b982-53e5-a5de-625bd964aa20', 'de87779e-383b-5916-bc80-b3ee85c4fcab', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -359,7 +359,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('800921a2-b927-53ec-85f9-94e131fa074a', '0c9cdc1b-0793-56b8-801e-831a15348a28', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('5de5968d-26a9-5d96-bb5f-193687626891', '0c9cdc1b-0793-56b8-801e-831a15348a28', '24daef28-5a4d-58af-af85-ec1cdde8540d', 'buyer', 'Great â€” can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('5de5968d-26a9-5d96-bb5f-193687626891', '0c9cdc1b-0793-56b8-801e-831a15348a28', '24daef28-5a4d-58af-af85-ec1cdde8540d', 'buyer', 'Great — can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('97382100-5d1d-5377-a96c-ddffb69e6c39', '0c9cdc1b-0793-56b8-801e-831a15348a28', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -367,7 +367,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('850a8e4c-d484-505e-8325-f3a48f83306a', 'fdff056a-eb12-5caa-a37d-220a639bf365', '6e0d6446-90ad-5b90-89aa-617a89f387a0', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('dc921ec3-52e9-5a99-8419-dd7b6cdde872', 'fdff056a-eb12-5caa-a37d-220a639bf365', '65e66346-62d0-525f-be12-81d3f1868f06', 'buyer', 'Great â€” can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('dc921ec3-52e9-5a99-8419-dd7b6cdde872', 'fdff056a-eb12-5caa-a37d-220a639bf365', '65e66346-62d0-525f-be12-81d3f1868f06', 'buyer', 'Great — can I come this Saturday evening?', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('cbd6e0a8-50aa-5e5c-b805-09d325062604', 'fdff056a-eb12-5caa-a37d-220a639bf365', '6e0d6446-90ad-5b90-89aa-617a89f387a0', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;

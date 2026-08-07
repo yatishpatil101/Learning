@@ -6,7 +6,6 @@ import java.math.BigDecimal;
  * The contract's {@code Locality} — a locality as it appears in a list.
  *
  * @param slug         URL-safe key and the identity every FK and public URL uses
- * @param name         display name
  * @param city         the city it belongs to
  * @param listingCount live listings here, computed on read (decision D7.2)
  * @param avgRentPsf   average asking rent per sq ft
@@ -15,8 +14,6 @@ import java.math.BigDecimal;
  * @param avgRent      absolute average monthly rent in whole rupees
  * @param demand       demand index, 0-100
  * @param focus        {@code Buy}, {@code Rent} or {@code Both}
- * @param lat          latitude
- * @param lng          longitude
  * @param active       whether the locality is shown on the site
  */
 public record LocalityResponse(

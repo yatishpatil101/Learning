@@ -6,7 +6,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { getRooms, getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
-import { getFlatmatePosts, getFlatmateGroups, getMyRequest, hasInterest as hasInterestDB, addInterest as addInterestDB, getFlatmateReviewStatusMap, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import { getFlatmatePosts, getFlatmateGroups, getMyRequest, hasInterest as hasInterestDB, addInterest as addInterestDB, getFlatmateReviewStatusMap, addFlatmateRequest, pushNotification, pushPendingRequest, isPubliclyVisible } from '../../../lib/data/flatmates.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
 import { SEEKERS, SEED_ROOMS, SEED_GROUPS } from './constants.js';
@@ -26,6 +26,31 @@ const SHARE_OPENER = {
   bring: "Hi! I'm interested in this room and I'd be taking it with someone I know — so two of us in total. Is it still available?",
   match: "Hi! I'm interested in this room and I'd like to split it with another flatmate. Is it still available, and are you open to two people sharing it?",
 };
+
+/* The three public collections, each = "what the user posted" + the demo seed.
+
+   Every one filters `isPubliclyVisible` (tech-debt D97d). The server does this in
+   SQL on nine query sites — a flagged or removed post must *disappear* from the
+   board — and until now the mock did not, so an admin could remove a post and it
+   would carry on rendering. Filtering here rather than inside the store getters is
+   deliberate: `getRooms`/`getFlatmatePosts`/`getFlatmateGroups` have 31 call sites
+   between them, and the owner's own dashboard is one of them. An owner must still
+   see a post that was taken down, with its status, rather than watch it silently
+   vanish — so the filter belongs on the *public board*, not on the data. */
+const publicRequests = () => [...getFlatmatePosts(), ...SEEKERS].filter(isPubliclyVisible);
+
+const publicRooms = () => [
+  ...getRooms().map((r) => ({
+    ...r,
+    localities: (Array.isArray(r.localities) && r.localities.length)
+      ? r.localities
+      : (r.locality ? [r.locality] : []),
+    time: r.time || 'Just now',
+  })),
+  ...SEED_ROOMS,
+].filter(isPubliclyVisible);
+
+const publicGroups = () => [...getFlatmateGroups(), ...SEED_GROUPS].filter(isPubliclyVisible);
 
 // Orchestrator: owns page context, the shared data collections (requests/rooms/
 // groups/saved/interests), tab/view nav state, shared derivations and the demand-
@@ -48,18 +73,9 @@ export function useFlatmates() {
   // one CTA asks whether they have a place and routes from the answer.
   const [postChooserOpen, setPostChooserOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
-  const [requests, setRequests] = useState(() => [...getFlatmatePosts(), ...SEEKERS]);
-  const [rooms, setRooms] = useState(() => {
-    const posted = getRooms().map((r) => ({
-      ...r,
-      localities: (Array.isArray(r.localities) && r.localities.length)
-        ? r.localities
-        : (r.locality ? [r.locality] : []),
-      time: r.time || 'Just now',
-    }));
-    return [...posted, ...SEED_ROOMS];
-  });
-  const [groups, setGroups] = useState(() => [...getFlatmateGroups(), ...SEED_GROUPS]);
+  const [requests, setRequests] = useState(() => publicRequests());
+  const [rooms, setRooms] = useState(() => publicRooms());
+  const [groups, setGroups] = useState(() => publicGroups());
   const [saved, setSaved] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('puneNestFlatmateSaved') || '{}');
@@ -73,18 +89,9 @@ export function useFlatmates() {
   // supply-side handlers call this after mutating persisted data (replacing the
   // old inline setRequests/setGroups reload calls) so the lists refresh uniformly.
   const refresh = useCallback(() => {
-    setRequests([...getFlatmatePosts(), ...SEEKERS]);
-    setRooms(() => {
-      const posted = getRooms().map((r) => ({
-        ...r,
-        localities: (Array.isArray(r.localities) && r.localities.length)
-          ? r.localities
-          : (r.locality ? [r.locality] : []),
-        time: r.time || 'Just now',
-      }));
-      return [...posted, ...SEED_ROOMS];
-    });
-    setGroups([...getFlatmateGroups(), ...SEED_GROUPS]);
+    setRequests(publicRequests());
+    setRooms(publicRooms());
+    setGroups(publicGroups());
   }, []);
 
   useEffect(() => {

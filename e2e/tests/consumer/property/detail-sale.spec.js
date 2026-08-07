@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* SALE property-detail regression:
    - RENT-only blocks never leak onto a SALE page
@@ -11,9 +12,7 @@ const SALE_PLOT = 'P5100';       // Residential Open Plot in Wagholi (buy, land)
 const RENT_FLAT = 'P5014';       // 3 BHK Penthouse (rent)
 
 async function collectErrors(page) {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
   return errors;
 }
 

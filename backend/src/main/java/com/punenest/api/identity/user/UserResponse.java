@@ -16,12 +16,9 @@ import java.time.Instant;
  * logic so the wire shape stays a pure contract declaration.
  *
  * @param id                 opaque user id
- * @param name               display name
  * @param mobile             10-digit mobile (natural identity)
  * @param email              contact email, nullable
- * @param role               {@code buyer|owner|staff|admin}
  * @param team               staff ops team, else null
- * @param status             {@code active|suspended|archived}
  * @param verified           opt-in identity "Verified" badge (L2)
  * @param city               home city
  * @param mobileVerified     L1 trust floor — the participation gate

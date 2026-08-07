@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Property-detail improvement regression — the five fixes shipped this pass:
    #1 Honest locality value/rent benchmark (real ₹/sq.ft vs curated locality avg,
@@ -17,9 +18,7 @@ const RENT_1BHK = 'R7109';        // 1BHK Flat, Hinjawadi — too small to split
 const RENT_COMMERCIAL = 'C6107';  // Warehouse for rent — not residential
 
 async function collectErrors(page) {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
   return errors;
 }
 function relevant(errors) {

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { openFlatmates, cardIds, setBudget, seed, SEEKER } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Demand side: how a seeker finds a home or a flatmate.
 
@@ -107,9 +108,7 @@ test.describe('Flatmates discovery', () => {
   });
 
   test('renders no console errors on either tab', async ({ page }) => {
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const errors = trackErrors(page);
 
     await openFlatmates(page);
     await page.getByRole('button', { name: /Team up/i }).click();

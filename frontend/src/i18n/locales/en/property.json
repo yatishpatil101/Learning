@@ -567,6 +567,7 @@
     "visitBookedReview": "Your visit is booked. Once the owner confirms you visited, you can leave a verified review.",
     "bookVisitFirst": "Book a visit first — after the owner confirms you visited, you can leave a verified review.",
     "reviewPosted": "Thanks! Your review has been posted.",
+    "reviewFailed": "Your review could not be posted. Please try again.",
     "ratingsReviews": "Ratings & Reviews",
     "reportListing": "Report listing",
     "rateProperty": "Rate this property",

@@ -30,7 +30,7 @@ async function seed(page) {
   const db = { ...SEED_DB };
   // FRESH/STALE are marked featured only so they deterministically land on page 1
   // under the listings' real relevance sort (featured has no visual effect on tiles).
-  // DORM-1 is intentionally left un-featured â€” it must stay hidden from buyers.
+  // DORM-1 is intentionally left un-featured — it must stay hidden from buyers.
   const owned = [
     base({ id: 'FRESH-1', title: 'Fresh Flat in Baner', freshenedAt: dISO(0), featured: true }),
     base({ id: 'STALE-1', title: 'Stale Flat in Baner', freshenedAt: dISO(20), featured: true }),
@@ -77,7 +77,7 @@ test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Con
   await page.getByRole('button', { name: /Confirm all available/i }).click();
   await page.waitForTimeout(600);
 
-  // Everything is Active now â€” the banner and stale/paused actions are gone.
+  // Everything is Active now — the banner and stale/paused actions are gone.
   await expect(page.getByText(/need.* your confirmation/i)).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Reactivate/i })).toHaveCount(0);
   await expect(page.getByText('Active', { exact: true }).first()).toBeVisible();
@@ -94,20 +94,20 @@ test('dormant listings are hidden from public search but fresh ones show', async
   await expect(page.locator('a[href="/property/DORM-1"]')).toHaveCount(0);
 });
 
-test('listing-page tiles show "Posted â€¦" and never the freshness label', async ({ page }) => {
+test('listing-page tiles show "Posted …" and never the freshness label', async ({ page }) => {
   await seed(page);
   await page.goto(`${BASE}/listings?deal=buy`);
   await expect(page.locator('a[href="/property/FRESH-1"]')).toBeVisible({ timeout: 15000 });
   // Freshness cues belong on the property details page, not on result tiles.
   await expect(page.getByText('Availability not recently confirmed')).toHaveCount(0);
   await expect(page.getByText('Confirmed available')).toHaveCount(0);
-  // The classic "Posted â€¦" recency line is back on the tiles.
+  // The classic "Posted …" recency line is back on the tiles.
   await expect(page.locator('a[href="/property/FRESH-1"]').getByText(/Posted/)).toBeVisible();
 });
 
 test('buyer property detail shows the owner-activity signal', async ({ page }) => {
   await seed(page);
-  // View as a buyer (not the owner) â€” this signal is a buyer-facing trust cue.
+  // View as a buyer (not the owner) — this signal is a buyer-facing trust cue.
   await page.addInitScript(() => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer Bob', mobile: '9777788899', role: 'buyer', loginAt: Date.now() }));
   });

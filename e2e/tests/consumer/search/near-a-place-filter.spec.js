@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* "Near a Place" listings filter.
    The dropdown is now LIVE-Google-only (no static seed list): you type and pick a
@@ -51,9 +52,7 @@ async function stubPlacesNear(page) {
 }
 
 test('typing surfaces a live place, picking it applies the filter and closes the dropdown, no console errors', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
 
   await page.goto(`${BASE}/listings`);
   await filters(page).first().waitFor();

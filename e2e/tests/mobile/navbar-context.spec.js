@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = { width: 390, height: 844 };
@@ -83,13 +84,7 @@ test.describe('Mobile navbar — context-aware left slot', () => {
 
   test('No console errors while navigating the redesigned navbar', async ({ page }) => {
     await signedIn(page);
-    const errors = [];
-    page.on('console', (msg) => {
-      if (msg.type() !== 'error') return;
-      const t = msg.text();
-      if (/favicon|leaflet|net::ERR|Failed to load resource|tile\./i.test(t)) return;
-      errors.push(t);
-    });
+    const errors = trackErrors(page);
     await page.setViewportSize(MOBILE);
     await page.goto(`${BASE}/`);
     await page.goto(`${BASE}/listings?deal=buy`);

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Listings "Localities" filter — canonical-registry search.
 
@@ -13,9 +14,7 @@ const BASE = 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 
 test('registry-only localities are searchable and selectable in the filter', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
 
   await page.goto(`${BASE}/listings`);
   await filters(page).first().waitFor();

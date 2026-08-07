@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    QA SWEEP — Home search bar → Listings, combined with Localities + Near-a-Place.
@@ -263,9 +264,7 @@ test('G — home: free text + Search (no explicit pick) promotes best suggestion
 });
 
 test('H — listings: Near-a-Place (stubbed Google) applies + oracle within radius', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
   await page.goto(`${BASE}/listings`);
   const filters = page.locator('aside:has(h3:has-text("Filters"))').first();
   await filters.waitFor();

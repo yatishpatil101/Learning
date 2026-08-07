@@ -1,8 +1,8 @@
 ﻿import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-/* PG / Hostel "Sharing" (occupancy) filter â€” a first-class type whose rooms are
-   defined by sharing (single/double/â€¦) instead of BHK. PG is offered for BOTH
+/* PG / Hostel "Sharing" (occupancy) filter — a first-class type whose rooms are
+   defined by sharing (single/double/…) instead of BHK. PG is offered for BOTH
    rent and sale (an owner may sell the whole building), so the Sharing filter
    now applies on either deal.
 
@@ -22,7 +22,7 @@ const BASE = 'http://localhost:5173';
 /* The real seed DB, injected into localStorage BEFORE app JS runs so the mock
    API hydrates from a populated store (no async /api/__persist race). We append
    a deterministic set of approved PG listings so the Sharing filter has known,
-   count-stable stock â€” mirroring search-property-types.spec.js. */
+   count-stable stock — mirroring search-property-types.spec.js. */
 const SEED_DB = JSON.parse(
   readFileSync(new URL('../../../../frontend/src/data/db.json', import.meta.url), 'utf-8'),
 );

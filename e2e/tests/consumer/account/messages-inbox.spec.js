@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* End-to-end coverage of the buyer↔owner messaging inbox and its cross-surface
    wiring (navbar badge, dashboard preview, contact-gated header actions). Seeds
@@ -13,9 +14,7 @@ async function login(page) {
 }
 
 test('inbox loads seed conversations with a clean console', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
   await login(page);
   await page.goto(`${BASE}/messages`);
   await expect(page.locator('.pc-list-head h2')).toHaveText('Messages');

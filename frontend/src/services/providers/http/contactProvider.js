@@ -10,13 +10,21 @@
  * nothing in this file ever sees or needs an owner's phone number to answer a permission question.
  */
 import { get, patch, post } from '../../http.js';
+import { readAccessToken } from '../../../lib/auth.js';
 import { NO_CONTACT_GATE } from '../../../lib/contact.js';
 
 /**
  * The caller's gate state for one listing.
  *
- * A public listing page must render for anonymous visitors, so the two statuses that are *facts
- * about the caller rather than failures* are translated instead of thrown:
+ * An anonymous visitor is answered locally. The gate asks "where does *this caller* stand with this
+ * owner", and someone with no session has by definition made no request — the server can only ever
+ * say 401, so asking is a round trip whose answer we already have. It is not free either: the
+ * property page mounts this hook from several places, so a signed-out visitor to a public listing
+ * fired four doomed requests and painted four red 401s in the console, which is the sort of noise
+ * that hides a real failure.
+ *
+ * The 401 branch below is still kept, because the check above is a fast path and not a guarantee:
+ * a token can expire between the read and the response, and that must land on "no gate" too.
  *
  *   401 — not signed in. Semantically this is `status: 'none'`; they have made no request. Letting
  *         it throw would blank a public page for exactly the visitor we want to convert.
@@ -25,6 +33,7 @@ import { NO_CONTACT_GATE } from '../../../lib/contact.js';
  */
 export async function contactStatus(propertyId) {
   if (!propertyId) return NO_CONTACT_GATE;
+  if (!readAccessToken()) return NO_CONTACT_GATE;
   try {
     return await get('/contacts/status', { propertyId });
   } catch (err) {
@@ -53,7 +62,10 @@ export async function myContactRequests({ page = 0, size = 20 } = {}) {
     // `totalElements` counts the whole result set, not the page — the difference the badge and any
     // "N enquiries" label depend on.
     total: res?.totalElements ?? 0,
-    page: res?.number ?? page,
+    // `PageEnvelope` names the current page `page`, not Spring's raw `number` — reading `number`
+    // silently fell through to the *requested* page, which agrees with the server right up until
+    // it clamps or redirects, and then reports a page the caller is not on.
+    page: res?.page ?? res?.number ?? page,
     size: res?.size ?? size,
   };
 }

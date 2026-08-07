@@ -36,7 +36,21 @@ const warnings = [];
 // reconstructs the year from "now", rolling forward when the result would be in the past — so a
 // past date does not round-trip its year (D88). Every visit the calendar sorts is upcoming, which
 // is the case this asserts.
-const { slotFromParts, whenFromSlot, parseWhen } = await import('../src/lib/visitWhen.js');
+// ─── Load the real modules through Vite's SSR loader ──────────────────────────────────
+// Plain `await import()` no longer reaches these modules: the mock provider pulls in `mockApi/core`,
+// which imports `db.json` (Node >= 22 demands an import attribute) and `persist.js` (which reads
+// `import.meta.env.DEV`, undefined outside a bundler). Vite resolves both, and it is what the
+// review/support/report harnesses already use — so this is the one loader all seven now share.
+const { createServer } = await import('vite');
+const vite = await createServer({
+  server: { middlewareMode: true },
+  appType: 'custom',
+  logLevel: 'warn',
+  define: { 'import.meta.env.VITE_API_BASE': JSON.stringify(BASE) },
+});
+const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
+
+const { slotFromParts, whenFromSlot, parseWhen } = await load('../src/lib/visitWhen.js');
 {
   const dateIso = futureDateIso();
   const [y, mo, dd] = dateIso.split('-').map(Number);
@@ -92,8 +106,8 @@ const liveRaw = (Array.isArray(liveList.body) ? liveList.body : []).find((v) => 
 
 // ─── Drive the mock ───────────────────────────────────────────────────────────────────────────
 globalThis.localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Parity Probe', mobile: MOBILE, role: 'buyer' }));
-const mock = await import('../src/services/providers/mock/visitProvider.js');
-const { rawDb } = await import('../src/lib/mockApi.js');
+const mock = await load('../src/services/providers/mock/visitProvider.js');
+const { rawDb } = await load('../src/lib/mockApi.js');
 const mockProperty = (rawDb().listings || []).find((p) => p.ownerMobile);
 if (!mockProperty) {
   console.error('\n  The mock database has no listing with an ownerMobile.\n');
@@ -222,7 +236,12 @@ function installStorageStubs() {
   globalThis.localStorage = make();
   globalThis.sessionStorage = make();
   globalThis.window = globalThis;
+  // `services/config.js` compares `API_BASE` against the page origin. `window = globalThis` gives a
+  // `window` that passes a `typeof` check but has no `location`, which is a worse lie than having no
+  // window at all — so give it one, matching the base this run actually targets.
+  globalThis.location ??= new URL(BASE);
   globalThis.addEventListener = () => {};
+  globalThis.removeEventListener ??= () => {};
   globalThis.dispatchEvent = () => {};
 }
 

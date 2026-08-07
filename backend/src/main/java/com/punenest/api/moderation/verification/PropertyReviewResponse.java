@@ -7,7 +7,6 @@ import java.util.List;
  * Wire shape of the verification case file (contract {@code PropertyReview}).
  *
  * @param propertyId the listing under review
- * @param status     {@code pending|approved|rejected|flagged|archived}
  * @param reviewer   staff handle that took the case, else null
  * @param checklist  the verification checklist, one entry per required document
  * @param messages   the owner&lt;-&gt;ops clarification thread, oldest first (added by spec fix S34)

@@ -29,8 +29,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                  call is ever made
  * @param baseUrl   {@code https://sandbox.cashfree.com} for test keys, {@code https://api.cashfree.com}
  *                  for live ones — the keys and the host must match or every call 401s
- * @param appId     {@code X-Client-Id}
- * @param secretKey {@code X-Client-Secret}
  */
 @ConfigurationProperties("punenest.providers.cashfree")
 public record CashfreeProperties(

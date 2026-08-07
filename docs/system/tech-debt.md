@@ -21,13 +21,23 @@ hand. This register is the answer to that question, and it is the SSOT for it.
    management, it is forgetting with extra steps.
 2. **Debt is deliberate.** A bug is not debt — fix it. Debt is a shortcut we would take again given
    the same information, and would not take with more time.
-3. **Closing counts as progress.** An item removed with a written "won't do, because…" is as good an
-   outcome as one implemented. What is not acceptable is an item that quietly stops being mentioned.
-4. **This file does not schedule work.** When a slice picks an item up, it goes into `tasks/todo.md`
-   as a checkable plan item; the entry here is then marked done with the commit or slice that did it.
-5. **Per-slice RESULTS blocks stay in `tasks/todo.md`.** Only the *carried-forward* residue lands
+3. **A finished item is deleted, not archived.** Once the work is done and the reasoning lives
+   somewhere it will actually be read — a Javadoc, a comment beside the code, a test that fails if
+   the rule is broken — the register entry has no remaining job and is removed outright. *This
+   reverses the original rule*, which kept a "Closed" table so nothing "quietly stopped being
+   mentioned". That was the right instinct aimed at the wrong risk: a register nobody finishes
+   reading is its own failure mode, and by 2026-08-07 the closed section was longer than the open
+   one. Git history is the archive. **Two things are still never deleted:** a *ruling* (§5 — a
+   settled "no", which exists precisely so it is not re-raised), and any closed item whose lesson
+   has no home in code.
+4. **Numbers are never reused.** Deleting D19 does not free D19. New debt continues from the
+   highest number ever issued, so a reference in an old commit or comment can never resolve to a
+   different item than it meant.
+5. **This file does not schedule work.** When a slice picks an item up, it goes into `tasks/todo.md`
+   as a checkable plan item; the entry here is deleted when that work lands.
+6. **Per-slice RESULTS blocks stay in `tasks/todo.md`.** Only the *carried-forward* residue lands
    here, and it lands here **once** — no duplicate bookkeeping in two files.
-6. **If it needs a decision, it is not debt yet** — it goes to `open-questions.md` and returns here
+7. **If it needs a decision, it is not debt yet** — it goes to `open-questions.md` and returns here
    once answered. An item blocked on "what do we actually want?" will never be picked up from a
    backlog, because the person reading the backlog is not the person who can answer it.
 
@@ -139,32 +149,19 @@ enforced by the compiler, not by whoever reviews the PR.
 ever moved — Lombok finds it by walking *up* from the source file, so relocating it silently
 disarms every rule.
 
-### Known cost, priced in
+### Build wiring — where the details actually live
 
-Lombok + MapStruct is the ecosystem's most notorious annotation-processor ordering problem; it needs
-`lombok-mapstruct-binding` in the correct slot in `annotationProcessorPaths`. This project has
-already lost time twice to processor and build-path issues (the `target`/`target-cli` collision, and
-the MapStruct object-factory bug that silently blanked verified badges), and `pom.xml` carries
-comments about both. Compatibility itself is **not** a blocker: Lombok has supported JDK 25 since
-1.18.40 and Jackson 3 since 1.18.44/46.
+Lombok + MapStruct is the ecosystem's most notorious annotation-processor ordering problem. All of
+it — the mandatory `lombok → lombok-mapstruct-binding → mapstruct-processor` order, why the offline
+repository forces `<lombok.version>1.18.44</lombok.version>` below the Boot 4.1 BOM's 1.18.46, and
+what breaks if either changes — is commented **in `backend/pom.xml` beside the elements it governs**,
+which is where somebody editing them will actually read it.
 
-**Do this as its own commit with a green `mvn verify`, never folded into a feature slice.**
-
-### How it actually went
-
-The processor-ordering problem was real but tractable. `annotationProcessorPaths` is ordered
-**lombok → lombok-mapstruct-binding → mapstruct-processor**, and that order is load-bearing.
-Rather than trust it, the generated `CityMapperImpl.java` was read to confirm MapStruct is calling
-Lombok-generated accessors (`city.getSlug()`, `city.getName()`, `city.isLive()`). Repeat that check
-if anything looks off. The failure mode is at least loud, not silent: `PropertyMapper` sets
-`unmappedTargetPolicy = ERROR`, so a mis-ordered processor fails the compile with "Unmapped target
-property". **Do not "fix" that by relaxing the policy.**
-
-One constraint worth remembering: builds here run **offline**, and the Boot 4.1 BOM manages Lombok
-**1.18.46**, which is not in the local repository (1.18.44 is the newest cached). `pom.xml`
-therefore pins `<lombok.version>1.18.44</lombok.version>`. That is not a compromise — JDK 25
-support landed in 1.18.40 and Jackson 3 in 1.18.44. Drop the pin once the network allows resolving
-1.18.46.
+Two things not obvious from the pom: the failure mode is loud rather than silent, because
+`PropertyMapper` sets `unmappedTargetPolicy = ERROR`, so a mis-ordered processor fails the compile
+with "Unmapped target property" — **do not "fix" that by relaxing the policy**. And if anything ever
+does look wrong, read the generated `CityMapperImpl.java` and confirm MapStruct is calling
+Lombok-generated accessors (`city.getSlug()`, `city.isLive()`) rather than assuming it.
 
 ---
 
@@ -345,14 +342,14 @@ test duplication.
 
 | Ref | Item | Register row |
 |---|---|---|
-| C1 | Trim `@param` ceremony (~230 lines) | D33 |
-| C2 | Shared test fixtures (`AbstractApiTest`) | **D34, delivered** — see §5. The `Fixtures` half was refused, not done |
-| C3 | Lombok on entities | **D1, delivered** — see §5 |
-| C4 | `NotFoundException.of("Property")` factory | D35 |
-| C5 | Collapse the bespoke exception subclasses | **rejected** — see §5 |
-| C6 | Formatter + linter + boundary tests in `verify` | D36 |
-| C7 | Service-split trigger at ~450 lines | D37 |
-| C8 | One `package-info.java` per bounded context | D38 |
+| C1 | Trim `@param` ceremony (~230 lines) | **D33 — open** |
+| C2 | Shared test fixtures (`AbstractApiTest`) | **Delivered.** 34 classes extend it; the `Fixtures` half was refused, not done — reasoning in the class Javadoc |
+| C3 | Lombok on entities | **Delivered** — see §1 for the policy, which still governs new entities |
+| C4 | `NotFoundException.of("Property")` factory | **Delivered** — 73 call sites; see `NotFoundException` |
+| C5 | Collapse the bespoke exception subclasses | **Rejected** — see §5 |
+| C6 | Formatter + linter + boundary tests in `verify` | **D36 — open** (boundary third delivered as `ArchitectureBoundaryTest`) |
+| C7 | Service-split trigger at ~450 lines | **D37 — open** |
+| C8 | One `package-info.java` per bounded context | **D38 — open** |
 
 Effort-to-value order was **D34 > D33 > D36 > D38 > D37 > D35**. D34, D1 and D35 are done; of what remains, **D33 is blocked** until `api-standards.md` §10 is amended (deleting the lines without changing the rule that mandates them just grows them back), so the live order is **D36 > D38 > D37**.
 
@@ -371,32 +368,6 @@ one fact, and the Javadoc is the one that will silently drift when the annotatio
 Javadoc on every public type and method and is therefore the direct cause of the 232 lines. The
 replacement rule: *document a component only when its name does not already say it; never restate
 what an annotation enforces.* Delete the lines without changing the rule and they grow back.
-
-### D34 — shared test fixtures (done)
-
-**Done.** The census, re-counted before the work rather than trusted from the original estimate,
-was worse than recorded here: **35** classes autowired `MockMvc`, **34** `JwtService`, **19**
-`JdbcTemplate`, and **30** declared a `bearer()` of which **26 were byte-identical**. Field naming
-was already 100% uniform (`mvc` / `jwtService` / `jdbc`), and all 25 standard-`bearer()` classes
-carried exactly `@SpringBootTest + @AutoConfigureMockMvc + @Transactional` — uniform enough that a
-base class was safe.
-
-`support/AbstractApiTest` now carries those three annotations, the three fields, and `bearer(User)`.
-**34 classes extend it**; `bearer()` copies fell 30 → 5 and identical bodies 26 → 0, removing
-≈400 lines. `services/ServiceFixtures` — which held a 27th copy — extends it too and keeps only
-what is genuinely slice-11's: the team-scoped `staff()` builder and the multipart helpers.
-
-A base class rather than the `@TestComponent` originally sketched, because
-`@SpringBootTest`/`@AutoConfigureMockMvc`/`@Transactional` must sit on the test class or something
-it inherits — they cannot be injected. Once a superclass exists for them, the fields belong there
-too. Spring resolves all three up the hierarchy; the full suite staying green at 650 with no
-unique-constraint failures is the proof that `@Transactional` in particular is still being applied.
-
-**`user()` and `listing()` were deliberately left alone.** 24 `user()` declarations have **19
-distinct bodies**; 16 `listing()` have 9. They differ in display name, locality, price and status
-— that is, they encode each test's preconditions. Hoisting them means either an unreadable
-parameter list or a default that silently changes what a test asserts. The `Fixtures`
-`@TestComponent` half of this item is therefore closed as **not worth doing**, not as done.
 
 ### D36 — formatter first, linter second (config stored, baseline measured)
 
@@ -519,13 +490,32 @@ which is what turns the boundary rules from folklore into something checkable.
 
 ## 4. Open register
 
-**60 open.** Twenty-two items sit in §5 — the 13 lifted by the register audit, then D24, D35,
-D40, D74, D75, and most recently D48, D25, D66 and **D81**.
-**5 High**, 2 Med-High, 32 Med, 21 Low. Largest clusters: `design` 15, `security` 7, `frontend` 5.
+**77 open** — 4 High, 2 Med-High, 35 Med, 36 Low. Highest number ever issued: **D104**; numbers are
+never reused (rule 4), so gaps in this list are deleted items, not mistakes.
 
-**D81 was opened and closed the same day** — the dev database could not boot, could not be repaired
-forward, and held the only copy of the demo catalogue. It is now rebuilt from a committed Flyway
-seed and reproducible from empty. See §5.
+> **The count above was wrong for months and is now derived, not asserted.** The header claimed
+> "60 open" while the table held 78 rows — every pass edited the prose and not the arithmetic, so
+> the one number a reader takes at face value was the least trustworthy thing here. Recount before
+> editing it:
+>
+> ```powershell
+> $l = Get-Content docs/system/tech-debt.md
+> $s = ($l | Select-String '^\| # \| Item \| Area \| P \|').LineNumber
+> $e = ($l | Select-String '^### Detail on the ones').LineNumber
+> $rows = $l[$s..($e-1)] | Where-Object { $_ -match '^\| D\d+ \|' }
+> $rows.Count
+> $rows | ForEach-Object { ($_ -split '\|')[-3].Trim() -replace '\*','' } | Group-Object | Sort-Object Count -Descending
+> ```
+
+**The four High items are blocked on something other than effort**, which is the single most
+useful fact about this list:
+
+| # | What it needs |
+|---|---|
+| D2 | a rate-limiter design (pairs with D73 — one atomic principal-keyed counter answers both) |
+| D57 | a scheduler — nothing in the platform runs on a timer yet |
+| D59 | a ranking design: what a paid boost is actually worth against relevance |
+| D67 | *decided — wire it.* Now blocked on slice capacity, not on a question |
 
 > **API-polish pass (pre-integration).** The backend was reviewed end to end before frontend
 > integration started. Five defects were found and fixed rather than recorded — they were bugs, not
@@ -538,24 +528,71 @@ seed and reproducible from empty. See §5.
 > 705 → 733 tests, green. The pass also *created* five new entries — D76–D80 below — because several
 > fixes revealed adjacent problems that were out of its scope.
 
-**The five High items are all blocked on something other than effort**, which is the single most
-useful fact about this list:
-
-| # | What it needs |
-|---|---|
-| D2 | a rate-limiter design (pairs with D73 — one atomic principal-keyed counter answers both) |
-| D22 | Google Cloud console access to rotate the key |
-| D57 | a scheduler — nothing in the platform runs on a timer yet |
-| D59 | a ranking design: what a paid boost is actually worth against relevance |
-| D67 | a wire-or-remove call on `settings.permissions` / `customRoles` |
-
 **Actionable today without any decision** — the honest short list is now short. **D38**
 (`package-info.java` per context) is the only one of any size, and it is 22 files of prose whose
 value depends entirely on the prose being accurate; done shallowly it is worse than not done.
 **D46**, **D49** and **D60** are one-liners, but each of the three is explicitly waiting on a
 consumer that does not exist — an unassign gesture, a message attachment, a share channel — and
 building the field before the caller is how the register filled up with `settings.permissions`
-(D67).
+(D67). The remaining no-decision items are **D95** (one verify-funnel spec), **D96** (50 specs onto
+the shared console helper), **D97(d)** (ops cannot see flatmate rooms — the one with a user-visible
+consequence) and **D33** (trim the `@param` ceremony).
+
+> **Debt pass, 2026-08-07.** Nine items closed: D90, D82, D19, D22, D83, D86, D97(d), D95, and the
+> durable half of D33. Every fix was mutation-tested — the fix reverted, or damage deliberately
+> planted, and the test watched to go red — because in each case a green assertion could have meant
+> nothing.
+>
+> **Four of the nine were filed with the wrong size or the wrong cause**, which is the most useful
+> pattern here: *the register's own numbers were the least reliable thing in it.* D19 said "7 files,
+> cosmetic" and was 22 files including mangled rupee signs in live prices. D96 said "50 specs filter
+> nothing" and was 9. D97(d) said "rooms are invisible" when ops could see nothing at all. D33 said
+> 562 `@param` and it is 673. **Measure before scheduling, and re-measure before deleting.**
+>
+> Findings worth more than the items themselves:
+>
+> 1. **A `@Transactional` test harness cannot see a bug that happens at commit time.** D90 survived
+>    750 tests because every HTTP test extends a rolling-back base class, and the defect was a
+>    failing commit. The guard had to be written *outside* the harness that hid it.
+> 2. **Detect by round-trip, not by a list of known-bad patterns.** The first D19 repair script used
+>    a hand-built map and missed two whole families nobody had grepped for. A table can only ever fix
+>    the damage somebody already noticed.
+> 3. **A mock more permissive than its server passes tests the real thing would fail** (D97d).
+> 4. **A mutation test caught a bad assertion, not just a bad fix.** The D95 one-shot-perk test
+>    passed with the guard deliberately disabled: with no guard the perk moves to the *next* listing
+>    rather than re-extending the first, so an assertion on the first listing's window could never go
+>    red. Counting grants across the set can. An assertion that cannot fail is worse than no test —
+>    it reads as coverage.
+> 5. **Consolidating filters must merge them first.** The local console-noise lists were not subsets
+>    of the shared one, so deleting them and pointing everything at `IGNORE` would have silently
+>    *tightened* several specs. The shared list absorbed `gstatic`, `maptiler` and the React DevTools
+>    banner first — but deliberately not bare `ERR_` or bare `maps`, which are broad enough to
+>    swallow a real error.
+
+> **D97(d) closed — and it was twice the item it was filed as.** The entry said "rooms are invisible
+> to admin moderation". True, but the cause was broader: `AdminFlatmates` read `rawDb()` while
+> **every** consumer flatmate flow writes localStorage, so ops could not see a single seeker, group
+> **or** room a real user had posted — not just rooms. Worse, the second half was silent: nothing on
+> the consumer side filtered `modStatus`, so *even the rows ops could see* were unmoderatable —
+> "Remove" wrote a value no reader consulted and the post stayed on the board, while the page told
+> the moderator that removed posts disappear.
+>
+> **The server was right the whole time**, which is what makes this a mock-fidelity bug rather than
+> a product gap: `FlatmateRoomRepository`, `FlatmateGroupRepository` and `FlatmateSeekerPostRepository`
+> filter `mod_status not in ('flagged','removed','rejected')` across nine queries, one commented
+> *"the mod_status clause is not decoration: a flagged post must disappear"*. The mock now mirrors
+> that set exactly (`MOD_HIDDEN` in `lib/data/flatmates.js`), the admin queue reads both stores and
+> has a Rooms tab, and verdicts are written back to whichever store holds the row.
+>
+> **The filter went on the public board, not on the store getters.** `getRooms`/`getFlatmatePosts`/
+> `getFlatmateGroups` have 31 call sites between them and the owner's own dashboard is one of them —
+> an owner must still see a post that was taken down, with its status, rather than watch it silently
+> vanish. Both halves are mutation-tested: drop the filter and the two "hidden" tests go red while
+> the control stays green; revert the admin read and the visibility test goes red.
+>
+> **The lesson, which is bigger than flatmates:** a mock that is *more permissive* than the server it
+> stands in for does not fail loudly — it silently passes tests the real thing would fail. Worth
+> checking the other mock providers against their repositories for the same asymmetry.
 
 **D36** (Spotless) is blocked on repo access, not on a decision. **D54** turned out to need more
 machinery than its Low priority justifies — see its trigger. Everything else above the one-liners
@@ -579,17 +616,15 @@ deferred on purpose.**
 | D15 | Notification preferences (R9) | engagement | Low | no table, no contract |
 | D16 | `reels.locality` holds display names, not slugs | catalog | Low | frontend integration slice |
 | D17 | Legacy `enquiries` surface — implement or formally deprecate | leads | Med | needs a product call |
-| D19 | Residual mojibake in 7 e2e specs (comments/titles only) | hygiene | Low | cosmetic |
 | D20 | `ProfileTab.save` sends `city`, absent from `UserUpdate` | frontend | Low | silently dropped on http |
 | D21 | Verify-funnel Playwright coverage (modal → mock → badge) | e2e | Med | e2e owner |
-| D22 | **Rotate `VITE_GOOGLE_MAPS_API_KEY`** | security | **High** | real key is in git history (2 commits) |
 | D23 | `common.validation` shared format package (§2) | backend | Med | backend / blocked on Q1 |
 | D26 | Frontend derives trust client-side (`applyVerifiedBadgeToListings`, `isSeriousBuyer`) | frontend | Med | moot on `http` flip; live in mock mode |
 | D28 | e2e `expect(errors).toEqual([])` assertions are network-dependent | e2e | Med | flaky offline / in CI |
 | D29 | e2e `services-loans-team.spec.js` failing (pre-existing) | e2e | Med | e2e owner |
 | D30 | Owner-scoped mock stores keyed on owner **mobile**, not `ownerId` | frontend | Med | Phase 3/4 integration |
 | D32 | ProfileTab identity chips are hardcoded English | i18n | Low | ProfileTab i18n pass |
-| D33 | Trim 232 ceremonial `@param` lines + amend `api-standards.md` §10 (§3) | quality | Med | backend / after last feature slice |
+| D33 | **~195 `@param` lines still restate their parameter in a synonym** — the 2026-08-07 pass amended `api-standards.md` §10 first (the durable half: without it they grow straight back) and deleted the **42** that are provably empty — pure name restatements and `(required)`/`nullable` suffixes that duplicate the annotation on the next line. **The remaining ~195 were deliberately not deleted.** The register's criterion was "≤4 words", and applied literally that removes genuinely useful lines: `@param orderId the provider's {@code order_id}` is four words and says which external field it maps to. A synonym (`@param title headline`) is a judgement call a regex should not make unsupervised | quality | Low | by hand, per file, when that file is next edited — §10 now forbids adding more |
 | D36 | **Formatter-first**: Spotless owns layout, Checkstyle shrinks to ~12 semantic rules (§3). The boundary third is already delivered by `ArchitectureBoundaryTest` (D3), so this is now a two-tool question, not three | build | Med | backend / blocked on repo access (Spotless is not in the offline repo) |
 | D37 | Service-split trigger at ~450 lines, by use-case not layer (§3) | architecture | Low | agree now, apply on next service that crosses it |
 | D38 | One `package-info.java` per bounded context (§3) | architecture | Low | with D36 — its original trigger, D3, is delivered |
@@ -615,7 +650,7 @@ deferred on purpose.**
 | D63 | **`payoutsCompleted` and `refunds` on `/admin/finance` are structurally zero** — no payout and no refund path exists anywhere on the platform (`payout_accounts` stores a destination and nothing writes a remittance). Reported rather than omitted so the figures move the day payouts ship instead of appearing from nowhere, but a finance screen showing four numbers of which two can never be non-zero invites the reader to trust all four equally | design | Med | with the payout execution slice |
 | D64 | **Boost revenue is counted from `starts_at`, not from a payment record** — `BoostStatuses.EXPIRED` conflates "the window closed" with "the payment failed", so the status column cannot answer "was this paid". `starts_at` is set only by `activate`, which makes it the truthful marker today, but it is a proxy: the day a boost can be activated without payment, revenue silently overstates | reliability | Med | when boosts gain a comp/manual-grant path |
 | D65 | **Service orders are excluded from platform revenue** — `service_orders.amount` is a quote, not a receipt, and the marketplace takes no money through the gateway, so counting it would report revenue the platform has not received. The consequence is that `/admin/finance` under-reports the moment the marketplace does start collecting | design | Med | when a service order has a payment path (see D58) |
-| D67 | **`settings.permissions` and `settings.customRoles` are stored and never read** — the contract declares both, the settings endpoint round-trips both, and no guard anywhere consults either. Authorisation is `@PreAuthorize` on four fixed roles. An admin who edits the permission map will believe they have changed access control and will be wrong | security | **High** | before the settings screen renders a permissions editor — either wire it or remove it from the contract |
+| D67 | **`settings.permissions` and `settings.customRoles` are stored and never read** — the contract declares both, the settings endpoint round-trips both, and no guard anywhere consults either. Authorisation is `@PreAuthorize` on four fixed roles. An admin who edits the permission map will believe they have changed access control and will be wrong. **Decision taken 2026-08-07: wire it, do not remove it.** That settles the "wire or remove" trigger and makes this a scheduled slice rather than an open question — but it is a slice, not an afternoon: it needs a permission-resolution layer, the four role checks rewritten to consult it, and a migration for accounts whose stored map disagrees with their role. Until then the fields are still inert, so the settings screen must not render a permissions editor | security | **High** | **decision made — wire it**; needs its own slice (resolution layer + guard rewrite). Do not ship a permissions editor before it |
 | D68 | **The abuse-report queue is absent from the admin dashboard** — `pendingModeration` counts `properties` awaiting a decision and deliberately does not fold in `reports`, because the two queues are worked by different people against different SLAs. The consequence is that the one scorecard ops looks at does not show the reports backlog at all | design | Med | when the dashboard grows a second queue tile |
 | D69 | **The analytics series is computed on every request with no cache** — four grouped scans, up to 366 buckets, available to any staff account with no throttle beyond the bucket cap. Correct and cheap at today's data volume; the first slow morning will be this endpoint | performance | Low | when a table it scans passes ~1M rows |
 | D70 | **A poster's only record of who answered is the notification stream** — the contract has no "who replied to my ad" endpoint and `share_flat_interests` is not readable over the API, so the sender's name and number exist for the poster only as a notification. Dismiss it and the lead is gone, with the row still sitting in the table | design | Med | when share-flat gets a second screen — needs a spec addition, so it could not be fixed inside the slice |
@@ -624,27 +659,28 @@ deferred on purpose.**
 | D73 | **Every rate limit on the platform is check-then-write and therefore racy** — `OtpService`, `SocietyLeadService` and `ShareFlatService` all `countBy…` and then insert, with no lock between the two. Concurrent requests all read the pre-insert count and all pass, so a burst clears a cap that a serial client could not. Raised by `security-reviewer` against share-flat's ten-interests-per-hour cap, recorded platform-wide because fixing one caller and leaving two is worse than fixing none. Bounded in practice: every send carries the sender's own OTP-verified number, and the unique index still stops repeat contact of the same person | security | Med | with D2 — the same infrastructure (a principal-keyed limiter with an atomic counter) answers both, and neither is a per-service patch |
 | D76 | **The client's foundation-field list disagrees with the server's, in both directions** — `lib/store/listings.js` names twelve fields; the server reverts on the seven *searchable* ones. The client warns on `title`/`area`/`facing`/`floor`/`age` (which do not revert) and stays silent on `price` (which does), so the UI both threatens re-moderation that will not happen and conceals the one that will. The server half is fixed and self-enforcing (`ListingFoundationTest` reads the facets by reflection); this is the client half | frontend | Med | before the listing domain flips to http — it is a wrong warning on the owner's most consequential edit |
 | D77 | **Sixteen more per-user reads grow with inbound demand and are still unpaged** — `/me/contact-requests`, `/me/offers`, `/me/visit-requests`, `/me/flatmate-requests`, `/me/finalization-requests`, `/me/documents/requests`, `/me/deals`, `/visits`, `/tenancies` and others. Rows are written by *other* users, so §5.1's "one user's own actions" test does not apply to them; the successful owner is the one an unpaged read punishes. `/me/saved` and `/messages` were paged in the API-polish pass because they were the largest payloads; the rest were left because the shape change is breaking and the frontend has no consumer for them yet | design | Med | with each domain's http provider — page it in the same change that first reads it, not after |
-| D78 | ~~**`/me/contact-requests` cannot be paged until a server-side pending count exists**~~ — **Closed in the contact integration slice.** `GET /me/contact-requests/pending-count` was added first and the inbox paged second, in exactly the order this entry prescribed. The badge now counts in the database (`countByPropertyIdInAndStatus`) rather than by filtering a downloaded array, so it stays correct past page one. `services/contactService.js` exposes the two as separate calls with a comment recording *why* the count is not derived from the page | design | — | **Closed** |
 | D79 | **`GET /properties/{propId}/reviews` cannot be paged while the client computes the rating summary** — ruling D8.6 permits the unpaged read because the per-target UNIQUE index bounds it, and the property page computes the star average, the 1–5 distribution and the per-category averages from the full list. The bound is real, so this is not urgent; recorded because "page everything" applied here would make three visible numbers silently describe page one. `ReviewRepository` already has the aggregate query if the summary ever moves server-side | design | Low | only if the aggregates move server-side |
 | D80 | **`FlatmateRoomDto` is 47 fields, by a distance the largest DTO on the platform** — the next largest is `PropertySummary` at 22. It is returned by the room feed, the mixed flatmates feed and now `GET /properties/{id}/rooms`. Not wrong today (rooms per flat is naturally small, and the derived occupancy fields are the point), but a 47-field row is a DTO that has stopped being a view of anything and become the entity with a different name | design | Low | if the flatmates payload ever needs trimming — split the feed shape from the detail shape |
-| D82 | **The consumer dashboard renders the owner KPI strip twice** — `getByText('Total Views')` resolves to two identical `<p>` nodes, one of them inside a "View my properties" button, so `consumer/account/dashboard.spec.js:59` fails on a Playwright strict-mode violation. Confirmed pre-existing and unrelated to the contact slice: it reproduces identically on a clean tree at `7a2257f` (stash the working tree, re-run, same single failure). Found while baselining the contact integration. Not a contact bug, so it was left alone rather than folded into an unrelated change | bug | Med | next dashboard change — dedupe the strip, then tighten the assertion |
-| D83 | **The home "Find a flatmate" rail routes to `?view=team-up`, but `consumer/home/flatmates-rail.spec.js:18` expects `?view=flatmates`** — one of the two is wrong and it is not obvious which: `team-up` may be a deliberate rename that the spec never followed, or a copy-paste from the neighbouring team-up CTA. Found while running the card suites for the saved slice; no flatmates file is touched by that change. Needs a product call on which view the rail should open, not just a spec edit | bug | Low | next flatmates change — decide the intended view first |
 | D84 | **The alert switch is a boolean over a four-state server field** — `SavedSearch.alertFrequency` is `off\|instant\|daily\|weekly`, but the only control is an on/off `Switch`, so the seam derives `alerts = alertFrequency !== 'off'` and writes back `daily` when switched on. Currently unreachable loss (nothing can produce a non-default cadence), but the moment a frequency picker ships, a user holding `instant` who toggles off and on lands on `daily`. The seam carries `alertFrequency` explicitly so the fix is a UI change, not a contract change | design | Low | when a cadence picker is designed |
 | D85 | **Anonymous alert capture has no server home** — `NotifyMeCard` and `FlatmateAlertCard` exist to capture a *signed-out* visitor's demand against a mobile number, but `POST /me/saved-searches` is caller-scoped and `SavedSearchCreate` carries no `mobile`, so the call would 401 for exactly that visitor. Both cards now split: signed in → the seam; signed out → localStorage as before, so the alert is still claimed on this device after sign-in. The http provider throws a named error rather than silently writing locally while every read comes from the server — that would produce an alert the user was told they created and can never see again | design | Med | needs a public demand-capture endpoint, or an explicit "sign in to create an alert" product decision |
-| D86 | **`/flatmates?view=rooms` stores the tab as `move-in`** — `consumer/flatmates/alerts.spec.js` asserts a `rooms` alert round-trips with `tab: 'rooms'` and gets `move-in`. Same family as D83: a `view` query alias disagreeing with the stored tab vocabulary. Confirmed pre-existing — reproduces identically on a clean tree at `6b5ebba` with the saved-search work stashed. Two failures | bug | Low | fold into the D83 fix — the flatmates view/tab vocabulary needs settling once |
 | D87 | **A visit cannot be rescheduled through the API** — the dashboard offers reschedule (pick a new slot, visit returns to `scheduled`), but `PATCH /visit-requests/{id}/status` carries a status and a note only, and there is no slot-update route. The http provider throws a named error rather than substituting cancel-and-rebook, which would mint a new id (breaking the row the UI holds), discard the visit's history, and hit the duplicate-visit 409 against the row it had just cancelled | design | Med | needs `PATCH /visit-requests/{id}` accepting a slot, or an explicit product decision that rescheduling is cancel-and-rebook |
 | D88 | **`parseWhen` discards the year and reconstructs it from "now"** — the human `when` string carries a year (`"19 Jul 2026, 10:30 AM"`) but the parser matches only day + month and rolls forward when the result would be in the past. Harmless for upcoming visits, which is every visit the calendar sorts; wrong for a *completed* visit, which displays a year in the future. Surfaced while adding the slot↔when conversion for the visit slice: the parity harness has to use a future date for its round-trip assertion to mean anything | bug | Low | when visit history gets a real view — parse the year the format already contains |
-| D89 | **The mock's visit reads were unscoped** — `listVisits()` returned the *entire* seeded collection to every caller, so on real data a user would have seen strangers' visits. Fixed in the visit slice (both reads are now caller-scoped, matching `/visits` and `/me/visit-requests`), but recorded because `consumer/property/scheduled-visits.spec.js` was passing *because of* it: the fixture asserted on visits belonging to other owners. The spec now seeds visits against the owner's own listing. Worth checking whether other mock `collGetter` reads have the same shape | bug | — | **Closed** — noted so the pattern is recognised elsewhere |
-| D90 | **A rate-limited OTP request answers `500`, not `429`** — `POST /auth/login` inside `OtpService.SEND_COOLDOWN` (60s) logs `RateLimitedException: A code was just sent — wait a moment` and then `Application exception overridden by commit exception` → `UnexpectedRollbackException` → the catch-all handler returns `internal`. The carefully-worded message and its `retryAfterSeconds` never reach the caller; the user is told the server broke when in fact they were told to wait. The exception is thrown inside a `@Transactional` boundary that has already marked itself rollback-only, so the commit fails after the handler would have run. Found while writing the live moderation specs — three tests each signing in tripped it, which is also why the suite now caches the session rather than re-authenticating. Same shape presumably affects the other `RateLimitedException` throwers (`SocietyLeadService`, `FlatmateSeekerService`, `FlatmateSupplyService`) — all are inside transactional services | bug | **Med** | out of scope for the moderation slice; needs the exception thrown outside the transaction (or the boundary made `noRollbackFor`) plus a test asserting `429` |
 | D91 | **The verification queue still cannot be enumerated** — `PropertyReviewRepository` exposes only `findByPropertyId(UUID)`, so the maker-checker case files (`/properties/{id}/verification`) can be read and decided one at a time but never listed. `GET /admin/properties?status=pending` now finds the *listings* awaiting review, which is what the Verification tab renders, so the tab works; what is still missing is a list of open **review cases** with their checklists and threads. `ensureReview`/`decideReview` therefore stay on `lib/` for now — wiring the decision without the list would let ops decide a case they cannot find | design | Low | when the verification thread UI is wired — needs a paged finder + `GET /admin/property-reviews` |
 | D92 | **Almost nothing writes notification rows** — `new Notification(...)` appeared at exactly five call sites, all flatmates (`FlatmateSeekerService` ×2, `FlatmateSupplyService` ×2, `FlatmateModerationService`). A contact request approved, a visit confirmed or rescheduled, a listing approved or rejected, a document share granted, an offer made — none of them notify anyone. The inbox is wired to the API and correct; it is simply near-empty for any user who has not used flatmates, which is why the notification seam still merges client-derived alerts. **The gap is in the writers, not the seam.** *Partially closed 2026-08-06 by the conversations slice:* `ConversationService.send` now writes a `message.received` notification to the other side, through a new `common.trust.Notifier` port implemented by `engagement.notification.NotificationPublisher` — that port is the reusable mechanism, so the remaining writers are one injected dependency and one call each, not five more repository imports | design | **Med** | one writer per slice as each domain is touched — messages done; moderation and contact are the two with the clearest remaining need |
 | D93 | **`dismiss` on a notification is a client-side tombstone** — there is no `DELETE /notifications/{id}`, so the http provider records dismissed ids in `pnDismissedNotifs` and filters reads through them. Consequences, all deliberate and all documented on the provider: it does not sync across devices, clearing site data brings the row back, and the unread count excludes tombstoned rows so the bell stays clearable. Chosen over hiding the X in http mode (removes a working control) or throwing (a dead button) | design | Low | needs `DELETE /notifications/{id}`, or a product decision that dismiss is device-local |
 | D94 | **Notification preferences have no server surface at all** — `getNotifPrefs`/`setNotifPrefs`/`inQuietHours` cover email/sms/whatsapp channels, a master `matchAlerts` switch, quiet hours and language, and every one of them lives only in localStorage. `ProfileTab.jsx` was deliberately not touched by the notification slice for that reason. The practical consequence is that quiet hours suppress *client-derived* alerts only — a server-written notification arrives at 3am regardless, because the server has never been told | design | Low | needs `GET/PUT /me/notification-preferences`; pair it with the D92 writers, which are what would have to honour it |
-| D95 | **The verify funnel has no e2e coverage** — modal → DigiLocker mock → badge earned → listings update is the sequence that makes the whole badge-not-gate model work, and no Playwright spec drives it end to end. Carried in the worklog since the KYC slice and never picked up. The pieces are individually covered; the *transition* is not, which is where a regression would actually land | test-gap | Med | one spec, no product decision needed — good candidate for the next UI-touching slice |
-| D96 | **50 of 67 e2e specs assert "zero console errors" with no noise filter** — `e2e/helpers/console.js` exports `trackErrors`/`IGNORE` for exactly this, and 3 specs use it; 14 rolled their own local regex; the remaining 50 filter nothing. Those 50 fail on any machine behind a TLS-intercepting proxy, or when a CDN/tile server hiccups — a failure that reads as an app bug. Deliberately left for now: it is a 50-file mechanical change and a cleanup pass is the wrong place to hide one | test-gap | Low | migrate all 50 onto the shared helper in one dedicated pass, then delete the 14 local copies |
-| D97 | **Four flatmates source findings, handed back from the redesign and never picked up** — (a) `/services/rent-agreement?flat=&reissue=1` params are never read, so that CTA opens a blank wizard; (b) room `share` intent is dropped by `addFlatmateRequest` and survives only in the chat opener; (c) `occupancyOf` collapses a stored `'filling'` to `occupied` (the at-rest enum is `empty\|occupied`); (d) `AdminFlatmates` reads `rawDb()` while the consumer flows write localStorage, so rooms are invisible to admin moderation. (d) is the one with a user-visible consequence — ops cannot moderate what it cannot see | bug | Med | (d) first; the rest are small and independent |
+| D96 | **14 specs still carry a local console-noise filter or none at all** — the 2026-08-07 pass moved **31** onto `helpers/console.js` and merged every local pattern into the shared `IGNORE` first, so consolidating could not silently *tighten* a spec. What is left is the tail: `search-property-types.spec.js` keeps a self-contained `pageerror`-only helper, `live-property-integration.spec.js` was left alone as in-flight work, and ~12 specs assert on `pageerror` only. **The register's "50 of 67 filter nothing" was wrong** — measured, only **9** had a genuinely unfiltered `console` listener; 35 track `pageerror` alone, which no proxy or CDN can manufacture, so they were never exposed to this defect | test-gap | Low | fold the tail in when those files are next touched |
+| D97 | **Three flatmates source findings, handed back from the redesign and never picked up** — (a) `/services/rent-agreement?flat=&reissue=1` params are never read, so that CTA opens a blank wizard; (b) room `share` intent is dropped by `addFlatmateRequest` and survives only in the chat opener; (c) `occupancyOf` collapses a stored `'filling'` to `occupied` (the at-rest enum is `empty\|occupied`). **(d) is closed** — see the note below | bug | Med | small and independent; take them in any order |
 | D98 | **Two mobile items blocked on a design/product call, not on engineering** — (a) at 200% font scale the raised centre "Post" slot cannot fit a 56px circle plus a 24px label in a 56px bar (needs ~74px), so that one label squeezes; the fix is to drop the redundant text under an already-`aria-label`led FAB, which is a design decision. (b) "B7" bottom-nav density: 7 targets and 265px of painted control in a 360px row, with the account pill ending at exactly x=360 — real and measured, but the item's suggested escape hatch does not exist, so it needs a call on what leaves the bar | design | Low | needs a design/product decision before any code |
 | D99 | **Swipe-to-dismiss / swipe-to-remove gestures deferred** — sheets close via backdrop, X and the grab handle; Saved has a remove button. Destructive-by-gesture needs an undo affordance to be safe, and touch-drag handling is real state machinery for a P2 win. Recorded rather than dropped so the decision is visible next time the sheets are touched | design | Low | only alongside an undo affordance |
+| D100 | **The parity harnesses write into the dev database and cannot clean up** — `review-parity.mjs` posts a real locality review on every run, and reviews are **public**, so "Parity probe review." renders on `/locality/aundh` to anybody browsing. This was found the hard way: the first version of the live reviews e2e asserted on "seeded" aundh reviews that turned out to be four rows the harness had littered — *a test whose fixture is another tool's litter*. The e2e now writes its own fixture; the harness pollution remains. `conversation-parity.mjs` does the same but its rows are private, so the blast radius is smaller | testing | **Med** | needs either `DELETE /reviews/{id}` (moderation can hide but not remove), or the harnesses pointed at a dedicated throwaway database rather than `punenest` |
+| D101 | **28 of 94 seeded users have no `name`, so their reviews render as "User"** — `ReviewResponse.author` is `NON_NULL` and therefore *absent* from the wire entirely for those users, not empty-string. Both review mappers default to `'User'`, which is the honest fallback, but a review list where a third of the authors are called "User" reads as broken rather than as anonymous. The gap is in the seed data and in the fact that nothing forces a name at sign-up: OTP login mints a user from a mobile alone | data | Low | either backfill the seed, or decide what an unnamed author should be called and say it once (`Verified user`?) rather than defaulting per mapper |
+| D102 | **The support form's mobile field is contact detail the API cannot carry** — `/support` is a `ProtectedRoute` and `SupportTicketCreate` has no identity field, so the raiser is the session. The form still shows an editable, validated mobile prefilled from the profile. On the common path that is right; a user who *edits* it to a different callback number is telling us something that goes nowhere. Not gated like priority and attachments, because those set a value that is silently discarded, whereas this is merely not *also* stored — support still reaches them through the account and the thread | design | Low | either make it read-only in http mode, or add a `contactMobile` to the create schema if callback-on-a-different-number is a real need |
+| D103 | **The support catalogue and the server status vocabulary disagree** — the page labels `new/open/waiting/resolved/closed`; the server has `open/in-progress/waiting/resolved/closed`. `new` never occurs live, and `in-progress` has no label, so it renders as the raw key. Deliberate: `getStatusLabel` falls back to the key, and collapsing `in-progress` onto `open` would erase a distinction ops made and tell the customer nothing was happening while somebody worked on it | design | Low | add an `in-progress` label (and drop `new`) when the ops surface that sets it exists |
+| D104 | **Society and locality catalogues are seeded ~10× thinner than the frontend's** — the frontend ships 348 societies (28 curated + 320 MahaRERA) and 155 localities; the database has 28 and 16. Every slug the extra rows use would 404 against `GET /societies/{slug}` and `PUT /me/societies/{slug}/follow`. **This blocks the societies seam domain**, which is otherwise ready: `GET /societies` already carries `avgRating`/`reviewCount` for the three card call sites that need it. Found while scoping that slice | data | **Med** | seed the RERA import and the full locality list, then the societies slice is a day's work |
+| D105 | **A domain enabled in `VITE_API_DOMAINS` under a name that does not match its lookup key falls back to mocks silently** — the allow-list is lower-cased when parsed; `isHttpDomain` was not, so `savedSearch` could never match. The "enabled but has no http provider" warning is itself gated on `isHttpDomain`, so there was **nothing in the console**: a live e2e run would have passed while exercising the mock. Fixed by lower-casing the lookup, but the class of bug survives — a typo'd domain name is still only a `console.warn` | correctness | **Med** | validate `VITE_API_DOMAINS` against the http provider registry at startup and fail loudly on an unknown name |
+| D106 | **Four http providers read Spring's `number` for the current page, not the contract's `page`** — `PageEnvelope` declares `page`, and the server sends `page`. `contact`, `saved`, `review` and `report` all read `res?.number ?? page`, so the fallback quietly resolved to the *requested* page. It agrees with the server until the server disagrees — any clamp or redirect and the client reports a page the caller is not on. Two parity harnesses had the same bug in their own unwrapping, which is why it went unreported: harness and provider were wrong in the same direction. Fixed in all six places | correctness | Low | the live e2e now asserts `page` on the wire; consider a shared `unwrapPage` helper so there is one place to be wrong |
+| D107 | **The four oldest parity harnesses could not run under current Node** — `visit`, `contact`, `saved` and `saved-search` used a plain `await import()`, which reaches `mockApi/core` → `db.json` (Node ≥ 22 demands an import attribute) and `persist.js` (reads `import.meta.env.DEV`, undefined outside a bundler). They failed before the first assertion, so "the harness passes" had been vacuously true for however long. Migrated to Vite's SSR loader, which the newer three already used | tooling | Low | none — all seven now share one loader; keep new harnesses on it |
 
 ### Detail on the ones that need it
 
@@ -688,72 +724,22 @@ can collapse onto the same key. The durable fix is re-keying on `ownerId`, which
 returns (`propertyMapper.js:125`) and which the mock fixtures lack. Backend slices 4+ made
 deals/offers/visits server-authoritative, so the remaining exposure is mock-mode only.
 
-**D75 — empty files that lie.** Found while sweeping temp scripts after the register audit, not by
-any guard. Six 0-byte files survive in the tree, and each one is a claim the repo cannot honour:
-
-| File | Tracked? | What it claims |
-|---|---|---|
-| `frontend/src/pages/consumer/list-property/MapInner.jsx` | yes, 0 bytes in HEAD | a map component. `LocationPicker.jsx:10` says it was *replaced*; nothing imports it |
-| `frontend/src/pages/consumer/listings/QuickFilters.jsx` | yes, 0 bytes in HEAD | a filter component. Nothing imports it at all |
-| `e2e/tests/listings-mobile-only-controls.spec.js` | yes, 0 bytes in HEAD | **coverage of mobile-only listing controls.** Playwright finds no tests in it and says nothing; the suite stays green while the named scenario is untested |
-| `e2e/_live_auth_probe.mjs` | no | `LOCAL_DEV.md:109` tells a developer to run it for real-OTP login + silent-refresh |
-| `e2e/_crosstab_refresh_probe.mjs` | no | `LOCAL_DEV.md:112` tells a developer to run it for two-tab reuse-detection |
-
-The empty spec is the one that matters: an empty `.jsx` is dead weight, but an empty spec is a
-**test that reports success by having nothing to fail.** The two probes are worse than missing —
-`node _live_auth_probe.mjs` exits 0, so the documented check appears to pass.
-
-Ten more 0-byte ghosts (`backend/apply_v9.sql`, `flyway_checksum.py`, `gen_seed.py`, `scan_spec.py`,
-`speccheck.py`, `verify_checksums.py`, `e2e/debug-live.mjs`, `_guard_probe.mjs`, `_race_probe.mjs`,
-plus three in `tasks/`) were deleted during this pass — untracked, unreferenced, all dated
-2026-07-31, the same day as the D39 regeneration. **Same generator, wider blast radius than D39
-assumed.**
-
-That is the actionable part. `SourceTreeHygieneTest` scans `.java` under `backend/src` only, which is
-why it caught none of these. Widening it to every text extension under the repo (minus
-`node_modules`, `target`, `.git`) is a few lines and turns this from a thing found by accident into a
-thing found by the build. Deleting the two dead `.jsx` and either writing or removing the empty spec
-is a separate, smaller decision — they are tracked, so they belong in a frontend change, not this
-one.
-
 ---
 
-## 5. Closed
+## 5. Standing rulings — do not re-litigate
 
-### Delivered — lifted out of the open register
+The only permanent section. Everything here is a settled **"no"** or a deliberate choice that looks
+like an oversight, so each entry exists to stop the same question being re-raised by the next
+reviewer. Unlike a finished debt item (rule 3), a ruling has no artifact to be deleted into —
+its whole value is that it is still written down.
 
-Removed from §4 because the work is done, kept here because rule 3 forbids an item that quietly
-stops being mentioned, and because these numbers are cited from source Javadoc, `tasks/todo.md`
-RESULTS blocks and prior checkpoints. **Numbers are never reused** — new debt continues at D82.
-
-| # | Item | How it closed |
-|---|---|---|
-| D81 | The dev database was unbootable, unrepairable, and held the only copy of the demo catalogue | **Closed the day it was opened.** Backed up first (`~/punenest-db-backup`, both `-Fc` and `--column-inserts`), verified the dump actually loads into a fresh V30 schema *before* touching anything, then extracted the 38 listings / 78 users / conversations / visits / contact requests into `db/seed/R__zz_dev_demo_data.sql` and rebuilt. Rebuilt DB matches the original exactly on every business table. Three traps surfaced on the way and are recorded in that file's header: repeatable migrations sort by description across *all* locations, so the demo seed ran before the reference data it depends on (hence `zz_`); `ON CONFLICT (id)` was too narrow and failed on `users_mobile_key`; and one conversation row violated `conversations_pair_ordered`, a constraint added after the data was created — **data extracted from an old schema is not automatically valid under the current one**. The old database is kept as `punenest_pre_rebuild` and the pass added `MigrationChainTest` + `TestDatabaseIsolationTest` so both halves of the mistake fail the build next time |
-| D1 | Lombok on entities (§1) | **Done.** 62 entities: class `@Getter`, 139 field-level `@Setter`, 9 `@Getter(AccessLevel.NONE)`; `lombok.config` ban list verified to bite. Suite unchanged. |
-| D3 | ArchUnit boundary test for feature→feature imports | **Done differently, and better.** `foundation/ArchitectureBoundaryTest` enforces the boundary with a **rank-based layering table** instead of the allowlist this item proposed — an import may only point at a strictly lower rank, so there is no allowlist to grow. It also catches **fully-qualified inline** references, which a bytecode import rule misses. The item's own trigger ("when a 3rd exception appears") is moot: the design has no exception list. No ArchUnit dependency was needed. |
-| D6 | Review moderation queue + `reviews.archived` | **Done, and the column was correctly refused.** The queue exists (`moderation/review/ReviewModerationController`, covered by `ReviewTakedownTest`). `reviews.archived` was **not** added: `reviews.status` already carries moderation state and *every* read filters `status = 'published'`, including `ReviewRepository.aggregateFor`. A second boolean would be two columns for one concept and a second way to be invisible that the rating aggregate does not know about. Reasoning recorded in `V18__moderation_admin_indexes.sql`. |
-| D8 | Tenancy creation on rent-close | **Done.** `DealService.close` calls `tenancyService.openFromClosedDeal` inside the same transaction when the property's deal intent is `RENT`, and logs both outcomes. Returns empty for an off-platform counterparty, which is expected. Buy deals get nothing — there is no ongoing relationship to model once a sale closes. |
-| D14 | Share-flat (3 ops) | **Done, slice 15.** Left behind D70–D73, which are still open. |
-| D18 | `backend/validate_spec.py` tracked at repo root | **Done.** Moved to `backend/tools/`, `SPEC` made script-relative so it runs from any cwd, PyYAML import guarded, stale `createTenancy` check dropped. |
-| D23a | `counterpartyMobile` accepts 10–15 digits vs spec's `Mobile` | **Done.** **Three** sites, not the two recorded: `DealCloseRequest`, `DealPartyCreateRequest` — which stored the value unnormalised, so masked reads returned `null` — and `ConversationCreate`, which carried no pattern at all. Does **not** close D23. |
-| D27 | `AGENTS.md` references a non-existent instructions file | **Done.** Points at the skills; "Spring Boot 3" corrected to 4.1. |
-| D31 | `verifiedStats` should count distinct owners, not mobiles | **Done.** Mock keys on `ownerId \|\| last10(ownerMobile)`. |
-| D34 | Shared test fixtures (§3) | **Done.** `support/AbstractApiTest`; 34 classes extend it, `bearer()` copies 30 → 5, identical bodies 26 → 0, ≈400 lines removed. `user()`/`listing()` deliberately not hoisted — see §3. |
-| D39 | Zero-byte ghost `.java` packages regenerate | **Done as a guard, not a root-cause.** `foundation/SourceTreeHygieneTest` fails the build naming any `.java` that declares nothing; verified by planting one. An enforcer or antrun rule was impossible — neither plugin's jars are in the offline repo. A ghost carrying a syntax error still fails at compile first. |
-| D43 | Private `parseUuid` duplicates collapse into `common.web.Ids` | **Done.** There were **19**, not the three recorded, under five names plus four `load(String)` methods. All route through `Ids.parseUuid`; the per-site 404 message stays at the call site. Raised **D74** for the one site that answers 400. |
-| D62 | Deleted plan or boost pack falls back silently | **Done.** Both paths `log.warn`. `SubscriptionService` was restructured to resolve `Optional<Plan>` first so it can tell *plan deleted* from *unrecognised billing cycle* — the old `.map(…).orElse(null)` conflated them. |
-| D24 | §7.1 cleanup: `Furnishing.PATTERN`, `OfferActions.PATTERN` from constants | **Done.** Two new vocabulary classes on the `PropertyPossession` model: `catalog.property.Furnishing` and `deals.offer.OfferActions`, each with a `PATTERN` composed from its own constants and a paired `PATTERN_MESSAGE`. The furnishing regex had been hand-copied into `ListingCreate` and `ListingUpdate`; the offer constants lived on the request DTO, so `OfferService` imported a wire schema to name a domain concept — it now reads `OfferActions.COUNTER`. **Not blocked on Q1 after all:** the "with D23" trigger implied a mobile-format dependency neither vocabulary has. |
-| D35 | `NotFoundException.of("Property")` factory for wire-message consistency (§3) | **Done, and it found more drift than it was raised for.** `NotFoundException.of` added; **73** generic `"X not found"` call sites converted across 36 files. The audit turned up three separate divergences the register had not recorded: two rephrasings (`"No such property"`, `"No such owner"`), **nine** sites that appended the caller's own id to the message, and a private dialect in `ReviewTargetKey` (`"No society 'x'"`) that broke that file's *documented* posture — it answers identically for a malformed id and a missing row on purpose, which only works if the two sentences are actually identical. They were not. Ten bespoke messages remain and are bespoke for a reason (`"No such staff member to assign"` distinguishes a bad assignee id from a bad ticket id on the same request). |
-| D40 | **Magic-byte sniffing on document uploads** — the vault trusts the declared `Content-Type` | **Done.** `DocumentUploads.validate` now takes the bytes and returns the type it *proved*; both upload paths persist that and discard the client's string, so a declared type can no longer reach the object store or come back out as a response `Content-Type`. Five signatures (PDF, JPEG, PNG, WebP, and the ten-brand HEIF set an iPhone actually emits) read from the first 12 bytes — no parsing, which would be a larger attack surface than the one it closes. Order is allowlist → size → sniff, so an oversized file is still reported as oversized. 12 new tests. |
-| D74 | **A malformed notification id answers 400 while every other id in the platform answers 404** | **Closed by reasoning: the 400 is correct and stays.** `Ids`' 404 rule is about *path* tokens — a non-UUID there names a resource that does not exist, and a 400 would tell a prober the id space is UUIDs. None of that holds for `POST /notifications/read`: the id is an element of a request *body*, the endpoint exists, and there is nothing to be 404. The register's premise that "no test asserts either code" was also wrong — `markRead_malformedId_returns400NotServerError` has pinned it since slice 8. What was genuinely worth fixing was the echo: the message reflected the offending token back, and no longer does. Reasoning recorded in both `Ids` and `NotificationController` so it is not re-raised. |
-| D75 | Empty files that lie: 2 committed 0-byte `.jsx`, 1 committed 0-byte e2e spec, 2 documented-but-0-byte probes | **Done.** All five deleted — `git log` proved the three tracked ones were **born empty at the initial commit**, so nothing was lost. `LOCAL_DEV.md` had documented the two probes for checks they never performed (`node _live_auth_probe.mjs` exited 0 and verified nothing); both checks are now written out as manual steps. `SourceTreeHygieneTest` widened from `.java` under `backend/src` to 16 source extensions across the whole repository, pruning build output and dependencies — 1,420 files, and the class of bug is now caught by the build instead of by accident. |
-| D48 | **No optimistic locking on service requests or tickets** — two staff editing the same row last-write-wins | **Done, scoped to the three tables that have the problem.** New `common.persistence.VersionedEntity`; `Ticket`, `ServiceRequest` and `SupportTicket` extend it, and `V26` adds `version bigint not null default 0` to those three. `OptimisticLockingFailureException` maps to **409** with advice to reload — deliberately a different sentence from the constraint-violation 409, because the caller did nothing wrong and their recovery differs. **The trigger's "platform-wide, with `@Version` on the audited entities" was rejected and the reasoning is in `VersionedEntity`'s Javadoc:** that is 37 tables including `users`, `properties` and `transactions`, none of which have a second concurrent writer, in exchange for a new failure mode on every write path and a landmine under every raw-SQL test fixture. The full suite confirmed the blast radius — the only tests that moved were the new ones. Three tests, none of them threaded: a race reproduced with threads is a race reproduced *sometimes*, and the thing that makes a lost update possible is staleness, not simultaneity. |
-| D25 | Message-string consistency across 422 bodies | **Done, and it was never actually blocked on Q1.** The mobile regex was spelled inline at **nine** sites with **three** different messages, so one rule was described three ways depending on which endpoint rejected you. New `common.validation.Formats` holds the pattern and its message *together* — splitting them, as §2 originally sketched, is precisely what lets them drift. All nine sites converted, and `foundation/SharedFormatsTest` now fails the build on a tenth: hoisting the duplicates fixes the nine that exist and nothing about the next one, which is how three messages appeared in the first place. PAN, Aadhaar, IFSC and account number stayed put — one call site each, so §2's own admission criteria exclude them. D23's `@IndianMobile` meta-annotation is still open and still blocked on Q1, which decides what the regex *is*; D25 was only ever about there being one of it. |
-| D66 | **`/admin/settings` has no version or ETag** — two admins editing the same top-level key last-write-wins and neither is told | **Done (spec fix S68), and not the way the trigger proposed.** `GET` now returns a strong `ETag`; `PUT` honours an optional `If-Match` and answers **412** with nothing written and no audit row. **`@Version` on `Setting` would have been wrong:** the resource an admin edits is the union of several `settings` rows, so a per-row counter cannot describe "the document you were looking at", and versioning all of them would leave the endpoint concatenating numbers into a tag — at which point the numbers do nothing the content was not already doing. A content hash also gets a property a counter gets wrong: saving a block unchanged leaves the tag alone, so an admin who presses Save twice does not invalidate a colleague's open editor for nothing. Body and tag are returned together (`SettingsDocument`) because computing them in two transactions can hand a caller a tag for a document they were never shown — and on the `PUT` path that fails in the dangerous direction. `If-Match` is optional so shipping it broke no existing caller; `*` and comma-separated lists are honoured per RFC 9110, weak tags are not. Seven tests. |
-
-### Rejected or superseded — do not re-litigate
-
-Recorded so future reviewers (human or agent) do not re-raise settled questions.
+**The delivered-work archive that used to sit here was removed on 2026-08-07.** It had grown to 22
+long entries and was longer than the open register above it, which is a real cost: the file people
+must read to know what is owed had a majority of text describing what is not. Every entry's
+reasoning had already been written into the thing it changed — `VersionedEntity`, `SettingsDocument`,
+`common.validation.Formats`, `DocumentUploads`, `Ids`, `NotFoundException`, `ArchitectureBoundaryTest`,
+`SharedFormatsTest`, `MigrationChainTest`, and the header of `R__zz_dev_demo_data.sql` — all verified
+present before deletion. Git history holds the rest.
 
 | Item | Ruling |
 |---|---|
@@ -767,15 +753,7 @@ Recorded so future reviewers (human or agent) do not re-raise settled questions.
 | Server mask format `98XXXXX210` vs mock `+91 98••• ••10` | Server format stands; the prettier rendering is client-side presentation. |
 | `GET /reels` declares `page`/`size` but returns a bare array | Correct for an infinite-scroll feed — bounded input, no total needed. |
 | `ReviewResponse.categories` empty-not-null | Deliberate, so clients iterate without a guard. |
-| e2e `qa-location-search` (×13) + `admin-*` (×9) timeouts | **Fixed**, not deferred. Re-verified: 290 passed, 0 failed. |
-| Backend not in version control | **Fixed** — 209 files tracked. |
-| 24 zero-byte orphan `.java` files from the package refactor | Reopened as **D39**, now **closed by a guard**: `SourceTreeHygieneTest` fails the build and names any file that declares nothing. The generator was never identified, so the guard is the fix — a third recurrence now costs one red test instead of a debugging session. |
-| `identity/IdentityVerification.java` 84-byte stub | Same recurrence; covered by the same **D39** guard. |
-| Broken unimported `frontend/src/components/Header.jsx` | **Fixed** in `66d5eb7`. |
-| Stale "guaranteed by the Aadhaar gate" comment in `submit.js` | **Fixed** — no longer present. |
-| Slice-8 spec items S26/S27 (`Review.context`, `PageEnvelope` on notifications/reviews) | **Done** — verified in the spec (143 paths, 17 `PageEnvelope` refs) and in V16/V17. The unticked boxes in `tasks/todo.md` are stale bookkeeping. |
-| Slice-2 plan checkboxes (a–j reconciliation, `prop-*` build items) | **Done** — the slice shipped with a RESULTS block. Unticked boxes are stale. |
-| `package-structure.md` §4 inline `from()` style | **Fixed** — replaced by the `api-standards.md` §8.1 mapper rule, with the reason recorded (a factory on the response record never sees the viewer, so it cannot mask). |
+| Mojibake / BOM "should just be a grep for the bad sequences" | **No — detect by round-trip.** A pattern list only ever catches damage somebody already noticed: the first repair pass used one and missed two whole families. `SourceTreeHygieneTest.noMojibakeOrBom` re-encodes each non-ASCII run to CP1252 and decodes it as UTF-8, accepting only a valid, strictly shorter result — which also leaves genuine `Café` / `पुणे` / `₹` alone. |
 | Collapsing the 5 bespoke exception subclasses into one parameterised type (C5) | **No.** `AadhaarAlreadyRegistered`, `ReviewNotEligible` and friends each carry a distinct wire error code the React client branches on. Named types are greppable, testable, and impossible to get subtly wrong at the call site; collapsing them saves ~5 files and costs the one property that matters. |
 | Splitting `common/web/Routes.java` because it is 591 lines | **No.** Its length is the feature — one greppable registry of every route (`api-standards.md` §2.1). Splitting it by feature reintroduces the scatter the rule exists to prevent. See §3. |
 | "Classes are too long, we need to split them" | **Measured and false.** Only 2 main files exceed 500 lines; one is fixed by D1 and the other should stay long. The real waste is the 42.7% comment ratio and test duplication — see §3. |

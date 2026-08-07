@@ -1,6 +1,6 @@
 /* Auth pages (sign in / sign up / staff login): split-screen OTP login. Tier 1, imported from components/auth/AuthShell.jsx. Ported verbatim from index.css, where it sat under the "Listings page" heading. NOTE: the .otp-* box styles stay global in index.css \u2014 OtpBoxes.jsx is shared with list-property, not just auth. */
 
-/* â”€â”€ Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) â”€â”€ */
+/* ── Auth pages (sign in / sign up): split-screen OTP login (ports signin/signup.html) ── */
 /* Base page canvas. The left half is painted over by .auth-left; this gradient is
    what shows through the right (form) column, so it lifts that side out of flat
    black into a deep teal-navy console that matches the brand without competing
@@ -189,7 +189,7 @@
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .12);
 }
 
-/* â”€â”€ Mobile auth "edge-lit proptech" theme (â‰¤lg) â”€â”€
+/* ── Mobile auth "edge-lit proptech" theme (≤lg) ──
    Desktop keeps its split-screen; mobile hides the left panel, so we give the
    whole screen a techy identity: an ambient teal aurora + fine tech-grid backdrop
    behind a lit, gradient-ring form card. Reuses brand teal tokens only. */
@@ -233,9 +233,13 @@
   }
 }
 
-/* Glowing brand badge + live-status dot (rendered only in the mobile intro). */
+/* Glowing brand badge + live-status dot (rendered only in the mobile intro).
+   `filter: drop-shadow` rather than `box-shadow`: the badge is now the bare D
+   mark, not a rounded tile, and box-shadow would paint a rectangular halo around
+   the SVG's bounding box instead of hugging the letterform. Two stacked
+   drop-shadows give the same soft teal bloom the tile used to carry. */
 .auth-page .auth-brand-badge {
-  box-shadow: 0 10px 26px -6px rgba(20, 184, 166, .6), inset 0 0 0 1px rgba(45, 212, 191, .28);
+  filter: drop-shadow(0 6px 16px rgba(20, 184, 166, .55)) drop-shadow(0 0 3px rgba(45, 212, 191, .35));
 }
 
 .auth-page .auth-live-dot {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
+import LogoMark from '../brand/LogoMark.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
@@ -235,10 +236,13 @@ export default function Navbar() {
              slack left. Shrinking here truncates the city label rather than pushing
              the account pill off the edge. */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* Brand lockup. The mark carries the teal on its own — it is no longer
+                sat inside a gradient tile, because a filled box around a filled
+                letterform reads as two shapes fighting and eats the padding that
+                made the header feel cramped on phones. Below `sm` the wordmark
+                hides and the mark stands alone as the app icon. */}
             <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2 group">
-              <div className="pn-topbar__icon-box w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-teal-400 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shadow-sm shadow-teal-500/20">
-                <Icon name="home" className="w-5 h-5 text-white" />
-              </div>
+              <LogoMark className="pn-topbar__icon-box w-9 h-9 shrink-0 text-teal-400 transition-transform duration-300 group-hover:scale-110" />
               <span className="hidden sm:inline text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">PuneNest</span>
             </Link>
 

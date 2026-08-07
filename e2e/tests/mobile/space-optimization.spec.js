@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = { width: 390, height: 844 };
@@ -79,13 +80,7 @@ test.describe('Mobile space optimization', () => {
   });
 
   test('No console errors across the optimized consumer pages (mobile)', async ({ page }) => {
-    const errors = [];
-    page.on('console', (msg) => {
-      if (msg.type() !== 'error') return;
-      const t = msg.text();
-      if (/favicon|leaflet|net::ERR|Failed to load resource|tile\./i.test(t)) return;
-      errors.push(t);
-    });
+    const errors = trackErrors(page);
     await page.setViewportSize(MOBILE);
     for (const p of ['/', '/listings?deal=buy', '/services', '/flatmates']) {
       await page.goto(`${BASE}${p}`);

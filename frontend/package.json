@@ -25,6 +25,9 @@
     "parity:visit": "node scripts/visit-parity.mjs",
     "parity:notification": "node scripts/notification-parity.mjs",
     "parity:conversation": "node scripts/conversation-parity.mjs",
+    "parity:review": "node scripts/review-parity.mjs",
+    "parity:support": "node scripts/support-parity.mjs",
+    "parity:report": "node scripts/report-parity.mjs",
     "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },

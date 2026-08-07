@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ownerMobileOf } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const PROP = 'P5000';                 // approved seed listing
@@ -19,8 +20,7 @@ test.beforeEach(async ({ page }) => {
 // The generic /contact page is a support page — it must NOT invent a phantom owner
 // or expose any owner's personal number. Only genuine PuneNest support channels appear.
 test('/contact (generic) shows no owner card and leaks no owner number', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const errors = trackErrors(page);
   await page.goto(`${BASE}/contact`);
 
   // No phantom "owner" card, no fake owner identity.
@@ -43,8 +43,7 @@ test('/contact (generic) shows no owner card and leaks no owner number', async (
 // With a property reference the owner card appears, but the number stays gated:
 // masked, no plaintext, and no direct WhatsApp / tel / email escape hatch to the owner.
 test('/contact?ref keeps the owner number gated behind the enquiry request', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const errors = trackErrors(page);
   await page.goto(`${BASE}/contact?ref=${PROP}`);
 
   const card = page.locator('.glass-card', { hasText: 'Contact owner directly' });

@@ -58,8 +58,22 @@ const livePending = (await api('GET', '/me/contact-requests/pending-count', null
 // Signed in as a mock user so `myMobile()` resolves and the inbox is addressable.
 globalThis.localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Parity Probe', mobile: MOBILE, role: 'buyer' }));
 
-const mock = await import('../src/services/providers/mock/contactProvider.js');
-const { rawDb } = await import('../src/lib/mockApi.js');
+// ─── Load the real modules through Vite's SSR loader ──────────────────────────────────
+// Plain `await import()` no longer reaches these modules: the mock provider pulls in `mockApi/core`,
+// which imports `db.json` (Node >= 22 demands an import attribute) and `persist.js` (which reads
+// `import.meta.env.DEV`, undefined outside a bundler). Vite resolves both, and it is what the
+// review/support/report harnesses already use — so this is the one loader all seven now share.
+const { createServer } = await import('vite');
+const vite = await createServer({
+  server: { middlewareMode: true },
+  appType: 'custom',
+  logLevel: 'warn',
+  define: { 'import.meta.env.VITE_API_BASE': JSON.stringify(BASE) },
+});
+const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
+
+const mock = await load('../src/services/providers/mock/contactProvider.js');
+const { rawDb } = await load('../src/lib/mockApi.js');
 const mockProperty = rawDb().listings.find((p) => p.ownerMobile);
 if (!mockProperty) {
   console.error('\n  The mock database has no listing with an ownerMobile.\n');
@@ -129,7 +143,9 @@ report();
 
 /** Spring's page envelope → the seam's envelope, mirroring providers/http/contactProvider.js. */
 function unwrapInbox(res) {
-  return { items: res?.content ?? [], total: res?.totalElements, page: res?.number, size: res?.size };
+  // `PageEnvelope` names the current page `page`. Reading Spring's raw `number` here reported the
+  // provider's field as missing when it was the harness looking in the wrong place.
+  return { items: res?.content ?? [], total: res?.totalElements, page: res?.page, size: res?.size };
 }
 
 function checkType(scope, field, type, mockValue, liveValue) {
@@ -185,7 +201,12 @@ function installStorageStubs() {
   globalThis.localStorage = make();
   globalThis.sessionStorage = make();
   globalThis.window = globalThis;
+  // `services/config.js` compares `API_BASE` against the page origin. `window = globalThis` gives a
+  // `window` that passes a `typeof` check but has no `location`, which is a worse lie than having no
+  // window at all — so give it one, matching the base this run actually targets.
+  globalThis.location ??= new URL(BASE);
   globalThis.addEventListener = () => {};
+  globalThis.removeEventListener ??= () => {};
   globalThis.dispatchEvent = () => {};
 }
 

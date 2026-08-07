@@ -176,6 +176,13 @@ stylesheet bug below survived a 178-file suite.
 | `/admin/properties` **against the live API** — the moderation queue and its decisions | property-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/notifications` **against the live API** — inbox read, seed suppression, mark-all-read | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/messages` **against the live API** — inbox read, seed suppression, thread hydration on open, author attribution, reply round trip | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/locality/:slug` reviews **against the live API** — slug-keyed read, no fabricated standing badge | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/support` **against the live API** — list, raise, reply, and the absence of the priority/attachment controls | cross-cutting | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Abuse reports against the live API** — file from a property page, duplicate refused, report reaches the staff-only ops queue, no Reopen on a decided report | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **The contact gate against the live API** — a signed-out visitor on a public listing queries it not at all | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Saved shortlist against the live API** — `/me/saved` provenance, `PageEnvelope.page` on the wire, heart round trip | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Saved searches against the live API** — `/me/saved-searches` is the source, and answers with a bare array not an envelope | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Visits against the live API** — both sides of the relationship read separately, and reschedule is not offered (D87) | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/admin/analytics` | analytics | admin/analytics | ✅ |
 | `/admin/users` + KYC | users-kyc | admin/users | ✅ |
 | `/admin/finance` | finance | admin/finance | ✅ |
@@ -188,7 +195,7 @@ stylesheet bug below survived a 178-file suite.
 | `/admin/content` CMS | content-localities-societies | admin/content | ✅ |
 | `/admin/societies` | content-localities-societies | admin/societies | ✅ |
 | `/admin/settings` | settings-team-staff | admin/settings, platform/settings-debug | ✅ |
-| `/admin/flatmates` | flatmates | admin/flatmates | ✅ |
+| `/admin/flatmates` | flatmates | admin/flatmates, admin/flatmate-moderation-reach | ✅ |
 | `/admin/staff-activity` | settings-team-staff | admin/staff-activity | ✅ |
 
 ## Ops
@@ -218,7 +225,9 @@ specs run cross-viewport because the discovery/posting surfaces differ on a phon
 **KYC badge-not-gate migration (ADR-019).** The old Aadhaar *gate* specs were replaced
 by badge-not-gate specs — `consumer/list-property/no-gate`, `consumer/property/contact-badge-not-gate`,
 `consumer/flatmates/no-gate`, `consumer/flatmates/seeker-verify` (opt-in seeker badge) — plus
-`platform/auth/kyc-growth-levers` covering the DigiLocker Verified-badge funnel on the dashboard.
+`platform/auth/kyc-growth-levers` covering the DigiLocker Verified-badge funnel on the dashboard,
+and `platform/auth/verify-payoff` covering what the badge actually *buys* — `ownerVerified` flipped
+on every listing, the one-time 7-day Featured slot, and the guard that stops it being farmed.
 
 **Suite consolidation.** The duplicate `frontend/e2e/` suite is gone; this directory is
 the single source. Shared fixtures live in `helpers/app.js` (`seed()`, `OWNER`,

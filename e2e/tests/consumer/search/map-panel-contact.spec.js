@@ -49,7 +49,7 @@ test('verified buyer: Contact Owner opens the in-app chat with a pending request
 
   await drawer.getByRole('button', { name: /Contact Owner/i }).click();
 
-  // Routes straight into the thread for this listing â€” no number-reveal popup.
+  // Routes straight into the thread for this listing — no number-reveal popup.
   await expect(page).toHaveURL(/\/messages\?openProp=MAP-villa/);
   await expect(page.getByText(/Waiting for the owner to accept/i)).toBeVisible({ timeout: 10000 });
 });

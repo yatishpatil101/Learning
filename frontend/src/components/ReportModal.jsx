@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
-import { submitReport } from '../lib/data/reports.js';
-import { myMobile } from '../lib/store.js';
+import { createReport } from '../services/reportService.js';
 
 /* Platform-wide "Report this…" modal. One component powers reporting of property
    listings, flatmate/room/group posts, and anything else that needs moderation.
    Callers pass a `target` ({ id, title, ownerName, ownerMobile }), a `kind`
-   ('listing' | 'user') that maps onto the admin moderation tabs, and optionally a
-   reason set + copy. Every submission flows through submitReport() into the shared
-   reports collection the admin queue reads. */
+   ('listing' | 'user' | 'share') and optionally a reason set + copy.
+
+   **`kind` must match the reason set.** The server validates the reason *against* the target type,
+   so `SHARE_REPORT_REASONS` needs `kind="share"` and not `"user"` — `filled` is not something you
+   can say about a person, and sending it as one is a 400. The mock stored whatever it was handed,
+   which is how that mismatch survived in Flatmates.jsx until the reports slice. See
+   `services/providers/http/reportMapper.js` for the mapping table. */
 
 export const LISTING_REPORT_REASONS = [
   ['sold', 'Already sold or rented out'],
@@ -52,6 +55,7 @@ export default function ReportModal({
 }) {
   const [reason, setReason] = useState('');
   const [details, setDetails] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -60,22 +64,44 @@ export default function ReportModal({
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
-  const submit = () => {
-    if (!reason) return;
-    const reasonLabel = reasons.find(([k]) => k === reason)?.[1] || reason;
-    submitReport({
-      listingId: target?.id,
-      listingTitle: target?.title,
-      ownerName: target?.ownerName,
-      ownerMobile: target?.ownerMobile,
-      reason,
-      reasonLabel,
-      details: details.trim(),
-      reportedBy: 'User',
-      reporterMobile: myMobile() || '',
-      url: window.location.href,
-      kind,
-    });
+  const submit = async () => {
+    if (!reason || sending) return;
+    setSending(true);
+    /**
+     * The modal used to close and toast success unconditionally, because a localStorage write
+     * cannot fail. Two things can now:
+     *
+     * - **409, a duplicate.** The server refuses a second live report of the same target by the
+     *   same person. Thanking somebody for a report nobody received is the one outcome worth
+     *   avoiding here — they would assume it was heard.
+     * - **anything else.** Reporting is a safety action; a silent failure means an abuse signal
+     *   that never arrived and a user who believes it did.
+     *
+     * The modal stays open on failure so the report is not lost with it.
+     */
+    let result;
+    try {
+      result = await createReport({
+        kind,
+        targetId: target?.id,
+        targetTitle: target?.title,
+        targetOwner: target?.ownerName,
+        ownerMobile: target?.ownerMobile,
+        reason,
+        details: details.trim(),
+        url: window.location.href,
+      });
+    } catch {
+      setSending(false);
+      toast('Your report could not be sent. Please try again.', 'error');
+      return;
+    }
+    setSending(false);
+    if (result === 'duplicate') {
+      onClose();
+      toast('You have already reported this — our team is still reviewing it.', 'info');
+      return;
+    }
     onClose();
     toast(success, 'success');
   };

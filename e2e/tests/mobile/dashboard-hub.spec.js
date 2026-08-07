@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* The Account tab's headline metrics on a phone — §F P1 #18.
 
@@ -27,18 +28,17 @@ test.describe('Mobile dashboard hub', () => {
     await page.goto('/dashboard');
     await seeAll(page).waitFor({ timeout: 15000 });
 
-    // The inline grid is the See-all button's own parent, so counting tiles there
-    // measures exactly what the user sees above the fold.
-    const inlineTiles = page.locator('.sm\\:hidden [data-stat-tile], .sm\\:hidden > *');
     await expect(seeAll(page), 'the overflow entry point is present').toBeVisible();
 
-    const gridChildren = await page.evaluate(() => {
-      const btn = document.querySelector('[data-testid="see-all-metrics"]');
-      return btn ? btn.parentElement.children.length : -1;
-    });
-    // 3 metrics + the See all tile = 4 cells, i.e. exactly two rows of the 2-up grid.
-    expect(gridChildren, 'three metrics plus the See all tile').toBe(4);
-    expect(await inlineTiles.count()).toBeGreaterThan(0);
+    // The inline grid is the See-all button's own parent, so counting the metric
+    // labels that are *visible* there measures exactly what the user sees above
+    // the fold. Visibility, not DOM membership: the overflow tiles are in the same
+    // grid but `display: none` below `sm` (one grid, not two — tech-debt D82), so a
+    // structural count would pass while showing the user something else entirely.
+    const grid = page.locator('[data-testid="see-all-metrics"]').locator('xpath=..');
+    // `p.truncate` is the Stat label and nothing else — the trend chip is a span,
+    // and the See-all tile's own text is spans too.
+    await expect(grid.locator('p.truncate:visible'), 'three metrics inline').toHaveCount(3);
   });
 
   test('See all opens a sheet containing every metric', async ({ page }) => {
@@ -102,8 +102,7 @@ test.describe('Mobile dashboard hub', () => {
   });
 
   test('the dashboard logs no console errors on a phone', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const errors = trackErrors(page);
     await signedIn(page);
     await page.goto('/dashboard');
     await seeAll(page).waitFor({ timeout: 15000 });

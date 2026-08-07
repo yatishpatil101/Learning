@@ -118,6 +118,8 @@ export default function Societies() {
       id: soc.id, slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
       verified, community, managed: soc.claimStatus === 'claimed',
+      // SEAM NOTE: mock aggregate, keyed on the synthetic `soc.id`. Replaced by the row's own
+      // `avgRating`/`reviewCount` when societies join the seam — the fields already ship.
       rating: entityRating('society', soc.id),
       homes: listingsInSociety(listings, soc.id).length,
     };

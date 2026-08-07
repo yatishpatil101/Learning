@@ -30,7 +30,7 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.goto(`${BASE}/list-property`);
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
 
-  // Step 1 â€” rent flat.
+  // Step 1 — rent flat.
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
   await page.waitForTimeout(200);
@@ -39,7 +39,7 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 
-  // Step 2 â€” location + rent pricing + Charged Extra maintenance.
+  // Step 2 — location + rent pricing + Charged Extra maintenance.
   await pickOption(page, 'locality', 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
@@ -52,7 +52,7 @@ test('Rent "Charged Extra" maintenance amount is saved on the listing', async ({
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Photos & documents/i', { timeout: 10000 });
 
-  // Step 3 â€” one photo + the required Ownership Proof doc for a rent listing.
+  // Step 3 — one photo + the required Ownership Proof doc for a rent listing.
   const buf = Buffer.from(PNG, 'base64');
   await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
   await page.locator('input[type="file"][accept="image/*,.pdf"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });

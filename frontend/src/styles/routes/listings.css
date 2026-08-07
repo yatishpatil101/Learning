@@ -95,7 +95,7 @@
    and a price range is one of the most-dragged controls in the search funnel.
    Grow the thumb to 28px on coarse pointers and grow the row around it so the
    track stays centred and the thumb isn't clipped at 0%/100%. Desktop keeps the
-   16px thumb â€” the pointer there is a cursor, not a fingertip. */
+   16px thumb — the pointer there is a cursor, not a fingertip. */
 @media (pointer: coarse) {
   .rng-wrap {
     padding: 0 15px;
@@ -124,7 +124,7 @@
     height: 28px;
   }
 
-  /* The two labels under the track ("â‚¹0" / "â‚¹5 Cr+") are also buttons â€” tapping one
+  /* The two labels under the track ("₹0" / "₹5 Cr+") are also buttons — tapping one
      swaps it for a text input so an exact figure can be typed, which is the only way
      to set a precise budget on a phone. They are drawn as small underlined values
      because that is what they are; making them look like buttons would turn a quiet
@@ -356,7 +356,7 @@
 /* Floating "Filters" control on the mobile listings page.
 
    It floats over a scrolling column of property photos, so its backdrop is
-   unpredictable â€” a bright interior one moment, a dark card the next. A flat teal
+   unpredictable — a bright interior one moment, a dark card the next. A flat teal
    fill dissolves into the light shots, and ringing it in page-background black
    just reads as a sticker cut out and pasted on.
 
@@ -418,7 +418,7 @@
   border-color: rgba(45, 212, 191, 0.42);
 }
 
-/* Solid teal on glass â€” the one saturated element, so the eye lands on how many
+/* Solid teal on glass — the one saturated element, so the eye lands on how many
    filters are applied before it reads the word. */
 .filter-fab__count {
   background: #2dd4bf;

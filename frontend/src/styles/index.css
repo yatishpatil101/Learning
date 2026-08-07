@@ -5,7 +5,7 @@
 
 
 /* ============================================================================
-   PuneNest â€” design tokens (ported verbatim from theme.css)
+   PuneNest — design tokens (ported verbatim from theme.css)
    ============================================================================ */
 :root {
   --brand-dark: #0f0d1a;
@@ -35,19 +35,19 @@
   --teal-glow: rgba(13, 148, 136, 0.3);
   /* 'Noto Sans Devanagari' sits after Outfit rather than replacing it: the browser
      falls through per character, so Latin still renders in Outfit and only
-     Devanagari codepoints reach Noto. Order matters â€” putting Noto first would
+     Devanagari codepoints reach Noto. Order matters — putting Noto first would
      restyle the entire English site. */
   --font-sans: 'Outfit', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --section-gap: 2.5rem;
   --section-gap-lg: 4rem;
   --radius: 1rem;
 
-  /* â”€â”€ Control sizing scale (design language) â”€â”€
+  /* ── Control sizing scale (design language) ──
      All interactive controls share the same 40px height for visual rhythm.
      This applies to: dropdowns, pills, filter buttons, search inputs, toggles. */
   --control-h: 40px;
   --control-font: 0.875rem;
-  /* 14px â€” text-sm */
+  /* 14px — text-sm */
   --control-weight: 400;
   /* regular for inputs/dropdowns */
   --control-weight-action: 600;
@@ -55,7 +55,7 @@
   --control-radius: 10px;
   /* rounded square for most controls */
   --control-radius-pill: 9999px;
-  /* pill â€” reserved for search tabs, nav CTAs */
+  /* pill — reserved for search tabs, nav CTAs */
   --control-px: 1rem;
   /* 16px horizontal padding */
   --control-border: 1px solid rgba(255, 255, 255, 0.1);
@@ -68,11 +68,11 @@
   --control-placeholder: #9ca3af;
   /* gray-400 for placeholders */
 
-  /* â”€â”€ Button system tokens (3 tiers: primary / secondary / compact-icon) â”€â”€
+  /* ── Button system tokens (3 tiers: primary / secondary / compact-icon) ──
      Default md height aligns to --control-h for rhythm with inputs/dropdowns.
      lg (48px) is for hero + prominent mobile CTAs; sm (32px) for dense toolbars. */
   --btn-h: var(--control-h);
-  /* 40px â€” md */
+  /* 40px — md */
   --btn-h-sm: 32px;
   --btn-h-lg: 48px;
   --btn-radius: var(--control-radius);
@@ -80,7 +80,7 @@
   --btn-primary-shadow: 0 4px 14px rgba(20, 184, 166, 0.25);
   --btn-primary-shadow-hover: 0 6px 20px rgba(20, 184, 166, 0.35);
 
-  /* â”€â”€ Mobile bottom-chrome system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /* ── Mobile bottom-chrome system ──────────────────────────────────────────
      --pn-safe-b   the device's bottom inset (home indicator / gesture bar).
                    Only non-zero once index.html carries viewport-fit=cover.
      --pn-bottom-inset  how much vertical space at the bottom of the viewport is
@@ -118,14 +118,14 @@
      screen edge by. Both live in tokens because --pn-bottom-inset is derived from
      them; changing the float here moves every bottom-anchored widget with it. */
   --pn-bottom-nav-gap: 12px;
-  /* How far the bar's bottom edge sits above the viewport bottom â€” max(), not a sum.
+  /* How far the bar's bottom edge sits above the viewport bottom — max(), not a sum.
      The float gap and the home-indicator inset are the same thing (breathing room at
      the bottom edge), so adding them double-counts: in an installed iOS app --pn-safe-b
-     is 34px, and `gap + safe-b` parked the capsule 46px up â€” 5.5% of the screen â€” while
+     is 34px, and `gap + safe-b` parked the capsule 46px up — 5.5% of the screen — while
      in-browser (safe-b: 0px) it was 12px. max() takes whichever floor is larger, so the
      browser keeps its 12px and the installed app clears the home indicator by exactly
      the 34px iOS reserves, with no gap stacked on top.
-     One token because the bar's `bottom` and --pn-bottom-inset MUST agree â€” they were
+     One token because the bar's `bottom` and --pn-bottom-inset MUST agree — they were
      two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
   --pn-bottom-nav-offset: max(var(--pn-bottom-nav-gap), var(--pn-safe-b));
   --pn-bottom-inset: var(--pn-safe-b);
@@ -142,13 +142,13 @@
      It used to be duplicated as literals in ten files, including Tailwind classes on
      the row, which is why the landscape override needed a specificity argument.
 
-     The phone value is 10% under what it was; â‰¥768px deliberately is NOT, so tablet
+     The phone value is 10% under what it was; ≥768px deliberately is NOT, so tablet
      and desktop keep the layout they have always had. Every consumer of the token
-     inherits that split for free â€” which is the point of there being one token. */
+     inherits that split for free — which is the point of there being one token. */
   --pn-nav-h: 58px;
   --pn-top-inset: var(--pn-nav-h);
 
-  /* Drawn height of the top bar's pills on a phone â€” 10% under the 44px tap floor
+  /* Drawn height of the top bar's pills on a phone — 10% under the 44px tap floor
      they used to be pinned to. See .pn-topbar__pill below for why the two can
      differ, and --pn-nav-icon-box for the square controls that scale with it. */
   --pn-nav-pill-h: 40px;
@@ -160,17 +160,17 @@
 }
 
 /* The bar's real height, driven by the token rather than by utility classes on the
-   element â€” see --pn-nav-h above. */
+   element — see --pn-nav-h above. */
 .pn-topbar__row { height: var(--pn-nav-h); }
 
 /* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
 
    Below sm these all carry the 44px .tap-target floor, which was *drawing* them at
-   44px â€” taller than the very same pills on desktop, on the device with the least
+   44px — taller than the very same pills on desktop, on the device with the least
    room to spare. So the phone got the chunkiest chrome, which is backwards.
 
    The drawn pill drops to --pn-nav-pill-h and .tap-extend puts a transparent 44px
-   ::before back under the finger, so WCAG 2.5.8 still holds â€” the target is still
+   ::before back under the finger, so WCAG 2.5.8 still holds — the target is still
    44px, it just stops being painted. These pills therefore carry .tap-extend and NOT
    .tap-target: the two set the same property, and .tap-target is declared later in
    this file, so pairing them would silently reinstate the 44px box.
@@ -197,7 +197,7 @@
 
    Navbar.jsx toggles `.pn-nav-hidden` on <html> unconditionally, which keeps the
    JS free of breakpoint logic and makes it resize-safe. Every rule that reacts to
-   the class lives inside this max-width block, so on desktop the class is inert â€”
+   the class lives inside this max-width block, so on desktop the class is inert —
    that is the desktop-safety argument, and it is structural rather than a
    promise. */
 @media (max-width: 1023.98px) {
@@ -223,7 +223,7 @@
 }
 
 /* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
-   lg:hidden, so the inset is reset above lg â€” desktop always resolves to --pn-safe-b (0px)
+   lg:hidden, so the inset is reset above lg — desktop always resolves to --pn-safe-b (0px)
    and every calc() built on it collapses to the literal offset it had before this system. */
 .has-bottom-nav {
   --pn-bottom-inset: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset));
@@ -237,7 +237,7 @@
   .has-bottom-nav { --pn-bottom-inset: var(--pn-safe-b); }
 }
 
-/* Full-bleed routes (reels) keep the inset *token* â€” their own chrome positions off it â€”
+/* Full-bleed routes (reels) keep the inset *token* — their own chrome positions off it —
    but not the reservation: the tab bar is a capsule floating over the media, so the media
    is supposed to pass under it. Reserving the strip here drew a dead band across the
    bottom of every reel and made the bar look like a wall rather than a floating control. */
@@ -246,14 +246,14 @@
 /* Floating "liquid glass" tab bar.
 
    An edge-to-edge bar reads as a wall at the bottom of the screen; a detached capsule
-   reads as a control sitting on top of the page, which is what it is â€” and letting the
+   reads as a control sitting on top of the page, which is what it is — and letting the
    page scroll visibly under and around it is the whole point of the material. The look
    is one blur + one saturation boost + a light top edge, not a stack of decorations:
    saturate() is what stops the blur from turning the app's teal into grey mud, and the
    inset top highlight is what gives the capsule an edge instead of a flat fill.
 
    Inset from both sides via env() so a rotated phone's notch can't clip it. Height is
-   the token only â€” the float gap is added by `bottom`, and --pn-bottom-inset above
+   the token only — the float gap is added by `bottom`, and --pn-bottom-inset above
    accounts for both. */
 .pn-bottom-nav {
   position: fixed;
@@ -313,7 +313,7 @@
   will-change: transform;
 }
 
-/* Added by BottomNav.jsx one paint after the first measurement â€” see the comment there.
+/* Added by BottomNav.jsx one paint after the first measurement — see the comment there.
    Until then the indicator must be able to jump to its measured slot without animating,
    or every page load slides it in from the left edge. */
 .pn-bottom-nav__indicator.is-animated { transition:
@@ -327,8 +327,8 @@
   .pn-bottom-nav__indicator.is-animated { transition: opacity 180ms linear; }
 }
 
-/* Raised centre action. It breaks the capsule's top edge on purpose â€” that overlap is
-   what makes Post read as the primary act rather than the third of five tabs â€” and the
+/* Raised centre action. It breaks the capsule's top edge on purpose — that overlap is
+   what makes Post read as the primary act rather than the third of five tabs — and the
    ring keeps it legible where it overhangs onto page content. */
 .pn-bottom-nav__fab {
   margin-top: -14px;
@@ -339,7 +339,7 @@
 
 /* Tab height is owned by the token, not by an inline style on the element. The bar
    and its slots have to shrink together, and --pn-bottom-nav-h is what --pn-bottom-inset
-   already reserves against â€” so a hardcoded height here would silently desync every
+   already reserves against — so a hardcoded height here would silently desync every
    bottom-anchored widget the moment the bar resized. */
 .pn-bottom-nav__tab {
   height: var(--pn-bottom-nav-h);
@@ -358,7 +358,7 @@
 }
 
 /* 11px, in rem so the label honours the browser/OS font-size setting instead of being
-   frozen â€” a px label is immune to dynamic type, which reads as "safe" but is actually
+   frozen — a px label is immune to dynamic type, which reads as "safe" but is actually
    the accessibility failure. 10px was below the floor where a glass background still
    leaves the text comfortably legible. The overflow guard is what makes scaling safe:
    at large type the label ellipsises instead of wrapping and bursting the fixed bar. */
@@ -406,7 +406,7 @@
   .pn-bottom-nav__tab {
     justify-content: center;
     /* Clears the Post tab's baseline-matching bottom padding, which only exists to
-       line its label up with the others â€” and the labels are gone here. */
+       line its label up with the others — and the labels are gone here. */
     padding-bottom: 0;
   }
 
@@ -436,7 +436,7 @@
 
 /* Mobile tap-target floor (WCAG 2.5.8 / platform HIG). Grows the hit area of an
    icon-only control without touching the glyph. Deliberately does NOT set `display`,
-   so Tailwind's `hidden` / `lg:hidden` on the same element still win â€” these
+   so Tailwind's `hidden` / `lg:hidden` on the same element still win — these
    declarations come after @tailwind utilities in source order. Pair it with
    `inline-flex items-center justify-center` on any element that isn't already flex. */
 .tap-target {
@@ -444,7 +444,7 @@
   min-height: 44px;
 }
 
-/* Same 44px floor, but for controls whose *drawn* size is load-bearing â€” a close
+/* Same 44px floor, but for controls whose *drawn* size is load-bearing — a close
    pill on a small bubble, for instance, where growing the box would make the
    control bigger than the thing it dismisses. The pseudo-element is transparent
    and centred, so the glyph stays as designed while the finger gets its target.
@@ -462,14 +462,14 @@
 /* Top-bar icon-only account actions (Saved / Notifications / Messages / Compare).
 
    These now sit inline in the bar at every width rather than being folded into the
-   account drawer below sm â€” they are the three screens a returning user checks most,
+   account drawer below sm — they are the three screens a returning user checks most,
    and reaching them through a drawer cost two taps and a context switch.
 
    Four painted 44px boxes plus the city pill overflow a 360px bar, so below sm the
    drawn square drops to --pn-nav-icon-box while .tap-extend keeps a transparent 44px
    target under the finger (WCAG 2.5.8 still holds; the target is 44px, it just stops
    being painted). A 32px box plus the row's 12px gap puts adjacent centres exactly
-   44px apart, so those targets tile edge-to-edge and never overlap â€” an overlap here
+   44px apart, so those targets tile edge-to-edge and never overlap — an overlap here
    would let one icon silently steal its neighbour's taps. Do not shrink the gap
    without shrinking the target to match.
 
@@ -486,7 +486,7 @@
   }
 }
 
-/* Nothing may be reachable ONLY via :hover â€” on a touch screen that hover state
+/* Nothing may be reachable ONLY via :hover — on a touch screen that hover state
    never fires, so the content is simply invisible. Mark any hover-revealed layer
    with this class and it becomes permanently visible on devices that cannot hover.
    Keyed on the capability, not the viewport, so a touch laptop is handled too and
@@ -497,13 +497,13 @@
     transform: none !important;
   }
 
-  /* On a touch device a :hover style is dead weight â€” it either never fires or,
+  /* On a touch device a :hover style is dead weight — it either never fires or,
      worse, sticks after the finger lifts. What the user actually needs is proof
      the tap registered, which matters most on the mid-range Android this app is
      built for, where the route transition can take a beat.
 
      The browser's own blue tap flash is removed (it clashes with the dark theme
-     and lags on Android), so a replacement is not optional â€” remove one without
+     and lags on Android), so a replacement is not optional — remove one without
      the other and taps feel broken. */
   a,
   button,
@@ -521,7 +521,7 @@
 
 /* Below 640px the default button (40px) and the compact button (32px) both fail the
    44px touch minimum. All .btn sizing flows through these three vars, so the whole
-   mobile ramp is this override â€” and it cannot leak to desktop, which keeps 32/40/48. */
+   mobile ramp is this override — and it cannot leak to desktop, which keeps 32/40/48. */
 @media (max-width: 639px) {
   :root {
     --btn-h: 44px;
@@ -553,7 +553,7 @@
   padding-bottom: var(--section-gap-lg);
 }
 
-/* â”€â”€ Mobile vertical rhythm â”€â”€
+/* ── Mobile vertical rhythm ──
    The page rhythm was authored for a 1440px canvas, where 40px between sections
    and a 40px gap under a heading read as air. On a 412px screen the same values
    are most of a fold: a visitor scrolls past empty space between every heading
@@ -568,7 +568,7 @@
    Everything here is inside a max-width block, so desktop keeps its original
    numbers structurally rather than by promise. `.section-head` is paired with an
    `sm:mb-*` utility at every call site, which is what restores the exact desktop
-   value above the breakpoint â€” the class simply stops applying. */
+   value above the breakpoint — the class simply stops applying. */
 @media (max-width: 639.98px) {
   :root {
     --section-gap: 1.75rem;
@@ -586,7 +586,7 @@
   }
 }
 
-/* â”€â”€ Design Language: Reusable control classes â”€â”€
+/* ── Design Language: Reusable control classes ──
    Use these classes for any interactive control to maintain consistent sizing. */
 .pn-control {
   height: var(--control-h);
@@ -654,13 +654,13 @@ body {
    ============================================================================
    The layout is tuned for Latin, and three Latin habits actively damage
    Devanagari. These rules are scoped by :lang(), which only matches because
-   i18n/index.js keeps <html lang> in step with the active language â€” if that
+   i18n/index.js keeps <html lang> in step with the active language — if that
    ever regresses, this whole block silently stops applying.
 
-   1. Line height. Devanagari stacks matras above the shirorekha (à¤¿ à¥€ à¥‡ à¥ˆ à¥‹ à¥Œ à¤‚)
-      and below the baseline (à¥ƒ à¥ à¥‚), so its ink box is materially taller than
+   1. Line height. Devanagari stacks matras above the shirorekha (ि ी े ै ो ौ ं)
+      and below the baseline (ृ à¥ ू), so its ink box is materially taller than
       Latin's. Tailwind's leading-none (1) and leading-tight (1.25) clip those
-      marks outright â€” the vowel sign is simply cut off, which changes the word.
+      marks outright — the vowel sign is simply cut off, which changes the word.
       There are ~70 uses of those two utilities in the app, so raising the floor
       here fixes all of them at once and keeps English untouched.
 
@@ -671,7 +671,7 @@ body {
       Devanagari loses legibility.
 
    3. Uppercase. Devanagari has no case, so `text-transform: uppercase` is a
-      no-op on the glyphs â€” but it is left alone rather than reset, because the
+      no-op on the glyphs — but it is left alone rather than reset, because the
       same elements often carry Latin brand names (PuneNest, SLA, OTP) that
       should still uppercase.
    ========================================================================== */
@@ -704,7 +704,7 @@ body {
 :lang(hi) .line-clamp-3,
 :lang(mr) .line-clamp-3 { line-height: 1.55; }
 
-/* Devanagari runs 15â€“30% longer than the same English sentence, so buttons and
+/* Devanagari runs 15–30% longer than the same English sentence, so buttons and
    chips sized to fit English copy overflow. Let them grow instead of clipping. */
 :lang(hi) .btn-teal,
 :lang(mr) .btn-teal,
@@ -716,13 +716,13 @@ body {
   min-height: 2.5rem;
 }
 
-/* Devanagari digits are rendered as Latin numerals throughout the app (â‚¹32,000,
+/* Devanagari digits are rendered as Latin numerals throughout the app (₹32,000,
    2 BHK, 15 August), so numeric runs keep Outfit's tabular figures rather than
    inheriting Noto's proportional ones and jittering in aligned columns. */
 :lang(hi) .tabular-nums,
 :lang(mr) .tabular-nums { font-family: 'Outfit', system-ui, sans-serif; }
 
-/* â”€â”€ Prevent browser autofill from overriding dark theme backgrounds â”€â”€ */
+/* ── Prevent browser autofill from overriding dark theme backgrounds ── */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -732,15 +732,15 @@ input:-webkit-autofill:focus {
   transition: background-color 5000s ease-in-out 0s;
 }
 
-/* â”€â”€ Heading balance â€” prevents orphaned words on all headings â”€â”€ */
+/* ── Heading balance — prevents orphaned words on all headings ── */
 h1,
 h2,
 h3,
 h4 { text-wrap: balance; }
 
-/* â”€â”€ Radius hierarchy â”€â”€
+/* ── Radius hierarchy ──
    Pill shape is reserved for nav CTAs, hero search tabs, and filter chips.
-   Cards, modals, forms use --radius (16px). Inner elements use 8px. â”€â”€ */
+   Cards, modals, forms use --radius (16px). Inner elements use 8px. ── */
 .btn-teal,
 .btn-outline,
 .pn-btn { border-radius: 10px !important; }
@@ -752,20 +752,20 @@ h4 { text-wrap: balance; }
 .search-tab,
 .loc-chip { border-radius: var(--control-radius-pill) !important; }
 
-/* â”€â”€ Tabular figures on all price and stat numbers â”€â”€ */
+/* ── Tabular figures on all price and stat numbers ── */
 .price-marker,
 .rd-val,
 .rd-val-lg,
 .pn-lb-caption,
 [class*="font-extrabold"] { font-variant-numeric: tabular-nums; }
 
-/* â”€â”€ Active/press feedback on all interactive controls â”€â”€ */
+/* ── Active/press feedback on all interactive controls ── */
 button:active:not(:disabled),
 a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .pn-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
-/* â”€â”€ Tinted shadows â€” brand hue instead of pure black â”€â”€ */
+/* ── Tinted shadows — brand hue instead of pure black ── */
 .property-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 12px 40px rgba(13, 148, 136, 0.12), 0 4px 16px rgba(15, 13, 26, 0.5) !important;
@@ -781,7 +781,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   box-shadow: 0 0 40px rgba(13, 148, 136, 0.12), 0 8px 24px rgba(15, 13, 26, 0.4) !important;
 }
 
-/* â”€â”€ Section subtext max-width â€” prevents lines stretching too wide â”€â”€ */
+/* ── Section subtext max-width — prevents lines stretching too wide ── */
 .section-desc { max-width: 60ch; }
 
 ::-webkit-scrollbar { width: 6px; }
@@ -794,18 +794,18 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 }
 
 /* App-wide: never show a horizontal scrollbar. Horizontal regions pan by
-   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars â€”
-   which several dropdowns and lists deliberately theme â€” are left untouched
+   swipe/drag (the .no-scrollbar / HScroll standard); vertical scrollbars —
+   which several dropdowns and lists deliberately theme — are left untouched
    because :horizontal only targets the horizontal bar. */
 ::-webkit-scrollbar:horizontal {
   display: none;
   height: 0;
 }
 
-/* Filter sidebar scroll â€” reserve a stable gutter and float a transparent-track
+/* Filter sidebar scroll — reserve a stable gutter and float a transparent-track
    thumb so it never overlaps the rounded tile edge or its corners. The thumb is
    AUTO-HIDDEN by default and only fades in (standard teal) while the panel itself
-   is hovered/focused â€” so hovering an adjacent card never surfaces a teal bar.
+   is hovered/focused — so hovering an adjacent card never surfaces a teal bar.
    Gutter width stays reserved, so revealing the thumb causes no layout shift. */
 .filter-scroll {
   scrollbar-gutter: stable;
@@ -834,7 +834,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .filter-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(20, 184, 166, 0.7); }
 
-/* â”€â”€ Hero gradient animation â”€â”€ */
+/* ── Hero gradient animation ── */
 @keyframes heroGradient {
   0% { background-position: 0% 50%; }
 
@@ -854,7 +854,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   will-change: background-position;
 }
 
-/* â”€â”€ Floating shapes â”€â”€ */
+/* ── Floating shapes ── */
 @keyframes float1 {
 
   0%,
@@ -937,7 +937,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   animation: float2 16s ease-in-out infinite reverse;
 }
 
-/* â”€â”€ Staggered hero text (compressed: search widget usable well under ~0.6s) â”€â”€ */
+/* ── Staggered hero text (compressed: search widget usable well under ~0.6s) ── */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -993,7 +993,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.36s forwards;
 }
 
-/* â”€â”€ Hero trust-proof ticker â”€â”€ */
+/* ── Hero trust-proof ticker ── */
 .hero-ticker {
   opacity: 0;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.74s forwards;
@@ -1010,7 +1010,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .ticker-ping { animation: tickerPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
 
-/* â”€â”€ Scroll reveal â”€â”€ */
+/* ── Scroll reveal ── */
 .reveal {
   opacity: 0;
   transform: translateY(36px);
@@ -1022,14 +1022,14 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   transform: translateY(0);
 }
 
-/* â”€â”€ Card image zoom â”€â”€ */
+/* ── Card image zoom ── */
 .card-img-wrap { overflow: hidden; }
 
 .card-img-wrap img { transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
 
 .property-card:hover .card-img-wrap img { transform: scale(1.08); }
 
-/* â”€â”€ Heart animation â”€â”€ */
+/* ── Heart animation ── */
 @keyframes heartPop {
   0% { transform: scale(1); }
 
@@ -1042,7 +1042,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .heart-pop { animation: heartPop 0.4s ease; }
 
-/* â”€â”€ Glow hover for category cards â”€â”€ */
+/* ── Glow hover for category cards ── */
 .cat-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease; }
 
 .cat-card:hover {
@@ -1073,7 +1073,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   background: linear-gradient(to right, var(--brand-dark), transparent);
 }
 
-/* â”€â”€ Property card lift + off-screen rendering optimization â”€â”€ */
+/* ── Property card lift + off-screen rendering optimization ── */
 .property-card {
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
   content-visibility: auto;
@@ -1090,7 +1090,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   contain-intrinsic-size: 0 320px;
 }
 
-/* â”€â”€ CTA floating shapes â”€â”€ */
+/* ── CTA floating shapes ── */
 @keyframes ctaFloat1 {
 
   0%,
@@ -1107,7 +1107,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   50% { transform: translate(-15px, 15px); }
 }
 
-/* â”€â”€ Glass (with fallback for browsers without backdrop-filter support) â”€â”€ */
+/* ── Glass (with fallback for browsers without backdrop-filter support) ── */
 .glass {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
@@ -1137,7 +1137,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Hero search dropdowns â€” themed vertical scrollbar, always shown (stable gutter)
+/* Hero search dropdowns — themed vertical scrollbar, always shown (stable gutter)
    so all three search dropdowns look and behave consistently, and long
    Type / BHK / locality lists stay usable (never run off-screen on mobile). */
 .search-dd-scroll {
@@ -1371,7 +1371,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .pn-dropdown__attrib .pbg { justify-content: flex-start; }
 
-/* Attribution footer inside the hero locality dropdown â€” kept last, bottom-left, out of focus. */
+/* Attribution footer inside the hero locality dropdown — kept last, bottom-left, out of focus. */
 .loc-attrib {
   margin-top: 2px;
   padding-top: 3px;
@@ -1395,7 +1395,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   z-index: 10;
 }
 
-/* â”€â”€ Category scroll hide scrollbar â”€â”€ */
+/* ── Category scroll hide scrollbar ── */
 .cat-scroll::-webkit-scrollbar { display: none; }
 
 .cat-scroll {
@@ -1411,7 +1411,7 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   scrollbar-width: none;
 }
 
-/* HScroll edge-fade affordance â€” the touch-first "there's more this way" cue used
+/* HScroll edge-fade affordance — the touch-first "there's more this way" cue used
    app-wide on tab bars, chip rows and card rails. */
 .hscroll-fade {
   position: absolute;
@@ -1426,13 +1426,13 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
 .hscroll-fade--right { right: 0; }
 
-/* â”€â”€ Pill active â”€â”€ */
+/* ── Pill active ── */
 .pill-active {
   background: var(--brand-gradient);
   color: #fff;
 }
 
-/* â”€â”€ Sleek hover for search button (no gimmicky pulse) â”€â”€ */
+/* ── Sleek hover for search button (no gimmicky pulse) ── */
 .search-btn:hover { box-shadow: 0 6px 20px rgba(13, 148, 136, 0.28); }
 
 /* Feature card glow */
@@ -1542,7 +1542,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 
 /* .sort-dropdown and .near-select rules deleted (dead code, no usages in src/). */
 
-/* â”€â”€ Native <select> themed via @layer to avoid !important conflicts with Tailwind â”€â”€ */
+/* ── Native <select> themed via @layer to avoid !important conflicts with Tailwind ── */
 @layer components {
   select {
     -webkit-appearance: none;
@@ -1632,7 +1632,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 
   .legal-toc-caret { transition: transform 0.2s ease; }
 
-  /* â”€â”€ Help centre / documentation prose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /* ── Help centre / documentation prose ──────────────────────────────────
      Styles the HTML compiled from src/content/help/**.md. Kept separate from
      .legal-prose because docs need a wider element vocabulary (tables, code,
      callouts) and a slightly larger reading size than a policy page. */
@@ -1738,7 +1738,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
     margin: 2.25rem 0;
   }
 
-  /* Tables scroll horizontally rather than forcing the article column wider â€”
+  /* Tables scroll horizontally rather than forcing the article column wider —
      a 5-column comparison table is unavoidable in docs and must not break the
      phone layout. */
   .doc-prose table {
@@ -1768,7 +1768,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
     .doc-prose table { white-space: normal; }
   }
 
-  /* Callouts â€” emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
+  /* Callouts — emitted by the Markdown compiler from `> [!NOTE]` blockquotes. */
   .doc-prose .doc-callout {
     border: 1px solid rgb(255 255 255 / 0.1);
     border-left-width: 3px;
@@ -1849,15 +1849,15 @@ select option:checked {
 }
 
 /* The shimmer is an INFINITE loop, which is exactly the kind of motion someone
-   who asked for less of it does not want â€” and a loading state is when they are
+   who asked for less of it does not want — and a loading state is when they are
    least able to look away. Both opt-outs are honoured: the OS-level media query
-   and the app's own Settings â–¸ Appearance toggle (html.pn-reduce-motion).
+   and the app's own Settings ▸ Appearance toggle (html.pn-reduce-motion).
 
    Kept next to the animation rather than in the reduced-motion section further
    down, because that section is an explicit allowlist ~3,500 lines away: this
    rule was missing from it for as long as the shimmer has existed, and the next
-   person to touch the shimmer will be looking here. The surface stays visible â€”
-   only the sweep stops â€” so the placeholder still reads as "content pending". */
+   person to touch the shimmer will be looking here. The surface stays visible —
+   only the sweep stops — so the placeholder still reads as "content pending". */
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after { animation: none; }
 }
@@ -1897,7 +1897,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
 
 /* .auth-page split-screen OTP login (both fragments, wrapping the .otp-* island below) moved to styles/routes/auth.css (Tier 1). */
 
-/* OTP box styles â€” global (used on signin, signup, staff-login, list-property) */
+/* OTP box styles — global (used on signin, signup, staff-login, list-property) */
 .otp-container {
   display: flex;
   gap: 10px;
@@ -1905,7 +1905,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
 }
 
 /* Boxes flex-fill their row (capped at 48px) so 6 inputs never overflow a
-   narrow auth card on 360/414px phones â€” no horizontal scroll. */
+   narrow auth card on 360/414px phones — no horizontal scroll. */
 .otp-box {
   flex: 1 1 0;
   min-width: 0;
@@ -1947,7 +1947,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
 
 /* .page-btn.active + .badge-* moved to styles/routes/listings.css (Tier 1). */
 
-/* List view card (redesigned row) â€” ported from listings.html */
+/* List view card (redesigned row) — ported from listings.html */
 .list-card { display: block; }
 
 .list-card .lr {
@@ -2508,14 +2508,14 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
   color: #fff;
 }
 
-/* â”€â”€ Mobile: centred dialogs become bottom sheets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ── Mobile: centred dialogs become bottom sheets ───────────────────────────
    Below 640px a centred dialog is the wrong shape: with the keyboard open the
    usable viewport is ~300px, so the submit button of any form modal gets
    pushed off-screen. Docking to the bottom edge keeps the primary action in
    the thumb arc and lets the body scroll inside a bounded panel instead.
 
    Every consumer overlay already shares .pn-modal-backdrop/.pn-modal, so this
-   one block converts all of them at once â€” no per-modal markup change. The
+   one block converts all of them at once — no per-modal markup change. The
    whole thing sits inside a max-width query, so >=640px (and therefore every
    desktop viewport) renders byte-for-byte as before. */
 @media (max-width: 639.98px) {
@@ -2576,10 +2576,10 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* â”€â”€ Listing wizard: step actions dock to the thumb arc on mobile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/* ── Listing wizard: step actions dock to the thumb arc on mobile ───────────
    Step 2 of the owner flow is a very long form (address grid, map, ~10 pricing
    fields). With Back/Next only at the end of the document, an owner scrolls
-   hundreds of pixels to advance â€” and again every time validation fails. This
+   hundreds of pixels to advance — and again every time validation fails. This
    is the single biggest supply-side conversion leak on a phone.
 
    `sticky` rather than `fixed` deliberately: the row keeps its place in the
@@ -2624,7 +2624,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
      keeps it in reach while the rest of the form scrolls underneath.
 
      Auth routes never mount the bottom nav, so --pn-bottom-inset resolves to the
-     safe-area inset alone â€” no double counting. */
+     safe-area inset alone — no double counting. */
   .pn-auth-submit {
     position: sticky;
     bottom: calc(var(--pn-bottom-inset) + 0.75rem);
@@ -2721,8 +2721,8 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
   box-shadow: inset 0 0 0 3px #15131f;
 }
 
-/* â†’ moved to styles/routes/compare.css (loaded with its route chunk) */
-/* â†’ moved to styles/routes/services-hub.css (loaded with its route chunk) */
+/* → moved to styles/routes/compare.css (loaded with its route chunk) */
+/* → moved to styles/routes/services-hub.css (loaded with its route chunk) */
 /* → moved to styles/routes/list-property.css (loaded with its route chunk) */
 
 /* ============================================================================
@@ -2866,7 +2866,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
   backdrop-filter: blur(4px);
 }
 
-/* â†’ moved to styles/routes/rent-agreement.css (loaded with its route chunk) */
+/* → moved to styles/routes/rent-agreement.css (loaded with its route chunk) */
 /* Notifications page */
 .notif {
   background: rgba(255, 255, 255, .04);
@@ -2898,7 +2898,7 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
   color: #5eead4;
 }
 
-/* Rent/Buy intent switch on the listings page â€” brand-gradient active pill,
+/* Rent/Buy intent switch on the listings page — brand-gradient active pill,
    concentric inner buttons (matches the List|Map .sf-seg pattern). */
 .deal-seg-btn { transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
 
@@ -2993,7 +2993,7 @@ label.lbl {
 
 .soc-page .star { color: #f59e0b; }
 
-/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
+/* → moved to styles/routes/reels.css (loaded with its route chunk) */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -3005,7 +3005,7 @@ label.lbl {
   white-space: nowrap;
   border: 0;
 }
-/* â†’ moved to styles/routes/reels.css (loaded with its route chunk) */
+/* → moved to styles/routes/reels.css (loaded with its route chunk) */
 /* Saved / shortlist page moved to styles/routes/saved.css (Tier 1). */
 
 /* Pay rent tabs */
@@ -3022,7 +3022,7 @@ label.lbl {
   color: #5eead4;
 }
 
-/* Property-detail section tabs â€” left-aligned underline style */
+/* Property-detail section tabs — left-aligned underline style */
 .pn-detail-tab {
   display: inline-flex;
   align-items: center;
@@ -3045,7 +3045,7 @@ label.lbl {
   border-bottom-color: var(--teal-2);
 }
 
-/* Option info tooltips (<Tip/>) â€” hover/focus/tap a tile to learn what it means */
+/* Option info tooltips (<Tip/>) — hover/focus/tap a tile to learn what it means */
 [data-tip] { cursor: help; }
 
 [data-tip]:focus-visible {
@@ -3099,8 +3099,8 @@ label.lbl {
 
 /* Locality insights page moved to styles/routes/locality.css (Tier 1). */
 
-/* â†’ moved to styles/routes/property-map.css (loaded with its route chunk) */
-/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* → moved to styles/routes/property-map.css (loaded with its route chunk) */
+/* → moved to styles/routes/flatmates.css (loaded with its route chunk) */
 /* Google Maps display (PropertyMap / FlatmateMap). AdvancedMarkers reuse the same
    .price-marker / .map-pin DOM as the old Leaflet divIcons, so their styling is
    already covered above. These rules strip Google's default InfoWindow chrome so
@@ -3134,7 +3134,7 @@ label.lbl {
 
 /* View-documents secure viewer moved to styles/routes/view-documents.css (Tier 1). */
 
-/* â†’ moved to styles/routes/messages.css (loaded with its route chunk) */
+/* → moved to styles/routes/messages.css (loaded with its route chunk) */
 /* Mobile: Messages is a native, full-screen chat. Drop the marketing footer +
    floating assistant, run the inbox edge-to-edge, and fill the viewport below the
    navbar so the composer pins to the screen bottom. Desktop is untouched. */
@@ -3170,7 +3170,7 @@ label.lbl {
   .messages-page .pc-msgs { padding: 14px 14px 6px; }
 }
 
-/* â†’ moved to styles/routes/flatmates.css (loaded with its route chunk) */
+/* → moved to styles/routes/flatmates.css (loaded with its route chunk) */
 
 .sf-modal {
   position: fixed;
@@ -3232,7 +3232,7 @@ label.lbl {
   background: rgba(255, 255, 255, .05);
 }
 
-/* Modal panel â€” solid dark bg so content is always readable over any page */
+/* Modal panel — solid dark bg so content is always readable over any page */
 .pn-modal-panel {
   background: #1a1730;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
@@ -3302,7 +3302,7 @@ label.lbl {
   /* CTA floating shapes */
   [class*="ctaFloat"] { animation: none; }
 
-  /* Scroll reveal â€” show immediately */
+  /* Scroll reveal — show immediately */
   .reveal {
     opacity: 1;
     transform: none;
@@ -3318,11 +3318,11 @@ label.lbl {
   /* Services card pop */
   .svc-pop { animation: none; }
 
-  /* General transitions â€” keep colors but disable motion */
+  /* General transitions — keep colors but disable motion */
   .t-all { transition: color 0.2s, background-color 0.2s, border-color 0.2s; }
 }
 
-/* User-toggled "Reduce motion" (Settings â–¸ Appearance). Mirrors the OS-level
+/* User-toggled "Reduce motion" (Settings ▸ Appearance). Mirrors the OS-level
    reduced-motion rules above so users can opt in regardless of system settings. */
 html.pn-reduce-motion .hero-bg,
 html.pn-reduce-motion .shape,
@@ -3369,7 +3369,7 @@ html.pn-reduce-motion .list-reveal {
    View Transitions (React Router v7 + browser View Transition API)
    ============================================================================ */
 
-/* Default cross-fade for route changes â€” fast and subtle */
+/* Default cross-fade for route changes — fast and subtle */
 ::view-transition-old(root) { animation: 150ms ease-out both fade-out; }
 
 ::view-transition-new(root) { animation: 200ms ease-in both fade-in; }
@@ -3382,7 +3382,7 @@ html.pn-reduce-motion .list-reveal {
   from { opacity: 0; }
 }
 
-/* Shared element morph: property card image â†’ property hero image.
+/* Shared element morph: property card image → property hero image.
    The browser automatically morphs elements with matching view-transition-name. */
 ::view-transition-old(property-hero-*),
 ::view-transition-new(property-hero-*) {
@@ -3477,10 +3477,10 @@ html.pn-reduce-motion .list-reveal {
   /* 1.25 -> 1.0  */
 }
 
-/* â”€â”€ Mobile: prevent focus auto-zoom on inputs â”€â”€
+/* ── Mobile: prevent focus auto-zoom on inputs ──
    Touch browsers (Chrome Android, iOS Safari) zoom into any editable field whose
    computed font-size is < 16px on focus, forcing the user to pinch back out. Our
-   controls run 13â€“14px, so on coarse-pointer devices we lift editable fields to
+   controls run 13–14px, so on coarse-pointer devices we lift editable fields to
    16px. Scoped to (pointer: coarse) so the desktop design is untouched; !important
    is needed to beat the class-scoped rules (.pc-input, .pc-search input, etc.). */
 @media (pointer: coarse) {
@@ -3496,15 +3496,15 @@ html.pn-reduce-motion .list-reveal {
 /* Autosave "Draft saved" flash (lib/hooks.js flashDraftSaved).
 
    It is created with document.body.appendChild, and --pn-bottom-inset is expanded
-   by `.has-bottom-nav` on ConsumerLayout's wrapper â€” not on <body> â€” so a body-level
+   by `.has-bottom-nav` on ConsumerLayout's wrapper — not on <body> — so a body-level
    child reads the :root value (the bare safe-area inset) and knows nothing about the
    tab bar. It therefore sat at bottom:16px, directly on top of the floating capsule,
    at an undocumented z-index:2000 that put a transient status pill above every modal
    in the app.
 
    Both halves are fixed here rather than in JS: z-index joins the documented ladder
-   just above the tab bar (70) and below sheets (1000) â€” it reports state, it does not
-   need to outrank a dialog â€” and the offset is rebuilt from the same two tokens the
+   just above the tab bar (70) and below sheets (1000) — it reports state, it does not
+   need to outrank a dialog — and the offset is rebuilt from the same two tokens the
    bar itself uses, guarded by the bar's own breakpoint so desktop is untouched. */
 .pn-autosave-flash {
   position: fixed;
@@ -3548,7 +3548,7 @@ html.pn-reduce-motion .list-reveal {
 }
 
 /* Home hero search: the "add area" chip on a suggestion row only reads as an ADD
-   affordance once it fills teal on hover â€” which never fires on touch, so phone users
+   affordance once it fills teal on hover — which never fires on touch, so phone users
    can't tell a row adds an area rather than replacing the search until after the tap.
    Give it the filled treatment permanently where hover doesn't exist. */
 @media (hover: none) {
@@ -3558,8 +3558,8 @@ html.pn-reduce-motion .list-reveal {
   }
 }
 
-/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px â€”
-   under the touch minimum â€” and redundant next to native swipe + the HScroll fade.
+/* Horizontal-scroll arrow buttons (Home categories / societies rails) are 36px —
+   under the touch minimum — and redundant next to native swipe + the HScroll fade.
    Remove them on coarse pointers rather than growing them. */
 @media (pointer: coarse) {
   .hscroll-arrow { display: none; }

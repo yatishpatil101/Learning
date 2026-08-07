@@ -294,6 +294,21 @@ export async function switchToTeamUp(page) {
   await page.waitForTimeout(300);
 }
 
+/* Open the advanced filter grid on the Flatmates page.
+   The grid used to be always-on; it now folds behind a `Filters` toggle that is
+   collapsed unless a filter is already active, because on a 1440x820 laptop the
+   permanent block pushed the first result card to y=881 (see FilterBar.jsx).
+   Controls inside it — "Verified only", lifestyle tags, attached-bath — are not
+   in the DOM until this runs, so a spec that clicks one directly times out
+   waiting for a button the page is not currently offering. */
+export async function openFlatmateFilters(page) {
+  const toggle = page.getByRole('button', { name: 'Filters', exact: true });
+  await toggle.waitFor({ timeout: 10_000 });
+  // Idempotent: a deep link with filters already applied opens the grid itself, and
+  // clicking then would close it.
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
 /**
  * A property detail page. It renders no `h1`, so `open()`'s heading wait never
  * settles here — wait on the owner contact box instead, which is the last thing

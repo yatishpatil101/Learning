@@ -7,13 +7,9 @@ import java.util.UUID;
 /**
  * The contract's {@code Society} — a society as it appears in the directory.
  *
- * @param id                 identifier
  * @param slug               public URL key
- * @param name               display name
  * @param builder            developer, where known
  * @param localitySlug       the locality it sits in; null for unplaced bulk imports
- * @param lat                latitude
- * @param lng                longitude
  * @param year               year built or possession year
  * @param towers             number of towers
  * @param units              number of flats
@@ -39,6 +35,13 @@ import java.util.UUID;
  * @param followerCount      followers, computed from {@code society_follows} — never the stored
  *                           {@code follower_count} column
  * @param followedByMe       whether the calling user follows it; false for anonymous callers
+ * @param avgRating          average published rating, <strong>null when the society has no
+ *                           reviews</strong> — no rating is not a rating of zero, and a card that
+ *                           renders 0.0 for an unreviewed society is stating something false about
+ *                           it. Computed on read via {@code common.trust.RatingLookup}, never the
+ *                           stored {@code avg_rating} column
+ * @param reviewCount        how many published reviews that average is over; without it the
+ *                           average is unreadable (4.9 from one review is not 4.9 from two hundred)
  */
 public record SocietyResponse(
         UUID id,
@@ -68,5 +71,7 @@ public record SocietyResponse(
         String claimStatus,
         long listingCount,
         long followerCount,
-        boolean followedByMe) {
+        boolean followedByMe,
+        BigDecimal avgRating,
+        long reviewCount) {
 }

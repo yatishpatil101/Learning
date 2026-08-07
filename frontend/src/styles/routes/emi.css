@@ -47,13 +47,13 @@
 }
 
 /* These sliders predate the .rng touch block above and never got the same
-   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px â€”
+   treatment, so on a phone the rail was a 6px-tall hit target and the thumb 20px —
    both well under the 44px floor, on the three controls this page exists for.
 
    The rail stays *drawn* at 6px: a fat bar would read as a progress meter rather
    than a slider. Only the element grows, with the gradient pinned to a centred 6px
    band so the visual is byte-identical while the finger gets a 32px strip. This is
-   the same trade .tap-extend makes for icon buttons â€” extend the target, not the
+   the same trade .tap-extend makes for icon buttons — extend the target, not the
    drawing. Painting the band requires background-size/position, which is why the
    gradient moved out of the component's inline style. */
 @media (pointer: coarse) {

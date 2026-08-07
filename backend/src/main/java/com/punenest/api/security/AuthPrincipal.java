@@ -8,7 +8,6 @@ import java.util.UUID;
  * read identity/role/trust-level from this — never from client-supplied fields.
  *
  * @param userId          the {@code sub} claim (the users.id)
- * @param role            {@code buyer|owner|staff|admin}
  * @param team            staff ops team, else {@code null}
  * @param mobileVerified  L1 trust floor — the participation gate
  * @param aadhaarVerified L2 opt-in badge — a trust signal, never a hard gate (ADR-019)

@@ -1,4 +1,4 @@
-import { Home } from 'lucide-react';
+import LogoMark from '../brand/LogoMark.jsx';
 
 /* Compact brand + trust strip shown only on mobile (AuthShell renders it `<lg`).
    Mobile hides the desktop left panel, so this restores PuneNest branding and the
@@ -15,10 +15,8 @@ export default function MobileAuthIntro({ eyebrow, tagline, chips = [] }) {
         </div>
       ) : null}
       <div className="flex items-center justify-center gap-2.5 mb-3">
-        <div className="auth-brand-badge w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center">
-          <Home className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-2xl font-bold tracking-tight text-white">Pune<span className="gradient-text">Nest</span></span>
+        <LogoMark className="auth-brand-badge w-9 h-9 shrink-0 text-teal-400" />
+        <span className="text-2xl font-bold tracking-tight text-white">PuneNest</span>
       </div>
       {tagline ? <p className="text-gray-400 text-[13px] leading-relaxed mb-4 px-3">{tagline}</p> : null}
       {chips.length ? (

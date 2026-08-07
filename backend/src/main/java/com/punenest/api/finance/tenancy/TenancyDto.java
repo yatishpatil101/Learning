@@ -37,7 +37,6 @@ public record TenancyDto(
      * A participant in the tenancy (contract {@code Party}).
      *
      * @param id     user id — always present; a tenancy is only ever between two registered users
-     * @param name   display name
      * @param mobile revealed to the counterparty, masked to anyone else
      * @param role   {@code tenant} or {@code owner}
      */

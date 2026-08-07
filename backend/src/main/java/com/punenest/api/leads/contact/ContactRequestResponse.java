@@ -33,7 +33,6 @@ public record ContactRequestResponse(
      * only other current use is the deals context, which does not exist yet — hoisting it into
      * {@code common} before there is a second caller would be speculative.
      *
-     * @param name   display name
      * @param mobile <strong>always masked</strong> ({@code 98XXXXX210})
      * @param role   {@code buyer} — the requester side of a contact request is always the buyer
      */
@@ -43,7 +42,6 @@ public record ContactRequestResponse(
     /**
      * The revealed contact, emitted only after approval.
      *
-     * @param name   display name
      * @param mobile the <strong>raw</strong> 10-digit mobile
      */
     public record Contact(String name, String mobile) {

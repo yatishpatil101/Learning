@@ -112,36 +112,42 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           </div>
         </Card>
       )}
-      {/* Headline metrics. On a phone only the first three render inline and the
-          rest move into a sheet — the panel was a straight port of the desktop
-          4-up grid, which on a 360px screen is two dense rows of small numbers
-          before the user reaches anything actionable. The `sm:` branch below is
-          the original grid, unchanged, so desktop sees no difference. */}
+      {/* Headline metrics. On a phone only the first three render and the rest
+          move into a sheet — the panel was a straight port of the desktop 4-up
+          grid, which on a 360px screen is two dense rows of small numbers before
+          the user reaches anything actionable.
+
+          One grid, not two (tech-debt D82). This was previously a `sm:hidden`
+          mobile grid beside a `hidden sm:grid` desktop one, which put **every**
+          headline label in the DOM twice — so `getByText('Total Views')` was a
+          Playwright strict-mode violation regardless of viewport, and any future
+          assertion on any of these labels would have been too. The overflow tiles
+          now sit in a `hidden sm:contents` wrapper: `display: contents` makes it
+          transparent to the grid, so the desktop layout is byte-for-byte what it
+          was, with one copy of each tile instead of two. */}
       {stats.length > MOBILE_STAT_LIMIT ? (
-        <>
-          <div className="grid grid-cols-2 gap-3 sm:hidden">
-            {stats.slice(0, MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
-            <button
-              type="button"
-              onClick={() => setAllStatsOpen(true)}
-              data-testid="see-all-metrics"
-              className="tap-target flex flex-col items-start justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06]">
-                <Icon name="layout-grid" className="h-4 w-4 text-gray-300" />
-              </span>
-              <span className="mt-2 text-xs font-medium text-gray-300">
-                {t('dashboard.seeAllMetrics', 'See all')}
-              </span>
-              <span className="mt-0.5 text-[11px] text-gray-500">
-                {t('dashboard.moreMetrics', '{{count}} more', { count: stats.length - MOBILE_STAT_LIMIT })}
-              </span>
-            </button>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {stats.slice(0, MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
+          <div className="hidden sm:contents">
+            {stats.slice(MOBILE_STAT_LIMIT).map((s) => <Stat key={s.label} {...s} />)}
           </div>
-          <div className="hidden gap-3 sm:grid sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-            {stats.map((s) => <Stat key={s.label} {...s} />)}
-          </div>
-        </>
+          <button
+            type="button"
+            onClick={() => setAllStatsOpen(true)}
+            data-testid="see-all-metrics"
+            className="tap-target flex flex-col items-start justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06] sm:hidden"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06]">
+              <Icon name="layout-grid" className="h-4 w-4 text-gray-300" />
+            </span>
+            <span className="mt-2 text-xs font-medium text-gray-300">
+              {t('dashboard.seeAllMetrics', 'See all')}
+            </span>
+            <span className="mt-0.5 text-[11px] text-gray-500">
+              {t('dashboard.moreMetrics', '{{count}} more', { count: stats.length - MOBILE_STAT_LIMIT })}
+            </span>
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {stats.map((s) => <Stat key={s.label} {...s} />)}

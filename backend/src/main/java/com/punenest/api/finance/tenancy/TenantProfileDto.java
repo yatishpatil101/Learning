@@ -10,7 +10,6 @@ import java.time.LocalDate;
  * owners rely on (spec fix S17).
  *
  * @param mobile        the tenant's number; masked unless the reader is the tenant themselves
- * @param name          display name
  * @param occupation    free text
  * @param income        monthly income, whole INR
  * @param occupants     one of {@link OccupantTypes}

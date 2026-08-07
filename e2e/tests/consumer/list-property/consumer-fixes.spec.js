@@ -48,7 +48,7 @@ test('switching property type clears the previous type-specific answers (cascade
   await single.click();
   await expect(single).toHaveClass(/selected/);
 
-  // Bounce to a Flat and back â€” the PG-only sharing pick must not survive.
+  // Bounce to a Flat and back — the PG-only sharing pick must not survive.
   await pickType(page, 'Flat / Apartment');
   await pickType(page, 'PG / Hostel');
   await expect(page.locator('.radio-pill', { hasText: 'Single (No Sharing)' })).not.toHaveClass(/selected/);
@@ -66,7 +66,7 @@ const buyFlat = {
   tenants: '', createdAt: Date.now(), viewUrl: '/property/RC-flat-buy',
 };
 
-test('detail page shows the ownerâ€™s real bathrooms, furnishing, facing, age and parking', async ({ page }) => {
+test('detail page shows the owner’s real bathrooms, furnishing, facing, age and parking', async ({ page }) => {
   await injectStock(page, [buyFlat]);
   await page.goto(`${BASE}/property/RC-flat-buy`);
   await expect(page.getByRole('heading', { name: /Key Details/i })).toBeVisible({ timeout: 15000 });
@@ -86,7 +86,7 @@ const rentFlat = {
   viewUrl: '/property/RC-flat-rent',
 };
 
-test('detail page shows the ownerâ€™s real deposit for a rental (not price Ã— 2)', async ({ page }) => {
+test('detail page shows the owner’s real deposit for a rental (not price × 2)', async ({ page }) => {
   await injectStock(page, [rentFlat]);
   await page.goto(`${BASE}/property/RC-flat-rent`);
   await expect(page.getByRole('heading', { name: /Key Details/i })).toBeVisible({ timeout: 15000 });

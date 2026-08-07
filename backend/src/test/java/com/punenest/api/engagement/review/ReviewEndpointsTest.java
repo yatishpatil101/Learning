@@ -436,6 +436,39 @@ class ReviewEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the society directory carries the same aggregate, so cards need no extra request")
+    void societyDirectoryCarriesRating() throws Exception {
+        String slug = anySocietySlug();
+        String id = jdbc.queryForObject(
+                "select id::text from societies where slug = ?", String.class, slug);
+        // `q` searches name and builder, not the slug — searching by slug here would silently match
+        // nothing and the assertions would run against an empty page.
+        String name = jdbc.queryForObject(
+                "select name from societies where slug = ?", String.class, slug);
+
+        // Unrated: absent, not zero. A card that renders 0.0 for an unreviewed society is stating
+        // something false about it, so the aggregate has to be able to say "no opinion yet".
+        mvc.perform(get("/societies").param("q", name))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reviewCount").value(0))
+                .andExpect(jsonPath("$.content[0].avgRating").doesNotExist());
+
+        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
+                + "values ('society', ?, 5, 'published')", id);
+        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
+                + "values ('society', ?, 4, 'published')", id);
+        jdbc.update("insert into reviews (target_type, target_id, rating, status) "
+                + "values ('society', ?, 1, 'rejected')", id);
+
+        // Identical to the hub's answer: one aggregate, two surfaces. If these ever disagree the
+        // directory is computing its own, which is how a star silently means two different things.
+        mvc.perform(get("/societies").param("q", name))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reviewCount").value(2))
+                .andExpect(jsonPath("$.content[0].avgRating").value(4.5));
+    }
+
+    @Test
     @DisplayName("a locality review keys on the slug, which is the localities primary key")
     void localityReviewsKeyOnSlug() throws Exception {
         User author = user("9820000018", "Rahul Joshi");

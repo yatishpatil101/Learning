@@ -88,7 +88,6 @@ public record PropertyResponse(
      * masked form; the raw number is never placed here on this slice.
      *
      * @param id       owner user id
-     * @param name     display name, nullable
      * @param mobile   masked mobile (e.g. {@code 98XXXXX210})
      * @param verified owner's identity "Verified" badge
      */

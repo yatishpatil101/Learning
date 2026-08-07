@@ -71,8 +71,20 @@ public class OtpService {
      *
      * <p>The 429 carries a truthful {@code Retry-After}, and is returned identically whether or not the
      * number has an account, so it stays useless as a registration oracle.
+     *
+     * <p><strong>{@code noRollbackFor} the refusal, and this is the annotation that matters</strong>
+     * (tech-debt D90). {@code AuthService.login} is itself {@code @Transactional}, so this advice
+     * <em>participates</em> in its transaction rather than owning one. Without the rule, a refusal
+     * marks that shared transaction rollback-only; {@code login} then honours its own
+     * {@code noRollbackFor}, attempts the commit, and gets an {@code UnexpectedRollbackException}
+     * that the catch-all renders as {@code 500 internal} — so the message above and its
+     * {@code Retry-After} never reach the caller, and the user is told the server broke when in fact
+     * they were told to wait. Nothing is written before the budget check runs, so there is no state
+     * a rollback would be protecting. The internal call below is <em>not</em> proxied, which is why
+     * the rule has to be here and not only on {@link #sendCode}; the two are separate entry points
+     * and each needs it for its own callers.
      */
-    @Transactional
+    @Transactional(noRollbackFor = RateLimitedException.class)
     public void sendLoginCode(String mobile) {
         sendCode(mobile, OtpCode.PURPOSE_LOGIN);
     }
@@ -90,8 +102,12 @@ public class OtpService {
      *
      * <p>The throttle itself is shared on purpose: it is the security-critical part, and two copies
      * of a rate limiter is one copy that will be forgotten when the rule changes.
+     *
+     * <p><strong>{@code noRollbackFor} for the reason given on {@link #sendLoginCode}</strong> — here
+     * it covers the cross-bean call from {@code FlatmateSupplyService}, which is transactional for
+     * the same reason {@code AuthService.login} is.
      */
-    @Transactional
+    @Transactional(noRollbackFor = RateLimitedException.class)
     public void sendCode(String mobile, String purpose) {
         enforceSendBudget(mobile, purpose);
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));

@@ -1,4 +1,5 @@
 import { test, expect, devices } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const OWNER = { name: 'Owner Test', mobile: '9800000001', email: '', role: 'owner', joinedAt: Date.now() };
@@ -13,9 +14,7 @@ async function login(page, user, listings) {
 }
 
 test('desktop: hovering a document info dot reveals its significance tip', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERR: ' + e.message));
+  const errors = trackErrors(page);
 
   await page.setViewportSize({ width: 1280, height: 1400 });
   await login(page, OWNER, [LISTING]);

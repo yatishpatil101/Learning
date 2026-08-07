@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { postAsGroup, switchToTeamUp, openFlatmateFilters } from '../../../helpers/app.js';
 
 /* Host eligibility tiers on flatmate groups. A sitting tenant seeking a
    replacement flatmate can't produce ownership docs, so they UPLOAD a registered
@@ -113,6 +113,7 @@ test('"Verified only" filter keeps an Ops-approved Tenant-verified group', async
   await card.waitFor({ timeout: 10000 });
   await expect(card.getByText(/Tenant-verified/i)).toBeVisible();
   // Turn on the verified-only filter; the Ops-approved tenant group must remain.
+  await openFlatmateFilters(page);
   await page.getByRole('button', { name: /Verified only/i }).first().click();
   await expect(page.locator('.sf-card', { hasText: title }).first()).toBeVisible();
 });

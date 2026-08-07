@@ -38,7 +38,7 @@ test('home Buy search offers all six posted property types', async ({ page }) =>
   const errors = trackErrors(page);
   await openHomeType(page);
   for (const [label] of BUY_TYPES) {
-    // Scope to the Type dropdown options â€” the hero also has a "Browse" quick-link
+    // Scope to the Type dropdown options — the hero also has a "Browse" quick-link
     // row where "Commercial" appears as a page-level chip.
     await expect(page.locator('.search-dd-opt', { hasText: label })).toBeVisible();
   }
@@ -171,7 +171,7 @@ test('home locality + BHK selection carries into the listings filters', async ({
   // Both localities are pre-applied in the filter panel (shown as active chips).
   await expect(page.getByRole('button', { name: /Remove filter Baner/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Remove filter Wakad/i })).toBeVisible();
-  // The BHK filter carried over â€” shown as an active filter chip in the listings panel.
+  // The BHK filter carried over — shown as an active filter chip in the listings panel.
   await expect(page.getByRole('button', { name: /Remove filter 2 BHK/i })).toBeVisible();
   expect(errors).toHaveLength(0);
 });

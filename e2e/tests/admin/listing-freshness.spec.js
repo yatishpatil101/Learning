@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 
 /* Admin anti-staleness: when a LIVE listing goes unconfirmed (freshness stale/dormant),
-   ops can surface it under Properties â†’ Needs Follow-up â†’ "Unconfirmed (stale)" and send
+   ops can surface it under Properties → Needs Follow-up → "Unconfirmed (stale)" and send
    the owner a WhatsApp nudge to confirm availability. */
 
 const BASE = 'http://localhost:5173';

@@ -11,8 +11,8 @@
    Imported by DateField.jsx and TimeField.jsx so it ships with whichever chunk
    actually renders a picker. */
 
-/* DateField â€” guaranteed DD/MM/YYYY display over a native date picker.
-   The wrapper carries the caller's field classes (form-input / field / â€¦) so it
+/* DateField — guaranteed DD/MM/YYYY display over a native date picker.
+   The wrapper carries the caller's field classes (form-input / field / …) so it
    looks identical to sibling inputs; the native control sits on top, invisible. */
 .pn-datefield {
   position: relative;
@@ -61,9 +61,9 @@
   cursor: not-allowed;
 }
 
-/* â”€â”€ Custom calendar (DatePickerDialog) â€” light "Select Date" card, teal accents,
+/* ── Custom calendar (DatePickerDialog) — light "Select Date" card, teal accents,
    shown as a dropdown anchored under its field (position set inline by JS).
-   Centrally used by every DateField, so the picker looks identical app-wide. â”€â”€ */
+   Centrally used by every DateField, so the picker looks identical app-wide. ── */
 .pn-cal {
   position: fixed;
   z-index: 2000;
@@ -110,7 +110,7 @@
    they encode the available-slot rules; only their presentation changes.
 
    Both dialogs write inline left/top from their place() helper, which would beat
-   these rules â€” each bails out at this same breakpoint and clears those inline
+   these rules — each bails out at this same breakpoint and clears those inline
    values. Keep the two in sync. */
 @media (max-width: 639.98px) {
 
@@ -380,9 +380,9 @@
   }
 }
 
-/* â”€â”€ Custom time picker (TimePickerDialog) â€” reuses the .pn-cal card shell so it
+/* ── Custom time picker (TimePickerDialog) — reuses the .pn-cal card shell so it
    looks identical to the calendar; swaps the day grid for hour/minute selects +
-   an AM/PM toggle. Centrally used by every TimeField. â”€â”€ */
+   an AM/PM toggle. Centrally used by every TimeField. ── */
 /* The card is narrower than the calendar on a desktop dropdown, but NOT on a
    phone: the bottom-sheet block above gives `.pn-cal` a full-bleed `width: 100%`,
    and an unguarded `.pn-timepicker { width: 250px }` later in this file has equal

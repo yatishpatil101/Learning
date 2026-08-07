@@ -4,7 +4,7 @@ import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import { useTranslation } from 'react-i18next';
 import { CATEGORIES, PRIORITIES, MAX_IMAGES, getCatLabel, getPrioLabel } from '../../../lib/data/support.js';
 
-export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNewImgs, handleFiles, removeImg, submit }) {
+export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNewImgs, handleFiles, removeImg, submit, richTicket = true }) {
   const { t } = useTranslation();
   return (
     <div className="glass-card rounded-2xl p-6 sm:p-7 reveal">
@@ -46,16 +46,22 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
             ))}
           </NativeSelect>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">{t('misc.tfPriority')}</label>
-          <NativeSelect value={form.priority} onChange={(e) => set('priority', e.target.value)} className={fld}>
-            {PRIORITIES.map((p) => (
-              <option key={p.key} value={p.key}>
-                {getPrioLabel(p.key)}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
+        {/* Priority is mock-only: neither `SupportTicket` nor `SupportTicketCreate` carries it, so
+            against the API this picker would set a value nothing transmits and ops would never see
+            an "urgent" ticket as urgent. Hidden rather than disabled — a greyed-out control invites
+            "why can't I?", where an absent one asks nothing. */}
+        {richTicket ? (
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">{t('misc.tfPriority')}</label>
+            <NativeSelect value={form.priority} onChange={(e) => set('priority', e.target.value)} className={fld}>
+              {PRIORITIES.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {getPrioLabel(p.key)}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        ) : null}
         <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-gray-300 mb-2">
             {t('misc.tfSubject')} <span className="text-rose-400">*</span>
@@ -81,6 +87,11 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
             className={fld + ' resize-none'}
           />
         </div>
+        {/* Attachments are mock-only for the same reason: `MessageCreate` is `{ body }`, and the
+            contract states an attachment field would be "accepted and dropped rather than stored as
+            a client-supplied URL nothing can render". Offering an upload that silently discards the
+            file is worse than not offering one. */}
+        {richTicket ? (
         <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-gray-300 mb-2">
             {t('misc.tfAttach')} <span className="text-gray-500 font-normal">{t('misc.tfOptionalUpTo', { max: MAX_IMAGES })}</span>
@@ -123,6 +134,7 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
             </div>
           )}
         </div>
+        ) : null}
       </div>
 
       <button

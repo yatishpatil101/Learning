@@ -24,6 +24,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const [mobile, setMobile] = useState(() => myMobile() || '');
   const [channel, setChannel] = useState('whatsapp');
   const [sent, setSent] = useState(false);
+  const [saving, setSaving] = useState(false);
   const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
 
@@ -32,7 +33,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const chips = criteriaChips(record, locNameBySlug);
   const label = record.label;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('listings.invalidMobile'), 'error'); return; }
 
@@ -42,8 +43,24 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
     // Signed in → the seam, where ownership comes from the token. Signed out → localStorage: the
     // API's create is caller-scoped and takes no mobile, so there is nothing to call for the very
     // visitor this card exists to capture (D85). The demand signal below is unaffected either way.
-    if (isIn) createSavedSearch({ ...record, query: '', channel });
-    else addSavedSearch({ ...record, query: '', channel, mobile });
+    //
+    // Awaited, because against the live API this is a network write that can fail. Fire-and-forget
+    // showed the "first in line" confirmation unconditionally, so a rejected create left the user
+    // certain they had an alert that was never recorded — and the rejection surfaced only as an
+    // unhandled promise in the console.
+    if (isIn) {
+      setSaving(true);
+      try {
+        await createSavedSearch({ ...record, query: '', channel });
+      } catch {
+        setSaving(false);
+        toast(t('listings.alertFailed'), 'error');
+        return;
+      }
+      setSaving(false);
+    } else {
+      addSavedSearch({ ...record, query: '', channel, mobile });
+    }
 
     // Admin demand-gap signal — one per selected locality (or one blank if none).
     const demandType = demandTypeLabel(record);
@@ -134,7 +151,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 pl-10 text-sm text-white placeholder:text-gray-600 outline-none focus:border-teal-400/50"
               />
             </div>
-            <button type="submit" className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-ink transition hover:bg-teal-400">
+            <button type="submit" disabled={saving} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-ink transition hover:bg-teal-400 disabled:opacity-50 disabled:cursor-not-allowed">
               <Icon name="bell-plus" className="h-4 w-4" /> {t('listings.createAlert')}
             </button>
           </div>

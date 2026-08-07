@@ -6,7 +6,7 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
  * Duplicate-property BLOCK modal (end-to-end UI).
  *
  * Seeds an active listing owned by the test user at a known society+unit into the
- * shared mock DB (puneNestDB_v5) â€” the same store every real post is mirrored to â€”
+ * shared mock DB (puneNestDB_v5) — the same store every real post is mirrored to —
  * then drives the whole List Property wizard as that same owner for the same unit.
  * On submit the app must STOP the second post with the "You've already listed this
  * property" guard + a "Go to my existing listing" CTA, and must NOT create a new
@@ -78,7 +78,7 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   await page.reload();
   await page.waitForSelector('.lp-meter', { timeout: 10000 });
 
-  // Step 1 â€” rent flat.
+  // Step 1 — rent flat.
   await page.locator('.radio-pill', { hasText: 'Rent' }).first().click();
   await page.locator('[data-err="propertyType"]').click();
   await page.waitForTimeout(200);
@@ -87,7 +87,7 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('.gm-style', { timeout: 20000 });
 
-  // Step 2 â€” the SAME society + unit + pincode as the seeded listing.
+  // Step 2 — the SAME society + unit + pincode as the seeded listing.
   await pickOption(page, 'locality', 'Baner');
   await page.locator('input[data-err="flatNumber"]').fill(FLAT);
   await page.locator('input[data-err="society"]').fill(SOCIETY);
@@ -98,13 +98,13 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.waitForSelector('text=/Photos & documents/i', { timeout: 10000 });
 
-  // Step 3 â€” one photo + the required Ownership Proof doc, then submit.
+  // Step 3 — one photo + the required Ownership Proof doc, then submit.
   const buf = Buffer.from(PNG, 'base64');
   await page.locator('input[type="file"][accept="image/*"]').first().setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: buf });
   await page.locator('input[type="file"][accept="image/*,.pdf"]').first().setInputFiles({ name: 'doc.png', mimeType: 'image/png', buffer: buf });
   await page.getByRole('button', { name: /Submit Property/i }).click();
 
-  // The duplicate guard must appear â€” and the success screen must NOT.
+  // The duplicate guard must appear — and the success screen must NOT.
   await expect(page.getByText(/already listed this property/i)).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole('button', { name: /Go to my existing listing/i })).toBeVisible();
   await expect(page.locator('text=/Listed Successfully/i')).toHaveCount(0);

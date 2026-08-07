@@ -52,7 +52,10 @@ test('Confirming Start over clears the form and the saved draft', async ({ page 
 
   // Open confirm and commit the reset (triggers a full reload).
   await page.locator('.lp-reset').click();
-  await page.locator('.pn-modal-panel').getByRole('button', { name: 'Start over' }).click();
+  /* `exact` matters here: Playwright matches accessible names by substring by default, and the
+     modal's close button is labelled "Close Start over?" — which contains "Start over". Two
+     matches, and the one that would have been clicked is a coin toss. */
+  await page.locator('.pn-modal-panel').getByRole('button', { name: 'Start over', exact: true }).click();
 
   // Page reloads back into a fresh, still-verified flow.
   await page.waitForSelector('.lp-steps', { timeout: 10000 });

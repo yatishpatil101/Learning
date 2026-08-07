@@ -16,7 +16,6 @@ import jakarta.validation.constraints.Size;
  * not exactly ten digits.
  *
  * @param name   the party's name (required)
- * @param mobile optional mobile
  * @param note   optional private note
  */
 public record DealPartyCreateRequest(

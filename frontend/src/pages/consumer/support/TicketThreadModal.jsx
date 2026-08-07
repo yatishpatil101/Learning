@@ -18,6 +18,7 @@ export default function TicketThreadModal({
   setReplyText,
   sendReply,
   fld,
+  richTicket = true,
 }) {
   const { t } = useTranslation();
   return (
@@ -112,24 +113,29 @@ export default function TicketThreadModal({
             </div>
           )}
           <div className="flex items-end gap-2">
-            <button
-              onClick={() => replyFilesRef.current?.click()}
-              className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-300 flex-shrink-0"
-              title={t('misc.ttmAttachImage')}
-            >
-              <Icon name="paperclip" className="w-4 h-4" />
-            </button>
-            <input
-              ref={replyFilesRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                handleFiles(e.target.files, replyImgs, setReplyImgs);
-                e.target.value = '';
-              }}
-            />
+            {/* Mock-only — `MessageCreate` is `{ body }`. See TicketForm.jsx. */}
+            {richTicket ? (
+              <>
+                <button
+                  onClick={() => replyFilesRef.current?.click()}
+                  className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-300 flex-shrink-0"
+                  title={t('misc.ttmAttachImage')}
+                >
+                  <Icon name="paperclip" className="w-4 h-4" />
+                </button>
+                <input
+                  ref={replyFilesRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    handleFiles(e.target.files, replyImgs, setReplyImgs);
+                    e.target.value = '';
+                  }}
+                />
+              </>
+            ) : null}
             <textarea
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}

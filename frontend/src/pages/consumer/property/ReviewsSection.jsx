@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
-import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
 import { myMobile, getTenanciesFor } from '../../../lib/store.js';
+import { listPropertyReviews, createPropertyReview } from '../../../services/reviewService.js';
 import { listVisits } from '../../../services/visitService.js';
 import { Stars } from './Stars.jsx';
-import { loadReviews, saveReview } from './reviews.js';
 import { ReviewModal } from './ReviewModal.jsx';
 
 function initials(name) {
@@ -19,12 +18,25 @@ export const RV_CATS = [['locality', 'Locality'], ['condition', 'Condition'], ['
 
 export function ReviewsSection({ p, isIn, onReport, toast }) {
   const { t } = useTranslation();
-  const [reviews, setReviews] = useState(() => loadReviews(p.id));
+  const [reviews, setReviews] = useState([]);
   const [filter, setFilter] = useState('all');
   const [modal, setModal] = useState(false);
-  const { user } = useAuth();
 
-  useEffect(() => { setReviews(loadReviews(p.id)); }, [p.id]);
+  /**
+   * The list used to be seeded synchronously from localStorage in `useState`. Behind the seam it
+   * arrives from a request, so it starts empty and the "no reviews yet" panel is what renders for
+   * the first frame — which is correct, and is also why nothing below may assume a non-empty list.
+   */
+  useEffect(() => {
+    if (!p.id) return undefined;
+    let alive = true;
+    listPropertyReviews(p.id)
+      .then((res) => { if (alive) setReviews(res.items); })
+      // A failed read shows an unreviewed property rather than a broken section. The alternative,
+      // a retry loop on a page the user is reading, costs more than the missing stars.
+      .catch(() => { if (alive) setReviews([]); });
+    return () => { alive = false; };
+  }, [p.id]);
 
   const summary = useMemo(() => {
     const count = reviews.length;
@@ -86,10 +98,17 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   };
 
   const submit = (review) => {
-    saveReview(p.id, review);
-    setReviews(loadReviews(p.id));
-    setModal(false);
-    toast(t('property.reviewPosted'), 'success');
+    // Re-read rather than push the local object in: the server decides the id, the timestamp and
+    // the `context` badge, and the badge in particular is the one field the client must not
+    // invent. Optimistically prepending our own version would render a "Visited" chip we made up.
+    createPropertyReview(p.id, review)
+      .then(() => listPropertyReviews(p.id))
+      .then((res) => {
+        setReviews(res.items);
+        setModal(false);
+        toast(t('property.reviewPosted'), 'success');
+      })
+      .catch(() => toast(t('property.reviewFailed'), 'error'));
   };
 
   return (
@@ -164,7 +183,14 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="text-white font-semibold text-sm">{r.user}</span>
-                      <span className={'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ' + (r.context === 'tenant' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' : 'bg-teal-500/15 text-teal-300 border-teal-500/25')}><Icon name={r.context === 'tenant' ? 'home' : 'calendar-check'} className="w-2.5 h-2.5" /> {r.context === 'tenant' ? t('property.verifiedResident') : t('property.visited')}</span>
+                      {/* Only when the server actually granted a badge. This used to render
+                          unconditionally, so a review with no `context` fell through to the else
+                          branch and displayed "Visited" — inventing standing for an author who had
+                          none. The badge is the whole reason a stranger's rating is worth reading;
+                          showing it by default is worse than never showing it. */}
+                      {r.context ? (
+                        <span className={'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ' + (r.context === 'tenant' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' : 'bg-teal-500/15 text-teal-300 border-teal-500/25')}><Icon name={r.context === 'tenant' ? 'home' : 'calendar-check'} className="w-2.5 h-2.5" /> {r.context === 'tenant' ? t('property.verifiedResident') : t('property.visited')}</span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2 mb-2"><Stars value={r.rating} size={14} /><span className="text-[11px] text-slate-500">{r.at}</span></div>
                     {r.text ? <p className="text-slate-300 text-sm leading-relaxed mb-2">{r.text}</p> : null}
@@ -184,7 +210,7 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
         </MobileCollapse>
       )}
 
-      {modal ? <ReviewModal user={user} onClose={() => setModal(false)} onSubmit={submit} /> : null}
+      {modal ? <ReviewModal onClose={() => setModal(false)} onSubmit={submit} /> : null}
     </section>
   );
 }

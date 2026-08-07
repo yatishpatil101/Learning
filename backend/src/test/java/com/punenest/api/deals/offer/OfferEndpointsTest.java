@@ -31,7 +31,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * Contract + behaviour proof for the offers sub-slice (A1), driven through the real filter chain
  * against the live Flyway'd Postgres under {@code ddl-auto=validate}.
  *
- * <p>Covers every test in the Â§11 bar: submit, counter, author-counter-back, accept, illegal
+ * <p>Covers every test in the §11 bar: submit, counter, author-counter-back, accept, illegal
  * transition, third-party scoping, caller-scoped lists, mobile masking, duplicate prevention,
  * closed-deal block, route-constant agreement, and money round-trip.
  */
@@ -90,7 +90,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk());
     }
 
-    // ---- Â§11 test 1: Submit â†’ 201, correct shape, history row with by='buyer' ----
+    // ---- §11 test 1: Submit → 201, correct shape, history row with by='buyer' ----
 
     @Test
     void submitOffer_creates201WithHistoryRow() throws Exception {
@@ -113,7 +113,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.history[0].amount").value(5000000));
     }
 
-    // ---- Â§11 test 2: Owner counters â†’ 'countered', history row with by='owner' ----
+    // ---- §11 test 2: Owner counters → 'countered', history row with by='owner' ----
 
     @Test
     void ownerCounters_statusCountered_historyByOwner() throws Exception {
@@ -134,7 +134,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         assertThat(trail.get(1).getAmount()).isEqualTo(5500000L);
     }
 
-    // ---- Â§11 test 3: Author counters back â†’ history row with by='buyer' ----
+    // ---- §11 test 3: Author counters back → history row with by='buyer' ----
 
     @Test
     void authorCountersBack_historyByBuyer() throws Exception {
@@ -153,7 +153,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         assertThat(trail.get(2).getAmount()).isEqualTo(5200000L);
     }
 
-    // ---- Â§11 test 4: Owner accepts â†’ 'accepted', NO new history row ----
+    // ---- §11 test 4: Owner accepts → 'accepted', NO new history row ----
 
     @Test
     void ownerAccepts_statusAccepted_noNewHistoryRow() throws Exception {
@@ -171,7 +171,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         assertThat(trail).hasSize(1); // only the submit event
     }
 
-    // ---- Â§11 test 5: Illegal transition â†’ 409, not 500, not 422 ----
+    // ---- §11 test 5: Illegal transition → 409, not 500, not 422 ----
 
     @Test
     void illegalTransition_respondToAcceptedOffer_returns409() throws Exception {
@@ -189,7 +189,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value("conflict"));
     }
 
-    // ---- Â§11 test 6: Third party responding â†’ 404, not 403 ----
+    // ---- §11 test 6: Third party responding → 404, not 403 ----
 
     @Test
     void thirdPartyResponding_returns404() throws Exception {
@@ -206,7 +206,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isNotFound());
     }
 
-    // ---- Â§11 test 7: /offers/mine returns only the caller's own offers ----
+    // ---- §11 test 7: /offers/mine returns only the caller's own offers ----
 
     @Test
     void myOffers_returnsOnlyCallerOwn() throws Exception {
@@ -224,7 +224,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].amount").value(5000000));
     }
 
-    // ---- Â§11 test 8: /me/offers returns only offers on the caller's listings ----
+    // ---- §11 test 8: /me/offers returns only offers on the caller's listings ----
 
     @Test
     void offersOnMine_returnsOnlyCallersListings() throws Exception {
@@ -243,7 +243,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].propertyId").value(p1.getId().toString()));
     }
 
-    // ---- Â§11 test 9: Buyer's mobile masked on pending, revealed on accepted ----
+    // ---- §11 test 9: Buyer's mobile masked on pending, revealed on accepted ----
 
     @Test
     void buyerMobile_maskedOnPending_revealedOnAccepted() throws Exception {
@@ -252,7 +252,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         Property p = listing(owner, "Mask test");
         String offerId = submitOffer(buyer, p, 5000000);
 
-        // Owner views offers on their listings â€” buyer mobile should be masked.
+        // Owner views offers on their listings — buyer mobile should be masked.
         mvc.perform(get(Routes.Offers.ME)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
@@ -268,7 +268,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[0].from.mobile").value("9829876543"));
     }
 
-    // ---- Â§11 test 10: Duplicate live offer â†’ 409 (DB constraint) ----
+    // ---- §11 test 10: Duplicate live offer → 409 (DB constraint) ----
 
     @Test
     void duplicateLiveOffer_returns409() throws Exception {
@@ -284,7 +284,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    /** Â§11 test 10 part 2: assert the DB constraint fires even if the service check is bypassed. */
+    /** §11 test 10 part 2: assert the DB constraint fires even if the service check is bypassed. */
     @Test
     void duplicateLiveOffer_dbConstraintFiresDirectly() {
         User owner = user("9820100023", "owner");
@@ -300,7 +300,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 () -> offerRepo.saveAndFlush(second));
     }
 
-    // ---- Â§11 test 11: Offer on property with closed deal â†’ 409 ----
+    // ---- §11 test 11: Offer on property with closed deal → 409 ----
 
     @Test
     void offerOnClosedDeal_returns409() throws Exception {
@@ -319,7 +319,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- Â§11 test 12: Route-constant â†” SecurityConfig matcher agreement ----
+    // ---- §11 test 12: Route-constant ↔ SecurityConfig matcher agreement ----
 
     @Test
     void everyOfferRouteConstantIsServedByAController() {
@@ -335,7 +335,7 @@ class OfferEndpointsTest extends AbstractApiTest {
                 Routes.Offers.ME);
     }
 
-    // ---- Â§11 test 13: Money round-trips as a long ----
+    // ---- §11 test 13: Money round-trips as a long ----
 
     @Test
     void moneyRoundTrips_largeValueNoPrecisionLoss() throws Exception {

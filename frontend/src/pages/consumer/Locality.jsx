@@ -5,7 +5,7 @@ import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { getEntityReviews, addEntityReview } from '../../lib/store.js';
+import { createEntityReview, listEntityReviews } from '../../services/reviewService.js';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { localityBySlug, localityByName } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
@@ -161,17 +161,38 @@ export default function Locality() {
     ['locality.pulseBuyer', { key: 'locality.pulseBuyerVal', args: { score: L.buyer } }, 'users', 'text-emerald-400'],
   ];
 
-  const locId = activeName.toLowerCase();
+  /**
+   * Reviews key on `activeSlug`, like everything else on this page.
+   *
+   * They used to key on `activeName.toLowerCase()`, which is the *display name* lowercased. For a
+   * single-word locality the two happen to agree, which is why this survived; for "Viman Nagar" the
+   * review bucket was `viman nagar` while the listings query, the societies filter and the URL all
+   * used `viman-nagar`. The server keys localities on the slug — it is their primary key — so the
+   * old key would simply have addressed a locality that does not exist.
+   */
   useEffect(() => {
-    setReviews((r) => (r[locId] ? r : { ...r, [locId]: getEntityReviews('locality', locId) }));
-  }, [locId]);
-  const locReviews = reviews[locId] || [];
+    if (!activeSlug || reviews[activeSlug]) return undefined;
+    let alive = true;
+    listEntityReviews('locality', activeSlug)
+      .then((res) => { if (alive) setReviews((r) => ({ ...r, [activeSlug]: res.items })); })
+      .catch(() => { if (alive) setReviews((r) => ({ ...r, [activeSlug]: [] })); });
+    return () => { alive = false; };
+  }, [activeSlug, reviews]);
+  const locReviews = reviews[activeSlug] || [];
   const postReview = (e) => {
     e.preventDefault();
     if (!isIn) { toast(t('locality.signInReview'), 'error'); return; }
-    if (addEntityReview('locality', locId, { rating: pick, text: revText.trim() }) === 'login') { toast(t('locality.signInReview'), 'error'); return; }
-    setReviews((r) => ({ ...r, [locId]: getEntityReviews('locality', locId) }));
-    setRevText(''); setPick(5); toast(t('locality.reviewThanks'));
+    createEntityReview('locality', activeSlug, { rating: pick, text: revText.trim() })
+      .then((saved) => {
+        if (saved === 'login') { toast(t('locality.signInReview'), 'error'); return null; }
+        return listEntityReviews('locality', activeSlug);
+      })
+      .then((res) => {
+        if (!res) return;
+        setReviews((r) => ({ ...r, [activeSlug]: res.items }));
+        setRevText(''); setPick(5); toast(t('locality.reviewThanks'));
+      })
+      .catch(() => toast(t('locality.signInReview'), 'error'));
   };
 
   // Locality alert — reuses the same saved-search/alert layer as the listings

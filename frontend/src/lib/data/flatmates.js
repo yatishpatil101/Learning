@@ -89,6 +89,26 @@ export const deleteFlatmateGroup = (id) => {
 };
 
 /* =========================================================================
+   Moderation visibility — mirrors the server exactly (tech-debt D97d).
+
+   `FlatmateVocabulary.MOD_HIDDEN` on the backend is `{flagged, removed, rejected}`,
+   and every public flatmate read filters on it — nine query sites across
+   `FlatmateRoomRepository`, `FlatmateGroupRepository` and `FlatmateSeekerPostRepository`,
+   one of which carries the comment *"the mod_status clause is not decoration: a
+   flagged post must disappear"*. The mock had no equivalent, so in mock mode a
+   moderator could remove a post and the board would keep showing it.
+
+   The set is duplicated here rather than imported because there is nothing to
+   import from — but it is duplicated *deliberately and named after its source*,
+   so a change on the server has one obvious place to land. `MOD_LIVE` is the
+   default an unmoderated post is treated as, matching the server's column default.
+   ========================================================================= */
+export const MOD_HIDDEN = ['flagged', 'removed', 'rejected'];
+
+/** True when a post may appear on a public board. Absent `modStatus` = live, as on the server. */
+export const isPubliclyVisible = (item) => !MOD_HIDDEN.includes(item?.modStatus || 'live');
+
+/* =========================================================================
    Anti-broker guardrails. Trust is the product: cap how many live flatmate posts
    one identity can host, and detect two people claiming the same physical flat.
    Rooms live in their own store (store.js `puneNestRoomListings`); we read that

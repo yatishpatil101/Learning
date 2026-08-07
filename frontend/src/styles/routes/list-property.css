@@ -723,7 +723,7 @@ input.form-input {
   transform: rotate(45deg);
 }
 
-/* List-property "Search an area" autocomplete dropdown â€” dark, google.com/maps-style
+/* List-property "Search an area" autocomplete dropdown — dark, google.com/maps-style
    predictions shown under the search input in the location picker. */
 .pn-ac-list {
   position: absolute;

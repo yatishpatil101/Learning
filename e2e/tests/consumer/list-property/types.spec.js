@@ -233,18 +233,24 @@ test('Farm Land Step 3 drops NA Order and shows agricultural records', async ({ 
   await expect(page.locator('label').filter({ hasText: '7/12 Extract (Satbara)' })).toBeVisible();
 });
 
-test('Land ownership validation requires the 7/12 Extract, not Index II', async ({ page }) => {
+test('Land offers the 7/12 Extract as its ownership proof, not Index II', async ({ page }) => {
   await toStep3Buy(page, 'Open Plot');
 
-  // Exactly one document is mandatory for land, and it is the 7/12 Extract
-  // (the Index II / Sale Deed entry is optional, so it carries no data-err).
-  await expect(page.locator('[data-err="documents"]')).toHaveCount(1);
+  /* This used to assert that the 7/12 Extract was *mandatory* for land and that submitting without
+     it raised "ownership proof required to submit". That gate is gone platform-wide: every document
+     is optional now and the ownership proof is flagged `verifies` rather than `required`, because
+     it earns the Verified Owner badge instead of blocking the post (see constants.js).
+   *
+     The land-specific claim underneath it still matters and is what this keeps: land's ownership
+     proof is the 7/12 Extract (Satbara), and Index II appears only as the conditional
+     "if purchased" entry — getting those two the wrong way round would ask a farmer for a document
+     that does not exist for inherited land. */
+  await expect(page.locator('label').filter({ hasText: '7/12 Extract (Satbara)' })).toBeVisible();
   await expect(page.getByText('Sale Deed / Index II (if purchased)')).toBeVisible();
 
-  // Submitting without it flags the 7/12 field with the land-specific message.
+  // Optional means optional: submitting with no document raises no document error.
   await page.getByRole('button', { name: /Submit Property/i }).click();
-  await expect(page.locator('[data-err="documents"].pn-invalid, [data-err="documents"] .pn-invalid')).toBeVisible();
-  await expect(page.getByText('ownership proof required to submit')).toBeVisible();
+  await expect(page.locator('[data-err="documents"]')).toHaveCount(0);
 });
 
 test('Commercial Step 3 shows compliance docs and a business amenity set', async ({ page }) => {
@@ -261,8 +267,12 @@ test('Warehouse (industrial) Step 3 shows factory/pollution docs, drops office a
   await toStep3Buy(page, 'Commercial', { commercialSubtype: 'Warehouse / Godown' });
 
   // Industrial-only compliance documents appear.
+  // Every document label now carries a trailing "(optional)" marker, since documents earn a
+  // Verified Owner badge rather than gating the post — so `exact` no longer matches. Anchored with
+  // a start-of-string regex instead of dropping exactness, which would let "Factory License" match
+  // a longer unrelated label.
   await expect(page.getByText('MPCB (Pollution) Consent')).toBeVisible();
-  await expect(page.getByText('Factory License', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Factory License\b/)).toBeVisible();
   // A godown shouldn't advertise co-working / club-house.
   await expect(page.getByText('Co-Working Spaces')).toHaveCount(0);
   await expect(page.getByText('Club House')).toHaveCount(0);

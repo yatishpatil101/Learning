@@ -8,6 +8,14 @@ import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
+/* SEAM NOTE: owner reviews are deliberately still on the mock store.
+
+   Every other review surface moved to `services/reviewService.js` in the reviews slice. This one
+   cannot yet, because the *target* is not live: `getOwner()` reads `lib/mockApi/users.js`, whose
+   ids are mock user ids, while the server keys owner reviews on its own user UUIDs. Pointing this
+   at the service would produce a perfectly well-formed request for an owner the server has never
+   heard of, and the empty result would render as "no reviews yet" — a silent wrong answer, which is
+   worse than an honest mock. It moves when the owner profile does. */
 import { getEntityReviews, addEntityReview } from '../../lib/store.js';
 import { messagesLinkForProp } from '../../lib/chat.js';
 import { queuePendingChat } from '../../services/conversationService.js';

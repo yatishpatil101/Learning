@@ -15,13 +15,19 @@ test.describe('Admin Post on Behalf', () => {
   });
 
   test('navigates to post-on-behalf from sidebar', async ({ page }) => {
-    await page.getByRole('link', { name: /Post on Behalf/i }).click();
+    // Scoped to the sidebar, because two links reach this page: this one and the dashboard's
+    // quick-action card ("Post on behalf"). Unscoped, the locator is a race — it matches one
+    // element while the dashboard is still rendering and two once it has, so the test passed on a
+    // quiet machine and failed with a strict-mode violation under parallel load. Scoping also makes
+    // it test what its name claims; `.first()` would have silenced the error while leaving the test
+    // free to click the card instead.
+    await page.locator('aside').getByRole('link', { name: /Post on Behalf/i }).click();
     await page.waitForURL('**/admin/post-on-behalf');
     await expect(page.getByText('Post on Behalf of Owner')).toBeVisible();
   });
 
   test('navigates from dashboard quick action', async ({ page }) => {
-    await page.getByRole('link', { name: /Post on behalf/i }).first().click();
+    await page.locator('main').getByRole('link', { name: /Post on behalf/i }).first().click();
     await page.waitForURL('**/admin/post-on-behalf');
     await expect(page.getByText('Post on Behalf of Owner')).toBeVisible();
   });

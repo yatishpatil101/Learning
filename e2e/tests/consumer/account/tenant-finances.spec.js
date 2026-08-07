@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -38,16 +39,9 @@ async function loginTenant(page, { withRental = true } = {}) {
   }, { u: TENANT, t: tenancy, p: payments, wr: withRental });
 }
 
-function trackErrors(page) {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERR: ' + e.message));
-  return () => errors.filter((e) => !/favicon|leaflet|googleapis|gstatic|maps|ERR_|net::|Failed to load resource|Download the React DevTools/i.test(e));
-}
-
 test.describe('Dashboard — tenant Finances (Rent Wallet)', () => {
   test('a tenant sees the Rent Wallet with KPIs, Rent Passport and HRA saver', async ({ page }) => {
-    const getErrors = trackErrors(page);
+    const errors = trackErrors(page);
     await loginTenant(page);
     await page.goto(`${BASE}/dashboard#finances`, { waitUntil: 'networkidle' });
 
@@ -60,7 +54,7 @@ test.describe('Dashboard — tenant Finances (Rent Wallet)', () => {
     await expect(page.getByRole('button', { name: /Download report/ })).toBeVisible();
     await expect(page.getByText(/2 on-time payments/)).toBeVisible();
 
-    expect(getErrors(), 'console errors on Rent Wallet').toEqual([]);
+    expect(errors, 'console errors on Rent Wallet').toEqual([]);
   });
 
   test('HRA Tax Saver computes an estimated saving from an entered salary', async ({ page }) => {

@@ -19,12 +19,12 @@ import org.springframework.http.MediaType;
  * The customer-facing support thread.
  *
  * <p>Two properties carry this suite. <strong>The list is the caller's own</strong>, for staff and
- * admin as well â€” spec fix S47, and the reason is that "every support conversation on the platform"
+ * admin as well — spec fix S47, and the reason is that "every support conversation on the platform"
  * in one unpaged array is a PII export, not a feature. <strong>{@code unread} points one way</strong>:
  * it is the customer's signal that a reply is waiting, so ops answering sets it and the customer's
  * own reply does not.
  */
-@DisplayName("Slice 12 â€” support tickets: the customer's thread with the platform")
+@DisplayName("Slice 12 — support tickets: the customer's thread with the platform")
 class SupportTicketEndpointsTest extends ServiceFixtures {
 
     @Nested
@@ -32,7 +32,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
     class Scope {
 
         @Test
-        @DisplayName("the list is the caller's own â€” including for admin (S47)")
+        @DisplayName("the list is the caller's own — including for admin (S47)")
         void listIsAlwaysMine() throws Exception {
             User asha = customer("9840000101");
             User boss = admin("9840000102");
@@ -66,7 +66,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
                     .andExpect(status().isOk());
 
-            // 404, not 403 â€” a 403 would confirm the ticket exists.
+            // 404, not 403 — a 403 would confirm the ticket exists.
             mvc.perform(get(Routes.SupportTickets.BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(other)))
                     .andExpect(status().isNotFound());
@@ -106,7 +106,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(status().isNoContent());
             expectUnread(asha, id, false);
 
-            // Idempotent â€” the client marks read every time it opens the ticket.
+            // Idempotent — the client marks read every time it opens the ticket.
             mvc.perform(post(Routes.SupportTickets.READ, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
                     .andExpect(status().isNoContent());

@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../Icon.jsx';
+import LogoMark from '../brand/LogoMark.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useHelpPath } from '../../lib/useHelp.js';
 
@@ -76,9 +77,7 @@ export default function Footer() {
           {/* Column 1 — brand + social */}
           <div className="sm:col-span-2 lg:col-span-1 pb-6 sm:pb-0">
             <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 inline-flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-teal-400 flex items-center justify-center shadow-md shadow-teal-500/20">
-                <Icon name="home" className="w-5 h-5 text-white" />
-              </div>
+              <LogoMark className="w-9 h-9 shrink-0 text-teal-400" />
               <span className="text-lg font-bold">PuneNest</span>
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 sm:mb-5">

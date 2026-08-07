@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -6,15 +6,15 @@ import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { getFaqs } from '../../lib/mockApi.js';
+import { MAX_IMAGES, compressFiles } from '../../lib/data/support.js';
 import {
-  MAX_IMAGES,
-  ticketsForUser,
+  listTickets,
   getTicket,
   createTicket,
   replyToTicket,
   markTicketRead,
-  compressFiles,
-} from '../../lib/data/support.js';
+} from '../../services/supportService.js';
+import { isHttpDomain } from '../../services/config.js';
 import TicketForm from './support/TicketForm.jsx';
 import TicketList from './support/TicketList.jsx';
 import TicketThreadModal from './support/TicketThreadModal.jsx';
@@ -28,6 +28,16 @@ export default function Support() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [params] = useSearchParams();
+
+  /**
+   * Priority and image attachments are mock-only.
+   *
+   * Neither exists on the wire: `SupportTicketCreate` is `{subject, category, body}` and
+   * `MessageCreate` is `{body}`. An unknown property is ignored rather than rejected, so sending
+   * them would *appear* to work — the user would mark a ticket urgent, get a success toast, and
+   * ops would never see it. Hiding the controls is the honest version of "not supported yet".
+   */
+  const richTicket = !isHttpDomain('support');
 
   const [tickets, setTickets] = useState([]);
   const [faqs, setFaqs] = useState([]);
@@ -50,10 +60,19 @@ export default function Support() {
   const replyFilesRef = useRef(null);
   const [lightboxImg, setLightboxImg] = useState(null);
 
-  const loadTicketsForUser = () => {
-    const mobile = (user?.mobile || form.mobile || '').replace(/\D/g, '').replace(/^91/, '');
-    setTickets(ticketsForUser(mobile));
-  };
+  /**
+   * Re-read from whichever provider is active.
+   *
+   * This was `ticketsForUser(mobile)` — the mock keys tickets on a typed mobile. The server keys on
+   * the authenticated caller, so there is nothing to pass: the question "whose tickets?" is answered
+   * by the session on both sides now, and the form's mobile field is contact detail rather than a
+   * lookup key.
+   */
+  const reload = useCallback(async () => {
+    const list = await listTickets().catch(() => []);
+    setTickets(list);
+    return list;
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -64,16 +83,18 @@ export default function Support() {
   }, []);
 
   useEffect(() => {
-    loadTicketsForUser();
-    // Deep-link: auto-open a ticket from URL ?open=SUP-10001
-    const openId = params.get('open');
-    if (openId) {
-      setTimeout(() => {
-        const t = ticketsForUser((user?.mobile || '').replace(/\D/g, '').replace(/^91/, '')).find((x) => x.id === openId);
-        if (t) { setCurTicket(t); setThreadOpen(true); }
-      }, 100);
-    }
-  }, [user, form.mobile]);
+    let alive = true;
+    reload().then((list) => {
+      if (!alive) return;
+      // Deep-link: auto-open a ticket from URL ?open=<id>. Resolved from the list we just loaded
+      // rather than on a timer — the old 100ms `setTimeout` was racing a synchronous localStorage
+      // read that no longer exists, and against a request it would simply lose.
+      const openId = params.get('open');
+      const t = openId && list.find((x) => x.id === openId);
+      if (t) { setCurTicket(t); setThreadOpen(true); }
+    });
+    return () => { alive = false; };
+  }, [user, reload, params]);
 
   useEffect(() => {
     if (user?.name && !form.name) setForm((p) => ({ ...p, name: user.name }));
@@ -100,6 +121,19 @@ export default function Support() {
   };
 
   const submit = async () => {
+    /**
+     * `name` and `digits` are validated but no longer *sent*.
+     *
+     * The mock keyed tickets on this typed mobile; the server takes the raiser from the session and
+     * `SupportTicketCreate` has no identity field. Both are prefilled from the signed-in user on a
+     * `ProtectedRoute`, so the common path is correct either way, and the validation stays because
+     * they are still contact details a human reads.
+     *
+     * The gap: a user who *edits* the mobile to a different callback number is telling us something
+     * the API cannot carry. Not gated like priority and attachments, because those set a value that
+     * is silently discarded, whereas this one is merely not *also* stored — support still reaches
+     * them through the account and the thread. Recorded as debt rather than papered over.
+     */
     const name = form.name.trim();
     const digits = form.mobile.replace(/\D/g, '').replace(/^91/, '');
     const subject = form.subject.trim();
@@ -120,16 +154,20 @@ export default function Support() {
       toast(tr('misc.supportErrDescribe'), 'error');
       return;
     }
-    const t = createTicket({
-      mobile: digits,
-      name,
-      email: user?.email || '',
-      category: form.category,
-      priority: form.priority,
-      subject,
-      message: msg,
-      images: newImgs,
-    });
+    let t;
+    try {
+      t = await createTicket({
+        category: form.category,
+        // Both mock-only. The provider drops them against the API, and the form does not offer
+        // them there — passed anyway so one call site works on both providers.
+        priority: form.priority,
+        subject,
+        message: msg,
+        images: newImgs,
+      });
+    } catch {
+      t = null;
+    }
     if (!t) {
       toast(tr('misc.supportErrSave'), 'error');
       return;
@@ -137,47 +175,53 @@ export default function Support() {
     setNewImgs([]);
     setForm((p) => ({ ...p, subject: '', message: '' }));
     toast(tr('misc.supportTicketRaised', { id: t.id }), 'success');
-    loadTicketsForUser();
+    await reload();
     openThread(t.id);
   };
 
   const openThread = (id) => {
-    const t = getTicket(id);
-    if (!t) return;
-    markTicketRead(id, 'customer');
-    setCurTicket(t);
+    // Optimistic: the badge clears on tap, not on the round trip. `markTicketRead` is idempotent on
+    // both providers, which is what makes firing it on every open safe.
+    setTickets((cur) => cur.map((x) => (x.id === id ? { ...x, unread: false } : x)));
+    markTicketRead(id).catch(() => {});
     setReplyText('');
     setReplyImgs([]);
     setThreadOpen(true);
-    loadTicketsForUser();
+    getTicket(id)
+      .then((t) => { if (t) setCurTicket(t); })
+      .catch(() => {});
   };
 
   const closeThread = () => {
     setThreadOpen(false);
     setCurTicket(null);
-    loadTicketsForUser();
+    reload();
   };
 
-  const sendReply = () => {
+  const sendReply = async () => {
     if (!curTicket) return;
     const txt = replyText.trim();
     if (!txt && !replyImgs.length) {
       toast(tr('misc.supportErrReply'), 'error');
       return;
     }
-    const updated = replyToTicket(curTicket.id, {
-      role: 'customer',
-      name: form.name || user?.name || 'You',
-      text: txt,
-      images: replyImgs,
-    });
-    if (!updated) {
+    let sent;
+    try {
+      sent = await replyToTicket(curTicket.id, txt, replyImgs);
+    } catch {
+      sent = null;
+    }
+    if (!sent) {
       toast(tr('misc.supportErrSend'), 'error');
       return;
     }
     setReplyText('');
     setReplyImgs([]);
-    openThread(curTicket.id);
+    // Re-read rather than append locally: the server owns the message id, the timestamp and the
+    // resulting ticket status, and a reply can move a ticket out of `waiting`.
+    const full = await getTicket(curTicket.id).catch(() => null);
+    if (full) setCurTicket(full);
+    reload();
   };
 
   const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
@@ -228,6 +272,7 @@ export default function Support() {
               handleFiles={handleFiles}
               removeImg={removeImg}
               submit={submit}
+              richTicket={richTicket}
             />
 
             {/* Your tickets */}
@@ -254,6 +299,7 @@ export default function Support() {
         setReplyText={setReplyText}
         sendReply={sendReply}
         fld={fld}
+        richTicket={richTicket}
       />
 
       {/* Lightbox */}

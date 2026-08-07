@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Mobile UX pass for Saved + Messages (≤767px). Verifies:
    - Messages is a native full-screen chat on mobile: marketing footer + floating
@@ -58,9 +59,7 @@ test.describe('Mobile inbox + saved', () => {
   });
 
   test('No console errors on Saved + Messages at 390px', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error' && !/favicon|leaflet|googleapis|gstatic|maps|ERR_|tile\./i.test(m.text())) errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e)));
+    const errors = trackErrors(page);
     await seed(page);
     await page.setViewportSize(MOBILE);
     for (const p of ['/saved', '/notifications', '/messages', '/messages?c=c1']) {

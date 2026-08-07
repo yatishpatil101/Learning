@@ -4,13 +4,13 @@ import { test, expect } from '@playwright/test';
 
    Every change in the mobile phase is scoped by a width media query, a `lg:hidden`
    utility, or a `(pointer: coarse)` / `(hover: none)` query. Those last two cannot be
-   verified from the `mobile` project â€” Playwright's device descriptors set hasTouch,
+   verified from the `mobile` project — Playwright's device descriptors set hasTouch,
    so `(pointer: coarse)` keeps matching no matter how the viewport is resized. This
    spec runs in the desktop `chromium` project (fine pointer, hover) and is the actual
    proof that none of the mobile rules leak. */
 
 test.describe('Mobile-only rules do not leak to desktop', () => {
-  test('the button size ramp is mobile-only â€” desktop keeps 32/40/48', async ({ page }) => {
+  test('the button size ramp is mobile-only — desktop keeps 32/40/48', async ({ page }) => {
     await page.goto('/');
     const h = await page.evaluate(() =>
       ['btn', 'btn btn-sm', 'btn btn-lg'].map((cls) => {
@@ -40,7 +40,7 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await page.goto('/');
     const gap = await page.locator('.pn-assistant-slot > div')
       .evaluate((el) => window.innerHeight - el.getBoundingClientRect().bottom);
-    // bottom-6 = 24px, i.e. calc(0px + 1.5rem) â€” the inset system is a no-op here.
+    // bottom-6 = 24px, i.e. calc(0px + 1.5rem) — the inset system is a no-op here.
     expect(Math.round(gap)).toBe(24);
   });
 

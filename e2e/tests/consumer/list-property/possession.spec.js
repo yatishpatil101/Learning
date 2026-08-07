@@ -45,7 +45,7 @@ test('Possession Status offers two options', async ({ page }) => {
   const group = page.locator('[data-err="possession"]');
   await expect(group.getByText('Ready to Move', { exact: true })).toBeVisible();
   await expect(group.getByText('Available From', { exact: true })).toBeVisible();
-  // "Under Construction" was removed â€” it's no longer offered.
+  // "Under Construction" was removed — it's no longer offered.
   await expect(group.getByText('Under Construction')).toHaveCount(0);
 });
 

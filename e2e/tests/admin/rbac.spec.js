@@ -1,18 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
-
-// Ignore third-party / asset noise that is unrelated to the RBAC feature.
-const IGNORE = /favicon|leaflet|unpkg|tile\.openstreetmap|cdn|ERR_INTERNET|net::ERR/i;
-
-function trackErrors(page) {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => {
-    if (m.type() === 'error' && !IGNORE.test(m.text())) errors.push(m.text());
-  });
-  return errors;
-}
 
 async function loginAsAdmin(page) {
   await page.goto(`${BASE}/staff-login`);

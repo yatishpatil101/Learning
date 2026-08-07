@@ -27,9 +27,13 @@ test('Flatmates page opens without runtime errors', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}/flatmates`);
-  // The three view tabs render once the page mounts successfully.
-  await expect(page.getByRole('button', { name: /Flatmates/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Rooms available/i })).toBeVisible();
+  /* The two view tabs render once the page mounts successfully.
+     Matched on their aria-label, which is the count-bearing string ("Move in now — N homes with a
+     room available") rather than the visible label. The visible label is a `<span>` beside a count
+     badge, so an accessible-name match on the short label alone is brittle; the aria-label is the
+     one the tab actually exposes and is what a screen reader announces. */
+  await expect(page.getByRole('button', { name: /Move in now —/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Team up —/i })).toBeVisible();
   expect(errors).toHaveLength(0);
 });
 

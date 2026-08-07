@@ -46,7 +46,6 @@ public class AuditService {
      * Record a privileged action.
      *
      * @param actor     server-resolved actor handle (user id/mobile)
-     * @param actorRole {@code buyer|owner|staff|admin}
      * @param action    what happened (e.g. {@code property.approve})
      * @param entity    affected entity type
      * @param entityId  affected entity id

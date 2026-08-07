@@ -1,5 +1,5 @@
-/* â”€â”€ Custom dropdown (.pn-dropdown) â€” ported verbatim from the HTML dropdowns.css
-   so the React <Select> matches the enhanced native selects exactly. â”€â”€ */
+/* ── Custom dropdown (.pn-dropdown) — ported verbatim from the HTML dropdowns.css
+   so the React <Select> matches the enhanced native selects exactly. ── */
 :root {
   --dd-bg: rgba(255, 255, 255, 0.05);
   --dd-bg-hover: rgba(255, 255, 255, 0.08);
@@ -71,7 +71,7 @@
 }
 
 /* Photo-category picker: a subtle caption laid directly ON the thumbnail (over a
-   gradient scrim), so it reads as part of the photo â€” not a strip below it. Stays
+   gradient scrim), so it reads as part of the photo — not a strip below it. Stays
    quiet (borderless, 20px tall) with white text for legibility over the image;
    the chevron alone invites a click to change the room type. */
 .pn-dropdown--sm.pn-dd-photocat {
@@ -208,7 +208,7 @@
   pointer-events: auto;
 }
 
-/* â”€â”€ Dropdown as a bottom sheet (phones) â”€â”€
+/* ── Dropdown as a bottom sheet (phones) ──
    Select/MultiSelect anchor their portaled menu to the trigger with inline
    geometry. On a phone that lands the list under the user's own hand, and for a
    searchable field the keyboard then eats most of what's left. Below 640px the
@@ -272,7 +272,7 @@
   top: 1.375rem;
 }
 
-/* Overflow ("More") menu presented as an action sheet on phones â€” same docking,
+/* Overflow ("More") menu presented as an action sheet on phones — same docking,
    scrim and handle as the dropdown sheet above, but the panel's own look comes
    from utility classes in Menu.jsx. */
 .pn-action-sheet {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from './Icon.jsx';
+import LogoMark from './brand/LogoMark.jsx';
 import { getCookieConsent } from './CookieConsent.jsx';
 
 /* "Add PuneNest to your home screen" — the in-app install nudge.
@@ -152,8 +153,11 @@ export default function InstallPrompt() {
         className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/10 bg-[#15122a]/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] p-3.5"
       >
         <div className="flex items-start gap-3">
+          {/* The tinted tile stays here (unlike the navbar): this row previews what
+             lands on the home screen, so showing the mark inside a rounded square
+             mirrors the real app-icon shape the user is about to install. */}
           <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center shrink-0">
-            <Icon name="home" className="w-5 h-5 text-teal-400" />
+            <LogoMark className="w-6 h-6 text-teal-400" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold text-white leading-snug">{t('install.title')}</p>

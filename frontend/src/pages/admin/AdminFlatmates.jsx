@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Inbox, Users, UsersRound, Flag } from 'lucide-react';
+import { Inbox, Users, UsersRound, Flag, DoorOpen } from 'lucide-react';
 import { rawDb, mutateDb, logAudit, addInternalNote } from '../../lib/mockApi.js';
+import { getFlatmatePosts, getFlatmateGroups, updateFlatmatePost, updateFlatmateGroup } from '../../lib/data/flatmates.js';
+import { getRooms, updateRoom } from '../../lib/store.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
@@ -17,6 +19,11 @@ const OWNER_BADGE = { pending: 'pending', accepted: 'active', declined: 'rejecte
 const OWNER_LABEL = { pending: 'Pending', accepted: 'Accepted', declined: 'Declined' };
 
 function policyLabel(p) { return p === 'women' ? 'Women only' : p === 'men' ? 'Men only' : 'Anyone'; }
+
+/* A room's identity on the consumer card is its `society` — the posting wizard never
+   asks for a title, so `title` is absent on every real room. Ops has to recognise the
+   same string the reporter saw, so society leads here too. */
+function roomName(r) { return r.society || r.title || r.roomType || '—'; }
 
 /* Mobile card primitives — stacked layout shown < sm instead of the wide table,
    so moderation actions are never clipped off-screen on a phone. */
@@ -40,16 +47,49 @@ function ModActions({ item, onAct, approveStatus = 'live' }) {
   );
 }
 
+/* Ops moderates what consumers actually posted (tech-debt D97d).
+
+   The admin page read `rawDb()` (the `puneNestDB_v5` mock database) while every
+   consumer flatmate flow writes localStorage — `puneNestFlatmatePosts`,
+   `puneNestFlatmateGroups`, `puneNestRoomListings`. Two disjoint stores, so a real
+   post was invisible to the queue that exists to moderate it, and rooms had no tab
+   at all. Both halves are read here now, seeds first so the demo rows stay.
+
+   Rooms are the addition the register called out: a room is the most abusable
+   flatmate surface (free-text title, an address, a price) and it was the one with
+   no moderation path whatsoever. */
 function loadFlatmates() {
   const db = rawDb();
+  const seedSeekers = db.flatmateSeekers || db.flatmates?.filter?.((f) => f.kind === 'seeker') || [];
+  const seedGroups = db.flatmateGroups || db.flatmates?.filter?.((f) => f.kind === 'group') || [];
   return {
-    seekers: db.flatmateSeekers || db.flatmates?.filter?.((f) => f.kind === 'seeker') || [],
-    groups: db.flatmateGroups || db.flatmates?.filter?.((f) => f.kind === 'group') || [],
+    seekers: [...getFlatmatePosts(), ...seedSeekers],
+    groups: [...getFlatmateGroups(), ...seedGroups],
+    rooms: getRooms(),
     apps: db.groupApplications || db.flatmateApplications || [],
   };
 }
 
+/* Write the verdict wherever the row actually lives.
+
+   The localStorage stores are tried first and the mock DB second, because a
+   consumer-posted row is the one a moderator is most likely acting on. Each
+   `update*` is a no-op when the id is absent, so the sequence is safe; `found`
+   stops the mock-DB fallback from running once a store has claimed the row. */
 function setFlatStatus(id, status) {
+  let found = false;
+  for (const [get, update] of [
+    [getFlatmatePosts, updateFlatmatePost],
+    [getFlatmateGroups, updateFlatmateGroup],
+    [getRooms, updateRoom],
+  ]) {
+    if (get().some((x) => x.id === id)) {
+      update(id, { modStatus: status });
+      found = true;
+      break;
+    }
+  }
+  if (found) return;
   mutateDb((db) => {
     const colls = ['flatmateSeekers', 'flatmateGroups', 'flatmates'];
     for (const col of colls) {
@@ -69,7 +109,7 @@ export default function AdminFlatmates() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
   const [data, setData] = useState(null);
-  const [tab, setTab] = useTabParam(['seekers', 'groups', 'apps'], 'seekers');
+  const [tab, setTab] = useTabParam(['seekers', 'rooms', 'groups', 'apps'], 'seekers');
 
   const reload = () => setData(loadFlatmates());
   useEffect(() => { setData(loadFlatmates()); }, []);
@@ -92,11 +132,14 @@ export default function AdminFlatmates() {
   };
 
   if (!data) return <Loading />;
-  const { seekers, groups, apps } = data;
-  const flagged = [...seekers, ...groups].filter((x) => x.modStatus === 'flagged').length;
+  const { seekers, groups, rooms, apps } = data;
+  // Rooms count too — they are moderatable now, so a flagged room must show up in
+  // the number ops actually watches, not just in its own tab.
+  const flagged = [...seekers, ...groups, ...rooms].filter((x) => x.modStatus === 'flagged').length;
 
   const KPIS = [
     optionEnabled('flatmates.seekers') && { label: 'Seekers', value: fmtNum(seekers.length), icon: UsersRound, tab: 'seekers' },
+    { label: 'Rooms', value: fmtNum(rooms.length), icon: DoorOpen, tab: 'rooms' },
     optionEnabled('flatmates.groups') && { label: 'Groups', value: fmtNum(groups.length), icon: Users, tab: 'groups' },
     { label: 'Flagged', value: fmtNum(flagged), icon: Flag, tab: null },
     optionEnabled('flatmates.applications') && { label: 'Applications', value: fmtNum(apps.length), icon: Inbox, tab: 'apps' },
@@ -149,6 +192,35 @@ export default function AdminFlatmates() {
       </div>
     ) },
   ];
+
+  const roomCols = [
+    { key: 'title', header: 'Room', render: (r) => <div><div className="font-semibold">{roomName(r)}</div><div className="text-xs text-gray-400">{r.id}{r.seed ? ' · demo' : ''}</div></div> },
+    { key: 'locality', header: 'Locality', render: (r) => r.locality || (Array.isArray(r.localities) ? r.localities.join(', ') : '') || '—' },
+    { key: 'rent', header: 'Rent', render: (r) => r.rent ? fmtINR(r.rent) + '/mo' : '—' },
+    { key: 'seats', header: 'Seats', render: (r) => `${r.occupants ?? 0} / ${r.seatsTotal ?? r.capacity ?? '—'}` },
+    { key: 'status', header: 'Status', render: (r) => <Badge status={MOD_BADGE[r.modStatus] || 'active'}>{MOD_LABEL[r.modStatus] || r.modStatus || 'Live'}</Badge> },
+    { key: 'actions', header: '', className: 'whitespace-nowrap', render: (r) => <ModActions item={r} onAct={act} /> },
+  ];
+
+  const roomCard = (r) => (
+    <div className="pn-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-white">{roomName(r)}</div>
+          <div className="text-xs text-gray-400">{r.id}{r.seed ? ' · demo' : ''}</div>
+        </div>
+        <Badge status={MOD_BADGE[r.modStatus] || 'active'}>{MOD_LABEL[r.modStatus] || r.modStatus || 'Live'}</Badge>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+        <CardField label="Locality" wide>{r.locality || (Array.isArray(r.localities) ? r.localities.join(', ') : '') || '—'}</CardField>
+        <CardField label="Rent">{r.rent ? fmtINR(r.rent) + '/mo' : '—'}</CardField>
+        <CardField label="Seats">{`${r.occupants ?? 0} / ${r.seatsTotal ?? r.capacity ?? '—'}`}</CardField>
+      </dl>
+      <div className="mt-3 border-t border-white/5 pt-3">
+        <ModActions item={r} onAct={act} />
+      </div>
+    </div>
+  );
 
   const seekerCard = (s) => (
     <div className="pn-card p-4">
@@ -231,7 +303,7 @@ export default function AdminFlatmates() {
 
       {/* Tabs */}
       <div className="mb-4 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['seekers', 'Seekers', 'Seekers', 'flatmates.seekers'], ['groups', 'Groups', 'Groups', 'flatmates.groups'], ['apps', 'Group Applications', 'Applications', 'flatmates.applications']].filter(([, , , flag]) => optionEnabled(flag)).map(([id, label, shortLabel]) => (
+        {[['seekers', 'Seekers', 'Seekers', 'flatmates.seekers'], ['rooms', 'Rooms', 'Rooms', null], ['groups', 'Groups', 'Groups', 'flatmates.groups'], ['apps', 'Group Applications', 'Applications', 'flatmates.applications']].filter(([, , , flag]) => flag === null || optionEnabled(flag)).map(([id, label, shortLabel]) => (
           <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 rounded-lg px-2 py-2 text-xs font-medium transition sm:px-4 sm:text-sm', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
             <span className="sm:hidden">{shortLabel}</span>
             <span className="hidden sm:inline">{label}</span>
@@ -243,6 +315,11 @@ export default function AdminFlatmates() {
         <div>
           <p className="mb-2 text-xs text-gray-400">Moderate flatmate seekers. Removed or rejected posts disappear from the public Flatmates board.</p>
           <Table columns={seekerCols} rows={seekers} pageSize={10} label="seekers" empty="No seekers yet." mobileCard={seekerCard} />
+        </div>
+      ) : tab === 'rooms' ? (
+        <div>
+          <p className="mb-2 text-xs text-gray-400">Moderate rooms offered inside a flat. Free-text title, address and price make this the most abusable flatmate surface — flagged and removed rooms disappear from the public board.</p>
+          <Table columns={roomCols} rows={rooms} pageSize={10} label="rooms" empty="No rooms yet." mobileCard={roomCard} />
         </div>
       ) : tab === 'groups' ? (
         <div>

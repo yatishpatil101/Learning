@@ -7,11 +7,11 @@
    index.css ("Radius hierarchy") uses !important, so it still wins from there.
    ============================================================================ */
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   BUTTON SYSTEM â€” single source of truth. Three tiers:
-     .btn-primary   â†’ the one main action per view (teal gradient)
-     .btn-secondary â†’ supporting actions (outline/ghost)
-     .btn-icon      â†’ compact square icon-only utility button
-   Sizes: .btn-sm (32px) Â· default (40px) Â· .btn-lg (48px).
+   BUTTON SYSTEM — single source of truth. Three tiers:
+     .btn-primary   → the one main action per view (teal gradient)
+     .btn-secondary → supporting actions (outline/ghost)
+     .btn-icon      → compact square icon-only utility button
+   Sizes: .btn-sm (32px) · default (40px) · .btn-lg (48px).
    Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
    long tail of existing buttons inherits this system without per-file edits.
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -64,7 +64,7 @@
   pointer-events: none;
 }
 
-/* Tier 1 â€” primary */
+/* Tier 1 — primary */
 .btn-primary,
 .btn-teal,
 .pn-btn-primary {
@@ -88,7 +88,7 @@
   transform: translateY(0);
 }
 
-/* Tier 2 â€” secondary */
+/* Tier 2 — secondary */
 .btn-secondary,
 .btn-outline,
 .pn-btn-ghost {
@@ -112,7 +112,7 @@
   transform: translateY(1px);
 }
 
-/* Tier 3 â€” compact icon-only */
+/* Tier 3 — compact icon-only */
 .btn-icon {
   width: var(--btn-h);
   height: var(--btn-h);

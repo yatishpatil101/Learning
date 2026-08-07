@@ -1,5 +1,5 @@
 /* pn-mdp map detail drawer (Tier 1 - route CSS, imported from components/property/MapDetailPanel.jsx). Moved from index.css. Non-.pn-mdp rules (.price-marker.is-active, .pn-back-search) stay in index.css. */
-/* ===== Map detail drawer (stay-on-map masterâ€“detail) ===== */
+/* ===== Map detail drawer (stay-on-map master–detail) ===== */
 .pn-mdp {
   position: fixed;
   z-index: 150;

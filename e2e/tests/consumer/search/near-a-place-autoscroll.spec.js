@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* "Near a Place" — auto-reveal distance controls.
    After a landmark is picked, the distance/commute panel unfolds below the
@@ -42,9 +43,7 @@ async function stubPlacesNear(page) {
 }
 
 test('picking a place scrolls the filter panel (not the window) to reveal the distance controls', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
 
   // Short viewport so the sidebar's own scroll container must overflow.
   await page.setViewportSize({ width: 1280, height: 620 });

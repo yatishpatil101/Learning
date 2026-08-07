@@ -10,11 +10,11 @@ info:
     **This specification is the single source of truth for the PuneNest HTTP API.**
     Endpoints, request/response shapes, and enums are defined here and nowhere else.
     Companion docs describe *behaviour and data*, not the wire contract:
-      - `docs/system/data-model.md`     â€” ER map / DB persistence design (field shapes are the schemas below)
-      - `docs/system/cross-cutting.md`  â€” auth, contact gate, maker-checker, audit rules
-      - `docs/system/platform-architecture.md` â€” component/vendor decisions & ADRs (KYC, payments, verification posture)
-      - `docs/system/backend-api-architecture-review.md` â€” architecture-review narrative
-      - `docs/flows/**`                 â€” per-feature behavioural specs
+      - `docs/system/data-model.md`     — ER map / DB persistence design (field shapes are the schemas below)
+      - `docs/system/cross-cutting.md`  — auth, contact gate, maker-checker, audit rules
+      - `docs/system/platform-architecture.md` — component/vendor decisions & ADRs (KYC, payments, verification posture)
+      - `docs/system/backend-api-architecture-review.md` — architecture-review narrative
+      - `docs/flows/**`                 — per-feature behavioural specs
 
     ### Changelog
     - 1.3.0 — **Flatmates re-modelled around seeker intent.** The flatmates/rooms/groups triple is
@@ -37,7 +37,7 @@ info:
       soft signal at MVP (ADR-009a). Contact `403 aadhaar_required` is replaced by
       `403 verification_required`, returned **only** when the target owner opted into
       "verified contact only".
-    - 1.1.0 â€” Reconciled the role model to the canonical `buyer/owner/staff/admin`
+    - 1.1.0 — Reconciled the role model to the canonical `buyer/owner/staff/admin`
       set (`staff` scoped by `team`); aligned `Team` to the ops teams; made this
       spec the sole API source of truth (retired the duplicate markdown catalogue).
 
@@ -48,7 +48,7 @@ info:
     - Sort: `?sort=field,direction` (e.g. `sort=createdAt,desc`).
     - Dates: ISO-8601 UTC. Money: integer INR (paise-free rupees).
     - Errors: `{ "error": "code", "message": "human-readable", "status": 400 }`.
-    - Soft-delete: archive/restore only â€” no hard DELETE for core aggregates.
+    - Soft-delete: archive/restore only — no hard DELETE for core aggregates.
 
     Tags map to **bounded contexts** to support future microservice decomposition.
   contact:
@@ -113,7 +113,7 @@ paths:
         the response is only `{ "otpSent": true }`. Posting `mobile` **with** `otp` is step 2 (L1):
         it verifies the code and returns access/refresh tokens. First-time mobiles are provisioned
         as `buyer` on successful verification, so no separate sign-up call exists. L1 sign-in is the
-        only floor for participating (posting, enquiring, contacting owners) â€” identity verification
+        only floor for participating (posting, enquiring, contacting owners) — identity verification
         is an opt-in badge on top (ADR-019). On success, call `getMe`.
       externalDocs:
         description: Auth / OTP sign-in flow (actors + screens)
@@ -164,7 +164,7 @@ paths:
       description: >
         Exchange a valid refresh token for a new access token and a new refresh token. Refresh
         tokens are **single-use**: the presented token is revoked and a replacement is returned, so
-        a client must persist the new value. Replaying a spent token fails with 401 â€” clients should
+        a client must persist the new value. Replaying a spent token fails with 401 — clients should
         treat that as session loss and send the user back to sign-in. Because the refresh token is
         itself the credential, this endpoint takes no bearer token.
       requestBody:
@@ -174,7 +174,7 @@ paths:
             schema: { $ref: '#/components/schemas/RefreshRequest' }
       responses:
         '200':
-          description: Rotated â€” new token pair issued.
+          description: Rotated — new token pair issued.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -550,7 +550,7 @@ paths:
       summary: Mark property under offer
       operationId: reserveDeal
       description: >
-        Marks the property under offer (deal state: available â†’ reserved â†’ closed/reopened).
+        Marks the property under offer (deal state: available → reserved → closed/reopened).
       externalDocs:
         description: Deals, offers & finalization flow
         url: docs/flows/consumer/deals-offers-finalization.md
@@ -621,7 +621,7 @@ paths:
     # Was `{idx}`, a positional integer index into the party list. That is racy and not
     # idempotent: two concurrent removals of "idx=0" delete two different people, and a
     # retried request deletes the wrong row. Changed to an opaque server-assigned id in
-    # slice 4 â€” free to do now because no client consumes this endpoint yet (the frontend
+    # slice 4 — free to do now because no client consumes this endpoint yet (the frontend
     # deal provider is still mock-only); it becomes a breaking change once one does.
     parameters:
       - { $ref: '#/components/parameters/PropId' }
@@ -706,7 +706,7 @@ paths:
     get:
       tags: [Listings]
       # Was summarised "All visits (admin)" but carried no `x-roles`, so as written any
-      # signed-in user could read every visit on the platform â€” visitor name, mobile,
+      # signed-in user could read every visit on the platform — visitor name, mobile,
       # property address and time. A privacy breach by omission. Rescoped in slice 4 to the
       # caller's own visits, which is what the frontend actually consumes (VisitsTab). A
       # genuine admin surface can be added later with an explicit `x-roles: [admin]`.
@@ -918,7 +918,7 @@ paths:
       tags: [Moderation]
       summary: Admin update of property fields
       description: >
-        Admin field-level update. NOTE â€” the source contract reuses
+        Admin field-level update. NOTE — the source contract reuses
         `PATCH /properties/{id}`; disambiguated here from the public getter to
         avoid method/verb collision (documented assumption).
       operationId: adminUpdateProperty
@@ -1065,7 +1065,7 @@ paths:
         consent **on DigiLocker** (never on PuneNest), and the result is delivered
         asynchronously to the Cashfree webhook below. We never receive the raw Aadhaar
         number; dedup uses a composite `identity_hash` (ADR-009b). This is opt-in and only
-        awards a trust badge + ranking boost â€” it is **not** required to use the platform.
+        awards a trust badge + ranking boost — it is **not** required to use the platform.
       requestBody:
         required: false
         content:
@@ -1073,7 +1073,7 @@ paths:
             schema: { $ref: '#/components/schemas/KycStartRequest' }
       responses:
         '202':
-          description: Verification started â€” redirect the user to `verificationUrl`.
+          description: Verification started — redirect the user to `verificationUrl`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/KycStart' }
@@ -1100,9 +1100,9 @@ paths:
   /webhooks/cashfree/digilocker:
     post:
       tags: [Moderation]
-      summary: Cashfree DigiLocker verification webhook (provider â†’ backend)
+      summary: Cashfree DigiLocker verification webhook (provider → backend)
       operationId: cashfreeDigilockerWebhook
-      # S28: deliberately NO x-roles. security: [] â€” a server-to-server callback authenticated by HMAC, not a role.
+      # S28: deliberately NO x-roles. security: [] — a server-to-server callback authenticated by HMAC, not a role.
       security: []
       description: >
         Server-to-server callback from Cashfree Secure ID delivering
@@ -1125,13 +1125,13 @@ paths:
   /webhooks/cashfree/payment:
     post:
       tags: [Rentals & Payments]
-      summary: Cashfree Payment Gateway webhook (provider â†’ backend)
+      summary: Cashfree Payment Gateway webhook (provider → backend)
       operationId: cashfreePaymentWebhook
       security: []
       description: >
         Server-to-server callback from the Cashfree PG delivering the **terminal** payment
         outcome (`PAYMENT_SUCCESS_WEBHOOK` / failure) for rent, subscription, boost and
-        service-order payments (ADR-017). This is the source of truth for payment state â€”
+        service-order payments (ADR-017). This is the source of truth for payment state —
         the synchronous `201` on the initiating call is only `pending`. Authenticity is
         verified via the HMAC-SHA256 signature over `x-webhook-timestamp + rawBody`.
         Handlers must verify the signature, be idempotent (dedupe on `orderId`), and always
@@ -1360,7 +1360,7 @@ paths:
       x-roles: [staff, admin]
       # S32 (slice 9): was a bare array. Every signed-in user can add to this queue and only ops
       # can take anything out of it, which makes it the clearest growth case on the platform
-      # (api-standards.md Â§5.1). No `Sort`: newest-first is fixed server-side and index-backed by
+      # (api-standards.md §5.1). No `Sort`: newest-first is fixed server-side and index-backed by
       # idx_reports_status_created / idx_reports_created, added in V18.
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -1386,7 +1386,7 @@ paths:
       tags: [Moderation]
       summary: Report a listing
       operationId: createReport
-      # S28: deliberately NO x-roles. Any signed-in user must be able to report abuse â€” that is the whole point of the queue.
+      # S28: deliberately NO x-roles. Any signed-in user must be able to report abuse — that is the whole point of the queue.
       requestBody:
         required: true
         content:
@@ -1534,7 +1534,7 @@ paths:
       summary: Request owner's contact (requires sign-in)
       operationId: requestContact
       description: >
-        Requires only a signed-in mobile-OTP account (L1) â€” identity verification is **not**
+        Requires only a signed-in mobile-OTP account (L1) — identity verification is **not**
         a prerequisite (ADR-019). Returns `401` if unauthenticated. Returns
         `403 verification_required` **only** when the target owner has opted into
         "verified contact only" and the caller has no Verified badge (L2).
@@ -1548,7 +1548,7 @@ paths:
         url: docs/flows/consumer/contact-gate-leads.md
       responses:
         '200':
-          description: Requested â€” the owner is notified; contact unlocks now or on approval.
+          description: Requested — the owner is notified; contact unlocks now or on approval.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ContactStatus' }
@@ -1563,7 +1563,7 @@ paths:
             checkStatus: { $ref: '#/components/links/CheckContactStatus' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
-          description: Owner accepts verified contacts only â€” earn the Verified badge to proceed.
+          description: Owner accepts verified contacts only — earn the Verified badge to proceed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1753,7 +1753,7 @@ paths:
       operationId: requestFinalization
       description: >
         Maker step of the maker-checker finalization (buyer). The owner then accepts
-        (checker step) â€” the deal-verified moment (L3) where hard KYC / mobile-match may be
+        (checker step) — the deal-verified moment (L3) where hard KYC / mobile-match may be
         required of both parties (ADR-009a/019). Track via `finalizationStatus`.
       externalDocs:
         description: Deals, offers & finalization flow
@@ -1831,7 +1831,7 @@ paths:
       operationId: listTransactions
       # S25 (pagination pass): was a bare array. A property's ledger accrues rows on a schedule and
       # is never culled, so its size tracks how long the property has been held, not anything the
-      # caller did -- api-standards.md Â§5.1 ("scope is not the test; growth is"). No `Sort`: the
+      # caller did -- api-standards.md §5.1 ("scope is not the test; growth is"). No `Sort`: the
       # order is fixed server-side (date desc, createdAt desc) and index-backed by
       # idx_transactions_property.
       parameters:
@@ -1979,7 +1979,7 @@ paths:
       summary: My rent payments
       operationId: myRentPayments
       # S25 (pagination pass): was a bare array. A rent ledger grows a row a month for as long as the
-      # tenancy runs -- time-driven, not action-driven (api-standards.md Â§5.1). No `Sort`: the order
+      # tenancy runs -- time-driven, not action-driven (api-standards.md §5.1). No `Sort`: the order
       # is fixed server-side (dueDate desc, createdAt desc).
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -2037,7 +2037,7 @@ paths:
       operationId: rentLedger
       # S25 (pagination pass): was a bare array, and this is the worst of the three -- an owner's
       # ledger spans every tenancy on every listing they have ever let, so it grows with portfolio
-      # size *and* with time (api-standards.md Â§5.1). No `Sort`: order fixed server-side.
+      # size *and* with time (api-standards.md §5.1). No `Sort`: order fixed server-side.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -3125,7 +3125,7 @@ paths:
       operationId: listEntityReviews
       security: []
       # S27 (slice 8): was a bare array. A popular locality's reviews are bounded only by the
-      # city's user base -- platform-scale growth, so api-standards.md Â§5.1 says page it. No
+      # city's user base -- platform-scale growth, so api-standards.md §5.1 says page it. No
       # `Sort`: the order is fixed server-side (newest first) and index-backed by
       # idx_reviews_target_created. The aggregate the UI needs (avg + count) is served by the
       # society / locality DETAIL endpoints, not by summing a page.
@@ -3579,7 +3579,7 @@ paths:
       summary: My notifications
       operationId: listNotifications
       # S27 (slice 8): was a bare array. Notifications accrue with time, per user, and nothing
-      # culls them -- the clearest case of api-standards.md Â§5.1's "scope is not the test; growth
+      # culls them -- the clearest case of api-standards.md §5.1's "scope is not the test; growth
       # is". No `Sort`: newest-first is fixed server-side and index-backed by
       # idx_notifications_user_created (user_id, created_at DESC), added in V16.
       parameters:
@@ -3952,7 +3952,7 @@ paths:
       tags: [Admin & Analytics]
       summary: Submit society/builder enquiry (public)
       operationId: createSocietyLead
-      # S28: deliberately NO x-roles. security: [] â€” public B2B lead capture; the submitter is not a user.
+      # S28: deliberately NO x-roles. security: [] — public B2B lead capture; the submitter is not a user.
       security: []
       requestBody:
         required: true
@@ -3996,7 +3996,7 @@ components:
         JWT access token issued by the Identity & Access domain. Send as
         `Authorization: Bearer <token>`. Short-lived (15 min); refresh via
         `/auth/refresh`. Claims carry `sub`, `role`, `mobileVerified`, and
-        `aadhaarVerified` (an opt-in trust **badge**, not a gate â€” participation only
+        `aadhaarVerified` (an opt-in trust **badge**, not a gate — participation only
         needs `mobileVerified`); `staff` tokens also carry `team`.
     oidc:
       type: openIdConnect
@@ -4206,7 +4206,7 @@ components:
       type: string
       description: >
         When the property can be occupied. Absent/null means "not stated", which is
-        deliberately distinct from all three values â€” an unrecorded possession must not
+        deliberately distinct from all three values — an unrecorded possession must not
         satisfy a `ready-to-move` search. Land and plot listings have no meaningful
         possession state and stay unset.
       enum: [ready-to-move, new-launch, under-construction]
@@ -4360,7 +4360,7 @@ components:
       type: object
       description: >
         Dual-shape response. `POST /auth/login` without an `otp` is the *send* step and returns
-        only `{ "otpSent": true }` â€” no tokens. A completed verify / staff-login / refresh returns
+        only `{ "otpSent": true }` — no tokens. A completed verify / staff-login / refresh returns
         the token pair plus `user`. Absent fields are omitted, not null.
       properties:
         accessToken: { type: string }
@@ -4382,11 +4382,11 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
         status: { type: string, enum: [active, suspended, archived] }
-        verified: { type: boolean, description: 'Opt-in identity Verified badge (L2, ADR-019) â€” not required to participate.' }
+        verified: { type: boolean, description: 'Opt-in identity Verified badge (L2, ADR-019) — not required to participate.' }
         city: { type: string, example: Pune }
-        mobileVerified: { type: boolean, description: Mobile-OTP (L1) â€” the floor for posting/enquiring/contacting. }
+        mobileVerified: { type: boolean, description: Mobile-OTP (L1) — the floor for posting/enquiring/contacting. }
         aadhaarVerified: { type: boolean, description: 'Alias of the Verified badge (DigiLocker). A trust signal, never a gate.' }
-        verifiedContactOnly: { type: boolean, description: Owner preference â€” accept contact requests from verified (L2) users only. }
+        verifiedContactOnly: { type: boolean, description: Owner preference — accept contact requests from verified (L2) users only. }
         listingsCount: { type: integer, description: Active listings (owners) }
         joinedAt: { type: string, format: date-time }
         lastActive: { type: string, format: date-time }
@@ -4423,7 +4423,7 @@ components:
           example: koregaon-park
           description: >-
             Curated locality key (FK to Locality.slug) and the value the `locality` search filter
-            matches on. `locality` above is the human display name and is NOT unique or stable â€”
+            matches on. `locality` above is the human display name and is NOT unique or stable —
             never key off it. Absent when the listing's locality could not be resolved to a curated
             locality (owner free-text that matched nothing); such listings are invisible to locality
             filters until curated during moderation.
@@ -4559,13 +4559,23 @@ components:
         listingCount: { type: integer }
         followerCount: { type: integer }
         followedByMe: { type: boolean }
+        avgRating:
+          type: [number, 'null']
+          description: >-
+            Average published rating, computed on read. Null — not 0 — when the society has no
+            reviews: no rating is not a rating of zero, and a card rendering 0.0 for an unreviewed
+            society states something false about it. On the directory as well as the hub because
+            the cards show a star; resolving it per card would be one request per row.
+        reviewCount:
+          type: integer
+          description: >-
+            How many published reviews the average is over. Without it the average is unreadable —
+            4.9 from one review is not 4.9 from two hundred.
     SocietyDetail:
       allOf:
         - $ref: '#/components/schemas/Society'
         - type: object
           properties:
-            avgRating: { type: number }
-            reviewCount: { type: integer }
             homes:
               type: array
               items: { $ref: '#/components/schemas/PropertySummary' }
@@ -4678,7 +4688,7 @@ components:
     OfferCreate:
       type: object
       # `propertyId` is required here because POST /offers is not nested under a property
-      # and carries no path parameter â€” without it the server cannot know which listing is
+      # and carries no path parameter — without it the server cannot know which listing is
       # being offered on. Added in slice 4; the endpoint was unimplementable as written.
       required: [propertyId, amount]
       properties:
@@ -4715,7 +4725,7 @@ components:
         note: { type: string }
     Deal:
       type: object
-      description: A closed/closing deal aggregate (owner â†” counterparty lifecycle).
+      description: A closed/closing deal aggregate (owner ↔ counterparty lifecycle).
       properties:
         id: { type: string }
         propertyId: { type: string }
@@ -4754,7 +4764,7 @@ components:
       type: object
       description: >
         Optional parameters when starting the DigiLocker badge flow. No Aadhaar number is
-        ever sent â€” verification happens on DigiLocker.
+        ever sent — verification happens on DigiLocker.
       properties:
         redirectUrl: { type: string, format: uri, description: Where DigiLocker returns the user after consent. }
     KycStart:
@@ -4775,11 +4785,11 @@ components:
         status: { type: string, enum: [none, pending, verified, failed] }
         source: { type: string, enum: [digilocker], description: Verification source (Cashfree Secure ID DigiLocker). }
         maskedAadhaar: { type: string, example: 'XXXX XXXX 1234', description: Last-4 only; the full number is never stored. }
-        mobileMatch: { type: [boolean, 'null'], description: Soft signal â€” whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
+        mobileMatch: { type: [boolean, 'null'], description: Soft signal — whether the Aadhaar-linked mobile matches the account mobile (ADR-009a). Not a gate at MVP. }
         verifiedAt: { type: [string, 'null'], format: date-time }
     DigilockerWebhook:
       type: object
-      description: Cashfree Secure ID DigiLocker callback payload (provider â†’ backend).
+      description: Cashfree Secure ID DigiLocker callback payload (provider → backend).
       properties:
         type: { type: string, example: DIGILOCKER_VERIFICATION_SUCCESS }
         ref: { type: string, description: Correlates with the `ref` returned by KycStart. }
@@ -4808,7 +4818,7 @@ components:
       #     It is typed as a string here deliberately: parsing it into an integer rupee value is a
       #     lossy decision that belongs in one place in the handler, not implied by the schema.
       description: >
-        Cashfree Payment Gateway callback payload (provider â†’ backend), API version 2025-01-01
+        Cashfree Payment Gateway callback payload (provider → backend), API version 2025-01-01
         (ADR-017). Authenticity is verified from `x-webhook-signature` over
         `x-webhook-timestamp + rawBody`; the body must be read raw, because re-serializing the JSON
         changes the bytes and therefore the digest. Handlers dedupe on `data.order.order_id` and
@@ -4929,7 +4939,7 @@ components:
       description: Whether the caller may see a listing's contact, under the badge-not-gate model (ADR-019).
       properties:
         status: { type: string, enum: [owner, approved, pending, declined, none], description: 'Gate state for this caller vs this listing: owner (viewer owns it), approved, pending, declined, or none (no request yet).' }
-        verifiedContactOnly: { type: boolean, description: True when the owner accepts verified contacts only â€” caller needs the L2 badge (ADR-019). }
+        verifiedContactOnly: { type: boolean, description: True when the owner accepts verified contacts only — caller needs the L2 badge (ADR-019). }
         verificationRequired: { type: boolean, description: True when this specific request is blocked pending the caller's Verified badge. }
         ownerHidesNumber: { type: boolean, description: 'True when the owner has opted to stay masked even after approving. The client should offer chat instead of a call; approval still stands (D5).' }
     ContactRequestCreate:

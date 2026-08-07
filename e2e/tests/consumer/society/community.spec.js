@@ -41,8 +41,12 @@ test('KYC-verified member can add a tip, a local pick and a photo — each shown
   await gotoHub(page);
 
   // Tip
+  /* Each contribution dialog is now named after the action that opened it (`CONTRIB_META[kind].addKey`)
+     rather than sharing one generic "Add a community contribution" label. Asserting the specific
+     name is what makes "clicking Add photo opened the photo form" a real claim — the generic name
+     would have passed even if every button opened the tip form. */
   await page.getByRole('button', { name: 'Add tip' }).click();
-  const tipDialog = page.getByRole('dialog', { name: /Add a community contribution/i });
+  const tipDialog = page.getByRole('dialog', { name: 'Add tip' });
   await expect(tipDialog).toBeVisible();
   await tipDialog.getByPlaceholder(/Water tanker fills/i).fill('Guest parking is behind D-wing, first come first served.');
   await tipDialog.getByRole('button', { name: 'Post to community' }).click();
@@ -50,7 +54,7 @@ test('KYC-verified member can add a tip, a local pick and a photo — each shown
 
   // Local pick
   await page.getByRole('button', { name: 'Add local pick' }).click();
-  const pickDialog = page.getByRole('dialog', { name: /Add a community contribution/i });
+  const pickDialog = page.getByRole('dialog', { name: 'Add local pick' });
   await pickDialog.getByPlaceholder(/Person \/ service name/i).fill('Sunita — trusted maid');
   await pickDialog.getByPlaceholder(/^Phone/i).fill('9812345678');
   await pickDialog.getByRole('button', { name: 'Post to community' }).click();
@@ -58,7 +62,7 @@ test('KYC-verified member can add a tip, a local pick and a photo — each shown
 
   // Photo
   await page.getByRole('button', { name: 'Add photo' }).click();
-  const photoDialog = page.getByRole('dialog', { name: /Add a community contribution/i });
+  const photoDialog = page.getByRole('dialog', { name: 'Add photo' });
   await photoDialog.getByLabel('Upload a society photo').setInputFiles({
     name: 'entrance.png', mimeType: 'image/png', buffer: Buffer.from(PNG_BASE64, 'base64'),
   });
@@ -85,7 +89,7 @@ test('a logged-in member contributes directly — sign-in is the only floor (bad
 
   // Badge-not-gate (ADR-019): the contribution modal opens straight away and the
   // old Aadhaar identity wall never appears for a signed-in user.
-  await expect(page.getByRole('dialog', { name: /Add a community contribution/i })).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('dialog', { name: 'Add tip' })).toBeVisible({ timeout: 8000 });
   await expect(page.getByRole('dialog', { name: /Verify your identity with Aadhaar/i })).toHaveCount(0);
 });
 

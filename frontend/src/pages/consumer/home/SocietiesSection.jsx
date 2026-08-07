@@ -37,6 +37,9 @@ export default function SocietiesSection() {
       const verified = !community && !!(soc.registration && soc.conveyance);
       return {
         id: soc.id, slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
+        // SEAM NOTE: mock aggregate. `soc.id` is a synthetic `S01` from `data/societies.js`, not an
+        // id the server knows. `GET /societies` now returns `avgRating`/`reviewCount` per row for
+        // this call site; it switches over when societies join the seam. See SocietySection.jsx.
         verified, rating: entityRating('society', soc.id), homes: listingsInSociety(listings, soc.id).length,
       };
     })

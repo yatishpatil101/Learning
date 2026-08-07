@@ -45,11 +45,20 @@ a domain flip. Zero results = zero leaks.
 | `visit` | `visitService.js` | mock + **http** | Live: `/visits` (mine) and `/me/visit-requests` (on my listings), create, status. Seam carries the human `when` string; `visitWhen` converts to/from the wire's ISO slot. Reschedule has no endpoint (D87) |
 | `notification` | `notificationService.js` | mock + **http** | Live: `GET /notifications` (paged), `POST /notifications/read`. Dismiss is a client tombstone — no endpoint. Client-derived alerts merge in. Preferences stay on `lib/` |
 | `conversation` | `conversationService.js` | mock + **http** | Live: inbox (paged), start, detail, reply, mark-read. `pending` is a client staging queue; `incoming` + accept/decline are mock-only |
+| `review` | `reviewService.js` | mock + **http** | Live: property reviews and entity (society/locality/owner) reviews, read + write. `context` is server-derived and never sent. Owner reviews stay on mocks — the *target* is not live |
+| `support` | `supportService.js` | mock + **http** | Live: list, create, detail, reply, mark-read. Bare list with the thread inline. Priority and attachments are mock-only — no field on the schema, so the page hides both controls in http mode |
+| `report` | `reportService.js` | mock + **http** | Live: file, queue (paged, **staff/admin**), triage. First domain whose two ends have different audiences. Duplicate → 409; terminal is terminal |
 | others (document, content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
 
-Eight domains, eight services, eight mock providers, eight http providers — the counts match
+Eleven domains, eleven services, eleven mock providers, eleven http providers — the counts match
 exactly, and that is the invariant to keep. A provider without a service is unreachable; a service
 without a provider throws.
+
+**Having an http provider is not the same as using it.** Which domains are actually live is decided
+by `VITE_API_DOMAINS`, and for a long time four of the eleven had a provider, a parity harness and a
+row in this table while every browser run still served their mocks. The list that matters is in
+`e2e/playwright.live.config.js`; if a domain is not in it, nothing here has been exercised in a
+browser. See "The switch-on slice" below.
 
 `dealService.js` and `financeService.js` were **deleted** in the saved slice. Both had zero importers
 — only the barrel referenced them, and the barrel itself is imported nowhere — so they were seam
@@ -370,6 +379,234 @@ out of fixing it, and they are the same lesson:
 was real but hypothetical; the correctness gain is concrete, and the absence of a cycle was verified
 (the provider registry reaches `lib/mockApi.js` and `lib/data/properties-admin.js`, neither of which
 imports `myListings.js`). It carries a SEAM NOTE recording that check.
+
+## The reviews slice
+
+Four operations over two routes, and the interesting part is that **the wire is stricter than the
+mock, deliberately**. Everywhere else the seam has translated between two equally-permissive
+vocabularies; here the server refuses fields the client used to supply, and refusing them is the
+feature.
+
+### `context` is not the client's to send
+
+`context` is the reviewer-standing badge — "Verified resident" (`tenant`) or "Visited" (`visit`).
+The contract marks it `readOnly`; `ReviewCreateRequest` has no such field; the server derives it
+from the author's visit and tenancy history.
+
+Three separate call sites were sending it anyway:
+
+| Where | What it sent | Why that was wrong |
+|---|---|---|
+| `ReviewModal.jsx` | `context: 'visit'`, hard-coded on every submission | every review certified itself |
+| `useSocietyHub.js` | `resident: isVerifiedResident(soc.slug)` | a client-side lookup, stored as evidence |
+| `ReviewsSection.jsx` | rendered the chip **unconditionally** | a null `context` fell through to "Visited" |
+
+The first two were ignored live and believed on mocks — the worst possible split, because mocks are
+where the demo and the screenshots come from, so the badge acquired its credibility in exactly the
+environment where it meant nothing. The third is not a provider bug at all: the provider returned
+the correct null and the card invented a badge from it.
+
+The mock provider now refuses to stamp a badge either, and the parity harness asserts that. A badge
+a browser can assert about itself is not evidence, and evidence is the only thing that makes a
+stranger's rating worth reading.
+
+### An entity review is only as live as its target
+
+`GET /reviews/{entityType}/{entityId}` is one route over three target types, and each one migrated
+only if the frontend and the database already agreed on the key:
+
+| Target | Frontend key | Server key | Outcome |
+|---|---|---|---|
+| `locality` | slug | slug | **live** — but see below |
+| `society` | `soc.id` (`S01`) | UUID, slug accepted | **live**, after re-keying on `soc.slug` |
+| `owner` | mock user id | user UUID | **not migrated** |
+
+Owner reviews stay on `lib/store.js` and carry a SEAM NOTE saying so. `getOwner()` still reads
+`lib/mockApi/users.js`, so pointing the page at the service would issue a perfectly well-formed
+request for an owner the server has never heard of — and the empty result would render as "no
+reviews yet". A silent wrong answer is worse than an honest mock, and this moves when the owner
+profile does.
+
+Two key bugs surfaced from the same cause, and both were invisible on mocks because the mock will
+happily key on any string you hand it:
+
+- **The society hub keyed reviews on `soc.id`.** Every other call on that page — follow, Q&A,
+  resident status, board, WhatsApp — already used the slug; reviews were the single holdout.
+- **The locality page keyed reviews on `activeName.toLowerCase()`** — the *display name* — while its
+  listings query, societies filter and URL all used the slug. For a one-word locality the two agree,
+  which is precisely why it survived; `viman nagar` vs `viman-nagar` is where it did not.
+
+### The society cards are still on the mock aggregate, and there is a reason
+
+`SocietiesSection`, `Societies.jsx` and `SocietySection.jsx` call `entityRating('society', soc.id)`
+inside a `.map()`. They were left alone and given SEAM NOTEs, because the fix is not to migrate them
+to the reviews service — that would be one request per card — but to read the aggregate the row
+already carries. **`GET /societies` now returns `avgRating` and `reviewCount` per row**, added by
+this slice for exactly that call site, computed through `RatingLookup.forSocieties` in one batched
+query alongside the listing and follower counts.
+
+`avgRating` is **null, not 0**, for an unrated society. A card that renders 0.0 for a society nobody
+has reviewed is stating something false about it, and "unrated" and "rated zero" are different
+claims. The `SocietyDetail` schema had these two fields already; they moved up to `Society` rather
+than being duplicated, so the hub and the directory cannot drift into computing different numbers.
+
+### What the server has that the UI does not use
+
+`title` and `categories` exist on the wire and only `categories` is rendered; `ReviewCreate` accepts
+a `title` nothing sends. Left unused rather than invented — an empty heading on every review card is
+not an improvement.
+
+## The support slice
+
+Five endpoints, one page, and a one-to-one mapping onto the mock's five functions. The wiring took
+an afternoon; the value is in what it made visible.
+
+### Three controls with nothing behind them
+
+| Control | On the wire | What shipped |
+|---|---|---|
+| **Priority** (low/normal/high/urgent) | absent from `SupportTicket` *and* `SupportTicketCreate` | hidden in http mode |
+| **Attachments** (up to 4 images, base64) | `MessageCreate` is `{ body }` | hidden in http mode |
+| **Name / mobile** | absent — the raiser is the session | left visible, documented |
+
+The first two are hidden rather than disabled. A greyed-out control invites "why can't I?"; an
+absent one asks nothing. And they had to be *hidden* rather than merely not-sent, because **an
+unknown property is ignored, not rejected**: a form that kept sending `priority` would show a
+success toast for a ticket ops never sees as urgent. That is the worst possible outcome — worse than
+an error, because nobody learns anything.
+
+Name and mobile are the weaker case and were deliberately not gated. They are prefilled from the
+signed-in user on a `ProtectedRoute`, so the common path is right either way, and support still
+reaches the person through the account and the thread. The gap — a user who *edits* the mobile to a
+different callback number is telling us something the API cannot carry — is recorded rather than
+papered over.
+
+### Three vocabularies to reconcile
+
+**Status.** The page labels five and the server has five, but they are not the same five: the
+server opens every ticket `open` (there is no `new`), and it distinguishes `in-progress` — ops
+picked it up — which the page has no label for. Unknown statuses are **passed through unchanged**.
+`getStatusLabel` falls back to the raw key, so `in-progress` renders unstyled and visibly a gap.
+Collapsing it onto `open` would have erased a distinction ops actually made and told the customer
+nothing was happening while somebody was working on it.
+
+**Author role.** `authorRole` is `buyer|owner|staff|admin`; the bubbles key on `customer|staff`.
+Anything not staff-side is the customer, *including `owner`* — an owner raising a support ticket is
+a customer of support. The first version of the parity harness could not catch this, because the
+probe signs in as a buyer; it now drives every role through the mapper directly.
+
+**Time.** `at` must be a number — the thread sorts on it and `fmtTime` does date arithmetic. An ISO
+string sorts almost right, which is why it survives casual testing.
+
+### `updatedAt` is derived, not fetched
+
+The mock sorts the list by `updatedAt`. The server sorts by `createdAtDesc` and sends no updated
+time at all, so the provider derives it from the last message — the thing that actually changed. A
+ticket answered this morning belongs above one opened last week, and the server's own ordering would
+have put it second.
+
+## The reports slice
+
+Three endpoints, and the first domain in the seam whose **two ends have different audiences**:
+`POST /reports` is open to any signed-in caller, `GET /reports` and `PATCH /reports/{id}` are
+staff/admin. That asymmetry is the shape of the module — the consumer modal and the ops queue share
+a service and never call each other's operations.
+
+### The bug: a reason set that contradicted its target type
+
+The server validates the reason **against the target type**. `FOR_USER` is
+`impersonation|fraud|brokerage|abuse|spam|fakelistings|other`; `FOR_POST` is
+`fake|unavailable|filled|broker|inappropriate|spam|other`.
+
+`Flatmates.jsx` and all three flatmate cards passed `kind='user'` (or `'listing'`) while shipping
+`SHARE_REPORT_REASONS` — which *is* `FOR_POST`, exactly. So **every flatmate report would have been
+a 400**: `filled` is not something you can say about a person.
+
+It survived because the mock stores whatever it is handed. The report landed, the user was thanked,
+and it appeared in the ops queue under the wrong tab. Fixed at all four call sites (`share` →
+`post`), and the mapping table in `reportMapper.js` now warns on an unknown kind rather than
+silently guessing.
+
+| Modal reasons | Client `kind` | Wire `targetType` |
+|---|---|---|
+| `LISTING_REPORT_REASONS` | `listing` | `property` |
+| `OWNER_REPORT_REASONS` | `user` | `user` |
+| `SHARE_REPORT_REASONS` | `share` | **`post`** |
+
+### Three server rules the mock has no equivalent for
+
+**A duplicate is a 409.** A second *live* report of the same target by the same person is refused,
+backed by a partial unique index and not only by a check — so two concurrent submissions get the
+same answer. The modal used to close and toast success unconditionally, because a localStorage
+write cannot fail. It now has a sentence for it: thanking somebody for a report nobody received is
+the one outcome worth avoiding, because they stop worrying about it.
+
+**Terminal is terminal.** `actioned` and `dismissed` cannot move. The queue's "Reopen" button would
+409 on click, so it is gone — replaced by a "Decided" label. The server's reasoning is worth
+keeping: re-opening "erases the record that somebody judged it, and it is the obvious way for one
+moderator to quietly undo a colleague's decision".
+
+**`resolved` does not exist.** It was the queue's word for "reviewed, no action needed", which is
+what `dismissed` means. Translated on the way *out* only — the queue never *displays* a status the
+server did not record.
+
+### What the wire deliberately withholds
+
+The mock froze a snapshot of the target at report time: `targetTitle`, `targetOwner`, `ownerMobile`,
+`reportedBy`, `url`. The contract declares none of them, and `reporterId` is withheld on purpose —
+"the queue tells a moderator what was complained about and why, not who complained: naming the
+reporter to every member of ops is how a complaint becomes a reprisal".
+
+So they degrade rather than being invented. `targetTitle` falls back to the bare `targetId`: a
+moderator can click through, whereas a *resolved* title would be a **stale** title, because the
+listing may have been edited since it was reported — and a moderator judging yesterday's complaint
+against today's copy is worse than one who has to open a tab.
+
+`reasonLabel` is the exception: presentation text the client already ships, resolved locally from
+one flattened table both providers share.
+
+## The switch-on slice: four providers that were live on paper only
+
+`contact`, `saved`, `savedSearch` and `visit` shipped complete http providers, complete parity
+harnesses and a row in the table above. What they never had was a place in
+`VITE_API_DOMAINS` — so the live e2e config had never once loaded them, and every browser run since
+had been quietly exercising their mocks.
+
+The parity harnesses passed the whole time, and that is the point. A harness imports the provider
+and calls it directly; it cannot see a React call site that never awaits, or a request fired for a
+visitor who has no session. Four things were wrong, and all four were invisible from that angle:
+
+| Found | Why the harness could not see it |
+|---|---|
+| `isHttpDomain('savedSearch')` could never match — the allow-list is lower-cased at parse time, the lookup key was not | The harness imports the provider directly and never consults the registry |
+| Signed-out visitors fired **four** `401 /contacts/status` per property page | The harness is always signed in |
+| Both alert cards showed "first in line" without awaiting the create | The harness calls the provider, not the form |
+| Reschedule fired at a provider that throws by design (D87) | Same — the control is a React button, not a provider method |
+
+The `savedSearch` casing bug deserves its own note, because it fails in the worst available
+direction: the "enabled but has no http provider" warning is itself gated on `isHttpDomain`, so an
+opted-in domain whose name did not match served mocks with **nothing in the console to say so**. A
+live e2e run would have passed while testing the mock — the exact failure this whole config exists
+to prevent.
+
+### `PageEnvelope.page`, not Spring's `number`
+
+Four providers (`contact`, `saved`, `review`, `report`) read `res.number` for the current page.
+The contract calls that field `page`, and so does the server. Every one of them had a fallback —
+`res?.number ?? page` — so the wrong read silently resolved to the *requested* page instead.
+
+That agrees with the server right up until it disagrees: any clamp or redirect (a `page` past the
+end, a size ceiling) and the client reports a page the caller is not on. Two of the parity harnesses
+had the same bug in their own unwrapping, which is why it had gone unreported — harness and provider
+were wrong in the same direction and cancelled out.
+
+### The reschedule control
+
+`saveReschedule` closes the modal and toasts success *before* the write settles. Against the mock
+that is harmless; against the live API the write throws, so the user would have seen "Rescheduled"
+and an error toast at once, with no way to tell which was true. The control is hidden in http mode
+rather than left to fail — the same treatment support's priority picker gets, and for the same
+reason: a control that lies is worse than a control that is absent.
 
 ## Backend gaps that block the last two aggregates
 

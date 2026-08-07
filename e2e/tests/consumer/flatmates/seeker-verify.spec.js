@@ -1,10 +1,18 @@
 import { test, expect } from '@playwright/test';
 
-/* The optional "Verified Seeker" badge (flatmates) is earned via a separate
-   Aadhaar-OTP flow — distinct from the DigiLocker badge and never a gate to
-   posting (see flatmates-no-gate.spec.js). This verifies that opt-in flow:
-   the signed-in number is confirmed before OTP, and "No, it's a different
-   number" routes the seeker to re-sign-in with their Aadhaar-linked number. */
+/* The optional "Verified Seeker" badge (flatmates) is earned from the Hero's "Get verified" CTA and
+   is never a gate to posting (see flatmates-no-gate.spec.js). What this spec owns is the **entry
+   point**: that the flatmates page opens the platform verification modal for an unverified seeker.
+ *
+ * It used to drive the whole flow — a "Become a verified seeker" modal that confirmed the
+ * signed-in number, sent an Aadhaar OTP, and offered "No, it's a different number" as a route back
+ * to sign-in. That flow no longer exists: verification moved to DigiLocker, where the Aadhaar
+ * number and OTP are entered on DigiLocker's own page and never on PuneNest, so there is no number
+ * to confirm and no OTP box to fill. Those steps were not renamed, they were removed.
+ *
+ * The replacement flow (modal → DigiLocker → badge earned) is already driven end to end by
+ * `platform/auth/kyc-growth-levers.spec.js`. Re-asserting it here would duplicate that coverage
+ * without adding anything; asserting the flatmates-specific entry point does not. */
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9812340000';
@@ -16,33 +24,31 @@ async function seedUnverified(page, mobile = MOBILE) {
   }, mobile);
 }
 
-test('seeker verify modal: "Yes, send OTP" completes the verification', async ({ page }) => {
+test('the flatmates "Get verified" CTA opens the platform verification modal', async ({ page }) => {
   await seedUnverified(page);
   await page.goto(`${BASE}/flatmates`);
 
   await page.getByRole('button', { name: /Get verified/i }).click();
-  await expect(page.getByRole('heading', { name: 'Become a verified seeker' })).toBeVisible();
 
-  await page.getByRole('button', { name: /Yes, send OTP/i }).click();
-  const box1 = page.getByLabel('OTP digit 1');
-  await box1.waitFor({ timeout: 5000 });
-  for (let i = 0; i < 6; i++) await page.getByLabel(`OTP digit ${i + 1}`).fill('1');
-  await page.getByRole('button', { name: /Verify.*continue/i }).click();
-
-  await expect(page.getByText(/Verified Seeker/i).first()).toBeVisible({ timeout: 5000 });
+  const modal = page.getByRole('dialog', { name: 'Get your Verified badge' });
+  await expect(modal).toBeVisible();
+  // DigiLocker, and only DigiLocker: an Aadhaar field on a PuneNest page would be the exact
+  // posture this flow was rebuilt to avoid, so its absence is asserted rather than assumed.
+  await expect(modal.getByRole('button', { name: 'Continue with DigiLocker' })).toBeVisible();
+  await expect(page.getByLabel('OTP digit 1')).toHaveCount(0);
 });
 
-test('seeker verify modal: confirm the signed-in number, and "No" routes to re-sign-in', async ({ page }) => {
+test('verification is optional — dismissing it leaves the seeker on the flatmates page', async ({ page }) => {
   await seedUnverified(page);
   await page.goto(`${BASE}/flatmates`);
 
   await page.getByRole('button', { name: /Get verified/i }).click();
-  await expect(page.getByRole('heading', { name: 'Become a verified seeker' })).toBeVisible();
-  await expect(page.getByText('Is this the mobile number linked to your Aadhaar?')).toBeVisible();
+  const modal = page.getByRole('dialog', { name: 'Get your Verified badge' });
+  await expect(modal).toBeVisible();
 
-  await page.getByRole('button', { name: /a different number/i }).click();
-  await expect(page.getByRole('heading', { name: 'Sign in with your Aadhaar-linked number' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByText('Is this the mobile number linked to your Aadhaar?')).toBeVisible();
+  await modal.getByRole('button', { name: 'Close' }).click();
+  await expect(modal).toHaveCount(0);
+  // Still on flatmates, still able to browse — the badge is a perk, never a gate.
+  await expect(page).toHaveURL(/\/flatmates/);
+  await expect(page.getByRole('button', { name: /Move in now —/i })).toBeVisible();
 });

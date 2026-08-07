@@ -29,7 +29,6 @@ public record FinalizationRequestDto(
      * A platform user as a participant (contract {@code Party}).
      *
      * @param id     user id
-     * @param name   display name
      * @param mobile contact-gated; masked ({@code 98XXXXX210}) while pending, revealed on acceptance
      * @param role   {@code buyer} or {@code owner}
      */

@@ -6,6 +6,7 @@ import {
   FileText, ShieldCheck, Wrench, X, IndianRupee, UserPlus, BedDouble, Gift,
   BookOpen,
 } from 'lucide-react';
+import LogoMark from '../brand/LogoMark.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
 import { ADMIN_MODULES } from '../../lib/adminModules.js';
@@ -65,11 +66,9 @@ function AdminLayoutInner({ variant = 'admin' }) {
       >
         <div className="flex items-center justify-between px-5 py-4">
           <Link to={variant === 'ops' ? '/ops' : '/admin'} className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-teal text-ink">
-              <Building2 className="h-4 w-4" />
-            </span>
+            <LogoMark className="h-8 w-8 shrink-0 text-brand-teal" />
             <span className="font-extrabold">
-              Pune<span className="text-brand-teal">Nest</span>
+              PuneNest
               <span className="ml-1 text-xs font-medium text-gray-400">{variant === 'ops' ? 'Ops' : 'Admin'}</span>
             </span>
           </Link>

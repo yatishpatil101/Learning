@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Accessibility regression coverage for the hero locality search (bug #2).
    The suggestion list is a WAI-ARIA combobox+listbox: the input exposes
@@ -6,7 +7,6 @@ import { test, expect } from '@playwright/test';
    popup is role="listbox" with role="option" children, and Arrow keys drive
    aria-activedescendant while Enter commits the highlighted option. */
 
-const IGNORE = [/favicon/i, /unsplash/i, /leaflet/i, /tile/i, /net::ERR/i, /Failed to load resource/i];
 
 test('locality search exposes the combobox contract', async ({ page }) => {
   await page.goto('/');
@@ -24,9 +24,7 @@ test('locality search exposes the combobox contract', async ({ page }) => {
 });
 
 test('arrow keys move aria-activedescendant and Enter commits the option', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.some((r) => r.test(m.text()))) errors.push(m.text()); });
+  const errors = trackErrors(page);
 
   await page.goto('/');
   const input = page.locator('input[role="combobox"]');

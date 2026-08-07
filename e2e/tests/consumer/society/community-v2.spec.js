@@ -86,7 +86,9 @@ test('a logged-in member replies and reports directly — no Aadhaar gate', asyn
 
   // Report → report dialog opens directly, no gate.
   await card.getByRole('button', { name: 'Report contribution' }).click();
-  await expect(page.getByRole('dialog', { name: 'Report content' })).toBeVisible({ timeout: 8000 });
+  // The report dialog is named for its action (`society.submitReport`), not the generic "Report
+  // content" the shared modal used to carry.
+  await expect(page.getByRole('dialog', { name: 'Submit report' })).toBeVisible({ timeout: 8000 });
   await expect(gate).toHaveCount(0);
 });
 
@@ -103,7 +105,9 @@ test('verified resident posts an event (calendar dot) and a notice (list); non-r
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-20`;
   await board.getByRole('button', { name: 'Add event' }).click();
-  const evDialog = page.getByRole('dialog', { name: 'Add an event or notice' });
+  // Event and notice have separate dialogs now (`BOARD_META[kind].addKey`), so each assertion
+  // proves the right form opened rather than just "a board form opened".
+  const evDialog = page.getByRole('dialog', { name: 'Add event' });
   await evDialog.getByPlaceholder(/Event title/i).fill('Water tank cleaning — no supply 10am-2pm');
   await evDialog.locator('input[type="date"]').fill(dateStr);
   await evDialog.getByRole('button', { name: 'Post', exact: true }).click();
@@ -114,7 +118,7 @@ test('verified resident posts an event (calendar dot) and a notice (list); non-r
 
   // Add a notice.
   await board.getByRole('button', { name: 'Add notice' }).click();
-  const ntDialog = page.getByRole('dialog', { name: 'Add an event or notice' });
+  const ntDialog = page.getByRole('dialog', { name: 'Add notice' });
   await ntDialog.getByPlaceholder(/Notice title/i).fill('Diwali decoration drive this weekend');
   await ntDialog.getByRole('button', { name: 'Post', exact: true }).click();
   await expect(board.getByText('Diwali decoration drive this weekend')).toBeVisible({ timeout: 8000 });
@@ -144,7 +148,7 @@ test('resident proposes a valid WhatsApp link — no public button, badurl rejec
 
   // Bad URL is rejected — no pending record is written.
   await waCard.getByRole('button', { name: 'Add the group link' }).click();
-  let waDialog = page.getByRole('dialog', { name: 'Add WhatsApp group link' });
+  let waDialog = page.getByRole('dialog', { name: 'Resident WhatsApp group' });
   await waDialog.getByPlaceholder(/chat\.whatsapp\.com/i).fill('javascript:alert(1)');
   await waDialog.getByRole('button', { name: 'Submit for review' }).click();
   let stored = await page.evaluate(() => localStorage.getItem('pnSocietyWhatsapp'));
@@ -153,7 +157,7 @@ test('resident proposes a valid WhatsApp link — no public button, badurl rejec
 
   // Valid link → goes pending, still no public Join button.
   await waCard.getByRole('button', { name: 'Add the group link' }).click();
-  waDialog = page.getByRole('dialog', { name: 'Add WhatsApp group link' });
+  waDialog = page.getByRole('dialog', { name: 'Resident WhatsApp group' });
   await waDialog.getByPlaceholder(/chat\.whatsapp\.com/i).fill('https://chat.whatsapp.com/Abc123Def456');
   await waDialog.getByRole('button', { name: 'Submit for review' }).click();
 
@@ -218,7 +222,7 @@ test('KYC member reports a contribution — one open report per user per target'
   const feed = page.locator('section', { has: page.getByRole('heading', { name: 'Community insights' }) });
   const card = feed.locator('div.glass.rounded-xl', { hasText: 'Water tanker fills the sump' });
   await card.getByRole('button', { name: 'Report contribution' }).click();
-  const rpt = page.getByRole('dialog', { name: 'Report content' });
+  const rpt = page.getByRole('dialog', { name: 'Submit report' });
   await rpt.getByPlaceholder(/Reason/i).fill('Looks like spam.');
   await rpt.getByRole('button', { name: 'Submit report' }).click();
 
@@ -228,7 +232,7 @@ test('KYC member reports a contribution — one open report per user per target'
 
   // Reporting the same target again is a no-op dup.
   await card.getByRole('button', { name: 'Report contribution' }).click();
-  await page.getByRole('dialog', { name: 'Report content' }).getByRole('button', { name: 'Submit report' }).click();
+  await page.getByRole('dialog', { name: 'Submit report' }).getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText(/already reported this/i)).toBeVisible({ timeout: 8000 });
   reports = await page.evaluate(() => JSON.parse(localStorage.getItem('pnSocietyReports') || '[]'));
   expect(reports.filter((r) => r.status === 'open').length).toBe(1);

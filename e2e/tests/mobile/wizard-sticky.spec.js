@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* The owner-side listing wizard on a phone — §G.2 `mobile-wizard-sticky`.
 
@@ -126,8 +127,7 @@ test.describe('Mobile listing wizard', () => {
   });
 
   test('the wizard logs no console errors on a phone', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const errors = trackErrors(page);
     await signedIn(page);
     await openWizard(page);
     expect(errors).toEqual([]);

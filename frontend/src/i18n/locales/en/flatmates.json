@@ -182,6 +182,7 @@
     "copyGroups": "New flatmate groups form here daily.",
     "invalidMobile": "Enter a valid 10-digit mobile",
     "alertCreatedChannel": "Alert created — we'll ping you on {{channel}} the moment a match is listed!",
+    "alertFailed": "Could not create that alert. Please try again.",
     "firstInLine": "You’re first in line 🎉",
     "pingPre": "We'll ping you on",
     "pingMid": "the moment a",

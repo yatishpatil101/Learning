@@ -12,6 +12,14 @@ export function SocietySection({ p }) {
   const socName = soc ? soc.name : t('property.societyBuilding');
   const verified = soc ? (soc.registration && soc.conveyance) : !!p.ownershipVerified;
   const claimed = soc && soc.claimStatus === 'claimed';
+  /* SEAM NOTE: still the mock aggregate, on purpose.
+
+     The society itself comes from `data/societies.js`, so `soc.id` is a synthetic `S01` the server
+     has never seen — asking the reviews API about it would return nothing and render "Not rated"
+     for a society that may well be rated. The right source is `avgRating` / `reviewCount`, which
+     `GET /societies` now carries for exactly this reason; this switches to `soc.avgRating` when
+     societies become a seam domain. Reviews of a society *are* live on the hub, which keys on the
+     slug. */
   const rating = soc ? entityRating('society', soc.id) : { avg: 0, count: 0 };
 
   const quick = soc ? [

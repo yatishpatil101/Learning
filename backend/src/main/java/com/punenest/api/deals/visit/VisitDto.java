@@ -29,7 +29,6 @@ public record VisitDto(
      * A platform user acting as a participant on the visit (contract {@code Party}).
      *
      * @param id     user id
-     * @param name   display name
      * @param mobile contact-gated; masked ({@code 98XXXXX210}) until the owner has confirmed
      * @param role   always {@code buyer} (the visitor)
      */

@@ -86,11 +86,26 @@ class SourceTreeHygieneTest {
     /**
      * Directories never walked into: build output, dependencies, VCS metadata, and the IDE's own
      * scratch space. {@code target-cli} is this project's CLI-Maven output directory.
+     *
+     * <p>{@code persist} is the frontend's runtime store ({@code frontend/data/persist/}), which is
+     * gitignored and written by the running app rather than by a person. It was added when the
+     * encoding guard flagged its two JSON files: the walk covers the working tree, not the index, so
+     * without this it reports defects in files nobody wrote and nobody can fix. Both existing checks
+     * want the same exclusion — an untracked scratch file is not a source file for either purpose.
      */
     private static final Set<String> PRUNED = Set.of(
             "node_modules", "target", "target-cli", "bin", "dist", "build", "coverage",
             ".git", ".idea", ".vscode", ".gradle", ".venv", "__pycache__",
-            "test-results", "playwright-report", ".copilot", ".claude");
+            "test-results", "playwright-report", ".copilot", ".claude", "persist");
+
+    /**
+     * Files that must contain mojibake to do their job, so the encoding guard skips them.
+     * {@code reports.spec.js} asserts an exported CSV is free of these sequences, and
+     * {@code fix-mojibake.mjs} is the repair tool that names them.
+     */
+    private static final Set<String> MOJIBAKE_EXEMPT = Set.of(
+            "e2e/tests/admin/reports.spec.js",
+            "e2e/scripts/fix-mojibake.mjs");
 
     @Test
     @DisplayName("no empty or declaration-free source file exists anywhere in the repository")
@@ -113,6 +128,135 @@ class SourceTreeHygieneTest {
                         delete it or write it rather than leaving it to imply coverage.""")
                 .isEmpty();
     }
+
+    /**
+     * Fails the build on mojibake or a UTF-8 BOM in any source file (tech debt D19).
+     *
+     * <p><strong>Both are fingerprints of the same bad write.</strong> PowerShell's
+     * {@code Set-Content} and {@code >} redirection emit a BOM and, on a round-trip through CP1252,
+     * turn every non-ASCII character into two or three replacements — an em dash becomes three
+     * characters, the rupee sign becomes three. The repository notes have banned those commands on
+     * source files for months; the ban is a convention, and this is the enforcement.
+     *
+     * <p><strong>Why the register understated it.</strong> D19 recorded "residual mojibake in 7 e2e
+     * specs (comments/titles only), cosmetic". The sweep that closed it found <strong>22</strong>
+     * files across the whole tree, and the "comments only" part was wrong in the way that matters:
+     * {@code frontend/src/data/db.json} had 30 broken sequences in <em>values</em> — every
+     * commercial listing's {@code priceStr} rendered a mangled rupee sign, and every {@code desc}
+     * a mangled dash. That is a price displayed wrongly to a user, not a comment. The OpenAPI
+     * contract had 34 more. A defect described as cosmetic goes to the bottom of a backlog and
+     * stays there, which is exactly what happened.
+     *
+     * <p><strong>Detection is by round-trip, not by a pattern list.</strong> A list of known bad
+     * sequences can only catch damage somebody already grepped for — the first cut of the repair
+     * script used one and missed the box-drawing rule and the right arrow entirely. Instead, each
+     * maximal run of non-ASCII characters is re-encoded to CP1252 bytes and decoded as UTF-8: if
+     * that yields shorter, valid text, the run was mojibake. Genuine accented text fails the decode
+     * (a lone high byte is not valid UTF-8) and is left alone, so this does not fire on real names.
+     *
+     * <p>{@code reports.spec.js} is exempt because it asserts an exported CSV is free of these
+     * sequences, so it must contain them to do its job.
+     */
+    @Test
+    @DisplayName("no mojibake or UTF-8 BOM in any source file (tech-debt D19)")
+    void noMojibakeOrBom() {
+        Path root = repoRoot();
+        List<String> damaged = new ArrayList<>();
+        for (Path file : sourceFilesUnder(root)) {
+            String rel = root.relativize(file).toString().replace('\\', '/');
+            if (MOJIBAKE_EXEMPT.contains(rel)) {
+                continue;
+            }
+            String text;
+            try {
+                text = Files.readString(file, StandardCharsets.UTF_8);
+            } catch (java.io.UncheckedIOException | IOException e) {
+                continue;
+            }
+            if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
+                damaged.add(rel + "  (UTF-8 BOM)");
+            } else if (hasMojibake(text)) {
+                damaged.add(rel + "  (mojibake)");
+            }
+        }
+
+        assertThat(damaged)
+                .as("""
+                        Mojibake or a UTF-8 BOM found. Both mean the file was written by something \
+                        that did not preserve UTF-8 — on this machine that is almost always \
+                        PowerShell `Set-Content`, `>` redirection or `-replace`, which the repo \
+                        notes ban on source files for exactly this reason. Do not hand-edit the \
+                        damaged characters: re-run `node e2e/scripts/fix-mojibake.mjs` (DRY=1 \
+                        first), which repairs by round-trip and cannot miss a sequence nobody \
+                        thought to look for. Then fix the tool that wrote the file.""")
+                .isEmpty();
+    }
+
+    /**
+     * True when re-encoding some non-ASCII run as CP1252 bytes and decoding it as UTF-8 yields
+     * strictly shorter, valid text — the signature of a UTF-8 → CP1252 → UTF-8 round trip.
+     *
+     * <p>Runs stop at every ASCII character. That bound is load-bearing rather than an
+     * optimisation: a UTF-8 multi-byte sequence never contains a byte below {@code 0x80}, so no
+     * genuine mojibake can straddle an ASCII character, while letting a run absorb ASCII would make
+     * one undecodable character anywhere in a file mask every real defect in it.
+     */
+    private static boolean hasMojibake(String text) {
+        int i = 0;
+        while (i < text.length()) {
+            if (text.charAt(i) < 0x80) {
+                i += 1;
+                continue;
+            }
+            int start = i;
+            var bytes = new java.io.ByteArrayOutputStream();
+            while (i < text.length()) {
+                char c = text.charAt(i);
+                if (c < 0x80) {
+                    break;
+                }
+                int b = cp1252Byte(c);
+                if (b < 0) {
+                    break;
+                }
+                bytes.write(b);
+                i += 1;
+            }
+            int runLength = i - start;
+            if (runLength == 0) {
+                i += 1; // Not CP1252-representable at all, so it cannot be mojibake.
+                continue;
+            }
+            // `new String(bytes, UTF_8)` substitutes U+FFFD on malformed input rather than
+            // throwing, which is exactly the signal wanted: a run that does not decode cleanly is
+            // not mojibake and must be left alone.
+            String decoded = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+            if (decoded.indexOf('\uFFFD') < 0 && decoded.length() < runLength) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The CP1252 byte for a character, or {@code -1} if CP1252 cannot represent it.
+     *
+     * <p>CP1252 differs from Latin-1 only in {@code 0x80}–{@code 0x9F}, where Latin-1 has control
+     * codes and CP1252 has typographic characters. Those 27 are precisely the ones that make
+     * mojibake recognisable, so omitting them would miss most real sequences.
+     */
+    private static int cp1252Byte(char c) {
+        if (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) {
+            return c;
+        }
+        int idx = CP1252_HIGH.indexOf(c);
+        return idx < 0 ? -1 : 0x80 + idx;
+    }
+
+    /** {@code 0x80}–{@code 0x9F} in CP1252 order; {@code '\0'} marks the five undefined slots. */
+    private static final String CP1252_HIGH =
+            "\u20AC\0\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\0\u017D\0"
+            + "\0\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\0\u017E\u0178";
 
     /**
      * Empty means "declares nothing", not "zero bytes". For {@code .java} that includes a file

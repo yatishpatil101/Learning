@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 // Ignore known CDN / map / favicon noise; fail on real app errors.
-const isNoise = (t) => /favicon|leaflet|unsplash|maps\.googleapis|net::ERR|Failed to load resource/i.test(t);
 
 test.describe('Reels page', () => {
   // Seed cookie consent so the global bottom banner doesn't overlap the bottom-of-reel
@@ -13,9 +13,7 @@ test.describe('Reels page', () => {
   });
 
   test('loads with no console errors and core chrome present', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error' && !isNoise(m.text())) errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e)));
+    const errors = trackErrors(page);
 
     await page.goto('/reels');
     await expect(page.getByText('Reels', { exact: true }).first()).toBeVisible();

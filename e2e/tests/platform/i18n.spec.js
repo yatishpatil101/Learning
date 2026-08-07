@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { OWNER, SEEKER, seed, publishListing, propertyListing } from '../../helpers/app.js';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Internationalisation.
  *
@@ -28,9 +29,7 @@ async function seedLang(page, lang) {
 }
 
 const listen = (page) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const errors = trackErrors(page);
   return errors;
 };
 

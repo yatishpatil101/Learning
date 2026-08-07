@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -19,13 +20,6 @@ async function login(page, user, { listings, savedSearches, aadhaar } = {}) {
     if (ss) localStorage.setItem('pnSavedSearches:' + u.mobile, JSON.stringify(ss));
     if (aad) localStorage.setItem('puneNestAadhaar:' + u.mobile, JSON.stringify({ verified: true, at: Date.now() }));
   }, { u: user, l: listings || null, ss: savedSearches || null, aad: aadhaar || false });
-}
-
-function trackErrors(page) {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERR: ' + e.message));
-  return () => errors.filter((e) => !/favicon|leaflet|googleapis|gstatic|maps|ERR_|net::|Failed to load resource|Download the React DevTools/i.test(e));
 }
 
 test.describe('Consumer Dashboard', () => {
@@ -82,7 +76,7 @@ test.describe('Consumer Dashboard', () => {
   });
 
   test('every visible tab renders without console errors (owner)', async ({ page }) => {
-    const getErrors = trackErrors(page);
+    const errors = trackErrors(page);
     await login(page, OWNER, { listings: [LISTING] });
     // New consolidated tab ids + every legacy alias hash (back-compat deep-links).
     const tabs = [
@@ -93,7 +87,7 @@ test.describe('Consumer Dashboard', () => {
       await page.goto(`${BASE}/dashboard#${t}`, { waitUntil: 'networkidle' });
       await page.waitForTimeout(250);
     }
-    expect(getErrors(), 'console errors across tabs').toEqual([]);
+    expect(errors, 'console errors across tabs').toEqual([]);
   });
 
   test('Overview surfaces real alert matches that deep-link to filtered listings', async ({ page }) => {

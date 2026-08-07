@@ -126,6 +126,7 @@
 
     "invalidMobile": "Enter a valid 10-digit mobile",
     "alertCreated": "Alert created — we’ll notify you the moment a match is listed!",
+    "alertFailed": "Could not create that alert. Please try again.",
     "firstInLine": "You’re first in line 🎉",
     "sentPre": "We’ll ping you on",
     "sentMid": "the moment a",

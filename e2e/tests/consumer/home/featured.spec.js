@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Home "Featured properties" rail is now data-driven off the real catalogue:
    - It renders real property cards (promoted listings first).
@@ -9,12 +10,9 @@ import { test, expect } from '@playwright/test';
 const BASE = 'http://localhost:5173';
 
 // Console errors that are environmental noise (CDN images, map tiles, favicon).
-const IGNORE = [/favicon/i, /unsplash/i, /leaflet/i, /tile/i, /net::ERR/i, /Failed to load resource/i];
 
 test('Featured rail shows real properties and links to details', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.some((r) => r.test(m.text()))) errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await page.goto(`${BASE}/`);
 

@@ -6,6 +6,15 @@ import Modal from '../ui/Modal.jsx';
 import DateField from '../ui/DateField.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import { parseWhen, formatWhen } from '../../lib/visitWhen.js';
+import { isHttpDomain } from '../../services/config.js';
+
+/* Rescheduling has no server home: `PATCH /visit-requests/{id}/status` carries a status and
+   nothing else, and there is no slot-update route (D87). The control is *hidden* rather than left
+   to fail, because the failure is invisible until too late — `saveReschedule` closes the modal and
+   toasts success optimistically, so a live user would see "Rescheduled" and an error toast at once
+   and have no way to tell which one was true. Cancel-and-rebook is not a silent substitute either:
+   it mints a new id and drops the visit's history. Restore this the day the endpoint ships. */
+const canReschedule = !isHttpDomain('visit');
 
 /* Intl ships month and weekday names for hi and mr, so the calendar chrome reads
    in the visitor's language without a hand-maintained table to drift. */
@@ -216,7 +225,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
           })()}
           {v.status === 'scheduled' && isOwner && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> {t('visits.confirm')}</button>}
           {v.status === 'confirmed' && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> {t('visits.markVisited')}</button>}
-          <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>
+          {canReschedule && <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>}
           <button onClick={() => updateVisit(v.id, 'cancelled')} className={btnCancel}><Icon name="x" className="w-3.5 h-3.5" /> {t('visits.cancel')}</button>
           <Link to={`/property/${v.listingId}`} className={btnGhost}><Icon name="arrow-right" className="w-3.5 h-3.5" /> {t('visits.property')}</Link>
         </div>

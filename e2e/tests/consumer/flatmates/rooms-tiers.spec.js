@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openFlatmateFilters } from '../../../helpers/app.js';
 
 /* Host tiers + backfill extended to the ROOMS flow. A room carries the same
    verificationTier / seats / review signals as a group: an Ops-verified owner room
@@ -94,6 +95,7 @@ test('"Verified only" filter keeps an Ops-approved tenant room but drops an unve
   await openRooms(page);
   await expect(page.locator('.sf-card', { hasText: 'Kept Tenant Room' }).first()).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.sf-card', { hasText: 'Dropped Plain Room' }).first()).toBeVisible();
+  await openFlatmateFilters(page);
   await page.getByRole('button', { name: /Verified only/i }).first().click();
   await expect(page.locator('.sf-card', { hasText: 'Kept Tenant Room' }).first()).toBeVisible();
   await expect(page.locator('.sf-card', { hasText: 'Dropped Plain Room' })).toHaveCount(0);

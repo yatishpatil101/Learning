@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* The lead-capture step on a phone — §G.2 `mobile-property-contact`.
 
@@ -170,8 +171,7 @@ test.describe('Mobile property contact', () => {
   });
 
   test('opening the sheet does not log console errors', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const errors = trackErrors(page);
     await signedIn(page);
     await openContactSheet(page);
     expect(errors).toEqual([]);

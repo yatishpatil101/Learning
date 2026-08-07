@@ -25,19 +25,13 @@ import java.util.List;
  * @param price        amount in whole INR, positive when present (foundation field)
  * @param deposit      security deposit, nullable
  * @param maintenance  monthly maintenance, nullable
- * @param negotiable   negotiable flag, nullable
  * @param area         built area, nullable
- * @param areaUnit     area unit, nullable
  * @param furnishing   furnishing level, nullable
  * @param locality     display locality, nullable (foundation field)
- * @param city         city, nullable
- * @param lat          latitude, nullable
- * @param lng          longitude, nullable
  * @param reraId       MahaRERA id, nullable
  * @param possession   possession state ({@link PropertyPossession}), nullable = not stated
  * @param amenities    amenity labels, nullable
  * @param images       image URLs, nullable
- * @param description  description, nullable
  */
 public record ListingUpdate(
         String title,

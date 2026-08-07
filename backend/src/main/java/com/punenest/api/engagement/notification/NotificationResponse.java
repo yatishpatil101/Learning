@@ -7,8 +7,6 @@ import java.time.Instant;
  *
  * @param id        opaque id
  * @param type      notification type (e.g. "price_drop"), nullable
- * @param title     display title, nullable
- * @param body      display body, nullable
  * @param read      whether the caller has seen it
  * @param link      deep link, nullable
  * @param createdAt timestamp

@@ -60,7 +60,7 @@ function RoomCard({ r, i, saved, onSave, interested, onInterest, onReport, ancho
         <div className="absolute top-3 left-3 flex items-center gap-2">{r.verified && <span className="badge-seeker inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"><Icon name="shield-check" className="w-2.5 h-2.5" /> {tr('flatmates.verified')}</span>}<MatchPill tier={tier} /><Fresh item={r} /></div>
         <div className="absolute top-3 right-3 flex items-center gap-1">
           <button onClick={() => onSave('r:' + r.id, savePayload('room', r))} className={'save-btn seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200' + (saved ? ' saved' : '')} aria-pressed={saved}><Icon name="bookmark" className="w-4 h-4" /></button>
-          <button className="report-btn seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200" aria-label={tr('flatmates.ariaReportRoom')} onClick={() => onReport && onReport({ id: r.id, title: 'Room in ' + r.society, ownerName: r.society, kind: 'listing' })}><Icon name="flag" className="w-4 h-4" /></button>
+          <button className="report-btn seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200" aria-label={tr('flatmates.ariaReportRoom')} onClick={() => onReport && onReport({ id: r.id, title: 'Room in ' + r.society, ownerName: r.society, kind: 'share' })}><Icon name="flag" className="w-4 h-4" /></button>
           <button className="seg p-2 rounded-lg bg-black/30 backdrop-blur-md text-gray-200" aria-label={tr('flatmates.ariaShareRoom')} onClick={shareRoom}><Icon name="share-2" className="w-4 h-4" /></button>
         </div>
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">

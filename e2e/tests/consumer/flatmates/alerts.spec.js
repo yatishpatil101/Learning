@@ -5,8 +5,15 @@ import { test, expect } from '@playwright/test';
    point: it appears whenever the list is empty OR the seeker has narrowed with 2+
    filters (mirroring how the listings page surfaces its alert card as the search
    tightens). Submitting it creates a per-mobile, dashboard-manageable alert that
-   works even signed-out, keyed by the entered number. All three intents —
-   Flatmates, Rooms, Groups — are covered via the alert's `tab` field. */
+   works even signed-out, keyed by the entered number.
+
+   The alert's `tab` is one of the two current values, `move-in` or `team-up` — not
+   the older `rooms` / `flatmates` / `groups` (tech-debt D86). Those three still work
+   as `?view=` values because `flatmates/model.js` keeps them in `TAB_ALIAS` for old
+   deep links and saved alerts, but `normalizeTab` resolves them on the way in, so
+   what gets *stored* is always the current vocabulary. This spec deliberately enters
+   through the legacy alias and asserts the normalised value, which is the round-trip
+   that would break if an alias were ever dropped. */
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876500123';
@@ -47,7 +54,8 @@ test('empty-state card creates a flatmates alert keyed to the entered mobile', a
   const saved = await savedSearches(page);
   expect(saved.length).toBe(1);
   expect(saved[0].kind).toBe('flatmates');
-  expect(saved[0].tab).toBe('rooms');
+  // Entered via the legacy `?view=rooms`; stored as the value it normalises to.
+  expect(saved[0].tab).toBe('move-in');
 });
 
 test('selecting 2 filters reveals the alert card while results remain, and captures the filters', async ({ page }) => {
@@ -58,8 +66,14 @@ test('selecting 2 filters reveals the alert card while results remain, and captu
   // Baseline: with no filters active and results present, the alert card is hidden.
   await expect(page.getByRole('button', { name: /Create alert/i })).toHaveCount(0);
 
-  // Narrow with two filters that still leave at least one match (Rahul is a
-  // non-smoking man), so we exercise the "2+ filters, results present" path.
+  // The desktop filter grid is collapsed by default so inventory clears the fold,
+  // so the controls have to be revealed before they can be clicked. Targeted by
+  // `aria-controls` rather than by name: there are two "Filters" buttons in the DOM
+  // (a mobile drawer trigger and this one), and only one of them owns this grid.
+  await page.locator('button[aria-controls="sf-desktop-filters"]').click();
+
+  // Narrow with two filters that still leave at least one match, so we exercise
+  // the "2+ filters, results present" path.
   await page.getByRole('button', { name: 'Men', exact: true }).click();
   await page.getByRole('button', { name: 'Non-smoker', exact: true }).click();
   await page.waitForTimeout(300);
@@ -74,10 +88,13 @@ test('selecting 2 filters reveals the alert card while results remain, and captu
   const saved = await savedSearches(page);
   expect(saved.length).toBe(1);
   expect(saved[0].kind).toBe('flatmates');
-  expect(saved[0].tab).toBe('flatmates');
+  // Entered via the legacy `?view=flatmates`; stored as the value it normalises to.
+  expect(saved[0].tab).toBe('team-up');
   expect(saved[0].gender).toBe('male');
   expect(saved[0].habits).toContain('Non-smoker');
-  expect(saved[0].label).toMatch(/Flatmates/);
+  // The label is built from `alertCriteria.js`'s word for the tab, which is the
+  // user-facing name of the intent — "Team up", not the legacy alias it arrived as.
+  expect(saved[0].label).toMatch(/Team up/);
 });
 
 test('dashboard Alerts panel shows the share alert with an intent badge, then toggles and deletes it', async ({ page }) => {

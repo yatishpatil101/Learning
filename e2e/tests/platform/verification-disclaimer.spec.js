@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* "Verified by PuneNest" legal-scope + due-diligence acknowledgement.
    - The Verification & Docs tab must carry a conspicuous scope disclaimer that links to /disclaimer.
@@ -36,9 +37,7 @@ test('SALE trust tab shows the verification-scope disclaimer linking to the full
 });
 
 test('SALE "Request to view documents" is gated behind the due-diligence acknowledgement', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
 
   await seedSignedIn(page);
   await openTrustTab(page, SALE_FLAT);

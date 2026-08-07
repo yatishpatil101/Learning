@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Property-detail in-context info tips:
    - Hovering an option tile/tag/row reveals a role="tooltip" popover with plain-language copy.
@@ -35,9 +36,7 @@ async function expectTip(page, locator, expectSub) {
 }
 
 test('SALE: Key Details, tag, floor plan, price + location tiles reveal tips', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
 
   await gotoProp(page, SALE_FLAT);
   await expectTip(page, page.locator('.detail-card'), 'bhk');
@@ -54,9 +53,7 @@ test('SALE: Key Details, tag, floor plan, price + location tiles reveal tips', a
 });
 
 test('RENT: rent-detail tiles reveal deal-appropriate tips', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
 
   await gotoProp(page, RENT_FLAT);
   await expectTip(page, page.locator('.detail-card'), 'bhk');
@@ -69,9 +66,7 @@ test('RENT: rent-detail tiles reveal deal-appropriate tips', async ({ page }) =>
 });
 
 test('COMMERCIAL: Key Details + tag reveal tips', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
+  const errors = trackErrors(page);
 
   await gotoProp(page, COMMERCIAL);
   await expectTip(page, page.locator('.detail-card'));

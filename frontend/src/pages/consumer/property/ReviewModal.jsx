@@ -4,7 +4,9 @@ import Icon from '../../../components/Icon.jsx';
 import { StarInput } from './StarInput.jsx';
 import { RV_CATS } from './ReviewsSection.jsx';
 
-export function ReviewModal({ user, onClose, onSubmit }) {
+// No `user` prop: the author's display name is the server's answer, taken from the authenticated
+// caller, not something the form carries. It was only ever needed to stamp the review locally.
+export function ReviewModal({ onClose, onSubmit }) {
   const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [cats, setCats] = useState({});
@@ -20,16 +22,16 @@ export function ReviewModal({ user, onClose, onSubmit }) {
 
   const submit = () => {
     if (!rating) return;
-    onSubmit({
-      id: 'RV' + Date.now(),
-      user: user?.name || 'PuneNest User',
-      rating,
-      categories: cats,
-      text: text.trim(),
-      recommend,
-      context: 'visit',
-      at: new Date().toISOString().slice(0, 10),
-    });
+    /**
+     * Only what the author actually supplied.
+     *
+     * This used to also send `id`, `user`, `at` and `context: 'visit'`. All four are the server's
+     * to decide, and `context` is the one that mattered: it is the "Visited" / "Verified resident"
+     * badge, and sending it as a literal made every review self-certifying. The contract has no
+     * such field on `ReviewCreate` for exactly that reason, so it was ignored live and believed on
+     * mocks — the worst possible split, because the demo is where the badge got its credibility.
+     */
+    onSubmit({ rating, categories: cats, text: text.trim(), recommend });
   };
 
   return (

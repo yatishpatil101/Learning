@@ -57,6 +57,9 @@ test('picking a locality via the dropdown and submitting posts a live request', 
   // Submit.
   await page.getByRole('button', { name: /Post request/i }).click();
 
-  // The live-request banner appears with our pick.
+  /* The live-request banner appears with our pick — on the **Team up** tab, which is where a
+     request for people belongs. The page opens on "Move in now" and posting does not switch tabs,
+     so this navigates rather than waiting where the old single-list page put it. */
+  await page.getByRole('button', { name: /Team up —/i }).click();
   await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
 });

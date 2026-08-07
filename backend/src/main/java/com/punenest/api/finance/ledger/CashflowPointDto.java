@@ -13,7 +13,6 @@ package com.punenest.api.finance.ledger;
  * <p>Months with no activity are present with zeros. A gap and a zero are different pictures, and
  * only the request knows which months were asked for.
  *
- * @param month   {@code yyyy-MM}
  * @param income  received that month, whole INR
  * @param expense spent that month, whole INR
  * @param net     {@code income - expense}; may be negative

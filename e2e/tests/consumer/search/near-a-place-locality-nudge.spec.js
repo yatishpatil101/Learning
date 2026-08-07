@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* "Near a Place" cross-locality nudge.
    When a user has localities selected (e.g. Baner) and then picks a Near-a-Place
@@ -47,9 +48,7 @@ async function stubPlacesNear(page) {
 }
 
 test('picking a place in an unselected locality nudges the user to add it', async ({ page }) => {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  const errors = trackErrors(page);
 
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/listings`);

@@ -27,9 +27,15 @@ Nothing.
 
 ## Next up
 
-**Documents** — the 9th seam domain. 7 endpoints, 12–13 frontend files. The only multipart surface
+**Documents** — the 10th seam domain. 7 endpoints, 12–13 frontend files. The only multipart surface
 in the seam, and every consumer is built on base64 `dataUrl` while the server returns short-lived
-signed URLs. Also needs a backend addition first: a buyer cannot list their own outgoing requests.
+signed URLs. Needs two backend additions first: a buyer cannot list their own outgoing requests, and
+dev `MockFileStorage` mints `https://mock.storage.local/…`, which does not resolve — so the vault
+would migrate and then be unopenable locally.
+
+**Societies** — smaller, and now unblocked. `GET /societies` carries `avgRating`/`reviewCount` as of
+the reviews slice, which is what the three society-card call sites need; they hold SEAM NOTEs
+pointing here.
 
 ---
 
@@ -41,6 +47,9 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 
 | Date | Slice | Note |
 |---|---|---|
+| 2026-08-07 | **Abuse reports** — seam domain 11 | See below |
+| 2026-08-07 | **Support tickets** — seam domain 10 | See below |
+| 2026-08-07 | **Reviews** — seam domain 9 | See below |
 | 2026-08-06 | **Conversations** — seam domain 8 | See below |
 | 2026-08-06 | **Worklog compression + OpenAPI 3.1 nullable fix** | See below |
 | 2026-08-06 | **Notifications** — seam domain 7 | Server/UI type vocabularies had *zero* overlap; untranslated, every filter chip would silently empty the page. `dismiss` is a client tombstone (no endpoint) |
@@ -58,6 +67,7 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 
 | Date | Slice | Note |
 |---|---|---|
+| 2026-08-07 | **Tech-debt pass** — D90, D82, D19, D22, D83, D86, D97(d), D95 closed; D33 rule amended | **The register's own numbers were the least reliable thing in it** — D19 said "7 files, cosmetic" (22 files, mangled ₹ in live prices); D96 said "50 specs" (9); D33 said 562 `@param` (673). A `@Transactional` test base class **cannot see a commit-time bug** — D90 survived 750 tests. And a mutation test caught a *bad assertion*: the D95 perk test passed with the guard disabled, because an unguarded grant moves to the next listing rather than re-extending the first |
 | 2026-08-02 | **Tech-debt batches** — D1 Lombok, concurrency, register audit | Three passes; the register is now the SSOT for what is owed |
 | 2026-08-01 | 15 — share-flat + admin listing correction (4 ops) | `adminUpdateProperty` shares one `apply` with the owner path — two copies would drift |
 | 2026-08-01 | 14 — Admin & Analytics (13 ops) | Revenue blanked for staff; `/admin/finance` is admin-only |
@@ -112,6 +122,168 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 | 2026-07-27 | 3-way sync: `platform-architecture.md` (SOT) → OpenAPI → React |
 | 2026-07-26 | OpenAPI established as the single source of truth; matured to cover all React needs |
 | 2026-07-25 | Platform & solution architecture (MVP pass), ADR-009a KYC, ADR-014 payments, legal/compliance advisory |
+
+---
+
+## 2026-08-07 — Switching on the four domains that were live on paper only
+
+`contact`, `saved`, `savedSearch` and `visit` shipped complete http providers and parity harnesses
+in `e330cd3`, but were never added to `VITE_API_DOMAINS` — so no browser had ever run them, and
+every live e2e run since had been quietly exercising their mocks. Added to the live config; the
+seam is now 11 domains live, not 7.
+
+The parity harnesses had passed the whole time, which is the point. A harness imports the provider
+and calls it; it cannot see a React call site that never awaits, or a request fired for a visitor
+with no session. Five things were wrong and none were visible from that angle:
+
+- **`isHttpDomain('savedSearch')` could never match.** The allow-list is lower-cased when parsed,
+  the lookup key was not. Worst-case failure mode: the "enabled but has no http provider" warning is
+  itself gated on `isHttpDomain`, so the domain served mocks with **nothing in the console** — a live
+  run would have passed while testing the mock (D105).
+- **A signed-out visitor fired four `401 /contacts/status` per property page.** The gate asks where
+  *this caller* stands; someone with no session has made no request, so the server can only say 401.
+  Short-circuited on `readAccessToken()`; the 401 branch stays as a fast-path backstop.
+- **`PageEnvelope.page`, read as Spring's `number`** in four providers, each behind a fallback that
+  resolved to the *requested* page — right until the server clamps or redirects. Two parity
+  harnesses had the same bug in their own unwrapping, which is why it cancelled out and went
+  unreported (D106).
+- **Both alert cards showed "first in line" without awaiting the create.** Now awaited, with an
+  `alertFailed` toast in en/hi/mr and a disabled submit while in flight.
+- **Reschedule fired at a provider that throws by design** (D87), from a handler that closes the
+  modal and toasts success first — so the user would have seen "Rescheduled" *and* an error at once.
+  Control hidden in http mode, same treatment as support's priority picker.
+
+Also fixed: the four oldest parity harnesses could not run under Node ≥ 22 at all (bare `db.json`
+import, `import.meta.env` outside a bundler), so "the harness passes" had been vacuously true —
+migrated to the Vite SSR loader the newer three already used (D107). And `AdminReports`' detail
+drawer still rendered the Reopen button removed from the rows a slice ago, referencing an import
+that no longer existed: a lint error, and a control that would 409 on click.
+
+---
+
+## 2026-08-07 — Abuse reports: the 11th seam domain
+
+`POST /reports` · `GET /reports` (staff/admin, paged) · `PATCH /reports/{id}`. `reportService.js` +
+mock/http providers + mapper, `parity:report`, live e2e walking the whole loop across two sessions.
+The **first domain whose two ends have different audiences** — anyone files, only ops reads.
+
+**The bug: a reason set that contradicted its target type.** The server validates the reason
+*against* the target type. `SHARE_REPORT_REASONS` is `FOR_POST` exactly — but `Flatmates.jsx` and
+all three flatmate cards passed `kind='user'` or `'listing'`. **Every flatmate report would have
+been a 400**, because `filled` is not something you can say about a person. It survived because the
+mock stores whatever it is handed: the report landed, the user was thanked, and it appeared in the
+ops queue under the wrong tab. Fixed at four call sites; the mapper now warns on an unknown kind.
+
+**Three server rules with no mock equivalent, each of which changed a control:**
+
+- **Duplicate → 409.** The modal closed and toasted success unconditionally, because a localStorage
+  write cannot fail. Thanking somebody for a report nobody received is the outcome worth avoiding —
+  they stop worrying about it.
+- **Terminal is terminal.** "Reopen" would 409 on click, so it is gone. Re-opening erases the record
+  that somebody judged it, and is how one moderator quietly undoes a colleague's decision.
+- **`resolved` does not exist server-side.** Translated to `dismissed` on the way *out* only, so the
+  queue never displays a status the server did not record.
+
+**What the wire withholds, and why nothing was invented:** `reporterId` is omitted on purpose —
+"naming the reporter to every member of ops is how a complaint becomes a reprisal". `targetTitle`
+falls back to the bare id rather than being resolved, because a resolved title would be a **stale**
+one: the listing may have been edited since it was reported, and judging yesterday's complaint
+against today's copy is worse than opening a tab.
+
+**Process:** the live test's "a consumer gets 403" probe was removed rather than kept — an in-browser
+`fetch` carries no bearer token, so it asserted 401-unauthenticated, not 403-wrong-role. Same class
+of mistake as last slice's vacuous badge assertion. The real 403 is asserted in the parity harness,
+which signs in as an actual consumer. Mutation-verified: `share→user`, terminal-status and the 409
+handler were each broken on purpose and each caught.
+
+---
+
+## 2026-08-07 — Support tickets: the 10th seam domain
+
+`GET|POST /support/tickets`, `GET /support/tickets/{id}`, `POST .../messages`, `POST .../read`.
+Five endpoints, one page, a one-to-one mapping onto the mock's five functions. `supportService.js`
++ mock/http providers + mapper, `parity:support`, live e2e. 6/6 mock e2e, parity PASS
+(mutation-verified 4×), live test verified red-able.
+
+**Three controls had nothing behind them**, and hiding them is the slice:
+
+| Control | On the wire | Shipped |
+|---|---|---|
+| Priority (low→urgent) | absent from `SupportTicket` **and** `SupportTicketCreate` | hidden in http mode |
+| Attachments (4 images) | `MessageCreate` is `{ body }` | hidden in http mode |
+| Name / mobile | absent — the raiser is the session | left visible, D102 |
+
+The first two had to be *hidden*, not merely not-sent: **an unknown property is ignored, not
+rejected**, so a form that kept sending `priority` would show a success toast for a ticket ops never
+sees as urgent. Worse than an error, because nobody learns anything.
+
+**Three vocabularies to reconcile**, each with a wrong answer that looks right:
+
+- **Status** — the server opens every ticket `open` (no `new`) and has an `in-progress` the page
+  cannot label. Passed through unchanged rather than collapsed onto `open`: erasing a distinction
+  ops made would tell the customer nothing was happening while somebody worked on it (D103).
+- **Author role** — `buyer|owner|staff|admin` → `customer|staff`. `owner` is a *customer* of
+  support. The first parity harness could not catch this because the probe signs in as a buyer; it
+  now drives every role through the mapper directly. That gap was found by mutation, not by reading.
+- **`updatedAt`** — not on the wire at all, and the list sorts by it. Derived from the last message;
+  the server's `createdAtDesc` would put a ticket answered this morning below one opened last week.
+
+**Scoping finding (D104):** I checked Societies first — it looked unblocked, since the reviews slice
+had just added `avgRating`/`reviewCount` to `GET /societies` for exactly that purpose. It is not:
+the frontend ships **348 societies and 155 localities**, the database has **28 and 16**. Migrating
+would 404 on 92% of society hubs. The same check killed Localities. Catalogue reference data is
+seeded thinly across the board, which is why this slice went to a *user-generated* domain instead —
+those have no alignment problem, because the rows are created by the user at runtime.
+
+---
+
+## 2026-08-07 — Reviews: the 9th seam domain
+
+`GET|POST /reviews/property/{id}` and `GET|POST /reviews/{entityType}/{entityId}`.
+`reviewService.js` + mock/http providers + mapper, `parity:review`, live e2e. Backend: `avgRating`
+and `reviewCount` added to the society **directory** row (they were already on the hub), computed
+through the existing batched `RatingLookup`. 25/25 review endpoint tests, parity PASS
+(mutation-verified twice), live suite green.
+
+**The slice is that the wire is stricter than the mock, and the strictness is the product.**
+
+`context` is the reviewer-standing badge — "Verified resident" / "Visited". It is derived
+server-side from visit and tenancy history and is `readOnly` in the contract. Three call sites were
+asserting it anyway:
+
+- `ReviewModal.jsx` sent `context: 'visit'` hard-coded on **every** submission;
+- `useSocietyHub.js` sent `resident: isVerifiedResident(slug)`, a client-side lookup;
+- `ReviewsSection.jsx` rendered the chip **unconditionally**, so a null `context` fell through the
+  ternary and displayed "Visited".
+
+The first two were discarded live and believed on mocks — the worst split available, because the
+demo and the screenshots come from mocks, so the badge earned its credibility exactly where it meant
+nothing. The third is not a provider bug at all: the provider returned the correct null and the card
+invented a badge from it. A badge a browser can assert about itself is not evidence, and evidence is
+the only reason a stranger's rating is worth reading.
+
+**Two key bugs, same shape, both invisible on mocks** — a localStorage map will key on any string
+you hand it, so neither could fail until there was a server to disagree with:
+
+- The society hub keyed reviews on `soc.id` (a synthetic `S01`) while follow, Q&A, resident status,
+  board and WhatsApp all already used `soc.slug`. Reviews were the single holdout.
+- The locality page keyed reviews on `activeName.toLowerCase()` — the *display name* — while its
+  listings query, societies filter and URL used the slug. One-word localities agree, which is
+  exactly why it survived; `viman nagar` vs `viman-nagar` is where it did not.
+
+**What was deliberately not migrated, and why:**
+
+- **Owner reviews** stay on the mock store. `getOwner()` still reads `lib/mockApi/users.js`, so the
+  target id is a mock user id and the server keys on its own UUIDs. Migrating would issue a
+  well-formed request for an owner the server has never heard of and render the empty result as "no
+  reviews yet" — a silent wrong answer, worse than an honest mock.
+- **The three society-card rating sites** call `entityRating()` inside a `.map()`. The fix is not to
+  point them at the reviews service (one request per card) but at the aggregate the row now carries.
+  Hence the backend addition; they hold SEAM NOTEs saying so.
+
+`avgRating` is **null, not 0**, for an unrated society: a card rendering 0.0 for a society nobody has
+reviewed states something false about it. The fields moved *up* from `SocietyDetail` to `Society`
+rather than being duplicated, so the hub and the directory cannot drift into two different numbers.
 
 ---
 

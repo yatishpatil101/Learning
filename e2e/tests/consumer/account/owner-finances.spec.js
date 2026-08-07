@@ -1,16 +1,10 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const OWNER = { name: 'Owner Test', mobile: '9811100011', email: '', role: 'owner', joinedAt: Date.now() };
 const PROP_ID = 'PN-OWN-REAL';
-
-function trackErrors(page) {
-  const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push('PAGEERR: ' + e.message));
-  return () => errors.filter((e) => !/favicon|leaflet|googleapis|gstatic|maps|ERR_|net::|Failed to load resource|Download the React DevTools/i.test(e));
-}
 
 /* isOwner is derived from hasListings(), not the user's role field — seed one posted
    listing so the dashboard routes to the owner P&L (OwnerFinances), not the tenant
@@ -27,7 +21,7 @@ async function loginOwner(page) {
 
 test.describe('Dashboard — owner Finances (property P&L)', () => {
   test('renders KPI tiles and the Set-up-ROI CTA in place of a blank tile', async ({ page }) => {
-    const getErrors = trackErrors(page);
+    const errors = trackErrors(page);
     await loginOwner(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/dashboard#finances`, { waitUntil: 'networkidle' });
@@ -42,7 +36,7 @@ test.describe('Dashboard — owner Finances (property P&L)', () => {
     // At-a-glance health chip is always visible in the header.
     await expect(page.getByText('Healthy')).toBeVisible();
 
-    expect(getErrors(), 'console errors on owner Finances').toEqual([]);
+    expect(errors, 'console errors on owner Finances').toEqual([]);
   });
 
   test('opens the Add-transaction modal from the Activity tab', async ({ page }) => {

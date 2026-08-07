@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, RotateCcw, Search, UserX, XCircle } from 'lucide-react';
-import { listReports, mutateDb, logAudit, addInternalNote } from '../../lib/mockApi.js';
+import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Search, UserX, XCircle } from 'lucide-react';
+import { logAudit, addInternalNote } from '../../lib/mockApi.js';
+import { listReports, triageReport } from '../../services/reportService.js';
+import { canTriage } from '../../services/providers/http/reportMapper.js';
 import { fmtNum, classNames, timeAgo } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -18,10 +20,21 @@ import DateRangePills from '../../components/ui/DateRangePills.jsx';
 
 const fmtDate = (ms) => (ms ? new Date(ms).toLocaleDateString('en-IN') : '—');
 
+/**
+ * The queue's status vocabulary, reconciled with the server's.
+ *
+ * The server has four — `open`, `reviewing`, `actioned`, `dismissed` — and this list had a fifth,
+ * `resolved`, that has never existed on the wire. It meant "reviewed, no action needed", which is
+ * exactly what `dismissed` means; the mapper translates it on the way out so a triage still works,
+ * but showing it as a *filter* would offer a state no live report can be in.
+ *
+ * `reviewing` is the reverse case: real server-side, no button here. Listed so the filter can reach
+ * reports another moderator has picked up.
+ */
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
   { value: 'open', label: 'Open' },
-  { value: 'resolved', label: 'Resolved' },
+  { value: 'reviewing', label: 'Being reviewed' },
   { value: 'actioned', label: 'Action taken' },
   { value: 'dismissed', label: 'Dismissed' },
 ];
@@ -36,10 +49,6 @@ const REASON_OPTS = [
   { value: 'spam', label: 'Spam' },
 ];
 
-function updateReport(id, patch) {
-  mutateDb((db) => { const r = (db.reports || []).find((x) => x.id === id); if (r) Object.assign(r, patch); });
-}
-
 export default function AdminReports() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
@@ -53,7 +62,15 @@ export default function AdminReports() {
   const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState(new Set());
 
-  const load = () => listReports().then((r) => setAll(r));
+  /**
+   * Read the queue.
+   *
+   * Unfiltered: the tabs, the status filter and the repeat-offender badge are all computed over the
+   * whole set client-side, so filtering server-side here would make those counts describe a subset
+   * while looking like totals. The provider warns when the queue outgrows one page — at which point
+   * this needs real paging, not a bigger page.
+   */
+  const load = () => listReports().then((res) => setAll(res.items)).catch(() => setAll([]));
   useEffect(() => { let alive = true; load().then(() => !alive); return () => { alive = false; }; }, []); // eslint-disable-line
 
   // Deep-link ?open=<id>
@@ -63,45 +80,69 @@ export default function AdminReports() {
     if (oid) { const r = all.find((x) => x.id === oid); if (r) setDetail(r); }
   }, [all, searchParams]); // eslint-disable-line
 
-  const act = (id, status, actionTaken) => {
+  /**
+   * Triage one report.
+   *
+   * `actionTaken` is the queue's own label for what was done ("Listing taken down"). The server has
+   * no such column — the moderator's words go to the audit log, attributable to whoever typed them,
+   * so that "a triage note can never be mistaken for something the reporter said". It is passed as
+   * the note and kept locally for the table.
+   */
+  const act = async (id, status, actionTaken) => {
     const note = window.prompt('Internal note (optional):');
-    const patch = { status, handledAt: Date.now() };
-    if (actionTaken !== undefined) patch.actionTaken = actionTaken;
-    if (status === 'open') patch.actionTaken = '';
-    updateReport(id, patch);
+    let updated;
+    try {
+      updated = await triageReport(id, { status, note: note || actionTaken, actionTaken });
+    } catch {
+      toast('That decision could not be saved. Please reload the queue.', 'error');
+      return;
+    }
     if (note) addInternalNote('report', id, note, actionTaken || status);
     logAudit('Reports', `${status} report ${id}`);
-    // Mirror the persisted patch exactly: reopening clears the action, an
-    // explicit action overwrites it, otherwise the existing value is kept.
+    // The server's answer is authoritative for `status` — `resolved` is recorded as `dismissed`,
+    // so echoing the requested value would show a state the server did not store.
+    const saved = updated?.status || status;
     const resolveAction = (existing) => (status === 'open' ? '' : (actionTaken || existing));
-    setAll((prev) => prev.map((r) => r.id === id ? { ...r, status, actionTaken: resolveAction(r.actionTaken), handledAt: Date.now() } : r));
-    if (detail?.id === id) setDetail((d) => ({ ...d, status, actionTaken: resolveAction(d.actionTaken), handledAt: Date.now() }));
-    toast(actionTaken || (status === 'open' ? 'Reopened' : status));
+    setAll((prev) => prev.map((r) => r.id === id ? { ...r, status: saved, actionTaken: resolveAction(r.actionTaken), handledAt: Date.now() } : r));
+    if (detail?.id === id) setDetail((d) => ({ ...d, status: saved, actionTaken: resolveAction(d.actionTaken), handledAt: Date.now() }));
+    toast(actionTaken || (status === 'open' ? 'Reopened' : saved));
   };
 
-  const bulkResolve = () => {
+  /**
+   * Bulk decisions are N requests, not one.
+   *
+   * There is no bulk endpoint, and inventing one client-side means some can fail while others
+   * succeed. `allSettled` so one refusal does not abandon the rest, then a single re-read: the
+   * local state cannot be patched optimistically when an unknown subset may not have applied.
+   */
+  const bulkTriage = async (status, actionTaken, confirmMsg, doneMsg) => {
     if (!selected.size) return;
-    if (!window.confirm(`Resolve ${selected.size} report(s) as "Reviewed, no action needed"?`)) return;
-    for (const id of selected) {
-      updateReport(id, { status: 'resolved', actionTaken: 'Bulk resolved', handledAt: Date.now() });
-    }
-    logAudit('Reports', `Bulk resolved ${selected.size} reports`);
-    setAll((prev) => prev.map((r) => selected.has(r.id) ? { ...r, status: 'resolved', actionTaken: 'Bulk resolved', handledAt: Date.now() } : r));
+    if (!window.confirm(confirmMsg)) return;
+    const ids = [...selected];
+    const results = await Promise.allSettled(
+      ids.map((id) => triageReport(id, { status, note: actionTaken, actionTaken })),
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    logAudit('Reports', `Bulk ${status} ${ids.length - failed} reports`);
     setSelected(new Set());
-    toast(`${selected.size} reports resolved`);
+    await load();
+    if (failed) toast(`${ids.length - failed} of ${ids.length} updated — ${failed} could not be saved.`, 'error');
+    else toast(doneMsg);
   };
 
-  const bulkDismiss = () => {
-    if (!selected.size) return;
-    if (!window.confirm(`Dismiss ${selected.size} report(s)?`)) return;
-    for (const id of selected) {
-      updateReport(id, { status: 'dismissed', handledAt: Date.now() });
-    }
-    logAudit('Reports', `Bulk dismissed ${selected.size} reports`);
-    setAll((prev) => prev.map((r) => selected.has(r.id) ? { ...r, status: 'dismissed', handledAt: Date.now() } : r));
-    setSelected(new Set());
-    toast(`${selected.size} reports dismissed`);
-  };
+  const bulkResolve = () => bulkTriage(
+    'resolved',
+    'Bulk resolved',
+    `Resolve ${selected.size} report(s) as "Reviewed, no action needed"?`,
+    `${selected.size} reports resolved`,
+  );
+
+  const bulkDismiss = () => bulkTriage(
+    'dismissed',
+    undefined,
+    `Dismiss ${selected.size} report(s)?`,
+    `${selected.size} reports dismissed`,
+  );
 
   // Precompute report counts per target for escalation indicators (O(n) vs O(n^2) per-row)
   const targetCounts = useMemo(() => {
@@ -159,7 +200,7 @@ export default function AdminReports() {
   const reportActions = (r) => (
     <div className="flex flex-wrap justify-end gap-1">
       <button onClick={() => setDetail(r)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5" title="View details"><Eye className="h-3.5 w-3.5" /></button>
-      {r.status === 'open' ? (
+      {canTriage(r) ? (
         <>
           {tab === 'listings'
             ? <button onClick={() => act(r.id, 'actioned', 'Listing taken down')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
@@ -168,7 +209,11 @@ export default function AdminReports() {
           <button onClick={() => act(r.id, 'dismissed')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Dismiss"><XCircle className="mr-0.5 inline h-3 w-3" />Dismiss</button>
         </>
       ) : (
-        <button onClick={() => act(r.id, 'open')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Reopen"><RotateCcw className="mr-0.5 inline h-3 w-3" />Reopen</button>
+        /* No Reopen. A decided report is terminal server-side, and the refusal is the point:
+           re-opening erases the record that somebody judged it, and is the obvious way for one
+           moderator to quietly undo a colleague's decision. Filing afresh costs nothing and leaves
+           both decisions visible. The button used to be here and would now 409 on click. */
+        <span className="px-2 py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
       )}
     </div>
   );
@@ -412,7 +457,7 @@ export default function AdminReports() {
             {detail.details ? <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-gray-300">&ldquo;{detail.details}&rdquo;</p> : null}
             {detail.actionTaken ? <p className="text-sm text-emerald-300">Action: {detail.actionTaken}</p> : null}
             <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
-              {detail.status === 'open' ? (
+              {canTriage(detail) ? (
                 <>
                   {detail.kind === 'listing'
                     ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
@@ -421,7 +466,11 @@ export default function AdminReports() {
                   <button onClick={() => act(detail.id, 'dismissed')} className="pn-btn pn-btn-ghost text-gray-300"><XCircle className="h-4 w-4" />Dismiss</button>
                 </>
               ) : (
-                <button onClick={() => act(detail.id, 'open')} className="pn-btn pn-btn-ghost"><RotateCcw className="h-4 w-4" />Reopen</button>
+                /* Same as the row actions: a decided report is terminal server-side, so there is no
+                   Reopen here either. This copy was missed when the row was fixed — the drawer still
+                   rendered the old button, which was both a dead `RotateCcw` reference (the import
+                   had gone) and a control that would 409 on click. */
+                <span className="px-2 py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
               )}
               <button onClick={() => setDetail(null)} className="pn-btn pn-btn-primary ml-auto">Close</button>
             </div>

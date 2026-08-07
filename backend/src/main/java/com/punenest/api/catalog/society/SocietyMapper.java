@@ -22,8 +22,10 @@ public interface SocietyMapper {
     @Mapping(target = "listingCount", source = "listingCount")
     @Mapping(target = "followerCount", source = "followerCount")
     @Mapping(target = "followedByMe", source = "followedByMe")
+    @Mapping(target = "avgRating", source = "avgRating")
+    @Mapping(target = "reviewCount", source = "reviewCount")
     SocietyResponse toResponse(Society society, long listingCount, long followerCount,
-            boolean followedByMe);
+            boolean followedByMe, BigDecimal avgRating, long reviewCount);
 
     @Mapping(target = "listingCount", source = "listingCount")
     @Mapping(target = "followerCount", source = "followerCount")

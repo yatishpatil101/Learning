@@ -26,9 +26,6 @@ import java.time.Instant;
  * @param localitySlug curated locality key (FK to {@code localities.slug}); the value the
  *                     {@code locality} search facet matches on. Nullable when the listing's
  *                     free-text locality resolved to no curated locality.
- * @param city         city
- * @param lat          latitude, nullable
- * @param lng          longitude, nullable
  * @param coverImage   card image, nullable
  * @param verified     listing "Verified" badge (L2 signal, never a gate)
  * @param postedByType owner|agent|builder, nullable

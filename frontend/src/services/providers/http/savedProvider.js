@@ -19,7 +19,7 @@ export async function listSaved({ page = 0, size = 20 } = {}) {
     // `totalElements` counts the whole shortlist, not the page — the number the Saved page's
     // header and the navbar badge both read.
     total: res?.totalElements ?? 0,
-    page: res?.number ?? page,
+    page: res?.page ?? res?.number ?? page,
     size: res?.size ?? size,
   };
 }

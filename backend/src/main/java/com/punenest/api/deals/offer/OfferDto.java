@@ -33,7 +33,6 @@ public record OfferDto(
      * A platform user acting as a participant on the offer (contract {@code Party}).
      *
      * @param id     user id
-     * @param name   display name
      * @param mobile contact-gated; masked ({@code 98XXXXX210}) until the owner has acted
      * @param role   {@code buyer} or {@code owner}
      */

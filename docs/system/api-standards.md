@@ -267,8 +267,22 @@ Every public class and method carries Javadoc that explains the **why**, not the
 - **DTO Javadoc:** each field's meaning and constraint; call out fields that are deliberately
   omitted/ignored (and why).
 - Restating the signature in prose is banned. Comment only where a reader needs the reason.
+- **`@param` is not mandatory, and a `@param` that restates the parameter name is banned.**
+  `@param city city (required)` and `@param lat latitude, nullable` document nothing — they cost a
+  line, and the `(required)` / `nullable` half is worse than nothing because it **duplicates the
+  `@NotBlank` / `@Nullable` annotation on the next line**. Two sources of truth for one fact, and
+  the prose copy is the one that drifts silently when the annotation changes. Write `@param` only
+  when it says something the name and the annotations do not: which external field it maps to, the
+  unit, the coordinate system, what an out-of-range value does.
+  *A partly-documented parameter list is fine and expected* — the informative lines earn their place
+  precisely because the empty ones are gone.
 - `// ponytail:` marks a deliberate pragmatic shortcut, with the justification inline.
 - `// why:` marks a non-obvious correctness/security decision inline.
+
+> **Why this clause exists (tech-debt D33).** The original rule required Javadoc on every public
+> member, which produced **673 `@param` against 31 `@return`** — a ratio that is a habit, not
+> documentation. Deleting the empty ones without changing the rule would have grown them straight
+> back, so the rule changed first and the cleanup followed.
 
 ## 11. Testing bar per slice
 

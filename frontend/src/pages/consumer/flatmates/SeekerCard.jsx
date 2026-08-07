@@ -22,7 +22,7 @@ function SeekerCard({ r, i, saved, onSave, interested, onInterest, verifiedConta
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <SaveBtn k={'s:' + r.id} saved={saved} onSave={onSave} data={savePayload('flatmate', r)} />
-          <button className="report-btn seg p-2 rounded-lg text-gray-400" aria-label={tr('flatmates.ariaReportPost')} onClick={() => onReport && onReport({ id: r.id, title: 'Flatmate: ' + r.name, ownerName: r.name, ownerMobile: r.mobile, kind: 'user' })}><Icon name="flag" className="w-4 h-4" /></button>
+          <button className="report-btn seg p-2 rounded-lg text-gray-400" aria-label={tr('flatmates.ariaReportPost')} onClick={() => onReport && onReport({ id: r.id, title: 'Flatmate: ' + r.name, ownerName: r.name, ownerMobile: r.mobile, kind: 'share' })}><Icon name="flag" className="w-4 h-4" /></button>
         </div>
       </div>
       <div className="flex items-center justify-between gap-3 mb-3">

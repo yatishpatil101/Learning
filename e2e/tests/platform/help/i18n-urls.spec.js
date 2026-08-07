@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, SEEKER, seed } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Language-prefixed help URLs.
  *
@@ -22,9 +23,7 @@ import { ADMIN, SEEKER, seed } from '../../../helpers/app.js';
  */
 
 const listen = (page) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const errors = trackErrors(page);
   return errors;
 };
 
@@ -212,9 +211,19 @@ test.describe('Help SEO tags', () => {
        canonicalising the hi/mr pages onto /help/... would tell the crawler they
        are duplicates and drop them from the index entirely — the exact outcome
        the prefix scheme exists to avoid. The hreflang cluster, not the
-       canonical, is what ties the three together. */
-    const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-    expect(new URL(canonical, 'http://localhost').pathname)
+       canonical, is what ties the three together.
+
+       Polled, because `useHelpSeo` writes these tags from an effect keyed on the
+       active language: on first paint i18n has not resolved `hi` yet, so the tag
+       is briefly the English URL and then corrected. Reading it once caught that
+       window about a third of the time. What is being asserted is the settled
+       value — the transient one is inherent to client-side head management in an
+       SPA, which `useHelpSeo` itself notes is the seam where SSR would plug in. */
+    await expect
+      .poll(async () => {
+        const href = await page.locator('link[rel="canonical"]').getAttribute('href');
+        return href && new URL(href, 'http://localhost').pathname;
+      }, { message: 'canonical never settled on the Hindi URL' })
       .toBe(`/hi/help/a/${TRANSLATED_SLUG}`);
 
     // x-default sends an unpublished language to the English version.

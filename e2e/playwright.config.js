@@ -51,7 +51,15 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 7_500 },
   retries: CI ? 2 : 1,
-  workers: CI ? 4 : undefined,
+  /* Four workers everywhere, not "half the cores" locally.
+   *
+   * Playwright's default is `cores / 2`, which on a 22-core dev box is eleven browsers against a
+   * single Vite dev server. That is not a faster suite, it is a contended one: the failures it
+   * produces are timeouts and strict-mode violations that depend on how long a page took to
+   * hydrate, so they move around between runs and read exactly like product bugs. Matching CI's 4
+   * means a local failure means the same thing a CI failure does, which is the only way the suite
+   * is worth running locally at all. */
+  workers: 4,
   fullyParallel: true,
   reporter: [
     ['list'],

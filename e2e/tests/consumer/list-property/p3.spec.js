@@ -79,17 +79,30 @@ test('Sale Type and Possession options are equal side-by-side pills (2-col grid)
   await expect(possession.locator('[data-err="availableFrom"]')).toBeVisible();
 });
 
-test('Index II error shows below its tile with red highlight', async ({ page }) => {
+test('ownership proof is optional to post — it earns a badge rather than gating', async ({ page }) => {
+  /* This used to assert the opposite: submitting without Index II raised a `[data-err="documents"]`
+     tile with a red upload control and "Upload Index II (ownership proof)".
+   *
+   * That gate was removed on purpose (see constants.js, `ownership documents`): every document is
+   * now optional and the ownership proof is flagged `verifies` rather than `required`, because it
+   * is what earns the Verified Owner badge, not a condition of publishing — "a genuine owner who
+   * can't find their Index II today isn't blocked from listing". So the old assertion was testing
+   * a rule the product deliberately dropped.
+   *
+   * What is worth holding onto is the deal it replaced the gate with: the document is offered, it
+   * is marked optional, its badge payoff is stated, and submitting without it is not blocked. */
   await gotoStep3Buy(page);
+
+  const indexII = page.locator('label', { hasText: 'Index II — Property Ownership Proof' }).first();
+  await expect(indexII).toBeVisible();
+  await expect(indexII).toContainText(/\(optional\)/i);
+  // The payoff is named, so an owner can weigh uploading against skipping.
+  await expect(page.getByText(/Earns your Verified Owner badge/i).first()).toBeVisible();
+
+  // Submitting with no document raises no document error — photos are the only hard requirement.
   await page.getByRole('button', { name: /Submit Property/i }).click();
   await page.waitForTimeout(300);
-  const tile = page.locator('[data-err="documents"]');
-  await expect(tile).toHaveCount(1);
-  // The upload control on the required tile is flagged invalid (red).
-  await expect(tile.locator('.doc-upload')).toHaveClass(/pn-invalid/);
-  // The error message renders inside that tile, not on the intro paragraph.
-  await expect(tile.locator('p.pn-field-error')).toBeVisible();
-  await expect(tile.locator('p.pn-field-error')).toHaveText(/Upload Index II \(ownership proof\)/i);
+  await expect(page.locator('[data-err="documents"]')).toHaveCount(0);
 });
 
 test('documents section explains why documents are collected (trust copy)', async ({ page }) => {
@@ -116,8 +129,12 @@ test('uploading a photo clears the compulsory-photo error', async ({ page }) => 
   await page.waitForTimeout(300);
   const zone = page.locator('[data-err="photos"]');
   await expect(zone.locator('label.upload-zone')).toHaveClass(/pn-invalid/);
-  // Provide a photo via the hidden file input.
-  await zone.locator('input[type="file"]').setInputFiles({
+  /* Scoped to the drop zone's own input. The uploader now offers a second file input beside it —
+     a mobile-only "Take photo" control carrying `capture="environment"`, which asks the OS for the
+     camera rather than the gallery — so an unscoped `input[type="file"]` matches two elements.
+     Targeting the drop zone is also the right choice on merit: this test is about the desktop
+     gallery path, and the camera input is `sm:hidden`. */
+  await zone.locator('label.upload-zone input[type="file"]').setInputFiles({
     name: 'living-room.png',
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),

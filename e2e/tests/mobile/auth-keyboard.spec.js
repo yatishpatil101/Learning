@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Auth on a phone keyboard — §G.2 `mobile-auth-keyboard`.
 
@@ -126,8 +127,7 @@ test.describe('Mobile auth keyboard', () => {
   });
 
   test('signing in logs no console errors', async ({ page }) => {
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const errors = trackErrors(page);
     await page.goto('/signin');
     await sendOtp(page);
     expect(errors).toEqual([]);

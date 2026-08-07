@@ -54,10 +54,15 @@ public class SocietyService {
     /**
      * Browse the directory.
      *
-     * <p>Four queries for any page size: the page itself, the grouped listing counts, the grouped
-     * follower counts, and — only when somebody is signed in — which of the page's societies they
-     * follow. The naive shape would ask each of those questions once per row, which on an
-     * unauthenticated endpoint is a denial-of-service a client can trigger for free.
+     * <p>Five queries for any page size: the page itself, the grouped listing counts, the grouped
+     * follower counts, the grouped rating aggregates, and — only when somebody is signed in — which
+     * of the page's societies they follow. The naive shape would ask each of those questions once
+     * per row, which on an unauthenticated endpoint is a denial-of-service a client can trigger for
+     * free.
+     *
+     * <p>The rating is here rather than only on the hub because the cards render it: the directory
+     * and the home page both show a star per society, and resolving that per card would be one
+     * request per row from the browser as well as one query per row on the server.
      *
      * @param viewerId the caller, or {@code null} when anonymous
      */
@@ -71,12 +76,20 @@ public class SocietyService {
         Map<UUID, Long> listings = listingCounts.bySocietyId();
         Map<UUID, Long> followers = followerCounts(ids);
         Set<UUID> followed = followedBy(viewerId, ids);
+        Map<UUID, RatingLookup.Rating> rated = ratings.forSocieties(ids);
 
-        return page.map(society -> societyMapper.toResponse(
-                society,
-                listings.getOrDefault(society.getId(), 0L),
-                followers.getOrDefault(society.getId(), 0L),
-                followed.contains(society.getId())));
+        return page.map(society -> {
+            // Absent, not zero: `forSocieties` omits unrated societies precisely so this stays a
+            // null average rather than a 0.0 the card would render as a one-star society.
+            RatingLookup.Rating rating = rated.get(society.getId());
+            return societyMapper.toResponse(
+                    society,
+                    listings.getOrDefault(society.getId(), 0L),
+                    followers.getOrDefault(society.getId(), 0L),
+                    followed.contains(society.getId()),
+                    rating == null ? null : rating.average(),
+                    rating == null ? 0L : rating.reviewCount());
+        });
     }
 
     /**

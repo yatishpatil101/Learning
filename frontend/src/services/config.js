@@ -56,8 +56,16 @@ if (
   );
 }
 
-/** True when `domain` should resolve to its http provider. */
-export const isHttpDomain = (domain) => enabledDomains.has('*') || enabledDomains.has(domain);
+/**
+ * True when `domain` should resolve to its http provider.
+ *
+ * The allow-list is lower-cased when it is parsed, so the lookup key must be too — otherwise a
+ * camelCase domain like `savedSearch` can never match, and (worse) it fails *silently*: the
+ * "enabled but has no http provider" warning below is gated on this very function, so an opted-in
+ * domain would quietly serve mocks with nothing in the console to say so.
+ */
+export const isHttpDomain = (domain) =>
+  enabledDomains.has('*') || enabledDomains.has(String(domain).toLowerCase());
 
 /** True when no domain is live — i.e. the app is running fully on mocks. */
 export const isFullyMocked = enabledDomains.size === 0;

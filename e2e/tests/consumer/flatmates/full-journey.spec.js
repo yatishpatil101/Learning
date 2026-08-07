@@ -26,7 +26,7 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   // What would you like to do? -> Find a flatmate
   await page.getByText('Find a flatmate').click();
 
-  /* ---------- STEP 1 Â· Details ---------- */
+  /* ---------- STEP 1 · Details ---------- */
   // Flat type: 2 BHK
   await page.locator('[data-err="bhk"] .radio-pill', { hasText: '2 BHK' }).click();
   // Room offered: Private room
@@ -39,12 +39,12 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   // Advance to Location & Price.
   await page.getByRole('button', { name: /Next Step/i }).click();
 
-  /* ---------- STEP 2 Â· Location & Price ---------- */
+  /* ---------- STEP 2 · Location & Price ---------- */
   // The address + map picker are shared with the whole-place flow.
   await expect(page.getByText(/Pin the flat location/i)).toBeVisible();
   // Flat / Unit No. free-text.
   await page.getByPlaceholder('e.g. B-1203').fill('B-1203');
-  // Locality â€” also drops the map pin (sets the location).
+  // Locality — also drops the map pin (sets the location).
   await page.locator('[data-err="locality"]').click();
   await page.waitForTimeout(200);
   await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
@@ -59,7 +59,7 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   // Advance to Photos.
   await page.getByRole('button', { name: /Next Step/i }).click();
 
-  /* ---------- STEP 3 Â· Photos ---------- */
+  /* ---------- STEP 3 · Photos ---------- */
   await expect(page.getByText(/Drag & drop or click to upload/i)).toBeVisible();
   // Photo upload (required)
   await page.locator('input[type="file"]').first().setInputFiles({
@@ -76,7 +76,7 @@ test('post a flatmate via UI, then see it in dashboard My Listings', async ({ pa
   await expect(page.getByText(/Flatmate Listing Posted/i)).toBeVisible({ timeout: 10000 });
 
   // App SPA-navigates to /dashboard (Overview). The listing lives under
-  // My Properties â†’ My Listings, reachable via the #listings deep-link.
+  // My Properties → My Listings, reachable via the #listings deep-link.
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 6000 });
   await page.waitForTimeout(500);
 

@@ -352,7 +352,7 @@
 }
 
 /* sf-page: List|Map segmented control + match/fresh badges (moved from index.css; .sf-page-scoped, Flatmates route only). */
-/* List | Map segmented control â€” height matches the search field (h-10). Inner
+/* List | Map segmented control — height matches the search field (h-10). Inner
    buttons are rounded-full and inset by 4px so their corners are concentric with
    the container's, eliminating the corner-collision of the old pill-in-pill. */
 .sf-page .sf-seg {

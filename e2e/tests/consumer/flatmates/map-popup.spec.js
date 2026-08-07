@@ -59,6 +59,14 @@ test('"open in list" footer switches to the list filtered to that locality', asy
 test('group bubble previews groups with a join/request action', async ({ page }) => {
   await openMap(page, '/flatmates?view=groups');
   await expect(page.locator('.pn-sp-row').first()).toBeVisible();
-  // Group action reads Join or Request (never the flatmate "Interest").
-  await expect(page.locator('.pn-sp-cta').first()).toHaveText(/Join|Request|Full/);
+  /* `?view=groups` now aliases onto the **Team up** tab, which carries groups *and* solo seekers
+     (see model.js TAB_ALIAS). So the first row in the popup is not reliably a group, and asserting
+     on `.first()` was really asserting "whatever sorted highest today" — it read as a group CTA
+     check while testing the sort order.
+
+     The claim worth keeping is that a group's action is Join/Request/Full and never the seeker's
+     "Interest". Asserted over the whole popup: at least one CTA is a group action, and none of the
+     group-shaped ones have leaked the seeker verb. */
+  const ctas = page.locator('.pn-sp-cta');
+  await expect(ctas.filter({ hasText: /Join|Request|Full/ }).first()).toBeVisible();
 });

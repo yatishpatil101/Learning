@@ -124,6 +124,26 @@ function watchApiFailures(page, sink) {
   });
 }
 
+/**
+ * Record every API response as `"<status> <METHOD> <path>"`, for assertions about *provenance*.
+ *
+ * `page.waitForResponse` is the wrong tool for "did this page load from the API". It has to be
+ * registered before the request and it silently discards anything its predicate rejects, so a
+ * response that arrived with an unexpected status is indistinguishable from one that never came —
+ * both surface as the same bare timeout, naming neither the endpoint nor what did happen.
+ *
+ * Recording every response and polling the log inverts that: the endpoint either shows up or the
+ * failure message lists everything the page *did* ask for. It also removes the registration race
+ * around a navigation, which is the other way that check goes quietly wrong.
+ *
+ * Reserve `waitForResponse` for a request triggered by a specific click, which is what it is good at.
+ */
+function watchApiCalls(page, sink) {
+  page.on('response', (r) => {
+    if (r.url().includes('/api/')) sink.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+  });
+}
+
 test.describe('LIVE: property domain against the real API', () => {
   let errors;
   let apiFails;
@@ -493,3 +513,446 @@ test.describe('LIVE: conversations against the real API', () => {
     expect(sides.some((s) => s.them)).toBe(true);
   });
 });
+
+/**
+ * LIVE: reviews.
+ *
+ * Two things are worth driving through a real browser here, and neither is visible to the parity
+ * harness — which compares provider *output* and cannot see what the page does with it.
+ *
+ * 1. **The badge must not be invented.** `context` is the "Verified resident" / "Visited" chip and
+ *    it is null on every locality review, because there is no visit or tenancy to evidence for a
+ *    locality. The card used to render the chip unconditionally and fall through to "Visited" for a
+ *    null, so the page asserted standing the server never granted. That is a *rendering* bug: the
+ *    provider returned the correct null.
+ * 2. **The locality key.** Reviews used to key on `activeName.toLowerCase()` — the display name —
+ *    while the rest of the page used the slug. For a one-word locality the two agree, which is how
+ *    it survived; a write followed by a read proves the page and the server settled on one key,
+ *    because a mismatch means the review posts and then does not come back.
+ *
+ * **This writes its own fixture rather than trusting one.** The first version asserted on seeded
+ * locality reviews — and there are none: the four rows that made it pass were written by
+ * `review-parity.mjs` on earlier runs (D100). A test whose fixture is another tool's litter passes
+ * until somebody cleans up.
+ *
+ * **And the write happens at most once, ever.** `ReviewService` enforces one review per author per
+ * target and answers `409` on a second — correctly, since a review is an opinion and a user has one.
+ * So this tolerates both outcomes: `201` on the first run against a fresh database, `409` on every
+ * run after, and the read-back and badge assertions run either way. Asserting only on `201` would
+ * make the suite pass exactly once and then fail forever, which is worse than not testing the write.
+ *
+ * The sign-in replays the cached session for `CHATTER`, established by the conversations block
+ * above. A second `signIn()` inside `OtpService.SEND_COOLDOWN` cannot succeed, and currently
+ * surfaces as a 500 rather than a 429 (D90).
+ */
+test.describe('LIVE: reviews against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    // The 409 below is an expected, correct answer — not a failure to report.
+    const noise = /409/;
+    expect(
+      errors.filter((e) => !IGNORE.test(e) && !noise.test(e)),
+      `failed API calls: ${apiFails.filter((f) => !noise.test(f)).join(', ') || 'none'}`,
+    ).toEqual([]);
+  });
+
+  test('a locality review round-trips on the slug, and no badge is fabricated', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+
+    const first = page.waitForResponse(
+      (r) => /\/api\/reviews\/locality\/aundh(\?|$)/.test(r.url()) && r.status() === 200,
+      { timeout: 20000 },
+    );
+    await page.goto('/locality/aundh');
+
+    // A PageEnvelope, not a bare array — the mapper unwraps `content`, and a shape change would
+    // render an empty panel rather than raise anything.
+    const before = await (await first).json();
+    expect(before).toHaveProperty('content');
+
+    // The reviews block lives behind a tab, so nothing in it is mounted until this click. Note the
+    // fetch above already happened: the page loads reviews on mount regardless of which tab is
+    // showing, which is what makes the assertion on `first` meaningful before this point.
+    await page.getByRole('tab', { name: /reviews/i }).first().click();
+
+    // ── write (once per user per target, forever) ────────────────────────────────────────────
+    const body = `Living here since 2019 ${Date.now()}`;
+    const posted = page.waitForResponse(
+      (r) => /\/api\/reviews\/locality\/aundh$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+
+    const form = page.locator('form', { has: page.locator('textarea') }).first();
+    await expect(form.locator('textarea')).toBeVisible({ timeout: 15000 });
+    await form.locator('textarea').fill(body);
+    // A rating is required — the form posts nothing without one.
+    await form.locator('button[type="button"]').nth(4).click();
+    await form.getByRole('button', { name: /post/i }).click();
+
+    const res = await posted;
+    expect([201, 409]).toContain(res.status());
+    if (res.status() === 201) {
+      const created = await res.json();
+      // The badge the client is not allowed to claim. A locality has no visit and no tenancy to
+      // evidence, so the server returns none — and ignored the request body either way.
+      expect(created.context ?? null).toBeNull();
+      expect(created.rating).toBeGreaterThan(0);
+      // Same slug on both sides. If the page had kept keying reviews on the display name, this
+      // write would land under `aundh` and the re-read would look somewhere else.
+      await expect(page.getByText(body)).toBeVisible({ timeout: 15000 });
+    }
+
+    // ── read ─────────────────────────────────────────────────────────────────────────────────
+    // Runs on both paths: this user has a review on `aundh` either way, so the panel must show it.
+    const listed = await page.evaluate(async () => {
+      const r = await fetch('/api/reviews/locality/aundh');
+      return r.json();
+    });
+    expect(listed.totalElements).toBeGreaterThan(0);
+    expect(listed.content.every((rv) => rv.context == null)).toBe(true);
+    await expect(page.getByText('Living here since 2019', { exact: false }).first())
+      .toBeVisible({ timeout: 15000 });
+
+    /* No badge assertion here, deliberately.
+     *
+     * The obvious `expect(getByText('Verified resident')).toHaveCount(0)` is **vacuous on this
+     * page**: `locality/ReviewsBlock.jsx` renders a name, stars and the text, and has no badge at
+     * all. It passes whatever the mapper does — verified by mutating the mapper to
+     * `context: r.context ?? 'visit'` and watching this test stay green.
+     *
+     * The badge lives on `property/ReviewsSection.jsx`, and writing a property review needs a
+     * completed visit or a tenancy, which is a fixture this suite cannot mint. So the two halves
+     * are guarded where they can actually fail:
+     *   - **the mapper** must not default a null badge → `npm run parity:review` (caught the
+     *     mutation above, twice);
+     *   - **the server** must not evidence a locality → the wire assertion two lines up.
+     * A green assertion that cannot go red is worse than no assertion: it reads like coverage. */
+  });
+});
+
+/**
+ * LIVE: support tickets.
+ *
+ * The wiring is the least interesting part; what is worth driving through a browser is that **three
+ * controls the mock offers have no server behind them**, and the page has to stop offering them
+ * rather than let them silently do nothing:
+ *
+ * 1. **Priority** — not on `SupportTicket` *or* `SupportTicketCreate`. An unknown property is
+ *    ignored rather than rejected, so a form that still sent it would show a success toast for a
+ *    ticket nobody ever sees as urgent.
+ * 2. **Image attachments** — `MessageCreate` is `{ body }`; the contract states an attachment field
+ *    would be accepted and dropped.
+ * 3. **Identity** — the mock keys tickets on a typed mobile, the server on the session.
+ *
+ * Unlike the reviews block, these assertions **can** go red: the controls exist in the DOM on mocks
+ * and must not exist here, so `toHaveCount(0)` is a real constraint rather than a statement about a
+ * page that never had them. Verified by flipping `richTicket` to a constant `true` and watching this
+ * fail.
+ *
+ * The write is repeatable — there is no one-per-user rule on tickets — so this raises a fresh one
+ * each run and asserts on that specific subject.
+ */
+test.describe('LIVE: support tickets against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('a ticket round-trips, and the controls the API cannot carry are not offered', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+
+    const listed = page.waitForResponse(
+      (r) => /\/api\/support\/tickets(\?|$)/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
+      { timeout: 20000 },
+    );
+    await page.goto('/support');
+
+    // A bare array, not a PageEnvelope — the contract keeps this list unpaged because it grows with
+    // one person's own support history. The provider maps it directly, so a shape change here would
+    // render an empty ticket list rather than raise anything.
+    const body = await (await listed).json();
+    expect(Array.isArray(body)).toBe(true);
+
+    // ── the dead controls must be absent ─────────────────────────────────────────────────────
+    await expect(page.getByText('Priority', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Attach screenshots')).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+
+    // ── raise one ────────────────────────────────────────────────────────────────────────────
+    const subject = `Parity check ${Date.now()}`;
+    const created = page.waitForResponse(
+      (r) => /\/api\/support\/tickets$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+
+    await page.getByPlaceholder('Brief summary of your issue').fill(subject);
+    await page.getByPlaceholder(/Share as much detail/i).fill('Raised by the live integration suite.');
+    await page.getByRole('button', { name: /submit ticket/i }).click();
+
+    const res = await created;
+    expect(res.status()).toBe(201);
+    const ticket = await res.json();
+    // Every ticket opens `open`; `new` is a mock-only status the server has never heard of.
+    expect(ticket.status).toBe('open');
+    // The identity fields the form still collects are *not* on the schema — the raiser is the
+    // session. Asserted on the wire so a mapper that started sending them fails here.
+    expect(ticket).not.toHaveProperty('priority');
+    expect(ticket).not.toHaveProperty('mobile');
+
+    // The thread opens on submit and the new ticket appears in the list.
+    await expect(page.getByText(subject).first()).toBeVisible({ timeout: 15000 });
+
+    // ── reply ────────────────────────────────────────────────────────────────────────────────
+    const replied = page.waitForResponse(
+      (r) => /\/api\/support\/tickets\/[^/]+\/messages$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+    const reply = `Following up ${Date.now()}`;
+    await page.getByPlaceholder(/type your reply/i).fill(reply);
+    await page.getByRole('button', { name: /^send$/i }).click();
+
+    expect((await replied).status()).toBe(201);
+    // `.first()` because the reply lands in two places at once — the open thread and the ticket
+    // card's preview line — and a bare getByText is a strict-mode violation the moment both render.
+    await expect(page.getByText(reply).first()).toBeVisible({ timeout: 15000 });
+  });
+});
+
+/**
+ * LIVE: abuse reports — the consumer's complaint and the ops queue that answers it.
+ *
+ * The first domain in the seam whose **two ends have different audiences**: anyone signed in may
+ * file, only staff/admin may read. So this walks the whole loop across two sessions, which is also
+ * the only way to prove the report actually arrived — a create that returns 201 into a queue nobody
+ * can see is not evidence of anything.
+ *
+ * Three server rules the mock has no equivalent for, and each one changed a control:
+ *
+ * 1. **A duplicate is a 409.** The modal used to close and toast success unconditionally, because a
+ *    localStorage write cannot fail. Live, a second live report of the same target gets refused —
+ *    and thanking somebody for a report nobody received is the one outcome worth avoiding.
+ * 2. **The reason is validated against the target type.** `SHARE_REPORT_REASONS` + `kind='user'`
+ *    (what Flatmates.jsx sent) is a 400: `filled` is not something you can say about a person.
+ * 3. **Terminal is terminal.** A decided report cannot be reopened, so the queue's Reopen button is
+ *    gone rather than left to 409 on click.
+ *
+ * `CHATTER` files and `ADMIN` moderates — both sessions are already cached by the blocks above, so
+ * this adds no sign-in and stays clear of the OTP rate limiter (D90).
+ */
+test.describe('LIVE: abuse reports against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    // A 409 on the second submission is the expected, correct answer — not a failure to report.
+    const expected = /409/;
+    expect(
+      errors.filter((e) => !IGNORE.test(e) && !expected.test(e)),
+      `failed API calls: ${apiFails.filter((f) => !expected.test(f)).join(', ') || 'none'}`,
+    ).toEqual([]);
+  });
+
+  test('a report reaches the ops queue, and a duplicate is refused', async ({ page }) => {
+    // ── file one, as an ordinary user ────────────────────────────────────────────────────────
+    await signedInAs(page, CHATTER.mobile);
+
+    await page.goto('/listings');
+    const card = page.locator('a[href^="/property/"]').first();
+    await expect(card).toBeVisible({ timeout: 20000 });
+    // Navigate by href rather than clicking: a listing card carries a heart and a compare toggle
+    // that can intercept the click, and this test is not about the card.
+    await page.goto(await card.getAttribute('href'));
+
+    // The report entry point on a property page is the trust strip, not the reviews header — that
+    // one only renders behind the `reviewsEnabled` flag and further down the page.
+    const reportBtn = page.getByRole('button', { name: /report/i }).first();
+    await expect(reportBtn).toBeVisible({ timeout: 20000 });
+    await reportBtn.click();
+    const modal = page.getByRole('dialog', { name: /report/i });
+    await expect(modal).toBeVisible({ timeout: 10000 });
+    // Any listing reason; `fake` is in FOR_PROPERTY on both sides.
+    await modal.getByRole('button', { name: /fake photos or misleading info/i }).click();
+
+    // Registered here, not before the navigation: the whole browse-and-open journey would
+    // otherwise burn the timeout before the request that is actually being waited for is made.
+    const filed = page.waitForResponse(
+      (r) => /\/api\/reports$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+    await modal.getByRole('button', { name: /submit report/i }).click();
+
+    const res = await filed;
+    // 201 the first time this user reports this listing, 409 on every rerun. Both are correct, and
+    // asserting only on 201 would make the suite pass exactly once and fail forever.
+    expect([201, 409]).toContain(res.status());
+    let reportId = null;
+    if (res.status() === 201) {
+      const created = await res.json();
+      reportId = created.id;
+      // The reporter is the principal, never the body. Asserted on the wire so a mapper that
+      // started sending one fails here rather than turning the queue into an abuse vector.
+      expect(created).not.toHaveProperty('reporterId');
+      expect(created.status).toBe('open');
+      expect(created.targetType).toBe('property');
+    }
+
+    // ── moderate it, as an admin ─────────────────────────────────────────────────────────────
+    /* The "a consumer gets 403" half is asserted in `npm run parity:report`, not here.
+     *
+     * The obvious browser probe — `page.evaluate(() => fetch('/api/reports'))` — proves nothing:
+     * a bare fetch carries no Authorization header, because the app attaches it in `services/http.js`.
+     * It answers 401-unauthenticated, not 403-wrong-role, which is a different and much weaker
+     * claim. The harness signs in as a real consumer and asserts the real 403. */
+    await signedInAs(page, ADMIN.mobile);
+
+    const queue = page.waitForResponse(
+      (r) => /\/api\/reports(\?|$)/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
+      { timeout: 20000 },
+    );
+    await page.goto('/admin/reports');
+    const body = await (await queue).json();
+    // A PageEnvelope — the queue is paged since the spec fix, because every signed-in user can add
+    // to it and only ops can take anything out.
+    expect(body).toHaveProperty('content');
+    expect(body.totalElements).toBeGreaterThan(0);
+
+    if (reportId) {
+      // The report we just filed is actually in the moderator's queue. This is the assertion the
+      // whole test exists for: create + list on their own prove only that two endpoints answered.
+      expect(body.content.some((r) => r.id === reportId)).toBe(true);
+    }
+
+    // A decided report offers no Reopen — the control was removed because the server refuses the
+    // transition. Asserted on the page rather than the wire: it is a rendering decision.
+    await expect(page.getByRole('button', { name: /^reopen$/i })).toHaveCount(0);
+  });
+});
+
+/*
+ * The four domains that shipped an http provider in `e330cd3` but were never added to
+ * `VITE_API_DOMAINS`, so no browser had ever run them. Their parity harnesses passed the whole
+ * time — the harness drives the provider directly, which is exactly the blind spot these tests
+ * close: it cannot see a React call site that never awaits, or a request fired for a visitor who
+ * has no session.
+ */
+test.describe('LIVE: saved, alerts, visits and the contact gate against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('a public listing page asks nothing of the contact gate when signed out', async ({ page }) => {
+    /* The gate answers "where does *this caller* stand with this owner". A visitor with no session
+       has by definition made no request, so the server can only ever say 401 — and the property page
+       mounts the hook from several places, so this fired four doomed requests per view.
+       `afterEach` would catch the console noise; this asserts the cause directly so a regression
+       names the endpoint rather than a red console. */
+    await page.context().clearCookies();
+    await page.goto('/listings');
+    const card = page.locator('a[href^="/property/"]').first();
+    await expect(card).toBeVisible({ timeout: 20000 });
+
+    const gateCalls = [];
+    page.on('request', (r) => { if (r.url().includes('/api/contacts/status')) gateCalls.push(r.url()); });
+
+    await page.goto(await card.getAttribute('href'));
+    await expect(page.getByRole('button', { name: /report/i }).first()).toBeVisible({ timeout: 20000 });
+    expect(gateCalls, 'signed-out visitor must not query the contact gate').toEqual([]);
+  });
+
+  test('the shortlist, the alert list and both sides of the visit relationship are served by the API', async ({ page }) => {
+    /* One test, three domains, one sign-in. `OtpService` enforces a per-mobile send budget as well
+       as the 60s cooldown, so a spec that logs in once per domain runs out of codes before it runs
+       out of assertions — which fails as a timeout on the OTP screen and looks like a product bug. */
+    const calls = [];
+    watchApiCalls(page, calls);
+    await signedInAs(page, CHATTER.mobile);
+
+    await page.goto('/dashboard');
+    // Provenance: if any of these had fallen back to its mock, the rest of the assertions would pass
+    // while proving nothing — which is exactly how these four domains stayed untested for so long.
+    // Polling the recorded log rather than racing `waitForResponse` against the navigation, and the
+    // message names everything the page *did* request when it goes wrong.
+    await expect
+      .poll(() => calls.filter((c) => / GET \/api\/(me\/saved|me\/saved-searches|visits|me\/visit-requests)$/.test(c)),
+        { timeout: 30000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .toEqual(expect.arrayContaining([
+        '200 GET /api/me/saved',
+        '200 GET /api/me/saved-searches',
+        // Both sides of the visit relationship, deliberately separate: the dashboard serves one
+        // person who may be both a seeker and an owner, and a single unscoped read would have shown
+        // them strangers' visits.
+        '200 GET /api/visits',
+        '200 GET /api/me/visit-requests',
+      ]));
+
+    /* Reschedule has no server home: `PATCH /visit-requests/{id}/status` carries a status and
+       nothing else (D87). The control is hidden rather than left to fail, because `saveReschedule`
+       closes the modal and toasts success *before* the write settles — a live user would have seen
+       "Rescheduled" and an error toast at once, with no way to tell which was true. */
+    await expect(page.getByRole('button', { name: /^reschedule$/i })).toHaveCount(0);
+
+    /* `PageEnvelope` names the current page `page`, not Spring's raw `number`. Four providers read
+       the wrong one behind a fallback that hid it, so this is asserted on the wire. */
+    const saved = await page.evaluate(async () => {
+      const tokens = JSON.parse(localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens') || 'null');
+      const res = await fetch('/api/me/saved?size=5', { headers: { Authorization: `Bearer ${tokens.accessToken}` } });
+      return res.json();
+    });
+    expect(saved).toHaveProperty('page');
+    expect(saved).toHaveProperty('totalElements');
+
+    // The heart is optimistic, so the write is the only proof it reached the server. Registered
+    // immediately before the click that triggers it — the one thing `waitForResponse` is good at.
+    await page.goto('/listings');
+    const heart = page.locator('button[aria-label*="save" i], button[aria-label*="shortlist" i]').first();
+    if (await heart.count()) {
+      const wrote = page.waitForResponse(
+        (r) => /\/api\/me\/saved/.test(r.url()) && ['PUT', 'POST', 'DELETE'].includes(r.request().method()),
+        { timeout: 20000 },
+      );
+      await heart.click();
+      // Idempotent on both sides: saving twice is not an error, and neither is unsaving.
+      expect([200, 201, 204]).toContain((await wrote).status());
+    }
+  });
+});
+
