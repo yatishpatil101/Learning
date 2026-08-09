@@ -1,10 +1,9 @@
 package com.punenest.api.leads.society;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -18,7 +17,7 @@ public record SocietyLeadCreateRequest(
         @NotBlank @Size(max = 160) String societyName,
         @NotBlank @Size(max = 120) String contactName,
         @NotBlank
-        @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE)
+        @IndianMobile
         String mobile,
         @Min(1) @Max(20_000) Integer units,
         String interest) {

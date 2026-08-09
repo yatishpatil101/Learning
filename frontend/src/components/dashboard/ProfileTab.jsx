@@ -8,6 +8,7 @@ import TimeField from '../ui/TimeField.jsx';
 import Modal from '../ui/Modal.jsx';
 import AadhaarVerifyModal from '../auth/AadhaarVerifyModal.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useVerification } from '../../context/VerificationContext.jsx';
 import { initial, roleLabel, firstName } from '../../lib/auth.js';
 import {
   getTenantProfile, tenantScore,
@@ -15,7 +16,6 @@ import {
   getAppPrefs, setAppPrefs,
   getOwnerPrefs, setOwnerPrefs,
   exportUserData, deleteMyData,
-  isAadhaarVerified,
 } from '../../lib/store.js';
 import { helpPath, splitLangPrefix } from '../../lib/helpUrl.js';
 
@@ -105,7 +105,10 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const [delOpen, setDelOpen] = useState(false);
   const [delText, setDelText] = useState('');
   const [aadhaarOpen, setAadhaarOpen] = useState(false);
-  const [aadhaarVerified, setAadhaarVerified] = useState(() => isAadhaarVerified());
+  // The opt-in Aadhaar badge, held once in VerificationContext. The chip and section below
+  // reflect it read-only; the modal starts the seam write (mock grants at once, production
+  // redirects to DigiLocker and waits on the webhook), and the context updates on a mock grant.
+  const { verified: aadhaarVerified } = useVerification();
 
   const fld = 'field w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500';
 
@@ -355,7 +358,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           source="profile_tab"
           subtitle={t('verify.subtitleProfile')}
           onClose={() => setAadhaarOpen(false)}
-          onVerified={() => { setAadhaarVerified(true); toast(t('verify.badgeEarnedToast'), 'success'); }}
+          onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
     </div>

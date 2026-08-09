@@ -32,7 +32,8 @@ export default function TicketForm({ form, set, fld, filesInRef, newImgs, setNew
           <label className="block text-sm font-medium text-gray-300 mb-2">
             {t('misc.tfMobile')} <span className="text-rose-400">*</span>
           </label>
-          <MobileField value={form.mobile} onChange={(v) => set('mobile', v)} placeholder={t('misc.tfMobilePlaceholder')} />
+          <MobileField value={form.mobile} onChange={(v) => set('mobile', v)} placeholder={t('misc.tfMobilePlaceholder')} disabled={!richTicket} />
+          {!richTicket ? <p className="text-gray-500 text-xs mt-1.5">{t('misc.tfMobileLocked')}</p> : null}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">

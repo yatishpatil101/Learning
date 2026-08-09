@@ -54,12 +54,26 @@ export const isPaidOwnerPlan = () => PAID_OWNER_PLANS.includes(getPlan().id);
    ========================================================================= */
 export const PLAN_LISTING_LIMITS = { free: 1, 'owner-free': 1, owner2: 2, owner5: 5 };
 export const planListingLimit = () => PLAN_LISTING_LIMITS[getPlan().id] || 1;
-export const listingLimit = () => planListingLimit() + referralBonusListings();
+
+/**
+ * Live-listing ceiling = what the plan allows + what referrals earned.
+ *
+ * `planLimit` is optional and overrides the localStorage plan when supplied. That parameter is the
+ * seam: once the plan comes from the API it is held in `PlanContext`, and a store function cannot
+ * read React state. Callers inside the tree pass `usePlan().listingLimit`; callers outside it (and
+ * the mock provider) omit it and get the localStorage answer as before.
+ *
+ * Referral slots are added *here* rather than in `PlanContext` deliberately — referrals are still a
+ * localStorage domain, and folding them into the context would make it lie about what the **plan**
+ * grants.
+ */
+export const listingLimit = (planLimit) =>
+  (Number.isFinite(planLimit) ? planLimit : planListingLimit()) + referralBonusListings();
 /* Active (non-deleted / non-archived) property listings owned by the user. */
 export const activeListingCount = () =>
   getListings().filter((l) => !l.flatmate && !/deleted|archived/i.test(String(l.status || ''))).length;
 /* True when the user still has a free/paid slot for a NEW listing. */
-export const canPostListing = () => activeListingCount() < listingLimit();
+export const canPostListing = (planLimit) => activeListingCount() < listingLimit(planLimit);
 
 /* =========================================================================
    Service orders (Move-in Pack / marketplace)

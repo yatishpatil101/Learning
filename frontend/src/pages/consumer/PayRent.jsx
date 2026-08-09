@@ -1,39 +1,81 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import PayRentComingSoon from './PayRentComingSoon.jsx';
+import { getFees, digits } from '../../lib/store.js';
 import {
-  getTenancies, getPayoutAccount, savePayoutAccount, getRentLedger, myMobile,
-  getRentPayments, addRentPayment, calcRentFee, digits,
-} from '../../lib/store.js';
-import { pay as payRentEngine, thisMonth } from '../../lib/rentPay.js';
+  myTenancies, getPayoutAccount, savePayoutAccount, rentLedger,
+  myRentPayments, payRent as payRentApi,
+} from '../../services/rentService.js';
+import { quoteRentFee } from '../../services/providers/http/rentMapper.js';
+import { thisMonth } from '../../lib/rentPay.js';
 import { generateSingle } from '../../lib/rentReceipt.js';
 
 const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const numv = (s) => parseInt(String(s || '').replace(/[^\d]/g, ''), 10) || 0;
 
+/**
+ * Pay Rent — the tenant's payment screen and the owner's payout settings, on one page.
+ *
+ * ## Everything here became async, and one thing became honest
+ *
+ * The reads were synchronous localStorage lookups keyed by mobile, so any visitor could read any
+ * owner's ledger by naming them. They are caller-scoped endpoints now, loaded once into state.
+ *
+ * More importantly: **paying no longer means paid.** `POST /me/rent-payments` opens a gateway order
+ * and returns the row `due`; the webhook settles it. The old flow wrote `status: 'paid'` locally and
+ * told the tenant their rent was in. This one says what actually happened.
+ */
 export default function PayRent() {
   const { t: tr } = useTranslation();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState('pay');
-  const [account, setAccount] = useState(() => getPayoutAccount());
+  const [account, setAccount] = useState(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [payForm, setPayForm] = useState({ name: '', vpa: '', acct: '', ifsc: '', pan: '' });
-  const [tenancies] = useState(() => getTenancies());
+  const [tenancies, setTenancies] = useState([]);
   const [tIdx, setTIdx] = useState(0);
-  const [amt, setAmt] = useState(() => String((getTenancies()[0]?.rent) || ''));
+  const [amt, setAmt] = useState('');
   const [month, setMonth] = useState(() => thisMonth());
   const [pan, setPan] = useState('');
   const [method, setMethod] = useState('UPI');
   const [autopay, setAutopay] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [df, setDf] = useState({ amt: '100000', tenure: '6' });
-  const [history, setHistory] = useState(() => getRentPayments());
+  const [history, setHistory] = useState([]);
+  const [ledger, setLedger] = useState([]);
+  const [ledgerReceived, setLedgerReceived] = useState(0);
+
+  const reload = useCallback(async () => {
+    // Four caller-scoped reads, issued together — none depends on another's result and the page
+    // blocks on all of them.
+    const [tens, acct, hist, ledgerRes] = await Promise.all([
+      myTenancies().catch(() => []),
+      getPayoutAccount().catch(() => null),
+      myRentPayments().catch(() => ({ items: [] })),
+      rentLedger().catch(() => ({ items: [] })),
+    ]);
+    setTenancies(tens || []);
+    setAccount(acct);
+    setHistory(hist?.items || []);
+    setLedger(ledgerRes?.items || []);
+    setLedgerReceived((ledgerRes?.items || []).reduce((s, e) => s + (Number(e.amount) || 0), 0));
+    return tens || [];
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    reload().then((tens) => {
+      if (alive && tens?.[0]?.rent) setAmt(String(tens[0].rent));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [reload]);
 
   useEffect(() => {
     const propId = searchParams.get('prop');
@@ -47,53 +89,83 @@ export default function PayRent() {
   }, [searchParams, tenancies]);
 
   const tenancy = tenancies[tIdx] || null;
-  const brk = useMemo(() => calcRentFee(numv(amt)), [amt]);
+  /* The displayed breakdown, computed locally because the tenant needs a total *before* they commit
+     and there is no quote endpoint. The **charged** breakdown is whatever comes back on the payment
+     — the two use identical arithmetic (half-up, whole rupees, fee rounded before GST), which is
+     what makes showing this one safe. */
+  const brk = useMemo(() => {
+    const f = getFees();
+    return quoteRentFee(numv(amt), { rentPayPercent: f.rentPayPercent, gstPercent: f.gstPercent });
+  }, [amt]);
   const emi = useMemo(() => {
     const a = numv(df.amt), n = parseInt(df.tenure, 10);
     const e = Math.round((a + a * 0.015 * n) / n);
     return { emi: e, total: e * n, n };
   }, [df]);
 
-  const ledgerReceived = useMemo(() => {
-    if (!account) return 0;
-    return getRentLedger(myMobile()).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  }, [account]);
+  const maskAcct = (a) => (a ? a.upiId || (a.maskedAccount ? a.maskedAccount + (a.ifsc ? ' · ' + a.ifsc : '') : '') : '');
 
-  const maskAcct = (a) => (a ? a.vpa || (a.accountNumber ? '••••' + a.accountNumber.slice(-4) + (a.ifsc ? ' · ' + a.ifsc : '') : '') : '');
-
-  const linkPayout = () => {
+  const linkPayout = async () => {
     if (!payForm.name.trim()) { toast(tr('misc.prErrHolderName'), 'error'); return; }
     if (!payForm.vpa && !(payForm.acct && payForm.ifsc)) { toast(tr('misc.prErrVpaOrBank'), 'error'); return; }
-    savePayoutAccount({ name: payForm.name, vpa: payForm.vpa, accountNumber: payForm.acct, ifsc: payForm.ifsc, pan: payForm.pan });
-    setAccount(getPayoutAccount());
-    toast(tr('misc.prAccountVerified'));
+    try {
+      // Reads back a **mask**, not the number — the server will not re-serve a bank account number
+      // to anyone, including its owner.
+      const saved = await savePayoutAccount({
+        accountHolder: payForm.name, upiId: payForm.vpa, accountNumber: payForm.acct, ifsc: payForm.ifsc,
+      });
+      setAccount(saved);
+      toast(tr('misc.prAccountVerified'));
+    } catch (err) {
+      toast(err?.body?.error || err?.message || tr('misc.prErrPaymentFailed'), 'error');
+    }
   };
-  const unlinkPayout = () => {
-    savePayoutAccount({ vpa: '', accountNumber: '', ifsc: '', name: '', pan: '', verified: false });
-    setAccount(getPayoutAccount());
+  const unlinkPayout = async () => {
+    try {
+      setAccount(await savePayoutAccount({ accountHolder: '', upiId: '', accountNumber: '', ifsc: '' }));
+    } catch (err) {
+      toast(err?.body?.error || err?.message || tr('misc.prErrPaymentFailed'), 'error');
+    }
   };
 
-  const onPayRent = () => {
+  const onPayRent = async () => {
     if (!tenancy) { toast(tr('misc.prErrNoRental'), 'error'); return; }
     const amount = numv(amt);
     if (!amount) { toast(tr('misc.prErrEnterAmount'), 'error'); return; }
     const ownerMobile = digits(tenancy.ownerMobile || '');
     if (!ownerMobile) { toast(tr('misc.prErrOwnerNotLinked'), 'error'); return; }
-    const res = payRentEngine({
-      landlord: tenancy.ownerName || 'Landlord', ownerMobile,
-      address: tenancy.address || tenancy.title || '', propId: tenancy.propId || '',
-      month, amount, method, pan: pan.toUpperCase(), autopay: autopay || /autopay/i.test(method),
-    });
-    if (!res || !res.ok) { toast(tr('misc.prErrPaymentFailed'), 'error'); return; }
-    setHistory(getRentPayments());
-    setAccount(getPayoutAccount());
-    toast(tr('misc.prPaidToast', { amount: inr(amount), owner: tenancy.ownerName || tr('misc.prOwnerFallback') }) + ' ' + (res.receipt ? tr('misc.prHraDownloaded') : tr('misc.prReceiptSaved')));
-    setTab('history');
+    setPaying(true);
+    try {
+      /* `expectedAmount` is the figure the tenant was *shown*. If the rent has moved since the page
+         loaded the server answers 409 rather than quietly charging the old number — optimistic
+         concurrency, and the entire reason the field exists. */
+      const payment = await payRentApi({ tenancyId: tenancy.id, expectedAmount: amount, method: String(method).toLowerCase() });
+      await reload();
+      // `due` is the expected outcome, not a failure. Saying "paid" here would be the one lie this
+      // screen must not tell.
+      toast(
+        payment?.settled
+          ? tr('misc.prPaidToast', { amount: inr(amount), owner: tenancy.ownerName || tr('misc.prOwnerFallback') })
+          : tr('misc.prPaymentPending', { amount: inr(payment?.total || amount) }),
+        payment?.settled ? 'success' : 'info',
+      );
+      setTab('history');
+    } catch (err) {
+      toast(err?.body?.error || err?.message || tr('misc.prErrPaymentFailed'), 'error');
+    } finally {
+      setPaying(false);
+    }
   };
 
+  /* Deposit financing is a **local-only** product: there is no endpoint for it, and it is not a rent
+     payment, so it must not be written into the rent ledger the API now owns. Kept as its own list
+     rather than folded into `history`, where it would masquerade as a settled month. */
+  const [depositFinance, setDepositFinance] = useState([]);
   const financeDeposit = () => {
-    addRentPayment({ type: 'deposit-finance', to: 'Security deposit', amount: numv(df.amt), tenure: parseInt(df.tenure, 10), status: 'approved' });
-    setHistory(getRentPayments());
+    setDepositFinance((prev) => [{
+      id: 'df' + Date.now(), type: 'deposit-finance', to: 'Security deposit',
+      amount: numv(df.amt), tenure: parseInt(df.tenure, 10), status: 'approved', at: Date.now(),
+    }, ...prev]);
     toast(tr('misc.prDepositApproved'));
     setTab('history');
   };
@@ -109,6 +181,27 @@ export default function PayRent() {
 
   const tabBtn = (id, label) => <button onClick={() => setTab(id)} className={'tabbtn' + (tab === id ? ' active' : '')}>{label}</button>;
 
+  /* The History tab shows two different things: real rent payments from the API, and
+     deposit-financing requests, which have no endpoint and live only in this component (D115).
+
+     The wire's payment shape differs from what this list was written against — `dueDate` rather
+     than `at`, and `settled` rather than an assumed success — so it is adapted here rather than
+     bending the mapper to a display concern. A payment that has not cleared is not labelled as
+     credited to the owner, because it has not been. */
+  const historyRows = useMemo(() => ([
+    ...depositFinance,
+    ...history.map((p) => ({
+      id: p.id,
+      type: 'rent',
+      to: tenancies.find((t) => t.id === p.tenancyId)?.ownerName || tr('misc.prOwnerFallback'),
+      amount: p.total || p.amount,
+      method: p.method,
+      month: (p.dueDate || '').slice(0, 7),
+      at: p.paidDate || p.dueDate || null,
+      settled: p.settled,
+    })),
+  ]), [depositFinance, history, tenancies, tr]);
+
   if (!flagEnabled('onlineRentPayment')) return <PayRentComingSoon />;
 
   return (
@@ -118,7 +211,7 @@ export default function PayRent() {
 
       {/* Owner payout */}
       <section className="glass rounded-2xl p-5 mb-6">
-        {account && (account.vpa || account.accountNumber) ? (
+        {account && account.configured ? (
           <>
             <div className="flex items-start justify-between flex-wrap gap-3">
               <div><h3 className="font-bold flex items-center gap-2"><Icon name="landmark" className="w-4 h-4 text-teal-400" /> {tr('misc.prYourPayoutAccount')}</h3>
@@ -126,10 +219,10 @@ export default function PayRent() {
               <div className="text-right"><p className="text-2xl font-extrabold text-emerald-300">{inr(ledgerReceived)}</p><p className="text-[11px] text-gray-500">{tr('misc.prReceivedVia')}</p></div>
             </div>
             <div className="mt-3">
-              {getRentLedger(myMobile()).slice(0, 4).map((e) => (
-                <div key={e.id} className="flex items-center justify-between text-sm py-1.5 border-t border-white/5"><span className="text-gray-300">{(e.from || 'Tenant') + ' · ' + (e.month || '')}</span><span className="text-emerald-300 font-semibold">{inr(e.amount)}</span></div>
+              {ledger.slice(0, 4).map((e) => (
+                <div key={e.id} className="flex items-center justify-between text-sm py-1.5 border-t border-white/5"><span className="text-gray-300">{(e.tenantName || 'Tenant') + ' · ' + (e.dueDate || '')}</span><span className="text-emerald-300 font-semibold">{inr(e.amount)}</span></div>
               ))}
-              {!getRentLedger(myMobile()).length && <p className="text-gray-500 text-xs pt-2">{tr('misc.prNoRentYet')}</p>}
+              {!ledger.length && <p className="text-gray-500 text-xs pt-2">{tr('misc.prNoRentYet')}</p>}
             </div>
             <button onClick={unlinkPayout} className="mt-3 text-[12px] text-gray-400 hover:text-rose-300">{tr('misc.prChangeAccount')}</button>
           </>
@@ -249,11 +342,13 @@ export default function PayRent() {
       {tab === 'history' && (
         <section>
           <div className="space-y-3">
-            {history.length ? history.map((p) => {
+            {historyRows.length ? historyRows.map((p) => {
               const isFin = p.type === 'deposit-finance';
-              const settled = !isFin ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ml-2">{tr('misc.prOwnerCredited')}</span> : '';
+              // Only a settled payment is described as credited to the owner. A `due` one has been
+              // charged but not cleared, and saying otherwise is the lie this slice exists to stop.
+              const settled = (!isFin && p.settled) ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ml-2">{tr('misc.prOwnerCredited')}</span> : '';
               return (
-                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name={isFin ? 'hand-coins' : 'wallet'} className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{isFin ? tr('misc.prDepFinanceHist', { n: p.tenure }) : (p.method || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')} · {new Date(p.at).toLocaleDateString()}</p>{!isFin && <button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button>}</div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
+                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name={isFin ? 'hand-coins' : 'wallet'} className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{isFin ? tr('misc.prDepFinanceHist', { n: p.tenure }) : (p.method || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')}{p.at ? ' · ' + new Date(p.at).toLocaleDateString() : ''}</p>{!isFin && <button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button>}</div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
               );
             }) : <p className="text-gray-500 text-sm text-center py-10">{tr('misc.prNoPayments')}</p>}
           </div>

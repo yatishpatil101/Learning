@@ -20,7 +20,8 @@
  *
  * BUDGET_KB is a ratchet, not an aspiration — set just above the measured size at
  * the time of writing so the gate is green today and any regression fails loudly.
- * Lower it as docs/roadmap/mobile-ux-review.md §2 lands; a budget that is never
+ * Lower it as D129 lands (~570 KB of `db.json`, RERA society data and all three
+ * locales are still eagerly bundled onto the critical path); a budget that is never
  * tightened is a budget that has stopped working.
  */
 import { gzipSync } from 'node:zlib';

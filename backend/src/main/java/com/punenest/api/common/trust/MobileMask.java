@@ -44,13 +44,14 @@ public final class MobileMask {
      * it is not one.
      *
      * <p><strong>Why this lives here and not in each feature.</strong> Three separate
-     * digit-stripping helpers had already appeared ({@code VerificationService.digits}, this class,
-     * and a third in the deals service), each with slightly different leniency. That is precisely
-     * the shape of the contact-gate defect this project already shipped and fixed on the client:
-     * a masked number, {@code 98XXXXX210}, strips to the digits {@code 98210}, which is short but
-     * entirely plausible — so a lenient "just take the trailing digits" rule silently accepts a
-     * mask as if it were a real identity, and any two owners sharing a first-two/last-three pattern
-     * collapse onto the same value.
+     * digit-stripping helpers had appeared ({@code VerificationService.digits}, this class,
+     * and a third in the deals service), each with slightly different leniency; the other two have
+     * since been routed through this normaliser (Q1), so there is now one spelling of the rule. That
+     * drift is precisely the shape of the contact-gate defect this project already shipped and fixed
+     * on the client: a masked number, {@code 98XXXXX210}, strips to the digits {@code 98210}, which
+     * is short but entirely plausible — so a lenient "just take the trailing digits" rule silently
+     * accepts a mask as if it were a real identity, and any two owners sharing a first-two/last-three
+     * pattern collapse onto the same value.
      *
      * <p>So this fails closed. Exactly ten digits after punctuation is stripped, or {@code null}.
      * A leading country code is accepted ({@code +91 98210 00123} → {@code 9821000123}) because

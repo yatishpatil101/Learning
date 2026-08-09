@@ -4,12 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { getRooms, getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
+import { getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
-import { getFlatmatePosts, getFlatmateGroups, getMyRequest, hasInterest as hasInterestDB, addInterest as addInterestDB, getFlatmateReviewStatusMap, addFlatmateRequest, pushNotification, pushPendingRequest, isPubliclyVisible } from '../../../lib/data/flatmates.js';
+import { getMyRequest, hasInterest as hasInterestDB, addInterest as addInterestDB, getFlatmateReviewStatusMap, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import * as flatmateService from '../../../services/flatmateService.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
-import { SEEKERS, SEED_ROOMS, SEED_GROUPS } from './constants.js';
 import { normalizeTab } from './model.js';
 import { useFlatmateDiscovery, emptyFilters } from './useFlatmateDiscovery.jsx';
 import { useFlatmateSupply } from './useFlatmateSupply.jsx';
@@ -27,30 +27,17 @@ const SHARE_OPENER = {
   match: "Hi! I'm interested in this room and I'd like to split it with another flatmate. Is it still available, and are you open to two people sharing it?",
 };
 
-/* The three public collections, each = "what the user posted" + the demo seed.
+/* The three public collections.
 
-   Every one filters `isPubliclyVisible` (tech-debt D97d). The server does this in
-   SQL on nine query sites — a flagged or removed post must *disappear* from the
-   board — and until now the mock did not, so an admin could remove a post and it
-   would carry on rendering. Filtering here rather than inside the store getters is
-   deliberate: `getRooms`/`getFlatmatePosts`/`getFlatmateGroups` have 31 call sites
-   between them, and the owner's own dashboard is one of them. An owner must still
-   see a post that was taken down, with its status, rather than watch it silently
-   vanish — so the filter belongs on the *public board*, not on the data. */
-const publicRequests = () => [...getFlatmatePosts(), ...SEEKERS].filter(isPubliclyVisible);
+   These used to be assembled in the view from a store getter plus a hard-coded seed, each filtered
+   through `isPubliclyVisible` here because the getters could not do it (tech-debt D97d). Both jobs
+   now sit behind the seam: the provider merges the seed and drops moderated rows, exactly as the
+   server's nine SQL query sites do, so a flagged post disappears from the board in either mode and
+   the page no longer has to remember to filter.
 
-const publicRooms = () => [
-  ...getRooms().map((r) => ({
-    ...r,
-    localities: (Array.isArray(r.localities) && r.localities.length)
-      ? r.localities
-      : (r.locality ? [r.locality] : []),
-    time: r.time || 'Just now',
-  })),
-  ...SEED_ROOMS,
-].filter(isPubliclyVisible);
-
-const publicGroups = () => [...getFlatmateGroups(), ...SEED_GROUPS].filter(isPubliclyVisible);
+   The rule is deliberately *not* applied on the owner's own dashboard, which still labels a post
+   that was taken down rather than hiding it — losing a post silently is worse than seeing why. */
+const PAGE = 200; // one page: the board sorts and filters the whole set client-side below
 
 // Orchestrator: owns page context, the shared data collections (requests/rooms/
 // groups/saved/interests), tab/view nav state, shared derivations and the demand-
@@ -73,9 +60,9 @@ export function useFlatmates() {
   // one CTA asks whether they have a place and routes from the answer.
   const [postChooserOpen, setPostChooserOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
-  const [requests, setRequests] = useState(() => publicRequests());
-  const [rooms, setRooms] = useState(() => publicRooms());
-  const [groups, setGroups] = useState(() => publicGroups());
+  const [requests, setRequests] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [saved, setSaved] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('puneNestFlatmateSaved') || '{}');
@@ -85,26 +72,31 @@ export function useFlatmates() {
   const [interests, setInterests] = useState({});
   const [reportTarget, setReportTarget] = useState(null);
 
-  // Single source of truth for reloading the shared collections from the store —
-  // supply-side handlers call this after mutating persisted data (replacing the
-  // old inline setRequests/setGroups reload calls) so the lists refresh uniformly.
-  const refresh = useCallback(() => {
-    setRequests(publicRequests());
-    setRooms(publicRooms());
-    setGroups(publicGroups());
+  // Single source of truth for reloading the shared collections — supply-side handlers call this
+  // after mutating persisted data so the lists refresh uniformly.
+  //
+  // The three feeds are fetched together rather than per tab: switching tabs is the most common
+  // interaction on this page, and paying a round trip for it would make the board feel slower than
+  // the localStorage version it replaces. `allSettled` so one failing feed leaves the other two
+  // rendered — a 500 on groups should not blank out the rooms the user was reading.
+  const refresh = useCallback(async () => {
+    const [p, r, g] = await Promise.allSettled([
+      flatmateService.listPosts({}, 0, PAGE),
+      flatmateService.listRooms({}, 0, PAGE),
+      flatmateService.listGroups({}, 0, PAGE),
+    ]);
+    if (p.status === 'fulfilled') setRequests(p.value.items); else console.warn('[flatmates] posts failed', p.reason);
+    if (r.status === 'fulfilled') setRooms(r.value.items); else console.warn('[flatmates] rooms failed', r.reason);
+    if (g.status === 'fulfilled') setGroups(g.value.items); else console.warn('[flatmates] groups failed', g.reason);
   }, []);
 
   useEffect(() => {
-    // A room split from a not-yet-approved flat carries no owner badge. Ops
-    // approval lands on the LISTING, which only the owner's session can read, so
-    // the badge is promoted here on their next visit rather than looked up live.
-    if (reconcileSplitVerification() > 0) refresh();
-    const stored = getFlatmatePosts();
-    if (stored.length > 0) {
-      setRequests([...stored, ...SEEKERS]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // A room split from a not-yet-approved flat carries no owner badge. Ops approval lands on the
+    // LISTING, which only the owner's session can read, so the badge is promoted here on their next
+    // visit rather than looked up live. Runs before the fetch so one load reflects it.
+    reconcileSplitVerification();
+    refresh();
+  }, [refresh]);
 
   const myPost = useMemo(() => (user ? getMyRequest(user.mobile, user.name) : null), [user, requests]);
   // Whether the signed-in user created a given group. Matches tolerantly by the

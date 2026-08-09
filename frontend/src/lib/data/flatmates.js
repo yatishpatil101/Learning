@@ -319,6 +319,13 @@ export const addFlatmateRequest = (ownerMobile, req = {}) => {
     id: 'sfr' + Date.now(),
     kind: req.kind || 'group',
     action: req.action || 'request',
+    // Room/post interest carries how the seeker intends to take the space
+    // ('solo' | 'bring' | 'match') and an optional opening message. Both are
+    // passed by the call sites and read back by the host inbox view-model, so
+    // they must be persisted here — dropping them left the owner unable to tell
+    // whether one or two people were moving in.
+    ...(req.share ? { share: req.share } : {}),
+    ...(req.message ? { message: req.message } : {}),
     targetId: req.targetId || '',
     targetTitle: req.targetTitle || 'Flatmate',
     locality: req.locality || '',

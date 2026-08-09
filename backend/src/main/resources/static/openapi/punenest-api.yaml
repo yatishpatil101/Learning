@@ -13,7 +13,7 @@ info:
       - `docs/system/data-model.md`     — ER map / DB persistence design (field shapes are the schemas below)
       - `docs/system/cross-cutting.md`  — auth, contact gate, maker-checker, audit rules
       - `docs/system/platform-architecture.md` — component/vendor decisions & ADRs (KYC, payments, verification posture)
-      - `docs/system/backend-api-architecture-review.md` — architecture-review narrative
+      - `docs/system/package-structure.md` — the 11 bounded contexts and their package/schema mapping
       - `docs/flows/**`                 — per-feature behavioural specs
 
     ### Changelog
@@ -385,7 +385,7 @@ paths:
       security: []
       operationId: listReels
       parameters:
-        - { name: locality, in: query, schema: { type: string } }
+        - { name: locality, in: query, description: 'Locality slug (e.g. koregaon-park), not the display name.', schema: { type: string } }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -516,6 +516,96 @@ paths:
               schema: { $ref: '#/components/schemas/Property' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /me/managed-properties:
+    get:
+      tags: [Listings]
+      summary: My managed properties (private records, newest first)
+      description: >-
+        Owner-scoped "single-player" property records that live outside the searchable
+        marketplace until published. Self-scoped by the JWT; no `x-roles`.
+      operationId: myManagedProperties
+      responses:
+        '200':
+          description: Managed properties
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ManagedProperty' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Listings]
+      summary: Register a managed property (private)
+      operationId: registerManagedProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedPropertyCreate' }
+      responses:
+        '201':
+          description: Created (visibility = private)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedProperty' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/managed-properties/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    get:
+      tags: [Listings]
+      summary: Single managed property (owner)
+      description: 404 (never 403) when the record is not the caller's, so another owner's record is never confirmed.
+      operationId: getManagedProperty
+      responses:
+        '200':
+          description: Managed property
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedProperty' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Listings]
+      summary: Update managed property (partial)
+      operationId: updateManagedProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedPropertyUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedProperty' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Listings]
+      summary: Delete managed property (owner)
+      operationId: deleteManagedProperty
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /me/managed-properties/{id}/publish:
+    parameters:
+      - { $ref: '#/components/parameters/PropertyId' }
+    post:
+      tags: [Listings]
+      summary: Publish a managed property into the marketplace
+      description: >-
+        Spawns a normal pending listing and links back to it. Idempotent — a record already
+        published is returned unchanged with its `publishedListingId` set.
+      operationId: publishManagedProperty
+      responses:
+        '200':
+          description: Published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedProperty' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /me/deals:
     get:
       tags: [Listings]
@@ -2252,6 +2342,54 @@ paths:
       responses:
         '204': { description: Removed }
         '404': { $ref: '#/components/responses/NotFound' }
+  /me/documents/personal:
+    get:
+      tags: [Documents]
+      summary: Personal KYC documents (owner)
+      description: >-
+        The caller's own KYC papers. `personal` is a literal segment that out-ranks the
+        `{propId}` template, so a property can never be addressed here. Self-scoped; no `x-roles`.
+      operationId: listPersonalDocuments
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Document' }
+    post:
+      tags: [Documents]
+      summary: Upload personal KYC document (multipart)
+      operationId: uploadPersonalDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [category, file]
+              properties:
+                category: { type: string, example: Aadhaar }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '413': { description: Payload too large }
+        '415': { description: Unsupported media type }
+  /me/documents/personal/{docId}:
+    parameters:
+      - { name: docId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Documents]
+      summary: Remove personal KYC document (owner)
+      operationId: deletePersonalDocument
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
   /me/documents/requests:
     get:
       tags: [Documents]
@@ -3056,6 +3194,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SavedSearch' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /me/saved-searches/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -3224,6 +3363,26 @@ paths:
       security: []
       parameters:
         - { name: locality, in: query, schema: { type: string } }
+        - name: gender
+          in: query
+          description: Who the seeker will share with. Exact match; `any` is treated as no filter.
+          schema: { type: string, enum: [any, male, female] }
+        - name: flatPref
+          in: query
+          description: Who the seeker wants in the flat. Matches an `any` post as well; `any` request is no filter.
+          schema: { type: string, enum: [any, women, men] }
+        - name: roomPref
+          in: query
+          description: Whether the seeker wants a private room. Exact match; `any` is treated as no filter.
+          schema: { type: string, enum: [any, private, shared] }
+        - name: minBudget
+          in: query
+          description: Lowest monthly budget, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: maxBudget
+          in: query
+          description: Highest monthly budget, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3306,6 +3465,34 @@ paths:
       security: []
       parameters:
         - { name: locality, in: query, schema: { type: string } }
+        - name: gender
+          in: query
+          description: Who the room is offered to. Matches an `any` room as well; `any` request is no filter.
+          schema: { type: string, enum: [any, male, female] }
+        - name: food
+          in: query
+          description: Dietary preference. Matches an `any` room as well; `any` request is no filter.
+          schema: { type: string, enum: [any, veg, nonveg] }
+        - name: roomType
+          in: query
+          description: Private or shared occupancy of the room. Exact match.
+          schema: { type: string, enum: ['Private room', 'Shared room'] }
+        - name: furnishing
+          in: query
+          description: Furnishing level. Exact match.
+          schema: { type: string, enum: [unfurnished, semi, furnished] }
+        - name: bhk
+          in: query
+          description: Bedrooms in the flat; `4` means 4+. Exact match.
+          schema: { type: string, enum: ['1', '2', '3', '4'] }
+        - name: minBudget
+          in: query
+          description: Lowest rent for the room's price basis, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: maxBudget
+          in: query
+          description: Highest rent for the room's price basis, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3411,6 +3598,18 @@ paths:
       security: []
       parameters:
         - { name: locality, in: query, schema: { type: string } }
+        - name: policy
+          in: query
+          description: Group join policy. Matches an open (`any`) group as well; `any` request is no filter.
+          schema: { type: string, enum: [any, women, men] }
+        - name: minRent
+          in: query
+          description: Lowest whole-flat rent, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: maxRent
+          in: query
+          description: Highest whole-flat rent, in whole rupees.
+          schema: { type: integer, format: int64, minimum: 0 }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -4189,6 +4388,12 @@ components:
     Mobile:
       type: string
       pattern: '^[6-9][0-9]{9}$'
+      description: >-
+        An Indian mobile number. The pattern is the canonical stored and returned
+        shape: ten digits, leading 6-9. On input the server is deliberately more
+        tolerant (Q1) — it accepts spacing and a leading +91/0091/0 country code and
+        normalises to these ten digits before storing. Anything that does not reduce
+        to a valid ten-digit mobile is rejected with 422.
       example: '9876543210'
     Money:
       type: integer
@@ -4212,7 +4417,10 @@ components:
       enum: [ready-to-move, new-launch, under-construction]
     PropertyStatus:
       type: string
-      enum: [pending, approved, rejected, flagged, archived]
+      enum: [pending, approved, rejected, flagged, archived, sold, rented]
+      description: >
+        Moderation state. `sold`/`rented` are terminal (D110): set when the listing's deal closes,
+        they drop it from the approved-floored search but keep it reachable by direct link, badged.
     Role:
       type: string
       description: >
@@ -4387,6 +4595,7 @@ components:
         mobileVerified: { type: boolean, description: Mobile-OTP (L1) — the floor for posting/enquiring/contacting. }
         aadhaarVerified: { type: boolean, description: 'Alias of the Verified badge (DigiLocker). A trust signal, never a gate.' }
         verifiedContactOnly: { type: boolean, description: Owner preference — accept contact requests from verified (L2) users only. }
+        hideNumber: { type: boolean, description: 'Owner preference — stay masked even after approving a contact request. The approval grants the conversation, not the digits.' }
         listingsCount: { type: integer, description: Active listings (owners) }
         joinedAt: { type: string, format: date-time }
         lastActive: { type: string, format: date-time }
@@ -4434,6 +4643,13 @@ components:
         verified: { type: boolean }
         postedByType: { type: string, enum: [owner, agent, builder] }
         status: { $ref: '#/components/schemas/PropertyStatus' }
+        dealStatus:
+          type: string
+          enum: [active, reserved, closed]
+          description: >
+            Deal outcome mirrored from the owner-scoped deal (D110), readable on public cards and
+            detail. `reserved` badges a listing "under offer" while it stays `approved` and still
+            takes offers; `closed` accompanies a terminal `sold`/`rented` status.
         createdAt: { type: string, format: date-time }
     Property:
       allOf:
@@ -4676,6 +4892,9 @@ components:
         status: { type: string, enum: [pending, countered, accepted, declined, withdrawn] }
         message: { type: string }
         createdAt: { type: string, format: date-time }
+        # The buyer's preferred possession date, or absent if none was given (D112). A calendar day,
+        # not an instant — `format: date`, matching the offer modal's date picker.
+        moveIn: { type: string, format: date }
         history:
           type: array
           description: Negotiation trail.
@@ -4695,6 +4914,9 @@ components:
         propertyId: { type: string }
         amount: { $ref: '#/components/schemas/Money' }
         message: { type: string }
+        # Optional preferred possession date (D112) — the modal's "Preferred move-in" / "Target
+        # possession" field. Nullable: a buyer may open on price alone and settle the date later.
+        moveIn: { type: string, format: date }
     OfferResponse:
       type: object
       required: [action]
@@ -5091,6 +5313,7 @@ components:
         status: { type: string, enum: [due, paid, overdue, failed] }
         method: { type: string, enum: [upi, netbanking, card, autopay, cash] }
         reference: { type: string }
+        failureReason: { type: [string, 'null'], description: "The provider's reason when status is failed, else null — a tenant can quote it to support." }
     RentPaymentCreate:
       type: object
       # S12 (slice 5): `amount` was client-supplied and required. Rent is a property of the
@@ -5237,6 +5460,80 @@ components:
         about: { type: string }
 
     # ---- Documents ----
+    # ---- Managed properties (private owner records) ----
+    ManagedProperty:
+      type: object
+      description: >-
+        A private "single-player" property record (Owner Hub / Property Passport / rent tracker),
+        held outside the searchable marketplace until published. `deal` is the catalogue buy|rent
+        value (the front-end seam relabels it sale|rent); `publishedListingId` is null until the
+        record is published, then the id of the spawned listing.
+      properties:
+        id: { type: string }
+        title: { type: string }
+        deal: { type: string, enum: [buy, rent] }
+        propertyType: { type: string }
+        bhk: { type: [number, 'null'] }
+        price: { type: integer, format: int64, description: Amount in whole INR. }
+        locality: { type: string }
+        localitySlug: { type: [string, 'null'] }
+        society: { type: [string, 'null'] }
+        area: { type: [number, 'null'] }
+        areaUnit: { type: [string, 'null'] }
+        furnishing: { type: [string, 'null'] }
+        visibility: { type: string, description: Owner-scoped visibility; private until published. }
+        status: { type: string }
+        rented: { type: boolean, description: Owner rent-tracker — currently rented. }
+        tenantName: { type: [string, 'null'] }
+        monthlyRent: { type: [integer, 'null'], format: int64 }
+        dueDay: { type: [integer, 'null'], description: Rent due day of month. }
+        valuation: { type: [object, 'null'], additionalProperties: true, description: Opaque Rent-o-meter snapshot. }
+        publishedListingId: { type: [string, 'null'], description: Id of the spawned listing once published. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ManagedPropertyCreate:
+      type: object
+      required: [deal, propertyType, price, locality]
+      description: >-
+        Server-owned fields are never accepted here — visibility/status (forced private/managed),
+        owner (the caller) and publishedListingId (set only by publish).
+      properties:
+        title: { type: string, description: Optional; synthesized from bhk/type/locality when blank. }
+        deal: { type: string, enum: [buy, rent] }
+        propertyType: { type: string }
+        bhk: { type: [number, 'null'] }
+        price: { type: integer, format: int64, minimum: 0, description: Amount in whole INR. }
+        locality: { type: string }
+        society: { type: [string, 'null'] }
+        area: { type: [number, 'null'] }
+        areaUnit: { type: [string, 'null'], description: Defaults sqft when null. }
+        furnishing: { type: [string, 'null'] }
+        rented: { type: [boolean, 'null'], description: Rent-tracker; defaults false. }
+        tenantName: { type: [string, 'null'] }
+        monthlyRent: { type: [integer, 'null'], format: int64, description: Defaults to price for a rent deal when omitted. }
+        dueDay: { type: [integer, 'null'] }
+        valuation: { type: [object, 'null'], additionalProperties: true }
+    ManagedPropertyUpdate:
+      type: object
+      description: >-
+        Partial update — only supplied fields are applied. The lifecycle fields
+        (visibility/status/publishedListingId) move only through publish, never a client patch.
+      properties:
+        title: { type: [string, 'null'] }
+        deal: { type: [string, 'null'], description: buy|rent }
+        propertyType: { type: [string, 'null'] }
+        bhk: { type: [number, 'null'] }
+        price: { type: [integer, 'null'], format: int64, minimum: 0 }
+        locality: { type: [string, 'null'] }
+        society: { type: [string, 'null'] }
+        area: { type: [number, 'null'] }
+        areaUnit: { type: [string, 'null'] }
+        furnishing: { type: [string, 'null'] }
+        rented: { type: [boolean, 'null'] }
+        tenantName: { type: [string, 'null'] }
+        monthlyRent: { type: [integer, 'null'], format: int64 }
+        dueDay: { type: [integer, 'null'] }
+        valuation: { type: [object, 'null'], additionalProperties: true }
     Document:
       type: object
       properties:
@@ -5351,6 +5648,9 @@ components:
         type: { type: string, example: rent-agreement }
         status: { type: string, enum: [new, assigned, in-progress, draft-shared, approved, completed, cancelled] }
         propertyId: { type: [string, 'null'] }
+        # D119: the structured fields the customer filled at create time, echoed back. Free-form
+        # object (property, rent, deposit, scope, ...); null when the request carried none.
+        details: { type: ['object', 'null'], additionalProperties: true }
         assignee: { type: [string, 'null'] }
         timeline:
           type: array
@@ -5373,7 +5673,9 @@ components:
       properties:
         type: { type: string }
         propertyId: { type: string }
-        details: { type: string }
+        # D119: structured, not a flat string — stored as-is and echoed back on ServiceRequest.
+        # Optional: omit it, or send an object; capped by serialized size server-side.
+        details: { type: ['object', 'null'], additionalProperties: true }
     # Slice-10 spec fix S38. POST used to take RentAgreement itself and return no body, so the
     # client could send `status: registered` and then had no id to track what it created.
     RentAgreementCreate:
@@ -5437,6 +5739,10 @@ components:
         audience: { type: string, enum: [owner, tenant, buyer, agent] }
         price: { $ref: '#/components/schemas/Money' }
         billingCycle: { type: string, enum: [monthly, quarterly, yearly] }
+        # The paywall's real ceilings as numbers, not prose parsed from `features` (D109). Null means
+        # no cap: an owner plan has no contact limit, and a tenant plan has no listing limit.
+        listingLimit: { type: [integer, 'null'] }
+        contactLimit: { type: [integer, 'null'] }
         features: { type: array, items: { type: string } }
     Subscription:
       type: object
@@ -5850,7 +6156,8 @@ components:
         title: { type: string }
         locality: { type: string }
         policy: { type: string, enum: [any, women, men], description: '`any` means open-join — a request is auto-accepted.' }
-        rent: { $ref: '#/components/schemas/Money', description: Whole-flat rent; per-head is rent / seatsTotal. }
+        rent: { $ref: '#/components/schemas/Money', description: Whole-flat rent. }
+        perHead: { $ref: '#/components/schemas/Money', description: 'Server-computed rent / seatsTotal (falling back to whole rent when seatsTotal is 0, so a client never divides by zero). Sent rather than derived because every surface that shows a group shows this number, and one rounding rule beats five.' }
         seatsTotal: { type: integer, minimum: 1 }
         seatsOpen: { type: integer, minimum: 0, description: Seats open right now — the honest count for a tenant backfilling one seat. Legacy groups omit it and fall back to seatsTotal minus members. }
         members:
@@ -5958,6 +6265,7 @@ components:
         requesterMobile: { $ref: '#/components/schemas/Mobile' }
         status: { type: string, enum: [pending, accepted, declined] }
         requestedAt: { type: string, format: date-time }
+        message: { type: [string, 'null'], description: "The requester's note to the host, written when the request was made." }
         decidedAt: { type: [string, 'null'], format: date-time }
     FlatmateReview:
       type: object
@@ -6242,6 +6550,7 @@ components:
         units: { type: integer }
         interest: { type: string, enum: [bulk-listing, society-services, partnership] }
         status: { type: string, enum: [new, contacted, qualified, won, lost] }
+        note: { type: [string, 'null'], description: 'The ops working note. This surface is staff-only, so the note never reaches the lead it is about.' }
         createdAt: { type: string, format: date-time }
     SocietyLeadCreate:
       type: object

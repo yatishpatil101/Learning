@@ -40,6 +40,10 @@ public record PropertyResponse(
         boolean verified,
         String postedByType,
         String status,
+        // Deal outcome (active|reserved|closed), D110. On detail this is redundant with a terminal
+        // `status` (sold/rented also imply closed) but carries the one state `status` cannot:
+        // `reserved`, an under-offer listing whose moderation status is still `approved`.
+        String dealStatus,
         Instant createdAt,
         // ---- detail ----
         String description,

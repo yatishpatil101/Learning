@@ -48,8 +48,15 @@ public class FlatmateSeekerController {
     @GetMapping(Routes.Flatmates.POSTS)
     public PageResponse<FlatmateSeekerPostDto> feed(
             @RequestParam(required = false) String locality,
+            @RequestParam(required = false) String gender,
+            @RequestParam(required = false) String flatPref,
+            @RequestParam(required = false) String roomPref,
+            @RequestParam(required = false) Long minBudget,
+            @RequestParam(required = false) Long maxBudget,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.feed(locality, Pageables.unsorted(pageable)), dto -> dto);
+        PostFacets facets = new PostFacets(
+                locality, gender, flatPref, roomPref, minBudget, maxBudget);
+        return PageResponse.of(service.feed(facets, Pageables.unsorted(pageable)), dto -> dto);
     }
 
     /** {@code POST /flatmates/posts} (contract {@code createFlatmateSeekerPost}). */

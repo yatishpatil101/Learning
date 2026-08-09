@@ -76,6 +76,7 @@ public class ServiceRequestMapper {
                         r.getType(),
                         r.getStatus(),
                         r.getPropertyId() == null ? null : r.getPropertyId().toString(),
+                        r.getDetails(),
                         names.get(r.getAssigneeId()),
                         timelines.getOrDefault(r.getId(), List.of()).stream()
                                 .map(e -> new ServiceRequestDto.TimelineEntry(
@@ -99,6 +100,7 @@ public class ServiceRequestMapper {
     private MessageDto toMessageDto(ServiceRequestMessage m, Map<UUID, String> names) {
         return new MessageDto(
                 m.getId().toString(),
+                m.getAuthorId().toString(),
                 names.get(m.getAuthorId()),
                 m.getAuthorRole(),
                 m.getBody(),

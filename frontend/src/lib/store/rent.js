@@ -127,6 +127,22 @@ export const getTenantProfileFor = (mobile) => {
     return null;
   }
 };
+/* SEAM NOTE — `isTenantVerifiedFor` deliberately stays on localStorage.
+
+   `GET /tenant-profiles/{mobile}` can answer this (it returns `verified`), and `rentService`
+   exposes it as `tenantProfileFor`. But every caller here asks the question *during render, about
+   somebody else, inside a list*: the verified tick beside each offer on a property page, each
+   applicant in a flatmate list, each reviewer. Converting it would be one request per row — the
+   same N+1 the shortlist and the deal book were restructured to avoid, except there is no single
+   batch endpoint to restructure it into.
+
+   So this reads what this browser knows and answers `false` otherwise, which fails closed: an
+   unverified-looking tenant who is actually verified loses a badge, while the reverse — showing a
+   trust signal nobody earned — cannot happen. Use `tenantProfileFor` when you have *one* person and
+   can await; use this for the inline badge.
+
+   Closing it properly needs a batch endpoint (`POST /tenant-profiles/verified` with a list of
+   mobiles, or a `verified` flag on the parties already embedded in offers and visits). */
 export const isTenantVerifiedFor = (mobile) => {
   const p = getTenantProfileFor(mobile);
   return !!(p && p.idVerified);

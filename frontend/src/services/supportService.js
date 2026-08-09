@@ -25,11 +25,12 @@
  * |---|---|
  * | **Priority** (low/normal/high/urgent) | not on `SupportTicket` *or* `SupportTicketCreate` — the picker sets a value nothing transmits |
  * | **Image attachments** (up to 4, base64) | `MessageCreate` is `{ body }` only; the contract notes attachments are "accepted and dropped rather than stored as a client-supplied URL nothing can render" |
- * | **Status `new`** | the server opens every ticket `open`; `new` does not exist on the wire |
  *
- * All three are surfaced through the provider rather than hidden: the mapper reports what the server
- * actually said, and the page is responsible for not offering a control that cannot work. See
- * `supportMapper.js` for the status vocabulary and `Support.jsx` for how the two are gated.
+ * Both are surfaced through the provider rather than hidden: the mapper reports what the server
+ * actually said, and the page is responsible for not offering a control that cannot work. The status
+ * vocabulary is now shared — the mock opens tickets `open` and moves them to `in-progress`, matching
+ * the server — so there is no longer a mock-only `new` to reconcile. See `supportMapper.js` for the
+ * status pass-through and `Support.jsx` for how the offered controls are gated.
  *
  * ## Shape
  *

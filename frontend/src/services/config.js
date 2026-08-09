@@ -15,6 +15,10 @@
  *
  * Mock mode must never break: a domain that is opted in but has no http provider falls back to its
  * mock and logs, rather than throwing and taking the whole app down over a typo.
+ *
+ * The one exception is a domain name that matches **nothing** — see the startup validation at the
+ * bottom of this file. That is unambiguously a typo, and unlike the case above it produces no
+ * warning anywhere, because nothing ever asks for a domain that does not exist.
  */
 
 const RAW_DOMAINS = import.meta.env.VITE_API_DOMAINS || '';
@@ -115,4 +119,42 @@ function getProvider(kind, domain) {
     throw new Error(`[services] No mock provider for domain "${domain}".`);
   }
   return mod ?? null;
+}
+
+/* ─── Startup validation of VITE_API_DOMAINS (tech-debt D105) ─────────────────────────────────
+ *
+ * Every domain has a mock provider — `getProvider` throws without one — so the mock registry is
+ * the complete list of domain names that exist. Anything in the allow-list that is not in it is a
+ * name for a domain that does not exist, i.e. a typo.
+ *
+ * **Why a typo needs different handling from a missing http provider.** The warning inside
+ * `createProvider` only fires when a *real* domain is opted in and has no http provider yet, which
+ * is legitimate mid-integration and rightly falls back to the mock. A typo fires nothing at all:
+ * `createProvider('propery')` is never called, because no service asks for a domain that does not
+ * exist. So `VITE_API_DOMAINS=propery` leaves `property` quietly on mocks with an empty console —
+ * and a live e2e run passes while exercising the mock, which is the failure D105 was raised for.
+ * Being lazy is exactly what makes the existing warning miss it; this check runs at module load.
+ *
+ * **Why it throws in dev and only logs in a build.** Dev is where the typo is made and where the
+ * e2e suite runs, so failing hard there costs one restart and removes the whole class of bug. In a
+ * built bundle the same throw would take a deployed app down over a config string, which is a worse
+ * outcome than serving one domain from mocks — so production gets a `console.error` it cannot
+ * swallow instead. This is the one deliberate asymmetry in this file. */
+const KNOWN_DOMAINS = new Set(
+  Object.keys(registries.mock)
+    .map((path) => path.match(/\/([^/]+)Provider\.js$/)?.[1]?.toLowerCase())
+    .filter(Boolean),
+);
+
+const unknownDomains = [...enabledDomains].filter((d) => d !== '*' && !KNOWN_DOMAINS.has(d));
+if (unknownDomains.length) {
+  const many = unknownDomains.length > 1;
+  const message =
+    `[services] VITE_API_DOMAINS names ${many ? 'domains that do' : 'a domain that does'} not `
+    + `exist: ${unknownDomains.map((d) => `"${d}"`).join(', ')}. `
+    + `Nothing is served live for ${many ? 'them' : 'it'}, and the domain you meant stays on mocks `
+    + 'with no other warning — so a test run would pass while exercising the mock. '
+    + `Known domains: ${[...KNOWN_DOMAINS].sort().join(', ')}.`;
+  if (import.meta.env.DEV) throw new Error(message);
+  console.error(message);
 }

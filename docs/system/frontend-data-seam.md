@@ -48,17 +48,31 @@ a domain flip. Zero results = zero leaks.
 | `review` | `reviewService.js` | mock + **http** | Live: property reviews and entity (society/locality/owner) reviews, read + write. `context` is server-derived and never sent. Owner reviews stay on mocks — the *target* is not live |
 | `support` | `supportService.js` | mock + **http** | Live: list, create, detail, reply, mark-read. Bare list with the thread inline. Priority and attachments are mock-only — no field on the schema, so the page hides both controls in http mode |
 | `report` | `reportService.js` | mock + **http** | Live: file, queue (paged, **staff/admin**), triage. First domain whose two ends have different audiences. Duplicate → 409; terminal is terminal |
-| others (document, content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
+| `plan` | `planService.js` | mock + **http** | Live: `GET /plans` (**public**), `GET/POST /me/subscription`. Held in `PlanContext` because the questions are asked during render, not awaited. `pending ≠ active`: buying a priced plan does **not** grant it |
+| `deal` | `dealService.js` | mock + **http** | Live: the whole transaction cluster — `/me/deals` (+reserve/close/reopen/parties), `/offers` (+respond/mine), `/me/offers`, `/finalization/*`, `/me/finalization-requests`. Every signature dropped its `ownerMobile`: the token scopes the read. A buyer cannot see a listing is closed, and cannot accept an offer |
+| `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate`, `/me/payout-account`, and `/me/finances/{propId}/*`. **Paying rent yields `due`, not `paid`** — the webhook settles it. The payout account returns a mask, never the number |
+| `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. The server filters on `locality` only, so the other ten facets are applied client-side (D116) |
+| `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121) |
+| `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
+| others (content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
+| `document` | `documentService.js` | mock + **http** | **Owner side only.** Live surface: the vault — `GET /me/documents/{propId}`, multipart `POST` (upload), `DELETE` — and the owner's request inbox — `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}` (grant/decline). The wire's `categories[]` collapses to a single `docType` for the inbox row; the requester mobile stays masked; `shareToken`/`expiresAt` are re-send affordances, null until granted. The vault's signed `url` does not resolve in dev, so the bytes live behind the mock's `dataUrl` (D120 pattern). The **buyer's half** (ask → poll → open a shared bundle, token-mediated), the cross-user grant notification, shared-doc counts, the dashboard doc-count badge, rent agreements, and every presentation helper stay on `lib/data/documents.js` (D123). The consumer flip shipped as an **honest subset**: `DocumentsTab` — the owner's per-listing vault, the personal/KYC bucket (`/me/documents/personal`) and the request inbox — reads and writes through the service, and `document` is in the live e2e `VITE_API_DOMAINS`. `useRentAgreement`'s vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` (the first needs the bytes the signed URL withholds; the last two address mock-only managed-property ids). What the flip left rough — failure states that read as emptiness, the missing loading state, wrong-flat mutation updates, and the request inbox on localStorage (tracked as D125, resolved 2026-08-08) |
 
-Eleven domains, eleven services, eleven mock providers, eleven http providers — the counts match
-exactly, and that is the invariant to keep. A provider without a service is unreachable; a service
-without a provider throws.
+Eighteen domains, eighteen services, eighteen mock providers, eighteen http providers — the counts
+match exactly, and that is the invariant to keep. A provider without a service is unreachable; a
+service without a provider throws. The eighteenth, `document`, was foundation-only until its
+consumer flip; it is now wired to `DocumentsTab` and switched on in the live e2e config, on the
+honest subset described in its row above.
 
 **Having an http provider is not the same as using it.** Which domains are actually live is decided
-by `VITE_API_DOMAINS`, and for a long time four of the eleven had a provider, a parity harness and a
-row in this table while every browser run still served their mocks. The list that matters is in
+by `VITE_API_DOMAINS`, and for a long time four of the fifteen had a provider, a parity harness and
+a row in this table while every browser run still served their mocks. The list that matters is in
 `e2e/playwright.live.config.js`; if a domain is not in it, nothing here has been exercised in a
 browser. See "The switch-on slice" below.
+
+The same gap has a second form, and the plan slice hit it: a domain can be **in** that list and
+still have no consumer, if the provider files exist but the call sites were never migrated (or were
+reverted). Lint and build both stay clean, because unused modules are not errors. When adding a
+domain, the check is not "do the files exist" but "does a component import the service".
 
 `dealService.js` and `financeService.js` were **deleted** in the saved slice. Both had zero importers
 — only the barrel referenced them, and the barrel itself is imported nowhere — so they were seam
@@ -95,6 +109,32 @@ count over the whole result set, not over a page. No new endpoint was needed for
 `myListings` is a correctness fix rather than an optimisation: public `/properties` is hard-floored
 to approved + non-archived server-side, so an owner's pending or rejected rows **cannot** be derived
 from it at all. `GET /me/listings` is the only source that returns them.
+
+## Coming-soon features are not integration targets
+
+**A feature the product is not shipping does not get wired, however complete its backend is.**
+Integration effort spent on a surface nobody can reach buys nothing, and it accrues the same
+maintenance cost as live code — a parity harness to keep green, a mock to keep honest, call sites
+that drift.
+
+The list, and how to tell:
+
+| Surface | How it is gated | Status |
+|---|---|---|
+| **Pay Rent** (`/pay-rent`) | `flagEnabled('onlineRentPayment')` → `PayRentComingSoon` | **Not shipping.** Rent *payments*, *mandates* and *payout accounts* are wired but dormant behind the flag |
+| **Move-in Pack** (services) | `services.packComingSoon` copy | Not shipping |
+
+Two clarifications on the rent slice, because it is the one place this line is subtle:
+
+- Only the **payment** half is coming-soon. `/me/tenancies`, `/tenancies`, the tenant profile and the
+  whole `/me/finances/{propId}/*` ledger are live surfaces the dashboard renders today, and they are
+  genuinely integrated. Nothing there is dormant.
+- The payment endpoints were wired before this ruling and are left in place: they are tested, green,
+  and behind a flag that costs nothing while off. Removing them would be more churn than leaving
+  them. **They should not be extended** — no new call sites, no new copy, no widening.
+
+Before scoping any slice, check for a `ComingSoon` component, an `if (!flagEnabled(...)) return`
+early exit, and `coming soon` in the i18n catalogue. A surface that fails any of those is out.
 
 ## Documented exceptions (deliberate, not oversights)
 
@@ -148,7 +188,7 @@ are worth keeping:
 The obvious client shape was `listProperties({ includeAllStatuses: true, includeArchived: true })`,
 with the http provider noticing those flags and routing to `/admin/properties`. The reasoning was
 "a consumer page never sets them". **That was simply false.**
-[useDashboardData.js](frontend/src/pages/consumer/dashboard/useDashboardData.js#L158) passes
+[useDashboardData.js](../../frontend/src/pages/consumer/dashboard/useDashboardData.js#L158) passes
 `includeAllStatuses: true` — it wants a catalogue to resolve visit titles against — so every owner
 opening their dashboard was routed to a staff-only endpoint and got a **403**. The live e2e caught
 it; nothing else would have, because on mocks the flag is honoured and the page works.
@@ -608,10 +648,233 @@ and an error toast at once, with no way to tell which was true. The control is h
 rather than left to fail — the same treatment support's priority picker gets, and for the same
 reason: a control that lies is worse than a control that is absent.
 
-## Backend gaps that block the last two aggregates
+## The plan slice: the first domain read during render, and the first where success ≠ entitlement
 
-Two client-side aggregates could **not** be expressed with shipped endpoints, and are named here
-rather than quietly left as whole-catalogue scans:
+Every earlier domain answers a question a component can `await`. This one answers questions the app
+asks **while drawing**:
+
+| Question | Asked by |
+|---|---|
+| `isPaidOwnerPlan()` | `MyListingsPanel`, deciding whether to offer the Feature action |
+| `listingLimit()` | `ListProperty`'s paywall and `Refer`'s "slots left" counter |
+| `canPostListing()` | `useListProperty`, in a `useState` initialiser |
+| `getPlan().id` | `Plans` (which card is current), `Checkout` (the already-owned guard) |
+
+Those were synchronous localStorage reads. The naive conversion — `await` in each of six places —
+costs six requests to draw one dashboard and leaves six copies of the answer free to disagree the
+moment a purchase changes one. So the plan is fetched **once** into `context/PlanContext.jsx` and
+the sync questions are answered from memory, the same shape `SavedContext` uses for the shortlist.
+
+### `pending` is not `active`
+
+`POST /me/subscription` on a **priced** plan does not grant it. The server creates the row `pending`
+against a payment-gateway order and returns the order id; only the signature-verified payment
+webhook moves it to `active`, and nothing the browser does can make that happen. A free plan is
+active immediately, because there is no money to wait for.
+
+The mock used to grant instantly — a localStorage write cannot fail. **It no longer does**, so a
+call site cannot be written against "pay, then you have it" and discover the difference in
+production. Entitlement is `status === 'active'`, never "the POST returned 200".
+
+`Checkout` therefore has three end states, not two: success, **pending**, and a failure that leaves
+the Pay button usable. The pending screen is not a worse success screen; it is the honest answer for
+the interval in which the money is in flight.
+
+### The pricing divergence this slice exposed
+
+The pricing cards rendered `fee('ownerPlanYearly')` from the back-office Fees panel while the server
+charged whatever its `plans` row said. `SubscribeRequest` has no price field, so the client number
+never travels — it was a *claim about* the charge, not the charge:
+
+| Plan | Page showed | Server charged |
+|---|---|---|
+| Owner Plus | ₹999 | **₹2,499** |
+| Owner Pro | ₹2,499 | **₹4,999** |
+| Seeker Plus | ₹199 | **₹299** |
+
+Resolved by making the server authoritative: `Plans.jsx` and `Checkout.jsx` read `listPlans()` and
+render the catalogue price, falling back to `fee()` only while the request is in flight or after a
+failure. The Fees panel keeps the non-plan charges it genuinely owns. The alternative — reseeding
+the plans to match the page — was not ours to choose, because it is a revenue decision.
+
+The parity harness tolerates these three price differences by design: the mock reads the Fees panel,
+the live provider reads the catalogue, and both are right for their own world.
+
+### Two seam details worth keeping
+
+`listPlans` is the first operation in a caller-scoped provider that **does not** short-circuit on a
+missing session. The pricing page has to render for the signed-out visitor it exists to convert.
+
+Plan identity is a UUID on the wire and a slug in the app (`/checkout?plan=owner2`), and the two are
+joined by plan **name** in `planMapper.js`. Mapping by name rather than by position matters: a fifth
+plan inserted in the middle would silently re-point every slug if this keyed on order. An unknown
+name maps to `null` rather than guessing — a plan the app has no card for is one it cannot describe.
+
+## The deal slice: the first domain where the mock had a security hole
+
+Deals, offers and finalization — 18 endpoints across three controllers, one flow: reserve →
+negotiate → finalize. It is the widest gap between mock and server the seam has had, and the gap is
+not cosmetic.
+
+### Every signature dropped its first argument
+
+The store this replaces took `ownerMobile` everywhere: `isDealClosed(owner, propId)`,
+`getOffers(owner)`, `acceptFinalize(owner, reqId)`. That parameter is the caller **naming whose data
+to read**. localStorage has no identity, so the reader supplies one — and any reader could supply
+any owner's. A buyer could enumerate every offer every other buyer had made on a listing.
+
+The server has no such parameter and no such possibility: `/me/deals` is the caller's own listings,
+`/offers/mine` is the caller's own offers, `/me/finalization-requests` is what awaits the caller's
+decision. The token decides.
+
+So the seam dropped it. That is not tidying — it is the security property. Keeping `ownerMobile`
+would preserve a signature that promises something the API will never do.
+
+### Three things the mock allowed that the server refuses
+
+The mock was made **stricter** in each case. A mock more permissive than the server passes tests the
+real thing fails, which is how a slice ships green and breaks on switch-on.
+
+| Rule | Mock before | Both, now |
+|---|---|---|
+| Accept / decline an offer | anyone | the listing **owner** only — 403 otherwise |
+| A second live offer on one listing | stacked silently | 409 |
+| Closing a deal | no price, no counterparty | positive price + a real 10-digit mobile, mask refused |
+
+The accept rule had shipped UI behind it: the property page offered the **buyer** an "Accept ₹X"
+button when the owner countered. Against the server that is 403 — otherwise a buyer marks a price
+agreed with no owner involvement and, through the status-driven contact reveal, unmasks a mobile the
+owner never chose to share. It is now "Agree at ₹X", which counters at the owner's own number: the
+one response a buyer is allowed, saying the same thing, and leaving the owner as the party who
+closes. Which is what maker/checker means here.
+
+### `from` means different things on the two sides
+
+The mock stored one `from` field and flipped it between `buyer` and `owner` on each counter, so it
+meant "who moved last". `OfferDto.from` is the **author** of the offer and never changes; who moved
+last is the final `history[].by`. Reading the wire's field as the mock's would invert "you
+countered" and "they countered" on every card — so `lastActorOf` derives it, and the parity harness
+asserts both the empty case and that it reads the *last* entry rather than the first.
+
+### Two gaps this slice could not close
+
+**A buyer cannot learn that a listing is sold.** Closed-ness lives only in `deals.status`, which is
+owner-scoped. `DealService.close` does not touch the property, and `properties.status` is
+constrained to `pending|approved|rejected|flagged|archived` — there is no `sold` or `rented` to set.
+`dealStatusForBuyer()` therefore answers `active` on both providers: the honest answer available,
+with the server refusing a stale offer with 409. Guessing `closed` from a heuristic would hide a live
+listing's controls on no evidence.
+
+**A declined finalization is invisible.** `GET /finalization/{propId}/status` resolves through a
+query ending `and fr.status = 'pending'`, so a turned-down request reads the same as never having
+asked. The panel's "the owner didn't confirm — you can ask again" branch is unreachable in both
+modes. It is kept, because that copy is the only place a refusal is explained, and it becomes
+reachable the day the endpoint returns terminal rows.
+
+### Two things only the browser test found
+
+The parity harness passed on its first run and was still wrong about the app, twice — which is the
+standing lesson about harnesses being blind to React call sites, arriving on schedule.
+
+1. **The seam's `p.id` is the listing's *slug*, not its UUID.** `propertyMapper` sets
+   `id: p.slug || p.id` because the property routes accept slug-or-id and a slug makes a prettier
+   URL. The deal routes parse with `Ids.parseUuid` and 404 on anything else. The harness passed a
+   real UUID directly and never saw it; the browser produced `404 /api/finalization/p5015/status`.
+   Call sites now use `p.uuid || p.id`.
+
+2. **404 is this domain's normal "nothing pending" answer**, and catching it in JS does not unmake
+   the request — the network log and the console still carry it. Every property page view by a
+   signed-in buyer would have logged one. The fix is not to ask: the finalize card is gated on
+   `contactApproved` anyway, so for a cold buyer the answer could not change the screen.
+
+A third defect was caught by an assertion written for it: the dashboard's deal read is one
+`/me/deals` call for the whole book, and the first implementation fired it four times per load
+because the effect depended on the `listingsState` *array identity* rather than its ids. The test
+asserts the **count**, not merely that the endpoint was called — an assertion that only checked "was
+it called" would have passed on all four.
+
+## The rent slice: where getting it wrong costs rupees
+
+Tenancies, rent payments and property finances — 21 endpoints over three controllers, held together
+by the **tenancy**: the thing a payment is against, a mandate authorises, and an owner's ledger is
+about. A tenancy is not created directly; closing a **rent** deal opens one in the same transaction
+(backend D1), which is also why this slice sits directly on top of the deal slice.
+
+### Paying rent does not settle rent
+
+`POST /me/rent-payments` computes the fee, opens a payment-gateway order and stores the row **`due`**
+with the order id in `reference`. Only the signature-verified webhook moves it to `paid`.
+
+The mock defaulted to `status: 'paid'`, because a localStorage write cannot fail. That is a lie about
+money in both directions: it tells the tenant their rent is settled the instant they tap, and it
+tells the owner they have been paid. Both providers now return `due`, and `Pay Rent` says
+"waiting for your bank to confirm" rather than "paid".
+
+This is the third domain with the same shape — plan subscriptions, deal finalization, now rent. The
+pattern is worth naming: **any operation that opens a gateway order returns intent, not outcome.**
+
+### The fee is computed twice, and the two must agree
+
+The client needs a total *before* the tenant commits and there is no quote endpoint, so
+`quoteRentFee` still computes it locally. The server computes its own and charges that. Both do
+`round(base × percent / 100)` in whole rupees, half-up, with the fee rounded **before** GST is taken
+on it — GST is on the fee, not the rent, because the platform is selling a payment service.
+
+`feesAgree` exists to assert the two have not drifted, and the parity harness checks it against a
+real payment. A fee the client computes is a fee the client can change; a fee the client *displays*
+and the server *charges* is only safe while they agree.
+
+> **The first version of that assertion could not fail.** It checked `quoteRentFee(25000)`, where
+> the fee is exactly ₹500 either way — so reversing the rounding order left it green. ₹125 is the
+> smallest amount that tells them apart (fee ₹2.50 → ₹3, GST ₹1; taking GST on the unrounded ₹2.50
+> gives ₹0). Found by mutation-testing, which is the only reason it is now a real check.
+
+### Four rules the mock had to adopt
+
+| Rule | Mock before | Both, now |
+|---|---|---|
+| Paying rent | `paid` immediately | `due` against a gateway order |
+| Paying twice in a month | stacked a second row | 409 |
+| Paying a stale amount | charged whatever was passed | 409 if it disagrees with the tenancy |
+| Reading a payout account | returned the full account number | a mask, never the number |
+
+The last one is worth dwelling on. `PayoutAccountUpdateRequest` takes `accountNumber`;
+`PayoutAccountDto` returns `maskedAccount`. That asymmetry is deliberate — the server will not
+re-serve a bank account number to anyone, **including its owner**. So `hasPayoutAccount` can no
+longer test `accountNumber`; it asks whether the server says there is one.
+
+The stale-amount rule is optimistic concurrency on money: `expectedAmount` is the figure the tenant
+was *shown*, and if the rent has moved since the page loaded, charging the old number silently is
+worse than making them look again.
+
+### Three sums that stopped being the client's
+
+`financeSummary`, `cashflowByMonth` and `getDues` were reductions over the transaction list. They are
+endpoints now, and not for tidiness: **the ledger is paged**, so reducing over what the client had
+downloaded produced a summary of page one wearing the label of a summary. Correct on a small ledger,
+quietly wrong on a large one — the worst failure mode available.
+
+### What the browser found that the harness could not
+
+1. **The seam's `p.id` is the listing's slug.** The finance routes parse `{propId}` as a UUID and
+   404 on `p5002`. Same defect the deal slice hit, in a new place — the harness passes UUIDs
+   directly and cannot see it. Both are now `l.uuid || l.id`.
+
+2. **The dashboard decided who was an owner from localStorage.** `isOwner` read `hasListings()`,
+   which holds only what *this browser* posted. Against the API an owner's listings are in the
+   database, so a real owner with four real listings answered `false` — and got the tenant
+   dashboard, with Finances rendering the Rent Wallet instead of their property ledger. Now derived
+   from the API-backed `listings`, with the store kept in the disjunction for mock mode.
+
+   This one had nothing to do with the rent domain and everything to do with running the app
+   against real data for the first time. It would have shipped invisibly.
+
+3. **The page envelope is `content`, not `items`.** `PageResponse(content, page, size,
+   totalElements, totalPages, sort)` is what the whole backend returns; the seam normalises it. The
+   first draft read `res?.items` and silently produced empty pages — the same class of bug as D106,
+   which is why the harness asserts a payment is readable back rather than only that it was created.
+
+## Backend gaps that block the last two aggregates
 
 | Aggregate | Blocker | Needs |
 |---|---|---|
@@ -748,7 +1011,272 @@ The server side is fixed and self-enforcing: `ListingFoundationTest` reads the f
 `PropertyController.search` by reflection, so a new search facet fails the build until somebody
 decides whether it is a foundation field. The client list still needs updating to match.
 
-## Local run
+## The flatmates slice: two tabs, three resources, and a filter bar that filtered nothing
 
-See [`../LOCAL_DEV.md`](../LOCAL_DEV.md) for Postgres + backend + frontend, the Vite `/api` proxy,
-and how to read the OTP out of the backend log in dev.
+The Flatmates board looks like one list with a toggle. It is three: **move-in** reads rooms,
+**team-up** reads seeker posts *and* groups, and the tab counts are therefore not the resource
+counts. Anything that treats "the current tab" as "the current endpoint" gets the team-up tab wrong.
+
+### The rules the seam has to hold
+
+- **Seats are never inferred from `members.length`.** The host sets `seatsOpen`, and a group with
+  three members can still have two open seats — it is a flat, not a table. `seatsLeft` falls back to
+  capacity-minus-members only for legacy rows that carry no `seatsOpen` at all.
+- **Joining an open-policy group is already accepted.** `POST /flatmates/groups/{id}/join` returns
+  `status: 'accepted'` with `decidedAt` stamped when the policy is `any`, and `pending` otherwise.
+  Rendering "request sent, awaiting the host" over an accepted join tells someone to wait for a
+  decision that has already been made.
+- **`modStatus` decides visibility, and the client keeps it only to label the author's own copy.**
+  Nine server queries filter the moderated states out. The seam holds the value so an owner can be
+  told their post was taken down, and never re-filters a public feed with it.
+- **Nine closed vocabularies.** `vocab()` drops an out-of-set value rather than spending a round trip
+  to be told 400. A filter chip sending `"Female"` for `"female"` should narrow nothing, not empty
+  the page.
+
+### `budget` keeps the wire's name
+
+On a room this number is the asking rent; on a seeker post the identical wire field is a ceiling. An
+early draft renamed the room one to `rent` on those grounds. It was wrong: the page's settled
+convention is that rooms and seeker posts carry `budget` and only groups carry `rent` — which is
+exactly what `budgetOf` in the page helpers keys on. The rename returned a perfectly good 201 and
+then printed **₹0** on every card, filter and map pin. A seam that renames a field the whole page
+already agrees on buys nothing and costs every call site.
+
+The same shape of mistake, one layer down: the mapper defaulted an absent `priceBasis` to `'room'`,
+but `priceBasisOf` reads anything that is not exactly `'room'` as **per person** — the opposite. A
+per-room listing shows no seat stepper (tenants decide occupancy) and a per-person one does, so
+every row whose host never set the field lost the owner's backfill control. No error, no console
+message, the button simply was not there. **When mapping an optional enum, check what the page does
+with absent before choosing a default.**
+
+### The seed moved behind the seam
+
+The board used to be assembled in the view as `[...getRooms(), ...SEED_ROOMS]` — a store getter plus
+a hard-coded demo seed, neither of which the seam knew about. Switching the domain on would have
+left a page that loaded, rendered its tabs, called the API, and showed almost nothing. Every
+provenance assertion would still have passed. The seed now lives in the mock provider, which is
+where the live API replaces it.
+
+### The filter bar filtered nothing (D116)
+
+All three feed controllers take exactly `(@RequestParam(required = false) String locality, Pageable)`.
+The ten other facets the page offers are accepted with **200 and an unfiltered list** — not refused
+with a 400. That is the worst failure mode on offer: "Women only" returns everyone and nothing in
+the response says so.
+
+Until the controllers gain the facets, `http/flatmateProvider.js` fetches a wide page (200) and
+applies them client-side. This is honest for one city and a small dataset and **does not scale** — it
+makes `total` the post-filter count and breaks as soon as the board outgrows one page. The parity
+harness asserts that a facet **narrows**, and asserts it by checking that every returned row matches
+rather than by comparing counts: a no-op filter returns the *same* count, so a count assertion
+cannot go red. The first version of that check asked the wrong question and passed while the facets
+did nothing.
+
+### Three server bugs the mock had been hiding
+
+Writing the harness turned up three, two of them fixed in this slice:
+
+1. **The default page 500'd.** `and (:locality is null or lower(r.locality) = lower(:locality))` —
+   Hibernate cannot infer a null parameter's type, binds it as `bytea`, and PostgreSQL has no
+   `lower(bytea)`. Every *filtered* request worked; the unfiltered one everybody lands on did not
+   (D117).
+2. **Joining 500'd for anyone with no name.** `flatmate_group_members.name` is `NOT NULL` and was fed
+   from the nullable `users.name`, which OTP sign-in never sets — so it broke for exactly the users
+   who had just signed up (D118).
+3. The silently-ignored facets above.
+
+### Making a handler async is a behaviour change
+
+The seat and occupancy steppers are +1/−1 controls, so they are tapped in bursts. When the write was
+a synchronous localStorage call, two taps in quick succession both applied. Awaiting a request
+instead means the second tap reads the row captured by a render that has not happened yet: both
+requests ask for the same number and one tap is silently swallowed — 2 → 1, not 2 → 1 → 0. Each
+stepper now holds the value its row is being moved *to* while the request is in flight, so the next
+tap continues from where the row is going rather than from where the screen still says it is.
+
+It also changes what the e2e can assume. A spec that fired two clicks and checked only the end state
+now leaves Playwright re-running its actionability check against a button React is re-rendering
+underneath it. Asserting the intermediate count fixes that and says more than the end state did.
+
+### Ids belong to the server
+
+The call sites used to mint `'s' + Date.now()` before saving. That is the one thing a client must
+never do — two devices inside the same millisecond mint the same id, and against the real API the
+value is discarded anyway. Moving it out is what let the call sites stop caring; the mock then has
+to mint it too, or its create returns a row with `id: undefined` and every reader that matches on it
+breaks. Watch the store helpers while doing this: `saveFlatmatePost` ends `return set(key, arr)` and
+hands back the whole **array**, not the row.
+
+## The service-requests slice: the honest subset of a two-sided concierge flow
+
+The largest and most divergent slice, and the first where the right answer was to migrate **part** of
+a domain and say so. The mock (`lib/serviceFlow.js`) is not a thin store — it is a full concierge
+workflow: a customer raises a request, ops assigns it, a document checklist is verified item by item,
+a draft is shared and approved or sent back, a final document is uploaded, and a co-fill invite can
+split a rent agreement across two mobiles. The customer API (`/service-requests`) carries the slice
+of that a **signed-in requester** can genuinely reach, and nothing more.
+
+### What is live, and what is not
+
+| Operation | Live | Note |
+|---|---|---|
+| `listServiceRequests(type)` | **yes** | `GET /service-requests?type=` — paged, server-filtered by type |
+| `getServiceRequest(id)` | **yes** | a miss is a 404, mapped to `null` — same as every other id read |
+| `createServiceRequest(data)` | **yes** | `details` is summarised to a string; opens `new` → shown `submitted` |
+| `addServiceRequestMessage(id, text)` | **yes** | `POST /{id}/messages`, then re-read for return-shape parity with the mock |
+| `decideServiceRequestDraft(id, decision)` | **yes** | `accepted`→`approve`, else `reject`; a rejection returns the request to ops, not a failure |
+| `listPartyServiceRequests()` | no | co-fill has no counterparty endpoint — returns `[]`, never `undefined` |
+| `markServiceRequestRead(id)` | no | no read-receipt endpoint; unread badges are mock-only |
+
+The mock keeps **full fidelity** — it is the demo and the source of the screenshots, so it must show
+the whole flow. Live mode does the honest subset; the degraded parts are documented here and are
+**not asserted** by the live suite, because asserting a gap as if it were a feature is how a gap
+becomes permanent.
+
+### `details` is write-only
+
+The customer sends a structured object (`{property, rent, deposit, months, …}` for a rent agreement,
+free-form scope for interior). `ServiceRequestCreate` accepts `details` as a **string**, and
+`ServiceRequestDto` has no `details` field at all. So the mapper's `toCreate` flattens the object to
+`Label: value` lines (dropping nested objects), and `toViewModel` returns `details: {}` — the view
+optional-chains it and renders nothing rather than the fields the user typed. The tracker's summary
+lines are a mock-only affordance; live, the request is identified by its type and its thread.
+
+### Documents do not resolve in dev
+
+Draft and final documents are `multipart/form-data` to the document vault, and the vault answers with
+**signed URLs** that do not resolve against a dev backend. There is no upload surface behind the
+customer tracker either — sharing a draft and uploading a final are staff transitions. So `draft`
+and `finalDoc` are projected from `documents[]` by category (`draft` / `final-document`, newest wins,
+`version` = count) for when they *do* exist, but a customer-created request carries neither, and the
+per-request **document checklist** — six named items in the mock — has no read representation on the
+wire and stays mock-only.
+
+### `changes_requested` collapses server-side
+
+The maker-checker has three customer-visible outcomes in the mock: accept, reject-with-changes, and
+a standing `draftDecision` record. The server has two — `approve` and `reject` — and a rejection
+returns the request to `in-progress` rather than recording a distinct `changes_requested` state. So
+`draftDecision` is reconstructed as `{type:'accepted'}` **only** when the request reached `approved`;
+a rejection is unrecoverable from the read shape and shows as ongoing work, which is what it is.
+
+### Message roles, and the identity that keys them
+
+`MessageDto.authorRole` is `buyer|owner|staff|admin`; the tracker's bubbles key on `user|staff`.
+Everything that is not staff-side is the customer, **including `owner`** — an owner raising a service
+request is a customer of the service desk, the same rule the support slice learned. The mock keys its
+store on the signed-in user's mobile (`readUser().mobile`), and co-fill counterparty operations
+resolve the owner from the stored row; the http provider needs none of that because the token scopes
+every read to its requester.
+
+### The three landing forms were safe to migrate
+
+`ServiceLanding.jsx`, `InteriorRenovation.jsx` and `PropertyValuation.jsx` create through the seam
+now. All three are sign-in gated, so `form.mobile` is always the session user's own — there is no
+counterparty to key against. `useRentAgreement.js` is the exception and stays on `serviceFlow.create`:
+its create is a **co-fill** that keys on the *other* party's `ownerMobile`, which the customer API has
+no endpoint for. The landing creates are fire-and-forget (`.catch(() => {})`): the synchronous ops
+lead ticket (`mockApi.createServiceRequest`, a separate system, untouched) remains the primary
+artifact, and a live POST failure is swallowed rather than blocking the confirmation the user already
+saw. `ServiceTracker.jsx` hides its "preview sample draft" button in http mode — it is a demo
+affordance that seeds a mock request, and there is nothing to seed against the API.
+
+## The verification slice: a badge, never a wall
+
+The opt-in Aadhaar "Verified" badge. It is small on the wire — two endpoints — but it is the first
+slice whose whole point is that the seam changes *nothing anyone can see is gated*. The badge is a
+trust signal (ADR-019: "a badge, never a wall"); the one place identity has teeth is the server-side
+contact gate, when an owner opts into verified-contacts-only, and that gate reads `users.verified`
+live and is untouched by this slice. Everything in the seam is additive trust.
+
+### What is live, and what is not
+
+| Operation | Live | Note |
+|---|---|---|
+| `getAadhaarStatus()` | **yes** | `GET /me/verification/aadhaar` — always **200**, never 404. A never-tried caller reads `{status:'none', verified:false}`; absence of a badge is a state, not a missing resource. Signed-out is answered locally with the none-tier rather than a round trip |
+| `startAadhaar(details)` | **yes** | `POST /me/verification/aadhaar` — **202**. Returns a *pending handle* (`ref`, `verificationUrl`, `expiresAt`), **not** a badge; the DigiLocker webhook grants it later. A retry overwrites the handle; a dedup collision is `409 aadhaar_already_registered` |
+| the growth perk | no | `applyVerifiedBadgeToListings` (an instant listings boost on grant) has no server counterpart — mock-only, so the live handle's `perk` is null |
+| the webhook | n/a | `POST /webhooks/digilocker` is provider→server, not a browser call, so it is outside the seam entirely |
+
+The mock keeps **full fidelity**: it grants the badge at once (there is no webhook to wait for),
+records it against the Aadhaar-linked mobile, and applies the growth perk — it is the demo, and the
+screenshots need the whole arc. Live mode does the honest subset: a start is pending until a webhook
+that a dev backend never receives, so the badge stays unearned, and the live suite asserts exactly
+that (pending, not verified) rather than pretending the grant happened.
+
+### The write goes through the seam, or the two providers disagree
+
+The badge is *read* everywhere (eight call sites) but *written* in one — the shared
+`AadhaarVerifyModal`. That write had to move onto the seam too. If the modal kept writing the mock's
+`localStorage` record while the http provider read from the API, the two would diverge the instant a
+user verified: the badge would light from local state and vanish on the next context refresh. So the
+modal now calls `startVerification`, and the providers split on what that means — the mock grants and
+returns `{verified:true, perk}`, the http provider returns the pending handle and the modal redirects
+the browser to `verificationUrl`. The 1.7s simulated redirect delay lives in the **mock** provider
+(`MOCK_REDIRECT_MS`), so the demo's pacing survives without the http path inheriting a fake wait.
+
+### `aadhaarMobile` is never on the wire
+
+The mock's view model carries the Aadhaar-linked mobile; DigiLocker returns no mobile, only the
+masked last four. So the mapper carries `aadhaarMobile: ''` — present, so mock and live answer the
+context the same keys, but empty. The one reader that wants it, the tenant-profile mirror, already
+falls back to the account mobile when it is blank, so a blank is invisible to it.
+
+### One badge, read once, in a context
+
+`VerificationContext` fetches the badge once on sign-in (keyed on `isIn`) and holds it, the same
+shape as `PlanContext`. The eight readers — the dashboard overview and completion meter, the flatmate
+supply gate, the my-listings verify banner, the contact-owner modal, the post-a-property nudge, the
+profile tab and the tenant profile — all read `useVerification()` rather than calling the store, so a
+grant lights every one of them from a single refresh. `useVerification()` is null-safe outside the
+provider (degrades to the none-tier), the same defence the other context hooks use.
+
+## The document slice: the owner side of a token-mediated vault (foundation only)
+
+The document vault is a two-sided flow, and only one side maps to the API cleanly, so this slice
+draws the seam around that side and leaves the other on the mock — deliberately, not as an oversight.
+
+An **owner** keeps a listing's papers in a vault (`/me/documents/{propId}` — list, multipart upload,
+delete) and answers requests for them from an inbox (`/me/documents/requests` — list, and
+`PATCH .../{reqId}` to grant or decline). Both are scoped to the signed-in owner by the token, both
+have a faithful wire shape, and both are in the seam. A **buyer** asks for papers
+(`POST /documents/requests`) and, once granted, opens them with a share token
+(`GET /documents/shared?token=`) — but the server gives the buyer **no way to poll a request's
+status**, so there is nothing on the wire for the buyer's tracker to read. `DocumentsSection` and
+`ViewDocuments` therefore keep reading `lib/data/documents.js` cross-user localStorage directly,
+never through the service — the same shape as the presentation helpers in the service-requests slice.
+
+### What is live, and what is not
+
+| Operation | Live | Note |
+|---|---|---|
+| `listDocuments(mobile, propId)` | **yes** | `GET /me/documents/{propId}` — tolerates a paged or bare list |
+| `uploadDocument(mobile, propId, {category, file})` | **yes** | `multipart/form-data` (`category`, `file`) via `postMultipart` — the platform sets the boundary, so http.js must **not** send a `Content-Type` for a `FormData` body |
+| `deleteDocument(mobile, propId, docId)` | **yes** | `DELETE`, then re-list for return-shape parity with the mock |
+| `listDocRequests(mobile)` | **yes** | `GET /me/documents/requests` — an empty inbox is `[]`, never a throw |
+| `respondDocRequest(mobile, reqId, decision, note)` | **yes** | `PATCH .../{reqId}` with `{status, note}`; anything not `granted` clamps to `declined` — a typo is a safe no-op, not a leak |
+| the vault preview | no | the wire returns a signed `url` a dev backend does not serve, so `toDoc` carries it for a viewer but the bytes only exist behind the mock's `dataUrl` (D120 pattern) |
+| the buyer's ask / poll / open | no | token-mediated with no status read — `DocumentsSection`/`ViewDocuments` stay on `lib/` (D123) |
+| grant notification, shared-doc count, doc-count badge | no | `notifyBuyerDocsGranted`, `countSharedDocs`, the dashboard badge — the server owns the grant, so these stay mock-only |
+| rent agreements | no | they overlap the already-live tenancy flow (created as a side effect in `lib/data/tenancy.js`) — out of this slice |
+
+### The mapper's reconciliations
+
+`categories[]` collapses to a single `docType` (the first) for the inbox row, with the full list
+preserved as `categories`; the requester mobile passes through **masked** and is never unmasked here;
+`shareToken`/`expiresAt` are the owner's re-send affordances, null until a request is granted and null
+in mock mode; every time is epoch ms because both lists sort on it. A vault document carries **both**
+`dataUrl` (mock bytes) and `url` (signed, http) with the other null, so a future viewer can be
+dual-mode without the providers disagreeing.
+
+### Foundation only — nothing flips yet
+
+The service, both providers, the mapper and `npm run parity:document` all exist and agree, but **no
+component imports `documentService.js` yet** and `document` is not in `VITE_API_DOMAINS`, so every
+browser run still serves the mock. The owner-vault consumers (`DocumentsTab`, `useDashboardData`,
+`DocVault`, `useRentAgreement`, the ownerProperties doc-count) read sync localStorage in their render
+bodies; making those five call sites async, giving `DocVault.openDoc` a dual-mode (dataUrl blob **or**
+signed url), and adding `document` to `playwright.live.config.js` is the queued follow-up slice
+(D124). The per-domain live flag is all-or-nothing, so nothing flips until every consumer is handled.
+
+## Local run

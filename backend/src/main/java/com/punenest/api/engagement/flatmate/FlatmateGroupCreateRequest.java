@@ -1,5 +1,6 @@
 package com.punenest.api.engagement.flatmate;
 
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -30,7 +31,7 @@ public record FlatmateGroupCreateRequest(
         String propertyId,
         Boolean agreement,
         Map<String, Object> agreementDoc,
-        String consentMobile,
+        @IndianMobile String consentMobile,
         @Size(max = 20) List<@NotBlank @Size(max = 40) String> tags,
         @Size(max = 600) String note) {
 }

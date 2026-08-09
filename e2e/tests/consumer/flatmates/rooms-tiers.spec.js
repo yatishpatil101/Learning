@@ -29,6 +29,13 @@ function seed(mobile, rooms, reviews) {
     const [m, rs, rv] = args;
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Room Host', mobile: m, role: 'owner', loginAt: Date.now() }));
     localStorage.setItem('puneNestAadhaar:' + m, JSON.stringify({ verified: true, aadhaarMobile: m, at: Date.now() }));
+    /* Answer the cookie banner. It is `fixed` at the bottom of the viewport with its own stacking
+       context, so it sits over whatever the page has down there — here, the owner's seat stepper.
+       The stepper became reachable-then-not once its writes went through the API: each click is a
+       round trip now, so the card re-renders and settles under the banner instead of being clicked
+       before anything moves. Dismissing consent is what a returning user's browser looks like
+       anyway, and it stops this spec from measuring the banner's z-index. */
+    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: false, marketing: false, version: 1, ts: Date.now() }));
     if (!localStorage.getItem('puneNestRoomListings')) localStorage.setItem('puneNestRoomListings', JSON.stringify(rs));
     if (rv && !localStorage.getItem('puneNestFlatmateReviews')) localStorage.setItem('puneNestFlatmateReviews', JSON.stringify(rv));
   };
@@ -80,7 +87,14 @@ test('the room owner can reopen and close a seat via the backfill stepper', asyn
   await expect(card.getByText(/1 seat open/i)).toBeVisible();
   await card.locator('.seat-reopen-btn').click();
   await expect(card.getByText(/2 seats open/i)).toBeVisible();
+  /* Each step is asserted, rather than clicking twice and checking only the end state.
+     The seat count is written through the API now, so a click is a round trip: two clicks fired
+     back to back leave Playwright re-running its actionability check against a button React is
+     re-rendering underneath it, and the test hangs on a control that is working fine. Asserting the
+     intermediate count also says something the end state does not — that the stepper moves one seat
+     at a time, not that it lands on zero somehow. */
   await card.locator('.seat-close-btn').click();
+  await expect(card.getByText(/1 seat open/i)).toBeVisible();
   await card.locator('.seat-close-btn').click();
   await expect(card.getByText(/Filled/i)).toBeVisible();
 });

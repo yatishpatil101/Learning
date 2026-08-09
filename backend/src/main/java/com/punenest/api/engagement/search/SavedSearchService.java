@@ -1,6 +1,7 @@
 package com.punenest.api.engagement.search;
 
 import com.punenest.api.common.error.BadRequestException;
+import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import java.util.List;
 import java.util.UUID;
@@ -54,9 +55,26 @@ public class SavedSearchService {
      */
     private static final int MAX_FILTERS_CHARS = 8192;
 
+    /**
+     * The most saved searches one user may keep.
+     *
+     * <p>{@link #MAX_FILTERS_CHARS} bounds the size of each blob; this bounds the count. Without it
+     * an authenticated caller can create rows without limit — each one cheap to send, permanent to
+     * keep, and re-run by any future alert scheduler on a cadence, so an unbounded count is an
+     * unbounded standing workload, not just unbounded storage. Ten is far beyond any genuine set of
+     * standing searches (the UI renders them as a short list) while still being unmistakably a
+     * person's alerts rather than a script's. Enforced as a {@code 409} — the request is well-formed
+     * and conflicts only with the caller's current state, which they resolve by deleting one.
+     */
+    private static final int MAX_SAVED_SEARCHES = 10;
+
     /** Create a new saved search. Returns 201 with the created resource. */
     @Transactional
     public SavedSearchResponse create(UUID userId, SavedSearchCreateRequest request) {
+        if (repo.countByUserId(userId) >= MAX_SAVED_SEARCHES) {
+            throw new ConflictException("You can keep at most " + MAX_SAVED_SEARCHES
+                    + " saved searches. Delete one to add another.");
+        }
         String kind = request.kind() == null || request.kind().isBlank()
                 ? "listings" : request.kind().strip();
         if (!"listings".equals(kind) && !"flatmates".equals(kind)) {

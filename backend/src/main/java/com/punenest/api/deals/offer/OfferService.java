@@ -93,7 +93,7 @@ public class OfferService {
 
         Offer offer;
         try {
-            offer = new Offer(propertyId, callerId, body.amount(), body.message());
+            offer = new Offer(propertyId, callerId, body.amount(), body.message(), body.moveIn());
             offer = offers.saveAndFlush(offer);
         } catch (DataIntegrityViolationException constraintViolation) {
             // The partial unique index uq_offers_live_per_user_property caught a concurrent

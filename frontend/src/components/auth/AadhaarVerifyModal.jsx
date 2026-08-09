@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { setAadhaarVerified } from '../../lib/store.js';
-import { applyVerifiedBadgeToListings } from '../../lib/mockApi.js';
+import { useVerification } from '../../context/VerificationContext.jsx';
 import { trackKyc } from '../../lib/kycTrack.js';
 
 /* Opt-in "Verified" badge earn via native DigiLocker (badge-not-gate — ADR-019, ADR-009a).
@@ -20,10 +19,12 @@ import { trackKyc } from '../../lib/kycTrack.js';
      4. DigiLocker returns name, DOB, gender, address, photo and the last 4 digits of the
         Aadhaar (masked). We never see or store the full Aadhaar number or the OTP.
 
-   Because the app is in the localStorage-mock phase, "Continue with DigiLocker" simulates
-   the redirect → consent → success round-trip (in production POST /me/verification/aadhaar
-   returns a DigiLocker consent URL and a webhook confirms the result). On success we record
-   the badge (`setAadhaarVerified`) and run `onVerified()` to resume any pending action. */
+   The write goes through the verification seam (`useVerification().startVerification`), so this
+   modal never assumes "click, and you are verified". In mock mode the provider stands in for the
+   whole round-trip and grants the badge at once, returning the growth perk; in http mode it POSTs
+   /me/verification/aadhaar and returns a pending handle (a DigiLocker consent URL), because the
+   server grants only when the signed webhook lands. So on a mock grant we run `onVerified(perk)`
+   to resume any pending action; on a live start we hand the browser to DigiLocker. */
 export default function AadhaarVerifyModal({
   onClose,
   onVerified,
@@ -32,6 +33,7 @@ export default function AadhaarVerifyModal({
 }) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { startVerification } = useVerification();
   const signedMobile = String(user?.mobile || '').replace(/\D/g, '').slice(0, 10);
   const [step, setStep] = useState('intro'); // 'intro' | 'redirecting'
   const subtitleText = subtitle || t('verify.defaultSubtitle');
@@ -49,28 +51,44 @@ export default function AadhaarVerifyModal({
     };
   }, [onClose, step, source]);
 
-  const startDigilocker = () => {
+  const startDigilocker = async () => {
     trackKyc('badge_cta_click', source);
     trackKyc('digilocker_start', source);
     setStep('redirecting');
-    // MOCK: production redirects the browser to DigiLocker's consent page and a
-    // DIGILOCKER_VERIFICATION_SUCCESS webhook confirms the result; here we simulate
-    // the successful round-trip. Aadhaar + OTP + consent all happen on DigiLocker.
-    setTimeout(() => {
-      setAadhaarVerified({
+    let result;
+    try {
+      // The seam decides what "start" means: mock grants at once and returns the growth perk; http
+      // POSTs and returns a pending DigiLocker consent handle. Aadhaar + OTP + consent all happen
+      // on DigiLocker either way — PuneNest never sees them.
+      result = await startVerification({
         aadhaarMobile: signedMobile,
         maskedAadhaar: 'XXXX XXXX 1234',
         mobileMatch: true, // soft signal only at MVP (ADR-009a)
         source: 'digilocker',
       });
-      // Make the reward real: light up ownerVerified on this user's listings and
-      // grant the one-time free Featured slot (ADR-019 growth lever).
-      const perk = applyVerifiedBadgeToListings(signedMobile);
+    } catch {
+      // A start the server refuses (e.g. the identity is linked elsewhere) drops the user back to
+      // the intro rather than stranding them on the spinner.
+      setStep('intro');
+      return;
+    }
+    if (result?.verified) {
+      // Mock path: the badge is granted and the growth perk is lit. Resume the pending action.
       trackKyc('digilocker_success', source);
-      trackKyc('badge_earned', source, { featured: perk?.featuredTitle || null });
-      onVerified?.(perk);
+      trackKyc('badge_earned', source, { featured: result.perk?.featuredTitle || null });
+      onVerified?.(result.perk);
       onClose();
-    }, 1700);
+      return;
+    }
+    // Live path: the server answered 202 with a hosted consent URL and the badge waits on the
+    // DigiLocker webhook. Hand the browser to DigiLocker — nothing more happens in-app.
+    if (result?.verificationUrl) {
+      window.location.assign(result.verificationUrl);
+      return;
+    }
+    // Neither granted nor redirectable: a malformed 202 with no url would otherwise strand the user
+    // on the spinner (the close button and Escape are gated to the intro step). Fall back to intro.
+    setStep('intro');
   };
 
   // Portal to <body> so the popup escapes any transformed / backdrop-filtered

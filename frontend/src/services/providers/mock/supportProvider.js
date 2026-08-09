@@ -8,8 +8,8 @@
  *
  * ## The mock is the richer one, and that is the slice
  *
- * It stores a `priority`, base64 `images` on every message, and a `new` status — none of which exist
- * on the wire. They are emitted here and reported empty/absent by the http provider; the page reads
+ * It stores a `priority` and base64 `images` on every message — neither of which exists on the
+ * wire. They are emitted here and reported empty/absent by the http provider; the page reads
  * `isHttpDomain('support')` to decide whether to *offer* the controls at all. Emitting them from
  * only one provider is what makes the difference visible in the parity harness instead of in a
  * user's confusion about why their "urgent" ticket was not urgent.

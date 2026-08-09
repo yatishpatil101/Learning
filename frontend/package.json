@@ -28,6 +28,13 @@
     "parity:review": "node scripts/review-parity.mjs",
     "parity:support": "node scripts/support-parity.mjs",
     "parity:report": "node scripts/report-parity.mjs",
+    "parity:plan": "node scripts/plan-parity.mjs",
+    "parity:deal": "node scripts/deal-parity.mjs",
+    "parity:rent": "node scripts/rent-parity.mjs",
+    "parity:flatmate": "node scripts/flatmate-parity.mjs",
+    "parity:serviceRequest": "node scripts/serviceRequest-parity.mjs",
+    "parity:verification": "node scripts/verification-parity.mjs",
+    "parity:document": "node scripts/document-parity.mjs",
     "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },

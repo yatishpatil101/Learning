@@ -4,6 +4,7 @@ import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.security.AuthPrincipal;
 import java.time.Duration;
@@ -72,15 +73,18 @@ public class SocietyLeadService {
         if (interest != null && !interest.isBlank() && !INTERESTS.contains(interest)) {
             throw new BadRequestException("Unknown interest: " + interest);
         }
+        // @IndianMobile validated the shape; canonicalise once so the rate-limit lookup and the
+        // stored row key off the same ten digits.
+        String mobile = MobileMask.normalise(request.mobile());
         long recent = leads.countByMobileAndCreatedAtAfter(
-                request.mobile(), Instant.now().minus(RATE_WINDOW));
+                mobile, Instant.now().minus(RATE_WINDOW));
         if (recent >= MAX_SUBMISSIONS) {
             throw new RateLimitedException(
                     "Too many enquiries from this number — we will call you back shortly",
                     (int) RATE_WINDOW.toSeconds());
         }
         SocietyLead lead = leads.save(new SocietyLead(request.societyName().strip(),
-                request.contactName().strip(), request.mobile(), request.units(),
+                request.contactName().strip(), mobile, request.units(),
                 blankToNull(interest)));
         return SocietyLeadDto.from(lead);
     }

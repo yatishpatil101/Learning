@@ -142,7 +142,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await expect(page.getByText('Accepted', { exact: true })).toBeVisible();
   });
 
-  test('a buyer accepts the owner counter to agree the deal', async ({ page, login }) => {
+  test('a buyer agrees to the owner counter by countering at that number', async ({ page, login }) => {
     await seedConsent(page);
     // A live owner counter waiting on the buyer.
     await seedOffers(page, OWNER, [
@@ -151,12 +151,19 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await login.asBuyer();
     await page.goto(`/property/${PROP}`);
 
-    // Buyer sees the owner's counter and an accept CTA carrying the countered amount.
-    await expect(page.getByText('Owner countered at')).toBeVisible();
-    await page.getByRole('button', { name: /^Accept ₹/ }).click();
+    /* This used to be an "Accept ₹43,000" button, and it worked — against the mock.
 
-    await expect(page.getByRole('alert').getByText('Deal agreed — coordinate finalisation with the owner.')).toBeVisible();
-    await expect(page.getByText('Accepted by owner')).toBeVisible();
+       `OfferService.respond` reserves accept and decline for the listing owner and answers a buyer
+       403, because otherwise a buyer marks a price as agreed with no owner involvement and, through
+       the status-driven contact reveal, unmasks a mobile the owner never chose to share.
+
+       Agreeing is now expressed as a counter at the owner's own number: the one response a buyer is
+       allowed, saying the same thing, and leaving the owner as the party who closes. */
+    await expect(page.getByText('Owner countered at')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Accept/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Agree at ₹/ }).click();
+
+    await expect(page.getByRole('alert').getByText('Sent — the owner confirms to close the deal.')).toBeVisible();
   });
 
   test('a buyer sends a finalize request (maker-checker: buyer is the maker)', async ({ page, login }) => {
@@ -172,6 +179,25 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     // Panel flips to the buyer's pending finalize state.
     await expect(page.getByRole('heading', { name: 'Finalize requested' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Withdraw request' })).toBeVisible();
+  });
+
+  test('a buyer whose finalize request was declined is told, and can ask again (D111)', async ({ page, login }) => {
+    await seedConsent(page);
+    // Contact is approved — a buyer only reaches a declined row by first sending a request, which
+    // requires an approved contact; the panel also only loads the finalize status once approved.
+    await seedApprovedContact(page, OWNER, BUYER, PROP);
+    // A turned-down request for this buyer. Before D111 the status read was pending-only, so a
+    // declined row read the same as never having asked and the refusal copy never rendered.
+    await seedFinalizeReqs(page, OWNER, [
+      { id: 'f2', propId: PROP, deal: 'rent', buyerName: 'Test Buyer', buyerMobile: BUYER, status: 'declined', at: Date.now() },
+    ]);
+    await login.asBuyer();
+    await page.goto(`/property/${PROP}`);
+
+    // The declined branch surfaces the refusal copy (not the neutral "send a request" prompt).
+    await expect(page.getByRole('heading', { name: 'Closing the deal?' })).toBeVisible();
+    await expect(page.getByText("The owner hasn't confirmed yet. You can request again.")).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Request to Finalize' })).toBeVisible();
   });
 
   test('an owner accepts a finalize request — the maker-checker transition closes the deal', async ({ page, login }) => {

@@ -12,7 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * The owner's document vault: the files attached to one of their listings.
+ * The owner's document vault: the files attached to one of their listings — and, alongside it, the
+ * owner's own personal (KYC) vault, which belongs to the <em>person</em> and has no listing. The
+ * {@code personal*} methods are scoped directly by {@code owner_id} rather than by the property
+ * lookup the class Javadoc below describes.
  *
  * <p><strong>Owner-scoped by lookup, 404 never 403.</strong> Every operation resolves the property
  * through {@code owner_id} first, so a document belonging to someone else's listing is invisible on
@@ -34,13 +37,16 @@ import org.springframework.web.multipart.MultipartFile;
 public class DocumentService {
 
     private final DocumentRepository documents;
+    private final PersonalDocumentRepository personalDocuments;
     private final PropertyRepository properties;
     private final DocumentMapper mapper;
     private final FileStorage storage;
 
-    public DocumentService(DocumentRepository documents, PropertyRepository properties,
+    public DocumentService(DocumentRepository documents,
+            PersonalDocumentRepository personalDocuments, PropertyRepository properties,
             DocumentMapper mapper, FileStorage storage) {
         this.documents = documents;
+        this.personalDocuments = personalDocuments;
         this.properties = properties;
         this.mapper = mapper;
         this.storage = storage;
@@ -127,6 +133,58 @@ public class DocumentService {
                 .filter(d -> d.getPropertyId().equals(propertyId) && d.getServiceRequestId() == null)
                 .orElseThrow(() -> NotFoundException.of("Document"));
         documents.delete(doc);
+    }
+
+    /**
+     * Contract {@code listPersonalDocuments} — the caller's own KYC papers, newest first.
+     *
+     * <p>Owner-scoped by the {@code owner_id} on every row: there is no lookup to fail, because a
+     * personal document is only ever the caller's own.
+     */
+    @Transactional(readOnly = true)
+    public List<DocumentDto> listPersonal(UUID ownerId) {
+        return mapper.toPersonalDtos(
+                personalDocuments.findByOwnerIdOrderByUploadedAtDescIdDesc(ownerId));
+    }
+
+    /**
+     * Contract {@code uploadPersonalDocument} — store one KYC file for the caller.
+     *
+     * <p>Same store-then-write ordering, allowlist and server-minted key as {@link #upload}; the key
+     * is {@code personal/{ownerId}/{uuid}}, so a traversal or an overwrite of someone else's object
+     * is impossible by construction. The stored content type is the one the bytes prove, not the one
+     * the client sent.
+     *
+     * @throws com.punenest.api.common.error.UnsupportedMediaTypeException for a non-document type
+     * @throws com.punenest.api.common.error.PayloadTooLargeException      for an oversized file
+     */
+    @Transactional
+    public DocumentDto uploadPersonal(UUID ownerId, String category, MultipartFile file) {
+        byte[] bytes = readBytes(file);
+        String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
+
+        String key = "personal/" + ownerId + "/" + UUID.randomUUID();
+        storage.store(key, bytes, type);
+
+        return mapper.toDto(personalDocuments.saveAndFlush(new PersonalDocument(ownerId, category,
+                DocumentUploads.safeFileName(file.getOriginalFilename()), key,
+                file.getSize(), type)));
+    }
+
+    /**
+     * Contract {@code deletePersonalDocument} — remove one of the caller's KYC files.
+     *
+     * <p>Owner-scoped by lookup, {@code 404} never {@code 403}, matching {@link #delete}: a document
+     * belonging to someone else is invisible, so a stranger's id yields a 404 rather than confirming
+     * the row exists. The object is left in the store for the same reason as the property vault.
+     */
+    @Transactional
+    public void deletePersonal(UUID ownerId, String docId) {
+        PersonalDocument doc = Ids.parseUuid(docId)
+                .flatMap(personalDocuments::findById)
+                .filter(d -> d.getOwnerId().equals(ownerId))
+                .orElseThrow(() -> NotFoundException.of("Document"));
+        personalDocuments.delete(doc);
     }
 
     /**

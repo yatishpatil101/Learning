@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import HScroll from './ui/HScroll.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+// Presentation helpers are pure functions of a status string — they stay on serviceFlow.js. Only
+// the data operations cross the seam, to serviceRequestService.js (mock or live per VITE_API_DOMAINS).
+import { STEPS, stepStates, statusMeta, isActive, progressPct, makeSampleRequest } from '../lib/serviceFlow.js';
 import {
-  list, listForParty, STEPS, stepStates, statusMeta, isActive, progressPct,
-  decideDraft, addMessage, markRead, makeSampleRequest,
-} from '../lib/serviceFlow.js';
+  listServiceRequests, listPartyServiceRequests,
+  decideServiceRequestDraft, addServiceRequestMessage, markServiceRequestRead,
+} from '../services/serviceRequestService.js';
+import { isHttpDomain } from '../services/config.js';
 import { openDocUrl } from '../lib/openDoc.js';
 
 function ProgressBar({ status }) {
@@ -68,37 +72,70 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [changeReq]);
 
-  const requests = useMemo(() => {
-    if (!isIn || !mobile) return [];
-    const own = list(mobile).filter((r) => !typeFilter || r.type === typeFilter);
-    const party = listForParty(mobile).filter((r) => (!typeFilter || r.type === typeFilter) && !own.some((o) => o.id === r.id));
-    return [...own, ...party].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // Requests load through the seam (mock or live). `tick` re-runs the effect after every mutation,
+  // keeping the localStorage-backed mock and the API-backed live provider on one refresh path.
+  const [requests, setRequests] = useState([]);
+  useEffect(() => {
+    if (!isIn || !mobile) { setRequests([]); return undefined; }
+    let alive = true;
+    (async () => {
+      // `allSettled` so a failing party read (or a 500 on the live list) leaves whatever did
+      // resolve rendered rather than throwing an unhandled rejection and stranding the user on a
+      // false "no active request" state — the same resilience the flatmates board uses.
+      const [ownRes, partyRes] = await Promise.allSettled([
+        listServiceRequests(typeFilter),
+        listPartyServiceRequests(typeFilter),
+      ]);
+      if (!alive) return;
+      if (ownRes.status !== 'fulfilled') { console.warn('[service-tracker] requests failed', ownRes.reason); return; }
+      const own = ownRes.value;
+      const party = partyRes.status === 'fulfilled' ? partyRes.value : [];
+      const merged = [...own, ...party.filter((r) => !own.some((o) => o.id === r.id))]
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      setRequests(merged);
+    })();
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobile, isIn, typeFilter, tick]);
 
   const openDraft = (r) => openDocUrl(r.draft?.dataUrl);
   const openFinal = (r) => openDocUrl(r.finalDoc?.dataUrl);
-  const approve = (r) => { decideDraft(r._mobile || mobile, r.id, 'accepted'); refresh(); toast('Draft approved — we\'ll proceed with registration.', 'success'); };
+  const approve = async (r) => {
+    try {
+      await decideServiceRequestDraft(r.id, 'accepted');
+      refresh();
+      toast('Draft approved — we\'ll proceed with registration.', 'success');
+    } catch (e) { console.warn('[service-tracker] approve failed', e); toast('Could not approve the draft. Please try again.', 'error'); }
+  };
   const requestChanges = (r) => { setChangeNote(''); setChangeReq(r); };
-  const submitChanges = () => {
+  const submitChanges = async () => {
     const note = changeNote.trim();
     if (!note || !changeReq) return;
-    decideDraft(changeReq._mobile || mobile, changeReq.id, 'changes', note);
-    setChangeReq(null);
-    refresh();
-    toast('Change request sent to our team.', 'success');
+    try {
+      await decideServiceRequestDraft(changeReq.id, 'changes', note);
+      setChangeReq(null);
+      refresh();
+      toast('Change request sent to our team.', 'success');
+    } catch (e) { console.warn('[service-tracker] request-changes failed', e); toast('Could not send the change request. Please try again.', 'error'); }
   };
-  const send = (r) => {
+  const send = async (r) => {
     if (!msg.trim()) return;
-    addMessage(r._mobile || mobile, r.id, 'user', msg);
-    setMsg('');
-    refresh();
+    try {
+      await addServiceRequestMessage(r.id, msg);
+      setMsg('');
+      refresh();
+    } catch (e) { console.warn('[service-tracker] send message failed', e); toast('Message could not be sent. Please try again.', 'error'); }
   };
-  const openThread = (r) => {
-    markRead(r._mobile || mobile, r.id, 'user');
+  const openThread = async (r) => {
+    // Read-receipts are best-effort (and a no-op in http mode) — a failure must not stop the
+    // thread from opening.
+    try { await markServiceRequestRead(r.id); } catch (e) { console.warn('[service-tracker] mark-read failed', e); }
     setOpenId(openId === r.id ? null : r.id);
     refresh();
   };
+  // Seeding a fully-drafted sample is a demo affordance the customer API cannot reproduce (a
+  // customer cannot share a draft to themselves), so it stays mock-only and is hidden when live.
+  const canSample = sampleName !== undefined && !isHttpDomain('serviceRequest');
   const loadSample = () => { makeSampleRequest(mobile, sampleName || user?.name); refresh(); toast('Sample request loaded — review the draft below.', 'success'); };
 
   if (!isIn) return null;
@@ -108,7 +145,7 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
       <div className="glass-card rounded-2xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
           <h2 className="text-white font-bold text-lg flex items-center gap-2"><Icon name="list-checks" className="w-5 h-5 text-teal-400" /> {title}</h2>
-          {sampleName !== undefined ? (
+          {canSample ? (
             <button type="button" onClick={loadSample} className="btn-outline px-4 py-2 rounded-xl text-teal-400 text-sm font-semibold inline-flex items-center gap-2"><Icon name="sparkles" className="w-4 h-4" /> Preview with a sample draft</button>
           ) : null}
         </div>
@@ -174,7 +211,7 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests', sa
                       </div>
                       {isActive(r.status) ? (
                         <div className="flex items-center gap-2">
-                          <input value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(r); }} placeholder="Message our team…" className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50" />
+                          <input value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(r); }} aria-label="Message our team" placeholder="Message our team…" className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs text-white outline-none focus:border-teal-400/50" />
                           <button onClick={() => send(r)} className="btn-teal px-3 py-2 rounded-lg text-xs font-semibold">Send</button>
                         </div>
                       ) : null}

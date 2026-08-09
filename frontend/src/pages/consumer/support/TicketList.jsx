@@ -39,7 +39,7 @@ export default function TicketList({ tickets, openThread }) {
                   <span className="text-[11px] text-gray-500 font-mono">{t.id}</span>
                   <div className="flex items-center gap-1.5">
                     {unread && <span className="w-2 h-2 rounded-full bg-teal-400 flex-shrink-0" />}
-                    <span className={'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ' + (STATUS_CHIP[t.status] || STATUS_CHIP.new)}>
+                    <span className={'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ' + (STATUS_CHIP[t.status] || STATUS_CHIP.open)}>
                       {getStatusLabel(t.status)}
                     </span>
                   </div>

@@ -1,9 +1,8 @@
 package com.punenest.api.deals.deal;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -21,8 +20,7 @@ import jakarta.validation.constraints.Size;
  */
 public record DealCloseRequest(
         @NotNull @Positive Long agreedPrice,
-        @NotNull @Pattern(regexp = Formats.MOBILE,
-                message = Formats.MOBILE_MESSAGE)
+        @NotNull @IndianMobile
         String counterpartyMobile,
         @Size(max = 1000) String note) {
 }

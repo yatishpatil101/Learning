@@ -58,6 +58,8 @@
     "underConstruction": "Under Construction",
     "newLaunch": "New Launch",
     "underOffer": "Under Offer",
+    "soldOut": "Sold",
+    "rentedOut": "Rented",
     "sharing": "Sharing",
     "verified": "Verified",
     "badgeRent": "Rent",

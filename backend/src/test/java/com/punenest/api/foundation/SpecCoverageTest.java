@@ -52,8 +52,14 @@ class SpecCoverageTest {
      * <p>The API-polish pass added four: {@code listPropertyRooms} (declared since the flatmates
      * slice and served by nothing), {@code updateSavedSearch}, {@code listListingBoosts} and
      * {@code listReviewsForModeration} — each one a feature whose UI could write but not read.
+     *
+     * <p>The contract-parity pass (D144) added nine that shipped served but undeclared: the
+     * personal-KYC vault ({@code listPersonalDocuments}, {@code uploadPersonalDocument},
+     * {@code deletePersonalDocument}) and the managed-property lifecycle ({@code myManagedProperties},
+     * {@code registerManagedProperty}, {@code getManagedProperty}, {@code updateManagedProperty},
+     * {@code deleteManagedProperty}, {@code publishManagedProperty}).
      */
-    private static final int IMPLEMENTED_FLOOR = 204;
+    private static final int IMPLEMENTED_FLOOR = 213;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

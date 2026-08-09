@@ -1,6 +1,6 @@
 package com.punenest.api.moderation.user;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
@@ -11,7 +11,6 @@ import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -111,8 +110,7 @@ public class UserAdminController {
      * database CHECK, and a 400 with a field name is a better answer than a 500 from a constraint.
      */
     public record StaffCreateRequest(@NotBlank String name,
-            @NotBlank @Pattern(regexp = Formats.MOBILE,
-                    message = Formats.MOBILE_MESSAGE) String mobile,
+            @NotBlank @IndianMobile String mobile,
             @NotBlank @Email String email,
             @NotBlank String role, String team, String password) {
     }

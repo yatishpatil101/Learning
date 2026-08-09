@@ -68,7 +68,12 @@ export const seatsOpenOf = (item) => {
 export const filledSeatsOf = (item) => Math.max(0, seatsTotalOf(item) - seatsOpenOf(item));
 
 export const occupancyOf = (item) => {
-  if (!item || item.occupancy !== OCCUPANCY_EMPTY) return OCCUPANCY_OCCUPIED;
+  if (!item) return OCCUPANCY_OCCUPIED;
+  // 'filling' is a DERIVED state and must never be trusted at rest: a stored
+  // 'filling' is re-derived from the flat ledger exactly like 'empty', so it is
+  // not silently collapsed to 'occupied'. Any other value ('occupied', or an
+  // unknown/absent field) means a real household already lives there.
+  if (item.occupancy !== OCCUPANCY_EMPTY && item.occupancy !== OCCUPANCY_FILLING) return OCCUPANCY_OCCUPIED;
   // A room reads its flat's ledger (people who moved in anywhere in the flat);
   // a group falls back to its own declared seats.
   const committed = item.flatCommitted != null ? item.flatCommitted : filledSeatsOf(item);

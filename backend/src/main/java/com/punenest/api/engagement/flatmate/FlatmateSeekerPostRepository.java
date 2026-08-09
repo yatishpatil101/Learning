@@ -12,7 +12,11 @@ import org.springframework.data.repository.query.Param;
 public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeekerPost, UUID> {
 
     /**
-     * The {@code team-up} supply: live, unmoderated-away, newest first.
+     * The {@code team-up} supply: live, unmoderated-away, newest first, filtered server-side by
+     * locality plus the seeker facets the page offers (gender, flat preference, room preference,
+     * budget range). {@code flatPref} matches an {@code any} post as well as an exact hit (a
+     * flexible seeker fits every filter), while {@code gender} and {@code roomPref} are exact —
+     * mirroring the mock, where "women only" and a specific room preference are hard constraints.
      *
      * <p><strong>Native rather than JPQL</strong>, because the locality filter is a jsonb
      * containment test ({@code @>}) that JPQL has no way to express — {@code localities} is a
@@ -20,7 +24,7 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
      * this would have meant either loading every row to filter in Java, or a second column
      * duplicating the same data purely to make the query expressible.
      *
-     * <p>Null-tolerant on {@code locality} rather than two finders, so the ordering and the
+     * <p>Null-tolerant on every facet rather than a finder per combination, so the ordering and the
      * visibility predicate exist in exactly one copy.
      *
      * <p>The {@code mod_status} clause is not decoration: a flagged post must <em>disappear</em>
@@ -32,6 +36,12 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
               and p.mod_status not in ('flagged','removed','rejected')
               and (cast(:locality as text) is null
                    or p.localities @> to_jsonb(cast(:locality as text)))
+              and (cast(:gender as text) is null or p.gender = cast(:gender as text))
+              and (cast(:flatPref as text) is null
+                   or p.flat_pref = cast(:flatPref as text) or p.flat_pref = 'any')
+              and (cast(:roomPref as text) is null or p.room_pref = cast(:roomPref as text))
+              and (cast(:minBudget as bigint) is null or p.budget >= cast(:minBudget as bigint))
+              and (cast(:maxBudget as bigint) is null or p.budget <= cast(:maxBudget as bigint))
             order by p.created_at desc, p.id desc
             """,
             countQuery = """
@@ -40,9 +50,18 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
                       and p.mod_status not in ('flagged','removed','rejected')
                       and (cast(:locality as text) is null
                            or p.localities @> to_jsonb(cast(:locality as text)))
+                      and (cast(:gender as text) is null or p.gender = cast(:gender as text))
+                      and (cast(:flatPref as text) is null
+                           or p.flat_pref = cast(:flatPref as text) or p.flat_pref = 'any')
+                      and (cast(:roomPref as text) is null or p.room_pref = cast(:roomPref as text))
+                      and (cast(:minBudget as bigint) is null or p.budget >= cast(:minBudget as bigint))
+                      and (cast(:maxBudget as bigint) is null or p.budget <= cast(:maxBudget as bigint))
                     """,
             nativeQuery = true)
-    Page<FlatmateSeekerPost> feed(@Param("locality") String locality, Pageable pageable);
+    Page<FlatmateSeekerPost> feed(@Param("locality") String locality,
+            @Param("gender") String gender, @Param("flatPref") String flatPref,
+            @Param("roomPref") String roomPref, @Param("minBudget") Long minBudget,
+            @Param("maxBudget") Long maxBudget, Pageable pageable);
 
     /** A visible post by id — the target of an interest. */
     @Query("""

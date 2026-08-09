@@ -8,7 +8,8 @@ lives in `src/data/*.json` and is loaded into `localStorage` through a mock API 
 Full system design and per-feature specs live in [`docs/`](./docs/README.md) — the authoritative
 reference for building the backend. Start there:
 
-- [`docs/system/app-architecture.md`](./docs/system/app-architecture.md) — context, tech stack, mock→http seam.
+- [`docs/system/platform-architecture.md`](./docs/system/platform-architecture.md) — context, tech stack, components, ADRs.
+- [`docs/system/frontend-data-seam.md`](./docs/system/frontend-data-seam.md) — the `mock→http` seam.
 - [`docs/system/data-model.md`](./docs/system/data-model.md) — ER map + persistence design (field shapes → OpenAPI schemas).
 - [`docs/system/cross-cutting.md`](./docs/system/cross-cutting.md) — auth, contact/Aadhaar gate, **maker-checker**, audit.
 - [`OpenAPI spec`](./backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; served at `/openapi/punenest-api.yaml`, Swagger UI at `/docs`).

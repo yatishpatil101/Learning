@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ShieldCheck, Star, ArrowRight } from 'lucide-react';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
-import { isAadhaarVerified } from '../../../lib/store.js';
+import { useVerification } from '../../../context/VerificationContext.jsx';
 import { trackKyc } from '../../../lib/kycTrack.js';
 
 /* C1 — post-listing success nudge (badge-not-gate growth lever, ADR-019).
@@ -10,7 +10,7 @@ import { trackKyc } from '../../../lib/kycTrack.js';
    one-time reward: verified owners rank higher and the first verified listing gets a free
    7-day Featured boost. Fully dismissible; the listing is already live regardless. */
 export default function PostSuccessVerifyNudge({ t }) {
-  const [verified, setVerified] = useState(() => isAadhaarVerified());
+  const { verified } = useVerification();
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -56,7 +56,7 @@ export default function PostSuccessVerifyNudge({ t }) {
           source="post_success"
           subtitle={t('listProperty.verifyNudge.modalSubtitle')}
           onClose={() => setOpen(false)}
-          onVerified={() => setVerified(true)}
+          onVerified={() => setOpen(false)}
         />
       )}
     </>

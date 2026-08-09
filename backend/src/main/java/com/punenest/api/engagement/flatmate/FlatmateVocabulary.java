@@ -148,4 +148,18 @@ public final class FlatmateVocabulary {
     public static String blankToNull(String value) {
         return (value == null || value.isBlank()) ? null : value.strip();
     }
+
+    /**
+     * A requested filter value, or {@code null} when the caller expressed no preference. Both a
+     * blank and the literal {@code any} collapse to {@code null}, because on the query side
+     * {@code any} means "show me everyone" — not "show me only the rooms that themselves said
+     * {@code any}". A row that stated {@code any} openness is matched by the query's own
+     * {@code or col = 'any'} clause, not by the filter. This mirrors the mock provider, where
+     * {@code if (v && v !== 'any')} is the guard on every preference facet; without it, asking for
+     * "any gender" would paradoxically return only the no-preference rooms.
+     */
+    public static String facetOrNull(String value) {
+        String trimmed = blankToNull(value);
+        return POLICY_OPEN.equals(trimmed) ? null : trimmed;
+    }
 }

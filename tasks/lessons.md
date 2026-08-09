@@ -1,5 +1,37 @@
 # Lessons
 
+## Documents consumer flip (Slice D)
+
+- **Re-verify a blocker before you build for it.** D124 listed "the probe user has no seeded
+  owned property" as the reason the flip was unverifiable. The probe owner already owned four
+  seeded listings. One `grep` of the seed replaced a migration that was about to be written.
+  A blocker written down months ago is a claim, not a fact — same class of error as the
+  register's file counts.
+- **`.catch(() => setState([]))` is a product decision disguised as error handling.** Flipping
+  three synchronous reads to async made every failure look like emptiness: a failed request
+  inbox renders as "no buyer requests" (the card is gated on `length > 0`), a failed vault
+  read renders a confident `0/10` loan checklist. Neither shows an error. When converting a
+  synchronous read, decide what a *failure* should look like before deciding what the
+  loading state looks like — "empty" is almost never the honest answer.
+- **A guard for one mode can be a data-loss bug in the other.** Skipping the fetch for the
+  `portfolio` pseudo-bucket is right in http mode (the GET 404s) and wrong in mock mode,
+  where that bucket is real storage and the *write* path still targets it: the upload
+  succeeded, the read was skipped, and the user got a green "uploaded" toast next to an empty
+  tile. If you guard a read, guard the matching write — or gate the guard on the mode.
+- **A live test that writes to the shared dev DB must clear its own slot first.** An assertion
+  failing between upload and delete left a real row behind, so every later run failed on a
+  full slot — a green test turned permanently red by its own debris. Clean at the start, not
+  only at the end; the end never runs when it matters.
+- **Confirm the stash before trusting the baseline.** `git stash push -- <tracked> <untracked>`
+  aborts wholesale on the untracked pathspec, so the "at HEAD" run still contained the change
+  and cheerfully reported "it fails at HEAD too". Check `git stash list` after pushing, or the
+  comparison that clears your change is worthless.
+- **The flakiness you expose was usually already there.** Making the vault load async
+  destabilised a tooltip spec — but the same spec failed 6/6 at HEAD under the same load. The
+  real defect was in the test (`Tip` closes on scroll, and the tap that scrolled the anchor
+  into view dismissed its own tooltip). Widening a race is not the same as causing it; measure
+  the baseline under the *same* load before rewriting product code to appease a test.
+
 ## Deals sub-slice A2
 
 - **`Map.of()` rejects null keys** — `ImmutableCollections$MapN.get(null)` throws NPE.

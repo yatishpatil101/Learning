@@ -3,7 +3,7 @@ package com.punenest.api.engagement.flatmate;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
@@ -11,7 +11,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
@@ -48,9 +47,20 @@ public class FlatmateSupplyController {
 
     /** {@code GET /flatmates/rooms} (contract {@code listFlatmateRooms}) — public. */
     @GetMapping(Routes.Flatmates.ROOMS)
-    public PageResponse<FlatmateRoomDto> rooms(@RequestParam(required = false) String locality,
+    public PageResponse<FlatmateRoomDto> rooms(
+            @RequestParam(required = false) String locality,
+            @RequestParam(required = false) String gender,
+            @RequestParam(required = false) String food,
+            @RequestParam(required = false) String roomType,
+            @RequestParam(required = false) String furnishing,
+            @RequestParam(required = false) String bhk,
+            @RequestParam(required = false) Long minBudget,
+            @RequestParam(required = false) Long maxBudget,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.roomFeed(locality, Pageables.unsorted(pageable)), dto -> dto);
+        RoomFacets facets = new RoomFacets(
+                locality, gender, food, roomType, furnishing, bhk, minBudget, maxBudget);
+        return PageResponse.of(
+                service.roomFeed(facets, Pageables.unsorted(pageable)), dto -> dto);
     }
 
     /** {@code POST /flatmates/rooms} (contract {@code createFlatmateRoom}). */
@@ -100,9 +110,15 @@ public class FlatmateSupplyController {
 
     /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public. */
     @GetMapping(Routes.Flatmates.GROUPS)
-    public PageResponse<FlatmateGroupDto> groups(@RequestParam(required = false) String locality,
+    public PageResponse<FlatmateGroupDto> groups(
+            @RequestParam(required = false) String locality,
+            @RequestParam(required = false) String policy,
+            @RequestParam(required = false) Long minRent,
+            @RequestParam(required = false) Long maxRent,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.groupFeed(locality, Pageables.unsorted(pageable)), dto -> dto);
+        GroupFacets facets = new GroupFacets(locality, policy, minRent, maxRent);
+        return PageResponse.of(
+                service.groupFeed(facets, Pageables.unsorted(pageable)), dto -> dto);
     }
 
     /** {@code POST /flatmates/groups} (contract {@code createFlatmateGroup}). */
@@ -158,7 +174,7 @@ public class FlatmateSupplyController {
      */
     public record OwnerConsentRequest(
             @NotBlank
-            @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE)
+            @IndianMobile
             String ownerMobile,
             @Size(min = 6, max = 6) String otp) {
     }

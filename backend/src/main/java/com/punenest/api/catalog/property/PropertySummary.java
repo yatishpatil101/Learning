@@ -30,6 +30,8 @@ import java.time.Instant;
  * @param verified     listing "Verified" badge (L2 signal, never a gate)
  * @param postedByType owner|agent|builder, nullable
  * @param status       moderation status (always {@code approved} on public results)
+ * @param dealStatus   deal outcome ({@code active|reserved|closed}); {@code reserved} badges a card
+ *                     "under offer" without an extra fetch (D110)
  * @param createdAt    row creation time
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -55,5 +57,6 @@ public record PropertySummary(
         boolean verified,
         String postedByType,
         String status,
+        String dealStatus,
         Instant createdAt) {
 }

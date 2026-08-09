@@ -1,20 +1,30 @@
 import { Link } from 'react-router';
 import { fmtINR } from '../../../lib/format.js';
-import { getPlan, isPaidOwnerPlan } from '../../../lib/store.js';
+import { usePlan } from '../../../context/PlanContext.jsx';
 import { BILLING_HISTORY } from './constants.js';
 import { Card, SectionHead } from './components.jsx';
 
+/** Badge copy + colour per subscription status. `active` is the only one that means entitled. */
+const STATUS_BADGE = {
+  active: ['Active', 'bg-teal-500/15 text-teal-300'],
+  pending: ['Payment pending', 'bg-amber-500/15 text-amber-300'],
+  cancelled: ['Cancelled', 'bg-gray-500/15 text-gray-400'],
+  expired: ['Expired', 'bg-gray-500/15 text-gray-400'],
+};
+
 export default function BillingPanel({ isOwner }) {
-  // Current plan comes from the real per-user plan store (single source of truth),
-  // not an inference from inventory — so it stays correct after an upgrade.
-  const plan = getPlan();
-  const paidOwner = isPaidOwnerPlan();
-  const planName = plan?.name || (isOwner ? 'Owner plan' : 'Free');
+  // Current plan comes from PlanContext (one fetch for the whole app), not an inference from
+  // inventory — so it stays correct after an upgrade and agrees with the paywall.
+  const { plan, planName: name, status, isPaidOwner: paidOwner, loading } = usePlan();
+  const planName = name || (isOwner ? 'Owner plan' : 'Free');
   const planSub = paidOwner
-    ? 'Up to 2 properties · all owner services'
+    ? `Up to ${plan.listingLimit} properties · all owner services`
     : isOwner
       ? 'Free owner listing · upgrade for more reach'
       : '15 owner contacts every month';
+  // No subscription row at all is still the free tier, and the free tier is genuinely active —
+  // there is no payment outstanding on it. Only a real status can contradict that.
+  const [badgeText, badgeClass] = STATUS_BADGE[status] ?? STATUS_BADGE.active;
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -24,7 +34,7 @@ export default function BillingPanel({ isOwner }) {
             <p className="text-white text-xl font-extrabold">{planName}</p>
             <p className="text-gray-500 text-xs mt-0.5">{planSub}</p>
           </div>
-          <span className="text-[11px] px-2.5 py-1 rounded-full bg-teal-500/15 text-teal-300 font-semibold">Active</span>
+          <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold ${badgeClass} ${loading ? 'opacity-50' : ''}`}>{badgeText}</span>
         </div>
       </Card>
       <Card className="p-6">

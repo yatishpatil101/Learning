@@ -3,6 +3,7 @@ package com.punenest.api.deals.finalization;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -29,6 +30,20 @@ public interface FinalizationRequestRepository extends JpaRepository<Finalizatio
     Optional<FinalizationRequest> findLiveByPropertyAndParticipant(
             @Param("propertyId") UUID propertyId,
             @Param("callerId") UUID callerId);
+
+    /**
+     * The caller's most recent request on a property, <strong>whatever its status</strong> — used by
+     * the status read so a declined or cancelled request is distinguishable from never having asked
+     * (D111). Call with {@code PageRequest.of(0, 1)}; the first element is the newest.
+     */
+    @Query("select fr from FinalizationRequest fr " +
+           "where fr.propertyId = :propertyId " +
+           "and (fr.initiatorId = :callerId or fr.counterpartyId = :callerId) " +
+           "order by fr.createdAt desc")
+    List<FinalizationRequest> findRecentByPropertyAndParticipant(
+            @Param("propertyId") UUID propertyId,
+            @Param("callerId") UUID callerId,
+            Pageable pageable);
 
     /** Requests awaiting the caller's decision (counterparty = caller, pending). */
     @Query("select fr from FinalizationRequest fr " +

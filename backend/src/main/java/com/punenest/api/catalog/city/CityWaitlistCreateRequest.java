@@ -1,9 +1,8 @@
 package com.punenest.api.catalog.city;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -23,7 +22,7 @@ import jakarta.validation.constraints.Size;
  */
 public record CityWaitlistCreateRequest(
         @NotBlank
-        @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE) String mobile,
+        @IndianMobile String mobile,
 
         @NotBlank @Size(max = 120) String city,
 

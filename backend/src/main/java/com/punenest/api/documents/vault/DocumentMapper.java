@@ -37,4 +37,26 @@ public class DocumentMapper {
     public List<DocumentDto> toDtos(List<Document> docs) {
         return docs.stream().map(this::toDto).toList();
     }
+
+    /**
+     * Personal-vault projection. A {@link PersonalDocument} has no property, so the wire's
+     * {@code propertyId} carries the literal {@code "personal"} — the same bucket key the front end
+     * already uses ({@code getDocsForProp(mobile, 'personal')}). Reusing {@link DocumentDto} keeps
+     * one document shape on the wire; the client's mapper drops the field regardless.
+     */
+    public DocumentDto toDto(PersonalDocument d) {
+        return new DocumentDto(
+                d.getId().toString(),
+                "personal",
+                d.getCategory(),
+                d.getFileName(),
+                storage.signedDownloadUrl(d.getStorageKey()),
+                d.getSizeBytes(),
+                d.getMimeType(),
+                d.getUploadedAt());
+    }
+
+    public List<DocumentDto> toPersonalDtos(List<PersonalDocument> docs) {
+        return docs.stream().map(this::toDto).toList();
+    }
 }

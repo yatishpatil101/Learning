@@ -21,6 +21,8 @@ public class PlanMapper {
                 plan.getAudience(),
                 plan.getPrice(),
                 plan.getBillingCycle(),
+                plan.getListingLimit(),
+                plan.getContactLimit(),
                 List.copyOf(plan.getFeatures()));
     }
 

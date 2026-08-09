@@ -1,41 +1,60 @@
 # PuneNest — Documentation
 
-Authoritative documentation set for PuneNest (Pune-first real-estate marketplace). This is the
-**API-build reference**: the React app currently holds most business logic in a mock service layer;
-these docs capture that logic in detail so it can be re-implemented server-side.
+Written documentation for PuneNest (Pune-first real-estate marketplace).
+
+These docs were originally the **API-build reference**: the React app held the business logic in a
+mock service layer, and the docs captured it so it could be re-implemented server-side. **That
+purpose is now largely discharged** — the backend exists. So the rule changed:
+
+> **If a machine already enforces a fact, the docs do not restate it.** They carry the *reasoning*,
+> which no test can hold.
+
+## Who owns which fact
+
+| Fact | Source of truth | What keeps it honest |
+|---|---|---|
+| Endpoint paths, params, status codes, schemas | [OpenAPI spec](../backend/src/main/resources/static/openapi/punenest-api.yaml) (Swagger UI at `/docs`) | `SpecCoverageTest` — fails the build on served-but-undeclared **and** declared-but-unhandled |
+| Physical database schema | `backend/src/main/resources/db/migration/**` | Flyway `validate` on every boot |
+| What the mock layer does | `frontend/src/lib/mockApi/**` | the parity harnesses (`npm run parity:*`) |
+| Which domains are live | `VITE_API_DOMAINS` in `e2e/playwright.live.config.js` | the live e2e run |
+| Test coverage | [`../e2e/COVERAGE.md`](../e2e/COVERAGE.md) | `check-coverage-citations.mjs` |
+| **Business rules, and why** | **`flows/` §1–§8** | nothing — this is why it is written down |
 
 ## Reading order
-1. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: context, tech stack, components, diagrams, ADRs, deployment shape (living doc).
-   - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
-2. [`system/data-model.md`](./system/data-model.md) — data model & persistence design (ER map, DB conventions, migration; entity field shapes → OpenAPI schemas).
-3. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact + Aadhaar gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
-4. [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST API contract (single source of truth; Swagger UI at `/docs`).
-5. [`system/platform-architecture.md`](./system/platform-architecture.md) — platform/solution architecture: components, diagrams, ADRs, scoring (living doc).
-   - [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — India entity choice (Pvt Ltd), SPICe+ registration roadmap, compliance checklist, tax/funding, IP, MahaRERA/DPDP (launch-gate advisory).
-6. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system (bottom chrome, sheets, touch targets) and the design-validation checklist.
+
+1. [`system/platform-architecture.md`](./system/platform-architecture.md) — components, ADRs, vendor decisions, deployment shape, SLOs (living doc).
+2. [`system/package-structure.md`](./system/package-structure.md) — the 11 bounded contexts → packages → Flyway groups, enforced by `ArchitectureBoundaryTest`.
+3. [`system/data-model.md`](./system/data-model.md) — ER map and persistence design. Field shapes live in the OpenAPI schemas; the migrations are the physical schema.
+4. [`system/cross-cutting.md`](./system/cross-cutting.md) — auth/roles, contact + Aadhaar gate, **maker-checker**, soft-delete/audit, pagination, provider seams, error shape.
+5. [`system/api-standards.md`](./system/api-standards.md) — the conventions the spec is written to.
+6. [`flows/`](./flows/) — per-feature deep dives: business logic, state machines, edge cases.
 7. [`system/frontend-data-seam.md`](./system/frontend-data-seam.md) — the `services/*` seam, per-domain `mock→http` switching, and the rule that pages never import `lib/mockApi.js`.
-8. [`flows/`](./flows/) — per-feature deep dives (business logic, state machines, edge cases).
-9. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
-   - [`roadmap/mobile-ux-review.md`](./roadmap/mobile-ux-review.md) — measured mobile-first audit of every consumer/admin/ops screen at 390x844 and 360x640, with a prioritised improvement plan (~80% of users are on phones).
-10. [`system/tech-debt.md`](./system/tech-debt.md) — the debt register: everything knowingly deferred, with the trigger that unblocks it. Living doc.
-11. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Deliberately separate from the register so the register stays 100% actionable.
+8. [`system/design-system.md`](./system/design-system.md) — control sizing scale, the mobile-first system, the design-validation checklist.
+9. [`system/trust-and-verification-model.md`](./system/trust-and-verification-model.md) — badge-not-gate, and why freshness beats identity.
+10. [`roadmap/build-roadmap.md`](./roadmap/build-roadmap.md) — phased backend build order.
+11. [`system/tech-debt.md`](./system/tech-debt.md) — the debt register: everything knowingly deferred, with the trigger that unblocks it. Finished items are **deleted**, not archived.
+12. [`system/open-questions.md`](./system/open-questions.md) — decisions the build is waiting on. Separate from the register so the register stays 100% actionable.
+13. [`system/legal-entity-and-compliance.md`](./system/legal-entity-and-compliance.md) — entity choice, registration roadmap, MahaRERA/DPDP (launch-gate advisory).
 
 ## Map
+
 ```
 docs/
-  system/     architecture, platform-architecture, legal-entity-and-compliance, data-model, cross-cutting, frontend-data-seam, design-system, tech-debt, open-questions
-  flows/      consumer/ admin/ ops/ per-feature docs
-  roadmap/    build-roadmap, mobile-app-plan, mobile-ux-review, ai-ml-libraries
+  system/     platform-architecture, package-structure, data-model, cross-cutting, api-standards,
+              design-system, frontend-data-seam, trust-and-verification-model,
+              legal-entity-and-compliance, tech-debt, open-questions
+  flows/      consumer/ (16) admin/ (10) ops/ (2) — per-feature behavioural specs
+  roadmap/    build-roadmap, mobile-app-plan, ai-ml-libraries
   misc/       packing-plan
 ```
 
 ## Conventions
-- **Maker-checker** is defined once in [`system/cross-cutting.md`](./system/cross-cutting.md); flow docs reference it.
-- Entity **field shapes** are defined once in the [`OpenAPI spec`](../backend/src/main/resources/static/openapi/punenest-api.yaml) (component schemas); [`system/data-model.md`](./system/data-model.md) owns the ER map + persistence design. Flow docs link, not re-define.
-- Every flow doc follows the same 11-section shape (purpose, entry points, actors, entities, business rules, maker-checker, state machine, edge cases, mock implementation, target API, backend responsibilities) so each reads as a drop-in API spec.
 
-## Traceability
-- [`coverage-matrix.md`](./coverage-matrix.md) - one row per flow doc mapping feature -> flow doc -> API domain -> entities, with the primary role(s) and whether a maker-checker loop applies.
+- **Maker-checker** is defined once in [`system/cross-cutting.md`](./system/cross-cutting.md); flow docs reference it.
+- Entity **field shapes** are defined once in the OpenAPI component schemas. [`system/data-model.md`](./system/data-model.md) owns the ER map and persistence design. Flow docs link, they do not re-define.
+- Every flow doc follows the same 8-section shape: purpose, entry points, actors, entities, **business rules**, maker-checker, state machine, edge cases.
+- Flow docs deliberately do **not** carry "target API endpoints", "backend responsibilities" or "current mock implementation" sections. Those were removed on 2026-08-08 — 1,151 lines that restated the spec, the Java tree and the mock source, none of which they could keep in sync. Read the enforced source instead.
+- A dated audit or review is **not** a doc. Its findings belong in the register (if actionable), in open-questions (if a decision), or in a standing ruling (if settled). Four such reviews were deleted on 2026-08-08 after every finding was traced to one of those homes.
 
 ## Flow index
 

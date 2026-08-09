@@ -8,7 +8,8 @@ import { requestContact } from '../../../services/contactService.js';
 import { useContactGate } from './useContactGate.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { queuePendingChat } from '../../../services/conversationService.js';
-import { isAadhaarVerified, canRevealContact, consumeContact } from '../../../lib/store.js';
+import { canRevealContact, consumeContact } from '../../../lib/store.js';
+import { useVerification } from '../../../context/VerificationContext.jsx';
 import { track, captureLead } from '../../../lib/pmf.js';
 
 export function ContactOwnerModal({ p, isIn, onClose, toast }) {
@@ -25,7 +26,7 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   const ownerHides = status === 'approved' && gate.ownerHidesNumber;
   const revealed = status === 'owner' || (status === 'approved' && !ownerHides);
   // B1: seeker nudge at value moment — only when owner is verified and seeker is not yet.
-  const seekerVerified = isAadhaarVerified();
+  const { verified: seekerVerified } = useVerification();
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';

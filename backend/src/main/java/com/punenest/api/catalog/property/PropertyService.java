@@ -74,12 +74,14 @@ public class PropertyService {
 
     /**
      * Single public listing by slug-or-id (contract {@code getProperty}). Resolves the path token
-     * (UUID → id, else slug), then enforces public visibility: a missing, archived, or non-approved
-     * row is a {@code 404} — we don't reveal that an unpublished listing exists.
+     * (UUID → id, else slug), then enforces direct-link reachability: a missing, archived, or
+     * pending/rejected/flagged row is a {@code 404} — we don't reveal that an unpublished listing
+     * exists. A terminal listing (sold/rented, D110) IS reachable here so a buyer holding the link
+     * opens the badged page rather than a 404; such rows are already absent from search.
      */
     @Transactional(readOnly = true)
     public Property getPublic(String idOrSlug) {
-        Property p = resolve(idOrSlug).filter(Property::isPubliclyVisible)
+        Property p = resolve(idOrSlug).filter(Property::isDirectlyReachable)
                 .orElseThrow(() -> NotFoundException.of("Property"));
         return p;
     }

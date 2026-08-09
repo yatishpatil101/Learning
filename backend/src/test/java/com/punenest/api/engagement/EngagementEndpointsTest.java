@@ -379,15 +379,21 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /** Every value the contract lists must be accepted — the pattern must not be over-tight. */
+    /**
+     * Every value the contract lists must be accepted — the pattern must not be over-tight.
+     *
+     * <p>The twelve combinations exceed the per-user saved-search cap, so each combination uses its
+     * own fresh user; the cap is exercised separately in {@code SavedSearchCapTest}. This test is
+     * only about the accepted vocabulary, not the count limit.
+     */
     @Test
     void createSavedSearch_allContractVocabularyAccepted() throws Exception {
-        User u = user("9820100029");
-        String auth = bearer(u);
+        int i = 0;
         for (String freq : new String[] {"off", "instant", "daily", "weekly"}) {
             for (String channel : new String[] {"whatsapp", "email", "push"}) {
+                User u = user("98202001" + String.format("%02d", i++));
                 mvc.perform(post("/me/saved-searches")
-                                .header(HttpHeaders.AUTHORIZATION, auth)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(u))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"query\":\"q\",\"alertFrequency\":\"" + freq
                                         + "\",\"channel\":\"" + channel + "\"}"))

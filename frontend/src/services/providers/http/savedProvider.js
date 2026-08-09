@@ -9,19 +9,15 @@
  * Both writes are `204 No Content` and idempotent server-side, so there is no body to unwrap and a
  * repeated call is not an error.
  */
-import { del, get, put } from '../../http.js';
+import { del, get, put, unwrapPage } from '../../http.js';
 import { toViewModelList } from './propertyMapper.js';
 
 export async function listSaved({ page = 0, size = 20 } = {}) {
   const res = await get('/me/saved', { page, size });
-  return {
-    items: toViewModelList(res),
-    // `totalElements` counts the whole shortlist, not the page — the number the Saved page's
-    // header and the navbar badge both read.
-    total: res?.totalElements ?? 0,
-    page: res?.page ?? res?.number ?? page,
-    size: res?.size ?? size,
-  };
+  // `total` is `totalElements` — the whole shortlist, not this page. Both the Saved page header and
+  // the navbar badge read it, so the distinction is visible to the user.
+  const { items, ...rest } = unwrapPage(res, { page, size });
+  return { items: toViewModelList(res), ...rest };
 }
 
 export async function saveProperty(propertyId) {

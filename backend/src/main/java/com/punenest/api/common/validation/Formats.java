@@ -24,12 +24,12 @@ package com.punenest.api.common.validation;
  * other than {@code identity.kyc}, where they belong. They move here the day a second caller needs
  * them, not before.
  *
- * <p><strong>What this deliberately is not.</strong> D23's composed {@code @Constraint}
- * meta-annotation ({@code @IndianMobile}) is still outstanding and still blocked on open question
- * Q1 — {@code MobileMask.normalise()} accepts {@code +91 9821000123} while this pattern rejects it,
- * and the annotation cannot be written until the platform decides which of the two is right. D25 is
- * separable from that and was never actually blocked by it: whatever Q1 decides, there should be one
- * spelling of the rule, and having one now turns the eventual Q1 change from nine edits into one.
+ * <p><strong>What this deliberately is not.</strong> This is the <em>storage</em> shape, not the
+ * input rule. Q1 (closed 2026-08-09) settled that: {@code @IndianMobile} normalises tolerated input
+ * (spacing, a {@code +91}/{@code 0091}/{@code 0} prefix) via {@code MobileMask.normalise()} and then
+ * gates the result against this pattern, so the value that reaches persistence always matches here
+ * even though {@code +91 9821000123} is accepted at the edge. Keeping the regex and its message
+ * paired (D25) is what let that change land as one edit rather than nine.
  */
 public final class Formats {
 

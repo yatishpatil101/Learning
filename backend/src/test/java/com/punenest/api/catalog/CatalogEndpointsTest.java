@@ -2,6 +2,7 @@ package com.punenest.api.catalog;
 
 import com.punenest.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,8 +30,10 @@ import org.springframework.http.MediaType;
  * counters, and the fact that every route answers without authentication.
  *
  * <p>Runs against the live Flyway'd Postgres, so the seeded reference rows
- * ({@code R__seed_reference_data.sql}: 16 localities, 28 societies, 10 reels, 1 city, 2 fee rows) are
- * real data, not fixtures. Test-local rows are added on top and rolled back.
+ * ({@code R__seed_reference_data.sql} — generated from the frontend catalogue, so its size grows the
+ * next time the catalogue is regenerated) are real data, not fixtures. Test-local rows are added on
+ * top and rolled back. The count- and order-bearing assertions read the live counts from the DB
+ * rather than hard-coding a seed size, so they don't re-rot when the catalogue regenerates (D145).
  */
 class CatalogEndpointsTest extends AbstractApiTest {
 
@@ -222,12 +225,21 @@ class CatalogEndpointsTest extends AbstractApiTest {
         listing(o, "Archived in Aundh", "aundh", null, "approved").archive("test");
         properties.flush();
 
+        // Data-driven so the assertion survives the next catalogue regeneration (D145): the seed is
+        // generated from the frontend, so its size and its alphabetically-first row are not constants
+        // to be re-typed here — they are read from the same rows the endpoint serves. The computed
+        // count is proven by pinning it to the one locality we seeded a listing into.
+        int activeLocalities = jdbc.queryForObject(
+                "select count(*) from localities where active", Integer.class);
+        String firstByName = jdbc.queryForObject(
+                "select name from localities where active order by name asc limit 1", String.class);
+
         mvc.perform(get("/localities"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(16))
-                .andExpect(jsonPath("$[0].slug").value("aundh"))
+                .andExpect(jsonPath("$.length()").value(activeLocalities))
+                .andExpect(jsonPath("$[0].name").value(firstByName))
                 .andExpect(jsonPath("$[0].city").value("Pune"))
-                .andExpect(jsonPath("$[0].listingCount").value(1));
+                .andExpect(jsonPath("$[?(@.slug=='aundh')].listingCount", contains(1)));
     }
 
     // ---------------- GET /localities/{slug} ----------------
@@ -298,26 +310,42 @@ class CatalogEndpointsTest extends AbstractApiTest {
     /** A retired locality is gone from the site, not merely delisted — otherwise search keeps it. */
     @Test
     void localityDetailIs404ForARetiredLocality() throws Exception {
-        jdbc.update("update localities set active = false where slug = 'undri'");
+        // Pick the slug to retire from the DB rather than naming one (D145): a hard-coded slug that a
+        // future catalogue regeneration ships inactive (or drops) would turn the UPDATE into a silent
+        // no-op, the count would not move, and this would red again — the exact drift D145 removes.
+        int activeBefore = jdbc.queryForObject(
+                "select count(*) from localities where active", Integer.class);
+        String slug = jdbc.queryForObject(
+                "select slug from localities where active order by slug asc limit 1", String.class);
+        jdbc.update("update localities set active = false where slug = ?", slug);
 
-        mvc.perform(get("/localities/undri")).andExpect(status().isNotFound());
+        mvc.perform(get("/localities/" + slug)).andExpect(status().isNotFound());
         mvc.perform(get("/localities"))
-                .andExpect(jsonPath("$.length()").value(15));
+                .andExpect(jsonPath("$.length()").value(activeBefore - 1));
     }
 
     // ---------------- GET /societies ----------------
 
     @Test
     void societiesBrowseIsPagedAndAlphabeticalByDefault() throws Exception {
+        // Data-driven for the same reason as the localities list (D145): the total and the first row
+        // are read from the seed, not re-typed, so a catalogue regeneration can't red the suite. The
+        // paging envelope and the presence of the trust fields (source/claimStatus) are the invariants
+        // this test actually owns.
+        int totalSocieties = jdbc.queryForObject(
+                "select count(*) from societies", Integer.class);
+        String firstByName = jdbc.queryForObject(
+                "select name from societies order by name asc limit 1", String.class);
+
         mvc.perform(get("/societies"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(28))
+                .andExpect(jsonPath("$.totalElements").value(totalSocieties))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.sort").value("name,asc"))
-                .andExpect(jsonPath("$.content[0].name").value("Aditya Shagun"))
-                .andExpect(jsonPath("$.content[0].source").value("curated"))
-                .andExpect(jsonPath("$.content[0].claimStatus").value("unclaimed"));
+                .andExpect(jsonPath("$.content[0].name").value(firstByName))
+                .andExpect(jsonPath("$.content[0].source").isString())
+                .andExpect(jsonPath("$.content[0].claimStatus").isString());
     }
 
     /** S25: {@code security} is free text. A boolean could not have carried this. */

@@ -67,9 +67,9 @@
     <dependencies>
         <!--
           Lombok: entity accessors only (@Getter/@Setter). The ban list in lombok.config is the
-          load-bearing half of this dependency - see docs/system/tech-debt.md §1. `provided` scope
-          keeps it off the runtime classpath, which is correct: it is a compile-time source
-          generator and nothing needs it at run time.
+          load-bearing half of this dependency - read that file before changing anything here.
+          `provided` scope keeps it off the runtime classpath, which is correct: it is a
+          compile-time source generator and nothing needs it at run time.
         -->
         <dependency>
             <groupId>org.projectlombok</groupId>

@@ -11,6 +11,9 @@ public interface ReelRepository extends JpaRepository<Reel, UUID> {
     /** The whole feed, newest first. */
     List<Reel> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    /** The feed for one locality. Case-insensitive because the query value is user-supplied. */
-    List<Reel> findByLocalityIgnoreCaseOrderByCreatedAtDesc(String locality, Pageable pageable);
+    /**
+     * The feed for one locality, keyed on the slug — the same locality vocabulary every other surface
+     * uses. Case-insensitive because a caller may send either casing of the slug.
+     */
+    List<Reel> findByLocalitySlugIgnoreCaseOrderByCreatedAtDesc(String localitySlug, Pageable pageable);
 }

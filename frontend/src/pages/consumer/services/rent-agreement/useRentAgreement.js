@@ -275,10 +275,15 @@ export function useRentAgreement() {
     setMyInvites(pendingInvites(digits(user.mobile)));
   }, [mode, isIn, user, searchParams]);
 
-  // ── Property auto-fill from ?listing=<id> ──
+  // ── Property auto-fill from ?listing=<id> (or ?flat=<id> from a flatmate reissue) ──
   useEffect(() => {
     if (mode === 'invite') return;
-    const listingId = searchParams.get('listing');
+    // The flatmate board's "reissue the joint agreement" CTA links here as
+    // ?flat=<listing-id>&reissue=1 (a room's propertyId is its listing id), so
+    // accept `flat` as an alias for `listing` — otherwise that CTA opened a blank
+    // wizard because only `listing` was ever read.
+    const reissue = searchParams.get('reissue') === '1';
+    const listingId = searchParams.get('listing') || searchParams.get('flat');
     if (!listingId) {
       // Show property picker if owner has listings
       if (isIn && user?.role === 'owner') {
@@ -294,6 +299,7 @@ export function useRentAgreement() {
     setProp((p) => ({ ...p, society: l.loc ? String(l.loc).replace(/,?\s*Pune\s*$/i, '').trim() : p.society, furnish: fmap[l.furnishing] || 'Unfurnished' }));
     setTerms((t) => ({ ...t, rent: l.price ? String(l.price).replace(/\D/g, '') : t.rent, deposit: l.deposit ? String(l.deposit).replace(/\D/g, '') : t.deposit }));
     setShowPropertyPicker(false);
+    if (reissue) toast(tr('services.ra.reissueHint'));
     // eslint-disable-next-line
   }, [searchParams, mode]);
 

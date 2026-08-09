@@ -2,6 +2,7 @@ package com.punenest.api.identity.auth;
 
 import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.error.UnauthorizedException;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.security.JwtService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserMapper;
@@ -58,12 +59,15 @@ public class AuthService {
      */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class})
     public AuthResponse login(LoginRequest request) {
+        // @IndianMobile validated the shape; canonicalise once so OTP send, OTP verify and the account
+        // lookup all key off the same ten digits regardless of how the caller spaced or prefixed them.
+        String mobile = MobileMask.normalise(request.mobile());
         if (!request.hasOtp()) {
-            otpService.sendLoginCode(request.mobile());
+            otpService.sendLoginCode(mobile);
             return AuthResponse.otpAck();
         }
-        otpService.verifyLoginCode(request.mobile(), request.otp());
-        User user = findOrProvision(request.mobile());
+        otpService.verifyLoginCode(mobile, request.otp());
+        User user = findOrProvision(mobile);
         return issueFor(user);
     }
 

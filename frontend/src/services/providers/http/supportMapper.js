@@ -6,21 +6,14 @@
  *
  * ## 1. Status
  *
- * The page labels five statuses; the server has five; **they are not the same five.**
+ * The page and the server now share one five-status vocabulary: `open`, `in-progress`, `waiting`,
+ * `resolved`, `closed`. The mock opens a ticket `open` (as the server does) and moves it to
+ * `in-progress` when support picks it up, so there is no longer a mock-only `new` to reconcile.
  *
- * | Mock | Server | |
- * |---|---|---|
- * | `new` | — | every server ticket opens `open`; nothing is ever `new` |
- * | `open` "In progress" | `open` | |
- * | — | `in-progress` | the server distinguishes "picked up" from "opened"; the page does not |
- * | `waiting` | `waiting` | ✅ |
- * | `resolved` | `resolved` | ✅ |
- * | `closed` | `closed` | ✅ |
- *
- * Unknown statuses are **passed through unchanged**, not defaulted. `getStatusLabel` falls back to
- * the raw key, so an unmapped `in-progress` renders as `in-progress` — ugly, and visibly a gap.
- * Mapping it onto `open` would be worse: it would erase a distinction ops actually made, and the
- * customer would be told nothing was happening while somebody was working on it.
+ * Status is therefore **passed through unchanged**, not defaulted — an identity map. Unknown statuses
+ * still fall through to `getStatusLabel`, which shows the raw key, so any future server status
+ * without a label is visibly a gap rather than silently collapsed onto `open`, which would erase a
+ * distinction ops actually made.
  *
  * ## 2. Author role
  *

@@ -1,7 +1,7 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
 import DateField from '../../components/ui/DateField.jsx';
 import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -9,7 +9,9 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone } from '../../lib/contact.js';
 
-import { getTenantProfile, saveTenantProfile, tenantScore, getAadhaarVerification } from '../../lib/store.js';
+import { getTenantProfile, saveTenantProfile as saveLocalProfile, tenantScore } from '../../lib/store.js';
+import { myTenantProfile, saveTenantProfile } from '../../services/rentService.js';
+import { useVerification } from '../../context/VerificationContext.jsx';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -18,22 +20,77 @@ export default function TenantProfile() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [form, setForm] = useState(() => {
-    const base = getTenantProfile()
-      || { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null };
-    // Identity is one Aadhaar per person — if the user already verified elsewhere
-    // (e.g. the contact-owner gate), reflect that here instead of asking again.
-    const rec = getAadhaarVerification();
-    if (rec?.verified && !base.idVerified) {
-      base.idVerified = true;
-      base.kyc = { type: 'aadhaar', label: 'Aadhaar', masked: maskPhone(rec.aadhaarMobile || user?.mobile || ''), verifiedAt: rec.at || Date.now() };
-    }
-    return base;
-  });
+  // The opt-in Aadhaar badge, held once in VerificationContext. Mirrored into the profile below
+  // (`idVerified` + `kyc`) so a user who verified elsewhere is not asked again.
+  const { verified: badgeVerified, aadhaarMobile, verifiedAt } = useVerification();
+  const [form, setForm] = useState(() => getTenantProfile()
+    || { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null });
   const [errors, setErrors] = useState({});
   const [justSaved, setJustSaved] = useState(false);
   const [kycOpen, setKycOpen] = useState(false);
   const nameRef = useRef(null);
+
+  /* Hydrate from the server once it answers.
+
+     Two fields do **not** come from it and must survive the merge: `idVerified` and `kyc`. Those are
+     the local Aadhaar record, which the server models as its own `verified` flag it alone may set —
+     so overwriting them with the response would un-verify somebody who verified in this browser.
+
+     The wire calls the job `occupation`; this form has always called it `employment`. Translated at
+     the boundary rather than renaming a field the whole page reads. */
+  useEffect(() => {
+    let alive = true;
+    myTenantProfile()
+      .then((p) => {
+        if (!alive || !p) return;
+        setForm((prev) => ({
+          ...prev,
+          name: p.name || prev.name,
+          employment: p.occupation || prev.employment,
+          income: p.income == null ? prev.income : String(p.income),
+          occupants: p.occupants || prev.occupants,
+          moveIn: p.moveIn || prev.moveIn,
+          priorLandlord: p.priorLandlord || prev.priorLandlord,
+          about: p.about || prev.about,
+          // Server verification counts too, but never *downgrades* a local one.
+          idVerified: prev.idVerified || p.verified,
+        }));
+      })
+      // A profile that will not load is not worth blanking the form the user is filling in.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  /* Identity is one Aadhaar per person: if the badge is (or becomes) verified anywhere — the
+     contact gate, a dashboard nudge, or the modal on this page — mirror it into the profile instead
+     of asking again. Never downgrades a profile already marked verified; the server's own `verified`
+     flag is merged separately above. */
+  useEffect(() => {
+    if (!badgeVerified) return;
+    setForm((prev) => (prev.idVerified ? prev : {
+      ...prev,
+      idVerified: true,
+      kyc: { type: 'aadhaar', label: 'Aadhaar', masked: maskPhone(aadhaarMobile || user?.mobile || ''), verifiedAt: verifiedAt || Date.now() },
+    }));
+  }, [badgeVerified, aadhaarMobile, verifiedAt, user?.mobile]);
+  const persist = async (next) => {
+    saveLocalProfile(next);
+    try {
+      await saveTenantProfile({
+        name: next.name,
+        occupation: next.employment,
+        income: next.income ? Number(next.income) : undefined,
+        occupants: next.occupants,
+        moveIn: next.moveIn || undefined,
+        priorLandlord: next.priorLandlord,
+        about: next.about,
+      });
+      return true;
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('misc.tpProfileSaveFailed'), 'error');
+      return false;
+    }
+  };
 
   const set = (k, v) => { setForm((p) => ({ ...p, [k]: v })); setJustSaved(false); };
   const setIncome = (v) => set('income', String(v).replace(/\D/g, '').slice(0, 9));
@@ -58,20 +115,19 @@ export default function TenantProfile() {
   const verificationStale = !!(form.idVerified && form.kyc?.masked && user?.mobile && form.kyc.masked !== maskPhone(user.mobile));
 
   const onVerified = () => {
-    // The shared AadhaarVerifyModal has already recorded the verification against
-    // the Aadhaar-linked mobile (setAadhaarVerified). Mirror it into the profile and
-    // persist immediately so it isn't lost if the user leaves before pressing Save.
-    const rec = getAadhaarVerification();
-    const masked = maskPhone(rec?.aadhaarMobile || user?.mobile || '');
-    const next = { ...form, idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked, verifiedAt: rec?.at || Date.now() } };
+    // The shared AadhaarVerifyModal has already started the seam write and (in mock) recorded the
+    // badge, which VerificationContext has refreshed. Mirror it into the profile and persist
+    // immediately so it isn't lost if the user leaves before pressing Save.
+    const masked = maskPhone(aadhaarMobile || user?.mobile || '');
+    const next = { ...form, idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked, verifiedAt: verifiedAt || Date.now() } };
     setForm(next);
-    saveTenantProfile(next);
+    persist(next);
     setKycOpen(false);
     setJustSaved(false);
     toast(t('misc.tpKycVerified', { label: 'Aadhaar' }), 'success');
   };
 
-  const save = (e) => {
+  const save = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) {
       setErrors({ name: true });
@@ -81,7 +137,7 @@ export default function TenantProfile() {
       return;
     }
     setErrors({});
-    saveTenantProfile({ ...form, name: form.name.trim() });
+    if (!(await persist({ ...form, name: form.name.trim() }))) return;
     setJustSaved(true);
     toast(t('misc.tpProfileSaved'), 'success');
   };

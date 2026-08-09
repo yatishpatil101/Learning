@@ -1,6 +1,7 @@
 package com.punenest.api.deals.offer;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -17,6 +18,7 @@ import java.util.List;
  * @param status     one of {@link OfferStatuses}
  * @param message    free-text note
  * @param createdAt  when the offer was first submitted
+ * @param moveIn     the buyer's preferred possession date, or {@code null} if none was given (D112)
  * @param history    the negotiation trail — amount events only (submit + counters)
  */
 public record OfferDto(
@@ -27,6 +29,7 @@ public record OfferDto(
         String status,
         String message,
         Instant createdAt,
+        LocalDate moveIn,
         List<HistoryEntry> history) {
 
     /**

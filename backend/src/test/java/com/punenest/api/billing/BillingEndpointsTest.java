@@ -115,7 +115,13 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()", Matchers.greaterThanOrEqualTo(4)))
                 .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].price").value(
-                        Matchers.hasItem(2499)));
+                        Matchers.hasItem(2499)))
+                // D109: the entitlement is a number on the wire, not prose to parse. Owner Plus
+                // allows two live listings; its owner-facing plan imposes no contact cap.
+                .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].listingLimit").value(
+                        Matchers.hasItem(2)))
+                .andExpect(jsonPath("$[?(@.id=='" + PAID_PLAN + "')].contactLimit").value(
+                        Matchers.hasItem(Matchers.nullValue())));
 
         mvc.perform(get(Routes.Boosts.PACKS))
                 .andExpect(status().isOk())

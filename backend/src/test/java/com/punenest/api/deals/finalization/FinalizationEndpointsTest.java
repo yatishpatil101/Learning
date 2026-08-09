@@ -287,6 +287,31 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         assertThat(count).isEqualTo(1);
     }
 
+    // ---- §11 test 8b: declined request stays readable via status (D111) ----
+
+    @Test
+    void statusAfterDecline_returnsDeclinedRow() throws Exception {
+        User owner = user("9830100031", "owner");
+        User buyer = user("9830100032", "buyer");
+        Property p = listing(owner, "Declined status test");
+
+        String reqId = requestFinalization(buyer, p, owner, 5000000L);
+
+        // Owner declines the request.
+        mvc.perform(post("/finalization/requests/" + reqId + "/decline")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        // Buyer reads status — previously 404 (pending-only), now returns the declined row so the
+        // property page can explain the refusal and offer to ask again.
+        mvc.perform(get("/finalization/" + p.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(FinalizationStatuses.DECLINED));
+    }
+
     // ---- §11 test 9: /me/finalization-requests returns only caller's requests ----
 
     @Test
@@ -343,8 +368,8 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         // After acceptance, query the DB and verify with a fresh projection.
         FinalizationRequest accepted = finalizationRepo.findById(UUID.fromString(reqId)).orElseThrow();
         assertThat(accepted.getStatus()).isEqualTo(FinalizationStatuses.ACCEPTED);
-        // The mobile is revealed in the DTO (we re-project manually since the live status
-        // endpoint only shows pending requests).
+        // The mobile is revealed in the DTO once accepted. Re-projected directly here to assert the
+        // masking transition in isolation.
         User buyerUser = users.findById(buyer.getId()).orElseThrow();
         FinalizationRequestDto dto = FinalizationMapper.toDto(
                 accepted, buyerUser, owner, owner.getId());

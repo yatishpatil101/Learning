@@ -10,7 +10,9 @@ import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { createServiceRequest } from '../lib/mockApi.js';
-import { create as createFlowRequest } from '../lib/serviceFlow.js';
+// Flow request creation crosses the seam (mock or live per VITE_API_DOMAINS); the ops lead ticket
+// (`createServiceRequest` from mockApi) stays a separate, synchronous mock system.
+import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
 import { useFormDraft, useFieldErrors } from '../lib/hooks.js';
@@ -38,7 +40,9 @@ export default function ServiceLanding({
   const [done, setDone] = useState(false);
   const [openFaq, setOpenFaq] = useState(-1);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft(draftKey || 'pnDraft:service', form, setForm, { enabled: !!draftKey });
+  // Never autosave contact PII to localStorage — matches the ignore list every service page uses,
+  // so name/mobile are not left at rest on a shared device.
+  const draft = useFormDraft(draftKey || 'pnDraft:service', form, setForm, { enabled: !!draftKey, ignore: ['name', 'mobile'] });
   const err = useFieldErrors(formRef);
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
@@ -76,7 +80,10 @@ export default function ServiceLanding({
     const ref = flowType ? 'TR' + Date.now() + Math.floor(Math.random() * 1000) : null;
     createServiceRequest({ team, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: form.name, mobile: form.mobile, detail, ...(ref ? { ref } : {}) });
     if (flowType) {
-      createFlowRequest(form.mobile, { type: flowType, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: { name: form.name }, ticketRef: ref, details: (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {}) });
+      // Identity is the session (the page is sign-in gated above), so the mobile is no longer passed.
+      // Optimistic: the UI proceeds regardless, matching the mock's synchronous behaviour; a live POST
+      // failure is swallowed rather than blocking the confirmation the lead ticket already earned.
+      createFlowRequest({ type: flowType, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: { name: form.name }, ticketRef: ref, details: (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {}) }).catch(() => {});
     }
     draft.clear();
     setDone(true);

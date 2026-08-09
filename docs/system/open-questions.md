@@ -19,29 +19,6 @@ deleted; the answer is the valuable part.
 
 ## Engineering decisions blocking specific work
 
-### Q1 — What is a valid mobile on input? *(blocks D23)*
-
-Two components in the codebase already disagree.
-
-- The DTO annotations enforce `^[6-9][0-9]{9}$` — **rejects** `+91 9821000123`.
-- `common.trust.MobileMask.normalise()` **accepts** it and canonicalises to `9821000123`,
-  deliberately tolerating `+91` / `0091` / `0` prefixes because "that is a normal way to type a
-  number" (its own Javadoc).
-
-Both cannot be the rule. The shared `@IndianMobile` annotation cannot be written until one is chosen.
-
-| Option | Consequence |
-|---|---|
-| **A. Normalise, then validate** | Best UX — users paste numbers with country codes and spaces constantly. Requires a `ConstraintValidator` (not a bare `@Pattern` meta-annotation), and a decision about whether the *stored* value is the normalised form (it should be). |
-| **B. Tighten `normalise()` to match the strict pattern** | Simplest; one regex everywhere. Rejects input users will genuinely type, pushing the burden to the client. |
-
-**Recommendation: A.** The strict pattern is the *storage* invariant; input tolerance is a separate,
-kinder concern, and `normalise()` already exists and fails closed. **Note:** the OpenAPI `Mobile`
-schema documents the *stored/returned* shape, so option A does not require a spec change — worth
-stating explicitly in the schema description either way.
-
-**Owner:** backend + product. **Status:** OPEN.
-
 ### Q2 — Can owners hide their number even after approving a request? *(blocks D5)*
 
 The frontend mock has a `hideNumber` preference; there is no `users.hide_number` column and no
@@ -55,34 +32,6 @@ Note this overlaps Q5 — if the answer to Q5 is chat-first, this preference may
 for the requirement entirely.
 
 **Owner:** product. **Status:** OPEN.
-
-### Q3 — Legacy `enquiries`: implement or formally deprecate? *(blocks D17)*
-
-`GET /enquiries` is the pre-ADR-019 lead model. V4's header calls the schema deprecated but retained
-for back-compat; it is in the spec, unimplemented, and not marked deprecated — the worst of the three
-possible states, because a client author cannot tell which way it will go.
-
-Options: (a) implement it as specified; (b) mark `deprecated: true` with a sunset version and leave it
-unimplemented; (c) remove it from the spec entirely. **(b) or (c) is almost certainly right** — the
-contact-request model replaced it — but the admin enquiries funnel flow doc still references it, so
-this is a product call, not a cleanup.
-
-**Owner:** product + backend. **Status:** OPEN.
-
-### Q4 — Should there be a cap on saved-searches *count* per user?
-
-The saved-search blob is already size-bounded. A cap on how many a user may create is a new product
-rule, not a bug fix, and needs a number somebody is willing to defend.
-
-**Owner:** product. **Status:** OPEN.
-
-### Q5 — `reels.locality`: display names or slugs? *(relates to D16)*
-
-The column holds display names. The filter is case-insensitive, so either works today, and nothing
-has decided which the frontend will send once `VITE_API_MODE=http`. Deciding late means one side
-retrofits.
-
-**Owner:** frontend integration slice. **Status:** OPEN.
 
 ---
 
@@ -138,6 +87,94 @@ is the thing to avoid.**
 
 ---
 
+### Q11 — Flatmates: what is the gate, and does it monetise?
+
+Rescued 2026-08-08 from `docs/feature review/02-flatmates-market-and-feature-review.md` before that
+document was deleted. Q9 records the corridor recommendation and Q10 records the *buy/rent* supply
+gate; neither carries the flatmates-specific number, its window, or the monetisation half — which is
+the part that decides what Flatmates *is*.
+
+The proposed gate: **100 verified rooms/groups across Hinjewadi–Wakad–Baner within 60 days, with at
+least one paid move-in service sold.** The two halves are deliberately separate, and the second is
+the one that matters:
+
+- Listings arrive **and** something sells → Flatmates is a product line.
+- Listings arrive but **nothing sells** → Flatmates is a cheap acquisition funnel for the rent
+  business, and should be staffed and prioritised as one — not given its own roadmap.
+
+This matters now because the build has gone well past the discovery surface: groups, applications,
+moderation and host verification all shipped. Deciding after more machinery is built is deciding by
+sunk cost.
+
+**Owner:** founder. **Status:** OPEN.
+
+---
+
+### Q12 — Flatmates: matching quality vs more moderation machinery
+
+Also rescued from the same deleted review. The stated differentiator over a WhatsApp group is
+"shows me people I'd actually live with" — i.e. **compatibility matching**, not filtering. Today
+neither exists server-side: D116 records that the three flatmate controllers accept ten compatibility
+facets and silently ignore all of them.
+
+So the next unit of Flatmates work is a fork:
+
+- **Matching** — make the ten facets real, then rank rather than filter.
+- **Moderation** — more host verification, more queue tooling, more review states.
+
+The review's position was that moderation was being built ahead of the thing users came for. That is
+a prioritisation call, not a defect, so it lives here rather than in the debt register. D116 fixes the
+contract bug either way; this decides whether anything is built *on top of* it.
+
+**Owner:** founder / product. **Status:** OPEN.
+
+---
+
 ## Closed
 
-*(none yet — as questions are answered, move them here with the answer and the date.)*
+### Q3 — Legacy `enquiries`: implement or formally deprecate? *(closed 2026-08-09)*
+
+**Answer: (c) remove it from the spec entirely.** On inspection the removal was already done — the
+`GET /enquiries` path and the `Enquiry` schema were dropped from the OpenAPI spec in slice-12 (S45)
+and the `enquiries` table was dropped in V22. So this needed no spec or backend change: only doc
+hygiene, which is complete — the stale `Enquiry`-schema row and `enquiries` ER relationship were
+removed from `data-model.md`, and register item **D17 was deleted**. The frontend `/admin/enquiries`
+funnel is a separate deals/leads *metric* surface and is deliberately untouched.
+
+### Q4 — Should there be a cap on saved-searches *count* per user? *(closed 2026-08-09)*
+
+**Answer: yes — max 10 per user.** Implemented in `SavedSearchService.create`: a user already holding
+ten gets `409 Conflict` ("delete one to add another"), a well-formed request that conflicts only
+with their own state. Ten is far beyond a genuine set of standing alerts while still bounding the
+standing workload any future scheduler re-runs. Documented on `POST /me/saved-searches` and covered
+by `SavedSearchCapTest`. No register item — shipped inline, not deferred.
+
+### Q5 — `reels.locality`: display names or slugs? *(closed 2026-08-09)*
+
+**Answer: (A) carry both — a display caption and a slug, mirroring `Property`.** A reel's caption
+stays a display label ("Koregaon Park") because that is what the clip says on screen; the feed
+filter moves to a new `reels.locality_slug` column ("koregaon-park"), the same locality vocabulary
+every other surface keys on. This is the only shape that is consistent both ways: the frontend
+sends the slug it already holds, and the caption is not forced into a machine key. Shipped in V38
+(add column + backfill by joining the curated `localities` table + index), the `R__` seed now
+carries a slug per reel, `ReelController` filters on `findByLocalitySlugIgnoreCaseOrderByCreatedAtDesc`,
+the `/reels` `locality` param is documented as a slug, and `ReelSlugFilterTest` covers it. Register
+item **D16 was deleted**.
+
+### Q1 — What is a valid mobile on input? *(closed 2026-08-09)*
+
+**Answer: (A) normalise, then validate — tolerant input, strict storage.** A new `@IndianMobile`
+composed constraint (backed by `IndianMobileValidator`) replaces `@Pattern(Formats.MOBILE)` on every
+mobile *input* field. It accepts what people actually type — spacing and a `+91`/`0091`/`0` country
+code — by delegating to `MobileMask.normalise()`, then gates the *normalised* value against the
+stored `Formats.MOBILE` shape (`^[6-9][0-9]{9}$`). That second gate matters: `normalise()` fails
+closed on length only, so without it a ten-digit number with a leading 1-5 would pass the edge and
+then be rejected by a column CHECK as a 500. Because a `ConstraintValidator` cannot mutate, each
+consuming service normalises at the persist/lookup edge — `AuthService.login`,
+`ConversationService.start`, `DealService.addParty`, `SocietyLeadService`, `CityService`,
+`RentAgreementService`, `FlatmateSupplyService.ownerConsent`, `UserAdminService.addStaff`, plus the
+finalization/close paths that already did. The OpenAPI `Mobile` schema keeps its strict pattern as
+the stored/returned shape and now carries a description noting the input tolerance. The frontend was
+already hardened: the shared `MobileField` renders a fixed `+91` chip and accepts only ten digits.
+Covered by `IndianMobileValidatorTest` plus updated edge tests in `DealEndpointsTest` and
+`ConversationEndpointsTest`. Register item **D23 resolved**.

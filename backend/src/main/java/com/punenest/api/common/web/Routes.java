@@ -187,6 +187,24 @@ public final class Routes {
         public static final String BY_ID = BASE + "/{id}";
     }
 
+    /**
+     * The authenticated owner's private "single-player" property records — the Owner Hub / Property
+     * Passport / rent tracker. Distinct from {@link MeListings}: these are private by default and
+     * only enter the marketplace via {@link #PUBLISH}, which spawns a normal pending listing.
+     */
+    public static final class MeManagedProperties {
+
+        private MeManagedProperties() {
+        }
+
+        public static final String BASE = "/me/managed-properties";
+
+        public static final String BY_ID = BASE + "/{id}";
+
+        /** Publish one record into the marketplace (creates a pending listing, links back). */
+        public static final String PUBLISH = BASE + "/{id}/publish";
+    }
+
     /** The contact gate: what a signed-in caller may see of a listing owner, and how to ask. */
     public static final class Contacts {
 
@@ -633,6 +651,17 @@ public final class Routes {
 
         /** Owner — remove one document from that vault. */
         public static final String BY_ID = BASE + "/{propId}/{docId}";
+
+        /**
+         * The caller's own KYC papers (list + upload) — Aadhaar, PAN, a passport photo. A literal
+         * segment, so like {@link #REQUESTS} it ranks above the {@code {propId}} template and a
+         * property can never be called {@code personal}; that ordering is what routes these URIs to
+         * the personal handlers rather than the vault, and {@code PersonalDocumentFlowTest} pins it.
+         */
+        public static final String PERSONAL = BASE + "/personal";
+
+        /** Owner — remove one of their personal documents. */
+        public static final String PERSONAL_BY_ID = PERSONAL + "/{docId}";
 
         /** Owner — the inbox of buyer access requests across all their listings. */
         public static final String REQUESTS = BASE + "/requests";

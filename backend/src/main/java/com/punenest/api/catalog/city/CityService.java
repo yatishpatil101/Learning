@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.city;
 
 import com.punenest.api.catalog.property.ListingCounts;
+import com.punenest.api.common.trust.MobileMask;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,6 +60,9 @@ public class CityService {
      */
     @Transactional
     public void joinWaitlist(CityWaitlistCreateRequest request) {
-        waitlist.insertIfAbsent(request.mobile(), request.city().trim(), request.email());
+        // @IndianMobile validated the shape; store the canonical ten digits so the mobile column's
+        // CHECK is satisfied and a repeat signup de-duplicates on the same key.
+        waitlist.insertIfAbsent(
+                MobileMask.normalise(request.mobile()), request.city().trim(), request.email());
     }
 }

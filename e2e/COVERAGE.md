@@ -7,11 +7,11 @@ Playwright specs in `tests/`. Status legend:
 - 🟡 **Partial** — touched incidentally or only one surface; needs a dedicated/deeper spec.
 - ❌ **Missing** — no spec; **coverage gap to close**.
 
-Suite size: **189 spec files**, grouped audience → feature area under `tests/`:
+Suite size: **190 spec files**, grouped audience → feature area under `tests/`:
 
 | Folder | Specs | | Folder | Specs |
 |---|---:|---|---|---:|
-| `consumer/flatmates` | 27 | | `consumer/property` | 13 |
+| `consumer/flatmates` | 28 | | `consumer/property` | 14 |
 | `mobile` | 24 | | `consumer/services` | 12 |
 | `admin` | 21 | | `ops` | 8 |
 | `consumer/account` | 19 | | `consumer/society` | 7 |
@@ -105,13 +105,16 @@ cross-viewport spec:**
 | `/reels` | (consumer/property/detail) | reels | ✅ |
 | City switcher: propagation, coming-soon waitlist, cancel = no-op, admin offline revert | — | platform/city-propagation | ✅ |
 | `/messages` | contact-gate-leads | messages-inbox, mobile/inbox-saved | ✅ |
-| `/flatmates` | flatmates | `consumer/flatmates/**` (27 specs), consumer/home/flatmates-rail | ✅ |
+| `/flatmates` | flatmates | `consumer/flatmates/**` (28 specs), consumer/home/flatmates-rail | ✅ |
 | Legal pages (privacy/terms/refund/disclaimer) | — | platform/legal-pages, platform/verification-disclaimer | ✅ |
 | `/list-property` wizard | list-property-wizard | `consumer/list-property/**` (17 specs), mobile/wizard-sticky | ✅ |
 | `/dashboard` hub | consumer/account/owner-hub | dashboard, consumer/account/action-center, consumer/account/doc-info, consumer/account/owner-finances, mobile/dashboard-hub | ✅ |
+| `/dashboard#documents` vault **through the `document` seam** — owner upload / list / delete round-trip on the mock provider, asserting the async flip did not break the demo surface (D124) | consumer/account/owner-hub | consumer/account/documents-vault | ✅ |
+| `/dashboard#enquiries` document-request inbox **through the `document` seam** — owner sees a buyer's pending request and grants it from the Leads inbox; the read and the grant route through `documentService` (not localStorage), so the dashboard shares the Documents tab's source of truth and a grant reaches the server in http mode (D125 item 2) | consumer/account/owner-hub | consumer/account/doc-requests-grant | ✅ |
 | `/owner-hub` + `/owner-hub/property/:id` passport | consumer/account/owner-hub | owner-hub, consumer/property/passport | ✅ |
 | `/view-documents` secure viewer | consumer/account/owner-hub | view-documents-flow, doc-viewer-scheme | ✅ |
-| **Deals / Offers / Negotiation / Finalization** | deals-offers-finalization | deals-offers | ✅ |
+| **Deals / Offers / Negotiation / Finalization** — incl. a declined finalize request surfacing "the owner hasn't confirmed — ask again" now the status read returns terminal rows, not pending only (D111) | deals-offers-finalization | deals-offers | ✅ |
+| **Buyer deal visibility on the property page** — a buyer on a *closed* listing sees the terminal "no longer available / rented out" banner and the offer + finalize cards are hidden; a *reserved* listing shows the "Under Offer" banner but keeps the offer UI (still queueable); an untouched listing shows no banner and the normal negotiate card. Reads the property's public `dealStatus` mirror, not the owner-scoped deal (D110) | deals-offers-finalization | consumer/property/deal-visibility | ✅ |
 | Language switching + hi/mr locale integrity | — | platform/i18n, platform/settings-preferences | ✅ |
 | **Redirects** (`/map`, `/docs`, `/help-center`, `/share-flat`, `/owner-hub`, `/admin/support`) + the 404 catch-all | — | platform/route-redirects-404 | ✅ |
 
@@ -183,6 +186,13 @@ stylesheet bug below survived a 178-file suite.
 | **Saved shortlist against the live API** — `/me/saved` provenance, `PageEnvelope.page` on the wire, heart round trip | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Saved searches against the live API** — `/me/saved-searches` is the source, and answers with a bare array not an envelope | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Visits against the live API** — both sides of the relationship read separately, and reschedule is not offered (D87) | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Subscription plans against the live API** — `/plans` serves the pricing page for a signed-out visitor, and buying a priced plan leaves it `pending` with the entitlement it gates still shut | plans-billing-refer | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Deals, offers and finalization against the live API** — the owner's deal book is one `/me/deals` read not one per card, a signed-out visitor asks the deal API nothing, and a buyer reads `/offers/mine` but is never offered the owner-only Accept | deals-offers-finalization | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Rent, tenancies and finances against the live API** — Pay Rent asks the rent API nothing when signed out and is served by `/me/tenancies` + `/me/payout-account` when signed in; the owner Finances tab reads summary, cashflow and dues from the server rather than reducing the page it holds | rent-tenancy | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **The flatmates board against the live API** — all three feeds are served publicly to a signed-out visitor and the board is not empty; a posted room is readable back off the public feed with its price intact; the filter bar narrows the board server-side across every facet (gender/food/roomType/furnishing/bhk/budget, policy, flatPref/roomPref), with `any`-valued preference facets falling back to a wildcard so a flexible post still surfaces | flatmates | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Service requests against the live API** — the tracker reads `/service-requests` (not the mock store), a request created through the service round-trips with a `submitted` status, structured `details` read back off the DTO (D119), an empty `docs`/`draft`, a `user`-authored reply read back off the thread, and no mock-only fields; the co-fill party list has no endpoint and returns `[]` (D119–D121) | cross-cutting | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **The Aadhaar badge against the live API** — the badge is read from `GET /me/verification/aadhaar` (not a mock store) and the seeded contact-gate flag does not grant it; a `start` returns a **pending** DigiLocker consent handle (`ref`, `verificationUrl`), never a granted badge, the next read reports `pending`, and no growth perk is fabricated (D122) | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **The document vault against the live API** — the owner's `#documents` tab uploads through `POST /me/documents/{propId}` and deletes through `DELETE /me/documents/{propId}/{docId}` on a seeded, owned listing, proving the vault reads and writes the real endpoints rather than localStorage (D124) | consumer/account/owner-hub | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/admin/analytics` | analytics | admin/analytics | ✅ |
 | `/admin/users` + KYC | users-kyc | admin/users | ✅ |
 | `/admin/finance` | finance | admin/finance | ✅ |

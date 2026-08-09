@@ -11,7 +11,8 @@
 > Remaining open items are non-blocking (§8).
 >
 > **Companion docs (do not duplicate):**
-> - [`backend-api-architecture-review.md`](./backend-api-architecture-review.md) — the React app as-built + the mock→http seam.
+> - [`package-structure.md`](./package-structure.md) — the 11 bounded contexts → packages → schemas.
+> - [`frontend-data-seam.md`](./frontend-data-seam.md) — the React app's `mock→http` seam.
 > - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact + Aadhaar gate, maker-checker, audit.
 > - [`data-model.md`](./data-model.md) — ER map + persistence design.
 > - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST contract (SSOT for wire shapes).
@@ -902,6 +903,19 @@ graph LR
 | ADR-016 | Operational foundation | Secret Manager; GitHub Actions; Cloud Logging/Monitoring + Sentry; DR: Supabase backups only vs + scheduled pg_dump->R2 | GCP Secret Manager + GitHub Actions + Cloud Logging/Monitoring + Sentry/Error Reporting + uptime checks; **DR = Supabase backups + scheduled pg_dump->R2** | All free tier; pg_dump->R2 gives portable off-provider insurance since free-tier Supabase lacks PITR | RPO ~24h / RTO hours at MVP; audit in Postgres; upgrade to PITR + tracing + canary later |
 
 _ADR-001..004 are inherited/ratified from existing docs. ADR-005+ are decided as we proceed._
+
+**The four SLOs ADR-016 exists to serve.** Tooling choices are only meaningful against what they are
+meant to detect, so the targets are named here rather than left implicit:
+
+| SLO | Why this one | Failure looks like |
+|---|---|---|
+| Search p95 latency | Discovery is the top of every funnel; a slow first page is an abandoned session | Filter/map requests degrade before anything errors |
+| **Contact-gate correctness** | A security SLO, not a performance one — the gate is the product's core promise | A number is revealed to someone who was never approved |
+| Payment success rate | Every money path settles by webhook, so a browser-side "success" proves nothing | Gateway accepted, webhook never landed, ledger silently short |
+| Moderation queue age | Maker-checker only works if the checker keeps up | Listings sit pending long enough that owners give up |
+
+`audit` is a first-class observability surface here, not just a compliance artifact: it is the only
+record that answers *who approved this* after the fact.
 
 ---
 

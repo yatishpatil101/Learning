@@ -222,6 +222,15 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String status = PropertyStatus.PENDING;
 
+    // Read-side mirror of deals.status (D110). Authored vocabulary + transitions live in
+    // deals.deal.DealStatuses; this column is kept in sync by DealService in the same transaction as
+    // every deal-status change, so the catalogue can surface "under offer" without an owner-scoped
+    // join. The default literal matches DealStatuses.ACTIVE without importing it, which would point
+    // catalog at deals and close a package cycle. The V37 CHECK guards the legal set.
+    @Column(name = "deal_status", nullable = false)
+    @Setter
+    private String dealStatus = "active";
+
     @Column(name = "featured", nullable = false)
     @Setter
     private boolean featured = false;
@@ -284,6 +293,18 @@ public class Property extends SoftDeleteEntity {
     /** Public visibility floor: only approved, non-archived rows are shown to anonymous callers. */
     public boolean isPubliclyVisible() {
         return !isArchived() && PropertyStatus.APPROVED.equals(status);
+    }
+
+    /**
+     * Direct-link reachability (D110): a listing resolves on the public detail path when it is
+     * approved OR terminal (sold/rented). The terminal rows are absent from search — floored to
+     * {@code approved} — but a buyer who already holds the link must still be able to open the page
+     * and see the sold/rented badge rather than a 404. Pending/rejected/flagged/archived stay
+     * unreachable, so this does not reveal an unpublished listing.
+     */
+    public boolean isDirectlyReachable() {
+        return !isArchived() && (PropertyStatus.APPROVED.equals(status)
+                || PropertyStatus.SOLD.equals(status) || PropertyStatus.RENTED.equals(status));
     }
 
     /** Re-moderation trigger: a foundation-field edit (or a restore) sends the listing back to review. */

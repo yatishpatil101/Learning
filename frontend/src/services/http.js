@@ -58,6 +58,9 @@ export class NetworkError extends Error {
  * @param {string} [opts.method='GET']
  * @param {any}    [opts.body]            serialised as JSON when present
  * @param {object} [opts.query]           appended as a query string; null/undefined entries dropped
+ * @param {object} [opts.headers]         extra request headers, merged over the defaults. Used for
+ *                                        the contract's `Idempotency-Key`; `Authorization` is not
+ *                                        overridable here, since the session is not a per-call choice
  * @param {boolean}[opts.auth=true]       attach the bearer token and enable 401-refresh recovery
  * @returns {Promise<any>} the parsed JSON body, or null for `204 No Content`
  */
@@ -88,18 +91,78 @@ export const patch = (path, body, opts) => request(path, { ...opts, method: 'PAT
 export const put = (path, body, opts) => request(path, { ...opts, method: 'PUT', body });
 export const del = (path, opts) => request(path, { ...opts, method: 'DELETE' });
 
+/**
+ * POST a `multipart/form-data` body — the one content type the JSON path above cannot carry.
+ *
+ * The vault's file upload (`POST /me/documents/{propId}`) is the only endpoint that takes a binary
+ * part, so this is deliberately a thin sibling of {@link post} rather than a body-type branch woven
+ * through {@link request}: the JSON path stays the common case, unpolluted by a multipart check on
+ * every call. `Content-Type` is intentionally *not* set — the platform derives it from the
+ * `FormData`, including the boundary token, which a hand-set header would clobber.
+ *
+ * 401-refresh recovery and the {@link ApiError}/{@link NetworkError} normalisation are shared with
+ * every other verb, because {@link request} sees the `FormData` and {@link send} leaves it untouched.
+ *
+ * @param {string}   path
+ * @param {FormData} form
+ * @param {object}   [opts]
+ */
+export const postMultipart = (path, form, opts) => request(path, { ...opts, method: 'POST', body: form });
+
+/**
+ * Read a `PageEnvelope` response into the shape the seam uses — one place to be wrong (D106).
+ *
+ * The wire shape is the Java record `PageResponse(content, page, size, totalElements, totalPages,
+ * sort)`. Six providers unwrapped it by hand, in three subtly different ways, and four of them read
+ * **`res.number`** — Spring's raw `Page` field, which this API does not send. The `?? page` fallback
+ * behind it then resolved to the *requested* page, so the client agreed with the server right up
+ * until the server disagreed: any clamp or redirect and the caller is told it is on a page it is
+ * not on. Two parity harnesses unwrapped it wrongly in the same direction, which is exactly why the
+ * bug went unreported — the check and the thing being checked were wrong together.
+ *
+ * `number` is still read, after `page` and never instead of it. It costs nothing and it is the
+ * correct value when present; what was wrong was reaching past both to the requested page.
+ *
+ * @param {object|Array} res       the parsed response body, or a bare array from a legacy endpoint
+ * @param {object} [requested]     `{ page, size }` as asked for, used only when the server omits them
+ * @returns {{ items: unknown[], page: number, size: number, total: number, totalPages: number }}
+ */
+export function unwrapPage(res, requested = {}) {
+  // A bare array is a legitimate response from the endpoints that are deliberately unpaged
+  // (bounded reads, e.g. a property's reviews), so normalise rather than treating it as malformed.
+  const items = Array.isArray(res) ? res : (res?.content ?? []);
+  return {
+    items,
+    page: res?.page ?? res?.number ?? requested.page ?? 0,
+    size: res?.size ?? requested.size ?? items.length,
+    // `totalElements` counts the whole result set, not this page — the difference every "N results"
+    // label and unread badge depends on. Falling back to `items.length` is only correct for the
+    // unpaged case above, where the page IS the result set.
+    total: res?.totalElements ?? items.length,
+    totalPages: res?.totalPages ?? 0,
+  };
+}
+
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
-async function send(path, { method = 'GET', body, query }, token) {
+/** True for a `multipart/form-data` body: the platform owns its `Content-Type` (boundary and all). */
+const isFormData = (body) => typeof FormData !== 'undefined' && body instanceof FormData;
+
+async function send(path, { method = 'GET', body, query, headers: extra }, token) {
   const headers = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // JSON is the common case; a FormData body is serialised by the platform, which also sets the
+  // Content-Type (with its boundary) — setting it here by hand would break the multipart parse.
+  if (body !== undefined && !isFormData(body)) headers['Content-Type'] = 'application/json';
+  // Caller headers are merged *before* Authorization, so a stray `Authorization` in `extra` cannot
+  // displace the real session token — the one header that must never be a per-call decision.
+  if (extra) Object.assign(headers, extra);
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
     return await fetch(API_BASE + path + buildQuery(query), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData(body) ? body : JSON.stringify(body),
     });
   } catch (cause) {
     throw new NetworkError(cause);

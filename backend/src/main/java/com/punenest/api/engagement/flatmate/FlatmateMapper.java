@@ -183,7 +183,7 @@ public interface FlatmateMapper {
     @Mapping(target = "seatsOpen", source = "seatsOpen", qualifiedByName = "seatsOpenOrOne")
     @Mapping(target = "tags", source = "tags", qualifiedByName = "stringsOrEmpty")
     @Mapping(target = "note", source = "note", qualifiedByName = "trimmedOrNull")
-    @Mapping(target = "ownerConsentMobile", source = "consentMobile", qualifiedByName = "trimmedOrNull")
+    @Mapping(target = "ownerConsentMobile", source = "consentMobile", qualifiedByName = "mobileNormaliseOrNull")
     void applyTo(FlatmateGroupCreateRequest body, @MappingTarget FlatmateGroup group);
 
     // -------------------------------------------------------------------------------------
@@ -231,6 +231,18 @@ public interface FlatmateMapper {
     @Named("trimmedOrNull")
     default String trimmedOrNull(String value) {
         return FlatmateVocabulary.blankToNull(value);
+    }
+
+    /**
+     * The flat owner's consent number, canonicalised to the stored ten-digit shape (Q1). The field
+     * is optional and lenient on input (spacing, a {@code +91} prefix), so it is normalised before
+     * it can reach the {@code ^[6-9][0-9]{9}$} column CHECK — without this a {@code +91}-prefixed
+     * value would pass {@code @IndianMobile} at the edge and then 500 at commit. {@link MobileMask}
+     * {@code #normalise} is null-safe, so an omitted number stays null.
+     */
+    @Named("mobileNormaliseOrNull")
+    default String mobileNormaliseOrNull(String value) {
+        return MobileMask.normalise(value);
     }
 
     @Named("uuidOrNull")

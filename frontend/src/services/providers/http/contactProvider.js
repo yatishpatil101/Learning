@@ -9,7 +9,7 @@
  * The gate is keyed on the listing and the owner is derived server-side, so — unlike the mock —
  * nothing in this file ever sees or needs an owner's phone number to answer a permission question.
  */
-import { get, patch, post } from '../../http.js';
+import { get, patch, post, unwrapPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import { NO_CONTACT_GATE } from '../../../lib/contact.js';
 
@@ -57,17 +57,10 @@ export async function requestContact(propertyId, message) {
 /** The owner's inbox, newest first. */
 export async function myContactRequests({ page = 0, size = 20 } = {}) {
   const res = await get('/me/contact-requests', { page, size });
-  return {
-    items: res?.content ?? [],
-    // `totalElements` counts the whole result set, not the page — the difference the badge and any
-    // "N enquiries" label depend on.
-    total: res?.totalElements ?? 0,
-    // `PageEnvelope` names the current page `page`, not Spring's raw `number` — reading `number`
-    // silently fell through to the *requested* page, which agrees with the server right up until
-    // it clamps or redirects, and then reports a page the caller is not on.
-    page: res?.page ?? res?.number ?? page,
-    size: res?.size ?? size,
-  };
+  // `total` is `totalElements` — the whole result set, not this page — which is what the badge
+  // and any "N enquiries" label depend on. See `unwrapPage` for why `page` is not read from
+  // Spring's `number`, and why falling back to the *requested* page was the original bug.
+  return unwrapPage(res, { page, size });
 }
 
 export async function respondToContactRequest(reqId, status) {

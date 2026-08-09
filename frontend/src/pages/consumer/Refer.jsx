@@ -1,6 +1,7 @@
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
+import { usePlan } from '../../context/PlanContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState } from 'react';
@@ -13,6 +14,8 @@ export default function Refer() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { flagEnabled } = useAppFlags();
+  // The plan's ceiling; `listingLimit` adds the referral slots earned on top of it.
+  const { listingLimit: planLimit } = usePlan();
   // Quota rewards (free contacts / listing slots) are Ops-switchable. The rent
   // agreement track below is part of the base referral program and always runs.
   const quotaRewards = flagEnabled('referralRewards');
@@ -28,7 +31,7 @@ export default function Refer() {
   const contacts = referralContactsEarned();
   const bonusSlots = referralBonusListings();
   const left = contactsRemaining();
-  const slotsLeft = Math.max(0, listingLimit() - activeListingCount());
+  const slotsLeft = Math.max(0, listingLimit(planLimit) - activeListingCount());
 
   // Collect anything friends have earned for us since the last visit so the
   // numbers below are the real, spendable balance.

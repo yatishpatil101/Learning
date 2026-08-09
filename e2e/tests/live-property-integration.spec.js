@@ -27,6 +27,8 @@ import fs from 'node:fs';
 // public search shows 3. Only `GET /me/listings` returns all 4. If this test sees 4, the endpoint is
 // genuinely being used; if it sees 3, the page silently regressed to public search.
 const OWNER = { mobile: '9470744469', name: 'Meera Deshpande', total: 4, publiclyVisible: 3 };
+/** One of OWNER's seeded, approved listings — the property the deal tests transact on. */
+const OWNER_LISTING = '1078d711-d3eb-5961-ab3c-30d4bdc5f377';
 const LOG = process.env.BACKEND_LOG || `${process.env.TEMP}\\boot7.log`;
 
 /** Pull the most recent OTP the backend logged for `mobile`. */
@@ -233,6 +235,63 @@ test.describe('LIVE: property domain against the real API', () => {
     expect(rows.length).toBe(OWNER.total);
     expect(rows.length).toBeGreaterThan(OWNER.publiclyVisible);
     expect(rows.some((r) => r.status && r.status !== 'approved')).toBe(true);
+  });
+
+  test('the document vault round-trips upload and delete through /me/documents', async ({ page }) => {
+    // The owner surface's list/upload/delete were flipped onto the http `document` provider (D124).
+    // Prove the real endpoints, not the tile alone: a silent regression to lib/localStorage would
+    // still render a plausible vault while never touching the API.
+    await signedInAs(page, OWNER.mobile);
+
+    // `/me/listings` feeds the property selector; wait for it so `docProp` resolves to a real listing
+    // id (not the empty "portfolio" bucket) before we upload against it.
+    const mine = page.waitForResponse((r) => r.url().includes('/api/me/listings') && r.status() === 200);
+    await page.goto('/dashboard#documents');
+    await mine;
+    await expect(page.getByRole('heading', { name: 'Document Vault' })).toBeVisible();
+    // The vault opens on Personal until `isOwner` resolves — the owner context appears once
+    // /me/listings has landed, so wait for it rather than sampling it.
+    const ownerCtx = page.getByRole('button', { name: 'Property docs' });
+    await expect(ownerCtx).toBeVisible();
+    await ownerCtx.click();
+
+    // The dev seed ships no documents, so the first Title slot starts empty. Clear it first if an
+    // earlier aborted run left a file behind — this test writes to a real database, and a failure
+    // between upload and delete must not make every later run fail on a full slot.
+    const stale = page.getByRole('button', { name: 'Remove Sale Deed' });
+    if (await stale.count()) {
+      await stale.click();
+      await expect(stale).toHaveCount(0);
+    }
+
+    // Upload drives the flipped `uploadForCategory` → POST /me/documents/{propId} (multipart).
+    const uploadTile = page.getByRole('button', { name: 'Upload Sale Deed' });
+    await expect(uploadTile).toBeVisible();
+    const posted = page.waitForResponse(
+      (r) => /\/api\/me\/documents\/[^/?]+$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      uploadTile.click(),
+    ]);
+    await chooser.setFiles({ name: 'live-sale-deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 live vault test') });
+    // 201 Created — the upload mints a new vault row.
+    expect((await posted).status()).toBe(201);
+
+    // The freshly uploaded file is newest, so its slot now offers Remove.
+    const removeBtn = page.getByRole('button', { name: 'Remove Sale Deed' });
+    await expect(removeBtn).toBeVisible();
+
+    // Remove drives the flipped `removeDoc` → DELETE /me/documents/{propId}/{docId}, restoring the
+    // empty starting state.
+    const deleted = page.waitForResponse(
+      (r) => /\/api\/me\/documents\/[^/?]+\/[^/?]+$/.test(r.url()) && r.request().method() === 'DELETE',
+      { timeout: 20000 },
+    );
+    await removeBtn.click();
+    expect((await deleted).status()).toBeLessThan(300);
+    await expect(page.getByRole('button', { name: 'Upload Sale Deed' })).toBeVisible();
   });
 
   test('the session survives a reload (no redirect to signin)', async ({ page }) => {
@@ -953,6 +1012,592 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
       // Idempotent on both sides: saving twice is not an error, and neither is unsaving.
       expect([200, 201, 204]).toContain((await wrote).status());
     }
+  });
+});
+
+test.describe('LIVE: subscription plans against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('the pricing page is served by GET /plans and renders for a signed-out visitor', async ({ page }) => {
+    /* The catalogue read is public, and this is the page that exists to convert someone who has not
+       signed in. A provider that short-circuited on a missing session — which is the right thing for
+       every caller-scoped read in this suite — would blank it for exactly that visitor. */
+    await page.context().clearCookies();
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto('/plans');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    await expect
+      .poll(() => calls.filter((c) => / GET \/api\/plans$/.test(c)),
+        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .toContain('200 GET /api/plans');
+
+    // No 401 on the way: a public read must not be attempted with, or blocked by, a missing session.
+    expect(apiFails.filter((f) => /\/api\/plans/.test(f))).toEqual([]);
+  });
+
+  test('buying a paid plan leaves it pending, and the entitlement it gates stays shut', async ({ page }) => {
+    /* The whole point of this domain. `POST /me/subscription` on a priced plan creates the row
+       `pending` against a payment-gateway order; only the signature-verified payment webhook moves
+       it to `active`. Nothing the browser does can.
+
+       So the assertion is not "the purchase succeeded" — it is that the app tells the truth about a
+       purchase that has not settled, and does not hand over the entitlement early. */
+    await signedInAs(page, CHATTER.mobile);
+
+    const posted = page.waitForResponse(
+      (r) => /\/api\/me\/subscription$/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20000 },
+    );
+    await page.goto('/checkout?plan=owner2');
+    await page.getByRole('button', { name: /Pay/i }).first().click();
+
+    const res = await posted;
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    // Asserted on the wire, because this is the field the entitlement is derived from.
+    expect(body.status).toBe('pending');
+
+    // The screen says pending, not "payment successful" — and offers no onward link that depends on
+    // a ceiling the caller does not have yet.
+    await expect(page.getByText(/pending/i).first()).toBeVisible({ timeout: 15000 });
+
+    // The gate itself: a pending purchase must not unlock the paid-owner Feature action.
+    await page.goto('/dashboard#billing');
+    await expect(page.getByText(/Payment pending/i).first()).toBeVisible({ timeout: 20000 });
+  });
+});
+
+test.describe('LIVE: deals, offers and finalization against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('the owner dashboard reads its deal book from /me/deals, in one request not one per card', async ({ page }) => {
+    /* `isDealClosed(owner, id)` used to be a synchronous localStorage read per listing row. Against
+       the API that is one request per card, which is the N+1 this seam exists to avoid — so the
+       panel makes a single `/me/deals` call and indexes it.
+
+       Asserting the *count* is what makes this a real check: asserting only that the endpoint was
+       called would still pass if every card called it separately. */
+    await signedInAs(page, OWNER.mobile);
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto('/dashboard#listings');
+    await expect
+      .poll(() => calls.filter((c) => / GET \/api\/me\/deals$/.test(c)).length,
+        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .toBeGreaterThan(0);
+
+    // The owner has four listings. One read covers all of them; a per-card read would be four.
+    const dealReads = calls.filter((c) => /GET \/api\/me\/deals$/.test(c)).length;
+    expect(dealReads, `one read should serve every card, saw ${dealReads}`).toBeLessThanOrEqual(2);
+
+    // And no per-property probe: `/me/deals/{id}` is the single-listing route the panel must not use.
+    expect(calls.filter((c) => /GET \/api\/me\/deals\/[0-9a-f-]{36}$/.test(c))).toEqual([]);
+  });
+
+  test('a signed-out visitor on a listing asks the deal API nothing at all', async ({ page }) => {
+    /* Every route in this domain is caller-scoped, so for a visitor with no session they can only
+       answer 401. Firing them anyway is the defect the contact gate had: four 401s per page view,
+       each one a round trip spent to be told something the client already knew.
+
+       The panel is also the place a buyer would learn a listing is sold — and cannot, because
+       `/me/deals` is owner-only. It must not try. */
+    await page.context().clearCookies();
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto(`/property/${OWNER_LISTING}`);
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    const dealCalls = calls.filter((c) => /\/api\/(me\/deals|me\/offers|offers\/mine|me\/finalization-requests|finalization\/)/.test(c));
+    expect(dealCalls, `a signed-out visitor should ask the deal API nothing, saw: ${dealCalls.join(' | ')}`).toEqual([]);
+  });
+
+  test('a buyer offer round-trips, and the buyer is refused the owner\'s decisions', async ({ page }) => {
+    /* The security property of this slice, exercised through the UI rather than the harness.
+
+       `OfferService.respond` reserves accept and decline for the listing owner: otherwise a buyer
+       could mark a price agreed with no owner involvement and, through the status-driven contact
+       reveal, unmask a mobile the owner never chose to share. The property page used to offer the
+       buyer an "Accept" button that did exactly that against the mock.
+
+       So this asserts two things at once: the offer really reaches the API, and the control that
+       would have broken is not on the page. */
+    await signedInAs(page, CHATTER.mobile);
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto(`/property/${OWNER_LISTING}`);
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    // The buyer's own offers are read from `/offers/mine`, never from the owner's book.
+    await expect
+      .poll(() => calls.filter((c) => / GET \/api\/offers\/mine$/.test(c)),
+        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .not.toEqual([]);
+
+    // A buyer must never be shown the owner-only endpoints, even signed in.
+    expect(calls.filter((c) => /GET \/api\/me\/offers$/.test(c))).toEqual([]);
+    expect(calls.filter((c) => /GET \/api\/me\/deals/.test(c))).toEqual([]);
+
+    // And no bare "Accept" control on the buyer's side of the negotiation: agreeing is expressed as
+    // a counter at the owner's number, which is the one response the server allows them.
+    const offerCard = page.getByRole('button', { name: /^Accept$/ });
+    expect(await offerCard.count(), 'a buyer must not be offered Accept — the server answers 403').toBe(0);
+  });
+});
+
+test.describe('LIVE: rent, tenancies and property finances against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('Pay Rent loads tenancy, payout and history from the API, and asks for none of it signed out', async ({ page }) => {
+    /* Every read on this page is caller-scoped. For a visitor with no session they can only answer
+       401, so firing them is a round trip spent to be told something the client already knows —
+       the defect the contact gate had, four times per page view.
+
+       The page also reads a **payout account**, which is the one place a bank account could leak
+       into a public page. It must not be requested at all without a session. */
+    await page.context().clearCookies();
+    const anonCalls = [];
+    watchApiCalls(page, anonCalls);
+    await page.goto('/pay-rent');
+    await page.waitForTimeout(1500);
+    const leaked = anonCalls.filter((c) => /\/api\/(me\/tenancies|me\/rent-payments|me\/rent-ledger|me\/payout-account|me\/rent-mandate)/.test(c));
+    expect(leaked, `a signed-out visitor asked the rent API for: ${leaked.join(' | ')}`).toEqual([]);
+
+    // Signed in, the same page is served by the API rather than localStorage.
+    await signedInAs(page, OWNER.mobile);
+    const calls = [];
+    watchApiCalls(page, calls);
+    await page.goto('/pay-rent');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    await expect
+      .poll(() => calls.filter((c) => / GET \/api\/me\/tenancies$/.test(c)),
+        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .not.toEqual([]);
+    // The owner's payout settings and the tenant's history come from the API too, not the store.
+    expect(calls.filter((c) => /GET \/api\/me\/payout-account$/.test(c)).length).toBeGreaterThan(0);
+    expect(calls.filter((c) => /GET \/api\/me\/rent-payments/.test(c)).length).toBeGreaterThan(0);
+  });
+
+  test('the owner Finances tab reads summary, cashflow and dues from the server, not from the page it holds', async ({ page }) => {
+    /* These three were client-side reductions over the transaction list. The ledger is **paged**, so
+       reducing over what the client had downloaded produced a summary of page one wearing the label
+       of a summary — right until an owner had more than one page of transactions.
+
+       Asserting all three endpoints are actually called is what makes the move real: keeping the
+       local reductions and never noticing would look identical on screen. */
+    await signedInAs(page, OWNER.mobile);
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto('/dashboard#finances');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    /* A user who both owns and rents gets a context toggle, and it opens on whichever side the
+       dashboard thinks they are. The owner ledger lives behind "My properties" — without this the
+       test measures the Rent Wallet and reports that the finance endpoints were never called. */
+    const ownerToggle = page.getByRole('button', { name: /My properties/i });
+    if (await ownerToggle.count()) await ownerToggle.first().click();
+
+    await expect
+      .poll(() => calls.filter((c) => /GET \/api\/me\/finances\/.*\/summary$/.test(c)).length,
+        { timeout: 20000 })
+      .toBeGreaterThan(0);
+
+    for (const endpoint of ['cashflow', 'dues', 'transactions']) {
+      expect(
+        calls.filter((c) => new RegExp(`GET /api/me/finances/.*/${endpoint}`).test(c)).length,
+        `${endpoint} should be served by the API; calls seen: ${calls.join(' | ')}`,
+      ).toBeGreaterThan(0);
+    }
+
+    // One read per endpoint per property, not one per card or per render.
+    const summaryReads = calls.filter((c) => /GET \/api\/me\/finances\/.*\/summary$/.test(c)).length;
+    expect(summaryReads, `one summary read should serve the tab, saw ${summaryReads}`).toBeLessThanOrEqual(3);
+  });
+});
+
+test.describe('LIVE: the flatmates board against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('both tabs are served by the API for a signed-out visitor, and the board is not empty', async ({ page }) => {
+    /* The three feeds are **public** — the whole point of the page is that someone can browse before
+       they have an account. That makes this the mirror image of the rent test above: there, calling
+       an endpoint signed-out was the defect; here, NOT calling it is.
+
+       The board also has to actually have something on it. Before this slice the page merged a
+       hard-coded demo seed in the view, so switching the domain on would have left a page that
+       loaded, rendered its tabs, called the API — and showed nothing. Every assertion about
+       provenance would still have passed. */
+    await page.context().clearCookies();
+    const calls = [];
+    watchApiCalls(page, calls);
+
+    await page.goto('/flatmates');
+    const moveIn = page.getByRole('button', { name: /Move in now/i });
+    await expect(moveIn).toBeVisible({ timeout: 20000 });
+
+    for (const feed of ['rooms', 'posts', 'groups']) {
+      await expect
+        .poll(() => calls.filter((c) => new RegExp(`GET /api/flatmates/${feed}`).test(c)).length,
+          { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+        .toBeGreaterThan(0);
+    }
+
+    // The tab counts are rendered from the fetched rows, so a non-zero count is the cheapest proof
+    // that the payload arrived and mapped — not merely that the request was made.
+    await expect(moveIn).toHaveAttribute('aria-label', /\d+ homes/);
+    const label = await moveIn.getAttribute('aria-label');
+    expect(Number(label.match(/(\d+) homes/)[1]), `the move-in tab is empty: ${label}`).toBeGreaterThan(0);
+  });
+
+  test('a room posted through the API is readable back on the public board', async ({ page }) => {
+    /* A write that returns 201 and is never seen again is the failure this whole slice exists to
+       catch, and it is invisible to any test that only asserts the response status. The room is
+       created through the page's own service so the mapper runs in both directions.
+
+       `budget` is the field under test as much as the round trip is: the seam briefly renamed it to
+       `rent`, which returned a perfectly good 201 and then rendered ₹0 on every card. */
+    await signedInAs(page, OWNER.mobile);
+    const marker = `live probe ${Date.now()}`;
+    const created = await page.evaluate(async (note) => {
+      const svc = await import('/src/services/flatmateService.js');
+      const room = await svc.createRoom({
+        locality: 'Baner',
+        rent: 14000,
+        bhk: '2',
+        // `roomType` is @NotBlank and the vocabulary is `Private room` / `Shared room` — the
+        // human-readable strings, not slugs. Omitting it answers 422, not a default.
+        roomType: 'Private room',
+        attachedBath: 'attached',
+        furnishing: 'semi',
+        hostRole: 'tenant',
+        lookingFor: 'any',
+        foodPref: 'any',
+        photos: ['https://example.test/room.jpg'],
+        note,
+      });
+      return { id: room.id, budget: room.budget };
+    }, marker);
+
+    expect(created.id, 'the server assigned no id').toBeTruthy();
+    expect(created.budget, 'the created room came back with no price — check the budget/rent mapping').toBe(14000);
+
+    // Read it back through the public feed, which is a different endpoint and a different mapper path.
+    const found = await page.evaluate(async (id) => {
+      const svc = await import('/src/services/flatmateService.js');
+      const feed = await svc.listRooms({}, 0, 200);
+      const row = feed.items.find((r) => r.id === id);
+      return row ? { budget: row.budget, publiclyVisible: row.publiclyVisible } : null;
+    }, created.id);
+
+    expect(found, `the room was created but is not on the public board (id ${created.id})`).not.toBeNull();
+    expect(found.budget).toBe(14000);
+    expect(found.publiclyVisible, 'a freshly posted room should be publicly visible').toBe(true);
+  });
+
+  test('the filter bar narrows the board server-side, and an unknown value is dropped not matched', async ({ page }) => {
+    /* The three feed endpoints now filter on every facet in the database (D116) — `gender=female`
+       returns only female-or-`any` rooms, not everyone. This test guards the two properties that a
+       server-side facet must hold: a real value narrows to matching rows (with the `any` wildcard
+       for preference facets), and an out-of-vocabulary value is *dropped* rather than passed through.
+
+       Asserted as "every row that came back matches", not "fewer rows came back": a facet that does
+       nothing returns the SAME count, so a count comparison cannot go red. */
+    await page.goto('/flatmates');
+    await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible({ timeout: 20000 });
+
+    const result = await page.evaluate(async () => {
+      const svc = await import('/src/services/flatmateService.js');
+      const all = await svc.listRooms({}, 0, 200);
+      const women = await svc.listRooms({ gender: 'female' }, 0, 200);
+      const nonsense = await svc.listRooms({ gender: 'Female' }, 0, 200);
+      return {
+        total: all.total,
+        offenders: women.items.filter((r) => r.gender !== 'female' && r.gender !== 'any').map((r) => r.gender),
+        nonsenseTotal: nonsense.total,
+      };
+    });
+
+    expect(result.offenders, `a women-only search returned rooms marked ${result.offenders.join(', ')}`).toEqual([]);
+    // An out-of-vocabulary value must be dropped by `vocab()`, not sent — otherwise one casing slip
+    // reaches the server and empties the page, looking like "there is nothing in Pune".
+    expect(result.nonsenseTotal, 'an unknown gender value narrowed the board instead of being ignored').toBe(result.total);
+  });
+});
+
+/**
+ * LIVE: service requests — the consumer's own view of a concierge service the ops desk delivers.
+ *
+ * The largest and most divergent slice. The mock (`lib/serviceFlow.js`) models the whole two-sided
+ * flow — multipart draft/final uploads, a per-request document checklist, co-fill invites, unread
+ * receipts, staff transitions — and the customer API carries only the honest subset a signed-in
+ * requester can actually reach: **list / get / create / message / decide-draft**. Everything the
+ * server has no customer-facing endpoint for stays mock-only and is documented in
+ * `docs/system/frontend-data-seam.md`; this suite asserts the wired subset and proves the mock
+ * store is not the source of truth in http mode.
+ *
+ * The write path is driven through the page's own service (dynamic `import`), the same technique the
+ * flatmate slice uses — the three landing forms fill through i18n placeholders, which are the wrong
+ * thing to couple a provenance test to. The parity harness (`scripts/serviceRequest-parity.mjs`)
+ * pins the provider outputs directly; this closes the blind spot the harness cannot see — a React
+ * call site that never awaits, or the mock leaking back in for a signed-in requester.
+ */
+test.describe('LIVE: service requests against the real API', () => {
+  let errors;
+  let apiFails;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    watchApiFailures(page, apiFails);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('the tracker reads from GET /service-requests, and the mock store is not the source', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+
+    // Snapshot the mock's per-user store before the visit. In http mode nothing should write to it;
+    // if the domain gate failed and the mock provider ran, `load`/`create` would touch this key.
+    const before = await page.evaluate(() => {
+      const k = Object.keys(localStorage).find((x) => x.toLowerCase().includes('servicereq'));
+      return k ? localStorage.getItem(k) : null;
+    });
+
+    const listed = page.waitForResponse(
+      (r) => /\/api\/service-requests(\?|$)/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
+      { timeout: 20000 },
+    );
+    await page.goto('/services/interior');
+
+    // A PageEnvelope, unwrapped by the provider — a shape change here empties the tracker silently.
+    const body = await (await listed).json();
+    expect(body).toHaveProperty('content');
+    expect(Array.isArray(body.content)).toBe(true);
+
+    // The tracker rendered from that fetch, not from a mock write: the store is unchanged by the
+    // visit (still absent, or still whatever a prior mock-mode run left — never freshly written).
+    const after = await page.evaluate(() => {
+      const k = Object.keys(localStorage).find((x) => x.toLowerCase().includes('servicereq'));
+      return k ? localStorage.getItem(k) : null;
+    });
+    expect(after).toBe(before);
+  });
+
+  test('a request created through the service round-trips and carries no mock-only fields', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+    await page.goto('/services/valuation');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    const marker = `live probe ${Date.now()}`;
+    const created = await page.evaluate(async (note) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      const r = await svc.createServiceRequest({
+        type: 'valuation',
+        customer: { name: 'Omkar Kulkarni' },
+        details: { property: 'Aundh, Pune', size: '2 BHK', note },
+      });
+      return {
+        id: r.id, status: r.status, type: r.type, service: r.service,
+        details: r.details, docs: r.docs, draft: r.draft, finalDoc: r.finalDoc,
+      };
+    }, marker);
+
+    expect(created.id, 'the server assigned no id').toBeTruthy();
+    // Every request opens `new` server-side, which the mapper shows as `submitted`.
+    expect(created.status).toBe('submitted');
+    expect(created.type).toBe('valuation');
+    // A human-readable service label is derived, never echoed from the wire.
+    expect(created.service).toBe('Property Valuation');
+    // D119: `details` round-trips. The structured fields the form sent are stored as jsonb and read
+    // back on the DTO — no longer flattened to a write-only string.
+    expect(created.details).toMatchObject({ property: 'Aundh, Pune', size: '2 BHK', note: marker });
+    // A fresh request has no shared draft, no final document, and an empty checklist — the multipart
+    // surfaces that would fill these are mock-only.
+    expect(created.draft).toBeNull();
+    expect(created.finalDoc).toBeNull();
+    expect(created.docs).toEqual([]);
+
+    // Post a message and read it back through get — the one reply path the customer actually has.
+    const threaded = await page.evaluate(async (id) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      await svc.addServiceRequestMessage(id, 'Following up from the live suite.');
+      const r = await svc.getServiceRequest(id);
+      return r ? { count: r.messages.length, last: r.messages[r.messages.length - 1] } : null;
+    }, created.id);
+
+    expect(threaded, `the created request could not be read back (id ${created.id})`).not.toBeNull();
+    expect(threaded.count).toBeGreaterThan(0);
+    expect(threaded.last.text).toContain('Following up');
+    // A customer-authored message maps to the `user` side; only staff/admin roles become `staff`.
+    expect(threaded.last.from).toBe('user');
+  });
+
+  test('the co-fill party list has no endpoint and returns empty rather than guessing', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+    await page.goto('/services/interior');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    // Co-fill invites are a mock-only flow; the http provider returns [] rather than inventing a
+    // call the server cannot answer — the tracker spreads this into its merge, so it may not be
+    // undefined.
+    const party = await page.evaluate(async () => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      return svc.listPartyServiceRequests();
+    });
+    expect(party).toEqual([]);
+  });
+});
+
+/**
+ * LIVE: the opt-in identity (Aadhaar) badge.
+ *
+ * The badge is a trust signal, never a gate (ADR-019), so the failure here is the quiet kind. A
+ * seeded account carries `users.aadhaar_verified = true` for the contact gate — but that boolean is
+ * NOT what the badge endpoint reads. The badge lives in its own `identity_verifications` row, which
+ * no seed writes, so a seeded account must read the badge as honestly *absent*. And a `start` must
+ * hand back a pending DigiLocker consent handle, never a granted badge: only the signed webhook
+ * grants, and nothing the browser does can make that happen.
+ *
+ * Everything is driven through `verificationService.js`. With `verification` in VITE_API_DOMAINS the
+ * service dispatches to the http provider, so a service call *is* the wire, and the response sink
+ * proves the browser really asked the server rather than a mock answering locally.
+ */
+test.describe('LIVE: identity verification against the real API', () => {
+  let errors;
+  let apiFails;
+  let apiCalls;
+
+  test.beforeEach(async ({ page }) => {
+    errors = [];
+    apiFails = [];
+    apiCalls = [];
+    watchApiFailures(page, apiFails);
+    watchApiCalls(page, apiCalls);
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e)));
+  });
+
+  test.afterEach(() => {
+    expect(errors.filter((e) => !IGNORE.test(e)), `failed API calls: ${apiFails.join(', ') || 'none'}`).toEqual([]);
+  });
+
+  test('the badge is read from GET /me/verification/aadhaar and the seeded contact-gate flag does not grant it', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+    await page.goto('/dashboard');
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
+
+    const status = await page.evaluate(async () => {
+      const svc = await import('/src/services/verificationService.js');
+      return svc.getAadhaarStatus();
+    });
+
+    // Provenance: the caller's badge came off the wire, not a mock answering from localStorage.
+    expect(
+      apiCalls.some((c) => /GET \/api\/me\/verification\/aadhaar$/.test(c)),
+      `saw: ${apiCalls.join(', ')}`,
+    ).toBe(true);
+    // The load-bearing assertion: `users.aadhaar_verified` may be seeded true for the contact gate,
+    // but the badge has its own unseeded row, so the badge itself is never granted here. (Kept as
+    // `verified:false` rather than `status:'none'` so a re-run — which leaves a pending row on this
+    // account — still holds; the strict none→pending transition is pinned by the parity harness.)
+    expect(status.verified).toBe(false);
+    // Never on the wire; carried as '' so mock and live answer the context with the same keys.
+    expect(status.aadhaarMobile).toBe('');
+  });
+
+  test('starting DigiLocker returns a pending consent handle, not a granted badge', async ({ page }) => {
+    await signedInAs(page, CHATTER.mobile);
+    await page.goto('/dashboard');
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
+
+    const { handle, after } = await page.evaluate(async () => {
+      const svc = await import('/src/services/verificationService.js');
+      const started = await svc.startAadhaar({ source: 'digilocker' });
+      const next = await svc.getAadhaarStatus();
+      return { handle: started, after: next };
+    });
+
+    // A 202 is a consent url, not a badge: pending and unverified, carrying the `ref` the webhook
+    // correlates on and the hosted url the modal would redirect the browser to.
+    expect(handle.pending).toBe(true);
+    expect(handle.verified).toBe(false);
+    expect(handle.ref).toBeTruthy();
+    expect(handle.verificationUrl).toBeTruthy();
+    // The growth perk is mock-only; the live handle never fabricates one.
+    expect(handle.perk).toBeNull();
+    // The write is durable server-side: the very next read reports the pending state. `start` always
+    // (re)sets the row to pending, so this holds on a re-run too.
+    expect(after.status).toBe('pending');
+    expect(after.verified).toBe(false);
+
+    // The POST really reached the wire, not a mock grant in localStorage.
+    expect(
+      apiCalls.some((c) => /POST \/api\/me\/verification\/aadhaar$/.test(c)),
+      `saw: ${apiCalls.join(', ')}`,
+    ).toBe(true);
   });
 });
 

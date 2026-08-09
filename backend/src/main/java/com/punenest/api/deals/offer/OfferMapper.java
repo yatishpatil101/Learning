@@ -38,6 +38,7 @@ public final class OfferMapper {
                 offer.getStatus(),
                 offer.getMessage(),
                 offer.getCreatedAt(),
+                offer.getMoveIn(),
                 history.stream().map(OfferMapper::toHistoryEntry).toList());
     }
 

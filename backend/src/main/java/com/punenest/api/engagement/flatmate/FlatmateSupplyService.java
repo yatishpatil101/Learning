@@ -9,6 +9,7 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.engagement.notification.Notification;
 import com.punenest.api.engagement.notification.NotificationRepository;
@@ -94,8 +95,15 @@ public class FlatmateSupplyService {
 
     /** {@code GET /flatmates/rooms} — public. */
     @Transactional(readOnly = true)
-    public Page<FlatmateRoomDto> roomFeed(String locality, Pageable pageable) {
-        Page<FlatmateRoom> page = rooms.feed(FlatmateVocabulary.blankToNull(locality), pageable);
+    public Page<FlatmateRoomDto> roomFeed(RoomFacets facets, Pageable pageable) {
+        Page<FlatmateRoom> page = rooms.feed(
+                FlatmateVocabulary.blankToNull(facets.locality()),
+                FlatmateVocabulary.facetOrNull(facets.gender()),
+                FlatmateVocabulary.facetOrNull(facets.food()),
+                FlatmateVocabulary.blankToNull(facets.roomType()),
+                FlatmateVocabulary.blankToNull(facets.furnishing()),
+                FlatmateVocabulary.blankToNull(facets.bhk()),
+                facets.minBudget(), facets.maxBudget(), pageable);
         return page.map(room -> mapper.toDto(room,
                 FlatmateMapper.RoomView.anonymous(hostName(room.getHostId()))));
     }
@@ -271,8 +279,11 @@ public class FlatmateSupplyService {
 
     /** {@code GET /flatmates/groups} — public. */
     @Transactional(readOnly = true)
-    public Page<FlatmateGroupDto> groupFeed(String locality, Pageable pageable) {
-        return groups.feed(FlatmateVocabulary.blankToNull(locality), pageable)
+    public Page<FlatmateGroupDto> groupFeed(GroupFacets facets, Pageable pageable) {
+        return groups.feed(
+                FlatmateVocabulary.blankToNull(facets.locality()),
+                FlatmateVocabulary.facetOrNull(facets.policy()),
+                facets.minRent(), facets.maxRent(), pageable)
                 .map(g -> mapper.toDto(g,
                         FlatmateMapper.PartyView.anonymous(hostName(g.getHostId()))));
     }
@@ -383,8 +394,15 @@ public class FlatmateSupplyService {
             // Auto-accepted, so the seat is genuinely taken and the member is real.
             User joiner = users.findById(caller.userId())
                     .orElseThrow(() -> NotFoundException.of("User"));
+            // why: `users.name` is nullable (an OTP sign-in sets no name until the person fills in
+            // their profile) but `flatmate_group_members.name` is NOT NULL, because a member card
+            // has to render something. Passing the null straight through is a constraint violation
+            // at flush time -- a 500 on the join, for the very users who have just signed up. The
+            // fallback is neutral rather than invented: we genuinely do not know their name yet.
+            String memberName = FlatmateVocabulary.blankToNull(joiner.getName());
             group.addMember(new FlatmateGroupMember(
-                    joiner.getName(), joiner.getId(), caller.aadhaarVerified()));
+                    memberName == null ? "Member" : memberName,
+                    joiner.getId(), caller.aadhaarVerified()));
             group.setSeatsOpen(Math.max(0, group.openSeats() - 1));
             groups.saveAndFlush(group);
         }
@@ -415,9 +433,10 @@ public class FlatmateSupplyService {
         if (!group.getHostId().equals(caller.userId())) {
             throw new ForbiddenException("You can only request consent for a group you created.");
         }
-        // Shape is validated at the edge (Formats.MOBILE on OwnerConsentRequest), so all that is
-        // left here is the rule the edge cannot know: whose number it is.
-        String mobile = FlatmateVocabulary.blankToNull(ownerMobile);
+        // Shape is validated at the edge (@IndianMobile on OwnerConsentRequest); canonicalise here so
+        // the self-check, OTP and stored consent all key off the same ten digits the owner's account
+        // uses. The rule the edge cannot know — whose number it is — is enforced below.
+        String mobile = MobileMask.normalise(ownerMobile);
         if (mobile == null) {
             throw new BadRequestException("Enter the owner's mobile number.");
         }

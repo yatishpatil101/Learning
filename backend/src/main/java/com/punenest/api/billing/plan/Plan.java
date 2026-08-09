@@ -41,6 +41,18 @@ public class Plan extends AuditedEntity {
     @Column(name = "billing_cycle")
     private String billingCycle;
 
+    /**
+     * Live listings this plan allows, or {@code null} for no cap. The paywall's real ceiling, kept as
+     * a number rather than parsed out of {@link #features} prose (D109); {@code null} is a genuine
+     * answer meaning the limit does not apply to this plan's audience.
+     */
+    @Column(name = "listing_limit")
+    private Integer listingLimit;
+
+    /** Owner contacts this plan grants, or {@code null} for unlimited / not-applicable (see D109). */
+    @Column(name = "contact_limit")
+    private Integer contactLimit;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "features", nullable = false)
     private List<String> features = new ArrayList<>();

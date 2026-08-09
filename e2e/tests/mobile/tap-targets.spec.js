@@ -21,7 +21,7 @@ const MIN_TAP = 44;
    a room share button are all new tap targets, and a sweep that does not walk
    them is not protecting them. */
 const ROUTES = [
-  '/', '/listings', '/saved', '/signin', '/list-property',
+  '/', '/listings', '/saved', '/signin', '/signup', '/list-property',
   '/plans', '/emi-calculator', '/societies', '/help', '/flatmates', '/property/P5000', '/compare',
 ];
 

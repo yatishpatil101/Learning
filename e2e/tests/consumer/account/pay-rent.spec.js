@@ -75,24 +75,33 @@ test.describe('Pay rent', () => {
     await expect(page.getByRole('button', { name: 'Pay ₹30,708' })).toBeVisible();
   });
 
-  test('paying records the payment, credits the owner and lands in history', async ({ page }) => {
+  test('paying opens the payment as due — the owner is not credited until it clears', async ({ page }) => {
     await openPayRent(page);
 
     await page.getByPlaceholder('25000').fill(String(RENT));
     await page.getByRole('button', { name: /^Pay ₹/ }).click();
 
-    // The page switches to History and the payment is there, marked settled.
+    /* This test used to assert "Owner credited" the instant Pay was tapped, because the mock wrote
+       `status: 'paid'` — a localStorage write cannot fail.
+
+       The server does not work that way and never could: `POST /me/rent-payments` computes the fee,
+       opens a payment-gateway order and stores the row **`due`**. Only the signature-verified
+       webhook moves it to `paid`, and nothing the browser does can make that happen.
+
+       So the honest assertion is the opposite of the old one — the payment is recorded, and the
+       owner is *not* yet described as credited. Telling a tenant their rent has landed before the
+       money has is the single defect this slice exists to remove. */
     await expect(tab(page, 'History')).toHaveClass(/active/);
-    await expect(page.getByText('Owner credited')).toBeVisible();
-    await expect(page.getByText('₹25,000', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹25,590', { exact: true })).toBeVisible();
+    await expect(page.getByText('Owner credited')).toHaveCount(0);
 
     // A receipt is offered for the HRA claim — the reason a tenant pays here at all.
     await expect(page.getByRole('button', { name: 'HRA receipt' })).toBeVisible();
 
-    // It survives a reload (written to localStorage, not just component state).
+    // It survives a reload (persisted, not just component state).
     await page.reload();
     await tab(page, 'History').click();
-    await expect(page.getByText('Owner credited')).toBeVisible();
+    await expect(page.getByText('₹25,590', { exact: true })).toBeVisible();
   });
 
   test('a tenant with several rentals can choose which one to pay for', async ({ page }) => {

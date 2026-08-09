@@ -16,4 +16,7 @@ public interface SavedSearchRepository extends JpaRepository<SavedSearch, UUID> 
 
     /** User-scoped single fetch — returns empty for another user's row (→ 404, never 403). */
     Optional<SavedSearch> findByIdAndUserId(UUID id, UUID userId);
+
+    /** How many saved searches this user already holds — backs the per-user count cap on create. */
+    long countByUserId(UUID userId);
 }

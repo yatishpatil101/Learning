@@ -4,6 +4,7 @@ import com.punenest.api.common.persistence.AuditedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
@@ -50,15 +51,25 @@ public class Offer extends AuditedEntity {
     @Setter
     private String message;
 
+    /**
+     * The buyer's preferred possession date (V34). Optional — an offer may settle on price alone and
+     * leave the date for later. Whole-day granularity, no time zone: a possession date is a calendar
+     * day, not an instant. Mirrors {@code tenant_profiles.move_in}.
+     */
+    @Column(name = "move_in")
+    @Setter
+    private LocalDate moveIn;
+
     protected Offer() {
         // JPA
     }
 
-    public Offer(UUID propertyId, UUID fromUserId, long amount, String message) {
+    public Offer(UUID propertyId, UUID fromUserId, long amount, String message, LocalDate moveIn) {
         this.propertyId = propertyId;
         this.fromUserId = fromUserId;
         this.amount = amount;
         this.message = message;
+        this.moveIn = moveIn;
     }
 
 }

@@ -81,6 +81,7 @@ public class SupportTicketService {
         User author = users.findById(caller.userId()).orElse(null);
         return new MessageDto(
                 sent.getId().toString(),
+                sent.getAuthorId().toString(),
                 author == null ? null : author.getName(),
                 sent.getAuthorRole(),
                 sent.getBody(),

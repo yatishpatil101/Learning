@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import Icon from '../../../../components/Icon.jsx';
 import { fmtINR, fmtNum } from '../../../../lib/format.js';
 import { computeQualityScore, qualityTips, qualityColor } from '../../../../lib/qualityScore.js';
-import { getPropReview, propReviewUnread, isDealClosed, isDealReserved } from '../../../../lib/store.js';
+import { getPropReview, propReviewUnread } from '../../../../lib/store.js';
 import { listingFreshness } from '../../../../lib/freshness.js';
 import { canSplitIntoRooms, isFlatSplit, roomsForProperty, splitOccupants } from '../../../../lib/data/flatSplit.js';
 import StatChip from './StatChip.jsx';
@@ -15,15 +15,19 @@ import {
 
 // A single live/posted listing row: identity + status pills, the performance
 // strip, and the action row (one primary, quiet everyday actions, rest in More).
+//
+// `dealStatus` is supplied by the panel from one `/me/deals` read rather than looked up per card.
+// The deal endpoints are owner-scoped and asynchronous, so a card cannot answer this for itself
+// without a request of its own — which on a twenty-listing dashboard is twenty requests.
 export default function ListingCard({
-  l, user, leadsFor, featuringOn, canFeature, navigate, openReview,
+  l, user, dealStatus = 'active', leadsFor, featuringOn, canFeature, navigate, openReview,
   onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onWaReminder, onDelete,
   onSplit, onUnsplit,
 }) {
   const rev = getPropReview(l.id);
   const unread = propReviewUnread(l.id);
-  const closed = isDealClosed(user?.mobile, l.id);
-  const reserved = isDealReserved(user?.mobile, l.id);
+  const closed = dealStatus === 'closed';
+  const reserved = dealStatus === 'reserved';
   const isSale = l.deal === 'buy' || l.deal === 'sale';
   const displayStatus = closed ? (isSale ? 'sold' : 'rented') : reserved ? 'under_offer' : l.status;
   const fr = !l.flatmate && !closed ? listingFreshness(l) : null;
@@ -220,7 +224,7 @@ export default function ListingCard({
           </Link>
         )}
         {waReminder && (
-          <button onClick={waReminder.onClick} className={quietCls} aria-label="Send the interested buyer a WhatsApp nudge to reconfirm availability" title="Send the interested buyer a WhatsApp nudge to reconfirm availability">
+          <button onClick={waReminder.onClick} className={quietCls} aria-label="WhatsApp reminder — nudge the interested buyer to reconfirm availability" title="Send the interested buyer a WhatsApp nudge to reconfirm availability">
             <Icon name={waReminder.icon} className="w-3.5 h-3.5" /> {waReminder.label}
           </button>
         )}

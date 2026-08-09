@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -139,20 +140,23 @@ public class FinalizationService {
     }
 
     /**
-     * Contract {@code finalizationStatus} — the caller-relevant live request for this property.
+     * Contract {@code finalizationStatus} — the caller-relevant request for this property.
      *
-     * <p><strong>Caller-relevant definition:</strong> the live (pending) request on this property
-     * where the caller is either the initiator or the counterparty. An owner who is not a
-     * counterparty on any pending request gets 404. This is consistent: the owner only ever becomes
-     * a participant when someone sends them a finalization request, and reading "nothing pending"
-     * as 404 correctly communicates "no action awaiting you".
+     * <p><strong>Caller-relevant definition:</strong> the caller's <em>most recent</em> request on
+     * this property, whatever its status, where the caller is either the initiator or the
+     * counterparty. Returning terminal rows (declined/cancelled/accepted) and not only the pending
+     * one is deliberate (D111): a turned-down buyer must be distinguishable from a buyer who never
+     * asked, so the property panel can explain the refusal and offer to ask again. A caller who was
+     * never a participant on this property gets 404 — the honest "nothing here, and nothing that
+     * concerns you" answer.
      *
-     * @throws NotFoundException when no live request exists for the caller on this property
+     * @throws NotFoundException when the caller has never had a request on this property
      */
     @Transactional(readOnly = true)
     public FinalizationRequestDto status(UUID callerId, UUID propertyId) {
         FinalizationRequest request = finalizationRequests
-                .findLiveByPropertyAndParticipant(propertyId, callerId)
+                .findRecentByPropertyAndParticipant(propertyId, callerId, PageRequest.of(0, 1))
+                .stream().findFirst()
                 .orElseThrow(() -> NotFoundException.of("Finalization request"));
 
         Map<UUID, User> userMap = batchLoadUsers(

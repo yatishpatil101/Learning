@@ -421,4 +421,65 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isNotFound());
         }
     }
+
+    /**
+     * D116 — the seeker feed filters on every facet the page offers, server-side. One live post per
+     * identity, so each row here needs its own author. Gender and room preference are exact on this
+     * side (a "women only" seeker is not a candidate for a male searcher), which is the crisp
+     * difference from the room feed, where an {@code any} room is a candidate for everyone.
+     */
+    @Nested
+    @DisplayName("server-side facets (D116)")
+    class Facets {
+
+        private String facetBody(String name, String locality, String gender, long budget) {
+            return """
+                    {"name":"%s","gender":"%s","age":26,"occupation":"Designer","budget":%d,
+                     "localities":["%s"],"moveIn":"2026-09-01","note":"Tidy."}
+                    """.formatted(name, gender, budget, locality);
+        }
+
+        private void createFacetPost(User author, String name, String locality, String gender,
+                long budget) throws Exception {
+            mvc.perform(post(Routes.Flatmates.POSTS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(author))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(facetBody(name, locality, gender, budget)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("gender is an exact filter — an 'any' seeker does not match a specific request")
+        void genderIsExactNoFallback() throws Exception {
+            createFacetPost(user("9810000060", "Fem"), "Fem", "GenderPostTown", "female", 18000);
+            createFacetPost(user("9810000061", "Nyx"), "Nyx", "GenderPostTown", "any", 18000);
+            createFacetPost(user("9810000062", "Max"), "Max", "GenderPostTown", "male", 18000);
+
+            // Exact, unlike the room feed: only the female seeker, not the no-preference one.
+            mvc.perform(get(Routes.Flatmates.POSTS)
+                            .param("locality", "GenderPostTown").param("gender", "female"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
+
+            // A request of 'any' states no preference and filters nothing.
+            mvc.perform(get(Routes.Flatmates.POSTS)
+                            .param("locality", "GenderPostTown").param("gender", "any"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(3)));
+        }
+
+        @Test
+        @DisplayName("budget range filters posts server-side")
+        void budgetRange() throws Exception {
+            createFacetPost(user("9810000063", "Cheap"), "Cheap", "BudgetPostTown", "any", 10000);
+            createFacetPost(user("9810000064", "Mid"), "Mid", "BudgetPostTown", "any", 20000);
+            createFacetPost(user("9810000065", "High"), "High", "BudgetPostTown", "any", 30000);
+
+            mvc.perform(get(Routes.Flatmates.POSTS)
+                            .param("locality", "BudgetPostTown")
+                            .param("minBudget", "15000").param("maxBudget", "25000"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
+        }
+    }
 }

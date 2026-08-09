@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { setPlan, addServiceOrder, getFees, getPlan } from '../../lib/store.js';
+import { addServiceOrder, getFees } from '../../lib/store.js';
+import { listPlans } from '../../services/planService.js';
+import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const checkoutPlans = (t, fees) => ({
@@ -20,38 +22,72 @@ const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 export default function Checkout() {
   const { t } = useTranslation();
   const { isIn } = useAuth();
+  const { planId: currentPlanId, subscribe } = usePlan();
   const [params] = useSearchParams();
   const planId = params.get('plan');
   const CO = checkoutPlans(t, getFees());
   const METHODS = checkoutMethods(t);
-  const P = CO[planId];
+  const base = CO[planId];
   const [method, setMethod] = useState('UPI');
-  const [paid, setPaid] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [error, setError] = useState('');
+  /** The subscription the server returned. `null` until Pay completes. */
+  const [result, setResult] = useState(null);
   const [orderRef, setOrderRef] = useState('');
+  /** Server price for this plan, once the catalogue resolves. See the note in `Plans.jsx`. */
+  const [serverPrice, setServerPrice] = useState(null);
 
-  const pay = () => {
-    if (paying || paid) return;
+  useEffect(() => {
+    let alive = true;
+    listPlans()
+      .then((rows) => {
+        const row = rows.find((r) => r.slug === planId);
+        if (alive && row) setServerPrice(row.price);
+      })
+      // Falls back to the configured fee. The charge is the server's either way — this only
+      // affects which number is shown while the catalogue is unreachable.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [planId]);
+
+  // The amount charged is the server's plan row, so that is the one to display. Showing the
+  // back-office fee here was how a customer came to click "Pay ₹999" and be billed ₹2,499.
+  const P = base && { ...base, price: serverPrice ?? base.price };
+
+  const pay = async () => {
+    if (paying || result) return;
     setPaying(true);
-    // Simulate a payment-gateway round-trip. Swap this timeout for the real
-    // pay API call on backend integration — the success handling stays the same.
-    setTimeout(() => {
-      if (P.kind === 'plan') setPlan({ id: planId, name: P.planName });
+    setError('');
+    try {
+      const sub = await subscribe(planId, method.toLowerCase());
+      // The local order record still drives the mock billing history. Recorded regardless of
+      // status — a pending payment is still an order the user should be able to find.
       const rec = addServiceOrder({ type: P.kind === 'plan' ? 'subscription' : 'topup', plan: planId, title: P.name, amount: P.price, method });
-      setOrderRef(rec.id);
+      setOrderRef(sub?.paymentRef || rec.id);
+      setResult(sub);
+    } catch {
+      // A failed subscribe must not render the success screen. The user keeps their money and
+      // the Pay button, which is the only recoverable outcome.
+      setError(t('misc.coPaymentFailed'));
+    } finally {
       setPaying(false);
-      setPaid(true);
-    }, 900);
+    }
   };
 
-  if (!P) return <Navigate to="/plans" replace />;
+  if (!base) return <Navigate to="/plans" replace />;
   if (!isIn) return <Navigate to={`/signin?next=${encodeURIComponent('/checkout?plan=' + planId)}`} replace />;
 
+  // `pending` is not `paid`. For a priced plan the server opens a gateway order and waits for the
+  // payment webhook; only that webhook activates the subscription. Telling someone the purchase
+  // landed before the money has is the one outcome worth designing against here.
+  const paid = result?.status === 'active';
+  const pending = result?.status === 'pending';
+
   // Guard against paying twice for a plan you already hold. Subscriptions (owner2/
-  // owner5) persist via getPlan(); the one-time Seeker Plus top-up has no lasting
+  // owner5) persist via the plan context; the one-time Seeker Plus top-up has no lasting
   // ownership, so it stays re-purchasable. Shown before payment (not after — the
   // success screen still needs to render for a purchase just made this session).
-  const alreadyOnThisPlan = P.kind === 'plan' && !paid && getPlan().id === planId;
+  const alreadyOnThisPlan = P.kind === 'plan' && !result && currentPlanId === planId;
 
   return (
     <div className="pt-8 sm:pt-10 pb-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -64,6 +100,18 @@ export default function Checkout() {
           <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(16,185,129,.15)' }}><Icon name="badge-check" className="w-9 h-9 text-emerald-400" /></div>
           <h2 className="text-xl font-extrabold mb-1">{t('misc.coAlreadyActiveTitle')}</h2>
           <p className="text-gray-400 text-sm mb-6">{t('misc.coAlreadyActiveBody', { plan: P.nameLabel })}</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link to="/dashboard#billing" className="btn-teal px-5 py-2.5 rounded-xl font-semibold text-sm">{t('misc.coManagePlan')}</Link>
+            <Link to="/plans" className="px-5 py-2.5 rounded-xl font-semibold text-sm border border-white/10 text-gray-200 hover:bg-white/5 transition-colors">{t('misc.coViewPlans')}</Link>
+          </div>
+        </div>
+      ) : pending ? (
+        <div className="glass rounded-2xl p-8 sm:p-10 max-w-lg mx-auto text-center">
+          <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-5" style={{ background: 'rgba(245,158,11,.15)' }}><Icon name="clock" className="w-9 h-9 text-amber-400" /></div>
+          <h2 className="text-xl font-extrabold mb-1">{t('misc.coPaymentPending')}</h2>
+          <p className="text-gray-400 text-sm mb-1">{P.done.title} · {inr(P.price)} {t('misc.coPaidVia')} {method}</p>
+          <p className="text-gray-400 text-sm mb-2">{t('misc.coPaymentPendingBody')}</p>
+          {orderRef && <p className="text-gray-500 text-xs mb-6">{t('misc.coOrderReference')} · <span className="text-gray-400 font-mono">{orderRef}</span></p>}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link to="/dashboard#billing" className="btn-teal px-5 py-2.5 rounded-xl font-semibold text-sm">{t('misc.coManagePlan')}</Link>
             <Link to="/plans" className="px-5 py-2.5 rounded-xl font-semibold text-sm border border-white/10 text-gray-200 hover:bg-white/5 transition-colors">{t('misc.coViewPlans')}</Link>
@@ -115,6 +163,7 @@ export default function Checkout() {
               ))}
             </div>
             <button onClick={pay} disabled={paying} className="btn-teal w-full py-3 rounded-xl font-semibold hidden md:inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">{paying ? <><Icon name="loader-2" className="w-4 h-4 animate-spin" /> {t('misc.coProcessing')}</> : <><Icon name="lock" className="w-4 h-4" /> {t('misc.coPay')} {inr(P.price)}</>}</button>
+            {error && <p role="alert" className="text-rose-300 text-xs text-center mt-3">{error}</p>}
             <p className="text-gray-500 text-[11px] text-center mt-3 flex items-center justify-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('misc.coPrototypeNoPayment')}</p>
           </div>
         </div>

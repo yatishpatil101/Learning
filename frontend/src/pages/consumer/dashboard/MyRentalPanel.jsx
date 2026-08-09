@@ -8,8 +8,9 @@ import {
   loadTenancies, tenancyStatus, seedDemoTenancy, clearDemoTenancy, hasDemoTenancy,
 } from '../../../lib/data/tenancy.js';
 import {
-  getRentPayments, getRentAgreements, getRentMandate, getTenantProfile, tenantScore,
+  getRentAgreements, getTenantProfile, tenantScore,
 } from '../../../lib/store.js';
+import { myRentPayments, getMandate, myTenantProfile } from '../../../services/rentService.js';
 import { generateSingle } from '../../../lib/rentReceipt.js';
 import { thisMonth } from '../../../lib/rentPay.js';
 import { pendingInvites, invitePath } from '../../../lib/serviceFlow.js';
@@ -37,14 +38,33 @@ export default function MyRentalPanel({ user, toast }) {
 
   const t = tenancies[idx] || tenancies[0] || null;
   const status = useMemo(() => (t ? tenancyStatus(t) : null), [t, tenancies]);
-  const payments = useMemo(
-    () => getRentPayments().filter((p) => p.type !== 'deposit-finance').slice(0, 6),
-    [tenancies],
-  );
+
+  /* The tenant's own payment history, mandate and profile — three caller-scoped reads, issued
+     together because none depends on another and the panel blocks on all of them.
+
+     Deposit financing has no endpoint and is not a rent payment, so it never appears in
+     `/me/rent-payments` and the old `type !== 'deposit-finance'` filter is no longer needed. */
+  const [rent, setRent] = useState({ payments: [], mandate: null, profile: null });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      myRentPayments(0, 6).catch(() => ({ items: [] })),
+      getMandate().catch(() => null),
+      myTenantProfile().catch(() => null),
+    ]).then(([page, mandateRow, profileRow]) => {
+      if (!alive) return;
+      setRent({ payments: page?.items || [], mandate: mandateRow, profile: profileRow });
+    });
+    return () => { alive = false; };
+  }, [user, tenancies]);
+
+  const payments = rent.payments;
   const agreement = getRentAgreements()[0] || null;
-  const mandate = getRentMandate();
-  const profile = getTenantProfile();
-  const score = tenantScore(profile);
+  const mandate = rent.mandate;
+  const profile = rent.profile;
+  // The server owns the score. Falling back to the local calculation keeps the meter honest in mock
+  // mode and while the first fetch is in flight, rather than showing a hard zero.
+  const score = profile?.score ?? tenantScore(getTenantProfile());
   const showDemoReset = hasDemoTenancy();
   // Rent-agreement co-fill requests addressed to this user (owner invited them to
   // add their tenant details). Surfaced here first, then routed to the fill page.

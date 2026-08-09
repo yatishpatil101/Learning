@@ -1,8 +1,7 @@
 package com.punenest.api.leads.conversation;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -26,8 +25,7 @@ import jakarta.validation.constraints.Size;
  *                   each other through one listing may need to talk about something else
  */
 public record ConversationCreate(
-        @NotBlank @Pattern(regexp = Formats.MOBILE,
-                message = Formats.MOBILE_MESSAGE)
+        @NotBlank @IndianMobile
         String counterpartyMobile,
         @Size(max = 64) String propertyId,
         @NotBlank @Size(max = 4000) String body) {

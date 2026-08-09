@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -117,9 +118,11 @@ class DealEndpointsTest extends AbstractApiTest {
         Deal deal = dealRepo.findByPropertyId(p.getId()).orElseThrow();
         assertThat(deal.getStatus()).isEqualTo(DealStatuses.RESERVED);
 
-        // Property status must NOT change (D4).
+        // Moderation status must NOT change — a reserved listing is still live (D4/D110).
         Property reloaded = properties.findById(p.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(originalStatus);
+        // D110: the public deal_status mirror moves to reserved so buyers badge "under offer".
+        assertThat(reloaded.getDealStatus()).isEqualTo(DealStatuses.RESERVED);
     }
 
     // ---- §11 test 4: close with off-platform mobile → 200, counterparty_mobile stored, counterparty_id null ----
@@ -180,6 +183,13 @@ class DealEndpointsTest extends AbstractApiTest {
         assertThat(deal.getClosedAt()).isNotNull();
         assertThat(deal.getStatus()).isEqualTo(DealStatuses.CLOSED);
         assertThat(deal.getAgreedPrice()).isEqualTo(largeAmount);
+
+        // D110: closing publishes the listing as terminal. The fixture is a rent listing, so
+        // moderation status becomes rented (dropping it from the approved-floored search) and
+        // the public deal_status mirror becomes closed (so a direct-link buyer sees the badge).
+        Property reloaded = properties.findById(p.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PropertyStatus.RENTED);
+        assertThat(reloaded.getDealStatus()).isEqualTo(DealStatuses.CLOSED);
     }
 
     // ---- §11 test 7: non-owner attempting reserve/close/reopen → 404 each ----
@@ -285,23 +295,35 @@ class DealEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- D23a: both mobile fields on this surface are the contract's Mobile schema ----
+    // ---- Q1 / D23a: input is lenient (normalised at the edge), storage stays strict ----
 
     @Test
-    void close_offContractMobile_rejectedBeforeItReachesTheDeal() throws Exception {
+    void close_countryCodePrefix_acceptedAndNormalised() throws Exception {
         User owner = user("9820200023", "owner");
-        Property p = listing(owner, "Loose mobile close");
+        Property p = listing(owner, "Country code close");
 
-        // 12 digits with a country code. MobileMask.normalise() would happily reduce this to ten,
-        // so without the pattern it closed the deal -- the contract says Mobile, which it is not.
+        // 12 digits with a +91 country code. @IndianMobile normalises this to ten before it reaches
+        // the deal (Q1), so the close now succeeds where the strict pattern used to 422 it.
         mvc.perform(post(dealPath(p) + "/close")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"agreedPrice\":5000000,\"counterpartyMobile\":\"919876543210\"}"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isOk());
 
-        // A landline-style leading digit is the other half of the schema: ten digits is not enough,
-        // it must start 6-9.
+        assertThat(dealRepo.findByPropertyId(p.getId())
+                .map(Deal::getStatus)
+                .orElse(DealStatuses.ACTIVE))
+                .isEqualTo(DealStatuses.CLOSED);
+    }
+
+    @Test
+    void close_wrongLeadingDigit_rejected() throws Exception {
+        User owner = user("9820200025", "owner");
+        Property p = listing(owner, "Landline close");
+
+        // A landline-style leading digit is still refused: ten digits is not enough, an Indian
+        // mobile must start 6-9. @IndianMobile gates the normalised value against the stored shape,
+        // so this is a 422 even though it strips to ten digits.
         mvc.perform(post(dealPath(p) + "/close")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)

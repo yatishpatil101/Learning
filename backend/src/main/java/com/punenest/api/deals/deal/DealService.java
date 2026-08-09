@@ -3,6 +3,7 @@ package com.punenest.api.deals.deal;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
@@ -139,6 +140,10 @@ public class DealService {
         }
         deal.setStatus(DealStatuses.RESERVED);
         deals.save(deal);
+        // D110: mirror the reserved state so the listing badges "under offer". Moderation status
+        // stays approved (per the D110 ruling) — a reserved listing is still live and still takes
+        // offers; only the deal_status mirror moves.
+        property.setDealStatus(DealStatuses.RESERVED);
     }
 
     /**
@@ -150,7 +155,10 @@ public class DealService {
      * and stored in {@code deals.counterparty_mobile}. {@code counterparty_id} is populated only
      * when the mobile resolves to a registered user.
      *
-     * <p><strong>{@code properties.status} is NOT touched (D4).</strong>
+     * <p><strong>The listing is published as closed (D110).</strong> {@code properties.status} moves
+     * to the terminal value for its intent (buy → {@code sold}, rent → {@code rented}), which drops
+     * it from the approved-floored search, and {@code properties.deal_status} mirrors {@code closed}
+     * so a direct-link buyer sees the badge instead of a live offer form.
      *
      * @throws NotFoundException when the property does not exist or is not the caller's
      * @throws ConflictException on an illegal state transition
@@ -177,6 +185,12 @@ public class DealService {
         deal.setNote(body.note());
         deal.setStatus(DealStatuses.CLOSED);
         deal.setClosedAt(Instant.now());
+
+        // D110: publish the outcome on the listing itself. The terminal moderation status drops it
+        // from the approved-floored search; the deal_status mirror lets a direct-link buyer see the
+        // deal is closed rather than stand on a live offer form.
+        property.setStatus(terminalStatusFor(property));
+        property.setDealStatus(DealStatuses.CLOSED);
 
         // Resolve the counterparty user if the mobile is registered.
         users.findByMobile(normalised)
@@ -236,6 +250,11 @@ public class DealService {
         deal.setNote(null);
         deals.save(deal);
 
+        // D110: back on the market. Revert a terminal status to approved and clear the mirror. A
+        // reserved-only reopen already had status approved, so setStatus is a no-op there.
+        property.setStatus(PropertyStatus.APPROVED);
+        property.setDealStatus(DealStatuses.ACTIVE);
+
         // D1, the counterpart of close: a reopened rent listing is back on the market, so the
         // tenancy it opened must end. Left active, it would keep uq_tenancies_active_per_property
         // occupied and the next tenant could never be let in -- and the old tenant would keep
@@ -286,9 +305,15 @@ public class DealService {
         if (DealStatuses.ACTIVE.equals(deal.getStatus())) {
             deal.setStatus(DealStatuses.RESERVED);
             deals.save(deal);
+            // D110: mirror the reserved state so the listing badges "under offer". Moderation
+            // status stays approved — a reserved listing is still live and still takes offers.
+            property.setDealStatus(DealStatuses.RESERVED);
         }
 
-        DealParty party = new DealParty(deal.getId(), body.name(), body.mobile(), body.note());
+        // @IndianMobile validated the shape; store the canonical ten digits so a later masked read
+        // resolves — DealParty is otherwise persisted verbatim.
+        DealParty party = new DealParty(
+                deal.getId(), body.name(), MobileMask.normalise(body.mobile()), body.note());
         party = parties.saveAndFlush(party);
         return DealMapper.toPartyDto(party);
     }
@@ -345,6 +370,10 @@ public class DealService {
         deal.setStatus(DealStatuses.CLOSED);
         deal.setClosedAt(Instant.now());
         deals.save(deal);
+
+        // D110: the same terminal transition as close(), reached through the finalization seam.
+        property.setStatus(terminalStatusFor(property));
+        property.setDealStatus(DealStatuses.CLOSED);
     }
 
     // ---- internal helpers ----
@@ -356,6 +385,16 @@ public class DealService {
     private Property ownedProperty(UUID callerId, UUID propertyId) {
         return properties.findByIdAndOwner_Id(propertyId, callerId)
                 .orElseThrow(() -> NotFoundException.of("Property"));
+    }
+
+    /**
+     * The terminal moderation status a closed deal implies (D110): a rent listing becomes
+     * {@code rented}, everything else {@code sold}. Mirrors {@link DealIntent#priceUnitFor(String)}
+     * treating any non-rent intent as a sale, keeping an unknown value on the safer side.
+     */
+    private static String terminalStatusFor(Property property) {
+        return DealIntent.RENT.equals(property.getDeal())
+                ? PropertyStatus.RENTED : PropertyStatus.SOLD;
     }
 
     /**

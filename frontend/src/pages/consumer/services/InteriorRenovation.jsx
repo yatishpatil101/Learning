@@ -11,7 +11,7 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
-import { create as createFlowRequest } from '../../../lib/serviceFlow.js';
+import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
@@ -91,7 +91,7 @@ export default function InteriorRenovation() {
     if (!ok) return;
     const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
     createServiceRequest({ team: 'interior', service: form.scope, customer: form.name, mobile: form.mobile, detail: `${form.config} · ${form.status} · ${form.budget}${form.location ? ' · ' + form.location : ''}`, ref });
-    createFlowRequest(form.mobile, { type: 'interior', service: 'Interior & Renovation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', scope: form.scope, rooms: form.config, budget: form.budget, timeline: form.status } });
+    createFlowRequest({ type: 'interior', service: 'Interior & Renovation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', scope: form.scope, rooms: form.config, budget: form.budget, timeline: form.status } }).catch(() => {});
     draft.clear();
     setDone(true);
   };

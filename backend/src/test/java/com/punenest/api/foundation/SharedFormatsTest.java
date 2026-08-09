@@ -54,11 +54,12 @@ class SharedFormatsTest {
 
         assertThat(offenders)
                 .as("""
-                        These files spell the Indian mobile pattern inline. Use \
-                        @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE) \
-                        instead — the message matters as much as the regex, because a caller \
-                        integrating against the platform should not see one rule described three \
-                        ways depending on which endpoint rejected them.""")
+                        These files spell the Indian mobile pattern inline. For a request field use \
+                        @IndianMobile (it tolerates spacing and a +91 prefix, then gates the \
+                        normalised value against Formats.MOBILE); Formats.MOBILE stays the one \
+                        storage pattern. Either way the rule — and its 422 message — lives in one \
+                        place, so a caller integrating against the platform never sees one rule \
+                        described three ways depending on which endpoint rejected them.""")
                 .isEmpty();
     }
 

@@ -8,9 +8,10 @@ import { useSaved } from '../../context/SavedContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { firstName } from '../../lib/auth.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
+import { useVerification } from '../../context/VerificationContext.jsx';
 import {
   hasListings, getFollowedSocieties,
-  isAadhaarVerified, getRecentSearches, getTenancies,
+  getRecentSearches, getTenancies,
 } from '../../lib/store.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
@@ -43,6 +44,7 @@ export default function Dashboard() {
   const location = useLocation();
   const navigate = useNavigate();
   const { unread: chatUnread } = useConversationUnread();
+  const { verified } = useVerification();
   // A user is treated as an "owner" (sees listing-management tabs) only once they
   // have ACTUAL inventory: a property listing, a flatmate room, a flatmate
   // request/group, or a private managed property (Owner Hub / Rent-o-meter).
@@ -53,7 +55,24 @@ export default function Dashboard() {
   const hasRequests = getMyFlatmatePosts(user).length > 0;
   const hasGroups = getMyFlatmateGroups(user).length > 0;
   const hasManaged = getManagedProps().length > 0;
-  const isOwner = hasListings() || hasRooms || hasRequests || hasGroups || hasManaged;
+  const ownsInventory = hasRooms || hasRequests || hasGroups || hasManaged;
+
+  /* Loaded here rather than below the tab logic, because `listings` decides whether this user is an
+     owner and that decision gates which tabs exist at all.
+
+     `hasListings()` reads the **localStorage** listing store, which holds only what this browser
+     posted. Against the API an owner's listings live in the database, so a real owner with real
+     inventory answered `false` — and was shown the tenant dashboard, with Finances rendering the
+     Rent Wallet instead of their property ledger. It stays in the disjunction for mock mode, where
+     the store genuinely is the truth. */
+  const {
+    listings, enquiries, visits, recent, recommended, alertMatches,
+    contactReqs, photoReqs, flatmateReqs, docReqs,
+    reviewProp, setReviewProp, reviewInput, setReviewInput,
+    apps, setStatus,
+    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
+  } = useDashboardData({ user, toast });
+  const isOwner = (listings || []).length > 0 || hasListings() || ownsInventory;
   // "My Rental" (the home you rent) shows for buyers/tenants and anyone with a
   // finalised tenancy — but not for a pure owner who rents nothing.
   const hasTenancy = getTenancies().length > 0;
@@ -87,13 +106,6 @@ export default function Dashboard() {
   const [tab, setTab] = useState(initialTarget.tab);
   const [sub, setSub] = useState(initialTarget.sub);
 
-  const {
-    listings, enquiries, visits, recent, recommended, alertMatches,
-    contactReqs, photoReqs, flatmateReqs, docReqs,
-    reviewProp, setReviewProp, reviewInput, setReviewInput,
-    apps, setStatus,
-    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
-  } = useDashboardData({ user, toast });
   const REVIEW_STATUS = REVIEW_STATUS_MAP;
 
   const go = (next) => {
@@ -123,7 +135,6 @@ export default function Dashboard() {
   const pendingApps = apps.filter((a) => a.status === 'pending').length;
 
   // ---- Real Overview stats (no fabricated numbers). Owner cards come from the
-  // user's own listings + real per-user lead requests; seeker cards come from
   // the user's saved/viewed/alert/followed stores. All are honest and, when
   // empty, say so rather than showing a made-up figure. ----
   const totalViews = useMemo(
@@ -145,7 +156,7 @@ export default function Dashboard() {
   // A real rental only exists if the owner is tracking a rented managed property.
   const rental = getManagedProps().find((p) => p.rented && p.monthlyRent) || null;
   // Real profile-completion meter (name/email/city + Aadhaar verification).
-  const profile = useMemo(() => profileCompletion(user, isAadhaarVerified()), [user]);
+  const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
 
   // ---- Action Center: the single "what's waiting on ME" triage list. Every row is
   // a real request/task that goes stale unless this user responds. Kept as a plain

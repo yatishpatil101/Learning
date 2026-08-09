@@ -484,4 +484,131 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content", Matchers.hasSize(0)));
         }
     }
+
+    /**
+     * D116 — the room and group feeds filter on every facet the page offers, server-side, rather
+     * than answering 200 with an unfiltered list. Each test isolates its data behind a unique
+     * locality and asserts an exact page size, because "the filter narrowed something" is a weaker
+     * claim than "the filter returned exactly these". Three rooms or groups per host is the
+     * anti-broker cap's ceiling; a fourth would be the wrong test refused for the wrong reason.
+     */
+    @Nested
+    @DisplayName("server-side facets (D116)")
+    class Facets {
+
+        private String facetRoomBody(String locality, String society, String lookingFor,
+                String foodPref, long rentShare, String bhk) {
+            return """
+                    {"bhk":"%s","roomType":"Private room","attachedBath":"attached",
+                     "furnishing":"semi","locality":"%s","society":"%s","rentShare":%d,
+                     "deposit":30000,"availableFrom":"2026-09-01","lookingFor":"%s",
+                     "foodPref":"%s","photos":["https://cdn.example/1.jpg"],"note":"Room."}
+                    """.formatted(bhk, locality, society, rentShare, lookingFor, foodPref);
+        }
+
+        private void createFacetRoom(User host, String locality, String society, String lookingFor,
+                String foodPref, long rentShare, String bhk) throws Exception {
+            mvc.perform(post(Routes.Flatmates.ROOMS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(facetRoomBody(
+                                    locality, society, lookingFor, foodPref, rentShare, bhk)))
+                    .andExpect(status().isCreated());
+        }
+
+        private String facetGroupBody(String title, String locality, String policy, long rent) {
+            return """
+                    {"title":"%s","locality":"%s","policy":"%s","rent":%d,
+                     "seats":3,"seatsOpen":1,"name":"Host"}
+                    """.formatted(title, locality, policy, rent);
+        }
+
+        private void createFacetGroup(User host, String title, String locality, String policy,
+                long rent) throws Exception {
+            mvc.perform(post(Routes.Flatmates.GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(facetGroupBody(title, locality, policy, rent)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("gender filters server-side, and an 'any' room matches every request")
+        void genderFacetWithAnyFallback() throws Exception {
+            User host = user("9820000060", "GenderHost");
+            createFacetRoom(host, "GenderFacetTown", "A", "female", "any", 15000, "2");
+            createFacetRoom(host, "GenderFacetTown", "B", "any", "any", 15000, "2");
+            createFacetRoom(host, "GenderFacetTown", "C", "male", "any", 15000, "2");
+
+            // A female request returns the female room and the no-preference room — never the male.
+            mvc.perform(get(Routes.Flatmates.ROOMS)
+                            .param("locality", "GenderFacetTown").param("gender", "female"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(2)));
+
+            // A request of 'any' states no preference: it must not exclude a thing.
+            mvc.perform(get(Routes.Flatmates.ROOMS)
+                            .param("locality", "GenderFacetTown").param("gender", "any"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(3)));
+        }
+
+        @Test
+        @DisplayName("budget range filters rooms server-side")
+        void roomBudgetRange() throws Exception {
+            User host = user("9820000061", "BudgetHost");
+            createFacetRoom(host, "BudgetFacetTown", "Cheap", "any", "any", 10000, "2");
+            createFacetRoom(host, "BudgetFacetTown", "Mid", "any", "any", 20000, "2");
+            createFacetRoom(host, "BudgetFacetTown", "Pricey", "any", "any", 30000, "2");
+
+            mvc.perform(get(Routes.Flatmates.ROOMS)
+                            .param("locality", "BudgetFacetTown")
+                            .param("minBudget", "15000").param("maxBudget", "25000"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
+        }
+
+        @Test
+        @DisplayName("BHK is an exact server-side filter")
+        void bhkExactFacet() throws Exception {
+            User host = user("9820000062", "BhkHost");
+            createFacetRoom(host, "BhkFacetTown", "Two", "any", "any", 15000, "2");
+            createFacetRoom(host, "BhkFacetTown", "Three", "any", "any", 15000, "3");
+
+            mvc.perform(get(Routes.Flatmates.ROOMS)
+                            .param("locality", "BhkFacetTown").param("bhk", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
+        }
+
+        @Test
+        @DisplayName("policy filters groups server-side, and an open group matches every request")
+        void policyFacetWithAnyFallback() throws Exception {
+            User host = user("9820000070", "PolicyHost");
+            createFacetGroup(host, "Women grp", "PolicyFacetTown", "women", 40000);
+            createFacetGroup(host, "Open grp", "PolicyFacetTown", "any", 40000);
+            createFacetGroup(host, "Men grp", "PolicyFacetTown", "men", 40000);
+
+            // A women request returns the women group and the open group — never the men-only one.
+            mvc.perform(get(Routes.Flatmates.GROUPS)
+                            .param("locality", "PolicyFacetTown").param("policy", "women"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(2)));
+        }
+
+        @Test
+        @DisplayName("rent range filters groups server-side")
+        void groupRentRange() throws Exception {
+            User host = user("9820000071", "RentHost");
+            createFacetGroup(host, "Cheap", "RentFacetTown", "any", 20000);
+            createFacetGroup(host, "Mid", "RentFacetTown", "any", 40000);
+            createFacetGroup(host, "Pricey", "RentFacetTown", "any", 60000);
+
+            mvc.perform(get(Routes.Flatmates.GROUPS)
+                            .param("locality", "RentFacetTown")
+                            .param("minRent", "30000").param("maxRent", "50000"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", Matchers.hasSize(1)));
+        }
+    }
 }

@@ -67,4 +67,33 @@ public class MeDocumentsController {
             @PathVariable("propId") String propId, @PathVariable("docId") String docId) {
         documentService.delete(principal.userId(), propId, docId);
     }
+
+    /**
+     * {@code GET /me/documents/personal} — the caller's own KYC papers.
+     *
+     * <p>The {@code personal} segment is a literal, so it out-ranks the {@code {propId}} template of
+     * {@link #listDocuments} and resolves here; a property can never be addressed as {@code personal}
+     * (the same mechanism that keeps {@code /me/documents/requests} out of the vault).
+     */
+    @GetMapping(Routes.MeDocuments.PERSONAL)
+    public List<DocumentDto> listPersonalDocuments(@CurrentUser AuthPrincipal principal) {
+        return documentService.listPersonal(principal.userId());
+    }
+
+    /** {@code POST /me/documents/personal} — multipart upload of one KYC file. */
+    @PostMapping(value = Routes.MeDocuments.PERSONAL, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public DocumentDto uploadPersonalDocument(@CurrentUser AuthPrincipal principal,
+            @RequestParam("category") String category,
+            @RequestParam("file") MultipartFile file) {
+        return documentService.uploadPersonal(principal.userId(), category, file);
+    }
+
+    /** {@code DELETE /me/documents/personal/{docId}} — remove one of the caller's KYC files. */
+    @DeleteMapping(Routes.MeDocuments.PERSONAL_BY_ID)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePersonalDocument(@CurrentUser AuthPrincipal principal,
+            @PathVariable("docId") String docId) {
+        documentService.deletePersonal(principal.userId(), docId);
+    }
 }

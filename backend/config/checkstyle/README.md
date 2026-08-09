@@ -1,7 +1,15 @@
 ﻿# Checkstyle config — provenance and status
 
-**Status: stored for reference, NOT wired into the build.** See `docs/system/tech-debt.md` §3 (D36)
-for the decision and the measured baseline before changing that.
+**Status: stored for reference, NOT wired into the build.** See **D36** in
+`docs/system/tech-debt.md` for the decision and the measured baseline before changing that.
+
+> **The short version, so this file stands alone.** Enabling Checkstyle as supplied would hand a
+> human ~494 mechanical edits and find zero bugs: of 717 violations measured on 333 main-source
+> files, **only 12 (1.7%) actually need a linter**. 494 are layout a formatter fixes for free, and
+> 211 come from rules that contradict the documentation standard in `api-standards.md` §10 and would
+> have to be deleted. Hence formatter-first: Spotless owns layout, and only then is it worth asking
+> whether the residual 12 justify keeping Checkstyle at all. The boundary rules that would otherwise
+> have been its job already ship as `ArchitectureBoundaryTest`.
 
 ## Where this came from
 

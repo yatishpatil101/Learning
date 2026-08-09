@@ -41,6 +41,11 @@ public class ReelController {
      * ({@code spring.data.web.pageable.max-page-size}), so an anonymous caller cannot ask for the
      * whole table in one request.
      *
+     * <p><strong>{@code locality} is a slug, not a display name.</strong> The filter keys on
+     * {@code reels.locality_slug} — the same locality vocabulary every other surface sends — so a
+     * caller passes {@code koregaon-park}, not {@code Koregaon Park}. The reel's caption keeps the
+     * display label; only the filter moved to the slug.
+     *
      * <p><strong>The client's sort is discarded, not sanitized.</strong> The contract declares no
      * {@code sort} parameter here — a feed's order is the feed's own — but Spring binds one anyway
      * from any {@code ?sort=} it sees and would append it to the derived query, where an unknown
@@ -56,7 +61,7 @@ public class ReelController {
         Pageable slice = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         List<Reel> page = (locality == null || locality.isBlank())
                 ? reels.findAllByOrderByCreatedAtDesc(slice)
-                : reels.findByLocalityIgnoreCaseOrderByCreatedAtDesc(locality.trim(), slice);
+                : reels.findByLocalitySlugIgnoreCaseOrderByCreatedAtDesc(locality.trim(), slice);
         return page.stream().map(reelMapper::toResponse).toList();
     }
 }

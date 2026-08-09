@@ -1,10 +1,9 @@
 package com.punenest.api.documents.agreement;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import java.time.LocalDate;
 
@@ -21,7 +20,7 @@ import java.time.LocalDate;
  */
 public record RentAgreementCreate(
         @NotBlank String propertyId,
-        @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE)
+        @IndianMobile
         String tenantMobile,
         @PositiveOrZero Long rent,
         @PositiveOrZero Long deposit,

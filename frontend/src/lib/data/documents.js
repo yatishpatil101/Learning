@@ -195,9 +195,12 @@ export function getPendingDocRequestCount(mobile) {
 }
 
 /* ---- Checklist progress ---- */
-export function getChecklistProgress(mobile, propId) {
-  const docs = getDocsForProp(mobile, propId);
-  const uploadedCategories = new Set(docs.map((d) => d.category));
+/* Pure: derive the home-loan checklist from an already-loaded document list. It takes the docs
+   rather than re-reading localStorage so a seam consumer (http or mock) can compute progress from
+   what it fetched through `documentService` — the store is empty in http mode and would report a
+   false 0/N (tech-debt D124 blocker 4). */
+export function checklistFromDocs(docs) {
+  const uploadedCategories = new Set((docs || []).map((d) => d.category));
   const ready = HOME_LOAN_CHECKLIST.filter((c) => uploadedCategories.has(c));
   return { ready: ready.length, total: HOME_LOAN_CHECKLIST.length, items: HOME_LOAN_CHECKLIST.map((c) => ({ name: c, done: uploadedCategories.has(c) })) };
 }

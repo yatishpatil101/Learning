@@ -1,0 +1,18 @@
+-- V34 — `offers.move_in`: the buyer's preferred possession date on an offer (tech-debt D112, closed).
+--
+-- WHAT IT MEANS
+-- -------------
+-- The offer modal has always asked for a date — "Preferred move-in" on a rental, "Target possession"
+-- on a purchase — but `OfferCreate` carried only `propertyId`, `amount` and `message`, so the date
+-- had nowhere structured to go. The http provider folded it into the `message` prose to keep it from
+-- being dropped outright, which meant a date the buyer picked could not be filtered, sorted, or shown
+-- as its own field: the owner read it in a sentence or not at all.
+--
+-- This column gives it a home. It mirrors `tenant_profiles.move_in` (V13) — a plain nullable `date`,
+-- whole-day granularity, no time zone: a possession date is a calendar day, not an instant.
+--
+-- NULLABLE ON PURPOSE
+-- -------------------
+-- The date is optional on the wire and optional here. A buyer may open a negotiation on price alone
+-- and settle possession later, so an offer with no `move_in` is a valid offer, not an incomplete one.
+ALTER TABLE offers ADD COLUMN move_in date;

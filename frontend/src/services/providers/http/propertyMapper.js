@@ -140,6 +140,11 @@ export function toViewModel(p) {
     lat: p.lat,
     lng: p.lng,
     status: p.status,
+    // Deal outcome mirrored onto the listing (D110): active|reserved|closed on both cards and
+    // detail. A terminal `status` (sold/rented) always rides with `dealStatus: 'closed'`; the field
+    // carries the one state `status` cannot — `reserved`, an under-offer listing still shown as
+    // approved. Read by the buyer's DealPanel and by card badges.
+    dealStatus: p.dealStatus ?? 'active',
     featured: p.featured ?? false,
     verified: p.verified ?? false,
     ownerVerified: p.ownerVerified ?? false,

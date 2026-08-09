@@ -2,8 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { Link } from 'react-router';
-import { getPlan, fee } from '../../lib/store.js';
+import { fee } from '../../lib/store.js';
+import { listPlans } from '../../services/planService.js';
+import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+
+/**
+ * The plan catalogue is the price.
+ *
+ * These cards used to render `fee('ownerPlanYearly')` — the back-office Fees panel — while
+ * `POST /me/subscription` charged whatever the server's plan row said. `SubscribeRequest` carries
+ * no price, so the client number never travels: it is a *claim about* the charge, not the charge.
+ * When the two disagreed the customer was shown ₹999 and billed ₹2,499.
+ *
+ * So the server wins, and the Fees panel keeps only the non-plan charges it genuinely owns
+ * (rent-agreement platform fee, featured listing). `fee()` stays as the fallback for the moment
+ * before the catalogue resolves and for a failed fetch — a pricing page that renders a stale number
+ * still converts; one that renders a blank does not.
+ */
+const rupees = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 const FREE_IDS = ['free', 'seeker-free', 'owner-free'];
 
@@ -139,12 +156,31 @@ function PlanCarousel({ plans, current }) {
 export default function Plans() {
   const { t } = useTranslation();
   const { role } = useAuth();
-  const SEEKER = seekerPlans(t);
-  const OWNER = ownerPlans(t);
+  // The plan the caller holds, from the same context the paywall and the Feature action read, so
+  // the "Current plan" lock on a card cannot disagree with the entitlement it implies.
+  const { planId: current } = usePlan();
+  // The live catalogue, keyed by slug. Empty until it resolves and after a failure; both cases
+  // fall through to `fee()` below.
+  const [catalogue, setCatalogue] = useState({});
+  useEffect(() => {
+    let alive = true;
+    listPlans()
+      .then((rows) => {
+        if (!alive) return;
+        const byslug = {};
+        rows.forEach((r) => { if (r.slug) byslug[r.slug] = r; });
+        setCatalogue(byslug);
+      })
+      // A pricing page that cannot reach the catalogue still has to render — it is the page that
+      // exists to convert. It falls back to the configured fee rather than showing nothing.
+      .catch(() => { if (alive) setCatalogue({}); });
+    return () => { alive = false; };
+  }, []);
+  /** Server price when the catalogue has this plan, otherwise the card's configured fallback. */
+  const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
+  const SEEKER = seekerPlans(t).map(priced);
+  const OWNER = ownerPlans(t).map(priced);
   const FAQS = plansFaqs(t);
-  // The active plan is persisted by Checkout via setPlan()/getPlan() (keyed by the
-  // signed-in mobile), so read from the same source the purchase flow writes to.
-  const [current] = useState(() => getPlan().id);
   // On mobile the two persona sections collapse into a single toggle so the user
   // only sees the plans relevant to them — default to their role (seeker-first for
   // signed-out visitors, who are almost always searching).

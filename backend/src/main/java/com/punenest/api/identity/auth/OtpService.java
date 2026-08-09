@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,17 +30,26 @@ public class OtpService {
     static final int MAX_ATTEMPTS = 5;
 
     /**
-     * Minimum gap between two codes to the same mobile. Covers the "user pressed resend twice"
-     * case and blunts rapid-fire bombing; comfortably shorter than {@link #TTL}, so a person who
-     * genuinely never received the SMS is never told to wait for a code that has already expired.
+     * Secure default for the minimum gap between two codes to the same mobile. Covers the "user
+     * pressed resend twice" case and blunts rapid-fire bombing; comfortably shorter than {@link #TTL},
+     * so a person who genuinely never received the SMS is never told to wait for a code that has
+     * already expired.
+     *
+     * <p>The <em>enforced</em> gap is {@link #sendCooldown}, which defaults to this but is overridable
+     * via {@code punenest.otp.send-cooldown-seconds} so local development can drop the wait to zero
+     * (the base {@code application.properties} does; {@code application-prod.properties} pins it back).
      */
     static final Duration SEND_COOLDOWN = Duration.ofSeconds(60);
-    /** Rolling window over which {@link #MAX_SENDS_PER_WINDOW} applies. */
+    /** Rolling window over which the send budget applies. */
     static final Duration SEND_WINDOW = Duration.ofHours(1);
     /**
-     * Codes per mobile per {@link #SEND_WINDOW}. Above any believable honest retry count (a real user
-     * who fails five times in an hour has a delivery problem an SMS cannot fix), and low enough that a
-     * targeted victim's phone cannot be used as a doorbell.
+     * Secure default for codes per mobile per {@link #SEND_WINDOW}. Above any believable honest retry
+     * count (a real user who fails five times in an hour has a delivery problem an SMS cannot fix),
+     * and low enough that a targeted victim's phone cannot be used as a doorbell.
+     *
+     * <p>The <em>enforced</em> ceiling is {@link #maxSendsPerWindow}, which defaults to this but is
+     * overridable via {@code punenest.otp.max-sends-per-window}. The default is the production value;
+     * only local dev loosens it, and only for a keyless mock sender that rings no real phone.
      */
     static final int MAX_SENDS_PER_WINDOW = 5;
 
@@ -47,10 +57,18 @@ public class OtpService {
 
     private final OtpCodeRepository repository;
     private final OtpSender sender;
+    /** Enforced cooldown between codes; {@link #SEND_COOLDOWN} unless overridden for local dev. */
+    private final Duration sendCooldown;
+    /** Enforced per-window ceiling; {@link #MAX_SENDS_PER_WINDOW} unless overridden for local dev. */
+    private final int maxSendsPerWindow;
 
-    public OtpService(OtpCodeRepository repository, OtpSender sender) {
+    public OtpService(OtpCodeRepository repository, OtpSender sender,
+            @Value("${punenest.otp.send-cooldown-seconds:60}") long sendCooldownSeconds,
+            @Value("${punenest.otp.max-sends-per-window:5}") int maxSendsPerWindow) {
         this.repository = repository;
         this.sender = sender;
+        this.sendCooldown = Duration.ofSeconds(sendCooldownSeconds);
+        this.maxSendsPerWindow = maxSendsPerWindow;
     }
 
     /**
@@ -126,19 +144,19 @@ public class OtpService {
      */
     private void enforceSendBudget(String mobile, String purpose) {
         List<OtpCode> recent = repository.findByMobileAndPurposeOrderByCreatedAtDesc(
-                mobile, purpose, PageRequest.of(0, MAX_SENDS_PER_WINDOW));
+                mobile, purpose, PageRequest.of(0, maxSendsPerWindow));
         if (recent.isEmpty()) {
             return;
         }
         Instant now = Instant.now();
 
-        Instant readyAt = recent.get(0).getCreatedAt().plus(SEND_COOLDOWN);
+        Instant readyAt = recent.get(0).getCreatedAt().plus(sendCooldown);
         if (now.isBefore(readyAt)) {
             throw new RateLimitedException(
                     "A code was just sent — wait a moment before requesting another",
                     secondsUntil(now, readyAt));
         }
-        if (recent.size() >= MAX_SENDS_PER_WINDOW) {
+        if (recent.size() >= maxSendsPerWindow) {
             // why the oldest of the page: it is the send that will fall out of the window first, so
             // its expiry is the exact moment a slot reopens.
             Instant windowFreesAt = recent.get(recent.size() - 1).getCreatedAt().plus(SEND_WINDOW);

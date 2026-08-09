@@ -3,6 +3,7 @@ package com.punenest.api.documents.agreement;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import java.util.List;
 import java.util.UUID;
@@ -61,9 +62,9 @@ public class RentAgreementService {
                 .map(Property::getId)
                 .orElseThrow(() -> NotFoundException.of("Property"));
 
-        // saveAndFlush: id and createdAt only populate at INSERT, and the DTO needs the id.
+        // @IndianMobile validated the shape; store the canonical ten digits so the V6 CHECK holds.
         return RentAgreementDto.of(agreements.saveAndFlush(new RentAgreement(propertyId, ownerId,
-                body.tenantMobile(), body.rent(), body.deposit(), body.startDate(),
-                body.durationMonths())));
+                MobileMask.normalise(body.tenantMobile()), body.rent(), body.deposit(),
+                body.startDate(), body.durationMonths())));
     }
 }

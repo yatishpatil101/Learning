@@ -188,7 +188,7 @@ export default function Signup() {
           </div>
 
           <div>
-            <label className="flex items-start gap-2.5 cursor-pointer group">
+            <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-start gap-2.5 cursor-pointer group">
               <input type="checkbox" checked={terms} onChange={(e) => { setTerms(e.target.checked); setErrs((x) => ({ ...x, terms: false })); }} className="accent-teal-500 w-5 h-5 sm:w-4 sm:h-4 mt-0.5" />
               <span className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
                 <Trans

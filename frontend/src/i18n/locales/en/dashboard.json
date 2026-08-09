@@ -78,7 +78,13 @@
     "noPreviewToast": "Preview not available",
     "fillRequiredToast": "Please fill all required fields",
     "receiptsDownloaded": "Rent receipts PDF downloaded",
-    "receiptsFailed": "Failed to generate receipts"
+    "receiptsFailed": "Failed to generate receipts",
+    "uploadFailedToast": "Upload failed — please try again",
+    "docRemoveFailedToast": "Couldn’t remove the document — please try again",
+    "reqFailedToast": "Couldn’t update the request — please try again",
+    "vaultLoadError": "Couldn’t load your documents — please try again",
+    "reqsLoadError": "Couldn’t load your requests — please try again",
+    "retry": "Retry"
   },
   "visits": {
     "stScheduled": "Awaiting confirmation",

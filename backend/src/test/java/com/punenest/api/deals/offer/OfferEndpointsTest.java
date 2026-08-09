@@ -113,6 +113,37 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.history[0].amount").value(5000000));
     }
 
+    /** D112: the buyer's preferred possession date round-trips as a `date`, not folded into message. */
+    @Test
+    void submitOffer_carriesMoveIn() throws Exception {
+        User owner = user("9820100051", "owner");
+        User buyer = user("9820100052", "buyer");
+        Property p = listing(owner, "Move-in test");
+
+        mvc.perform(post(Routes.Offers.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"propertyId\":\"" + p.getId()
+                                + "\",\"amount\":5000000,\"moveIn\":\"2026-03-15\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.moveIn").value("2026-03-15"));
+    }
+
+    /** D112: `moveIn` is optional — an offer on price alone omits it and the field comes back absent. */
+    @Test
+    void submitOffer_moveInOptional() throws Exception {
+        User owner = user("9820100053", "owner");
+        User buyer = user("9820100054", "buyer");
+        Property p = listing(owner, "No move-in test");
+
+        mvc.perform(post(Routes.Offers.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"propertyId\":\"" + p.getId() + "\",\"amount\":5000000}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.moveIn").value(org.hamcrest.Matchers.nullValue()));
+    }
+
     // ---- §11 test 2: Owner counters → 'countered', history row with by='owner' ----
 
     @Test
@@ -291,10 +322,10 @@ class OfferEndpointsTest extends AbstractApiTest {
         User buyer = user("9820100024", "buyer");
         Property p = listing(owner, "Constraint test");
 
-        Offer first = new Offer(p.getId(), buyer.getId(), 5000000L, null);
+        Offer first = new Offer(p.getId(), buyer.getId(), 5000000L, null, null);
         offerRepo.saveAndFlush(first);
 
-        Offer second = new Offer(p.getId(), buyer.getId(), 6000000L, null);
+        Offer second = new Offer(p.getId(), buyer.getId(), 6000000L, null, null);
         org.junit.jupiter.api.Assertions.assertThrows(
                 org.springframework.dao.DataIntegrityViolationException.class,
                 () -> offerRepo.saveAndFlush(second));

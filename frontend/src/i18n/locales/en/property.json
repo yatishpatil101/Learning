@@ -190,6 +190,11 @@
     "offerDeclined": "Offer declined.",
     "counterSent": "Counter sent.",
     "dealAgreed": "Deal agreed — coordinate finalisation with the owner.",
+    "agreeAt": "Agree at {{amount}}",
+    "agreedAwaitingOwner": "Sent — the owner confirms to close the deal.",
+    "yourCounterPending": "Your counter of ",
+    "finalizeInDashboard": "Finalise from Dashboard → My Listings, where you can record the price and buyer.",
+    "actionFailed": "That didn't go through. Please try again.",
 
     "rentedOutWord": "rented out",
     "soldWord": "sold",

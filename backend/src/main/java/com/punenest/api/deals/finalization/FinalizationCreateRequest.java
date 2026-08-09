@@ -1,9 +1,8 @@
 package com.punenest.api.deals.finalization;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 
 /**
@@ -19,8 +18,7 @@ import jakarta.validation.constraints.Positive;
  */
 public record FinalizationCreateRequest(
         String propertyId,
-        @NotBlank @Pattern(regexp = Formats.MOBILE,
-                message = Formats.MOBILE_MESSAGE)
+        @NotBlank @IndianMobile
         String counterpartyMobile,
         @NotNull @Positive Long agreedPrice) {
 }

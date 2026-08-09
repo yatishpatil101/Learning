@@ -150,6 +150,9 @@ public class UserAdminService {
     @Transactional
     public UserResponse addStaff(AuthPrincipal actor, String name, String mobile, String email,
             String role, String team, String password) {
+        // @IndianMobile validated the shape; canonicalise so the dedup check and the stored row key
+        // off the same ten digits the column CHECK enforces.
+        mobile = MobileMask.normalise(mobile);
         if (!STAFF_ROLES.contains(role)) {
             throw new ForbiddenException("Staff accounts may only be created with role staff or admin");
         }

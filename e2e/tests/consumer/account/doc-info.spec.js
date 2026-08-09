@@ -10,7 +10,41 @@ async function login(page, user, listings) {
     localStorage.setItem('puneNestUser', JSON.stringify(u));
     localStorage.setItem('puneNestUsers', JSON.stringify([u]));
     if (l) localStorage.setItem('puneNestListings:' + u.mobile, JSON.stringify(l));
+    // The global cookie-consent banner is a late-mounting role="dialog" that covers most of a
+    // phone viewport. Its arrival reflows the vault, and `Tip` closes on scroll — so on the touch
+    // path the tip could be dismissed the instant it opened. Seed consent so it never appears.
+    // (Same pattern as deals-offers.spec.js / support-tickets.spec.js.)
+    localStorage.setItem(
+      'pn_cookie_consent_v1',
+      JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
+    );
   }, { u: user, l: listings || null });
+}
+
+/**
+ * Wait until the page has stopped growing and stopped scrolling.
+ *
+ * The vault fills asynchronously — its documents come from `documentService`, so "Document Vault"
+ * is on screen before the tiles have their data — and a late reflow moves the info dot. `Tip` closes
+ * on any scroll (by design: a tooltip must not float away from its anchor), so if the interaction is
+ * what finally scrolls the dot into view, the tip is dismissed the instant it opens. Settling first,
+ * and centring the dot instantly so the click/tap has nothing left to scroll, is what makes these
+ * two tests assert the tooltip rather than the race.
+ */
+async function settle(page) {
+  await page.waitForFunction(() => {
+    const now = document.body.scrollHeight + ':' + Math.round(window.scrollY);
+    const stable = window.__pnSettle === now;
+    window.__pnSettle = now;
+    return stable;
+  }, null, { polling: 150, timeout: 10_000 });
+}
+
+/** Park the dot in the middle of the viewport — clear of the fixed header and bottom nav. */
+async function centre(page, dot) {
+  await settle(page);
+  await dot.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }));
+  await settle(page);
 }
 
 test('desktop: hovering a document info dot reveals its significance tip', async ({ page }) => {
@@ -23,7 +57,7 @@ test('desktop: hovering a document info dot reveals its significance tip', async
 
   // Title & Ownership is open by default; hover the first info dot.
   const dot = page.getByRole('button', { name: /What is Sale Deed/i }).first();
-  await dot.scrollIntoViewIfNeeded();
+  await centre(page, dot);
   await dot.hover();
   const tip = page.locator('.pn-tip[role="tooltip"]');
   await expect(tip).toBeVisible({ timeout: 3000 });
@@ -46,7 +80,7 @@ test('mobile/touch: tapping a document info dot opens then dismisses the tip', a
   await page.getByText('Document Vault').waitFor({ timeout: 15000 });
 
   const dot = page.getByRole('button', { name: /What is Sale Deed/i }).first();
-  await dot.scrollIntoViewIfNeeded();
+  await centre(page, dot);
   await dot.tap();
   const tip = page.locator('.pn-tip[role="tooltip"]');
   await expect(tip).toBeVisible({ timeout: 3000 });

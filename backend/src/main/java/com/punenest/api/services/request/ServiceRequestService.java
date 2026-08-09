@@ -14,6 +14,7 @@ import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -21,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The assisted-service workflow: a customer asks, ops does the work, ops shares a draft, and the
@@ -51,6 +53,16 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class ServiceRequestService {
 
+    /**
+     * Serialized-size ceiling for {@code details}, restoring the bound the old flat-string schema had
+     * (D119: it was {@code @Size(4000)}). The field is now a free-form {@code jsonb} object reachable
+     * by any authenticated caller and written verbatim, so an unbounded object is a storage-growth
+     * vector; the cap is measured on the serialized JSON — the form actually persisted — mirroring
+     * {@code SavedSearchService.serializeFilters}, and is generous over the old 4000 to allow the
+     * object's own keys and structure.
+     */
+    private static final int DETAILS_MAX_CHARS = 8000;
+
     private final ServiceRequestRepository requests;
     private final ServiceRequestEventRepository events;
     private final ServiceRequestMessageRepository messages;
@@ -59,6 +71,7 @@ public class ServiceRequestService {
     private final UserRepository users;
     private final PropertyRepository properties;
     private final AuditService audit;
+    private final ObjectMapper objectMapper;
 
     public ServiceRequestService(ServiceRequestRepository requests,
             ServiceRequestEventRepository events,
@@ -67,7 +80,8 @@ public class ServiceRequestService {
             DocumentService documents,
             UserRepository users,
             PropertyRepository properties,
-            AuditService audit) {
+            AuditService audit,
+            ObjectMapper objectMapper) {
         this.requests = requests;
         this.events = events;
         this.messages = messages;
@@ -76,6 +90,7 @@ public class ServiceRequestService {
         this.users = users;
         this.properties = properties;
         this.audit = audit;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -119,12 +134,39 @@ public class ServiceRequestService {
             throw NotFoundException.of("Property");
         }
 
+        Map<String, Object> details = boundedDetails(body.details());
         ServiceRequest request = requests.saveAndFlush(new ServiceRequest(
-                caller.userId(), body.type().trim(), propertyId, body.details()));
+                caller.userId(), body.type().trim(), propertyId, details));
         // saveAndFlush: @UuidGenerator/@CreationTimestamp populate at INSERT, and the timeline entry
         // below needs the id.
         record(request, "request.created", displayName(caller.userId()));
         return mapper.toDto(request);
+    }
+
+    /**
+     * Reject a {@code details} object whose serialized form exceeds {@link #DETAILS_MAX_CHARS}.
+     *
+     * <p>The old flat-string schema capped this at 4000 chars ({@code @Size}); {@code @Size} cannot
+     * bound a {@code Map}, so the ceiling is re-established here on the serialized JSON — the form
+     * actually stored — exactly as {@code SavedSearchService.serializeFilters} does. A null or empty
+     * object passes through untouched — "no structured detail" is a valid request.
+     */
+    private Map<String, Object> boundedDetails(Map<String, Object> details) {
+        if (details == null || details.isEmpty()) {
+            return details;
+        }
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(details);
+        } catch (RuntimeException unserializable) {
+            // Jackson 3 throws unchecked; a body that will not serialize cannot be stored as jsonb.
+            throw new BadRequestException("details must be a serializable object");
+        }
+        if (json.length() > DETAILS_MAX_CHARS) {
+            throw new BadRequestException(
+                    "details is too large (max " + DETAILS_MAX_CHARS + " characters)");
+        }
+        return details;
     }
 
     /** Contract {@code getServiceRequest} — the requester or ops. */

@@ -32,8 +32,15 @@ class LocalityResolverTest {
         insert("hinjawadi", "Hinjawadi", 18.591, 73.738, true);
         insert("nibm-road", "NIBM Road", 18.470, 73.901, true);
         insert("kothrud", "Kothrud", 18.507, 73.807, true);
-        // Retired locality: still referenced by old rows, must never win a new resolution.
-        insert("old-market", "Old Market", 18.500, 73.850, false);
+        // Two fully fictional fixtures, kept off the real Pune map so the seed's ~155 real localities
+        // can't perturb the containment, length-floor and inactive assertions below — all three broke
+        // when the catalogue seed grew ("Sus" and "Hinjawadi Phase 1" became real curated rows, and a
+        // real active locality sat inside the geo radius of the old inactive fixture — D145).
+        // "Zzytopia Meadowbrook" is a made-up name no real row shares; "Ghosttown" is inactive and
+        // parked at Delhi's coordinates, ~1160 km from every Pune locality, so nothing active is ever
+        // within the 2.5 km snap radius of it.
+        insert("zzytopia-meadowbrook", "Zzytopia Meadowbrook", 20.100, 79.100, true);
+        insert("ghosttown-fictional", "Ghosttown Fictional", 28.6139, 77.2090, false);
     }
 
     private void insert(String slug, String name, double lat, double lng, boolean active) {
@@ -72,14 +79,20 @@ class LocalityResolverTest {
 
     @Test
     void snapsASubAreaUpToItsParentLocality() {
-        assertThat(resolver.resolve("Hinjawadi Phase 1", null, null)).isEqualTo("hinjawadi");
+        // A sub-area name that is not itself a curated row snaps up to the parent it contains. Uses the
+        // fictional "Zzytopia Meadowbrook" because the real "Hinjawadi Phase 1" this once used is now a
+        // curated locality in its own right, so it resolves to itself rather than its parent (D145).
+        assertThat(resolver.resolve("Zzytopia Meadowbrook East Wing", null, null))
+                .isEqualTo("zzytopia-meadowbrook");
     }
 
     @Test
     void doesNotOverMatchOnShortTypedNames() {
-        // "Sus" is a real Pune locality that is not curated here; a naive contains() would be free to
-        // match it against anything. The length floor must keep it unresolved.
-        assertThat(resolver.resolve("Sus", null, null)).isNull();
+        // "Zzy" is a 3-char prefix of the fictional "Zzytopia Meadowbrook" fixture: a naive contains()
+        // would match it (the candidate name contains "zzy"), but the length floor is below 5 chars so
+        // it must stay unresolved. A real short name can't be used here any more — the catalogue seed
+        // now curates the short Pune localities (Sus, Maan) this once relied on (D145).
+        assertThat(resolver.resolve("Zzy", null, null)).isNull();
     }
 
     // ---------------- step 4: geo fallback ----------------
@@ -114,7 +127,12 @@ class LocalityResolverTest {
 
     @Test
     void neverResolvesToAnInactiveLocality() {
-        assertThat(resolver.resolve("Old Market", 18.500, 73.850)).isNull();
+        // The name matches an inactive fixture exactly and the coordinates sit on it, yet neither the
+        // name ladder (active-only) nor the geo fallback may resolve it. Parked at Delhi's coordinates
+        // so no active Pune locality is inside the 2.5 km snap radius — the old Pune fixture coords now
+        // sit next to a real active locality (saras-baug) that the geo step would otherwise snap to
+        // (D145).
+        assertThat(resolver.resolve("Ghosttown Fictional", 28.6139, 77.2090)).isNull();
     }
 
     @Test

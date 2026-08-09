@@ -56,6 +56,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const onKeyActivate = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } };
   const isRent = p.deal === 'rent';
   const verified = p.ownerVerified || p.ownershipVerified;
+  const verifiedLabel = [p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ');
   const isPgShare = p.shareType === 'pg' || p.shareType === 'flatmates';
   // A PG's `sharing` is an array of occupancy types (single/double/…); legacy and
   // synthetic stock may still carry a single key. Show the first, "+N" if more.
@@ -67,7 +68,12 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   const baths = Number(p.bath) || 0;
   const psf = p.area ? Math.round((p.price || 0) / p.area) : 0;
   const deposit = Number(p.deposit) || (isRent ? (p.price || 0) * 2 : 0);
-  const isUnderOffer = p.status === 'under-offer';
+  // Deal state now rides on the listing (D110): `dealStatus` mirrors the deal (reserved = under
+  // offer, still open to backup offers), and a closed sale flips the property's own status to the
+  // terminal sold/rented. The legacy `'under-offer'` string is kept as a fallback for any mock row
+  // that still carries it.
+  const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
+  const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
   const postedByPuneNest = !!p.postedByAdmin;
   const posterLabel = postedByPuneNest ? 'PuneNest' : t('listings.owner');
   const posterIcon = postedByPuneNest ? 'shield-check' : 'user';
@@ -88,6 +94,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
     if (p.rera) chips.push(['badge-check', 'RERA']);
   }
   if (isUnderOffer) chips.push(['handshake', t('listings.underOffer')]);
+  if (isDealClosed) chips.push(['lock', isRent ? t('listings.rentedOut') : t('listings.soldOut')]);
 
   if (list) {
     const loc = locName || p.locality;
@@ -103,7 +110,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           <div className="lr-img">
             <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
             {verified ? (
-              <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
+              <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
                 <Icon name="shield-check" />
               </span>
             ) : null}
@@ -165,7 +172,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
       <div className="relative overflow-hidden card-img-wrap h-48">
         <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
-          <span className="badge-verified-icon absolute top-3 left-3" title={[p.ownerVerified ? t('listings.verifOwner') : '', p.ownershipVerified ? t('listings.verifOwnership') : ''].filter(Boolean).join(' · ')}>
+          <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
             <Icon name="shield-check" />
           </span>
         ) : null}

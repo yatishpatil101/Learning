@@ -1,8 +1,7 @@
 package com.punenest.api.identity.auth;
 
-import com.punenest.api.common.validation.Formats;
+import com.punenest.api.common.validation.IndianMobile;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 
 /**
  * Body for {@code POST /auth/login} (contract {@code LoginRequest}). Single dual-mode endpoint: send
@@ -18,7 +17,7 @@ import jakarta.validation.constraints.Pattern;
  * @param password contract-only; not used on the consumer path
  */
 public record LoginRequest(
-        @NotBlank @Pattern(regexp = Formats.MOBILE, message = Formats.MOBILE_MESSAGE)
+        @NotBlank @IndianMobile
         String mobile,
         String otp,
         String password) {

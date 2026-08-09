@@ -38,4 +38,14 @@ public final class PropertyStatus {
 
     /** Soft-deleted by the owner. Retained for audit; never hard-deleted. */
     public static final String ARCHIVED = "archived";
+
+    /**
+     * Terminal: the sale closed (D110). Drops out of the approved-floored search but stays
+     * reachable by direct link, badged. Set by {@code DealService} on a buy-deal close; reverted to
+     * {@link #APPROVED} on reopen. Never set by an owner's own edit.
+     */
+    public static final String SOLD = "sold";
+
+    /** Terminal: the rental closed (D110). The rent-deal counterpart of {@link #SOLD}. */
+    public static final String RENTED = "rented";
 }

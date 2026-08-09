@@ -28,7 +28,7 @@ export default function TicketThreadModal({
           {/* Meta */}
           <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px]">
             <span className="text-gray-500 font-mono">{curTicket.id}</span>
-            <span className={'inline-flex items-center rounded-full border px-2 py-0.5 font-medium ' + (STATUS_CHIP[curTicket.status] || STATUS_CHIP.new)}>
+            <span className={'inline-flex items-center rounded-full border px-2 py-0.5 font-medium ' + (STATUS_CHIP[curTicket.status] || STATUS_CHIP.open)}>
               {getStatusLabel(curTicket.status)}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-white/6 text-gray-300 px-2 py-0.5">

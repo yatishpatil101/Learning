@@ -1,8 +1,9 @@
 # Package structure — decision record
 
 > **Status:** Accepted · **Scope:** backend (`com.punenest.api`) · **Companion of:**
-> [`api-standards.md`](./api-standards.md) §7 · [`backend-api-architecture-review.md`](./backend-api-architecture-review.md)
-> (11 bounded contexts) · [`platform-architecture.md`](./platform-architecture.md) (modular-monolith ADRs).
+> [`api-standards.md`](./api-standards.md) §7 ·
+> [`platform-architecture.md`](./platform-architecture.md) (modular-monolith ADRs).
+> §3 below owns the 11 bounded contexts.
 
 This fixes the definitive physical layout for the PuneNest modular monolith so every future slice has
 **one obvious, low-friction home** and a later service extraction is **mechanical, not a rewrite**.
@@ -127,29 +128,30 @@ context import, and on any shared-kernel → feature import. We still reject Spr
 
 ## 3. Bounded-context → package → schema → roadmap mapping
 
-The 11 contexts from [`backend-api-architecture-review.md`](./backend-api-architecture-review.md) §
-"Major business domains" each get **one top-level package**; sub-domains nest as aggregates
-(as `identity` already nests `auth`/`user`/`verification`).
+The 11 bounded contexts each get **one top-level package**; sub-domains nest as aggregates (as
+`identity` already nests `auth`/`user`/`verification`). The 33 API domains enumerated in the OpenAPI
+spec collapse into these 11.
 
-| # | Bounded context | Package | Flyway group (logical schema) | Roadmap phase |
-|---|-----------------|---------|-------------------------------|---------------|
-| 1 | Identity & Access | `identity` (`.auth/.user/.verification`) | `V2__identity_access` | **auth+users — SHIPPED** |
-| 2 | Catalog & Search | `catalog` | `V3__catalog_listings` | properties/search |
-| 3 | Listings | `listing` | `V3__catalog_listings`, `V5__deals_offers_finalization` | properties → deals |
-| 5 | Leads & Contact | `leads` | `V4__leads_contact_visits` | contacts/gate → visits |
-| 6 | Rentals & Payments | `rentals` | `V6__documents_rent_finance` | finance/rent |
-| 7 | Documents | `documents` | `V6__documents_rent_finance` | finance/rent |
-| 8 | Services & Support | `services` | `V7__ops_services_growth` | services/tickets |
-| 9 | Billing & Growth | `billing` | `V7__ops_services_growth`, `V8__engagement_billing_cms` | services → CMS |
-| 10 | Engagement | `engagement` | `V8__engagement_billing_cms` | content/CMS |
-| 4 | Moderation | `moderation` | `V2`/`V3` (review of users+listings) | admin/analytics |
-| 11 | Admin & Analytics | `admin` | `V8__engagement_billing_cms` | admin/analytics |
+| # | Bounded context | Core responsibility | Package | Flyway group (logical schema) | Roadmap phase |
+|---|-----------------|---------------------|---------|-------------------------------|---------------|
+| 1 | Identity & Access | Auth (OTP + staff password), profile, sessions, RBAC, Aadhaar gate | `identity` (`.auth/.user/.verification`) | `V2__identity_access` | **auth+users — SHIPPED** |
+| 2 | Catalog & Search | Public listing discovery, filters, map, localities, cities, fees | `catalog` | `V3__catalog_listings` | properties/search |
+| 3 | Listings | Owner listing lifecycle, offers, visits, deals | `listing` | `V3__catalog_listings`, `V5__deals_offers_finalization` | properties → deals |
+| 5 | Leads & Contact | Contact requests (gated), enquiries, deal finalization | `leads` | `V4__leads_contact_visits` | contacts/gate → visits |
+| 6 | Rentals & Payments | Finances, rent payments/ledger, mandates, payouts, tenancies, tenant profiles | `rentals` | `V6__documents_rent_finance` | finance/rent |
+| 7 | Documents | Property documents, access requests, secure share links | `documents` | `V6__documents_rent_finance` | finance/rent |
+| 8 | Services & Support | Service requests/workflows, support tickets, rent agreements, owner KYC | `services` | `V7__ops_services_growth` | services/tickets |
+| 9 | Billing & Growth | Plans/subscriptions, boosts, paid services, referrals | `billing` | `V7__ops_services_growth`, `V8__engagement_billing_cms` | services → CMS |
+| 10 | Engagement | Saved searches/alerts, reviews, flatmates, notifications, CMS content | `engagement` | `V8__engagement_billing_cms` | content/CMS |
+| 4 | Moderation | Listing review, user/KYC verification, reports, staff management | `moderation` | `V2`/`V3` (review of users+listings) | admin/analytics |
+| 11 | Admin & Analytics | KPIs, analytics, platform settings, audit log, CMS admin, society leads | `admin` | `V8__engagement_billing_cms` | admin/analytics |
 
-**Honest caveat — schema-per-context is *logical*, not physical.** The architecture review's target is
-one Postgres schema per context; today **all 62 tables live in `public`** and contexts are expressed
-only by **Flyway file grouping** (V1 foundation … V8 engagement_billing_cms). Several contexts share a
-migration file. Physical `CREATE SCHEMA` per context is deferred to extraction time (§5) — the package
-layout is aligned *now* so that move is later just a schema-qualifier change, not a code reshuffle.
+**Honest caveat — schema-per-context is *logical*, not physical.** The target is one Postgres schema
+per context; today **every table lives in `public`** (75 tables as of V33) and contexts are expressed
+only by **Flyway file grouping** (V1 foundation … V8 engagement_billing_cms; later migrations extend
+existing contexts rather than adding new ones). Several contexts share a migration file. Physical
+`CREATE SCHEMA` per context is deferred to extraction time (§5) — the package layout is aligned *now*
+so that move is later just a schema-qualifier change, not a code reshuffle.
 
 ---
 

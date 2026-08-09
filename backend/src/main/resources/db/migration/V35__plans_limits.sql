@@ -1,0 +1,25 @@
+-- V35 — `plans.listing_limit` / `plans.contact_limit`: a plan's entitlements as numbers, not prose
+-- (tech-debt D109, closed).
+--
+-- WHAT IT MEANS
+-- -------------
+-- How many live listings a plan allows, and how many owner contacts it grants, are hard numbers the
+-- paywall enforces. The plan row carried them only inside `features` — `"2 live listings"`,
+-- `"Unlimited owner contacts"` — which is display copy, not a field. So the client kept its own
+-- lookup table (`PLAN_LISTING_LIMITS = { owner2: 2, owner5: 5, ... }`) to know the real ceiling,
+-- duplicating a number the server already knows and letting the two drift the moment the copy is
+-- reworded. Parsing the integer back out of the sentence was the alternative and is worse: a paywall
+-- that silently reads the wrong ceiling leaks revenue in the generous direction.
+--
+-- These two columns give the number a home. The mapper now projects them onto `PlanDto` and the
+-- client reads them off the wire, deleting the table.
+--
+-- NULLABLE ON PURPOSE — NULL MEANS "NO CAP"
+-- -----------------------------------------
+-- A null limit is a real answer, not a missing one: it means the plan imposes no ceiling on that
+-- dimension. Seeker Plus is a tenant plan, so it has no listing limit (null); its owner contacts are
+-- "unlimited", so it has no contact limit (null). An owner plan has no contact limit either — the
+-- limit only applies to the audience it is written for. The client already uses `Number.isFinite`
+-- as its unlimited idiom, so a null maps cleanly to "no ceiling" without a sentinel.
+ALTER TABLE plans ADD COLUMN listing_limit integer;
+ALTER TABLE plans ADD COLUMN contact_limit integer;

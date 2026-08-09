@@ -162,6 +162,7 @@
     },
     "ra": {
       "trackerTitle": "Your rent agreement requests",
+      "reissueHint": "Reissuing the agreement for this flat — we've prefilled the property so you can update the group.",
       "back": "Back",
       "next": "Next",
       "validationRequired": "Please complete the highlighted required fields.",

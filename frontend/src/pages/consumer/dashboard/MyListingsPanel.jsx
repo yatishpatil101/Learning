@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
 import { setListingStatus, toggleFeatured } from '../../../services/propertyService.js';
 import { confirmListingFresh, sendWhatsappTemplate } from '../../../lib/mockApi.js';
-import { closeDeal, reopenDeal, markUnderOffer, deleteRoom, isPaidOwnerPlan } from '../../../lib/store.js';
+import { deleteRoom } from '../../../lib/store.js';
+import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
 import { myContactRequests } from '../../../services/contactService.js';
 import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
@@ -11,6 +12,7 @@ import { publishManagedProp, deleteManagedProp } from '../../../lib/data/managed
 import { splitFlat, unsplitFlat } from '../../../lib/data/flatSplit.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
+import { usePlan } from '../../../context/PlanContext.jsx';
 import { Card, SectionHead } from './components.jsx';
 import AttentionBanner from './myListings/AttentionBanner.jsx';
 import EmptyState from './myListings/EmptyState.jsx';
@@ -28,6 +30,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
   const [splitTarget, setSplitTarget] = useState(null);
   const [dealForm, setDealForm] = useState({ buyerName: '', buyerMobile: '', finalPrice: '', date: new Date().toISOString().slice(0, 10) });
   const { flagEnabled } = useAppFlags();
+  const { isPaidOwner } = usePlan();
   const navigate = useNavigate();
   // Real per-listing leads = buyers who requested this owner's contact for that
   // property. Refetched when the list changes so counts stay in sync after actions.
@@ -46,9 +49,47 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     (id) => contactReqs.filter((r) => r.propertyId === id).length,
     [contactReqs],
   );
+
+  /* Deal state for every listing on this panel, as one owner-scoped read.
+
+     `/me/deals` returns the caller's whole book in a single request, so the per-card lookups this
+     replaces (`isDealClosed(owner, id)` per row) collapse into one call rather than becoming one
+     request per card — the same reasoning the shortlist uses for hearts.
+
+     Keyed on the *ids*, not on `listingsState` itself: that array is rebuilt on every refresh, so
+     depending on its identity re-fetched the whole book four times per dashboard load. Which is
+     the N+1 this was written to avoid, arrived at from the other direction. */
+  const listingKey = useMemo(
+    () => listingsState.map((l) => l.uuid || l.id).join(','),
+    [listingsState],
+  );
+  const [dealsByProp, setDealsByProp] = useState({});
+  const refreshDeals = useCallback(async (key) => {
+    // No listings, nothing to ask about. The panel mounts before `loadOwnerProperties` resolves, so
+    // without this the first render spends a request to be told the caller's empty book is empty.
+    if (!key) { setDealsByProp({}); return; }
+    try {
+      const rows = await myDeals();
+      const map = {};
+      (rows || []).forEach((d) => { map[String(d.propId)] = d.status; });
+      setDealsByProp(map);
+    } catch {
+      // A card whose deal state is unknown renders its listing status, which is the pre-deal truth.
+      setDealsByProp({});
+    }
+  }, []);
+  useEffect(() => { refreshDeals(listingKey); }, [refreshDeals, listingKey]);
+  /* Keyed by UUID: `/me/deals` returns `propertyId` as the real key, while a listing's `id` in the
+     seam is its slug. Looking up by `l.id` would miss every curated listing. */
+  const dealStatusOf = useCallback(
+    (l) => dealsByProp[String(l.uuid || l.id)] || 'active',
+    [dealsByProp],
+  );
   // Featuring is a paid promotion: paid owner plans can toggle it themselves;
   // free plans see an upsell. The whole capability can be switched off in Settings.
-  const canFeature = isPaidOwnerPlan();
+  // `isPaidOwner` is false until a subscription is *active* — a pending payment does not
+  // unlock promotion, or an abandoned checkout would hand out a paid tool for free.
+  const canFeature = isPaidOwner;
   const featuringOn = flagEnabled('paidFeaturedListings');
 
   const refreshListings = useCallback(() => {
@@ -102,10 +143,18 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     [listingsState, typeFilter],
   );
 
-  const handleMarkUnderOffer = (l) => {
-    markUnderOffer(user?.mobile, l.id, l.deal, []);
-    toast(`${l.title} marked as Under Offer`, 'success');
-    refreshListings();
+  /* The deal routes take the property's UUID; `l.id` in the seam is its slug. See `dealStatusOf`. */
+  const dealIdOf = (l) => String(l.uuid || l.id);
+
+  const handleMarkUnderOffer = async (l) => {
+    try {
+      await reserveDeal(dealIdOf(l));
+      toast(`${l.title} marked as Under Offer`, 'success');
+      await refreshDeals(listingKey);
+      refreshListings();
+    } catch (err) {
+      toast(err?.body?.error || err?.message || 'Could not mark under offer', 'error');
+    }
   };
 
   const openFinalizeModal = (l) => {
@@ -113,27 +162,43 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
     setDealForm({ buyerName: '', buyerMobile: '', finalPrice: l.price || '', date: new Date().toISOString().slice(0, 10) });
   };
 
-  const handleFinalize = () => {
+  const handleFinalize = async () => {
     if (!showDealModal) return;
     const l = showDealModal;
     const isSale = l.deal === 'buy' || l.deal === 'sale';
-    closeDeal(user?.mobile, l.id, {
-      type: l.deal,
-      buyerName: dealForm.buyerName,
-      buyerMobile: dealForm.buyerMobile,
-      finalPrice: parseFloat(dealForm.finalPrice) || l.price,
-      closedAt: dealForm.date,
-    });
+    try {
+      // The server requires a positive agreed price and the counterparty's real ten-digit mobile,
+      // and refuses a masked number outright. This modal is the only place in the app that collects
+      // both, which is why the property page now routes owners here to close a deal.
+      await closeDeal(dealIdOf(l), {
+        agreedPrice: parseFloat(dealForm.finalPrice) || l.price,
+        counterpartyMobile: dealForm.buyerMobile,
+        note: dealForm.buyerName ? `Closed with ${dealForm.buyerName} on ${dealForm.date}` : undefined,
+      });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || 'Could not finalize the deal', 'error');
+      return;
+    }
+    // The listing's own status is a separate domain and a separate decision. `sold`/`rented` are
+    // not server statuses (the column allows pending|approved|rejected|flagged|archived), so this
+    // stays a local mark rather than a write the API would reject — see the D-item.
     setListingStatus(l.id, isSale ? 'sold' : 'rented');
     toast(`${l.title} finalized as ${isSale ? 'Sold' : 'Rented'}!`, 'success');
     setShowDealModal(null);
+    await refreshDeals(listingKey);
     refreshListings();
   };
 
-  const handleReopen = (l) => {
-    reopenDeal(user?.mobile, l.id);
+  const handleReopen = async (l) => {
+    try {
+      await reopenDeal(dealIdOf(l));
+    } catch (err) {
+      toast(err?.body?.error || err?.message || 'Could not reopen the listing', 'error');
+      return;
+    }
     setListingStatus(l.id, 'approved');
     toast(`${l.title} reopened for listing`, 'success');
+    await refreshDeals(listingKey);
     refreshListings();
   };
 
@@ -272,6 +337,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
                 <ListingCard
                   key={l.id}
                   l={l}
+                  dealStatus={dealStatusOf(l)}
                   user={user}
                   leadsFor={leadsFor}
                   featuringOn={featuringOn}

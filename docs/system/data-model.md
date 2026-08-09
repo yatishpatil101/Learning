@@ -22,7 +22,6 @@ Flow docs link here by entity name; the field-level truth for each is the named 
 | properties / listings | `Property`, `PropertySummary`, `ListingCreate`, `ListingUpdate`, `PropertyStatus` |
 | localities | `Locality`, `LocalityDetail` |
 | societies | `Society`, `SocietyDetail`, `SocietyLead` |
-| enquiries | `Enquiry` |
 | visits | `Visit`, `VisitCreate` |
 | offers | `Offer`, `OfferCreate`, `OfferResponse` |
 | deals (owner state + analytics) | `DealIntent` (buy/rent), `Deal` (aggregate: status active/reserved/closed), `DealCloseRequest` |
@@ -86,7 +85,6 @@ Text/ASCII relationship map. `1--*` = one-to-many, `1--1` = one-to-one, `*--*` =
 users (role=owner) 1--* properties
 users (role=buyer) --- act on properties via mobile-keyed records (see note below)
 
-properties 1--* enquiries        (enquiries.listingId  -> properties.id)
 properties 1--* visits           (visits.listingId     -> properties.id)
 properties 1--* offers           (offers.propId        -> properties.id)
 properties 1--1 deal_state       (deals map key        -> properties.id)  under-offer / closed
@@ -125,7 +123,7 @@ ledger, tenancies) are **keyed by the owner's/actor's 10-digit mobile number** (
 ## Conventions
 
 - **ID prefixes (seed data):** users `U####` (buyers/owners), `S###` (staff), `A###` (admin),
-  properties `P5###`, deals `D6###`, enquiries `E7###`, visits `V8###`, tickets `T9###`,
+  properties `P5###`, deals `D6###`, visits `V8###`, tickets `T9###`,
   reviews `R3###`, reports `REP5###`, referrals `RF3###`, plans `PL#`, societies `S##`.
   Runtime-created records use time-based ids (`c`/`f`/`of`/`req`/`d`/`t`/`rp` + `Date.now()`).
 - **Timestamps:** seed uses either an ISO date string `YYYY-MM-DD` (`at`, `createdAt`, `joinedAt`)

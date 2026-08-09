@@ -6,10 +6,13 @@ import { fmtINR } from '../../lib/format.js';
 import { PALETTE } from '../charts/index.jsx';
 import TenantFinancesTab from './TenantFinancesTab.jsx';
 import {
-  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, getBasis, setBasis, getTransactions, addTransaction, deleteTransaction,
-  financeSummary, expenseBreakdown, cashflowByMonth, getDues,
+  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, expenseBreakdown,
   exportTransactionsCSV, exportStatementPDF,
 } from '../../lib/data/finances.js';
+import {
+  getBasis, setBasis, listTransactions, addTransaction, deleteTransaction,
+  financeSummary, cashflow as cashflowApi, dues as duesApi,
+} from '../../services/rentService.js';
 import FinancesHeader from './finances/FinancesHeader.jsx';
 import KpiStrip from './finances/KpiStrip.jsx';
 import DuesSection from './finances/DuesSection.jsx';
@@ -49,7 +52,12 @@ export default function FinancesTab({ user, listings, toast, isOwner = true, sho
 
 function OwnerFinances({ user, listings, toast }) {
   const { t } = useTranslation();
-  const [finProp, setFinProp] = useState((listings || [])[0]?.id || '');
+  /* The finance routes parse `{propId}` as a UUID and 404 on anything else, so the selector has to
+     carry the **uuid** — not `l.id`, which is the listing's *slug* (`p5002`) because the property
+     routes accept slug-or-id and a slug makes a prettier URL. The fallback covers mock listings,
+     which have no separate uuid. */
+  const propKey = (l) => String(l?.uuid || l?.id || '');
+  const [finProp, setFinProp] = useState(propKey((listings || [])[0]));
   const [finPeriod, setFinPeriod] = useState('all');
   const [finType, setFinType] = useState('all');
   const [txForm, setTxForm] = useState({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
@@ -59,13 +67,51 @@ function OwnerFinances({ user, listings, toast }) {
   const [tick, setTick] = useState(0);
 
   const mob = user?.mobile || '';
-  const basis = useMemo(() => finProp ? getBasis(mob, finProp) : null, [mob, finProp, tick]);
-  const txs = useMemo(() => finProp ? (getTransactions(mob, finProp) || []) : [], [mob, finProp, tick]);
-  const duesRaw = useMemo(() => finProp ? (getDues(mob, finProp) || []) : [], [mob, finProp, tick]);
+
+  /* Everything this tab renders for the selected property, in one pass.
+
+     `summary`, `cashflow` and `dues` used to be client-side reductions over the transaction list.
+     They are endpoints now — not for tidiness, but because the ledger is **paged**, so reducing
+     over what the client happened to hold produced a summary of page one wearing the label of a
+     summary. The server counts the whole book.
+
+     Keyed on `finProp` and a `tick` the mutations bump, so a save re-reads rather than patching
+     four derived values by hand and hoping they stay consistent with each other. */
+  const EMPTY = { basis: null, txs: [], duesRaw: [], summary: { income: 0, expense: 0, net: 0 }, cf: [] };
+  const [fin, setFin] = useState(EMPTY);
+  useEffect(() => {
+    if (!finProp) { setFin(EMPTY); return undefined; }
+    let alive = true;
+    Promise.all([
+      getBasis(finProp).catch(() => null),
+      listTransactions(finProp).catch(() => ({ items: [] })),
+      duesApi(finProp).catch(() => []),
+      financeSummary(finProp).catch(() => ({ income: 0, expense: 0, net: 0 })),
+      cashflowApi(finProp).catch(() => []),
+    ]).then(([basisRow, txPage, duesRows, summaryRow, cfRows]) => {
+      if (!alive) return;
+      setFin({
+        basis: basisRow,
+        txs: txPage?.items || [],
+        duesRaw: duesRows || [],
+        summary: summaryRow || { income: 0, expense: 0, net: 0 },
+        cf: cfRows || [],
+      });
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finProp, tick]);
+
+  const { basis, txs, duesRaw, summary } = fin;
   const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
-  const summary = useMemo(() => finProp ? (financeSummary(mob, finProp, finPeriod) || { income: 0, expense: 0, net: 0 }) : { income: 0, expense: 0, net: 0 }, [mob, finProp, finPeriod, tick]);
-  const expBreak = useMemo(() => { const raw = finProp ? (expenseBreakdown(mob, finProp, finPeriod) || {}) : {}; return Object.entries(raw).map(([category, amount]) => ({ category, amount })); }, [mob, finProp, finPeriod, tick]);
-  const cf = useMemo(() => finProp ? (cashflowByMonth(mob, finProp) || { labels: [], incomeData: [], expenseData: [] }) : { labels: [], incomeData: [], expenseData: [] }, [mob, finProp, tick]);
+  const expBreak = useMemo(() => { const raw = expenseBreakdown(mob, finProp, finPeriod) || {}; return Object.entries(raw).map(([category, amount]) => ({ category, amount })); }, [mob, finProp, finPeriod, tick]);
+  /* The chart wants three parallel arrays; the wire sends a list of points. Reshaped here rather
+     than in the mapper, because the shape is this chart's, not the domain's. */
+  const cf = useMemo(() => ({
+    labels: fin.cf.map((p) => p.month),
+    incomeData: fin.cf.map((p) => p.income),
+    expenseData: fin.cf.map((p) => p.expense),
+  }), [fin.cf]);
 
   // Month-over-month KPI deltas, derived from the already-computed cashflow series
   // (no extra data pass). Only surfaced where "up = good" holds — Collected and Net —
@@ -109,7 +155,8 @@ function OwnerFinances({ user, listings, toast }) {
   useEffect(() => {
     const opts = listings || [];
     if (opts.length === 0) return;
-    if (!finProp || !opts.some((l) => l.id === finProp)) setFinProp(opts[0].id);
+    if (!finProp || !opts.some((l) => propKey(l) === finProp)) setFinProp(propKey(opts[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listings, finProp]);
 
   const periodOpts = [
@@ -142,26 +189,38 @@ function OwnerFinances({ user, listings, toast }) {
     return list.sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [txs, finType, finPeriod]);
 
-  const submitTx = () => {
+  const submitTx = async () => {
     if (!txForm.category || !txForm.amount || isNaN(parseFloat(txForm.amount))) {
       toast(t('fin.fillCatAmount'), 'error');
       return;
     }
-    addTransaction(mob, finProp, {
-      type: txForm.type,
-      category: txForm.category,
-      amount: parseFloat(txForm.amount),
-      date: txForm.date,
-      note: txForm.notes,
-      repeat: txForm.recurring ? 'monthly' : 'none',
-    });
+    try {
+      // The store called the repeat interval `repeat`; the wire calls it `recurring`. One name wins
+      // at the seam, and it is the wire's.
+      await addTransaction(finProp, {
+        type: txForm.type,
+        category: txForm.category,
+        amount: parseFloat(txForm.amount),
+        date: txForm.date,
+        note: txForm.notes,
+        recurring: txForm.recurring ? 'monthly' : 'none',
+      });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.fillCatAmount'), 'error');
+      return;
+    }
     setTxForm({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
     setShowTxForm(false);
     setTick((tk) => tk + 1);
     toast(t('fin.txAdded'), 'success');
   };
-  const removeTx = (id) => {
-    deleteTransaction(mob, finProp, id);
+  const removeTx = async (id) => {
+    try {
+      await deleteTransaction(finProp, id);
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.txRemoved'), 'error');
+      return;
+    }
     setTick((tk) => tk + 1);
     toast(t('fin.txRemoved'));
   };
@@ -170,7 +229,7 @@ function OwnerFinances({ user, listings, toast }) {
     toast(t('fin.csvExported'), 'success');
   };
   const doExportPDF = async () => {
-    await exportStatementPDF(mob, finProp, (listings || []).find((l) => l.id === finProp)?.title || finProp);
+    await exportStatementPDF(mob, finProp, (listings || []).find((l) => propKey(l) === finProp)?.title || finProp);
     toast(t('fin.pdfDownloaded'), 'success');
   };
 
@@ -181,25 +240,30 @@ function OwnerFinances({ user, listings, toast }) {
     purchaseDate: basis?.purchaseDate || '',
     currentValue: basis?.currentValue || '',
   });
-  const saveBasis = () => {
-    setBasis(mob, finProp, {
-      type: basisForm.type,
-      purchasePrice: parseFloat(basisForm.purchasePrice) || 0,
-      purchaseDate: basisForm.purchaseDate,
-      currentValue: parseFloat(basisForm.currentValue) || 0,
-    });
+  const saveBasis = async () => {
+    try {
+      await setBasis(finProp, {
+        purchasePrice: parseFloat(basisForm.purchasePrice) || 0,
+        purchaseDate: basisForm.purchaseDate,
+        currentValue: parseFloat(basisForm.currentValue) || 0,
+      });
+    } catch (err) {
+      toast(err?.body?.error || err?.message || t('fin.basisSaved'), 'error');
+      return;
+    }
     setTick((tk) => tk + 1);
     toast(t('fin.basisSaved'), 'success');
   };
+  // The basis form mirrors whatever the load resolved, rather than re-fetching. `basis` is already
+  // the answer for this property; asking again would be a second request for a value in hand.
   useEffect(() => {
-    const b = finProp ? getBasis(mob, finProp) : null;
     setBasisForm({
-      type: b?.type || 'owned',
-      purchasePrice: b?.purchasePrice || '',
-      purchaseDate: b?.purchaseDate || '',
-      currentValue: b?.currentValue || '',
+      type: basis?.type || 'owned',
+      purchasePrice: basis?.purchasePrice || '',
+      purchaseDate: basis?.purchaseDate || '',
+      currentValue: basis?.currentValue || '',
     });
-  }, [finProp, mob]);
+  }, [basis]);
 
   const cfData = useMemo(() => ({
     labels: cf.labels || [],

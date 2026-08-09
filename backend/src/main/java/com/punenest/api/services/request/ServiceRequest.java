@@ -4,9 +4,12 @@ import com.punenest.api.common.persistence.VersionedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.util.Map;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * An assisted-service request — "draw up my rent agreement", "get me a legal opinion on this
@@ -47,14 +50,20 @@ public class ServiceRequest extends VersionedEntity {
     @Setter
     private UUID assigneeId;
 
+    /**
+     * The fields the customer filled — property, rent, deposit, scope — as a structured object (V36,
+     * D119). Held as a map rather than a flat string so the create shape round-trips onto
+     * {@link ServiceRequestDto}; {@code null} for a request with no structured detail.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "details")
-    private String details;
+    private Map<String, Object> details;
 
     protected ServiceRequest() {
         // JPA
     }
 
-    public ServiceRequest(UUID requesterId, String type, UUID propertyId, String details) {
+    public ServiceRequest(UUID requesterId, String type, UUID propertyId, Map<String, Object> details) {
         this.requesterId = requesterId;
         this.type = type;
         this.propertyId = propertyId;

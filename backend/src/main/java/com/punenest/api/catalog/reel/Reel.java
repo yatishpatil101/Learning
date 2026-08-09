@@ -34,11 +34,20 @@ public class Reel extends AuditedEntity {
 
     /**
      * The locality as it was captioned, e.g. {@code Hinjawadi} — a display label, not a slug, because
-     * that is what the clip says on screen. The feed filter matches it case-insensitively so a caller
-     * passing either casing gets the same feed.
+     * that is what the clip says on screen. This is the caption the feed renders; the feed filters on
+     * {@link #localitySlug}, not on this.
      */
     @Column(name = "locality")
     private String locality;
+
+    /**
+     * The slug the feed filters on, e.g. {@code hinjawadi} — the same locality key every other surface
+     * uses (Property carries both a display {@code locality} and a {@code locality_slug} for the same
+     * reason). Nullable: a reel captioned with a locality the curated table does not know keeps its
+     * caption but simply never appears in a slug-filtered feed, rather than being force-fit to a slug.
+     */
+    @Column(name = "locality_slug")
+    private String localitySlug;
 
     /** Whole rupees. {@code bigint} — money is never a floating-point number. */
     @Column(name = "price")

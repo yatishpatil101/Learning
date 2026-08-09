@@ -151,15 +151,14 @@ class ConversationEndpointsTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("a string that is not mobile-shaped is a 422, and that is not an oracle (D23a)")
+        @DisplayName("a string that is not mobile-shaped is a 422, and that is not an oracle (D23a/Q1)")
         void malformedMobileIsRejectedAtTheEdge() throws Exception {
             User caller = user("9830000123", Roles.Wire.BUYER, "Edge caller");
 
-            // The field carried only @Size(max = 20) until D23a, while the contract $refs Mobile.
-            // Anything non-numeric fell through to MobileMask.normalise(), which answers null, which
-            // the lookup turned into the catch-all 403 -- so "not a phone number" was reported as
-            // "no such conversation partner".
-            for (String notAMobile : new String[] {"not-a-number", "919876543210", "2012345678"}) {
+            // @IndianMobile refuses anything that does not normalise to a valid ten-digit mobile:
+            // non-numeric text, and a landline-style leading digit that strips to ten but does not
+            // start 6-9. Both are 422 at the edge, before any lookup.
+            for (String notAMobile : new String[] {"not-a-number", "2012345678"}) {
                 mvc.perform(post(Routes.Conversations.BASE)
                                 .header(HttpHeaders.AUTHORIZATION, bearer(caller))
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -167,14 +166,16 @@ class ConversationEndpointsTest extends AbstractApiTest {
                         .andExpect(status().isUnprocessableEntity());
             }
 
-            // The oracle property survives: a 422 says the string is not mobile-shaped, which the
-            // caller already knew. It never distinguishes a registered number from an unregistered
-            // one -- both of those are well-formed, and both still take the 403 path asserted above.
-            mvc.perform(post(Routes.Conversations.BASE)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(caller))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(body("9899999998", null, "hello")))
-                    .andExpect(status().isForbidden());
+            // The oracle property survives, and Q1's input leniency does not dent it: a well-formed
+            // number and its +91-prefixed twin both normalise and both take the catch-all 403,
+            // whether or not they are registered. A 422 only ever says "not mobile-shaped".
+            for (String wellFormed : new String[] {"9899999998", "919899999998"}) {
+                mvc.perform(post(Routes.Conversations.BASE)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(caller))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body(wellFormed, null, "hello")))
+                        .andExpect(status().isForbidden());
+            }
         }
     }
 

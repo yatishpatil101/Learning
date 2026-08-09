@@ -64,6 +64,7 @@ public class SupportTicketMapper {
                         byTicket.getOrDefault(t.getId(), List.of()).stream()
                                 .map(m -> new MessageDto(
                                         m.getId().toString(),
+                                        m.getAuthorId().toString(),
                                         names.get(m.getAuthorId()),
                                         m.getAuthorRole(),
                                         m.getBody(),

@@ -27,7 +27,7 @@ hand. This register is the answer to that question, and it is the SSOT for it.
    reverses the original rule*, which kept a "Closed" table so nothing "quietly stopped being
    mentioned". That was the right instinct aimed at the wrong risk: a register nobody finishes
    reading is its own failure mode, and by 2026-08-07 the closed section was longer than the open
-   one. Git history is the archive. **Two things are still never deleted:** a *ruling* (§5 — a
+   one. Git history is the archive. **Two things are still never deleted:** a *ruling* (§2 — a
    settled "no", which exists precisely so it is not re-raised), and any closed item whose lesson
    has no home in code.
 4. **Numbers are never reused.** Deleting D19 does not free D19. New debt continues from the
@@ -43,455 +43,18 @@ hand. This register is the answer to that question, and it is the SSOT for it.
 
 ---
 
-## 1. Decided: Lombok adoption policy
-
-**Status:** DONE — implemented after slice 15, the last feature slice. **Owner:** backend.
-Applied to all **62** entities; `mvn -o verify` green at **646 tests, 0 failures** — the identical
-count to before the refactor, which is the proof that it changed no behaviour.
-
-### The decision
-
-- **DTOs → keep Java records.** Lombok adds lines and removes a security guarantee.
-- **Entities → adopt Lombok `@Getter` at class level and `@Setter` at field level**, with a
-  `lombok.config` banning `@Data`, `@ToString`, `@EqualsAndHashCode` and `@Builder`.
-
-> **Amended on implementation.** This section originally said "34 entities" and prescribed
-> `@Getter @Setter` at class level. Both were wrong; see *What the survey actually found* below.
-> A blanket class-level `@Setter` would have been a real regression.
-
-### Why records stay on DTOs
-
-A record *is* the terse form — `public record KycStartResponse(String ref, String verificationUrl,
-Instant expiresAt) {}` is already shorter than Lombok's `@Value` plus a class body plus three
-`private final` declarations. There is no boilerplate to save here; the boilerplate problem is in
-entities.
-
-More importantly, **immutability is load-bearing for the trust model**. The contact gate rests on
-"the mapper decides what to reveal, and that decision is final". Give `ContactRequestResponse` or
-`PropertyResponse` setters and `response.setContact(...)` becomes legal anywhere downstream — the
-reveal stops being a decision and becomes a default. `security-reviewer` probes for premature contact
-reveal on every slice; records make that class of bug unreachable by construction rather than by
-review. `@Value` would preserve that, but then we have surrendered the mutability that was the entire
-argument for switching.
-
-Two framework details also favour records: `JwtProperties` is a `@ConfigurationProperties` record
-using `@DefaultValue` constructor binding (the idiomatic Spring Boot 3+ form), and records
-deserialize natively on Jackson 3 with no annotation processor involved — where Lombok's
-`@Jacksonized` still warns until told which Jackson generation to target.
-
-There are **73 records** in the codebase, 16 of them carrying real behaviour (static factories,
-nested types, compact constructors). Converting them would be a large diff that makes the code longer
-and the security posture weaker.
-
-### Why Lombok is right for entities
-
-Entities cannot be records — JPA needs a no-arg constructor and mutable fields — so the accessor
-boilerplate is unavoidable *by hand*. It is substantial: `catalog/property/Property.java` is 623
-lines, of which **96 are accessor declarations** (~290 lines once bodies and braces are counted,
-roughly 46% of the file). Across **62 entities** that is a few thousand lines nobody reads, reviews,
-or benefits from.
-
-Lombok removes essentially all of it. That is the whole win, and it is worth having.
-
-### What the survey actually found
-
-Counted before converting anything, across all 62 entities:
-
-| | |
-|---|---|
-| Entities | **62** (this section originally guessed 34) |
-| Fields | 485 |
-| Hand-written **trivial getters** | 476 |
-| Hand-written **trivial setters** | **139** |
-| Accessors with real logic | 4 |
-
-**The asymmetry is the finding.** Roughly **345 fields have no setter at all** — they are
-constructor-set by design, and that is deliberate. `City` says so in its own Javadoc: *"Reference
-data — seeded, never written by application code, so no setters."* A class-level `@Setter`, as
-this section first prescribed, would have generated a public setter for every one of those 345
-fields and quietly undone the immutability each entity was written to have.
-
-So the correct translation is **class-level `@Getter` + field-level `@Setter` only where a setter
-already existed**. That reproduces the previous public API exactly: after conversion the count of
-`@Setter` annotations is **139**, matching the 139 setters removed.
-
-Three further details the survey settled:
-
-- **Boolean naming: 0 collisions.** Lombok emits `isX()` for primitive `boolean` and `getX()` for
-  the `Boolean` wrapper. The codebase already followed exactly that convention, so no call site or
-  mapper had to change. `Property.negotiable` is the wrapper case and keeps `getNegotiable()`.
-- **9 fields have no getter and must keep none**, so they carry `@Getter(AccessLevel.NONE)` with a
-  Javadoc giving the reason. Three are `idempotencyKey` (`Boost`, `ServiceOrder`, `Subscription`) —
-  dedupe keys that must never reach a response body; `Referral.handledReason` is fraud-desk
-  internal; `ReferralCode.createdAt`/`updatedAt` and `DealParty.updatedAt` are bookkeeping columns
-  nothing reads. The sharpest two are `ReviewChecklistItem.review` and `ReviewMessage.review`:
-  `@ManyToOne` back-references where a getter completes the `PropertyReview → children → review`
-  cycle and makes the graph serialisable into **infinite recursion**.
-- **4 accessors carry real logic and stay hand-written**: `Property.isPubliclyVisible()`,
-  `OtpCode.isExpired()`, `RefreshToken.isExpired()` (all computed, with no backing field, so Lombok
-  cannot collide with them) and `DocumentRequest.setCategories()`, which makes a defensive copy.
-
-### Why the ban list is non-negotiable
-
-| Banned | Reason |
-|---|---|
-| `@ToString` | **The sharp one.** Slice 3 ensured `User.mobile` is masked at every edge and `masked_aadhaar` never reaches a log. A generated `toString` on `User` or `IdentityVerification` re-opens exactly that hole through the back door — one `log.debug("{}", user)` away. |
-| `@EqualsAndHashCode` / `@Data` | Generated `equals` spans all fields on a JPA entity: it triggers lazy loads, and identity changes when the id goes null→assigned, silently breaking `Set` membership across a persist. |
-| `@Builder` | Fights the current design, where constructors like `new Property(owner, title, deal, type, price, locality, city)` *are* the invariant. A builder makes every required field optional again. |
-
-The ban lives in `backend/lombok.config` — `flagUsage = ERROR` (never `WARNING`; a warning in a
-build that prints thousands of lines is a rule nobody enforces) for `toString`, `equalsAndHashCode`,
-`data`, `builder`, `value`, `allArgsConstructor`, `requiredArgsConstructor` and `sneakyThrows`. It is
-enforced by the compiler, not by whoever reviews the PR.
-
-**Verified, not assumed:** injecting `@ToString` onto `City` fails the build with
-`Use of @ToString is flagged according to lombok configuration`. Repeat that check if the config is
-ever moved — Lombok finds it by walking *up* from the source file, so relocating it silently
-disarms every rule.
-
-### Build wiring — where the details actually live
-
-Lombok + MapStruct is the ecosystem's most notorious annotation-processor ordering problem. All of
-it — the mandatory `lombok → lombok-mapstruct-binding → mapstruct-processor` order, why the offline
-repository forces `<lombok.version>1.18.44</lombok.version>` below the Boot 4.1 BOM's 1.18.46, and
-what breaks if either changes — is commented **in `backend/pom.xml` beside the elements it governs**,
-which is where somebody editing them will actually read it.
-
-Two things not obvious from the pom: the failure mode is loud rather than silent, because
-`PropertyMapper` sets `unmappedTargetPolicy = ERROR`, so a mis-ordered processor fails the compile
-with "Unmapped target property" — **do not "fix" that by relaxing the policy**. And if anything ever
-does look wrong, read the generated `CityMapperImpl.java` and confirm MapStruct is calling
-Lombok-generated accessors (`city.getSlug()`, `city.isLive()`) rather than assuming it.
-
----
-
-## 2. Decided: validation framework — three layers, one shared package
-
-**Status:** ANALYSED, decided, not implemented. **Trigger:** after the last backend feature slice.
-**Owner:** backend. Register rows: D23–D25 — **D23a and D25 are delivered (§5); D23 alone
-remains, blocked on Q1.**
-
-### The question asked
-
-*"Can we have a separate package handling validation from a single point?"*
-
-### The answer: for one of the three things "validation" means, yes
-
-A validation spine already exists and is sound — Bean Validation on DTO records, rendered by the
-single `common.error.GlobalExceptionHandler` into `422 ValidationProblem { fields[] }`, with four
-handlers covering request bodies, path/query params, method-level validation and programmatic
-constraints. **That does not change.** The gap is consistency, not capability, and it is only in one
-of three layers:
-
-| Layer | Question it answers | Home | State today |
-|---|---|---|---|
-| **Format / syntax** | "Is this a well-formed Indian mobile / IFSC / account number?" | **nowhere — copy-pasted** | ❌ the actual gap |
-| **Vocabulary** | "Is `mode` one of `physical\|virtual`?" | feature constants (§7.1) | ⚠️ right pattern, ~60% applied |
-| **Domain invariant** | "May this caller accept this offer, in this state?" | the owning service | ✅ already correct |
-
-### The evidence — this is a live contract violation, not a style preference
-
-The OpenAPI spec defines **one** `Mobile` schema (`pattern: '^[6-9][0-9]{9}$'`) `$ref`'d by 21
-fields. Java re-spells it inline **five times with four different messages**, and three of those
-were wrong — one more than this section originally recorded:
-
-```java
-// DealCloseRequest.java:17  and  DealPartyCreateRequest.java:16  (before D23a)
-@Pattern(regexp = "^[0-9]{10,15}$", message = "must be a 10–15 digit mobile number")
-String counterpartyMobile
-
-// ConversationCreate.java  (before D23a) — no pattern at all
-@NotBlank @Size(max = 20) String counterpartyMobile
-```
-
-Spec line 4002 says `counterpartyMobile: { $ref: '#/components/schemas/Mobile' }`. **And it had a
-second-order effect:** `MobileMask.mask()` deliberately returns `null` for anything that is not
-exactly 10 digits, and `DealService.addParty` stored `body.mobile()` unnormalised. So a 15-digit
-`counterpartyMobile` was accepted, stored, and then silently serialised as `null` on every masked
-read. A validation inconsistency became a data-integrity bug — which is the general argument for
-this work stated concretely.
-
-**The three regexes are fixed (D23a, done).** What remains under D23 is the shared package below,
-which removes the *cause* rather than this instance of it — and that is still blocked on Q1.
-
-Also inline where a §7.1 constant should exist: `unfurnished|semi-furnished|furnished` (duplicated
-across `ListingCreate` **and** `ListingUpdate`), and `^(accept|decline|counter)$` in
-`OfferRespondRequest` — a file that declares `ACCEPT`/`DECLINE`/`COUNTER` constants and then does not
-compose its own regex from them.
-
-### What goes in the shared package (D23)
-
-A deliberately small `com.punenest.api.common.validation`, sibling to `common.error`:
-
-```
-common/validation/
-  IndianMobile.java         @Constraint → ^[6-9][0-9]{9}$
-  Ifsc.java                 ^[A-Z]{4}0[A-Z0-9]{6}$
-  BankAccountNumber.java    ^[0-9]{9,18}$
-  ValidationMessages.java   message strings, so every 422 body reads identically
-```
-
-**What actually shipped, and why it differs (D25).** The package exists, with one file:
-`Formats.java`, holding the mobile pattern **and its message together**. Two corrections to the
-sketch above, both learned by doing it:
-
-1. **A separate `ValidationMessages` is the bug, not the fix.** The message exists only to say in
-   English what the regex says in symbols. The moment they live in different files, changing one and
-   not the other is a one-line mistake nothing catches — which is exactly how one rule came to be
-   described three ways. Paired constants were already the house style (`PropertyPossession`,
-   `Furnishing`, `DealIntent`); this is that style, not a new one.
-2. **`Ifsc` and `BankAccountNumber` did not move**, because this section's own admission criteria
-   exclude them: each appears at exactly **one** call site (`PayoutAccountUpdateRequest`), as do PAN
-   and Aadhaar (`OwnerKycUpdateRequest`). Hoisting a rule with one caller builds the dumping ground
-   the criteria exist to prevent, and moves `identity.kyc`'s rules out of `identity.kyc`.
-
-`@IndianMobile` — the composed `@Constraint` — is what is still outstanding under D23, and it is
-still blocked on Q1, which decides what the regex *is*. D25 was only ever about there being one of
-it, and `foundation/SharedFormatsTest` now fails the build on a tenth inline copy.
-
-Composed **meta-annotations** over `@Pattern` — no `ConstraintValidator` implementations are needed
-for any of these. Roughly 4 small files and ~15 call-site edits, with **zero new runtime behaviour**
-beyond what D23a already landed — the regexes are now correct at each site; the package is about there being one site.
-
-This is the same argument that already justified `common.trust.MobileMask`, whose own Javadoc records
-that it was created *because* three divergent digit-stripping helpers had appeared. `common.validation`
-is that precedent applied to input rather than to output.
-
-**Admission criteria — so it cannot become a dumping ground.** A rule belongs here only if it is
-(1) used by ≥2 bounded contexts, (2) defined by the OpenAPI spec, and (3) dependency-free. Anything
-that fails all three stays in its feature.
-
-### What does NOT move, and why
-
-**Vocabulary stays feature-owned** (`api-standards.md` §7.1 is right). Centralising
-`ContactRequestStatuses` beside `OfferStatuses` beside `VisitModes` builds a package that every
-feature imports *and* that imports every feature's concepts — precisely the coupling
-`package-structure.md` forbids, and the thing that makes later service extraction stop being
-mechanical. Contact-request status is meaningful only inside `leads.contact`.
-
-**Domain invariants stay in services. This is the trap in the original question.** The "single
-point" instinct tends to produce a `ValidationService`. Consider what `OfferService.respond()`
-actually enforces: caller is buyer-or-owner (needs the JWT plus two repositories), accept/decline is
-owner-only, `counterAmount` is required when countering, and `OfferStatuses.canTransition`. To
-centralise that, the validation package would have to inject `OfferRepository`,
-`PropertyRepository`, `DealRepository`, `ContactRequestRepository` and `UserRepository` — then repeat
-that for 32 other services. It inverts the dependency graph into a god-package and separates each
-rule from the transaction that makes it atomic. **A service enforcing its own invariants is not
-scattered validation; that is what a service is.**
-
-### Sequencing
-
-The `common.validation` package and the §7.1 cleanup (D24) are one clean standalone commit. The
-`counterpartyMobile` fix (D23a) is separable and cheap, and is a contract violation rather than debt
-— **it can be pulled forward into any slice that touches `deals` without waiting for the rest.**
-
-One prerequisite is a decision, not code: `MobileMask.normalise()` accepts `+91 9821000123` while
-the DTO `@Pattern` rejects it. Those two disagree about what a valid mobile is, and the shared
-annotation cannot be written until that is settled — see `open-questions.md` Q1.
-
----
-
-## 3. Decided: code quality — the measured baseline
-
-**Status:** DONE — implemented after slice 15, the last feature slice. **Owner:** backend.
-Applied to all **62** entities; `mvn -o verify` green at **646 tests, 0 failures** — the identical
-count to before the refactor, which is the proof that it changed no behaviour.
-
-The brief was "improve readability, cut unnecessary lines, reuse code, keep classes under 500–600
-lines". Rather than assert where the fat is, it was **measured**. The measurements changed the
-answer, so they are recorded here — a register row without the number behind it gets re-argued.
-
-### The measurements
-
-Taken across `backend/src` at the close of slice 8.
-
-| Metric | Value | Reading |
-|---|---|---|
-| Main source | 330 files, 22,143 lines | — |
-| — comments | **9,458 (42.7%)** | near 1:1 with code; the largest single block of removable text |
-| — blank | 2,839 (12.8%) | normal |
-| — code | 9,846 (44.5%) | — |
-| Main files > 500 lines | **2** | `Property.java` 623, `Routes.java` 591 |
-| Largest service | `RentService` 405 | healthy, but trending up |
-| `@param` tags | **562** | vs only **26** `@return` — a 20× asymmetry |
-| — of which ≤ 4 words | **232** | pure ceremony; restates the parameter name |
-| Test source | 36 files, 9,292 lines | |
-| Test files 400–647 lines | **13** | `RentEndpointsTest` 647 is the only file in the repo over 600 |
-| Shared test fixtures | **1** (`support.AbstractApiTest`, D34) | was: 34 classes injected `JwtService`, **26 hand-rolled a byte-identical `bearer()`** |
-| Static-analysis plugins in `pom.xml` | **0** | no checkstyle / spotless / pmd / spotbugs / archunit |
-| `package-info.java` files | **0** | across 22 bounded contexts |
-
-### What the numbers actually say
-
-**Class length is already a solved problem — do not act on it.** Only two main files exceed 500
-lines, and neither should be split:
-
-- `catalog/property/Property.java` (623) is 89 lines of hand-written accessors. **D1 (Lombok on
-  entities) alone takes it to ~250.** No structural change is needed; the fix is already in §1.
-- `common/web/Routes.java` (591) is a deliberate flat constant registry (`api-standards.md` §2.1).
-  **Its length is the feature** — one file you can grep for every route. Splitting it by feature
-  would reintroduce exactly the scatter the rule exists to prevent. **Argue against any future
-  proposal to split it.**
-
-The real waste is in two places the brief did not name: **the 42.7% comment ratio** and **test
-fixture duplication**. Together with the accessors, roughly **1,200 lines (≈4% of the codebase) are
-removable with zero behaviour change** — 232 `@param` lines + ~370 accessor lines + 600–900 lines of
-test duplication.
-
-### The items
-
-| Ref | Item | Register row |
-|---|---|---|
-| C1 | Trim `@param` ceremony (~230 lines) | **D33 — open** |
-| C2 | Shared test fixtures (`AbstractApiTest`) | **Delivered.** 34 classes extend it; the `Fixtures` half was refused, not done — reasoning in the class Javadoc |
-| C3 | Lombok on entities | **Delivered** — see §1 for the policy, which still governs new entities |
-| C4 | `NotFoundException.of("Property")` factory | **Delivered** — 73 call sites; see `NotFoundException` |
-| C5 | Collapse the bespoke exception subclasses | **Rejected** — see §5 |
-| C6 | Formatter + linter + boundary tests in `verify` | **D36 — open** (boundary third delivered as `ArchitectureBoundaryTest`) |
-| C7 | Service-split trigger at ~450 lines | **D37 — open** |
-| C8 | One `package-info.java` per bounded context | **D38 — open** |
-
-Effort-to-value order was **D34 > D33 > D36 > D38 > D37 > D35**. D34, D1 and D35 are done; of what remains, **D33 is blocked** until `api-standards.md` §10 is amended (deleting the lines without changing the rule that mandates them just grows them back), so the live order is **D36 > D38 > D37**.
-
-### D33 — trim the `@param` ceremony, and amend the rule that caused it
-
-562 `@param` against 26 `@return` is not documentation, it is a habit. **232 of them are ≤4 words**
-and restate the parameter name: `@param city → city (required)`, `@param lat → latitude, nullable`,
-`@param name → display name`, `@param bhk → bedroom count, nullable`. The remaining 330 carry real
-information and **stay**.
-
-There is a second, stronger argument than brevity: the `(required)` / `nullable` suffixes **duplicate
-the `@NotBlank` / `@Nullable` annotation on the very next line**. That is two sources of truth for
-one fact, and the Javadoc is the one that will silently drift when the annotation changes.
-
-**This item is not complete without amending `api-standards.md` §10**, which currently requires
-Javadoc on every public type and method and is therefore the direct cause of the 232 lines. The
-replacement rule: *document a component only when its name does not already say it; never restate
-what an annotation enforces.* Delete the lines without changing the rule and they grow back.
-
-### D36 — formatter first, linter second (config stored, baseline measured)
-
-**The config is already in the repo:** `backend/config/checkstyle/checkstyle.xml`, seeded from the
-Google Java Style config supplied by the project owner. The two supplied files
-(`checkstyle.xml`, `checkstyle-checker.xml`) were **byte-identical** — same SHA-256 — so one copy is
-stored, not two. It was copied *into the repo* deliberately: a build must not depend on a path
-inside someone's personal OneDrive.
-
-**One change was required to make it run at all:** the supplied file is an older revision that
-declares `LineLength` under `TreeWalker`. Checkstyle moved that module to `Checker` in 8.24, so as
-supplied it fails with *"TreeWalker is not allowed as a parent of LineLength"*. The module has been
-hoisted to `Checker` level in the repo copy; nothing else was altered.
-
-**Measured baseline — 717 violations across 333 main-source files** (Checkstyle 10.13.0). Test
-sources were not scanned in this run, so the true figure is higher.
-
-| Count | Rule | Who should fix it |
-|---|---|---|
-| 357 | `ImportOrder` | **A formatter.** The config also enables `CustomImportOrder`, which is duplicative and near-contradictory; and `groups=java,javax,com,org` does not match Spring Boot convention. Half the baseline, and no human should touch any of it. |
-| 208 | `SingleLineJavadoc` | **Nobody — drop the rule.** It forbids `/** One line. */`, which is exactly the terse form D33 moves *toward*. Enforcing it would make the codebase worse. |
-| 43 | `RightCurlyAlone` | A formatter |
-| 37 | `LeftCurly` | A formatter |
-| 31 | `EmptyLineSeparator` | A formatter |
-| 13 | `OperatorWrap` | A formatter |
-| 6 | `JavadocTagContinuationIndentation` | A formatter |
-| 5 | `Indentation` | A formatter |
-| 3 | `SummaryJavadoc` | Nobody — same conflict as `SingleLineJavadoc` |
-| 2 | `JavadocParagraph` | A formatter |
-| 7 | `OneTopLevelClass` | **A linter — genuine finding** |
-| 2 | `LocalVariableName` | **A linter — genuine finding** |
-| 2 | `VariableDeclarationUsageDistance` | **A linter — genuine finding** |
-| 1 | `OverloadMethodsDeclarationOrder` | **A linter — genuine finding** |
-
-Which totals: **494 auto-fixable layout · 211 rules to delete · 12 genuinely semantic.**
-
-### The finding that changes the tool choice
-
-**12 of 717 violations (1.7%) actually need a linter.** The other 98% either delete themselves with
-the rule, or are layout a formatter rewrites in one command without asking anyone's opinion.
-
-That is the argument against making Checkstyle the centrepiece. Checkstyle **reports**; it does not
-**fix**. Adopting it as designed here means assigning a human ~494 mechanical edits, then relying on
-that human to re-do them forever — which is precisely the failure mode that produced the 232 `@param`
-lines in the first place. A rule that a machine can enforce should never be enforced by a person.
-
-### Versions: we are behind, but that is the smaller problem
-
-| | In use | Current | Gap |
-|---|---|---|---|
-| Checkstyle engine | **10.13.0** (Jan 2024) | **13.9.0** (2026-07-27) | 3 major versions |
-| `maven-checkstyle-plugin` | 3.4.0 | 3.6.0 | plugin absent from local cache |
-| Style config | Google style, **pre-8.24** | — | old enough that `LineLength` was still under `TreeWalker` |
-
-Two consequences worth naming:
-
-- **13.x removed `JavadocStyle`** and reworked the Javadoc AST; the supplied config would need real
-  work, not a version bump, to run on it.
-- **10.13.0 predates Java 22–25 syntax.** This project is **Java 25 / Spring Boot 4.1**. It parsed
-  today's 333 files only because nothing yet uses post-21 syntax — that is luck, not compatibility.
-  The first flexible constructor body or module import declaration breaks the build step.
-
-### The better shape: three tools, each doing what it is actually good at
-
-1. **Spotless (Maven plugin 3.9.0) + a Java formatter — owns all 494 layout violations.**
-   `mvn spotless:apply` fixes them in seconds; `spotless:check` bound to `verify` stops them coming
-   back. No ruleset to maintain, no style debates, zero human edits. Prefer `palantir-java-format`
-   over `google-java-format`: the Google formatter forces 2-space indent (a far larger diff against
-   this codebase) and needs `--add-exports` flags because it reaches into `javac` internals.
-   **Verify the chosen formatter actually runs on JDK 25 before committing** — both reach into
-   compiler internals and that is where they break first.
-2. **A bug finder — the gap Checkstyle cannot fill.** Checkstyle found **zero defects** in 717
-   findings, because it does not look for any. Error Prone (annotations 2.43.0 are already in the
-   local cache) catches null dereferences, `equals` across unrelated types, format-string mismatches
-   and ignored return values. On Java 25 it needs `-XDcompilePolicy=simple` plus add-exports — real
-   friction, so treat it as its own decision, not a freebie.
-3. **Boundary rules — the ones that actually matter here**, and the only ones
-   specific to this codebase rather than to Java in general.
-
-**Checkstyle then shrinks to a ~12-rule residual config** covering only the semantic checks above —
-or is dropped entirely and those 12 issues fixed once by hand. Either is defensible; what is not
-defensible is a 253-line config and a build step whose real yield is twelve findings.
-
-### Why none of this happens today
-
-- **Maven cannot reach the corporate Artifactory** (`artifacts.mastercard.int` — connect timeout), so
-  nothing new can be resolved. Locally cached and usable: Checkstyle 10.13.0, `maven-checkstyle-plugin`
-  3.4.0. **Absent:** Spotless, PMD, SpotBugs, google/palantir-java-format, ArchUnit. OpenRewrite's
-  libraries are cached (8.70.3, including `rewrite-java-25`) but its Maven plugin is not.
-  So the honest position is: today the only runnable option is the stale one. **Do not wire a
-  half-measure into `verify` to feel productive.**
-- **A repo-wide reformat collides with in-flight work.** The trigger stays "after the last feature
-  slice" for a concrete reason: on 2026-07-31 a `documents` + `identity/kyc` slice was being written
-  while this assessment ran. Reformatting 330 files under an active slice buys a merge conflict in
-  every one of them.
-
-**When it does happen:** land Spotless first (mechanical, uncontroversial, deletes 494 findings),
-then decide whether the residual 12 justify keeping Checkstyle at all. (The boundary half is already delivered — D3, without an ArchUnit dependency.) Do not
-switch anything to `failOnViolation` on the first commit — 330 files have never been linted.
-
-**And note the conflict rather than importing it silently:** `SingleLineJavadoc`, `SummaryJavadoc`
-and any `JavadocMethod`-style rule pull directly against D33 and the `api-standards.md` §10
-amendment. The style config follows the house rule; it does not overrule it.
-
-### D37 — service-split trigger
-
-Services top out at 405 lines and are trending up. Agree the rule now, while it is free and nobody is
-defending a specific file: **past ~450 lines, split by use-case, never by layer.** A `RentService`
-that grows becomes `RentBillingService` + `RentPaymentService`, never `RentServiceHelper` — a helper
-class named after its parent is a file split, not a design.
-
-### D38 — `package-info.java` per bounded context
-
-Zero exist across 22 contexts. One short file per context stating what it owns and what it may not
-import lets class-level Javadoc **stop re-establishing context in every file** — so this is a net
-*reduction* in comment volume, not an addition. It also gives the delivered boundary rules (D3) a documented home,
-which is what turns the boundary rules from folklore into something checkable.
-
----
-
-## 4. Open register
-
-**77 open** — 4 High, 2 Med-High, 35 Med, 36 Low. Highest number ever issued: **D104**; numbers are
-never reused (rule 4), so gaps in this list are deleted items, not mistakes.
+## 1. Open register
+
+**89 open** — 4 High, 3 Med-High, 47 Med, 35 Low. Largest clusters: `design` 37, `frontend` 10,
+`security` 8, `contract` 4. Highest number ever issued: **D145**; numbers are never reused
+(rule 4), so the 56 gaps in this list are deleted items, not mistakes.
+
+> **Counting this table by hand or by a naive script gets it wrong**, and has for months. Two traps:
+> rows contain escaped pipes (`hasListings() \|\| …`), so splitting on `|` shifts every later column
+> and silently mis-reads the priority; and the four High rows are *also* listed in the summary above,
+> with fewer columns, so counting row lines double-counts them. Unescape first, and prefer the
+> 7-column row for any id that appears twice. The figures above satisfy 4+3+47+35 = 89 and
+> 89 + 56 gaps = D145, which is the check that they hang together.
 
 > **The count above was wrong for months and is now derived, not asserted.** The header claimed
 > "60 open" while the table held 78 rows — every pass edited the prose and not the arithmetic, so
@@ -610,24 +173,21 @@ deferred on purpose.**
 | D7 | Saved-search alerting job writing `new_count` | engagement | Low | needs a scheduler |
 | D9 | Frontend still computes the platform fee | frontend | Med | rent-UI integration slice |
 | D10 | Refresh-token pruning job | auth | Low | when the table grows |
-| D11 | `role` / `status` as `String`, not enums | style | Low | — (deliberate, see §5) |
+| D11 | `role` / `status` as `String`, not enums | style | Low | — (deliberate, see §2) |
 | D12 | Staff-login timing equalisation | security | Low | if staff enumeration becomes a concern |
 | D13 | Scoped-staff `roleId` / `moduleAccess` | admin | Med | admin slice (needs spec + backend) |
 | D15 | Notification preferences (R9) | engagement | Low | no table, no contract |
-| D16 | `reels.locality` holds display names, not slugs | catalog | Low | frontend integration slice |
-| D17 | Legacy `enquiries` surface — implement or formally deprecate | leads | Med | needs a product call |
 | D20 | `ProfileTab.save` sends `city`, absent from `UserUpdate` | frontend | Low | silently dropped on http |
 | D21 | Verify-funnel Playwright coverage (modal → mock → badge) | e2e | Med | e2e owner |
-| D23 | `common.validation` shared format package (§2) | backend | Med | backend / blocked on Q1 |
 | D26 | Frontend derives trust client-side (`applyVerifiedBadgeToListings`, `isSeriousBuyer`) | frontend | Med | moot on `http` flip; live in mock mode |
 | D28 | e2e `expect(errors).toEqual([])` assertions are network-dependent | e2e | Med | flaky offline / in CI |
 | D29 | e2e `services-loans-team.spec.js` failing (pre-existing) | e2e | Med | e2e owner |
 | D30 | Owner-scoped mock stores keyed on owner **mobile**, not `ownerId` | frontend | Med | Phase 3/4 integration |
 | D32 | ProfileTab identity chips are hardcoded English | i18n | Low | ProfileTab i18n pass |
 | D33 | **~195 `@param` lines still restate their parameter in a synonym** — the 2026-08-07 pass amended `api-standards.md` §10 first (the durable half: without it they grow straight back) and deleted the **42** that are provably empty — pure name restatements and `(required)`/`nullable` suffixes that duplicate the annotation on the next line. **The remaining ~195 were deliberately not deleted.** The register's criterion was "≤4 words", and applied literally that removes genuinely useful lines: `@param orderId the provider's {@code order_id}` is four words and says which external field it maps to. A synonym (`@param title headline`) is a judgement call a regex should not make unsupervised | quality | Low | by hand, per file, when that file is next edited — §10 now forbids adding more |
-| D36 | **Formatter-first**: Spotless owns layout, Checkstyle shrinks to ~12 semantic rules (§3). The boundary third is already delivered by `ArchitectureBoundaryTest` (D3), so this is now a two-tool question, not three | build | Med | backend / blocked on repo access (Spotless is not in the offline repo) |
-| D37 | Service-split trigger at ~450 lines, by use-case not layer (§3) | architecture | Low | agree now, apply on next service that crosses it |
-| D38 | One `package-info.java` per bounded context (§3) | architecture | Low | with D36 — its original trigger, D3, is delivered |
+| D36 | **Formatter-first: Spotless owns layout, then reassess whether Checkstyle is worth keeping at all** — measured on the stored config (`backend/config/checkstyle/`, which carries the full baseline): **717 violations across 333 main-source files, of which only 12 (1.7%) actually need a linter.** 494 are layout a formatter fixes for free; 211 come from rules that contradict `api-standards.md` §10 and would have to be deleted. Enabling it as-is hands a human ~494 mechanical edits and finds zero bugs. The boundary third is already delivered by `ArchitectureBoundaryTest`, so this is a two-tool question, not three | build | Med | backend / blocked on repo access (Spotless is not in the offline repo) |
+| D37 | **Service-split trigger: past ~450 lines, split by use-case, never by layer** — services top out at 405 lines and are trending up, so agree the rule now while it is free and nobody is defending a specific file. A `RentService` that grows becomes `RentBillingService` + `RentPaymentService`, never `RentServiceHelper`: a helper class named after its parent is a file split, not a design | architecture | Low | agree now, apply on the next service that crosses it |
+| D38 | **One `package-info.java` per bounded context** — zero exist across 22 contexts. One short file per context, stating what it owns and what it may not import, lets class-level Javadoc **stop re-establishing context in every file**, so this is a net *reduction* in comment volume rather than an addition. It also gives the delivered boundary rules (`ArchitectureBoundaryTest`) a documented home, which is what turns them from folklore into something checkable. The value depends entirely on the prose being accurate — 22 files done shallowly is worse than not done | architecture | Low | with D36 |
 | D41 | Deleting a document leaves its object in the store — needs a bucket lifecycle rule | storage | Low | with the real object store |
 | D42 | Share token travels as a query parameter — any request logging that is turned on must exclude `token` | security | Med | platform / first real deploy |
 | D44 | **Service requests are not team-scoped** — `service_requests` has no `team` column and `type` is free text, so every ops user sees every request while tickets are desk-scoped. Inferring a desk from `type` would silently hide work the day a new type appears | design | Med | when the service catalogue is a closed vocabulary (Billing & Growth slice) |
@@ -670,17 +230,32 @@ deferred on purpose.**
 | D93 | **`dismiss` on a notification is a client-side tombstone** — there is no `DELETE /notifications/{id}`, so the http provider records dismissed ids in `pnDismissedNotifs` and filters reads through them. Consequences, all deliberate and all documented on the provider: it does not sync across devices, clearing site data brings the row back, and the unread count excludes tombstoned rows so the bell stays clearable. Chosen over hiding the X in http mode (removes a working control) or throwing (a dead button) | design | Low | needs `DELETE /notifications/{id}`, or a product decision that dismiss is device-local |
 | D94 | **Notification preferences have no server surface at all** — `getNotifPrefs`/`setNotifPrefs`/`inQuietHours` cover email/sms/whatsapp channels, a master `matchAlerts` switch, quiet hours and language, and every one of them lives only in localStorage. `ProfileTab.jsx` was deliberately not touched by the notification slice for that reason. The practical consequence is that quiet hours suppress *client-derived* alerts only — a server-written notification arrives at 3am regardless, because the server has never been told | design | Low | needs `GET/PUT /me/notification-preferences`; pair it with the D92 writers, which are what would have to honour it |
 | D96 | **14 specs still carry a local console-noise filter or none at all** — the 2026-08-07 pass moved **31** onto `helpers/console.js` and merged every local pattern into the shared `IGNORE` first, so consolidating could not silently *tighten* a spec. What is left is the tail: `search-property-types.spec.js` keeps a self-contained `pageerror`-only helper, `live-property-integration.spec.js` was left alone as in-flight work, and ~12 specs assert on `pageerror` only. **The register's "50 of 67 filter nothing" was wrong** — measured, only **9** had a genuinely unfiltered `console` listener; 35 track `pageerror` alone, which no proxy or CDN can manufacture, so they were never exposed to this defect | test-gap | Low | fold the tail in when those files are next touched |
-| D97 | **Three flatmates source findings, handed back from the redesign and never picked up** — (a) `/services/rent-agreement?flat=&reissue=1` params are never read, so that CTA opens a blank wizard; (b) room `share` intent is dropped by `addFlatmateRequest` and survives only in the chat opener; (c) `occupancyOf` collapses a stored `'filling'` to `occupied` (the at-rest enum is `empty\|occupied`). **(d) is closed** — see the note below | bug | Med | small and independent; take them in any order |
 | D98 | **Two mobile items blocked on a design/product call, not on engineering** — (a) at 200% font scale the raised centre "Post" slot cannot fit a 56px circle plus a 24px label in a 56px bar (needs ~74px), so that one label squeezes; the fix is to drop the redundant text under an already-`aria-label`led FAB, which is a design decision. (b) "B7" bottom-nav density: 7 targets and 265px of painted control in a 360px row, with the account pill ending at exactly x=360 — real and measured, but the item's suggested escape hatch does not exist, so it needs a call on what leaves the bar | design | Low | needs a design/product decision before any code |
-| D99 | **Swipe-to-dismiss / swipe-to-remove gestures deferred** — sheets close via backdrop, X and the grab handle; Saved has a remove button. Destructive-by-gesture needs an undo affordance to be safe, and touch-drag handling is real state machinery for a P2 win. Recorded rather than dropped so the decision is visible next time the sheets are touched | design | Low | only alongside an undo affordance |
+| D99 | **Swipe-to-remove on Saved deferred** — *narrowed 2026-08-08: the sheet half already shipped.* `useSwipeDismiss` is wired into `Select.jsx` ("drag the grab handle down to dismiss"), so sheets are done; the register was still recording them as deferred. What remains is the **destructive** gesture: removing a shortlisted property by swipe. That needs an undo affordance to be safe, which is real state machinery for a P2 win, so it stays deferred deliberately | design | Low | only alongside an undo affordance |
 | D100 | **The parity harnesses write into the dev database and cannot clean up** — `review-parity.mjs` posts a real locality review on every run, and reviews are **public**, so "Parity probe review." renders on `/locality/aundh` to anybody browsing. This was found the hard way: the first version of the live reviews e2e asserted on "seeded" aundh reviews that turned out to be four rows the harness had littered — *a test whose fixture is another tool's litter*. The e2e now writes its own fixture; the harness pollution remains. `conversation-parity.mjs` does the same but its rows are private, so the blast radius is smaller | testing | **Med** | needs either `DELETE /reviews/{id}` (moderation can hide but not remove), or the harnesses pointed at a dedicated throwaway database rather than `punenest` |
-| D101 | **28 of 94 seeded users have no `name`, so their reviews render as "User"** — `ReviewResponse.author` is `NON_NULL` and therefore *absent* from the wire entirely for those users, not empty-string. Both review mappers default to `'User'`, which is the honest fallback, but a review list where a third of the authors are called "User" reads as broken rather than as anonymous. The gap is in the seed data and in the fact that nothing forces a name at sign-up: OTP login mints a user from a mobile alone | data | Low | either backfill the seed, or decide what an unnamed author should be called and say it once (`Verified user`?) rather than defaulting per mapper |
-| D102 | **The support form's mobile field is contact detail the API cannot carry** — `/support` is a `ProtectedRoute` and `SupportTicketCreate` has no identity field, so the raiser is the session. The form still shows an editable, validated mobile prefilled from the profile. On the common path that is right; a user who *edits* it to a different callback number is telling us something that goes nowhere. Not gated like priority and attachments, because those set a value that is silently discarded, whereas this is merely not *also* stored — support still reaches them through the account and the thread | design | Low | either make it read-only in http mode, or add a `contactMobile` to the create schema if callback-on-a-different-number is a real need |
-| D103 | **The support catalogue and the server status vocabulary disagree** — the page labels `new/open/waiting/resolved/closed`; the server has `open/in-progress/waiting/resolved/closed`. `new` never occurs live, and `in-progress` has no label, so it renders as the raw key. Deliberate: `getStatusLabel` falls back to the key, and collapsing `in-progress` onto `open` would erase a distinction ops made and tell the customer nothing was happening while somebody worked on it | design | Low | add an `in-progress` label (and drop `new`) when the ops surface that sets it exists |
-| D104 | **Society and locality catalogues are seeded ~10× thinner than the frontend's** — the frontend ships 348 societies (28 curated + 320 MahaRERA) and 155 localities; the database has 28 and 16. Every slug the extra rows use would 404 against `GET /societies/{slug}` and `PUT /me/societies/{slug}/follow`. **This blocks the societies seam domain**, which is otherwise ready: `GET /societies` already carries `avgRating`/`reviewCount` for the three card call sites that need it. Found while scoping that slice | data | **Med** | seed the RERA import and the full locality list, then the societies slice is a day's work |
-| D105 | **A domain enabled in `VITE_API_DOMAINS` under a name that does not match its lookup key falls back to mocks silently** — the allow-list is lower-cased when parsed; `isHttpDomain` was not, so `savedSearch` could never match. The "enabled but has no http provider" warning is itself gated on `isHttpDomain`, so there was **nothing in the console**: a live e2e run would have passed while exercising the mock. Fixed by lower-casing the lookup, but the class of bug survives — a typo'd domain name is still only a `console.warn` | correctness | **Med** | validate `VITE_API_DOMAINS` against the http provider registry at startup and fail loudly on an unknown name |
-| D106 | **Four http providers read Spring's `number` for the current page, not the contract's `page`** — `PageEnvelope` declares `page`, and the server sends `page`. `contact`, `saved`, `review` and `report` all read `res?.number ?? page`, so the fallback quietly resolved to the *requested* page. It agrees with the server until the server disagrees — any clamp or redirect and the client reports a page the caller is not on. Two parity harnesses had the same bug in their own unwrapping, which is why it went unreported: harness and provider were wrong in the same direction. Fixed in all six places | correctness | Low | the live e2e now asserts `page` on the wire; consider a shared `unwrapPage` helper so there is one place to be wrong |
-| D107 | **The four oldest parity harnesses could not run under current Node** — `visit`, `contact`, `saved` and `saved-search` used a plain `await import()`, which reaches `mockApi/core` → `db.json` (Node ≥ 22 demands an import attribute) and `persist.js` (reads `import.meta.env.DEV`, undefined outside a bundler). They failed before the first assertion, so "the harness passes" had been vacuously true for however long. Migrated to Vite's SSR loader, which the newer three already used | tooling | Low | none — all seven now share one loader; keep new harnesses on it |
+| D114 | **No batch endpoint for "is this person a verified tenant"** — `GET /tenant-profiles/{mobile}` answers it for one person, but every caller (`DealPanel`, `ReviewsSection`, `useFlatmates`) asks during render, about someone else, **inside a list**: the verified tick beside each offer, applicant and reviewer. Converting it would be one request per row — the N+1 the shortlist and the deal book were restructured to avoid, with no batch endpoint to restructure into. `isTenantVerifiedFor` therefore stays on localStorage and fails closed (a verified tenant may lose a badge; an unverified one can never gain it). Documented as a SEAM NOTE at the function | contract | Med | `POST /tenant-profiles/verified` taking a list of mobiles, or a `verified` flag on the party objects already embedded in offers and visits |
+| D115 | **Deposit financing has no endpoint and no home** — the Pay Rent screen offers a security-deposit financing product, and the mock recorded it as a **rent payment** (`type: 'deposit-finance'`) in the same bucket, which every reader then had to filter out. It is not a rent payment: it is a loan. Against the API it cannot be written at all, so it is now local-only component state and disappears on reload. Either the product is real and needs a table and endpoints, or it should be removed from the page | product | Med | decide whether deposit financing ships; if so, model it separately from `rent_payments` |
+| D118 | **`flatmate_group_members.name` is `NOT NULL` but sourced from nullable `users.name`** — `FlatmateSupplyService.join` passed `joiner.getName()` straight into the row. OTP sign-in never sets a name, so joining a group 500'd for exactly the users who had just signed up — the ones least able to interpret it. Fixed by falling back to `"Member"`. The underlying mismatch stands: a column the schema insists on, fed from one the schema does not | correctness | Med | either make `users.name` required at sign-up or make the member name nullable and render a fallback |
+| D120 | **Service-request documents are multipart to the vault and do not resolve in dev** — draft and final documents are `multipart/form-data` returning **signed URLs** that a dev backend does not serve, and there is no customer upload surface behind the tracker (sharing a draft and uploading a final are staff transitions). The seam projects `draft`/`finalDoc` from `documents[]` by category for when they exist, but a customer-created request carries neither, and the per-request **document checklist** (six named items in the mock) has no read representation on the wire. So the tracker's document column and inline `draft.dataUrl` preview are mock-only; live mode shows the thread and the status, not the paperwork | design | Med | a dev-resolvable document surface (or a checklist read endpoint) before the tracker's document UI can flip to http |
+| D121 | **Co-fill service requests have no counterparty endpoint** — the mock splits a rent agreement across two mobiles (`serviceFlow.createCoFill`, `listForParty`), keyed on the *other* party's `ownerMobile`; the customer API scopes every request to its requester, so there is no party view to fetch. `listPartyServiceRequests` returns `[]` in http mode (never `undefined` — the tracker spreads it) and `useRentAgreement.js` create stays on `serviceFlow.create` because its create is a co-fill. Also here: `markServiceRequestRead` is a no-op (no read-receipt endpoint) and `changes_requested` collapses server-side to `in-progress` (the maker-checker has `approve`/`reject` only), so a rejection is unrecoverable from the read shape | design | Med | a co-fill invite endpoint (and a distinct `changes_requested` state) if the two-sided rent-agreement flow ships live |
+| D122 | **The Aadhaar badge cannot be earned in dev, and two mock affordances have no wire home** — `startAadhaar` is a **202 pending handle**, and the badge is granted only by the DigiLocker webhook (`POST /webhooks/digilocker`), which a dev backend never receives. So in http mode a user can start verification but never finish it: the badge stays `pending`, and the live suite asserts exactly that. Two mock-only pieces have no server counterpart and stay in the mock provider: the **growth perk** (`applyVerifiedBadgeToListings`, an instant listings boost on grant — the live handle's `perk` is null) and **`aadhaarMobile`** (DigiLocker returns no mobile, only the masked last four; the mapper carries it as `''` so mock and live answer the same keys). Not a bug — the seam is honest that the grant is a webhook away — but the badge's happy path is undemonstrable without a stubbed webhook | design | Med | a dev-only "simulate DigiLocker success" webhook trigger (or a seeded verified `identity_verifications` row) so the earned-badge state can be exercised in http mode |
+| D123 | **The document seam is the owner's side only — the buyer's half has no faithful server mapping** — `documentService.js` covers the vault (list/upload/delete a listing's files) and the owner's request inbox (list/respond, `/me/documents/{propId}` and `/me/documents/requests`). The buyer's half cannot follow: the server is **token-mediated** (`POST /documents/requests` then `GET /documents/shared?token=`), giving a buyer no way to poll a request's status, so `DocumentsSection`/`ViewDocuments` keep reading `lib/data/documents.js` cross-user localStorage directly (never through the service). Also staying on `lib/`: the cross-user grant notification (`notifyBuyerDocsGranted`), the shared-doc count (`countSharedDocs`), the owner dashboard's per-listing doc-count badge, **rent agreements** (they overlap the already-live tenancy flow — created as a side effect in `lib/data/tenancy.js`), and every presentation helper (`DOC_CATEGORIES`, `DOC_INFO`, `docInfo`, `formatSize`, `docIcon`, checklist progress). The vault's signed-URL preview does not resolve in dev (the D120 pattern), so `toDoc` carries `url` for a viewer but the bytes only exist behind the mock's `dataUrl` | design | Med | a buyer-facing request-status read (`GET /me/document-requests` scoped to the requester) would let the buyer half join the seam; until then it is deliberately mock-only |
+| D125 | **The flipped document vault degrades badly on failure** (item 2 resolved 2026-08-08) — Slice D moved the owner vault's list/upload/delete and the owner request inbox onto `documentService`, which is correct but surfaced four more rough edges the synchronous store never had, all resolved 2026-08-08 (see below). **(1)** every load `.catch`es to `[]`, so a failed `GET /me/documents/requests` does not degrade the buyer-request panel, it **removes** it (the whole card is gated on `docReqs.length > 0`) along with its pending badge — an owner is told they have no requests when the truth is the read broke; the same shape makes a failed vault read render a confident, wrong `0/10` loan checklist. **(1) — RESOLVED 2026-08-08:** each of the three lists now carries a `loading`/`error`/`ready` status, so a failed read shows a retry affordance instead of removing the panel, and a failed vault read no longer paints a confident wrong checklist (the checklist is hidden until the vault is `ready`). **(2) — RESOLVED:** `useDashboardData` now reads the inbox through `listDocRequests` and grants through `respondDocRequest` (the seam), the same service `DocumentsTab` uses, so the Documents tab, the `leads` badge and the Action Center share one source of truth and a grant issued from the dashboard reaches the server in http mode; `countSharedDocs`/`notifyBuyerDocsGranted` stay mock-only behind `!isHttpDomain('document')`. Covered by `consumer/account/doc-requests-grant.spec.js`. **(3)** there is no loading state: all three lists start `[]`, so a full vault first paints as an empty one (ring `0/26`, every tile in Upload) and then snaps — the late reflow is what destabilised `doc-info.spec.js`. **(3) — RESOLVED 2026-08-08:** a loading vault renders a skeleton and an indeterminate ring instead of a false `0/N` that snaps. **(4)** `uploadForCategory` captures `targetProp` but `setTick` refetches the *current* property, so uploading while the selector moves toasts success next to an unchanged tile; and `tick` is one scalar across all three effects, so one grant costs four round trips while the provider's own post-mutation return value is discarded. **(4) — RESOLVED 2026-08-08:** `tick` is gone; each mutation applies its provider return value to the one list it belongs to, guarded by a ref so an upload never lands on the wrong flat when the picker moves, and a grant patches only the answered row. **(5)** the http grant branch always toasts success, losing the mock's honest `approvedNoDocToast` for a category with no file behind it; and `openDocUrl` opens **any** `https?://` the API returns, so a dev signed URL (D120) yields a blank tab with a DNS error instead of the `noPreviewToast` it would have shown. **(5) — RESOLVED 2026-08-08 (viewer half):** the viewer treats the non-resolving dev storage-stub URL as non-previewable and shows `noPreviewToast`; the http grant toast is intentionally left as success — live mode has no client-side doc count to flag an empty grant, and the server is authoritative there | design | Med | all five items are resolved (item 2 by the dashboard-seam slice, items 1/3/4/5 by the `DocumentsTab` cleanup); delete this entry once both land on the same branch. The only deliberate residue is the live http grant toast noted in (5) |
+| D128 | **The app has no offline or connectivity-failure state at all** — `navigator.onLine` returns zero matches across `frontend/src`. The service worker serves a cached shell, so on a dropped connection the app renders normally and every data call fails silently: the user sees an empty page, not an explanation. On the target device (mid-range Android, patchy 4G) this is the common case, not the edge case | frontend | **Med-High** | one shared connectivity banner + a retry affordance on the async-list hook that already carries `loading`/`error` |
+| D129 | **~570 KB raw of application data is eagerly bundled onto the critical path** — `mockApi/core.js` imports `db.json` (236 KB), `societies.js` imports `societies-rera.js` (182 KB), and `i18n/index.js` uses `import.meta.glob(..., { eager: true })` for all locales (247 KB). The bundle-size gate (`npm run check:size`, CI line 81) guards against *regression* but was set above the current mass, so it locks the problem in rather than fixing it | frontend | Med | `db.json` should go with the mock seam; RERA data behind a dynamic import; load one locale eagerly, the rest on switch |
+| D130 | **No bot defence on the public lead forms** — `captcha`/`recaptcha`/`turnstile` return zero matches in both `backend/` and `frontend/`. D2/D73 cover rate limiting, which is a different control: a limiter throttles a known principal, and these forms (`/society-leads`, share-flat, service quotes) accept anonymous posts. ADR-015 already chose the answer (Cloudflare Turnstile at the edge) — it was simply never wired | security | Med | wire Turnstile per ADR-015 before the lead forms see real traffic |
+| D131 | **Uploaded documents are never scanned** — `virus`/`clamav` return zero matches in `backend/`, and there is no async worker anywhere (`outbox`, `KafkaTemplate`, `ApplicationEventPublisher` all zero). The vault accepts 10 MB files and hands back signed URLs that other users can open. ADR-013 explicitly deferred malware scanning; this row is that deferral made visible, not a new finding | security | Med | scan-on-upload before the vault is shared outside the owner |
+| D132 | **Owner finance summaries scan the ledger on every request** — `/me/finances/{propId}/summary` and `/cashflow` aggregate per call with no rollup table (nothing named `*_rollup`/`*_summary` in 33 migrations). Distinct from D69, which covers the *admin analytics* series; this is the per-owner path that grows with each rent cycle | performance | Med | a maintained rollup, or accept and measure once real ledgers exist |
+| D133 | **No aggregate/BFF endpoints** — `/me/dashboard` returns zero matches in both the Java tree and the OpenAPI spec, so the dashboard fans out to many small calls (the D-series has already caught one 4× duplicate fetch there). Recorded as an explicitly unresolved proposal rather than a decision | design | Med | confirm against the real dashboard call count before adding a bespoke aggregate |
+| D134 | **No enforced minimum text size, and nothing that could enforce one** — the blanket 12 px floor was never applied (a large diff across ~40 files), and there is no legibility spec: `e2e/tests/mobile/` holds 25 specs and none sweeps computed font sizes. The `/property/:id` five-stat band renders all five labels at 11 px | design | Med | land the floor and the sweep together, or neither holds |
+| D135 | **Three routes still show a full-screen spinner instead of a skeleton** — `/dashboard`, `/flatmates` and `/society` are not among the four files using the `skeleton` class (`Featured`, `listings/ResultsArea`, `Property`, `dashboard/DocumentsTab`). On a slow connection a spinner communicates less than a shaped placeholder and causes the same late reflow that destabilised `doc-info.spec.js` | frontend | Med | reuse the existing skeleton pattern |
+| D136 | **The tap-target sweep does not walk the routes with the worst offenders** — measured but unswept: `/messages` tabs 172×32, `/dashboard` "View all" 48×20, `/society/:slug` breadcrumbs 55×20, `/help` article links 186×15, plus the whole admin/field-ops surface (topbar icons 28×28, row `View` 51×28). Admin needs an authenticated fixture the mobile projects do not carry, which is why it was skipped | e2e | Med | extend the sweep; the admin half needs the fixture first |
+| D138 | **No Lighthouse or performance run in CI** — `.github/workflows/ci.yml` runs lint, i18n, help, build and `check:size`; nothing measures FCP/LCP, so the stated mobile performance targets are unverified by anything | build | Low | add once D129 has moved the bundle, or the first run just records the problem |
+| D139 | **No pull-to-refresh on any list surface** — zero matches for `pull-to-refresh`/`usePullToRefresh`. Distinct from D99: that gesture is destructive and needs undo, this one is not | frontend | Low | one hook, applied to `/listings`, `/saved`, `/notifications`, `/messages` |
+| D140 | **The services landings ship 1.26 MB of hero imagery** — the heaviest image payload measured anywhere in the app. `srcSetFor` is imported only by `Featured.jsx`, `listings/Card.jsx` and `property/Gallery.jsx`; the service pages never got it | frontend | Low | put the service heroes on the existing `srcSetFor` helper |
+| D141 | **`/property/:id` is 5,447 px of scroll with no progressive disclosure** — the page has section tabs but no per-section collapse (`accordion`/`Collaps` matches only a comment). On the most important page in the funnel, the mobile user scrolls past everything to reach anything | design | Med | collapse the low-intent sections by default |
+| D142 | **The mobile home fold has no search entry point** — the hero search panel is `hidden lg:block` by deliberate design (it cost 286 px) and no compact tap-to-search pill replaced it, so a first-time mobile visitor must already know to use the bottom-nav Search tab | design | Low | a single-line search pill, not the full panel |
+| D143 | **The Saved tab strip is still a horizontally-scrolling pill row** — the signed-out shortlist state shipped, but the strip itself hides tabs off-screen on a 360 px viewport with no affordance that more exist | design | Low | reuse the bottom-sheet switcher, or wrap to two rows |
 
 ### Detail on the ones that need it
 
@@ -694,11 +269,6 @@ first deploy, not another slice's scope creep.**
 **D5 — owner `hideNumber`.** The frontend mock has the preference; there is no backing column and no
 contract field. Would live as `users.hide_number boolean not null default false`, masking the owner
 mobile *even after approval*. Blocked on a product decision — `open-questions.md` Q2.
-
-**D17 — legacy `enquiries`.** `GET /enquiries` is the pre-ADR-019 lead model. V4's own header calls
-the schema deprecated but retained for back-compat. It is neither implemented nor formally sunset —
-the worst of both. Pick one: implement it, or mark it `deprecated: true` in the spec with a sunset
-note. Needs a product call — `open-questions.md` Q3.
 
 **D22 — Maps key rotation.** A real key was committed in `.env.example` and is in git history across
 two commits. A placeholder is committed now, but **history exposure means the key must be rotated** —
@@ -726,7 +296,7 @@ deals/offers/visits server-authoritative, so the remaining exposure is mock-mode
 
 ---
 
-## 5. Standing rulings — do not re-litigate
+## 2. Standing rulings — do not re-litigate
 
 The only permanent section. Everything here is a settled **"no"** or a deliberate choice that looks
 like an oversight, so each entry exists to stop the same question being re-raised by the next
@@ -743,21 +313,23 @@ present before deletion. Git history holds the rest.
 
 | Item | Ruling |
 |---|---|
-| Records vs Lombok for DTOs | **Records.** See §1. |
-| A central `ValidationService` / rule engine | **No.** See §2 — it inverts the dependency graph and separates each rule from its transaction. Format rules only move; invariants stay in services. |
+| Records vs Lombok for DTOs | **Records.** Immutability is load-bearing for the trust model: the contact gate rests on "the mapper decides what to reveal, and that decision is final", and a setter on `PropertyResponse` turns that decision into a default. A record is also already shorter than the Lombok equivalent, so there is nothing to save. Full policy in `backend/lombok.config`. |
+| A central `ValidationService` / rule engine | **No.** Consider what `OfferService.respond()` enforces: caller is buyer-or-owner (needs the JWT plus two repositories), accept/decline is owner-only, `counterAmount` is required when countering, plus the status transition table. Centralising that means injecting `Offer`, `Property`, `Deal`, `ContactRequest` and `User` repositories into the validation package — then repeating it for 32 other services. It inverts the dependency graph into a god-package and separates each rule from the transaction that makes it atomic. **A service enforcing its own invariants is not scattered validation; that is what a service is.** Format rules may move (`common.validation.Formats`); invariants stay. |
 | Centralising status/vocabulary constants in one package | **No.** §7.1 stands; a shared vocabulary package would import every feature's concepts. |
 | `role`/`status` as `String` not `enum` | Deliberate (`api-standards.md` §7.1). Feature-owned constants mirror the DB `CHECK` and the spec vocabulary; enums add a mapping layer and break on a spec-side value addition. |
 | Duplicated `maskMobile` in two mappers | Deliberate. Both are `private` so MapStruct cannot adopt them as implicit `String→String` converters. A security rule readable in place beats one you have to go find. |
+| `reportMapper` / `reviewMapper` duplicating the page-envelope unwrap | Deliberate. Every other unwrap site now calls `unwrapPage` from `services/http.js`, but those two mappers are the only modules in the seam with **no imports at all**. Pulling the transport module into a pure mapper to save four lines makes every consumer of a mapper transitively depend on `API_BASE` and token storage. The duplication is four lines with identical semantics; the coupling would be permanent. |
 | `tools.jackson` import "is wrong" | It is correct. Spring Boot 4 ships Jackson 3. |
-| `pendingContactCount` / `pendingOfferCount` etc. | Client-derived from the list responses. No endpoint, no spec addition. |
+| **Should we hold deposits, or become a party to the tenancy?** | **No — and this is the one to not re-litigate.** Rescued 2026-08-08 from `docs/feature review/02` before deletion; it existed in exactly one place while an open register row (D115) asked the question it answers. Taking custody of deposits or standing between landlord and tenant converts a marketplace into a balance sheet: it makes us the principal in every dispute, exposes us to defaults we do not price, and drags in NBFC-adjacent regulation we have no licence for. That is the failure mode that broke Nestaway. **We stay the venue, never the counterparty.** Consequence for D115: deposit financing is only shippable as a *referral* to a lender who carries the risk — if it cannot be built that way, it comes off the page. |
+| `pendingContactCount` / `pendingOfferCount` etc. | **Superseded 2026-08-08 — this ruling was false.** It read "client-derived from the list responses; no endpoint, no spec addition", but `GET /me/contact-requests/pending-count` shipped as D78 precisely because a client-side count over one page is wrong past the first page. Kept as a correction rather than deleted: a stale "do not re-litigate" is worse than no ruling, and someone will otherwise re-derive the client-side version. |
 | Server mask format `98XXXXX210` vs mock `+91 98••• ••10` | Server format stands; the prettier rendering is client-side presentation. |
 | `GET /reels` declares `page`/`size` but returns a bare array | Correct for an infinite-scroll feed — bounded input, no total needed. |
 | `ReviewResponse.categories` empty-not-null | Deliberate, so clients iterate without a guard. |
 | Mojibake / BOM "should just be a grep for the bad sequences" | **No — detect by round-trip.** A pattern list only ever catches damage somebody already noticed: the first repair pass used one and missed two whole families. `SourceTreeHygieneTest.noMojibakeOrBom` re-encodes each non-ASCII run to CP1252 and decodes it as UTF-8, accepting only a valid, strictly shorter result — which also leaves genuine `Café` / `पुणे` / `₹` alone. |
 | Collapsing the 5 bespoke exception subclasses into one parameterised type (C5) | **No.** `AadhaarAlreadyRegistered`, `ReviewNotEligible` and friends each carry a distinct wire error code the React client branches on. Named types are greppable, testable, and impossible to get subtly wrong at the call site; collapsing them saves ~5 files and costs the one property that matters. |
-| Splitting `common/web/Routes.java` because it is 591 lines | **No.** Its length is the feature — one greppable registry of every route (`api-standards.md` §2.1). Splitting it by feature reintroduces the scatter the rule exists to prevent. See §3. |
-| "Classes are too long, we need to split them" | **Measured and false.** Only 2 main files exceed 500 lines; one is fixed by D1 and the other should stay long. The real waste is the 42.7% comment ratio and test duplication — see §3. |
-| "Just upgrade Checkstyle to the latest and turn it on" | **No — the version is the smaller problem.** Measured: **12 of 717 findings (1.7%) actually need a linter**; 494 are layout a formatter fixes for free and 211 come from rules that must be deleted because they contradict D33. Upgrading 10.13.0 → 13.9.0 and enabling it would hand a human ~494 mechanical edits and still find zero bugs. Formatter first (Spotless), then reassess whether the residual 12 justify keeping Checkstyle at all — the boundary rules that would have been ArchUnit's job already ship as D3. See §3 D36. |
+| Splitting `common/web/Routes.java` because it is 591 lines | **No.** Its length is the feature — one greppable registry of every route (`api-standards.md` §2.1). Splitting it by feature reintroduces the scatter the rule exists to prevent. |
+| "Classes are too long, we need to split them" | **Measured and false.** Only 2 main files exceed 500 lines, and one of those should stay long (`Routes.java`, above). The measured waste was elsewhere: a 42.7% comment ratio and test duplication — which is what D33 and the `AbstractApiTest` consolidation addressed. |
+| "Just upgrade Checkstyle to the latest and turn it on" | **No — the version is the smaller problem.** Measured: **12 of 717 findings (1.7%) actually need a linter**; 494 are layout a formatter fixes for free and 211 come from rules that must be deleted because they contradict D33. Upgrading 10.13.0 → 13.9.0 and enabling it would hand a human ~494 mechanical edits and still find zero bugs. Formatter first (Spotless), then reassess whether the residual 12 justify keeping Checkstyle at all — the boundary rules that would have been ArchUnit's job already ship as `ArchitectureBoundaryTest`. Open as **D36**; the full baseline lives in `backend/config/checkstyle/README.md`. |
 
 ### A note on `tasks/todo.md` unchecked boxes
 

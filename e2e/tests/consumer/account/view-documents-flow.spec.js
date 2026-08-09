@@ -79,7 +79,7 @@ test('one granted link shows every approved file for that buyer + property', asy
   await expect(page.getByRole('heading', { name: /Shared Documents/i })).toBeVisible();
   await expect(page.getByText('sale-deed.png').first()).toBeVisible();
   await expect(page.getByText('society-noc.png').first()).toBeVisible();
-  await expect(page.getByText(/2 document\(s\) shared/i)).toBeVisible();
+  await expect(page.getByText(/2 documents shared/i)).toBeVisible();
   // View-only promise holds: no download control anywhere on the page.
   await expect(page.getByRole('button', { name: /download/i })).toHaveCount(0);
 });

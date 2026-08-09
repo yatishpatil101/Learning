@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../context/AuthContext';
+import { usePlan } from '../../../context/PlanContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
 import {
@@ -28,6 +29,9 @@ export default function useListProperty() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // The plan's listing ceiling. Async now, which is why the quota below cannot be decided in a
+  // `useState` initialiser any more — that runs before the first fetch resolves.
+  const { listingLimit: planLimit, loading: planLoading } = usePlan();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
@@ -52,9 +56,22 @@ export default function useListProperty() {
   // Duplicate-property guard — the owner already has this unit listed.
   const [showDupGuard, setShowDupGuard] = useState(false);
   const [dupExistingId, setDupExistingId] = useState('');
-  // Freemium quota is fixed for this page load — a new post over the limit is
-  // paywalled; editing an existing listing never is.
-  const [canPost] = useState(() => (editId ? true : canPostListing()));
+  /* Freemium quota is fixed for this page load — a new post over the limit is
+     paywalled; editing an existing listing never is.
+
+     Starts permissive and is decided once the plan resolves. The order matters: deciding while
+     the plan is still loading reads the free-tier floor, which would show a paywall to an owner
+     who has paid to remove it. The opposite slip — a free owner seeing the form for the moment
+     before the ceiling is known — costs nothing, because posting is gated again on submit. */
+  const quotaDecidedRef = useRef(false);
+  const [canPost, setCanPost] = useState(true);
+  useEffect(() => {
+    if (editId || quotaDecidedRef.current || planLoading) return;
+    quotaDecidedRef.current = true;
+    setCanPost(canPostListing(planLimit));
+  }, [editId, planLoading, planLimit]);
+  /** The ceiling to show in the paywall, from the same plan the decision above used. */
+  const planListingLimit = useCallback(() => listingLimit(planLimit), [planLimit]);
 
   const [form, setForm] = useState(initialForm);
   // Always-fresh mirror of `form` so async callbacks (e.g. reverse-geocode auto-fill,
@@ -304,6 +321,6 @@ export default function useListProperty() {
     isResidential, isLand, isCommercial, isHouse, isPg,
     money, setDepositMonths,
     nextStep, prevStep, openResetConfirm, confirmReset, submitProperty, submitFlatmate,
-    activeListingCount, listingLimit,
+    activeListingCount, listingLimit: planListingLimit,
   };
 }

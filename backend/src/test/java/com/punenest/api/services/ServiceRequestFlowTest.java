@@ -331,10 +331,14 @@ class ServiceRequestFlowTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"type\":\"rent-agreement\",\"status\":\"approved\","
-                                    + "\"propertyId\":\"" + p.getId() + "\"}"))
+                                    + "\"propertyId\":\"" + p.getId() + "\","
+                                    + "\"details\":{\"property\":\"Aundh, Pune\",\"rent\":25000}}"))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.status").value("new"))
-                    .andExpect(jsonPath("$.propertyId").value(p.getId().toString()));
+                    .andExpect(jsonPath("$.propertyId").value(p.getId().toString()))
+                    // D119: the structured details the form sent are echoed back, not write-only.
+                    .andExpect(jsonPath("$.details.property").value("Aundh, Pune"))
+                    .andExpect(jsonPath("$.details.rent").value(25000));
         }
 
         @Test
@@ -345,7 +349,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
             mvc.perform(post(Routes.ServiceRequests.BASE)
                             .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"details\":\"something\"}"))
+                            .content("{\"details\":{\"note\":\"something\"}}"))
                     .andExpect(status().isUnprocessableEntity());
         }
 
@@ -358,6 +362,19 @@ class ServiceRequestFlowTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"type\":\"rent-agreement\",\"propertyId\":\"not-a-uuid\"}"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("an oversized details object is a 400 (D119: the bound the old string cap had)")
+        void oversizedDetailsRejected() throws Exception {
+            User buyer = customer("9820000136");
+            String huge = "x".repeat(9000);
+
+            mvc.perform(post(Routes.ServiceRequests.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"type\":\"rent-agreement\",\"details\":{\"note\":\"" + huge + "\"}}"))
                     .andExpect(status().isBadRequest());
         }
     }

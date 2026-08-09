@@ -4,6 +4,8 @@ import { listEnquiries } from '../../../lib/mockApi.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
 import { myContactRequests, respondToContactRequest } from '../../../services/contactService.js';
+import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
+import { isHttpDomain } from '../../../services/config.js';
 import { getPhotoReqs } from '../../../lib/photoRequests.js';
 import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
@@ -11,7 +13,7 @@ import {
   getRecentProps,
 } from '../../../lib/store.js';
 import {
-  getDocRequests, respondDocRequest, countSharedDocs, notifyBuyerDocsGranted,
+  countSharedDocs, notifyBuyerDocsGranted,
 } from '../../../lib/data/documents.js';
 import { loadMyListings } from '../../../lib/data/myListings.js';
 import { countMatches, searchHref } from '../listings/alertCriteria.js';
@@ -64,8 +66,26 @@ export function useDashboardData({ user, toast }) {
     if (user?.mobile) {
       setPhotoReqs(getPhotoReqs(user.mobile));
       setFlatmateReqs(getFlatmateRequests(user.mobile));
-      setDocReqs(getDocRequests(user.mobile));
     }
+  }, [user]);
+
+  // The document request inbox is a seam read (mock or live, per `document` domain), owner-scoped by
+  // the session, so like the contact inbox below it takes its own effect rather than the synchronous
+  // localStorage read the panels above use. Reading it here through the same service `DocumentsTab`
+  // uses is what keeps the Documents tab, this sidebar badge and the Action Center on one source of
+  // truth — before this, the tab read the seam while the badge read localStorage, so in http mode a
+  // real request showed in one place and not the other, and a grant issued here never reached the
+  // server. A failed read resolves to an empty inbox rather than taking the dashboard down with it.
+  useEffect(() => {
+    if (!user?.mobile) {
+      setDocReqs([]);
+      return undefined;
+    }
+    let alive = true;
+    listDocRequests(user.mobile)
+      .then((rows) => alive && setDocReqs(rows || []))
+      .catch(() => alive && setDocReqs([]));
+    return () => { alive = false; };
   }, [user]);
 
   // The contact inbox is a network read and is owner-scoped by the session, so unlike the
@@ -93,21 +113,49 @@ export function useDashboardData({ user, toast }) {
 
   // Buyer document requests are stored one record per document; the Requests panel
   // groups them per buyer, so Grant/Decline "all" arrives here as a list of ids to
-  // resolve together, then we re-read the shared state so every surface stays in sync.
-  const decideDocReqs = (reqIds, decision) => {
-    (reqIds || []).forEach((id) => respondDocRequest(user.mobile, id, decision));
-    setDocReqs(getDocRequests(user.mobile));
-    if (decision === 'granted') {
-      const shared = countSharedDocs(user.mobile, reqIds);
-      if (shared > 0) {
-        notifyBuyerDocsGranted(user.mobile, reqIds);
-        toast(`Access granted — ${shared} document${shared === 1 ? '' : 's'} now visible to this buyer.`, 'success');
-      } else {
-        // Owner approved a category they haven't actually uploaded a file for yet.
-        toast('Access approved, but you haven’t uploaded these documents yet. Upload them in the Document Vault so the buyer can view them.', 'info');
+  // resolve together. Each id is responded through the seam (so the grant reaches the
+  // server in http mode), then we re-read the inbox through the same service so every
+  // surface stays in sync.
+  const decideDocReqs = async (reqIds, decision) => {
+    const ids = reqIds || [];
+    // Re-read the inbox through the seam so every surface reflects the server's truth. Shared so the
+    // failure path can refresh too: a partial-loop failure may have already resolved some ids, and
+    // leaving those rendering as pending would misreport the state the user is told to retry from.
+    const refresh = async () => {
+      try {
+        setDocReqs((await listDocRequests(user.mobile)) || []);
+      } catch {
+        // The mutation went through; leave the list as-is if the re-read fails rather than blanking it.
       }
-    } else {
+    };
+    try {
+      for (const id of ids) {
+        // eslint-disable-next-line no-await-in-loop -- a handful of ids per buyer; sequential keeps the store consistent
+        await respondDocRequest(user.mobile, id, decision);
+      }
+    } catch {
+      await refresh();
+      toast('Could not update every request. Some may have gone through — please review and retry.', 'error');
+      return;
+    }
+    await refresh();
+    if (decision !== 'granted') {
       toast('Request declined — your documents stay private.', 'info');
+      return;
+    }
+    // Shared-doc accounting is a mock-only affordance (a localStorage share ledger). In http mode the
+    // server mints the share and notifies the buyer on grant, so there is nothing to count here.
+    if (isHttpDomain('document')) {
+      toast('Access granted — the buyer can now view these documents.', 'success');
+      return;
+    }
+    const shared = countSharedDocs(user.mobile, ids);
+    if (shared > 0) {
+      notifyBuyerDocsGranted(user.mobile, ids);
+      toast(`Access granted — ${shared} document${shared === 1 ? '' : 's'} now visible to this buyer.`, 'success');
+    } else {
+      // Owner approved a category they haven't actually uploaded a file for yet.
+      toast('Access approved, but you haven’t uploaded these documents yet. Upload them in the Document Vault so the buyer can view them.', 'info');
     }
   };
 

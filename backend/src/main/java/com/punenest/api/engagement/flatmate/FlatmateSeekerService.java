@@ -77,11 +77,15 @@ public class FlatmateSeekerService {
         this.audit = audit;
     }
 
-    /** {@code GET /flatmates/posts} — public. Visible posts, newest first, optionally one locality. */
+    /** {@code GET /flatmates/posts} — public. Visible posts, newest first, filtered server-side. */
     @Transactional(readOnly = true)
-    public Page<FlatmateSeekerPostDto> feed(String locality, Pageable pageable) {
-        String filter = FlatmateVocabulary.blankToNull(locality);
-        return posts.feed(filter, pageable)
+    public Page<FlatmateSeekerPostDto> feed(PostFacets facets, Pageable pageable) {
+        return posts.feed(
+                FlatmateVocabulary.blankToNull(facets.locality()),
+                FlatmateVocabulary.facetOrNull(facets.gender()),
+                FlatmateVocabulary.facetOrNull(facets.flatPref()),
+                FlatmateVocabulary.facetOrNull(facets.roomPref()),
+                facets.minBudget(), facets.maxBudget(), pageable)
                 .map(post -> mapper.toDto(post, FlatmateMapper.SeekerView.ANONYMOUS));
     }
 

@@ -25,8 +25,8 @@ const PRIORITIES = [
 ];
 
 const STATUS = {
-  new: { label: 'New' },
-  open: { label: 'In progress' },
+  open: { label: 'Open' },
+  'in-progress': { label: 'In progress' },
   waiting: { label: 'Awaiting your reply' },
   resolved: { label: 'Resolved' },
   closed: { label: 'Closed' },
@@ -176,7 +176,7 @@ export function createTicket(o) {
     category: o.category || 'other',
     subject: String(o.subject || '').slice(0, 140),
     priority: o.priority || 'normal',
-    status: 'new',
+    status: 'open',
     assignedTo: null,
     assignedId: null,
     createdAt: now(),
@@ -214,7 +214,7 @@ export function replyToTicket(id, o) {
   bump(t);
   if (role === 'staff') {
     t.unreadCustomer = (t.unreadCustomer || 0) + 1;
-    if (t.status === 'new' || t.status === 'resolved') t.status = 'open';
+    if (t.status === 'open' || t.status === 'resolved') t.status = 'in-progress';
   } else {
     t.unreadStaff = (t.unreadStaff || 0) + 1;
     if (t.status === 'resolved' || t.status === 'closed' || t.status === 'waiting') t.status = 'open';

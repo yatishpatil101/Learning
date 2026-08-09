@@ -11,7 +11,7 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { createServiceRequest } from '../../../lib/mockApi.js';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
-import { create as createFlowRequest } from '../../../lib/serviceFlow.js';
+import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
@@ -105,7 +105,7 @@ export default function PropertyValuation() {
     if (!ok) return;
     const ref = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
     createServiceRequest({ team: 'valuation', service: form.purpose, customer: form.name, mobile: form.mobile, detail: `${form.ptype}${form.location ? ' · ' + form.location : ''}${form.area ? ' · ' + form.area + ' sq.ft' : ''}`, ref });
-    createFlowRequest(form.mobile, { type: 'valuation', service: 'Property Valuation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', ptype: form.ptype, area: form.area ? form.area + ' sq.ft' : '', purpose: form.purpose } });
+    createFlowRequest({ type: 'valuation', service: 'Property Valuation', customer: { name: form.name }, ticketRef: ref, details: { property: form.location || '', ptype: form.ptype, area: form.area ? form.area + ' sq.ft' : '', purpose: form.purpose } }).catch(() => {});
     draft.clear();
     setDone(true);
   };

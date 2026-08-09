@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
-import { updateRoom, isAadhaarVerified } from '../../../lib/store.js';
-import { setRoomOccupants } from '../../../lib/data/flatSplit.js';
+import { useVerification } from '../../../context/VerificationContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { saveFlatmatePost, updateFlatmatePost, deleteFlatmatePost, saveFlatmateGroup, updateFlatmateGroup, deleteFlatmateGroup, isSeekerVerified, setSeekerVerified, hasInterest as hasInterestDB, addInterest as addInterestDB, evaluateHostEligibility, enqueueFlatmateReview, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import { isSeekerVerified, setSeekerVerified, hasInterest as hasInterestDB, addInterest as addInterestDB, evaluateHostEligibility, enqueueFlatmateReview, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import * as flatmateService from '../../../services/flatmateService.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
 
 // Supply: posting / group / room / verify / aadhaar / consent state and handlers.
@@ -29,6 +29,9 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
   const grpErr = useFieldErrors(grpFormRef);
 
   const userKey = user ? (user.mobile || user.name || 'anon') : 'anon';
+  // The opt-in Aadhaar badge, held once in VerificationContext (see below for why it also
+  // gates the Flatmates Verified filter and verified-only contact).
+  const { verified: aadhaarVerified } = useVerification();
   /* The Flatmates "Verified" badge is the SAME government-backed KYC the rest of
      the app uses (DigiLocker, ADR-009a) — not a second, weaker scheme.
 
@@ -38,7 +41,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
      share a home, so the badge has to mean at least as much here as it does on a
      property listing. isSeekerVerified is still read so anyone who earned the old
      badge keeps it. */
-  const isVerified = user ? (isAadhaarVerified() || isSeekerVerified(userKey)) : false;
+  const isVerified = user ? (aadhaarVerified || isSeekerVerified(userKey)) : false;
 
 
   // Supply-side floor (badge-not-gate, ADR-019): listing a room, creating a group
@@ -88,7 +91,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     if (params.get('post')) openPostModal();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const submitPost = (e) => {
+  const submitPost = async (e) => {
     e.preventDefault();
     const ok = postErr.check([
       { name: 'name', ok: !!post.name.trim(), msg: t('flatmates.valAddName') },
@@ -113,33 +116,47 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
       verified: isVerified,
       time: 'Just now',
     };
-    if (editingId && myPost && myPost.id === editingId) {
-      updateFlatmatePost(editingId, data);
-    } else {
-      data.id = 's' + Date.now();
-      data.createdAt = Date.now();
-      saveFlatmatePost(data);
+    // The id and timestamp are the server's to assign — the old client-side `'s' + Date.now()`
+    // would collide with a real id and, worse, let two devices mint the same one within a
+    // millisecond. On failure the modal stays open with what the user typed still in it.
+    try {
+      if (editingId && myPost && myPost.id === editingId) {
+        await flatmateService.updatePost(editingId, data);
+      } else {
+        await flatmateService.createPost(data);
+      }
+    } catch (err) {
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
     }
-    refresh();
+    await refresh();
     postDraft.clear();
     setPostOpen(false);
     setEditingId(null);
     setPost({ name: '', gender: 'female', age: '', occupation: '', budget: '', moveIn: 'now', flatPref: 'any', roomPref: 'any', localities: [], tags: [], note: '', verifiedContactOnly: false });
     toast(editingId ? t('flatmates.requestUpdated') : t('flatmates.requestLive'));
   };
-  const deleteMyRequest = () => {
-    if (myPost) {
-      deleteFlatmatePost(myPost.id);
-      refresh();
-      toast(t('flatmates.requestRemoved'));
+  const deleteMyRequest = async () => {
+    if (!myPost) return;
+    try {
+      await flatmateService.deletePost(myPost.id);
+    } catch (err) {
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
     }
+    await refresh();
+    toast(t('flatmates.requestRemoved'));
   };
-  const markFilled = () => {
-    if (myPost) {
-      deleteFlatmatePost(myPost.id);
-      refresh();
-      toast(t('flatmates.markedFilled'));
+  const markFilled = async () => {
+    if (!myPost) return;
+    try {
+      await flatmateService.deletePost(myPost.id);
+    } catch (err) {
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
     }
+    await refresh();
+    toast(t('flatmates.markedFilled'));
   };
   // One-tap prefill when an existing customer attaches a property they already
   // have on PuneNest. We fill only the descriptive fields (title/locality/rent) —
@@ -178,7 +195,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     }));
     grpErr.clear('title'); if (t.rent) grpErr.clear('rent');
   };
-  const submitGroup = (e) => {
+  const submitGroup = async (e) => {
     e.preventDefault();
     const ok = grpErr.check([
       { name: 'title', ok: !!grp.title.trim(), msg: t('flatmates.valAddGroupTitle') },
@@ -214,14 +231,22 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     });
     if (guard.blocked) { toast(guard.reason, 'error'); return; }
     const ownerConsent = role === 'tenant' ? !!grp.consentVerified : false;
-    const group = { id: 'mg' + Date.now(), title: grp.title.trim(), locality: grp.locality, policy: grp.policy, rent: +grp.rent, seatsTotal: seats, seatsOpen, members: [{ name: grp.name.trim(), initials: initials(grp.name), verified: isVerified }], tags: grp.tags, note: grp.note, time: 'Just now', createdAt: Date.now(), ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview };
-    saveFlatmateGroup(group);
+    const group = { title: grp.title.trim(), locality: grp.locality, policy: grp.policy, rent: +grp.rent, seatsTotal: seats, seatsOpen, members: [{ name: grp.name.trim(), initials: initials(grp.name), verified: isVerified }], tags: grp.tags, note: grp.note, time: 'Just now', ownerMobile: user ? (user.mobile || '') : '', ownerName: grp.name.trim(), hostRole: role, verificationTier, propertyId, agreementDeclared, ownerConsentMobile: role === 'tenant' ? (grp.consentMobile || '') : '', ownerConsent, addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview };
+    // The saved record carries the server-assigned id, which the review queue below keys on — the
+    // locally minted `'mg' + Date.now()` would enqueue a review against a group that does not exist.
+    let saved;
+    try {
+      saved = await flatmateService.createGroup(group);
+    } catch (err) {
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
     // Tenant declarations are self-attested, and contested addresses are fuzzy —
     // both go to Ops to verify. Owner-tier (linked to a verified property) skips
     // the queue since the property was already vetted.
     if (verificationTier === 'tenant' || guard.flagForReview) {
       enqueueFlatmateReview({
-        groupId: group.id,
+        groupId: saved.id,
         kind: 'group',
         host: group.ownerName,
         hostMobile: digits(group.ownerMobile),
@@ -235,7 +260,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     if (ownerConsent) {
       pushNotification({ type: 'share', title: 'Owner consent recorded', desc: `The owner confirmed your replacement search for "${group.title}".`, link: '/flatmates?view=team-up' });
     }
-    refresh();
+    await refresh();
     grpDraft.clear();
     setGroupOpen(false); setGrp({ title: '', locality: 'Baner', policy: 'women', rent: '', seats: '2', seatsOpen: '1', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false });
     toast(t('flatmates.groupLive'));
@@ -247,16 +272,34 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     if (m.length !== 10) { toast(t('flatmates.enterOwnerMobile'), 'error'); return; }
     setConsentOpen(true);
   };
+  /* Seat and occupancy steppers are +1/-1 controls, so they are tapped in bursts. Making their
+     handlers async opened a gap that did not exist when the write was a synchronous localStorage
+     call: the second tap reads the row captured by a render that has not happened yet, both
+     requests ask for the same number, and one tap is silently swallowed (2 → 1, not 2 → 1 → 0).
+     These hold the value each row is being moved TO while its request is in flight, so the next tap
+     continues from where the row is going rather than from where the screen still says it is. */
+  const pendingGroupSeats = useRef({});
+  const pendingSeats = useRef({});
+  const pendingPeople = useRef({});
+
   // Backfill lifecycle: the owner reopens a seat when a flatmate leaves, or marks a
   // seat filled when they find a replacement — adjusting only seatsOpen. The group
   // keeps its verificationTier, so a re-list needs no re-verification.
-  const setGroupSeats = (g, delta) => {
+  const setGroupSeats = async (g, delta) => {
     if (!ownsGroup(g)) return;
-    const cur = seatsLeft(g);
+    const cur = pendingGroupSeats.current[g.id] ?? seatsLeft(g);
     const next = Math.max(0, Math.min(g.seatsTotal, cur + delta));
     if (next === cur) return;
-    updateFlatmateGroup(g.id, { seatsOpen: next });
-    refresh();
+    pendingGroupSeats.current[g.id] = next;
+    try {
+      await flatmateService.setGroupSeats(g.id, next);
+    } catch (err) {
+      delete pendingGroupSeats.current[g.id];
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    if (pendingGroupSeats.current[g.id] === next) delete pendingGroupSeats.current[g.id];
+    await refresh();
     toast(delta > 0
       ? t('flatmates.groupSeatReopened')
       : (next === 0 ? t('flatmates.groupAllFilled') : t('flatmates.seatMarkedFilled')));
@@ -264,28 +307,55 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
   // Room backfill: the room owner reopens/closes a seat as flatmates come and go,
   // adjusting only seatsOpen (tier stays, so no re-verification). Only tier-aware
   // rooms carry seatsOpen; seed/legacy rooms have no stepper.
-  const setRoomSeats = (r, delta) => {
+  const setRoomSeats = async (r, delta) => {
     if (!ownsRoom(r) || r.seatsOpen == null) return;
-    const cur = seatsLeft(r);
+    const cur = pendingSeats.current[r.id] ?? seatsLeft(r);
     const next = Math.max(0, Math.min(r.seatsTotal, cur + delta));
     if (next === cur) return;
-    updateRoom(r.id, { seatsOpen: next });
-    setRooms((prev) => prev.map((x) => (x.id === r.id ? { ...x, seatsOpen: next } : x)));
+    pendingSeats.current[r.id] = next;
+    // Patch the row from the server's answer rather than from `next`: the seat count is clamped
+    // server-side against the flat's cap, so echoing the optimistic value would show the owner a
+    // number the flat does not actually have.
+    let saved;
+    try {
+      saved = await flatmateService.setRoomSeats(r.id, next);
+    } catch (err) {
+      delete pendingSeats.current[r.id];
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    const applied = saved?.seatsOpen ?? next;
+    if (pendingSeats.current[r.id] === next) delete pendingSeats.current[r.id];
+    setRooms((prev) => prev.map((x) => (x.id === r.id ? { ...x, seatsOpen: applied } : x)));
     toast(delta > 0
       ? t('flatmates.roomSeatReopened')
-      : (next === 0 ? t('flatmates.roomAllFilled') : t('flatmates.seatMarkedFilled')));
+      : (applied === 0 ? t('flatmates.roomAllFilled') : t('flatmates.seatMarkedFilled')));
   };
   /* Owner-split rooms are priced per room and their occupancy is decided by
      tenants, so the owner records how many people ACTUALLY live in each room
      rather than declaring seats up front. The ledger is clamped in
      setRoomOccupants against the flat's cap, so a society limit can't be
      exceeded by editing one room. */
-  const setRoomPeople = (r, delta) => {
+  const setRoomPeople = async (r, delta) => {
     if (!ownsRoom(r)) return;
-    const cur = Number(r.occupants) || 0;
-    const res = setRoomOccupants(r.id, cur + delta);
-    if (!res.ok || res.occupants === cur) return;
-    setRooms((prev) => prev.map((x) => (x.id === r.id ? { ...x, occupants: res.occupants } : x)));
+    const cur = pendingPeople.current[r.id] ?? (Number(r.occupants) || 0);
+    const want = cur + delta;
+    if (want < 0) return;
+    pendingPeople.current[r.id] = want;
+    let saved;
+    try {
+      saved = await flatmateService.setRoomOccupants(r.id, want);
+    } catch (err) {
+      delete pendingPeople.current[r.id];
+      // The clamp is a rule, not a fault: "this flat is full" is the useful message, and the
+      // server's own text says which cap was hit.
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    const applied = Number(saved?.occupants ?? cur);
+    if (pendingPeople.current[r.id] === want) delete pendingPeople.current[r.id];
+    if (applied === (Number(r.occupants) || 0)) return;
+    setRooms((prev) => prev.map((x) => (x.id === r.id ? { ...x, occupants: applied } : x)));
     // One agreement covers the owner and everyone in the flat, so any change to
     // who lives there is the moment to reissue it.
     toast(delta > 0 ? t('flatmates.roomPersonAdded') : t('flatmates.roomPersonRemoved'));
@@ -301,10 +371,15 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
 
   // Owner removes a group they created. Seed groups have no owner and are never
   // deletable, so this only ever touches the persisted user-created set.
-  const deleteGroup = (g) => {
+  const deleteGroup = async (g) => {
     if (!ownsGroup(g)) return;
-    deleteFlatmateGroup(g.id);
-    refresh();
+    try {
+      await flatmateService.deleteGroup(g.id);
+    } catch (err) {
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    await refresh();
     toast(t('flatmates.groupRemoved'));
   };
   const onJoin = (g) => {
@@ -333,11 +408,16 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
   /* DigiLocker has confirmed identity and already persisted the badge; all that's
      left is to mirror it onto this seeker's live request so their card shows the
      pill without waiting for a re-post. */
-  const onVerified = () => {
+  const onVerified = async () => {
     setSeekerVerified(userKey);
     if (myPost) {
-      updateFlatmatePost(myPost.id, { verified: true });
-      refresh();
+      // Best-effort: identity is already verified and persisted, so a failure here costs the badge
+      // on one card until the next post edit — not the verification. Swallowing it keeps the
+      // success toast honest rather than telling the user verification failed when it did not.
+      try {
+        await flatmateService.updatePost(myPost.id, { verified: true });
+        await refresh();
+      } catch (err) { console.warn('[flatmates] badge mirror failed', err); }
     }
     setVerifyOpen(false);
     toast(t('flatmates.nowVerifiedSeeker'));

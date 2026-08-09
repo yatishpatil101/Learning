@@ -1,6 +1,7 @@
 package com.punenest.api.identity.verification;
 
 import com.punenest.api.common.error.AadhaarAlreadyRegisteredException;
+import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.provider.KycProvider;
@@ -174,10 +175,9 @@ public class VerificationService {
         if (user == null || user.getMobile() == null || kycMobile == null) {
             return null;
         }
-        return digits(user.getMobile()).equals(digits(kycMobile));
-    }
-
-    private static String digits(String value) {
-        return value.replaceAll("\\D", "");
+        // Canonicalise both sides through the one shared normaliser (Q1) so a KYC number formatted
+        // with a +91 prefix or spacing still matches the stored ten-digit account number.
+        String account = MobileMask.normalise(user.getMobile());
+        return account != null && account.equals(MobileMask.normalise(kycMobile));
     }
 }

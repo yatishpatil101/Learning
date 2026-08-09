@@ -8,6 +8,8 @@ import { CityProvider } from './context/CityContext.jsx';
 import { CompareProvider } from './context/CompareContext.jsx';
 import { SavedProvider } from './context/SavedContext.jsx';
 import { SavedSearchProvider } from './context/SavedSearchContext.jsx';
+import { PlanProvider } from './context/PlanContext.jsx';
+import { VerificationProvider } from './context/VerificationContext.jsx';
 import { NotificationProvider } from './context/NotificationContext.jsx';
 import { ConversationProvider } from './context/ConversationContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
@@ -70,6 +72,14 @@ createRoot(document.getElementById('root')).render(
               clears on sign-out by watching that context. */}
           <SavedProvider>
             <SavedSearchProvider>
+              {/* Also caller-scoped, and read during render rather than awaited: the paywall, the
+                  Feature action and the pricing card all ask which plan is held while drawing.
+                  Holding it here makes that one request instead of one per asker. */}
+              <PlanProvider>
+              {/* Also caller-scoped and read during render: the opt-in Aadhaar badge decides which
+                  trust ribbon or nudge to draw across the profile, dashboard and contact flows.
+                  Held here so that is one request, not one per asker. */}
+              <VerificationProvider>
               {/* Same reasoning: the inbox is caller-scoped, so the unread count loads on sign-in
                   and zeroes on sign-out rather than reading an anonymous store. */}
               <NotificationProvider>
@@ -81,6 +91,8 @@ createRoot(document.getElementById('root')).render(
                   </CompareProvider>
                 </ConversationProvider>
               </NotificationProvider>
+              </VerificationProvider>
+              </PlanProvider>
             </SavedSearchProvider>
           </SavedProvider>
         </CityProvider>

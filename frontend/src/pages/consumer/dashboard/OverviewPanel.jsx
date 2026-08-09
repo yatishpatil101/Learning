@@ -8,7 +8,7 @@ import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
 import { Card, Stat, SectionHead } from './components.jsx';
 import ActionCenter from './ActionCenter.jsx';
 import AadhaarVerifyModal from '../../../components/auth/AadhaarVerifyModal.jsx';
-import { isAadhaarVerified } from '../../../lib/store.js';
+import { useVerification } from '../../../context/VerificationContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 /* How many stat tiles a phone shows before the rest move behind "See all".
@@ -26,10 +26,10 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
   const { flagEnabled } = useAppFlags();
   // Opt-in Verified badge nudge (badge-not-gate, ADR-019). Shown on the dashboard
   // landing surface as a trust prompt — never a wall. Auto-hides once earned; the
-  // modal itself persists the badge (setAadhaarVerified) and government-grade
-  // DigiLocker consent happens in production.
+  // badge is held once in VerificationContext and the modal starts the seam write
+  // (mock grants at once; production redirects to DigiLocker and waits on the webhook).
   const [badgeOpen, setBadgeOpen] = useState(false);
-  const [verified, setVerified] = useState(() => isAadhaarVerified());
+  const { verified } = useVerification();
   // "See all metrics" sheet — the overflow half of the mobile stat split.
   const [allStatsOpen, setAllStatsOpen] = useState(false);
   // Online rent payment isn't live yet — surface it as "Coming soon". The links
@@ -75,7 +75,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
           source="overview_dashboard"
           subtitle={t('verify.subtitleProfile')}
           onClose={() => setBadgeOpen(false)}
-          onVerified={() => { setVerified(true); toast(t('verify.badgeEarnedToast'), 'success'); }}
+          onVerified={() => { toast(t('verify.badgeEarnedToast'), 'success'); }}
         />
       )}
 

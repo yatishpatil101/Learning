@@ -47,6 +47,8 @@ Then open http://localhost:8080/api/docs.
 ## Next steps
 
 Implement controllers/entities per bounded context (see
-[`../docs/system/backend-api-architecture-review.md`](../docs/system/backend-api-architecture-review.md) and
-[the OpenAPI spec](../src/main/resources/static/openapi/punenest-api.yaml)). Keep the spec in sync — it is
-the machine-readable source of truth.
+[`../docs/system/package-structure.md`](../docs/system/package-structure.md) §3 for the
+context → package → schema map, and
+[the OpenAPI spec](./src/main/resources/static/openapi/punenest-api.yaml)). Keep the spec in sync — it is
+the machine-readable source of truth, and `SpecCoverageTest` fails the build in both directions if it
+drifts from the served routes.
