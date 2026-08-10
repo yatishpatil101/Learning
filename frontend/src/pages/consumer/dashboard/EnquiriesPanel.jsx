@@ -7,6 +7,7 @@ import { myMobile } from '../../../lib/contact.js';
 import { isSeriousBuyer } from '../../../lib/seriousBuyer.js';
 import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
 import { Card, SectionHead, StatusBadge, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
+import LoadError from '../../../components/LoadError.jsx';
 import LeadSheet from './LeadSheet.jsx';
 
 /* Attention-first ordering: items awaiting the owner's action float to the top of
@@ -69,7 +70,7 @@ function SummaryStat({ icon, tint, value, label }) {
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [] }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
   const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
      Number requests, Photo requests, Documents, Flatmate, and general Enquiries.
@@ -271,7 +272,12 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       {sub === 'numbers' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="lock-keyhole" title="Owner number requests" sub="Buyers asking for your phone number. Your number stays hidden until you approve." />
-        {contactReqs.length === 0 ? (
+        {contactReqsFailed ? (
+          /* "No number requests yet" is a claim about buyer demand, and an owner acts on it — by
+             dropping their price, or by concluding the listing is dead. We are not entitled to
+             make it from a request that failed (D166). */
+          <LoadError message={t('dash.contactReqsLoadError')} error={contactReqsError} onRetry={onRetryContactReqs} className="rounded-2xl p-5" />
+        ) : contactReqs.length === 0 ? (
           <RequestEmpty icon="lock-keyhole" text="No number requests yet." cta={{ to: '/list-property', label: 'Post a listing to get leads', icon: 'plus-circle' }} />
         ) : (
           <RequestList>
@@ -342,7 +348,9 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
       {sub === 'documents' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="folder-check" title="Document requests" sub="Buyers asking to view your property papers. They stay view-only — you approve which documents each buyer can see." />
-        {docGroups.length === 0 ? (
+        {docReqsFailed ? (
+          <LoadError message={t('dash.reqsLoadError')} error={docReqsError} onRetry={onRetryDocReqs} className="rounded-2xl p-5" />
+        ) : docGroups.length === 0 ? (
           <RequestEmpty icon="folder-check" text="No document requests yet." cta={{ to: '/list-property', label: 'Post a listing to get leads', icon: 'plus-circle' }} />
         ) : (
           <RequestList>

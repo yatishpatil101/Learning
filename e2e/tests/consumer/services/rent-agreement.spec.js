@@ -209,7 +209,12 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(page.getByText('₹1,777').last()).toBeVisible();
   });
 
-  test('partial answers survive a mid-fill refresh', async ({ page }) => {
+  test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
+    // The rule, not the mechanics: the autosave is deliberately incomplete. A PAN plus an Aadhaar
+    // plus a name and a permanent address is a complete identity set, and `pnDraft:rentAgreement`
+    // is plain JSON on localStorage — readable by any XSS on this origin and inherited by the next
+    // person on a shared device. So those two fields are stripped before the draft is written and
+    // the owner retypes them; everything else must still come back, or the autosave is pointless.
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
@@ -219,19 +224,66 @@ test.describe('Rent Agreement — revenue flow', () => {
     await p.getByPlaceholder('e.g. Baner').fill('Baner');
     await p.getByPlaceholder('411045').fill('411045');
     await clickNext(page); // -> owner step
-    await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toBeVisible();
+    const o = active(page);
+    await expect(o.getByPlaceholder('As per PAN/Aadhaar')).toBeVisible();
+    await o.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
+    await o.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
+    await o.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
     await page.waitForTimeout(700); // let the debounced draft save land
+
+    // The numbers never reach the disk in the first place.
+    const written = await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '');
+    expect(written).not.toContain('ABCDE1234F');
+    expect(written).not.toContain('123412341234');
 
     await page.reload({ waitUntil: 'networkidle' });
 
     // The draft is restored: the banner shows and we're back on the OWNER step (step
     // was persisted), not reset to step 0.
     await expect(page.getByText('We saved your progress')).toBeVisible();
-    await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toBeVisible();
+    const back = active(page);
+    await expect(back.getByPlaceholder('As per PAN/Aadhaar')).toHaveValue('Anita Verma');
+
+    // …but the two identity fields come back blank, and the banner says so rather than
+    // claiming everything was restored.
+    await expect(back.getByPlaceholder('ABCDE1234F')).toHaveValue('');
+    await expect(back.getByPlaceholder('12-digit Aadhaar')).toHaveValue('');
+    await expect(page.getByText(/PAN and Aadhaar are never saved on this device/)).toBeVisible();
 
     // …and the earlier property answers are intact.
     await page.getByRole('button', { name: 'Back' }).click();
     await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toHaveValue('Skyline Heights');
+  });
+
+  test('a draft written before the fix has its identity numbers purged on the next visit', async ({ page }) => {
+    // Stopping new writes is not enough: every browser that used the wizard earlier is still
+    // holding a PAN and an Aadhaar, and nothing else ever revisits this key. Opening the wizard has
+    // to clean what is already there — and clean it on disk, not merely decline to display it.
+    await login(page, BUYER);
+    await page.addInitScript(() => {
+      localStorage.setItem('pnDraft:rentAgreement', JSON.stringify({
+        step: 1,
+        aType: 'Residential',
+        prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
+        owner: { oName: 'Anita Verma', oAge: '34', oGender: 'Male', oPan: 'ABCDE1234F', oAadhaar: '123412341234', oMobile: '9811223344', oEmail: '', oAddr: '12, MG Road, Pune 411001' },
+        tenants: [{ name: 'Rahul Nair', age: '29', gender: 'Male', occupation: '', relation: '', pan: 'PQRSX6789K', aadhaar: '999988887777', mobile: '9822334455', email: '', addr: '44, FC Road, Pune 411004' }],
+        tenantMode: 'fill',
+      }));
+    });
+    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    await expect(page.getByText('We saved your progress')).toBeVisible();
+
+    const stored = await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '');
+    expect(stored).not.toContain('ABCDE1234F');
+    expect(stored).not.toContain('123412341234');
+    expect(stored).not.toContain('PQRSX6789K');
+    expect(stored).not.toContain('999988887777');
+    // The rest of the draft survives the purge — this is a redaction, not a wipe.
+    expect(stored).toContain('Skyline Heights');
+
+    // And the purged values are not put back on screen by the restore either.
+    await expect(active(page).getByPlaceholder('ABCDE1234F')).toHaveValue('');
+    await expect(active(page).getByPlaceholder('12-digit Aadhaar')).toHaveValue('');
   });
 
   test('signed-out invitee is bounced to a prefilled sign-in', async ({ page }) => {

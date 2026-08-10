@@ -17,6 +17,12 @@ import org.springframework.stereotype.Service;
  * in its own table and returns immediately if it does not own it — the same "unknown order is a
  * no-op" rule the rent path already follows, which is what keeps a redelivered or unrelated callback
  * harmless.
+ *
+ * <p>The two are exposed as separate settlements rather than one combined call so the webhook's
+ * per-handler isolation covers each of them. Combining them here put subscriptions and boosts back
+ * on a shared failure path — a throwing subscription meant the boost was never asked, the webhook
+ * still answered 200, and the provider never retried — which is precisely the bug that isolation
+ * exists to prevent, reproduced one level down.
  */
 @Service
 public class BillingPayments {
@@ -30,14 +36,26 @@ public class BillingPayments {
     }
 
     /**
-     * Settle whatever billing purchase this gateway order paid for, if any.
+     * Settle a subscription against this gateway order, if it owns it.
      *
      * @param orderId the provider's {@code order_id}
      * @param paid    whether the money actually moved
      * @param paidAt  when the provider says it settled
+     * @return whether a subscription owned the order
      */
-    public void applyWebhookOutcome(String orderId, boolean paid, Instant paidAt) {
-        subscriptions.applyWebhookOutcome(orderId, paid, paidAt);
-        boosts.applyWebhookOutcome(orderId, paid, paidAt);
+    public boolean settleSubscription(String orderId, boolean paid, Instant paidAt) {
+        return subscriptions.applyWebhookOutcome(orderId, paid, paidAt);
+    }
+
+    /**
+     * Settle a boost against this gateway order, if it owns it.
+     *
+     * @param orderId the provider's {@code order_id}
+     * @param paid    whether the money actually moved
+     * @param paidAt  when the provider says it settled
+     * @return whether a boost owned the order
+     */
+    public boolean settleBoost(String orderId, boolean paid, Instant paidAt) {
+        return boosts.applyWebhookOutcome(orderId, paid, paidAt);
     }
 }

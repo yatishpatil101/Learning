@@ -21,11 +21,14 @@
  *   - **staff transitions** (assign, share draft, upload final) are the ops surface, not the
  *     customer tracker, and remain on `lib/serviceFlow.js`.
  */
-import { get, post } from '../../http.js';
-import { toViewModel, toViewModelList, toCreate } from './serviceRequestMapper.js';
+import { get, post, put } from '../../http.js';
+import { toViewModel, toViewModelList, toCreate, toWireType } from './serviceRequestMapper.js';
 
 export async function listServiceRequests(typeFilter) {
-  const qs = typeFilter ? `?type=${encodeURIComponent(typeFilter)}` : '';
+  // `?type=` filters on the stored wire type, so the frontend's `rental` has to become
+  // `rent-agreement` here too — an untranslated filter matches nothing and renders "no requests"
+  // over a tracker that is actually full.
+  const qs = typeFilter ? `?type=${encodeURIComponent(toWireType(typeFilter))}` : '';
   const res = await get(`/service-requests${qs}`);
   // Paged envelope in the general case; tolerate a bare array in case the endpoint is unpaged.
   return toViewModelList(res?.content ?? (Array.isArray(res) ? res : []));
@@ -46,6 +49,25 @@ export async function getServiceRequest(id) {
 
 export async function createServiceRequest(data) {
   return toViewModel(await post('/service-requests', toCreate(data)));
+}
+
+/**
+ * Record the parties' identity numbers against a request (D151).
+ *
+ * A separate call after the create rather than a field on the create body, deliberately: the create
+ * response is a `ServiceRequest` the tracker renders and logs, and a payload that carries an Aadhaar
+ * number is one refactor away from being echoed onto it. This request has no response to leak into —
+ * the server answers 204.
+ *
+ * `PUT`, because the body is the whole set: the wizard resubmits every party when the customer fixes
+ * one, and appending would leave the mistyped number behind under a shifted index.
+ *
+ * Sends nothing when there is nothing to send, so a desk with no identity fields (a legal opinion, a
+ * packers quote) does not post an empty set the server would 422.
+ */
+export async function recordServiceRequestIdentities(id, parties) {
+  if (!id || !Array.isArray(parties) || parties.length === 0) return;
+  await put(`/service-requests/${encodeURIComponent(id)}/identities`, { parties });
 }
 
 /**

@@ -59,4 +59,13 @@ public final class VisitStatuses {
         }
         return false;
     }
+
+    /**
+     * Whether a visit in {@code current} may be moved to a new slot. Only a live visit
+     * ({@code scheduled} or {@code confirmed}) can be rescheduled; the three terminal states
+     * ({@code completed}, {@code cancelled}, {@code no-show}) cannot (D87).
+     */
+    public static boolean canReschedule(String current) {
+        return SCHEDULED.equals(current) || CONFIRMED.equals(current);
+    }
 }

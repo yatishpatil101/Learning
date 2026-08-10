@@ -167,11 +167,18 @@
       "next": "Next",
       "validationRequired": "Please complete the highlighted required fields.",
       "declarationRequired": "Please confirm the declaration to proceed.",
+      "detailsTooLong": "This form is {{over}} characters longer than we can save. Please shorten \u201c{{field}}\u201d and try again.",
       "saveError": "We couldn't save your request — your device storage may be full. Remove large uploads and try again.",
+      "identitiesFailed": "Your request is submitted, but we couldn't pass on the PAN and Aadhaar details. Our team will ask you for them before drafting.",
       "doneInviteTitle": "Request sent to the tenant!",
       "doneOwnerTitle": "Request submitted!",
       "doneInviteDesc": "We've asked the tenant to fill in their details & documents. Once they're done, our team prepares the draft for your approval.",
       "doneOwnerDesc": "Our team will share the draft within a few hours and schedule biometric e-registration at your convenience.",
+      "donePaymentConfirmingTitle": "Confirming your payment",
+      "donePaymentConfirmingDesc": "Your rent agreement details are saved. We're waiting for your bank to confirm the payment — this usually takes a few seconds.",
+      "donePaymentPendingTitle": "We couldn't confirm your payment yet",
+      "donePaymentPendingDesc": "Your rent agreement details are saved. If you've just paid, your bank may still be confirming it — check your requests in a few minutes before paying again. Our team starts drafting once the payment is confirmed.",
+      "donePaymentPendingCta": "Complete payment",
       "invite": {
         "sendTitle": "Send the invite to your tenant",
         "sendDesc": "Request saved. Send the secure link to {{mobile}} so they can add their details & documents.",
@@ -354,7 +361,8 @@
         "customQtyAria": "Quantity",
         "add": "Add",
         "specialClauses": "Special Clauses (optional)",
-        "clausesPlaceholder": "e.g. No subletting, pets allowed, painting at exit..."
+        "clausesPlaceholder": "e.g. No subletting, pets allowed, painting at exit...",
+        "clausesLong": "{{chars}} characters. There is a limit on how long the whole form can be \u2014 keep this concise so your agreement saves."
       },
       "witnesses": {
         "title": "Witnesses",
@@ -382,7 +390,8 @@
         "rowFurniture": "Furniture",
         "rowRegistration": "Registration",
         "declaration": "I confirm the above details are correct and authorize PuneNest to draft the Leave & License agreement and assist with stamp duty payment & e-registration as per Maharashtra rules.",
-        "generate": "Generate Agreement & Proceed"
+        "generate": "Generate Agreement & Proceed",
+        "generating": "Opening secure payment…"
       },
       "upload": {
         "clickToUpload": "Click to upload",
@@ -397,7 +406,13 @@
         "stampDuty": "Stamp Duty (0.25%)",
         "registrationFee": "Registration Fee",
         "serviceFee": "PuneNest Service Fee",
+        "gst": "GST",
         "estimatedTotal": "Estimated Total",
+        "totalPayable": "Total Payable",
+        "loading": "Loading current charges\u2026",
+        "unavailable": "We couldn't load our current charges just now. Nothing is charged until you see the confirmed amount.",
+        "retry": "Try again",
+        "chargedDiffers": "You'll be charged {{amount}} \u2014 our confirmed price for this agreement.",
         "title": "Cost Estimate",
         "subtitle": "Maharashtra Leave & License (Art. 36A)",
         "formula": "Stamp duty = 0.25% of (rent × months + non-refundable deposit + 10% of refundable deposit × years). Registration fee ₹1,000 urban / ₹500 rural. Final amount confirmed at registration.",
@@ -488,7 +503,7 @@
       },
       "draft": {
         "restoredTitle": "We saved your progress",
-        "restoredDesc": "Your earlier answers were restored. Continue where you left off.",
+        "restoredDesc": "Your earlier answers were restored. PAN and Aadhaar are never saved on this device, so please enter those two again.",
         "startFresh": "Start fresh"
       },
       "pendingInvite": {

@@ -49,6 +49,11 @@ test.describe('Seeker contact quota', () => {
     await seed(page, { user: SEEKER, contactsUsed: 0 });
     await arrive(page);
     await requestNumber(page);
+
+    // Quota is spent *after* `requestContact()` resolves — the click only starts the
+    // request. Reading the store the instant after the press asserts on a moment that
+    // has no meaning; wait for the state the spend is bundled with instead.
+    await expect(page.getByText(/awaiting owner/i)).toBeVisible();
     expect(await readContactsUsed(page, SEEKER.mobile)).toBe(1);
 
     // requestContact() returns the existing status rather than creating a second
@@ -90,6 +95,9 @@ test.describe('Seeker contact quota', () => {
     await requestNumber(page);
 
     await expect(exhaustedModal(page)).toHaveCount(0);
+    // As above: the spend lands with the request, not with the click, so wait for the
+    // request to be observable before reading the counter it moved.
+    await expect(page.getByText(/awaiting owner/i)).toBeVisible();
     expect(await readContactsUsed(page, SEEKER.mobile)).toBe(16);
   });
 

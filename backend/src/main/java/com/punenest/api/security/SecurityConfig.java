@@ -1,6 +1,8 @@
 package com.punenest.api.security;
 
 import com.punenest.api.common.web.Routes;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 /**
  * The one stateless resource-server chain every request flows through. No sessions, no CSRF (there
@@ -28,6 +31,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * and the controllers must agree on every path, and a silent typo here is a security defect (an
  * endpoint left guarded that should be public, or a matcher too broad). The docs/actuator paths below
  * stay literal — they belong to the framework and have no controller to drift from.
+ *
+ * <p>Two filters are added, in the order they must run: {@link JwtAuthFilter} resolves the bearer
+ * token, then {@link WriteRateLimitFilter} counts the request against whoever that turned out to be.
+ * The reverse order would leave every authenticated caller sharing an address-keyed bucket.
  */
 @Configuration
 @EnableMethodSecurity
@@ -37,12 +44,27 @@ public class SecurityConfig {
     private final JwtService jwtService;
     private final RestAuthEntryPoint authEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
+    private final boolean rateLimitEnabled;
+    private final int writeBudget;
+    private final Duration rateLimitWindow;
+    private final boolean proxyAware;
 
     public SecurityConfig(JwtService jwtService, RestAuthEntryPoint authEntryPoint,
-            RestAccessDeniedHandler accessDeniedHandler) {
+            RestAccessDeniedHandler accessDeniedHandler,
+            @Value("${punenest.security.rate-limit.enabled:true}") boolean rateLimitEnabled,
+            @Value("${punenest.security.rate-limit.writes-per-window:120}") int writeBudget,
+            @Value("${punenest.security.rate-limit.window-seconds:60}") long windowSeconds,
+            @Value("${punenest.security.trusted-proxies:none}") String trustedProxies) {
         this.jwtService = jwtService;
         this.authEntryPoint = authEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
+        this.rateLimitEnabled = rateLimitEnabled;
+        this.writeBudget = writeBudget;
+        this.rateLimitWindow = Duration.ofSeconds(windowSeconds);
+        // Not used to resolve addresses — TrustedProxyConfig does that — only so the filter knows
+        // whether a forwarded header arriving at runtime is expected or is evidence of a
+        // misconfiguration it should complain about.
+        this.proxyAware = !TrustedProxyConfig.NO_PROXY.equalsIgnoreCase(trustedProxies.trim());
     }
 
     @Bean
@@ -50,6 +72,17 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
+                // Spring Security's own defaults already send nosniff, DENY and no-store. The one
+                // it does not send is Referrer-Policy, and this API has a route that needs it:
+                // GET /documents/shared carries a bearer credential in its query string (D42), so
+                // any URL of ours a browser has in hand is a secret it must not forward. `no-referrer`
+                // rather than the frontend's `strict-origin-when-cross-origin`, because that policy
+                // still sends the full URL — path and query — on same-origin requests, and an API
+                // has no navigation for a Referer to be useful to. The static frontend sets its own,
+                // looser policy in netlify.toml; the two are independent hosts and independent
+                // decisions.
+                .headers(headers -> headers.referrerPolicy(referrer ->
+                        referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Public auth entry points (contract: security: []).
@@ -144,6 +177,15 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(new JwtAuthFilter(jwtService),
                         UsernamePasswordAuthenticationFilter.class);
+        if (rateLimitEnabled) {
+            // After the JWT filter, so the counter keys on a user id. Switched off for the test run
+            // (see src/test/resources/application.properties): ~700 MockMvc tests all present as one
+            // anonymous caller from 127.0.0.1, so a shared bucket would fail whichever test happened
+            // to run 121st. The behaviour is proved by WriteRateLimitTest, which turns it back on
+            // with a budget small enough to reach deliberately.
+            http.addFilterAfter(new WriteRateLimitFilter(writeBudget, rateLimitWindow, proxyAware),
+                    JwtAuthFilter.class);
+        }
         return http.build();
     }
 

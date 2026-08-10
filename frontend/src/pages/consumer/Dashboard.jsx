@@ -22,6 +22,7 @@ import { profileCompletion } from './dashboard/retention.js';
 import { getMyRooms, getMyFlatmatePosts, getMyFlatmateGroups } from '../../lib/data/myListings.js';
 import { getManagedProps } from '../../lib/data/managedProperty.js';
 import { pendingInviteCount } from '../../lib/serviceFlow.js';
+import LoadError from '../../components/LoadError.jsx';
 import OverviewPanel from './dashboard/OverviewPanel.jsx';
 import MyPropertiesPanel from './dashboard/MyPropertiesPanel.jsx';
 import MyRentalPanel from './dashboard/MyRentalPanel.jsx';
@@ -71,6 +72,9 @@ export default function Dashboard() {
     reviewProp, setReviewProp, reviewInput, setReviewInput,
     apps, setStatus,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
+    dataStatus, dataError, retryData,
+    docReqsStatus, docReqsError, retryDocReqs,
+    contactReqsStatus, contactReqsError, retryContactReqs,
   } = useDashboardData({ user, toast });
   const isOwner = (listings || []).length > 0 || hasListings() || ownsInventory;
   // "My Rental" (the home you rent) shows for buyers/tenants and anyone with a
@@ -196,7 +200,7 @@ export default function Dashboard() {
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} enquiries={enquiries} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} enquiries={enquiries} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':
@@ -245,7 +249,16 @@ export default function Dashboard() {
           />
 
           {/* Content */}
-          <section>{renderPanel()}</section>
+          <section>
+            {/* A failed core read is announced above the panels rather than left to be inferred
+                from them (D166). It matters more here than anywhere else: `isOwner` is derived
+                from `listings`, so an owner whose read failed is silently handed the *tenant*
+                dashboard — a wrong product, not just a thin one. */}
+            {dataStatus === 'error' && (
+              <LoadError message={tr('dash.dashboardLoadError')} error={dataError} onRetry={retryData} className="glass-card rounded-2xl p-5 mb-5" />
+            )}
+            {renderPanel()}
+          </section>
         </div>
       </div>
 

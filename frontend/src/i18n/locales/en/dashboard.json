@@ -84,6 +84,8 @@
     "reqFailedToast": "Couldn’t update the request — please try again",
     "vaultLoadError": "Couldn’t load your documents — please try again",
     "reqsLoadError": "Couldn’t load your requests — please try again",
+    "dashboardLoadError": "Couldn’t load your dashboard — what you see below may be incomplete",
+    "contactReqsLoadError": "Couldn’t load your contact requests — please try again",
     "retry": "Retry"
   },
   "visits": {
@@ -107,7 +109,6 @@
     "you": "You",
     "whatsapp": "WhatsApp",
     "waVisitor": "WhatsApp {{name}}",
-    "waOwner": "WhatsApp the owner",
     "visitorFallback": "visitor",
     "confirm": "Confirm",
     "markVisited": "Mark visited",
@@ -159,9 +160,7 @@
     "waConfirmed": "Hi {{name}}, your visit to {{listing}} is confirmed {{when}}. See you then! — PuneNest",
     "waCancelled": "Hi {{name}}, unfortunately the visit to {{listing}} {{when}} has been cancelled. Happy to help you reschedule. — PuneNest",
     "waPending": "Hi {{name}}, regarding your visit request for {{listing}} {{when}}. Let me know if the slot works and I’ll confirm it. — PuneNest",
-    "waSeeker": "Hi, regarding my visit to {{listing}} {{when}} (booked via PuneNest). Could you confirm the slot?",
     "waReschedOwner": "Hi {{name}}, can we move your visit to {{listing}} to {{date}} at {{time}}? Please confirm and I’ll lock it in. — PuneNest",
-    "waReschedSeeker": "Hi, could we reschedule my visit to {{listing}} to {{date}} at {{time}}? (via PuneNest)",
     "thereFallback": "there",
     "whenOn": "on {{date}}",
     "whenAt": "at {{time}}"

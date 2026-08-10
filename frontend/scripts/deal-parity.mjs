@@ -177,6 +177,16 @@ if (!ownerDeal) {
   }
 }
 
+// The list read, not just the single-row one. `/me/deals` is paged on the wire (D77) while the
+// provider hands back a plain array, and the failure mode of getting that translation wrong is an
+// empty list rather than an error — the dashboard renders "no deals yet" and nobody sees a stack
+// trace. Only a *positive* assertion catches it: the buyer-scoping check above passes vacuously on
+// an empty array, which is precisely how the breakage survived its own harness once already.
+const ownerDeals = await live.myDeals();
+if (!ownerDeals.some((d) => d.propId === listing)) {
+  failures.push('the owner\'s /me/deals does not contain their own listing — if it is also empty, the page envelope is not being unwrapped');
+}
+
 // Reserve → parties → the id-based removal the mock used to do by index.
 await live.reserveDeal(listing).catch((e) => failures.push(`reserve failed: ${e.status} ${e.message}`));
 const afterReserve = await live.getDeal(listing).catch(() => null);

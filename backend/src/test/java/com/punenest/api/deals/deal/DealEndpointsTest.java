@@ -466,8 +466,9 @@ class DealEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Deals.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(p1.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
     }
 
     // ---- §11 test 14: closed deal blocks new offers (A1 regression) ----

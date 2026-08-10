@@ -103,6 +103,10 @@ export function toPlanViewModel(row, plans = []) {
     // Without it the checkout screen cannot say which purchase is waiting on the gateway.
     pendingSlug: isAwaitingPayment(status) ? slug : null,
     paymentRef: row?.paymentRef ?? null,
+    // Single-use Cashfree hosted-checkout session (Option A). Present only on the `subscribe`
+    // response for a priced plan; `getSubscription` always answers null, so a held plan never
+    // carries a stale session the checkout could try to reopen.
+    paymentSessionId: row?.paymentSessionId ?? null,
     startedAt: row?.startedAt ?? null,
     renewsAt: row?.renewsAt ?? null,
     isPaidOwner: entitled && PAID_OWNER_PLAN_SLUGS.includes(slug),

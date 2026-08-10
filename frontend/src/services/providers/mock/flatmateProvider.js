@@ -44,7 +44,7 @@ import {
   roomsForProperty,
   setRoomOccupants as _storeSetOccupants,
 } from '../../../lib/data/flatSplit.js';
-import { VOCAB, initialsOf, isPubliclyVisible, perHeadOf, seatsLeftOf } from '../http/flatmateMapper.js';
+import { MOD_PENDING, VOCAB, initialsOf, isPubliclyVisible, perHeadOf, seatsLeftOf } from '../http/flatmateMapper.js';
 import { SEEKERS, SEED_ROOMS, SEED_GROUPS } from '../../../pages/consumer/flatmates/constants.js';
 
 /* The demo seed lives here rather than in the page.
@@ -184,7 +184,7 @@ export async function createRoom(room = {}) {
     ...room,
     budget: Number(room.rent ?? room.rentShare) || 0,
     ownerMobile: me(),
-    modStatus: 'live',
+    modStatus: MOD_PENDING,
     at: Date.now(),
   };
   const arr = getRooms();
@@ -285,7 +285,7 @@ export async function createGroup(group = {}) {
     ...group,
     ownerMobile: me(),
     ownerName: group.name || u.name || '',
-    modStatus: 'live',
+    modStatus: MOD_PENDING,
   };
   saveFlatmateGroup(rec);
   return groupVm(rec);
@@ -399,7 +399,7 @@ export async function createPost(body = {}) {
     createdAt: Date.now(),
     ...body,
     mobile: me(),
-    modStatus: 'live',
+    modStatus: MOD_PENDING,
   };
   // `saveFlatmatePost` returns the whole ARRAY (it ends `return set(key, arr)`), not the row it
   // just added — so the record has to be built first and returned directly. Mapping its return

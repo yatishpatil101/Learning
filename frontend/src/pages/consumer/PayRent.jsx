@@ -47,7 +47,6 @@ export default function PayRent() {
   const [method, setMethod] = useState('UPI');
   const [autopay, setAutopay] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [df, setDf] = useState({ amt: '100000', tenure: '6' });
   const [history, setHistory] = useState([]);
   const [ledger, setLedger] = useState([]);
   const [ledgerReceived, setLedgerReceived] = useState(0);
@@ -97,11 +96,6 @@ export default function PayRent() {
     const f = getFees();
     return quoteRentFee(numv(amt), { rentPayPercent: f.rentPayPercent, gstPercent: f.gstPercent });
   }, [amt]);
-  const emi = useMemo(() => {
-    const a = numv(df.amt), n = parseInt(df.tenure, 10);
-    const e = Math.round((a + a * 0.015 * n) / n);
-    return { emi: e, total: e * n, n };
-  }, [df]);
 
   const maskAcct = (a) => (a ? a.upiId || (a.maskedAccount ? a.maskedAccount + (a.ifsc ? ' · ' + a.ifsc : '') : '') : '');
 
@@ -157,19 +151,6 @@ export default function PayRent() {
     }
   };
 
-  /* Deposit financing is a **local-only** product: there is no endpoint for it, and it is not a rent
-     payment, so it must not be written into the rent ledger the API now owns. Kept as its own list
-     rather than folded into `history`, where it would masquerade as a settled month. */
-  const [depositFinance, setDepositFinance] = useState([]);
-  const financeDeposit = () => {
-    setDepositFinance((prev) => [{
-      id: 'df' + Date.now(), type: 'deposit-finance', to: 'Security deposit',
-      amount: numv(df.amt), tenure: parseInt(df.tenure, 10), status: 'approved', at: Date.now(),
-    }, ...prev]);
-    toast(tr('misc.prDepositApproved'));
-    setTab('history');
-  };
-
   const downloadReceipt = (p) => {
     try {
       generateSingle({ tenant: p.tenant || 'Tenant', landlord: p.to || 'Landlord', address: p.address || '—', rent: p.amount, pan: p.pan || '', mode: p.method || 'UPI', month: p.month || thisMonth(), txnRef: p.id, paidOnline: true });
@@ -181,15 +162,11 @@ export default function PayRent() {
 
   const tabBtn = (id, label) => <button onClick={() => setTab(id)} className={'tabbtn' + (tab === id ? ' active' : '')}>{label}</button>;
 
-  /* The History tab shows two different things: real rent payments from the API, and
-     deposit-financing requests, which have no endpoint and live only in this component (D115).
-
-     The wire's payment shape differs from what this list was written against — `dueDate` rather
-     than `at`, and `settled` rather than an assumed success — so it is adapted here rather than
-     bending the mapper to a display concern. A payment that has not cleared is not labelled as
-     credited to the owner, because it has not been. */
+  /* The History tab shows real rent payments from the API. The wire's payment shape differs from
+     what this list was written against — `dueDate` rather than `at`, and `settled` rather than an
+     assumed success — so it is adapted here rather than bending the mapper to a display concern. A
+     payment that has not cleared is not labelled as credited to the owner, because it has not been. */
   const historyRows = useMemo(() => ([
-    ...depositFinance,
     ...history.map((p) => ({
       id: p.id,
       type: 'rent',
@@ -200,7 +177,7 @@ export default function PayRent() {
       at: p.paidDate || p.dueDate || null,
       settled: p.settled,
     })),
-  ]), [depositFinance, history, tenancies, tr]);
+  ]), [history, tenancies, tr]);
 
   if (!flagEnabled('onlineRentPayment')) return <PayRentComingSoon />;
 
@@ -250,7 +227,7 @@ export default function PayRent() {
         )}
       </section>
 
-      <div className="flex gap-2 mb-6">{tabBtn('pay', tr('misc.prTabPay'))}{tabBtn('deposit', tr('misc.prTabDeposit'))}{tabBtn('history', tr('misc.prTabHistory'))}</div>
+      <div className="flex gap-2 mb-6">{tabBtn('pay', tr('misc.prTabPay'))}{tabBtn('history', tr('misc.prTabHistory'))}</div>
 
       {/* Pay rent */}
       {tab === 'pay' && (
@@ -311,44 +288,16 @@ export default function PayRent() {
         </section>
       )}
 
-      {/* Deposit financing */}
-      {tab === 'deposit' && (
-        <section className="grid md:grid-cols-2 gap-6">
-          <div className="glass rounded-2xl p-6 space-y-4">
-            <h2 className="font-bold flex items-center gap-2"><Icon name="hand-coins" className="w-5 h-5 text-teal-400" /> {tr('misc.prSplitDeposit')}</h2>
-            <p className="text-gray-400 text-sm">{tr('misc.prSplitBody')}</p>
-            <div><label className="text-xs text-gray-400">{tr('misc.prSecurityDeposit')}</label><input value={df.amt} onChange={(e) => setDf({ ...df, amt: e.target.value })} className="fld mt-1" inputMode="numeric" /></div>
-            <div><label className="text-xs text-gray-400">{tr('misc.prTenure')}</label>
-              <NativeSelect value={df.tenure} onChange={(e) => setDf({ ...df, tenure: e.target.value })} className="fld w-full mt-1"><option value="3">{tr('misc.prMonths3')}</option><option value="6">{tr('misc.prMonths6')}</option><option value="12">{tr('misc.prMonths12')}</option></NativeSelect></div>
-            <div className="rounded-xl border border-teal-500/25 p-4" style={{ background: 'rgba(20,184,166,.07)' }}>
-              <div className="flex items-center justify-between"><span className="text-gray-300 text-sm">{tr('misc.prYourEmi')}</span><span className="text-2xl font-extrabold text-teal-300">₹{emi.emi.toLocaleString('en-IN')}/mo</span></div>
-              <p className="text-gray-500 text-[11px] mt-1">{tr('misc.prTotalPayable', { total: emi.total.toLocaleString('en-IN'), n: emi.n })}</p>
-            </div>
-            <button onClick={financeDeposit} className="btn-teal w-full py-3 rounded-xl font-semibold inline-flex items-center justify-center gap-2"><Icon name="badge-indian-rupee" className="w-4 h-4" /> {tr('misc.prFinanceDeposit')}</button>
-          </div>
-          <div className="glass rounded-2xl p-6">
-            <h3 className="font-bold mb-3">{tr('misc.prHowItWorks')}</h3>
-            <ol className="space-y-3 text-sm text-gray-300 list-decimal list-inside">
-              <li>{tr('misc.prHow1')}</li>
-              <li>{tr('misc.prHow2')}</li>
-              <li>{tr('misc.prHow3')}</li>
-            </ol>
-            <p className="text-gray-500 text-xs mt-4">{tr('misc.prHowNote')}</p>
-          </div>
-        </section>
-      )}
-
       {/* History */}
       {tab === 'history' && (
         <section>
           <div className="space-y-3">
             {historyRows.length ? historyRows.map((p) => {
-              const isFin = p.type === 'deposit-finance';
               // Only a settled payment is described as credited to the owner. A `due` one has been
               // charged but not cleared, and saying otherwise is the lie this slice exists to stop.
-              const settled = (!isFin && p.settled) ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ml-2">{tr('misc.prOwnerCredited')}</span> : '';
+              const settled = p.settled ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 ml-2">{tr('misc.prOwnerCredited')}</span> : '';
               return (
-                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name={isFin ? 'hand-coins' : 'wallet'} className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{isFin ? tr('misc.prDepFinanceHist', { n: p.tenure }) : (p.method || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')}{p.at ? ' · ' + new Date(p.at).toLocaleDateString() : ''}</p>{!isFin && <button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button>}</div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
+                <div key={p.id} className="glass rounded-xl p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name="wallet" className="w-5 h-5 text-teal-400" /></div><div><p className="font-semibold text-sm">{p.to}{settled}</p><p className="text-gray-500 text-xs">{(p.method || tr('misc.prPaymentFallback')) + (p.month ? ' · ' + p.month : '')}{p.at ? ' · ' + new Date(p.at).toLocaleDateString() : ''}</p><button onClick={() => downloadReceipt(p)} className="mt-2 text-[12px] text-teal-300 hover:text-teal-200 inline-flex items-center gap-1"><Icon name="download" className="w-3.5 h-3.5" /> {tr('misc.prHraReceipt')}</button></div></div><span className="font-bold text-emerald-300">{inr(p.amount || 0)}</span></div></div>
               );
             }) : <p className="text-gray-500 text-sm text-center py-10">{tr('misc.prNoPayments')}</p>}
           </div>

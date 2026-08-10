@@ -32,6 +32,7 @@ export default function Flatmates() {
     grp, setGrp, grpErr, myApprovedListings, myTenancies, prefillGroupFromListing,
     prefillGroupFromTenancy, openConsent, consentOpen, setConsentOpen,
     verifyOpen, setVerifyOpen, onVerified, reportTarget, setReportTarget,
+    feedFailed, feedError, retryFeeds,
   } = useFlatmates();
   return (
     <div ref={rootRef} className="sf-page">
@@ -96,7 +97,7 @@ export default function Flatmates() {
             </div>
             )
           ) : (
-            <Results tab={tab} myPost={myPost} openPostModal={openPostModal} markFilled={markFilled} deleteMyRequest={deleteMyRequest} activeList={activeList} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} interests={interests} onInterest={onInterest} onRoomInterest={onRoomInterest} onReport={onReport} onJoin={onJoin} ownsGroup={ownsGroup} onDeleteGroup={deleteGroup} onSeatsChange={setGroupSeats} onRoomSeatsChange={setRoomSeats} onRoomPeopleChange={setRoomPeople} onReissueAgreement={reissueAgreement} ownsRoom={ownsRoom} reviews={reviewMap} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: raiseHint.budget })} />
+            <Results tab={tab} myPost={myPost} openPostModal={openPostModal} markFilled={markFilled} deleteMyRequest={deleteMyRequest} activeList={activeList} otherCount={otherCount} onSwitchTab={switchTab} saved={saved} onSave={onSave} interests={interests} onInterest={onInterest} onRoomInterest={onRoomInterest} onReport={onReport} onJoin={onJoin} ownsGroup={ownsGroup} onDeleteGroup={deleteGroup} onSeatsChange={setGroupSeats} onRoomSeatsChange={setRoomSeats} onRoomPeopleChange={setRoomPeople} onReissueAgreement={reissueAgreement} ownsRoom={ownsRoom} reviews={reviewMap} filtersActive={filtersActive} onClearFilters={clearFilters} onPost={openPostChooser} filters={filters} toast={toast} activeFilterCount={activeFilterCount} raiseHint={raiseHint} onRaiseBudget={() => raiseHint && setF({ budget: raiseHint.budget })} feedFailed={feedFailed} feedError={feedError} onRetryFeeds={retryFeeds} />
           )}
         </div>
       </div>

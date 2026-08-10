@@ -1,5 +1,6 @@
 package com.punenest.api.engagement.notification;
 
+import com.punenest.api.common.error.NotFoundException;
 import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -47,5 +48,20 @@ public class NotificationService {
         } else {
             repo.markRead(userId, ids);
         }
+    }
+
+    /**
+     * Dismiss (delete) one notification. User-scoped: acting on another user's id returns 404,
+     * never 403 — the same convention as {@code deleteSavedSearch}. The row is hard-deleted rather
+     * than tombstoned, because a dismissed notification is a personal preference to remove it from
+     * the inbox, and the inbox is the only place it is ever read.
+     *
+     * @throws NotFoundException if the id does not belong to the caller
+     */
+    @Transactional
+    public void dismiss(UUID userId, UUID id) {
+        Notification entity = repo.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> NotFoundException.of("Notification"));
+        repo.delete(entity);
     }
 }

@@ -6,7 +6,7 @@ const mockDispatch = () => new Promise((resolve) => setTimeout(resolve, 700));
 
 /**
  * Send-OTP + 30s resend-timer state machine, shared by sign in / sign up and by several non-auth
- * verification flows (owner consent, society hub, share-a-flat).
+ * verification flows (owner consent, society hub, flatmates).
  *
  * The hook stays deliberately domain-agnostic: pass `dispatch` to actually send a code. Auth pages
  * pass the auth service; every other flow is still mocked and gets the simulated dispatch by

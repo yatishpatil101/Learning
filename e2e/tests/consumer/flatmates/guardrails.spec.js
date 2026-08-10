@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
 
 /* Anti-broker guardrails. Trust is the product, so one identity can only host a
    capped number of live flatmate posts (owner-verified posts are exempt), the same
@@ -15,7 +15,10 @@ function seedScript(mobile, groups) {
     const [m, g] = args;
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Guardrail Host', mobile: m, role: 'owner', loginAt: Date.now() }));
     localStorage.setItem('puneNestAadhaar:' + m, JSON.stringify({ verified: true, aadhaarMobile: m, at: Date.now() }));
-    if (g) localStorage.setItem('puneNestFlatmateGroups', JSON.stringify(g));
+    /* Seed once, not on every navigation: an init script re-runs on each load, so
+       an unconditional write would erase anything the test created before a
+       reload — which is exactly what the contested-address case asserts on. */
+    if (g && !localStorage.getItem('puneNestFlatmateGroups')) localStorage.setItem('puneNestFlatmateGroups', JSON.stringify(g));
   };
 }
 
@@ -79,6 +82,45 @@ test('address dedupe: a DIFFERENT host claiming the same address still posts (fl
   await fillGroup(page, title);
   await page.getByRole('button', { name: /Create group/i }).click();
   // Posts successfully: now two cards share the contested title (seed + new).
+  // The new one is held for review (D72); the guardrail under test is the dedupe.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   await expect(page.locator('.sf-card', { hasText: title })).toHaveCount(2, { timeout: 5000 });
+});
+
+/* D71 — the cap the tests above enforce is only fair if the poster can relieve it.
+   A live seeker post can be taken down ("Mark filled" or "Delete"), which is the
+   operation the register said the platform lacked. Here we seed one live post,
+   mark it filled, and assert the live-request banner clears — proof the take-down
+   op runs end-to-end (mock seam here; the http `DELETE /flatmates/posts/{id}`
+   round-trip is covered by the parity harness). */
+function seekerSeedScript(mobile, posts) {
+  return (args) => {
+    const [m, p] = args;
+    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Seeker Sam', mobile: m, role: 'buyer', loginAt: Date.now() }));
+    localStorage.setItem('puneNestAadhaar:' + m, JSON.stringify({ verified: true, aadhaarMobile: m, at: Date.now() }));
+    localStorage.setItem('puneNestFlatmatePosts', JSON.stringify(p));
+  };
+}
+
+test('a live seeker post can be taken down, relieving the poster of their live-post cap (D71)', async ({ page }) => {
+  const posts = [{
+    id: 'sp-takedown-1', mobile: MOBILE, name: 'Seeker Sam', budget: 15000,
+    localities: ['Baner'], gender: 'female', moveIn: 'now', flatPref: 'any',
+    roomPref: 'any', tags: [], note: 'Quiet, non-smoker', time: 'Just now',
+  }];
+  await page.addInitScript(seekerSeedScript(MOBILE, posts), [MOBILE, posts]);
+  await page.goto(`${BASE}/flatmates`);
+  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
+  await switchToTeamUp(page);
+
+  // The poster's own live-request banner is on the Team-up side, carrying the take-down controls.
+  const banner = page.getByText('Your live request');
+  await expect(banner).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Mark filled' }).click();
+
+  // The take-down ran: the confirmation toast shows and the live-request banner is gone, so the
+  // poster is now under their cap and free to post again.
+  await expect(page.getByText(/Marked as filled/)).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Your live request')).toHaveCount(0);
 });

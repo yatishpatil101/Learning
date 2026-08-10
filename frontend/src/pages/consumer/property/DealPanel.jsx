@@ -6,13 +6,14 @@ import Icon from '../../../components/Icon.jsx';
 import DateField from '../../../components/ui/DateField.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile, isTenantVerifiedFor } from '../../../lib/store.js';
+import { myMobile } from '../../../lib/store.js';
 import {
   getDeal, dealStatusForBuyer, reserveDeal, reopenDeal, listParties,
   submitOffer as submitOfferApi, respondOffer, myOffers, offersOnMine,
   requestFinalization, finalizationStatus, cancelFinalization,
   myFinalizationRequests, acceptFinalization, declineFinalization,
 } from '../../../services/dealService.js';
+import { tenantsVerified } from '../../../services/rentService.js';
 
 const fmtOffer = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 
@@ -56,10 +57,27 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
   const isOwner = isIn && digits(myMobile()) === digits(owner);
 
   /* Everything the panel renders, loaded per role. Starts in the open state so a slow load shows
-     the live controls rather than a "sold" banner it has no evidence for. */
+     the live controls rather than a "sold" banner it has no evidence for.
+
+     `verified` is the set of buyer mobiles carrying the Verified Tenant badge. It starts EMPTY
+     rather than open, unlike `status`: a badge is a trust claim, so the safe default is not to
+     make it. See `isVerifiedTenant` below. */
   const [state, setState] = useState({
     status: 'active', parties: [], offers: [], myOffer: null, myFinalize: null, pending: [],
+    verified: new Set(),
   });
+
+  /**
+   * Does this buyer carry the Verified Tenant badge?
+   *
+   * Reads the set loaded once per panel render (D114) — never a lookup of its own. This used to be
+   * `isTenantVerifiedFor(mobile)` straight out of localStorage, which meant the badge was right
+   * only about people this browser happened to know and was wrong for everyone else.
+   */
+  const isVerifiedTenant = (mobile) => {
+    const d = digits(mobile || '').slice(-10);
+    return d.length === 10 && state.verified.has(d);
+  };
 
   const reload = useCallback(async () => {
     if (!propId) return;
@@ -72,13 +90,30 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
         offersOnMine().catch(() => []),
         myFinalizationRequests().catch(() => []),
       ]);
+      const ownOffers = (offers || []).filter((o) => String(o.propId) === propId);
+      const pending = (requests || []).filter((r) => String(r.propId) === propId);
+
+      /* One request for every badge on the panel, not one per row (D114). Both lists are about the
+         same small set of buyers, so they are asked together and the provider collapses repeats.
+
+         An empty set on failure is the intended answer here, not a swallowed error: absence renders
+         no badge, so the worst case is a verified buyer who does not get their tick. The reverse —
+         a trust signal nobody earned, on the screen where an owner decides who gets their flat — is
+         what must not be possible. A masked mobile (`98XXXXX210`, the shape a buyer's number has
+         until the owner approves contact) is dropped by the provider for the same reason. */
+      const verified = await tenantsVerified([
+        ...ownOffers.map((o) => o.buyerMobile),
+        ...pending.map((r) => r.buyerMobile),
+      ]).catch(() => new Set());
+
       setState({
         status: deal?.status || 'active',
         parties: parties || [],
-        offers: (offers || []).filter((o) => String(o.propId) === propId),
+        offers: ownOffers,
         myOffer: null,
         myFinalize: null,
-        pending: (requests || []).filter((r) => String(r.propId) === propId),
+        pending,
+        verified,
       });
       return;
     }
@@ -99,6 +134,8 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
       myOffer: (mine || []).find((o) => String(o.propId) === propId) || null,
       myFinalize: fin,
       pending: [],
+      // The badge only ever renders beside a buyer in the owner's lists; a buyer needs none.
+      verified: new Set(),
     });
   }, [propId, isOwner, isIn, contactApproved]);
 
@@ -243,7 +280,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
             <p className="text-slate-400 text-xs mb-3">{isRent ? t('property.finalizeAskedTenant', { count: pend.length }) : t('property.finalizeAskedBuyer', { count: pend.length })}</p>
             {pend.map((r) => (
               <div key={r.id} className="flex items-center justify-between gap-2 mb-2 rounded-lg bg-white/5 px-3 py-2">
-                <span className="text-slate-200 text-xs flex items-center gap-1.5 min-w-0 truncate"><Icon name="user" className="w-3.5 h-3.5 text-brand-teal-3 flex-shrink-0" /> {r.buyerName}{isTenantVerifiedFor(r.buyerMobile) ? <span className="text-emerald-300" style={{ fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}</span>
+                <span className="text-slate-200 text-xs flex items-center gap-1.5 min-w-0 truncate"><Icon name="user" className="w-3.5 h-3.5 text-brand-teal-3 flex-shrink-0" /> {r.buyerName}{isVerifiedTenant(r.buyerMobile) ? <span className="text-emerald-300" style={{ fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}</span>
                 <span className="flex gap-1.5 flex-shrink-0">
                   <button type="button" onClick={() => accept(r.id)} className="btn-teal py-1 px-3 text-[.72rem] rounded-lg shadow-none">{t('property.accept')}</button>
                   <button type="button" onClick={() => decline(r.id)} className="text-slate-400 hover:text-red-400 text-xs px-1.5">{t('property.decline')}</button>
@@ -318,7 +355,7 @@ export function DealPanel({ p, isIn, toast, contactApproved = false }) {
                         : <span className="text-slate-300">{t('property.statusPending')}</span>}
                     </span>
                   </div>
-                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isTenantVerifiedFor(o.buyerMobile) ? <span style={{ color: '#6ee7b7', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: o.moveIn }) : ''}</p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">{o.buyerName || t('property.buyerFallback')}{isVerifiedTenant(o.buyerMobile) ? <span style={{ color: '#6ee7b7', fontWeight: 600 }}> · ✓ {t('property.verifiedTenant')}</span> : null}{o.moveIn ? t('property.moveInPrefix', { date: o.moveIn }) : ''}</p>
                   {o.status !== 'accepted' ? (
                     <div className="flex gap-1.5 mt-2">
                       <button onClick={() => ownerOfferAct(o.id, 'accept')} className="btn-teal text-[11px] px-2.5 py-1 rounded-lg shadow-none">{t('property.accept')}</button>

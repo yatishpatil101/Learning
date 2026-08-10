@@ -263,14 +263,27 @@ class SourceTreeHygieneTest {
      * holding only a package line, imports or comments — a stub rather than a source file. For
      * everything else it means no non-whitespace content, because there is no portable way to tell a
      * comment-only shell script from a deliberate one and guessing would produce false failures.
+     *
+     * <p><strong>{@code package-info.java} is the one exception, and it is not a loophole.</strong>
+     * That file's entire purpose is to carry a package javadoc and a package declaration; it has no
+     * type to declare, and one holding anything else would be misusing it. So the
+     * "declares nothing" rule reports every correctly-written one as a stub. The rule was authored
+     * when the repository contained none, which is why the false positive lay dormant until the
+     * package documentation landed (D38). The zero-byte half of the check still applies to it —
+     * that is the ghost-file case this guard exists for, and it is the half that was ever meaningful
+     * here.
      */
     private static boolean isEmpty(Path file) {
         try {
             if (Files.size(file) == 0) {
                 return true;
             }
-            if (!file.getFileName().toString().endsWith(".java")) {
+            String name = file.getFileName().toString();
+            if (!name.endsWith(".java")) {
                 return Files.readString(file, StandardCharsets.UTF_8).isBlank();
+            }
+            if (name.equals("package-info.java")) {
+                return false;
             }
             String stripped = Files.readString(file, StandardCharsets.UTF_8)
                     .replaceAll("(?s)/\\*.*?\\*/", "")

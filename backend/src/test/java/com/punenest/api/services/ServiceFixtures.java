@@ -14,7 +14,13 @@ import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.Roles;
+import com.punenest.api.provider.cashfree.WebhookSignature;
+import com.punenest.api.services.request.ServiceRequest;
+import com.punenest.api.services.request.ServiceRequestRepository;
+import com.punenest.api.services.request.ServiceRequestService;
+import com.punenest.api.services.request.ServiceRequestStatuses;
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -40,6 +46,12 @@ abstract class ServiceFixtures extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @Autowired
+    ServiceRequestRepository requestRepo;
+    @Autowired
+    ServiceRequestService serviceRequests;
+    @Autowired
+    WebhookSignature webhookSignature;
 
     User customer(String mobile) {
         return user(mobile, Roles.Wire.BUYER, null, "Asha Patil");
@@ -82,7 +94,51 @@ abstract class ServiceFixtures extends AbstractApiTest {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        String id = field(json, "id");
+        // A priced desk (rent agreement) is created awaiting-payment and is invisible to ops until
+        // the payment settles. These fixtures exercise the maker-checker that runs after payment, so
+        // settle it here exactly as the live webhook would. A free desk (legal opinion) is already at
+        // `new` and the filter skips it. The dedicated paid-gate test drives the unsettled path.
+        requestRepo.findById(UUID.fromString(id))
+                .filter(r -> ServiceRequestStatuses.AWAITING_PAYMENT.equals(r.getStatus()))
+                .map(ServiceRequest::getPaymentRef)
+                .ifPresent(ref -> serviceRequests.applyWebhookOutcome(ref, true, 0));
+        return id;
+    }
+
+    /** Raise a priced request (a rent agreement) but leave it unpaid, at awaiting-payment. */
+    String raiseUnpaid(User caller, Property property) throws Exception {
+        String body = "{\"type\":\"rent-agreement\",\"propertyId\":\"" + property.getId() + "\"}";
+        String json = mvc.perform(post(Routes.ServiceRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(caller))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
         return field(json, "id");
+    }
+
+    /** The Cashfree order id a request is gated on, for driving the payment webhook. */
+    String paymentRef(String id) {
+        return requestRepo.findById(UUID.fromString(id))
+                .map(ServiceRequest::getPaymentRef)
+                .orElseThrow();
+    }
+
+    /** Deliver the nested Cashfree payment callback Cashfree actually sends, signed with the real HMAC. */
+    void deliverSigned(String orderId, boolean paid) throws Exception {
+        String body = "{\"type\":\"PAYMENT_SUCCESS_WEBHOOK\",\"data\":{"
+                + "\"order\":{\"order_id\":\"" + orderId + "\"},"
+                + "\"payment\":{\"payment_status\":\"" + (paid ? "SUCCESS" : "FAILED") + "\","
+                + "\"payment_amount\":2359.00,"
+                + "\"payment_time\":\"2025-03-05T11:20:00+05:30\"}}}";
+        String ts = String.valueOf(System.currentTimeMillis());
+        mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
+                        .header("x-webhook-timestamp", ts)
+                        .header("x-webhook-signature", webhookSignature.sign(ts, body))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk());
     }
 
     void setStatus(User caller, String id, String status, int expected) throws Exception {

@@ -10,9 +10,12 @@ import java.util.Set;
  * <p>{@link #PENDING} was added by spec fix S50 — see {@link Subscription} for why a subscription
  * has to be representable before it is paid for.
  *
- * <p>{@link #PAST_DUE} and {@link #EXPIRED} are declared by the contract and no code path produces
- * them yet: both are the output of a renewal job that does not exist while every plan is a
- * one-off annual purchase. Declared rather than omitted so the reader can see the intended shape.
+ * <p>{@link #EXPIRED} is produced by {@code SubscriptionSweep} once a term elapses (D57).
+ * {@link #PAST_DUE} is still declared-and-unproduced: it means "renewal was attempted and the money
+ * did not arrive", which cannot happen while every plan is a one-off purchase with nothing to
+ * retry. Declared rather than omitted so the reader can see the intended shape, and deliberately
+ * not repurposed as a grace period — a grace window nobody has specified would be an invented
+ * policy that quietly gives away paid benefits.
  */
 public final class SubscriptionStatuses {
 
@@ -25,13 +28,13 @@ public final class SubscriptionStatuses {
     /** Paid and within its term. */
     public static final String ACTIVE = "active";
 
-    /** Renewal failed; benefits retained during the grace window. Not yet produced. */
+    /** Renewal failed; benefits retained during the grace window. Not yet produced — see above. */
     public static final String PAST_DUE = "past-due";
 
     /** Ended early — abandoned at checkout, or superseded by an upgrade. */
     public static final String CANCELLED = "cancelled";
 
-    /** Term elapsed without renewal. Not yet produced. */
+    /** Term elapsed without renewal. Written by the D57 sweep; also decided live on every read. */
     public static final String EXPIRED = "expired";
 
     /** The states that actually entitle a user to the plan's benefits. */

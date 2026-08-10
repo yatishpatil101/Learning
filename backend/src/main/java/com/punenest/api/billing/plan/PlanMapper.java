@@ -31,12 +31,15 @@ public class PlanMapper {
     }
 
     public SubscriptionDto toDto(Subscription subscription) {
+        // paymentSessionId is single-use and never stored, so it is null from the entity; the
+        // subscribe flow attaches a fresh one via withPaymentSessionId for a priced plan.
         return new SubscriptionDto(
                 subscription.getId().toString(),
                 subscription.getPlanId().toString(),
                 subscription.getStatus(),
                 subscription.getStartedAt(),
                 subscription.getRenewsAt(),
-                subscription.getPaymentRef());
+                subscription.getPaymentRef(),
+                null);
     }
 }

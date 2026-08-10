@@ -1,10 +1,12 @@
 package com.punenest.api.finance.ledger;
 
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.finance.tenancy.Tenancy;
 import com.punenest.api.finance.tenancy.TenancyRepository;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -51,6 +53,14 @@ import org.springframework.transaction.annotation.Transactional;
  * with jsPDF. Neither needs a server round trip, and adding endpoints for them would create a
  * second implementation of a total the client can already compute — the same ruling as slice 3's
  * {@code pendingContactCount}.
+ *
+ * <p><strong>Every date here is reckoned in {@link PlatformTime#IST}, never in the JVM default</strong>
+ * (tech debt D174). "This month" and "this financial year" are the two windows an owner reconciles
+ * against a bank statement and a return, and on a UTC host the JVM is still on yesterday's date for
+ * the first 5.5 hours of every IST day — long enough to file the last day of a month under the
+ * previous month and to put 1 April, the boundary of the Indian financial year, in the wrong year.
+ * The zone is applied at each use site rather than baked into {@link #clock}, so pinning the clock
+ * in a test proves this service chooses IST rather than proving the test did.
  */
 @Service
 public class FinanceService {
@@ -66,6 +76,20 @@ public class FinanceService {
     private final PropertyRepository properties;
     private final FinanceMapper mapper;
 
+    /**
+     * The instant source every date below is derived from — a seam, not a configuration knob.
+     *
+     * <p>Deliberately <em>zone-agnostic</em>: it answers "what instant is it", and
+     * {@link #todayIst()} / {@link #currentMonthIst()} decide which calendar that instant falls on.
+     * A test therefore pins it to a UTC-zoned {@link Clock#fixed} — the host configuration that
+     * causes the bug — and the IST answer it gets back is this service's doing.
+     *
+     * <p>Not constructor-injected because there is no {@code Clock} bean in this application and
+     * adding one to satisfy a single test would put a new global in everyone's context. Not final
+     * only so {@link #useClock} can reach it; nothing in production ever calls that.
+     */
+    private Clock clock = Clock.systemUTC();
+
     public FinanceService(TransactionRepository transactions,
                           OwnershipBasisRepository bases,
                           TenancyRepository tenancies,
@@ -76,6 +100,31 @@ public class FinanceService {
         this.tenancies = tenancies;
         this.properties = properties;
         this.mapper = mapper;
+    }
+
+    /**
+     * Pin the instant this service believes it is. <strong>Tests only</strong> — package-private so
+     * nothing outside {@code finance.ledger} can reach it, and so a caller that finds it has to be
+     * sitting next to the javadoc saying not to.
+     *
+     * <p>This bean is proxied for {@code @Transactional}, so a test must unwrap the target with
+     * {@code AopTestUtils.getTargetObject} before calling this, and must restore the system clock
+     * afterwards — the bean outlives the test that borrowed it.
+     *
+     * @param pinned the clock to read instants from, or {@code null} to restore the system clock
+     */
+    void useClock(Clock pinned) {
+        this.clock = pinned == null ? Clock.systemUTC() : pinned;
+    }
+
+    /** Today's date <em>in India</em>, whatever timezone this process was started in. */
+    private LocalDate todayIst() {
+        return LocalDate.now(clock.withZone(PlatformTime.IST));
+    }
+
+    /** The calendar month currently running <em>in India</em>. */
+    private YearMonth currentMonthIst() {
+        return YearMonth.now(clock.withZone(PlatformTime.IST));
     }
 
     // ---- transactions ----
@@ -204,7 +253,7 @@ public class FinanceService {
             throw new BadRequestException("Unknown period: " + window);
         }
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = todayIst();
         LocalDate from = SummaryPeriods.startOf(window, today);
 
         TransactionRepository.Totals totals = transactions.sumByTypeSince(propertyId, from);
@@ -231,11 +280,15 @@ public class FinanceService {
                     "months must be between 1 and " + MAX_CASHFLOW_MONTHS);
         }
 
-        YearMonth thisMonth = YearMonth.now();
+        YearMonth thisMonth = currentMonthIst();
         YearMonth firstMonth = thisMonth.minusMonths(window - 1L);
 
+        // Half-open [first day of the earliest month, first day of next month). The upper bound is
+        // the series' own end restated to the database: a post-dated row is legal in this ledger,
+        // and without it the query aggregates months the loop below never reads.
         Map<String, long[]> byMonth = new HashMap<>();
-        for (Object[] row : transactions.monthlyTotalsSince(propertyId, firstMonth.atDay(1))) {
+        for (Object[] row : transactions.monthlyTotalsBetween(
+                propertyId, firstMonth.atDay(1), thisMonth.plusMonths(1).atDay(1))) {
             byMonth.put((String) row[0], new long[]{toLong(row[1]), toLong(row[2])});
         }
 
@@ -260,7 +313,7 @@ public class FinanceService {
     @Transactional(readOnly = true)
     public List<DueDto> dues(UUID callerId, UUID propertyId) {
         ownedPropertyId(callerId, propertyId);
-        LocalDate today = LocalDate.now();
+        LocalDate today = todayIst();
 
         return transactions.findLiveRecurringByPropertyId(propertyId).stream()
                 .map(row -> {

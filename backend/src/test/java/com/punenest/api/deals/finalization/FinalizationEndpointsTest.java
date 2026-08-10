@@ -329,21 +329,68 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Finalization.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(p1.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
 
         // owner2 sees only their own.
         mvc.perform(get(Routes.Finalization.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner2)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(p2.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p2.getId().toString()));
     }
 
-    // ---- §11 test 10: mobile masking — masked while pending, revealed on accepted ----
+    // ---- D77: the counterparty inbox is paged, and its count query agrees with its read query ----
+
+    /**
+     * {@code findPendingByCounterparty} is the one paged finder here that carries a hand-written
+     * {@code countQuery}, so its read and its count are two separate pieces of JPQL that can drift.
+     * If they do, the drift is silent: the rows are right and only {@code totalElements} lies, which
+     * is precisely the number a "3 waiting on you" badge renders.
+     *
+     * <p>The declined row is the trap. It must be counted by neither half — a count query that
+     * dropped the {@code status = 'pending'} predicate would still return the correct page and an
+     * inflated total, and no assertion on {@code content} alone would notice.
+     */
+    @Test
+    void myFinalizationRequests_isPaged_andTheTotalCountsOnlyPendingRows() throws Exception {
+        User owner = user("9830100040", "owner");
+        Property p1 = listing(owner, "Fin paging A");
+        Property p2 = listing(owner, "Fin paging B");
+        Property p3 = listing(owner, "Fin paging C");
+        Property p4 = listing(owner, "Fin paging D");
+        // One request per property: `uq_finalization_live_per_user_property` forbids a second live
+        // request from the same initiator on the same listing.
+        requestFinalization(user("9830100041", "buyer"), p1, owner, 5000000L);
+        requestFinalization(user("9830100042", "buyer"), p2, owner, 5100000L);
+        requestFinalization(user("9830100043", "buyer"), p3, owner, 5200000L);
+        String declined = requestFinalization(user("9830100044", "buyer"), p4, owner, 5300000L);
+        mvc.perform(post("/finalization/requests/" + declined + "/decline")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.Finalization.ME_REQUESTS).param("page", "0").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mvc.perform(get(Routes.Finalization.ME_REQUESTS).param("page", "1").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3));
+    }
+
+    // ---- §11 test 10: mobile masking — masked while pending, stays masked to counterparty once accepted ----
 
     @Test
-    void mobileMasking_maskedWhilePending_revealedOnAccepted() throws Exception {
+    void mobileMasking_staysMaskedToCounterparty_evenOnceAccepted() throws Exception {
         User owner = user("9830100024", "owner");
         User buyer = user("9876543210", "buyer");
         Property p = listing(owner, "Mask test");
@@ -368,12 +415,12 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         // After acceptance, query the DB and verify with a fresh projection.
         FinalizationRequest accepted = finalizationRepo.findById(UUID.fromString(reqId)).orElseThrow();
         assertThat(accepted.getStatus()).isEqualTo(FinalizationStatuses.ACCEPTED);
-        // The mobile is revealed in the DTO once accepted. Re-projected directly here to assert the
-        // masking transition in isolation.
+        // D5 (global policy): the counterparty's mobile stays masked even once accepted. Re-projected
+        // directly here with the owner as viewer to assert the masking in isolation.
         User buyerUser = users.findById(buyer.getId()).orElseThrow();
         FinalizationRequestDto dto = FinalizationMapper.toDto(
                 accepted, buyerUser, owner, owner.getId());
-        assertThat(dto.initiator().mobile()).isEqualTo("9876543210");
+        assertThat(dto.initiator().mobile()).isEqualTo("98XXXXX210");
     }
 
     // ---- §11 test 11: duplicate live request → 409 ----
@@ -481,7 +528,8 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Finalization.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(bystander)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     /**

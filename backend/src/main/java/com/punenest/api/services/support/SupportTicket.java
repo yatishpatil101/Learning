@@ -17,10 +17,15 @@ import lombok.Getter;
  * to the customer or nulling half a row on every insert; keeping them apart is why {@code TicketDto}
  * never has to decide whether its notes are safe to show.
  *
- * <p>{@code unread} means "a support reply the ticket's owner has not read". One boolean cannot mean
- * two things, so it is the customer's signal only: staff answering sets it, the customer's own reply
- * leaves it alone, and {@code POST /support/tickets/{id}/read} clears it. Ops consequently has no
- * unread indicator on this surface — recorded as debt rather than solved by overloading the column.
+ * <p><strong>The read model has two sides and two columns (D50, V53).</strong> {@code unread} is the
+ * raiser's: "a support reply the ticket's owner has not read". {@code staffUnread} is the desk's: "a
+ * customer message nobody on the desk has read". Each is set by the <em>other</em> party writing and
+ * cleared by <em>its own</em> party reading, so neither side can mark the other as caught up.
+ *
+ * <p>The second column exists because the first could not be made to do both jobs. One boolean has
+ * to mean one thing; the moment it means "somebody has something to read", the customer's badge
+ * lights up on their own message and either party's read clears the other's signal. That is why this
+ * was recorded as debt rather than patched by reinterpreting the column.
  */
 @Entity
 @Table(name = "support_tickets")
@@ -42,6 +47,10 @@ public class SupportTicket extends VersionedEntity {
     @Column(name = "unread", nullable = false)
     private boolean unread;
 
+    /** The desk's side: a customer message no staff member has read. Column added in V53. */
+    @Column(name = "staff_unread", nullable = false)
+    private boolean staffUnread;
+
     protected SupportTicket() {
         // JPA
     }
@@ -56,5 +65,10 @@ public class SupportTicket extends VersionedEntity {
     /** Package-private: only a reply or a read marks the ticket, never a caller directly. */
     void setUnread(boolean unread) {
         this.unread = unread;
+    }
+
+    /** Package-private, for the same reason as {@link #setUnread(boolean)}. */
+    void setStaffUnread(boolean staffUnread) {
+        this.staffUnread = staffUnread;
     }
 }

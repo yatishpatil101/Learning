@@ -130,7 +130,7 @@ public class FlatmateRoom extends AuditedEntity {
 
     @Column(name = "mod_status", nullable = false)
     @Setter
-    private String modStatus = FlatmateVocabulary.MOD_LIVE;
+    private String modStatus = FlatmateVocabulary.MOD_PENDING;
 
     @Column(name = "society_id")
     @Setter
@@ -242,7 +242,7 @@ public class FlatmateRoom extends AuditedEntity {
     }
 
     public boolean isVisible() {
-        return !archived && !FlatmateVocabulary.MOD_HIDDEN.contains(modStatus);
+        return !archived && FlatmateVocabulary.isPublic(modStatus);
     }
 
     /** True when this room came from splitting a parent listing, and so uses the occupancy ledger. */

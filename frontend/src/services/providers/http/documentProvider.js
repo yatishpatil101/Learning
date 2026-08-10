@@ -23,7 +23,7 @@
  * table in `documentService.js`. The dev signed-URL limitation means an uploaded file's *bytes* do
  * not render in dev (D120); the upload round-trip, list and delete are fully live.
  */
-import { get, del, patch, postMultipart } from '../../http.js';
+import { get, del, patch, postMultipart, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
 import { toDoc, toDocList, toRequestList, toStatusUpdate } from './documentMapper.js';
 
 /** The owner's uploaded files for one property, newest first (the server already orders them). */
@@ -53,10 +53,19 @@ export async function deleteDocument(mobile, propId, docId) {
   return listDocuments(mobile, propId);
 }
 
-/** The owner's inbox of buyer requests. */
+/**
+ * The owner's inbox of buyer requests. Paged on the wire (D77), read as a list here.
+ *
+ * The vault panel groups requests by property and by status from one array, and
+ * {@link respondDocRequest} re-reads this list to find the row it just granted — both need the
+ * whole set, so `size` is asked for explicitly. Leaving it off would have taken the server's
+ * default of twenty, which is not "the inbox" but "the first page of it": a grant on the
+ * twenty-first request would have come back as `null` and the panel would have shown nothing
+ * happening.
+ */
 export async function listDocRequests() {
-  const res = await get('/me/documents/requests');
-  return toRequestList(res?.content ?? (Array.isArray(res) ? res : []));
+  const res = await get('/me/documents/requests', { size: MAX_PAGE_SIZE });
+  return toRequestList(unwrapFullPage(res, 'document'));
 }
 
 /**

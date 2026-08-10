@@ -44,14 +44,14 @@ class CashfreeProviderEnabledTest {
     }
 
     @Test
-    @DisplayName("the payment rail refuses loudly rather than silently faking a payment")
-    void paymentRailIsHonestlyUnimplemented() {
-        // Slice 6 owns the real rail. Until then, an environment configured by someone who set the
-        // flag — i.e. one expecting real money to move — must not receive a mock order id that it
-        // would happily go on to treat as a settled payment.
+    @DisplayName("the payment rail makes a real Cashfree call rather than faking a payment")
+    void paymentRailCallsCashfree() {
+        // With the flag on and credentials present the real rail is wired. The base URL points at
+        // an unreachable port on purpose, so a createOrder attempt surfaces as a Cashfree transport
+        // failure - proof it tried to reach the vendor rather than handing back a mock order id an
+        // environment expecting real money would treat as settled.
         assertThat(payments.getClass().getSimpleName()).isEqualTo("CashfreePaymentGateway");
         assertThatThrownBy(() -> payments.createOrder(17_000L, "ref"))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("slice 6");
+                .isInstanceOf(CashfreeClient.CashfreeException.class);
     }
 }

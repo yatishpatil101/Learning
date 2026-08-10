@@ -3,6 +3,7 @@ import { Link, Navigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { addServiceOrder, getFees } from '../../lib/store.js';
+import { openCashfreeCheckout } from '../../lib/cashfree.js';
 import { listPlans } from '../../services/planService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -22,7 +23,7 @@ const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 export default function Checkout() {
   const { t } = useTranslation();
   const { isIn } = useAuth();
-  const { planId: currentPlanId, subscribe } = usePlan();
+  const { planId: currentPlanId, subscribe, refresh } = usePlan();
   const [params] = useSearchParams();
   const planId = params.get('plan');
   const CO = checkoutPlans(t, getFees());
@@ -64,7 +65,18 @@ export default function Checkout() {
       // status — a pending payment is still an order the user should be able to find.
       const rec = addServiceOrder({ type: P.kind === 'plan' ? 'subscription' : 'topup', plan: planId, title: P.name, amount: P.price, method });
       setOrderRef(sub?.paymentRef || rec.id);
-      setResult(sub);
+
+      // Option A hosted checkout: a pending subscription carrying a session id means the server
+      // opened a real Cashfree order. Hand off to Cashfree's own hosted checkout, then re-read the
+      // subscription — the signature-verified webhook, not this browser, is what activates it, so
+      // the screen reflects `/me/subscription` rather than treating the modal closing as success.
+      if (sub?.status === 'pending' && sub?.paymentSessionId) {
+        await openCashfreeCheckout(sub.paymentSessionId);
+        setResult(await refresh());
+      } else {
+        // Mock provider, or a free plan that is active immediately — there is no gateway to visit.
+        setResult(sub);
+      }
     } catch {
       // A failed subscribe must not render the success screen. The user keeps their money and
       // the Pay button, which is the only recoverable outcome.

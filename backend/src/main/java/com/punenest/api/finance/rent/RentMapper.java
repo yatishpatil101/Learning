@@ -2,6 +2,7 @@ package com.punenest.api.finance.rent;
 
 import java.util.UUID;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
 
 /**
@@ -21,7 +22,19 @@ import org.mapstruct.ReportingPolicy;
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface RentMapper {
 
-    /** Project a stored payment for the wire. */
+    /**
+     * Project a stored payment for the wire.
+     *
+     * <p>{@code paymentSessionId} is single-use and deliberately never persisted (D167), so there is
+     * nothing on the entity to map. {@code RentService.attach} stitches a fresh one onto the create
+     * response via {@link RentPaymentDto#withPaymentSessionId(String)}; every other read is null.
+     */
+    @Mapping(target = "paymentSessionId", ignore = true)
+    // MapStruct reads the record's `withPaymentSessionId` copy-method as a fluent setter and so as a
+    // second writable target property. It is not one -- it is how RentService.attach stitches the
+    // session onto the create response -- and unmappedTargetPolicy = ERROR (rightly) fails the build
+    // over anything it cannot account for. Named and ignored rather than weakening the policy.
+    @Mapping(target = "withPaymentSessionId", ignore = true)
     RentPaymentDto toDto(RentPayment payment);
 
     /** Project a stored mandate for the wire. */

@@ -9,7 +9,6 @@ import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -97,11 +96,24 @@ public class FlatmateSeekerController {
                 body == null ? null : body.message());
     }
 
-    /** {@code GET /me/flatmate-requests} (contract {@code listMyFlatmateRequests}) — bare array. */
+    /**
+     * {@code GET /me/flatmate-requests} (contract {@code listMyFlatmateRequests}) — paged (D77).
+     *
+     * <p>Was a bare array. The host writes none of these rows, so the list grows with how many
+     * people answered the ad — the inbound-demand shape api-standards.md §5.1 says must be paged.
+     * An unspecified page returns the newest twenty, which is what every existing caller was
+     * already reading off the front of the old array.
+     *
+     * <p>No {@code sort} parameter: the order is fixed server-side (newest first), so
+     * {@link Pageables#unsorted} drops any client {@code ?sort=} rather than letting an unmapped
+     * property reach the query and come back as a 500.
+     */
     @GetMapping(Routes.Flatmates.MY_REQUESTS)
-    public List<FlatmateRequestDto> inbox(@CurrentUser AuthPrincipal principal,
-            @RequestParam(required = false) String status) {
-        return service.inbox(principal, status);
+    public PageResponse<FlatmateRequestDto> inbox(@CurrentUser AuthPrincipal principal,
+            @RequestParam(required = false) String status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                service.inbox(principal, status, Pageables.unsorted(pageable)), dto -> dto);
     }
 
     /** {@code PATCH /me/flatmate-requests/{id}} (contract {@code decideFlatmateRequest}). */

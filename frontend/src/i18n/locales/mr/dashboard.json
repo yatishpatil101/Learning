@@ -84,6 +84,8 @@
     "reqFailedToast": "विनंती अपडेट करता आली नाही — कृपया पुन्हा प्रयत्न करा",
     "vaultLoadError": "तुमची कागदपत्रे लोड करता आली नाहीत — कृपया पुन्हा प्रयत्न करा",
     "reqsLoadError": "तुमच्या विनंत्या लोड करता आल्या नाहीत — कृपया पुन्हा प्रयत्न करा",
+    "dashboardLoadError": "तुमचे डॅशबोर्ड लोड करता आले नाही — खाली दिसत असलेली माहिती अपूर्ण असू शकते",
+    "contactReqsLoadError": "तुमच्या संपर्क विनंत्या लोड करता आल्या नाहीत — कृपया पुन्हा प्रयत्न करा",
     "retry": "पुन्हा प्रयत्न करा"
   },
   "visits": {
@@ -107,7 +109,6 @@
     "you": "तुम्ही",
     "whatsapp": "WhatsApp",
     "waVisitor": "{{name}} ला WhatsApp करा",
-    "waOwner": "मालकाला WhatsApp करा",
     "visitorFallback": "पाहुणे",
     "confirm": "पुष्टी करा",
     "markVisited": "पाहिले म्हणून नोंदवा",
@@ -159,9 +160,7 @@
     "waConfirmed": "नमस्कार {{name}}, {{listing}} ची तुमची भेट {{when}} पुष्ट झाली आहे. भेटूया! — PuneNest",
     "waCancelled": "नमस्कार {{name}}, दुर्दैवाने {{listing}} ची {{when}} भेट रद्द झाली आहे. नवीन वेळ ठरवायला मदत करू. — PuneNest",
     "waPending": "नमस्कार {{name}}, {{listing}} साठी {{when}} तुमच्या भेट विनंतीबद्दल. वेळ योग्य असल्यास कळवा, मी पुष्टी करतो. — PuneNest",
-    "waSeeker": "नमस्कार, {{listing}} ची माझी {{when}} भेट (PuneNest वरून ठरवली). वेळेची पुष्टी कराल का?",
     "waReschedOwner": "नमस्कार {{name}}, {{listing}} ची तुमची भेट {{date}} रोजी {{time}} वाजता करू शकतो का? पुष्टी करा, मी निश्चित करतो. — PuneNest",
-    "waReschedSeeker": "नमस्कार, {{listing}} ची माझी भेट {{date}} रोजी {{time}} वाजता करता येईल का? (PuneNest वरून)",
     "thereFallback": "नमस्कार",
     "whenOn": "{{date}} रोजी",
     "whenAt": "{{time}} वाजता"

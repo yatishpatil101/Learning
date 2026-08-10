@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /* "Post your flatmate request" modal redesign:
    - Preferred localities & Lifestyle are now themed dropdowns (pn-dropdown), not chip rows.
    - Two new matching selects exist: "Looking to share with" and "Room preference".
-   - Picking a locality via the dropdown and submitting posts a live request. */
+   - Picking a locality via the dropdown and submitting posts the request. */
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9811122233';
@@ -38,7 +38,7 @@ test('post modal shows dropdowns for localities/lifestyle and the new P0 selects
   expect(errors, `console errors: ${errors.join('\n')}`).toHaveLength(0);
 });
 
-test('picking a locality via the dropdown and submitting posts a live request', async ({ page }) => {
+test('picking a locality via the dropdown and submitting posts the request', async ({ page }) => {
   await seedUser(page);
   await page.goto(`${BASE}/flatmates?post=1`);
   await expect(page.getByRole('heading', { name: /Post your flatmate request/i })).toBeVisible({ timeout: 10000 });
@@ -57,9 +57,11 @@ test('picking a locality via the dropdown and submitting posts a live request', 
   // Submit.
   await page.getByRole('button', { name: /Post request/i }).click();
 
-  /* The live-request banner appears with our pick — on the **Team up** tab, which is where a
+  /* The own-request banner appears with our pick — on the **Team up** tab, which is where a
      request for people belongs. The page opens on "Move in now" and posting does not switch tabs,
-     so this navigates rather than waiting where the old single-list page put it. */
+     so this navigates rather than waiting where the old single-list page put it. The banner reads
+     "in review", not "live": D72 holds a new post until a moderator approves it. What this test
+     protects is the dropdown-to-submit path, so the state it lands in is the honest assertion. */
   await page.getByRole('button', { name: /Team up —/i }).click();
-  await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText(/in review/i).first()).toBeVisible({ timeout: 10000 });
 });

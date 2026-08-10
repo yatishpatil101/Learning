@@ -9,6 +9,8 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
+import com.punenest.api.common.persistence.ConstraintViolations;
+import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.engagement.notification.Notification;
@@ -26,6 +28,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -47,12 +52,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FlatmateSupplyService {
 
+    private static final Logger log = LoggerFactory.getLogger(FlatmateSupplyService.class);
+
     /** Enquiries one account may send per {@link #RATE_WINDOW}. Same reasoning as seeker interest. */
     private static final int MAX_INTERESTS = 10;
 
     private static final Duration RATE_WINDOW = Duration.ofHours(1);
 
     private static final int MAX_MESSAGE = 4000;
+
+    /**
+     * V27's {@code (kind, target_id, requester_id)} unique index — one request per person per
+     * target, and the only thing that can settle two presses that arrive together.
+     *
+     * <p>Shared with {@link FlatmateSeekerService}, which writes the same table through the seeker
+     * post door. Named here rather than centrally because the constant is only useful next to the
+     * catch block that reads it.
+     */
+    private static final String ONE_PER_TARGET_INDEX = "uq_flatmate_requests_target_requester";
 
     /** People allowed in one room, anywhere on the platform. Above this it is a dormitory. */
     private static final int MAX_PER_ROOM = 3;
@@ -69,12 +86,15 @@ public class FlatmateSupplyService {
     private final NotificationRepository notifications;
     private final OtpService otpService;
     private final AuditService audit;
+    /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
+    private final RateLimitLock locks;
 
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
             FlatmateRequestRepository requests, FlatmateReviewRepository reviews,
             FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
-            NotificationRepository notifications, OtpService otpService, AuditService audit) {
+            NotificationRepository notifications, OtpService otpService, AuditService audit,
+            RateLimitLock locks) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
@@ -87,6 +107,7 @@ public class FlatmateSupplyService {
         this.notifications = notifications;
         this.otpService = otpService;
         this.audit = audit;
+        this.locks = locks;
     }
 
     // =======================================================================================
@@ -526,19 +547,38 @@ public class FlatmateSupplyService {
                 tier, flagged, ownerConsent, agreementDoc));
     }
 
-    /** File an inbox row, rate-limited and idempotent per (kind, target, requester). */
+    /**
+     * File an inbox row, rate-limited and refused if this requester already asked.
+     *
+     * <p>One request per (kind, target, requester), and a second ask is <strong>refused</strong>
+     * with the 409 the contract declares for both doors rather than quietly rewriting the first
+     * message. It used to depend on timing (D175) — see
+     * {@link FlatmateSeekerService#express} for the argument, which is the same one; this method is
+     * the room and group-join half of it.
+     */
     private FlatmateRequest record(AuthPrincipal caller, String kind, UUID targetId, UUID hostId,
             String action, String intent, String message, String targetLabel) {
         String body = message == null || message.length() <= MAX_MESSAGE
                 ? message : message.substring(0, MAX_MESSAGE);
 
-        Optional<FlatmateRequest> existing =
-                requests.findByKindAndTargetIdAndRequesterId(kind, targetId, caller.userId());
-        if (existing.isPresent()) {
-            FlatmateRequest already = existing.get();
-            already.rewrite(body, intent);
-            return requests.saveAndFlush(already);
+        // Same lock, same key, same counter as FlatmateSeekerService.express (D73). A room enquiry
+        // and a seeker interest are two entrances to one ten-an-hour budget; locking them separately
+        // would leave the burst a second door to walk through.
+        locks.holdUntilCommit(RateLimitLock.Limit.FLATMATE_INTEREST, caller.userId().toString());
+
+        // Read AFTER the lock (D175), and it is the only existence check there is. The loser of a
+        // double press reaches this line only once the winner has committed and released the lock,
+        // so under READ COMMITTED it sees the row and gets the same 409 the unique index would have
+        // given it. Reading before the lock — as this method used to — is a stale read by
+        // construction, and it answered 201 to the press that arrived a moment late.
+        //
+        // Ahead of the rate-limit count on purpose: a repeat ask is not a delivery, so telling
+        // somebody they have contacted too many hosts would be both unhelpful and untrue.
+        if (requests.findByKindAndTargetIdAndRequesterId(kind, targetId, caller.userId())
+                .isPresent()) {
+            throw alreadyInterested();
         }
+
         if (requests.countByRequesterIdAndCreatedAtAfter(
                 caller.userId(), Instant.now().minus(RATE_WINDOW)) >= MAX_INTERESTS) {
             throw new RateLimitedException(
@@ -546,8 +586,32 @@ public class FlatmateSupplyService {
                     (int) RATE_WINDOW.toSeconds());
         }
 
-        FlatmateRequest saved = requests.saveAndFlush(
-                new FlatmateRequest(kind, targetId, hostId, caller.userId(), action, intent, body));
+        FlatmateRequest saved;
+        try {
+            saved = requests.saveAndFlush(new FlatmateRequest(
+                    kind, targetId, hostId, caller.userId(), action, intent, body));
+        } catch (DataIntegrityViolationException raced) {
+            // why: the backstop, and it should now be unreachable. The re-read above closes the
+            // window under READ COMMITTED, but the isolation level is a property of the datasource
+            // rather than of this method, and a repeatable-read session would carry its pre-lock
+            // snapshot past the check and arrive here believing it is the first. V27's unique index
+            // is what actually refuses that, and without this the caller got a 500 for pressing a
+            // button twice.
+            //
+            // Only that index is translated (D170). The same insert can trip the host or requester
+            // foreign key, or a check constraint on kind or action, and answering one of those with
+            // "you have already asked" would dress a defect up as the system working: the requester
+            // believes their message was delivered, the host never sees it, and nothing reaches the
+            // error log. Anything else goes up untouched and becomes a 500.
+            if (!isDuplicateInterest(raced)) {
+                throw raced;
+            }
+            // Logged because reaching this line means the re-read did not do its job, and the caller
+            // cannot tell the difference — they get the same 409 either way (D175).
+            log.debug("duplicate flatmate interest reached the index: kind={} target={} requester={}",
+                    kind, targetId, caller.userId());
+            throw alreadyInterested();
+        }
 
         User requester = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
@@ -561,6 +625,31 @@ public class FlatmateSupplyService {
         audit.record(caller, "flatmate." + kind + ".interest", "flatmate" + kind,
                 targetId.toString(), "host", hostId.toString());
         return saved;
+    }
+
+    /**
+     * Whether this violation is the one-per-target rule rather than a genuine bug.
+     *
+     * <p>Matched on the index name in the driver's own message; the match itself lives in
+     * {@link ConstraintViolations}, which several services share against their own index names
+     * (D170). Named so the catch block reads as the rule it is enforcing rather than as a string
+     * comparison.
+     */
+    private static boolean isDuplicateInterest(DataIntegrityViolationException violation) {
+        return ConstraintViolations.isOn(violation, ONE_PER_TARGET_INDEX);
+    }
+
+    /**
+     * The 409 the contract declares for {@code flatmateRoomInterest} and {@code flatmateGroupJoin}
+     * — {@code already_interested}.
+     *
+     * <p>One message for both doors, because the row they collide on is the same row and the
+     * requester's question after a refused press is the same either way: did the host hear me the
+     * first time. They did.
+     */
+    private static ConflictException alreadyInterested() {
+        return new ConflictException("You have already sent this host a request — your earlier "
+                + "message is with them. (already_interested)");
     }
 
     /** People living across every sibling room of this flat. Standalone rooms have no siblings. */

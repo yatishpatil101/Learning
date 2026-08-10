@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { uploadPhoto } from '../../../services/photoService.js';
 
 /* The `accept` attribute on a file input is a picker HINT only — drag-drop and a
    scripted DataTransfer both bypass it. Without these guards a several-hundred-MB
@@ -23,17 +24,26 @@ export default function useListingMedia({ errors, setErrors }) {
   const accepts = (file, re, max) => !!file && re.test(file.type || '') && (file.size || 0) <= max;
 
   /* ---------- uploads ---------- */
-  const handlePhotoUpload = (e) => {
-    const picked = Array.from(e.target.files);
+  const handlePhotoUpload = async (e) => {
+    const input = e.target;
+    const picked = Array.from(input.files);
+    input.value = '';
     const ok = picked.filter((f) => accepts(f, PHOTO_MIME_RE, MAX_PHOTO_BYTES));
-    ok.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (evt) => setPhotos((prev) => [...prev, { url: evt.target.result, category: 'Other' }]);
-      reader.readAsDataURL(file);
-    });
-    if (ok.length < picked.length) setError('photos', 'Some files were skipped — photos must be JPG/PNG/WebP under 5 MB.');
+    // One upload at a time keeps the gallery order stable (the first photo is the cover) and the
+    // failure accounting simple. In mock mode `uploadPhoto` reads a `data:` URL in the browser —
+    // the wizard's original behaviour; in http mode it stores to R2 and returns a CDN URL.
+    let failed = 0;
+    for (const file of ok) {
+      try {
+        const { url } = await uploadPhoto(file);
+        setPhotos((prev) => [...prev, { url, category: 'Other' }]);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) setError('photos', `Couldn't upload ${failed === ok.length ? 'the photo' : 'some photos'} — please try again.`);
+    else if (ok.length < picked.length) setError('photos', 'Some files were skipped — photos must be JPG/PNG/WebP under 5 MB.');
     else if (ok.length && errors.photos) clearError('photos');
-    e.target.value = '';
   };
   const removePhoto = (i) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
   const setPhotoCategory = (i, cat) => setPhotos((prev) => prev.map((p, idx) => idx === i ? { ...p, category: cat } : p));

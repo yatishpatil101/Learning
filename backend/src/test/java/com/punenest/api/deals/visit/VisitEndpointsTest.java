@@ -279,8 +279,9 @@ class VisitEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Visits.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(visitor1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].visitor.id").value(visitor1.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].visitor.id").value(visitor1.getId().toString()));
     }
 
     // ---- §11 test 8: GET /me/visit-requests returns ONLY visits on the caller's listings ----
@@ -299,14 +300,15 @@ class VisitEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Visits.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(p1.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
     }
 
-    // ---- §11 test 9: Mobile masking: masked while scheduled, revealed once confirmed ----
+    // ---- §11 test 9: Mobile masking: masked while scheduled, stays masked to owner once confirmed ----
 
     @Test
-    void visitorMobile_maskedWhileScheduled_revealedOnceConfirmed() throws Exception {
+    void visitorMobile_staysMaskedToOwner_evenOnceConfirmed() throws Exception {
         User owner = user("9820200024", "owner");
         User visitor = user("9829876543", "buyer");
         Property p = listing(owner, "Mask test");
@@ -316,7 +318,7 @@ class VisitEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Visits.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].visitor.mobile").value("98XXXXX543"));
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX543"));
 
         // Confirm the visit.
         mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
@@ -329,7 +331,7 @@ class VisitEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Visits.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].visitor.mobile").value("9829876543"));
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX543"));
     }
 
     // ---- §11 test 10: Duplicate live visit → 409 ----
@@ -429,6 +431,202 @@ class VisitEndpointsTest extends AbstractApiTest {
                 Routes.Visits.BASE,
                 Routes.Visits.ME_REQUESTS,
                 Routes.Visits.REQUEST_BASE,
-                Routes.Visits.STATUS);
+                Routes.Visits.STATUS,
+                Routes.Visits.SLOT);
+    }
+
+    // ---- D87: reschedule moves the slot in place and returns the visit to `scheduled` ----
+
+    private String rescheduledSlot() {
+        return Instant.now().plus(5, ChronoUnit.DAYS).toString();
+    }
+
+    @Test
+    void reschedule_byVisitor_movesSlotAndResetsToScheduled() throws Exception {
+        User owner = user("9820200040", "owner");
+        User visitor = user("9820200041", "buyer");
+        Property p = listing(owner, "Reschedule visitor test");
+        String visitId = scheduleVisit(visitor, p);
+
+        // Owner confirms so we can prove reschedule pulls a confirmed visit back to scheduled.
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"confirmed\"}"))
+                .andExpect(status().isOk());
+
+        String newSlot = rescheduledSlot();
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + newSlot + "\"}"))
+                .andExpect(status().isOk());
+
+        Visit stored = visitRepo.findById(UUID.fromString(visitId)).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(VisitStatuses.SCHEDULED);
+        assertThat(stored.getSlot()).isEqualTo(Instant.parse(newSlot));
+    }
+
+    @Test
+    void reschedule_byOwner_succeeds() throws Exception {
+        User owner = user("9820200042", "owner");
+        User visitor = user("9820200043", "buyer");
+        Property p = listing(owner, "Reschedule owner test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(visitRepo.findById(UUID.fromString(visitId)).orElseThrow().getStatus())
+                .isEqualTo(VisitStatuses.SCHEDULED);
+    }
+
+    @Test
+    void reschedule_nonParticipant_returns404() throws Exception {
+        User owner = user("9820200044", "owner");
+        User visitor = user("9820200045", "buyer");
+        User stranger = user("9820200046", "buyer");
+        Property p = listing(owner, "Reschedule stranger test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void reschedule_terminalVisit_returns409() throws Exception {
+        User owner = user("9820200047", "owner");
+        User visitor = user("9820200048", "buyer");
+        Property p = listing(owner, "Reschedule terminal test");
+        String visitId = scheduleVisit(visitor, p);
+
+        // Cancel → terminal.
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"cancelled\"}"))
+                .andExpect(status().isOk());
+
+        // Rescheduling a cancelled visit must not resurrect it.
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("conflict"));
+
+        assertThat(visitRepo.findById(UUID.fromString(visitId)).orElseThrow().getStatus())
+                .isEqualTo(VisitStatuses.CANCELLED);
+    }
+
+    @Test
+    void reschedule_malformedId_returns404() throws Exception {
+        User visitor = user("9820200049", "buyer");
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", "not-a-uuid"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    // ---- Notifications on visit transitions (tech-debt D92) ----
+    //
+    // Read through JdbcTemplate rather than a repository: the point of these tests is that a row
+    // exists for the right person, and the notifications table belongs to another bounded context
+    // (engagement) which deals has no business importing a repository from.
+
+    private java.util.List<java.util.Map<String, Object>> notificationsFor(User u) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ?", u.getId());
+    }
+
+    @Test
+    void ownerConfirms_notifiesVisitorOnly() throws Exception {
+        User owner = user("9820200050", "owner");
+        User visitor = user("9820200051", "buyer");
+        Property p = listing(owner, "Confirm notify test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"confirmed\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(visitor)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("visit.confirmed");
+            assertThat(row.get("link")).isEqualTo("/dashboard#visits");
+            assertThat((String) row.get("body")).contains("Confirm notify test");
+        });
+
+        // The owner made the decision — telling them about it is noise, not news.
+        assertThat(notificationsFor(owner)).isEmpty();
+    }
+
+    @Test
+    void visitorCancels_notifiesNobody() throws Exception {
+        User owner = user("9820200052", "owner");
+        User visitor = user("9820200053", "buyer");
+        Property p = listing(owner, "Cancel silence test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"cancelled\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(visitor)).isEmpty();
+    }
+
+    @Test
+    void rescheduleByVisitor_notifiesOwner() throws Exception {
+        User owner = user("9820200054", "owner");
+        User visitor = user("9820200055", "buyer");
+        Property p = listing(owner, "Reschedule notify owner");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("visit.rescheduled");
+            assertThat(row.get("link")).isEqualTo("/dashboard#visits");
+            assertThat((String) row.get("body")).contains("The visitor");
+        });
+        assertThat(notificationsFor(visitor)).isEmpty();
+    }
+
+    @Test
+    void rescheduleByOwner_notifiesVisitor() throws Exception {
+        User owner = user("9820200056", "owner");
+        User visitor = user("9820200057", "buyer");
+        Property p = listing(owner, "Reschedule notify visitor");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
+                .andExpect(status().isOk());
+
+        // Same event, mirrored recipient. Notifying by role rather than by who called would have
+        // sent this to the person who just moved the slot.
+        assertThat(notificationsFor(visitor)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("visit.rescheduled");
+            assertThat((String) row.get("body")).contains("The owner");
+        });
+        assertThat(notificationsFor(owner)).isEmpty();
     }
 }

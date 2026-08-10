@@ -9,8 +9,15 @@ import com.punenest.api.identity.verification.IdentityVerificationRepository;
 import com.punenest.api.identity.verification.VerificationStatuses;
 import com.punenest.api.leads.contact.ContactRequestRepository;
 import com.punenest.api.leads.contact.ContactRequestStatuses;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +31,19 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class TenantProfileService {
+
+    /**
+     * The largest batch {@link #verifiedByMobile} will answer.
+     *
+     * <p>An unbounded list is an amplification primitive: one small request buying an unbounded
+     * amount of database work, from any authenticated caller. The number is sized for the thing
+     * this exists for — the longest list a screen renders at once is a page of offers or applicants,
+     * which is tens of rows, not hundreds — so no legitimate client should ever meet it. A client
+     * that does should page, and the 400 says so rather than silently truncating: an answer for
+     * half a list, wearing the shape of an answer for the whole one, would blank badges that were
+     * earned and nobody would notice.
+     */
+    public static final int MAX_VERIFIED_BATCH = 50;
 
     private final TenantProfileRepository profiles;
     private final UserRepository users;
@@ -125,6 +145,97 @@ public class TenantProfileService {
         return profiles.findById(targetId)
                 .map(profile -> TenancyMapper.toDto(profile, mobile, false))
                 .orElseThrow(() -> NotFoundException.of("Tenant profile"));
+    }
+
+    /**
+     * Contract {@code tenantsVerified} — the badge, for a whole list at once (tech-debt D114).
+     *
+     * <p><strong>Why this exists.</strong> The verified tick renders beside every row of a list —
+     * every offer on a property, every applicant, every reviewer — and each row is about somebody
+     * else. {@link #getByMobile} answers for one person, so a client doing it per row is an N+1 on
+     * a render path. This is the same question asked once for the whole list.
+     *
+     * <p><strong>It answers a flag and only a flag.</strong> {@link #getByMobile} hands a related
+     * caller a tenant's name, occupation and income; that is a screening read, made deliberately,
+     * about one person. Reusing it per row would move a list's worth of somebody's income across
+     * the wire to draw a tick. So this returns one bit per entry and never a reason: "no such
+     * number", "registered but not verified" and "not your business" are all {@code false}, which
+     * is the same refusal shape spec fix S10 chose for the single read, for the same reason. A
+     * caller cannot use this to discover whether a number is registered at all.
+     *
+     * <p><strong>The relationship guard is not relaxed.</strong> An entry answers {@code true} only
+     * if the caller could have read that profile through {@link #getByMobile} — an existing tenancy
+     * either way round, or an approved contact request against one of the caller's listings. A
+     * batch that skipped the guard would be a strictly cheaper way to ask a question the single
+     * read refuses, which is how a guard gets quietly deleted.
+     *
+     * <p><strong>The stored flag, not a live badge lookup.</strong> {@code verified} is read from
+     * the same {@code tenant_profiles} column {@link #getByMobile} returns, so the two endpoints
+     * cannot disagree about the same person. It is refreshed whenever the tenant saves their
+     * profile, so a tenant who verifies afterwards is briefly stale — and stale here means
+     * <em>no badge</em>, never a badge nobody earned.
+     *
+     * @param mobiles the numbers as the caller has them; echoed back unchanged
+     * @throws BadRequestException when the batch is larger than {@link #MAX_VERIFIED_BATCH}
+     */
+    @Transactional(readOnly = true)
+    public List<TenantVerifiedDto> verifiedByMobile(UUID callerId, List<String> mobiles) {
+        List<String> asked = mobiles == null ? List.of() : mobiles;
+        if (asked.size() > MAX_VERIFIED_BATCH) {
+            throw new BadRequestException(
+                    "mobiles must contain at most " + MAX_VERIFIED_BATCH + " entries per request");
+        }
+
+        // Resolve each *distinct* number once. A caller who repeats one number a hundred times must
+        // not buy a hundred lookups with it — the cap bounds the list, this bounds the work behind
+        // a list that is within the cap.
+        Map<String, UUID> resolved = new HashMap<>();
+        Set<String> looked = new HashSet<>();
+        for (String raw : asked) {
+            String normalised = MobileMask.normalise(raw);
+            if (normalised == null || !looked.add(normalised)) {
+                continue;
+            }
+            users.findByMobile(normalised).ifPresent(user -> resolved.put(normalised, user.getId()));
+        }
+
+        // One query for every profile in the batch, rather than one per row.
+        Set<UUID> verified = profiles.findAllById(resolved.values()).stream()
+                .filter(TenantProfile::isVerified)
+                .map(TenantProfile::getUserId)
+                .collect(Collectors.toSet());
+
+        Map<UUID, Boolean> relationships = new HashMap<>();
+        List<TenantVerifiedDto> answer = new ArrayList<>(asked.size());
+        for (String raw : asked) {
+            UUID targetId = resolved.get(MobileMask.normalise(raw));
+            answer.add(new TenantVerifiedDto(raw, maySeeBadge(callerId, targetId, verified, relationships)));
+        }
+        return answer;
+    }
+
+    /**
+     * Whether this caller may see a badge on this person — the badge exists <em>and</em> the caller
+     * is entitled to know.
+     *
+     * <p>The unverified case short-circuits before the relationship queries. That is a cost
+     * decision, not a security one, and it is safe precisely because both branches produce the same
+     * {@code false}: nothing about the response distinguishes "there was no badge to show you" from
+     * "there was, and you are a stranger". Ordering the checks the other way would double the
+     * queries on the common row for no observable difference.
+     */
+    private boolean maySeeBadge(UUID callerId, UUID targetId, Set<UUID> verified,
+                                Map<UUID, Boolean> relationships) {
+        if (targetId == null || !verified.contains(targetId)) {
+            return false;
+        }
+        if (targetId.equals(callerId)) {
+            return true;
+        }
+        return relationships.computeIfAbsent(targetId, id ->
+                tenancies.existsBetween(callerId, id)
+                        || contactRequests.existsApprovedForOwner(
+                                id, callerId, ContactRequestStatuses.APPROVED));
     }
 
     /**

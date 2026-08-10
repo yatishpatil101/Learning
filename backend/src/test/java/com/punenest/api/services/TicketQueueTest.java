@@ -1,5 +1,6 @@
 package com.punenest.api.services;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,11 +12,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.security.Teams;
+import com.punenest.api.services.ticket.CustomerTicketDto;
+import com.punenest.api.services.ticket.Ticket;
+import com.punenest.api.services.ticket.TicketMapper;
+import com.punenest.api.services.ticket.TicketNoteRepository;
+import com.punenest.api.services.ticket.TicketRepository;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The ops ticket board.
@@ -28,6 +37,18 @@ import org.springframework.http.MediaType;
  */
 @DisplayName("Slice 11 — the ops ticket board")
 class TicketQueueTest extends ServiceFixtures {
+
+    /** Distinctive enough that a substring search for it is a real leak check. */
+    private static final String SECRET = "owner says the tenant defaulted twice";
+
+    @Autowired
+    private TicketRepository ticketRepo;
+    @Autowired
+    private TicketNoteRepository noteRepo;
+    @Autowired
+    private TicketMapper mapper;
+    @Autowired
+    private ObjectMapper json;
 
     @Nested
     @DisplayName("who may do what")
@@ -273,6 +294,71 @@ class TicketQueueTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(boss))
                             .param("sort", "notAColumn,desc"))
                     .andExpect(status().isOk());
+        }
+    }
+
+    /**
+     * Debt D47 — the raiser and the desk are two audiences, and only one of them may read the
+     * internal thread.
+     *
+     * <p>The old arrangement was safe by arithmetic rather than by rule: {@code POST /tickets}
+     * handed back the staff record, and the {@code notes} array on it was empty only because a
+     * ticket cannot be annotated inside the transaction that created it. A test that asserted an
+     * empty array on a fresh ticket would have been asserting the coincidence, not the control, and
+     * would still have passed on the day something wrote a note on the way in. So the assertion that
+     * matters here is made against a ticket that <em>does</em> have a note.
+     */
+    @Nested
+    @DisplayName("what the raiser may see (D47)")
+    class RaiserView {
+
+        @Test
+        @DisplayName("the note exists, ops read it, and the raiser's copy has no notes field at all")
+        void internalNotesAreAbsentFromTheRaisersCopy() throws Exception {
+            User buyer = customer("9820000326");
+            String created = mvc.perform(post(Routes.Tickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"subject\":\"Agreement\",\"team\":\"legal\"}"))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            String id = field(created, "id");
+            User legal = staff("9820000327", Teams.LEGAL);
+
+            // Absent, not null — a null would still be a property the schema promises and a future
+            // mapper could fill.
+            assertThat(json.readTree(created).has("notes")).isFalse();
+
+            // Now the note genuinely exists. Everything below is about a ticket that has one.
+            note(legal, id, SECRET, 201);
+            assertThat(noteRepo.findByTicketIdOrderByAtAsc(UUID.fromString(id))).hasSize(1);
+
+            // The desk still gets it — a leak closed by deleting the feature is not a fix.
+            mvc.perform(get(Routes.Tickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].notes", hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].notes[0].text").value(SECRET));
+
+            // The raiser's projection of that same annotated ticket. There is no customer read
+            // endpoint on this board yet (D47 exists precisely to land before one does), so the
+            // assertion is made where the guarantee now lives: the type the customer path returns.
+            Ticket annotated = ticketRepo.findById(UUID.fromString(id)).orElseThrow();
+            String raiserView = json.writeValueAsString(mapper.toCustomer(annotated));
+
+            assertThat(json.readTree(raiserView).has("notes")).isFalse();
+            assertThat(raiserView).doesNotContain(SECRET);
+            assertThat(json.readTree(raiserView).get("subject").asString(null))
+                    .isEqualTo("Agreement");
+            assertThat(json.readTree(raiserView).get("mobile").asString(null))
+                    .isEqualTo("9820000326");
+        }
+
+        @Test
+        @DisplayName("the customer record has no note component to fill, whatever a caller sends")
+        void theTypeItselfCarriesNoNotes() {
+            assertThat(CustomerTicketDto.class.getRecordComponents())
+                    .noneMatch(c -> "notes".equals(c.getName()));
         }
     }
 

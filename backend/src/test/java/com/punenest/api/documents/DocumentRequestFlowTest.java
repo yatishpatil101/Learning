@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -190,7 +191,8 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeDocuments.REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     @Test
@@ -200,7 +202,8 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         mvc.perform(get(Routes.MeDocuments.REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(idle)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
@@ -215,7 +218,56 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         assertThat(json).doesNotContain("9820002015");
         mvc.perform(get(Routes.MeDocuments.REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$[0].requester.mobile").value("98XXXXX015"));
+                .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX015"));
+    }
+
+    /**
+     * D77 paged this inbox. An owner reading it wants the count of people waiting on them, and that
+     * number has to survive paging: {@code totalElements} is the whole inbox, not the slice.
+     *
+     * <p>The size clamp is asserted here rather than trusted because it is configuration
+     * ({@code spring.data.web.pageable.max-page-size}) that lives in two files — the main
+     * properties and the test properties that shadow them — and the front end asks for
+     * {@code size=100} on the strength of it. If the clamp were raised or lost, a caller could pull
+     * an owner's entire request history in one query.
+     *
+     * <p>Would fail if: the service rebuilt the page with the slice's own size as the total; the
+     * controller dropped {@code @PageableDefault} so an unspecified page came back at Spring's
+     * default of ten rather than the twenty every other paged read here uses; or the clamp property
+     * went missing, letting {@code size=500} through.
+     */
+    @Test
+    void ownerInbox_pagesWithoutLosingTheTotal_andClampsAnOversizedPage() throws Exception {
+        User owner = user("9820002016", "owner");
+        Property p = listing(owner, "Paged flat");
+        for (int i = 0; i < 3; i++) {
+            ask(user("982000201" + (7 + i), "buyer"), p, "[\"Sale Deed\"]");
+        }
+
+        // Unspecified page: the whole inbox at the default size, exactly as before paging.
+        mvc.perform(get(Routes.MeDocuments.REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20));
+
+        // Second page of two: one row left, and the total still describes the inbox.
+        mvc.perform(get(Routes.MeDocuments.REQUESTS)
+                        .param("page", "1").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        // An oversized page is clamped, not honoured and not rejected.
+        mvc.perform(get(Routes.MeDocuments.REQUESTS)
+                        .param("size", "500")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(100));
     }
 
     /**
@@ -249,8 +301,8 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         assertThat(token).hasSizeGreaterThanOrEqualTo(43).doesNotContain("=", "+", "/");
         mvc.perform(get(Routes.MeDocuments.REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$[0].status").value("granted"))
-                .andExpect(jsonPath("$[0].expiresAt").exists());
+                .andExpect(jsonPath("$.content[0].status").value("granted"))
+                .andExpect(jsonPath("$.content[0].expiresAt").exists());
     }
 
     @Test
@@ -269,8 +321,9 @@ class DocumentRequestFlowTest extends AbstractApiTest {
 
         mvc.perform(get(Routes.MeDocuments.REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$[0].status").value("declined"))
-                .andExpect(jsonPath("$[0].shareToken").value(org.hamcrest.Matchers.nullValue()));
+                .andExpect(jsonPath("$.content[0].status").value("declined"))
+                .andExpect(jsonPath("$.content[0].shareToken")
+                        .value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test
@@ -326,6 +379,24 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].category").value("Sale Deed"));
+    }
+
+    @Test
+    void sharedRead_tellsTheBrowserNeverToForwardThisUrl() throws Exception {
+        // D42: the token is in the query string, so the URL is a credential. `no-referrer` is what
+        // stops a browser that has this URL open from putting it in a Referer header on the way to
+        // anywhere else. Asserted on this route because it is the one that would be harmed, and it
+        // is set chain-wide so a future header change here has to notice this test.
+        User owner = user("9820002050", "owner");
+        User buyer = user("9820002051", "buyer");
+        Property p = listing(owner, "Referrer flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+
+        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Referrer-Policy", "no-referrer"));
     }
 
     @Test
@@ -401,5 +472,54 @@ class DocumentRequestFlowTest extends AbstractApiTest {
     void sharedRead_withoutATokenIsARejectedRequest_notAnEmptyVault() throws Exception {
         mvc.perform(get(Routes.Documents.SHARED))
                 .andExpect(status().is4xxClientError());
+    }
+
+    // ---------------- notification on grant (tech-debt D92) ----------------
+
+    private java.util.List<java.util.Map<String, Object>> notificationsFor(User u) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ?", u.getId());
+    }
+
+    @Test
+    void grant_notifiesTheRequester_withoutLeakingTheShareToken() throws Exception {
+        User owner = user("9820002040", "owner");
+        User buyer = user("9820002041", "buyer");
+        Property p = listing(owner, "Granted flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+
+        assertThat(notificationsFor(buyer)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("document.granted");
+            assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
+            // The token is the only credential on the shared read; a stored, forwardable row is
+            // the last place it should be able to turn up.
+            assertThat((String) row.get("link")).doesNotContain(token);
+            assertThat((String) row.get("body")).doesNotContain(token);
+            // The buyer is told the clock is running without being told the number.
+            assertThat((String) row.get("body")).contains("7 days");
+        });
+
+        // The owner made the decision.
+        assertThat(notificationsFor(owner)).isEmpty();
+    }
+
+    @Test
+    void decline_notifiesNobody() throws Exception {
+        User owner = user("9820002042", "owner");
+        User buyer = user("9820002043", "buyer");
+        Property p = listing(owner, "Declined flat");
+        ask(buyer, p, "[\"Sale Deed\"]");
+        String reqId = field(inbox(owner), "id");
+
+        mvc.perform(patch(Routes.MeDocuments.REQUEST_BY_ID, reqId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"declined\"}"))
+                .andExpect(status().isOk());
+
+        // Same reading as ContactService.respond: a terminal "no" is not news to push at someone.
+        assertThat(notificationsFor(buyer)).isEmpty();
+        assertThat(notificationsFor(owner)).isEmpty();
     }
 }

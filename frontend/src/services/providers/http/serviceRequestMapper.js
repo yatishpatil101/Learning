@@ -59,6 +59,10 @@ const STAFF_ROLES = new Set(['staff', 'admin']);
 
 /** Server status → the frontend step vocabulary the stepper and status chip key on. */
 const STATUS = {
+  // Reachable by the customer, not just a transient: `GET /service-requests` scopes to the
+  // requester and does *not* hide it (only the ops queue does), so anyone who closes the Cashfree
+  // modal without paying finds their request sitting here until the webhook settles or cancels it.
+  'awaiting-payment': 'awaiting_payment',
   new: 'submitted',
   assigned: 'docs_review',
   'in-progress': 'docs_review',
@@ -68,7 +72,31 @@ const STATUS = {
   cancelled: 'cancelled',
 };
 
-/** A human service name from the wire `type`. Falls back to a title-cased type for anything new. */
+/**
+ * Service `type` — one alias, in both directions.
+ *
+ * The frontend's vocabulary is `rental`; the contract names the same desk `rent-agreement`
+ * (`ServiceRequestCreate.type`, and the example on `ServiceRequest`). Every *other* frontend type —
+ * `legal`, `interior`, `packers`, `valuation` — is spelled identically on both sides and needs no
+ * entry here.
+ *
+ * <strong>Why this one alias is load-bearing.</strong> The server prices a request by matching the
+ * type string exactly: only `rent-agreement` is charged (platform fee + stamp duty + registration +
+ * GST from the `rent` fee row), and anything else is a free desk that goes straight into the ops
+ * queue. `ServiceRequestCreate.type` is now a closed enum, so forgetting this alias is a loud 400
+ * rather than a silently unpaid rent agreement — but the alias still has to exist, and it lives here
+ * rather than at a call site that could forget it.
+ */
+const WIRE_TYPE = { rental: 'rent-agreement' };
+const VIEW_TYPE = { 'rent-agreement': 'rental' };
+
+/** Frontend type → the wire type. Used by `toCreate` and by the list's `?type=` filter. */
+export const toWireType = (type) => WIRE_TYPE[type] || type;
+
+/** Wire type → the frontend vocabulary the pages filter on (`r.type === 'rental'`). */
+const toViewType = (type) => VIEW_TYPE[type] || type;
+
+/** A human service name from the `type`. Falls back to a title-cased type for anything new. */
 const SERVICE = {
   rental: 'Rent Agreement',
   legal: 'Property & Legal',
@@ -141,10 +169,11 @@ export function toViewModel(dto) {
     ...messages.map((x) => x.at),
     ...timeline.map((t) => t.at),
   );
+  const type = toViewType(dto.type);
   return {
     id: dto.id,
-    type: dto.type,
-    service: serviceName(dto.type),
+    type,
+    service: serviceName(type),
     status,
     // Structured on the wire and round-tripped (D119); `{}` for a request that carried none, so the
     // tracker's optional chaining stays safe rather than reading `undefined`.
@@ -161,6 +190,8 @@ export function toViewModel(dto) {
     timeline,
     assignedTo: dto.assignee || null,
     createdAt: created,
+    amount: dto.amount ?? null,
+    paymentSessionId: dto.paymentSessionId ?? null,
     updatedAt,
   };
 }
@@ -183,7 +214,7 @@ export function toViewModelList(rows) {
  * `propertyId` would fail the request.
  */
 export function toCreate(data) {
-  const type = data?.type || 'rental';
+  const type = toWireType(data?.type || 'rental');
   const details = data?.details && typeof data.details === 'object' ? data.details : {};
   const out = { type, details };
   if (data?.propertyId) out.propertyId = String(data.propertyId);

@@ -127,22 +127,28 @@ export const getTenantProfileFor = (mobile) => {
     return null;
   }
 };
-/* SEAM NOTE — `isTenantVerifiedFor` deliberately stays on localStorage.
+/* SEAM NOTE — this is the MOCK's answer to "is this person a verified tenant". Do not call it
+   from a component.
 
-   `GET /tenant-profiles/{mobile}` can answer this (it returns `verified`), and `rentService`
-   exposes it as `tenantProfileFor`. But every caller here asks the question *during render, about
-   somebody else, inside a list*: the verified tick beside each offer on a property page, each
-   applicant in a flatmate list, each reviewer. Converting it would be one request per row — the
-   same N+1 the shortlist and the deal book were restructured to avoid, except there is no single
-   batch endpoint to restructure it into.
+   It used to be called straight from render, and the comment here used to explain why: every
+   caller asks about somebody else, inside a list — the tick beside each offer, applicant and
+   reviewer — and `GET /tenant-profiles/{mobile}` answers for one person, so routing it through the
+   seam would have been one request per row. There was no batch endpoint to restructure into.
 
-   So this reads what this browser knows and answers `false` otherwise, which fails closed: an
-   unverified-looking tenant who is actually verified loses a badge, while the reverse — showing a
-   trust signal nobody earned — cannot happen. Use `tenantProfileFor` when you have *one* person and
-   can await; use this for the inline badge.
+   There is now: `POST /tenant-profiles/verified` (D114), reached through
+   `rentService.tenantsVerified(mobiles)`, which answers a whole list in one call and returns a Set
+   of the numbers that are verified. Components ask that; this function is what the mock provider
+   answers it with, and localStorage is legitimately the mock's whole world.
 
-   Closing it properly needs a batch endpoint (`POST /tenant-profiles/verified` with a list of
-   mobiles, or a `verified` flag on the parties already embedded in offers and visits). */
+   The fail-closed property survives the move and is still the point: every failure — an unknown
+   number here, a rejected request or a masked number live — produces *absence* from the set, and
+   absence renders no badge. A verified tenant may lose a tick; an unverified one can never gain
+   one.
+
+   Live caveat worth knowing before trusting a live badge: an offer or finalization row carries the
+   buyer's mobile MASKED (`98XXXXX210`) until contact is approved (D5), and five digits is not a
+   number the server can answer for. Those rows get no badge live, by design. Closing that needs a
+   `verified` flag on the party object the wire already embeds — see D114's second option. */
 export const isTenantVerifiedFor = (mobile) => {
   const p = getTenantProfileFor(mobile);
   return !!(p && p.idVerified);

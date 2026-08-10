@@ -62,12 +62,15 @@ public class TicketsController {
     }
 
     /**
-     * {@code POST /tickets} (contract {@code createTicket}) — 201. Any authenticated caller; see
-     * the class Javadoc for why there is no guard here.
+     * {@code POST /tickets} (contract {@code createTicket}) — 201, schema {@code CustomerTicket}.
+     * Any authenticated caller; see the class Javadoc for why there is no guard here.
+     *
+     * <p>The only response on this controller that a non-staff caller ever sees, and therefore the
+     * only one that must not be the staff record — {@code Ticket} carries internal notes (debt D47).
      */
     @PostMapping(Routes.Tickets.BASE)
     @ResponseStatus(HttpStatus.CREATED)
-    public TicketDto create(@CurrentUser AuthPrincipal principal,
+    public CustomerTicketDto create(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody TicketCreate body) {
         return service.create(principal, body);
     }

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import Select from '../ui/Select.jsx';
 import Tip from '../ui/Tip.jsx';
+import useAsyncList from '../../hooks/useAsyncList.js';
+import LoadError from '../LoadError.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { countSharedDocs, notifyBuyerDocsGranted, formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
 import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
@@ -210,34 +212,6 @@ function AgreementList({ ras, emptyText }) {
   );
 }
 
-/* One async list with an honest lifecycle: `status` is 'loading' until the first settle, then
-   'ready' or 'error'. A failed load surfaces as an error the caller can render and retry — never as
-   a confident empty list, which is what made a broken `GET /me/documents/requests` read as "no
-   requests" and a broken vault read paint a wrong 0/N checklist (D125-1). `enabled=false` resolves
-   straight to an empty ready list (the http 'portfolio' bucket has no server vault). `setList`
-   applies a mutation's provider return value directly, so an upload/delete/grant updates one list
-   in place instead of a global refetch of all three (D125-4). `reload` re-runs the loader for the
-   retry affordance. */
-function useAsyncList(loader, deps, enabled = true) {
-  const [state, setState] = useState({ list: [], status: 'loading' });
-  const [nonce, setNonce] = useState(0);
-  useEffect(() => {
-    if (!enabled) { setState({ list: [], status: 'ready' }); return undefined; }
-    let live = true;
-    setState((s) => ({ list: s.list, status: 'loading' }));
-    loader()
-      .then((d) => { if (live) setState({ list: d || [], status: 'ready' }); })
-      .catch(() => { if (live) setState({ list: [], status: 'error' }); });
-    return () => { live = false; };
-  }, [...deps, enabled, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
-  const setList = useCallback(
-    (u) => setState((s) => ({ list: typeof u === 'function' ? u(s.list) : u, status: 'ready' })),
-    [],
-  );
-  const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return [state.list, state.status, setList, reload];
-}
-
 /* Placeholder tiles shown while a vault is loading its first read, so a full vault never paints as
    an empty one and then snaps (D125-3). */
 function VaultSkeleton() {
@@ -252,17 +226,13 @@ function VaultSkeleton() {
   );
 }
 
-/* A failed load degrades to this retry affordance instead of vanishing — the honest counterpart to
-   the old `.catch(() => [])` that removed the panel entirely (D125-1). */
-function VaultError({ message, onRetry, t }) {
-  return (
-    <div className="glass-card rounded-2xl p-5 flex flex-col items-center text-center gap-3">
-      <Icon name="alert-triangle" className="w-8 h-8 text-amber-400" />
-      <p className="text-gray-300 text-sm">{message}</p>
-      <button onClick={onRetry} className="pn-control pn-control--action px-4 gap-1.5"><Icon name="refresh-cw" className="w-4 h-4" /> {t('dash.retry')}</button>
-    </div>
-  );
-}
+/* A failed load degrades to a retry affordance instead of vanishing — the honest counterpart to
+   the old `.catch(() => [])` that removed the panel entirely (D125-1).
+
+   The card itself now lives in `components/LoadError.jsx`, because the vault was only the first
+   surface that needed it and copying it to the next eleven is how the wording drifts apart (D166).
+   `VaultError` survives as the local binding so the three call sites below read unchanged. */
+const VaultError = LoadError;
 
 export default function DocumentsTab({ user, listings, toast, isOwner = false }) {
   const { t } = useTranslation();
@@ -302,13 +272,13 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
   // inventory but no listing uploads into `portfolio`, and skipping the read there would hide the
   // file they just uploaded behind a success toast.
   const ownerVaultEnabled = !!mobile && !!docProp && !(docProp === 'portfolio' && isHttpDomain('document'));
-  const [ownerDocs, ownerStatus, setOwnerDocs, reloadOwner] = useAsyncList(
+  const [ownerDocs, ownerStatus, setOwnerDocs, reloadOwner, ownerError] = useAsyncList(
     () => listDocuments(mobile, docProp), [mobile, docProp], ownerVaultEnabled,
   );
-  const [personalDocs, personalStatus, setPersonalDocs, reloadPersonal] = useAsyncList(
+  const [personalDocs, personalStatus, setPersonalDocs, reloadPersonal, personalError] = useAsyncList(
     () => listDocuments(mobile, 'personal'), [mobile], !!mobile,
   );
-  const [docReqs, reqStatus, setDocReqs, reloadReqs] = useAsyncList(
+  const [docReqs, reqStatus, setDocReqs, reloadReqs, reqError] = useAsyncList(
     () => listDocRequests(mobile), [mobile], !!mobile,
   );
   // A mutation resolves to the value the provider returns; applying it needs to know which vault is
@@ -464,7 +434,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       {context === 'owner' && (
         <>
           {ownerStatus === 'error' ? (
-            <VaultError message={t('dash.vaultLoadError')} onRetry={reloadOwner} t={t} />
+            <VaultError message={t('dash.vaultLoadError')} error={ownerError} onRetry={reloadOwner} t={t} />
           ) : ownerStatus === 'loading' && ownerDocs.length === 0 ? (
             <VaultSkeleton />
           ) : (
@@ -502,7 +472,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
               badge={reqStatus !== 'error' && pendingReqs > 0 ? pill('bg-amber-500/15 text-amber-300', t('dash.pendingCount', { count: pendingReqs })) : null}
               open={openSections.requests !== false} onToggle={toggle}>
               {reqStatus === 'error' ? (
-                <VaultError message={t('dash.reqsLoadError')} onRetry={reloadReqs} t={t} />
+                <VaultError message={t('dash.reqsLoadError')} error={reqError} onRetry={reloadReqs} t={t} />
               ) : (
                 <div className="space-y-3">
                   {docReqs.map((r) => (
@@ -575,7 +545,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       {context === 'personal' && (
         <>
           {personalStatus === 'error' ? (
-            <VaultError message={t('dash.vaultLoadError')} onRetry={reloadPersonal} t={t} />
+            <VaultError message={t('dash.vaultLoadError')} error={personalError} onRetry={reloadPersonal} t={t} />
           ) : personalStatus === 'loading' && personalDocs.length === 0 ? (
             <VaultSkeleton />
           ) : (

@@ -1,9 +1,10 @@
 package com.punenest.api.deals.deal;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +25,14 @@ public interface DealRepository extends JpaRepository<Deal, UUID> {
     @Query("select d from Deal d where d.propertyId = :propertyId and d.status = 'closed'")
     Optional<Deal> findClosedByPropertyId(@Param("propertyId") UUID propertyId);
 
-    /** All deal rows for a set of property ids — the batch load for {@code GET /me/deals}. */
-    List<Deal> findByPropertyIdIn(Collection<UUID> propertyIds);
+    /**
+     * One page of deal rows for a set of property ids — the batch load for {@code GET /me/deals}.
+     *
+     * <p>Ordered newest-first <em>in the query</em> rather than by a client sort: {@code /me/deals}
+     * publishes no {@code sort} parameter, and a page without a total order is not a page — the
+     * same row can appear twice or not at all across two requests. Hits
+     * {@code idx_deals_property_created} (V47).
+     */
+    Page<Deal> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds,
+                                                      Pageable pageable);
 }

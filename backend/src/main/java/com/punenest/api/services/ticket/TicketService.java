@@ -104,9 +104,12 @@ public class TicketService {
      * <p>{@code customer} and {@code mobile} are copied off the authenticated user, never read from
      * the body — a ticket that named somebody else would be a free way to put an arbitrary phone
      * number in front of ops.
+     *
+     * <p>Returns {@link CustomerTicketDto}, not {@link TicketDto}: this is the one response on the
+     * board that reaches a non-staff caller, and the staff record carries internal notes (debt D47).
      */
     @Transactional
-    public TicketDto create(AuthPrincipal caller, TicketCreate body) {
+    public CustomerTicketDto create(AuthPrincipal caller, TicketCreate body) {
         String team = blankToNull(body.team());
         if (team != null && !Teams.isKnown(team)) {
             throw new BadRequestException("Unknown team: " + team);
@@ -127,9 +130,9 @@ public class TicketService {
 
         User requester = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
-        return mapper.toDto(tickets.saveAndFlush(new Ticket(body.subject().trim(), team, priority,
-                propertyId, requester.getId(), requester.getName(), requester.getMobile(),
-                body.body())));
+        return mapper.toCustomer(tickets.saveAndFlush(new Ticket(body.subject().trim(), team,
+                priority, propertyId, requester.getId(), requester.getName(),
+                requester.getMobile(), body.body())));
     }
 
     /**

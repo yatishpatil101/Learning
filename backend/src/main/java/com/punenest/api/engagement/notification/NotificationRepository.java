@@ -1,6 +1,7 @@
 package com.punenest.api.engagement.notification;
 
 import java.util.Collection;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +18,9 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     /** Paged read, newest first — the only paged endpoint in this slice. */
     Page<Notification> findByUserId(UUID userId, Pageable pageable);
+
+    /** Look up one notification scoped to its owner — the guard behind dismiss (invariant 1). */
+    Optional<Notification> findByIdAndUserId(UUID id, UUID userId);
 
     /** Mark specific notifications read — only the caller's own rows (invariant 2). */
     @Modifying

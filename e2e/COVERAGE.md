@@ -74,6 +74,7 @@ cross-viewport spec:**
 | `/listings` search + filters + map | search-listings | consumer/search/listings-locality-filter(-registry), consumer/search/type-aware-filters, consumer/search/search-property-types, consumer/search/commercial-type-filter, consumer/search/filter-slider-manual-entry, `consumer/search/near-a-place-*`, consumer/search/location-recovery, consumer/search/qa-location-search, consumer/search/map-popup, consumer/search/map-panel-contact, consumer/search/listings-responsive-controls | ✅ |
 | `/property/:id` detail | consumer/property/detail | consumer/property/detail, consumer/property/detail-improvements, consumer/property/detail-sale, consumer/property/infotips, consumer/property/chat-owner, consumer/property/dedup, consumer/property/dup-modal | ✅ |
 | Contact reveal + badge-not-gate | contact-gate-leads | contact-owner-gate, contact-badge-not-gate | ✅ |
+| Owner number is never revealed to a buyer — the gate hides it regardless of the owner's `hide_number` pref; approval unlocks in-app chat, not digits (D5, global policy) | contact-gate-leads | contact-identity-masking ("hides the owner number for a buyer regardless of the owner pref") | ✅ |
 | Contact grant is per listing, not per owner | contact-gate-leads | owner-profile ("routes contact through a listing") | ✅ |
 | Free-contact quota + exhausted modal | contact-gate-leads | referral-rewards | ✅ |
 | `/owner/:id` public owner profile | consumer/account/owner-hub | owner-profile | ✅ |
@@ -86,6 +87,8 @@ cross-viewport spec:**
 | `/services/interior-renovation` | services-calculators | consumer/services/interior | ✅ |
 | `/services/property-valuation` | services-calculators | consumer/services/valuation | ✅ |
 | `/services/rent-agreement` | rent-agreement | rent-agreement | ✅ |
+| Rent agreement is a **paid** desk: create prices it server-side, parks it at `awaiting-payment` (invisible to ops) and returns a `paymentSessionId`; only the signed webhook settles it | rent-agreement | *(backend `ServiceRequestFlowTest.PaidGate` — not reachable from e2e, see note)* | ⛔ by design |
+| The rent-agreement draft autosave deliberately omits PAN and Aadhaar (D159): a mid-fill refresh restores every other answer with those two blank, they never reach `localStorage`, and a draft written before the rule is redacted in place on the next visit | rent-agreement | consumer/services/rent-agreement | ✅ |
 | `/emi-calculator` | services-calculators | emi-calculator | ✅ |
 | `/contact` | support-tickets | support-tickets (public enquiry form) | ✅ |
 | `/support` tickets + FAQ | support-tickets | support-tickets | ✅ |
@@ -93,7 +96,12 @@ cross-viewport spec:**
 | `/saved` | saved-alerts | saved (desktop), mobile/inbox-saved (mobile) | ✅ |
 | Shortlist is one shared set — heart, navbar badge and `/saved` agree | saved-alerts | saved, consumer/property/reels, consumer/account/dashboard | ✅ |
 | Saved searches + alert toggle, one shared list | saved-alerts | consumer/property/alerts, consumer/flatmates/alerts, consumer/account/notifications | ✅ |
-| Visits — book, confirm, reschedule, cancel; caller-scoped | consumer/property/detail | consumer/property/scheduled-visits | ✅ |
+| Alert cards require sign-in to create a managed alert; anonymous submit still feeds the demand-gap then routes to `/signin?reason=alerts` (D85) | saved-alerts | consumer/property/alerts, consumer/flatmates/alerts | ✅ |
+| Visits — book, confirm, reschedule (moves the slot in place and resets to scheduled, `PATCH /visits/{id}/slot`, D87), cancel; caller-scoped | consumer/property/detail | consumer/property/scheduled-visits | ✅ |
+| A buyer viewing their booked visit gets no WhatsApp handoff to the owner — the owner→visitor `wa.me` link is owner-only, and masked numbers never form a link (D5, global policy) | consumer/property/detail | consumer/property/scheduled-visits ("a buyer viewing their booked visit gets no WhatsApp handoff to the owner") | ✅ |
+| The owner *does* get the handoff the policy keeps: the visitor's name renders and the `wa.me` link carries their number — the tab reads the seam's `visitorName`/`visitorMobile`, not the never-populated `v.customer`/`v.mobile` | consumer/property/detail | consumer/property/scheduled-visits ("the owner sees the visitor by name and can WhatsApp them") | ✅ |
+| Flatmate seeker post can be taken down ("Mark filled"/"Delete") to relieve the live-post cap, soft-archived via `DELETE /flatmates/posts/{id}` (D71) | flatmates | consumer/flatmates/guardrails | ✅ |
+| Flatmate posts, rooms and groups start at `mod_status = pending` and are invisible to everyone but their author until a moderator approves; the author's banner says "in review" instead of "live", and public feeds filter on a whitelist so a new state fails closed (D72) | flatmates | consumer/flatmates/moderate-before-public | ✅ |
 | `/plans` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/checkout` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/refer` | plans-billing-refer | refer, referral-rewards | ✅ |
@@ -111,6 +119,7 @@ cross-viewport spec:**
 | `/dashboard` hub | consumer/account/owner-hub | dashboard, consumer/account/action-center, consumer/account/doc-info, consumer/account/owner-finances, mobile/dashboard-hub | ✅ |
 | `/dashboard#documents` vault **through the `document` seam** — owner upload / list / delete round-trip on the mock provider, asserting the async flip did not break the demo surface (D124) | consumer/account/owner-hub | consumer/account/documents-vault | ✅ |
 | `/dashboard#enquiries` document-request inbox **through the `document` seam** — owner sees a buyer's pending request and grants it from the Leads inbox; the read and the grant route through `documentService` (not localStorage), so the dashboard shares the Documents tab's source of truth and a grant reaches the server in http mode (D125 item 2) | consumer/account/owner-hub | consumer/account/doc-requests-grant | ✅ |
+| `/dashboard?tab=profile` verify funnel — the modal → DigiLocker mock → **rendered "ID verified" pill** on the Profile & Settings tab, from both entry points (the "Get verified" badge CTA and the identity-header "ID not verified" chip), with the earned badge surviving a reload; the sibling `kyc-growth-levers`/`verify-payoff` specs assert the CTA disappearing and what the badge *buys*, but not the pill actually painting (D21) | trust-and-verification | platform/auth/verify-funnel | ✅ |
 | `/owner-hub` + `/owner-hub/property/:id` passport | consumer/account/owner-hub | owner-hub, consumer/property/passport | ✅ |
 | `/view-documents` secure viewer | consumer/account/owner-hub | view-documents-flow, doc-viewer-scheme | ✅ |
 | **Deals / Offers / Negotiation / Finalization** — incl. a declined finalize request surfacing "the owner hasn't confirmed — ask again" now the status read returns terminal rows, not pending only (D111) | deals-offers-finalization | deals-offers | ✅ |
@@ -167,6 +176,8 @@ stylesheet bug below survived a 178-file suite.
 |---|---|---|
 | `DateField` / `TimeField` + their dialogs — styled, layered overlay on **every** route | platform/date-time-fields (desktop), mobile/date-time-fields (sheet) | ✅ |
 | `DualRange` manual entry — Cr/L/K parsing, junk input, Escape, bound ordering | consumer/search/dual-range-parsing, consumer/search/filter-slider-manual-entry | ✅ |
+| `ConnectivityBanner` + `useConnectivity` + `LoadError` — **offline vs unreachable**: `setOffline(true)` raises the confident "You're offline" and coming back announces recovery then clears; a `page.route` abort while `navigator.onLine` stays **true** raises only the hedged "Can't reach the server"; a 500 answers so **no** banner is painted; a failed load offers a Retry instead of an empty state and the retry succeeds once the route is un-aborted; the live region is mounted while empty and announcing does not move focus (D165) | consumer/connectivity | ✅ |
+| Paid placement (D59) — a boost ranks first in the default order, is labelled `Promoted`, and is **not** pinned over an explicit price sort | consumer/search/boost-ranking | ✅ |
 | `ArticleFeedback` — positive/negative branches, persistence, per-article reset | platform/help/article-feedback | ✅ |
 
 
@@ -177,7 +188,7 @@ stylesheet bug below survived a 178-file suite.
 | `/admin` dashboard + RBAC nav | (all) | admin/consolidation, admin/rbac | ✅ |
 | `/admin/properties` verification queue | property-verification | admin/properties, admin/duplicates | ✅ |
 | `/admin/properties` **against the live API** — the moderation queue and its decisions | property-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
-| `/notifications` **against the live API** — inbox read, seed suppression, mark-all-read | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/notifications` **against the live API** — inbox read, seed suppression, mark-all-read, dismiss (`DELETE /notifications/{id}` round-trip, D93) | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/messages` **against the live API** — inbox read, seed suppression, thread hydration on open, author attribution, reply round trip | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/locality/:slug` reviews **against the live API** — slug-keyed read, no fabricated standing badge | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/support` **against the live API** — list, raise, reply, and the absence of the priority/attachment controls | cross-cutting | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
@@ -185,13 +196,13 @@ stylesheet bug below survived a 178-file suite.
 | **The contact gate against the live API** — a signed-out visitor on a public listing queries it not at all | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Saved shortlist against the live API** — `/me/saved` provenance, `PageEnvelope.page` on the wire, heart round trip | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Saved searches against the live API** — `/me/saved-searches` is the source, and answers with a bare array not an envelope | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
-| **Visits against the live API** — both sides of the relationship read separately, and reschedule is not offered (D87) | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **Visits against the live API** — both sides of the relationship read separately, and reschedule moves the slot in place via `PATCH /visits/{id}/slot` (D87) | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Subscription plans against the live API** — `/plans` serves the pricing page for a signed-out visitor, and buying a priced plan leaves it `pending` with the entitlement it gates still shut | plans-billing-refer | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Deals, offers and finalization against the live API** — the owner's deal book is one `/me/deals` read not one per card, a signed-out visitor asks the deal API nothing, and a buyer reads `/offers/mine` but is never offered the owner-only Accept | deals-offers-finalization | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Rent, tenancies and finances against the live API** — Pay Rent asks the rent API nothing when signed out and is served by `/me/tenancies` + `/me/payout-account` when signed in; the owner Finances tab reads summary, cashflow and dues from the server rather than reducing the page it holds | rent-tenancy | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **The flatmates board against the live API** — all three feeds are served publicly to a signed-out visitor and the board is not empty; a posted room is readable back off the public feed with its price intact; the filter bar narrows the board server-side across every facet (gender/food/roomType/furnishing/bhk/budget, policy, flatPref/roomPref), with `any`-valued preference facets falling back to a wildcard so a flexible post still surfaces | flatmates | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Service requests against the live API** — the tracker reads `/service-requests` (not the mock store), a request created through the service round-trips with a `submitted` status, structured `details` read back off the DTO (D119), an empty `docs`/`draft`, a `user`-authored reply read back off the thread, and no mock-only fields; the co-fill party list has no endpoint and returns `[]` (D119–D121) | cross-cutting | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
-| **The Aadhaar badge against the live API** — the badge is read from `GET /me/verification/aadhaar` (not a mock store) and the seeded contact-gate flag does not grant it; a `start` returns a **pending** DigiLocker consent handle (`ref`, `verificationUrl`), never a granted badge, the next read reports `pending`, and no growth perk is fabricated (D122) | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| **The Aadhaar badge against the live API** — the badge is read from `GET /me/verification/aadhaar` (not a mock store) and the seeded contact-gate flag does not grant it; a `start` returns a **pending** DigiLocker consent handle (`ref`, `verificationUrl`), never a granted badge, the next read reports `pending`, and no growth perk is fabricated; the **dev-only** `POST /me/verification/aadhaar/simulate` (non-prod `@Profile("!prod")`) then finishes the badge where no real webhook lands, so the earned-badge state is demonstrable in http/dev (D122) | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`), backend `VerificationEndpointsTest` | ✅ |
 | **The document vault against the live API** — the owner's `#documents` tab uploads through `POST /me/documents/{propId}` and deletes through `DELETE /me/documents/{propId}/{docId}` on a seeded, owned listing, proving the vault reads and writes the real endpoints rather than localStorage (D124) | consumer/account/owner-hub | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/admin/analytics` | analytics | admin/analytics | ✅ |
 | `/admin/users` + KYC | users-kyc | admin/users | ✅ |
@@ -225,6 +236,17 @@ stylesheet bug below survived a 178-file suite.
 ---
 
 ## Notes on recent migrations
+
+**The paid rent-agreement path is deliberately outside this suite.** E2E runs mock-mode, and the
+mock service-request provider returns no `paymentSessionId`, so the checkout branch is unreachable
+here by construction — a spec for it could only assert against a stub of our own making. The gate
+lives in `ServiceRequestFlowTest.PaidGate` on the backend, which drives the real state machine: a
+priced request is created at `awaiting-payment`, the ops queue does not show it, a signature-verified
+webhook moves it to `new` (or cancels it on failure), redelivery is inert, an unrecognised `type` is
+a 400 rather than a free desk, a second unpaid request for the same desk is a 409, and identity
+numbers in `details` are refused. What e2e still owns is everything either side of the payment: the
+wizard's validation, the co-fill invite flow, the re-submission lock, and the tracker. End-to-end
+confirmation that money moves needs the Cashfree sandbox, not Playwright.
 
 **Share-a-flat → Flatmates rename.** Every `share-flat-*.spec.js` was replaced by its
 `flatmates-*` equivalent, `shareflat-map-popup` → `consumer/flatmates/map-popup`, and

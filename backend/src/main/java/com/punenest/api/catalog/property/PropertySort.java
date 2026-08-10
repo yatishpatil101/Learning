@@ -28,4 +28,18 @@ public final class PropertySort {
         Sort sort = safe.isEmpty() ? DEFAULT : Sort.by(safe);
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
     }
+
+    /**
+     * Did the caller actually ask for an order we honour? (D59)
+     *
+     * <p>Distinguishes "sorted newest-first because that is the default" from "sorted newest-first
+     * because the client asked for it" — {@link #sanitize} collapses both to the same pageable, so
+     * it cannot answer this. Boost ranking rides on the former only: promotion may reorder the
+     * default view, but a client that chose {@code price,asc} gets price ascending and nothing
+     * else. A junk or non-whitelisted {@code ?sort=} counts as no sort, matching what
+     * {@link #sanitize} does with it.
+     */
+    public static boolean hasExplicitSort(Pageable pageable) {
+        return pageable.getSort().stream().anyMatch(o -> ALLOWED.contains(o.getProperty()));
+    }
 }

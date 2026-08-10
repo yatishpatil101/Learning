@@ -58,8 +58,7 @@ export function loadTenancies(user) {
 export function tenancyStatus(t) {
   const month = thisMonth();
   const paidThisMonth = getRentPayments().some(
-    (p) => p.type !== 'deposit-finance'
-      && p.month === month
+    (p) => p.month === month
       && (!t.propId || p.propId === t.propId || !p.propId),
   );
   const now = new Date();

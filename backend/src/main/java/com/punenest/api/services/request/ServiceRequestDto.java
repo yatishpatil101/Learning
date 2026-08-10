@@ -17,6 +17,9 @@ import java.util.Map;
  * @param assignee the staff member's display name, or {@code null} while unassigned
  * @param timeline server-written history, oldest first — the order a story is read in
  * @param messages the customer&lt;-&gt;ops conversation, oldest first
+ * @param amount   what the customer was charged, in whole rupees, or {@code null} for a free desk
+ * @param paymentSessionId the Cashfree session to hand the checkout SDK — present only on the create
+ *                 response of a priced request, always {@code null} on read
  */
 public record ServiceRequestDto(
         String id,
@@ -28,9 +31,21 @@ public record ServiceRequestDto(
         List<TimelineEntry> timeline,
         List<DocumentDto> documents,
         List<MessageDto> messages,
-        Instant createdAt) {
+        Instant createdAt,
+        Long amount,
+        String paymentSessionId) {
 
     /** The inline timeline object of the {@code ServiceRequest} schema. */
     public record TimelineEntry(Instant at, String event, String by) {
+    }
+
+    /**
+     * The same request carrying the checkout session for its gateway order. Used once, on the create
+     * response of a priced request; the session is single-use and never stored, so it is stitched in
+     * here rather than mapped from the entity.
+     */
+    public ServiceRequestDto withPaymentSessionId(String sessionId) {
+        return new ServiceRequestDto(id, type, status, propertyId, details, assignee, timeline,
+                documents, messages, createdAt, amount, sessionId);
     }
 }

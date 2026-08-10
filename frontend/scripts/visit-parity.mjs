@@ -32,10 +32,9 @@ const warnings = [];
 // ─── The slot round trip, checked before anything touches the network ─────────────────────────
 // A pure-function check, so it fails fast and points at the conversion rather than at a request.
 //
-// Deliberately uses a FUTURE date. `parseWhen` extracts only day + month from the human string and
-// reconstructs the year from "now", rolling forward when the result would be in the past — so a
-// past date does not round-trip its year (D88). Every visit the calendar sorts is upcoming, which
-// is the case this asserts.
+// Uses a future date for the live round trip (every visit the calendar sorts is upcoming) and,
+// since D88, a past date for the year check below: `parseWhen` now reads the year the string carries
+// rather than reconstructing it from "now", so a past-year visit round-trips its year intact.
 // ─── Load the real modules through Vite's SSR loader ──────────────────────────────────
 // Plain `await import()` no longer reaches these modules: the mock provider pulls in `mockApi/core`,
 // which imports `db.json` (Node >= 22 demands an import attribute) and `persist.js` (which reads
@@ -67,6 +66,14 @@ const { slotFromParts, whenFromSlot, parseWhen } = await load('../src/lib/visitW
   }
   if (parseWhen(whenFromSlot(slot, 'video')).mode !== 'video') {
     failures.push('slot round trip: mode did not survive');
+  }
+  // The `when` string carries its own year, and parseWhen must read it back rather than reconstruct
+  // it from "now" (D88). A completed visit in a past year is the case the reconstruction got wrong —
+  // it rendered a year in the future — so assert a past year survives the round trip intact.
+  const pastWhen = whenFromSlot(slotFromParts('2023-01-15', time), 'in-person');
+  const pastBack = parseWhen(pastWhen);
+  if (!pastBack.date || pastBack.date.getFullYear() !== 2023) {
+    failures.push(`year round trip: "${pastWhen}" came back as ${pastBack.date ? pastBack.date.getFullYear() : 'null'} — a past-year visit would display in the wrong year (D88)`);
   }
 }
 
@@ -153,6 +160,30 @@ if (!mockView || !liveView) {
   if (liveView.status !== 'scheduled') failures.push(`status: live created a visit as "${liveView.status}", expected "scheduled"`);
 }
 
+// ─── Reschedule round trip (D87) ──────────────────────────────────────────────────────────────
+// Move the live visit to a new slot and prove the server accepts it, keeps the id, and resets the
+// status to `scheduled`. The mock does the same in memory, so a caller written against one holds on
+// the other.
+if (liveId) {
+  const newSlot = slotFromParts(furtherDateIso(), '3:00 PM');
+  const moved = await api('PATCH', `/visits/${liveId}/slot`, { slot: newSlot }, token);
+  if (moved.status !== 200) {
+    failures.push(`rescheduleVisit: live returned HTTP ${moved.status}, expected 200`);
+  }
+  const afterMove = await api('GET', '/visits', null, token);
+  const movedRaw = (Array.isArray(afterMove.body) ? afterMove.body : []).find((v) => v.id === liveId);
+  if (!movedRaw) {
+    failures.push('rescheduleVisit: the live visit vanished after a reschedule — the id was not kept');
+  } else {
+    if (movedRaw.status !== 'scheduled') failures.push(`rescheduleVisit: live status is "${movedRaw.status}" after a move, expected "scheduled"`);
+    if (movedRaw.slot !== newSlot) failures.push(`rescheduleVisit: live slot is "${movedRaw.slot}", expected "${newSlot}"`);
+  }
+}
+const mockMoved = await mock.rescheduleVisit(mockCreated.id, whenFromSlot(slotFromParts(furtherDateIso(), '3:00 PM'), 'in-person'));
+if (mockMoved?.status !== 'scheduled') {
+  failures.push(`rescheduleVisit: the mock did not reset status to "scheduled" (got "${mockMoved?.status}")`);
+}
+
 // ─── Clean up ─────────────────────────────────────────────────────────────────────────────────
 if (liveId) {
   const cancelled = await api('PATCH', `/visit-requests/${liveId}/status`, { status: 'cancelled' }, token);
@@ -172,6 +203,13 @@ report();
 function futureDateIso() {
   const d = new Date();
   d.setDate(d.getDate() + 14);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** A second, later date for the reschedule round trip — distinct from {@link futureDateIso}. */
+function furtherDateIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 21);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 

@@ -31,6 +31,14 @@
         <jjwt.version>0.12.6</jjwt.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <!--
+          AWS SDK v2, used only as an S3-compatible client for Cloudflare R2 object storage
+          (ADR-013). Pinned to the version already present in the local repository (2.27.0) so the
+          offline build (`mvn -o`) resolves it without a network fetch. The `s3` artifact carries
+          the S3Presigner used to mint expiring URLs; `apache-client` is the one sync HTTP client
+          cached here (url-connection-client is not). Bump both together, online.
+        -->
+        <awssdk.version>2.27.0</awssdk.version>
+        <!--
           Lombok is pinned BELOW the Spring Boot BOM's managed version (4.1.0 manages 1.18.46).
 
           Why: builds here run offline (`mvn -o`, see .mvn/maven.config) and the local repository
@@ -64,6 +72,24 @@
         -->
         <buildDirName>target</buildDirName>
     </properties>
+
+    <!--
+      commons-codec pinned BELOW the Spring Boot BOM's managed 1.21.0 to the version cached locally
+      (1.19.0). apache-client -> httpclient -> commons-codec, and the BOM otherwise forces an
+      uncached 1.21.0 whose descriptor the offline build cannot read during dependency collection
+      (it fails before mediation could pick a cached version). A local dependencyManagement entry
+      overrides the inherited parent BOM. Delete once the build may fetch from the network.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>commons-codec</groupId>
+                <artifactId>commons-codec</artifactId>
+                <version>1.19.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!--
           Lombok: entity accessors only (@Getter/@Setter). The ban list in lombok.config is the
@@ -156,6 +182,30 @@
             <groupId>org.webjars</groupId>
             <artifactId>swagger-ui</artifactId>
             <version>5.25.3</version>
+        </dependency>
+
+        <!-- Cloudflare R2 object storage via its S3-compatible API (ADR-013). Only wired at runtime
+             when punenest.providers.storage.enabled=true; with the flag off (default) no S3 client
+             is ever constructed. `apache-client` is named explicitly because the s3 artifact brings
+             only the HTTP SPI, and the SDK refuses to start without exactly one sync client. The
+             default async client (netty-nio-client) is excluded: it is unused here (only sync calls
+             plus offline presigning) and it drags in io.netty:*:4.2.15.Final, which the Spring Boot
+             BOM bumps above the versions cached locally, breaking the offline build. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+            <version>${awssdk.version}</version>
         </dependency>
 
         <dependency>

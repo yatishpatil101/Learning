@@ -5,6 +5,7 @@ import ConsumerLayout from './components/layout/ConsumerLayout.jsx';
 import AdminLayout from './components/layout/AdminLayout.jsx';
 import PreviewBanner from './components/pmf/PreviewBanner.jsx';
 import { ProtectedRoute, RoleRoute, TeamRoute, FlagRoute, AppFlagRoute, ModuleRoute } from './components/RouteGuards.jsx';
+import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/store.js';
 import { track } from './lib/pmf.js';
 
@@ -16,40 +17,56 @@ import StaffLogin from './pages/consumer/StaffLogin.jsx';
 import Stub from './pages/Stub.jsx';
 import HelpLangRoute from './components/help/HelpLangRoute.jsx';
 
-/* ─── Lazy consumer pages (loaded on navigation) ─── */
-const Listings = lazy(() => import('./pages/consumer/Listings.jsx'));
-const Property = lazy(() => import('./pages/consumer/Property.jsx'));
-const Owner = lazy(() => import('./pages/consumer/Owner.jsx'));
-const Compare = lazy(() => import('./pages/consumer/Compare.jsx'));
-const Dashboard = lazy(() => import('./pages/consumer/Dashboard.jsx'));
+/* Route-shaped Suspense fallbacks. These have to be in the entry chunk by
+   definition — a placeholder that arrives with the chunk it is covering for is
+   no placeholder at all — so they are plain markup with no imports of their own,
+   and must stay that way or they will drag a route's dependencies into the
+   critical path. */
+import DashboardSkeleton from './pages/consumer/dashboard/DashboardSkeleton.jsx';
+import FlatmatesSkeleton from './pages/consumer/flatmates/FlatmatesSkeleton.jsx';
+import SocietySkeleton from './pages/consumer/society/SocietySkeleton.jsx';
+
+/* ─── Lazy consumer pages (loaded on navigation) ───
+
+   `lazyPage(loader, ...namespaces)` is `lazy()` plus the route's English locale
+   namespaces, fetched in parallel with the chunk and behind the same Suspense
+   fallback (D129 — English used to be bundled whole, 253 KB on every visitor's
+   critical path). Routes with no namespace listed use only the eager shell set;
+   `npm run check:i18n` proves that from the import graph, so a route that starts
+   using a new namespace fails the build rather than rendering raw keys. */
+const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'dashboard', 'listings', 'owner', 'property', 'verify');
+const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
+const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
+const Compare = lazyPage(() => import('./pages/consumer/Compare.jsx'), 'compare-saved');
+const Dashboard = lazyPage(() => import('./pages/consumer/Dashboard.jsx'), 'dashboard', 'flatmates', 'locality', 'owner', 'owner-hub', 'verify');
 const DevSeed = lazy(() => import('./pages/consumer/DevSeed.jsx'));
-const Services = lazy(() => import('./pages/consumer/Services.jsx'));
-const ListProperty = lazy(() => import('./pages/consumer/ListProperty.jsx'));
-const PropertyPassport = lazy(() => import('./pages/consumer/PropertyPassport.jsx'));
-const PackersMovers = lazy(() => import('./pages/consumer/services/PackersMovers.jsx'));
-const PropertyLegal = lazy(() => import('./pages/consumer/services/PropertyLegal.jsx'));
-const HomeLoans = lazy(() => import('./pages/consumer/services/HomeLoans.jsx'));
-const InteriorRenovation = lazy(() => import('./pages/consumer/services/InteriorRenovation.jsx'));
-const PropertyValuation = lazy(() => import('./pages/consumer/services/PropertyValuation.jsx'));
-const RentAgreement = lazy(() => import('./pages/consumer/services/RentAgreement.jsx'));
+const Services = lazyPage(() => import('./pages/consumer/Services.jsx'), 'services');
+const ListProperty = lazyPage(() => import('./pages/consumer/ListProperty.jsx'), 'flatmates', 'list-property', 'verify');
+const PropertyPassport = lazyPage(() => import('./pages/consumer/PropertyPassport.jsx'), 'locality', 'owner-hub');
+const PackersMovers = lazyPage(() => import('./pages/consumer/services/PackersMovers.jsx'), 'services');
+const PropertyLegal = lazyPage(() => import('./pages/consumer/services/PropertyLegal.jsx'), 'services');
+const HomeLoans = lazyPage(() => import('./pages/consumer/services/HomeLoans.jsx'), 'services');
+const InteriorRenovation = lazyPage(() => import('./pages/consumer/services/InteriorRenovation.jsx'), 'services');
+const PropertyValuation = lazyPage(() => import('./pages/consumer/services/PropertyValuation.jsx'), 'services');
+const RentAgreement = lazyPage(() => import('./pages/consumer/services/RentAgreement.jsx'), 'services');
 const Contact = lazy(() => import('./pages/consumer/Contact.jsx'));
 const Notifications = lazy(() => import('./pages/consumer/Notifications.jsx'));
 const Plans = lazy(() => import('./pages/consumer/Plans.jsx'));
 const Refer = lazy(() => import('./pages/consumer/Refer.jsx'));
 const EmiCalculator = lazy(() => import('./pages/consumer/EmiCalculator.jsx'));
-const TenantProfile = lazy(() => import('./pages/consumer/TenantProfile.jsx'));
-const Checkout = lazy(() => import('./pages/consumer/Checkout.jsx'));
+const TenantProfile = lazyPage(() => import('./pages/consumer/TenantProfile.jsx'), 'misc2', 'verify');
+const Checkout = lazyPage(() => import('./pages/consumer/Checkout.jsx'), 'misc2');
 const ScheduleVisit = lazy(() => import('./pages/consumer/ScheduleVisit.jsx'));
-const Society = lazy(() => import('./pages/consumer/Society.jsx'));
-const Societies = lazy(() => import('./pages/consumer/Societies.jsx'));
-const Reels = lazy(() => import('./pages/consumer/Reels.jsx'));
-const Saved = lazy(() => import('./pages/consumer/Saved.jsx'));
-const PayRent = lazy(() => import('./pages/consumer/PayRent.jsx'));
-const ViewDocuments = lazy(() => import('./pages/consumer/ViewDocuments.jsx'));
-const Messages = lazy(() => import('./pages/consumer/Messages.jsx'));
-const Flatmates = lazy(() => import('./pages/consumer/Flatmates.jsx'));
-const Locality = lazy(() => import('./pages/consumer/Locality.jsx'));
-const Support = lazy(() => import('./pages/consumer/Support.jsx'));
+const Society = lazyPage(() => import('./pages/consumer/Society.jsx'), 'list-property', 'property', 'society');
+const Societies = lazyPage(() => import('./pages/consumer/Societies.jsx'), 'society');
+const Reels = lazyPage(() => import('./pages/consumer/Reels.jsx'), 'reels-docs');
+const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-saved');
+const PayRent = lazyPage(() => import('./pages/consumer/PayRent.jsx'), 'misc2');
+const ViewDocuments = lazyPage(() => import('./pages/consumer/ViewDocuments.jsx'), 'reels-docs');
+const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'misc2');
+const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'dashboard', 'flatmates', 'property', 'verify');
+const Locality = lazyPage(() => import('./pages/consumer/Locality.jsx'), 'locality');
+const Support = lazyPage(() => import('./pages/consumer/Support.jsx'), 'misc2');
 const HelpHome = lazy(() => import('./pages/consumer/help/HelpHome.jsx'));
 const HelpCategory = lazy(() => import('./pages/consumer/help/HelpCategory.jsx'));
 const HelpArticle = lazy(() => import('./pages/consumer/help/HelpArticle.jsx'));
@@ -168,8 +185,13 @@ export default function App() {
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/schedule-visit" element={<AppFlagRoute flag="scheduleVisit"><ProtectedRoute><ScheduleVisit /></ProtectedRoute></AppFlagRoute>} />
           <Route path="/societies" element={<Societies />} />
-          <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Society /></AppFlagRoute>} />
-          <Route path="/society/:slug" element={<Society />} />
+          {/* Own boundary so the outer spinner never covers this route: it is centred
+              in a 60vh box, and the society page opens on a 224–288px hero, so the
+              swap shunts everything below it downward the instant the chunk lands.
+              The boundary sits inside the flag guard — a disabled flag redirects, and
+              a placeholder for a page nobody is going to see is just a flash. */}
+          <Route path="/society" element={<AppFlagRoute flag="societySaaS"><Suspense fallback={<SocietySkeleton />}><Society /></Suspense></AppFlagRoute>} />
+          <Route path="/society/:slug" element={<Suspense fallback={<SocietySkeleton />}><Society /></Suspense>} />
           <Route path="/reels" element={<Reels />} />
           {/* Saves live in localStorage and several surfaces (Reels, Compare, the map
               detail panel) already write them while signed out, so a hard auth wall on
@@ -182,7 +204,10 @@ export default function App() {
           <Route path="/locality/:slug" element={<Locality />} />
           <Route path="/map" element={<Navigate to="/listings?view=map" replace />} />
           <Route path="/messages" element={<AppFlagRoute flag="inAppMessaging"><ProtectedRoute><Messages /></ProtectedRoute></AppFlagRoute>} />
-          <Route path="/flatmates" element={<Flatmates />} />
+          {/* Same reasoning as /society: the hero, the filter deck and the first
+              row of cards all arrive together, so a centred spinner guarantees a
+              reflow at the exact moment someone reaches for the List/Map toggle. */}
+          <Route path="/flatmates" element={<Suspense fallback={<FlatmatesSkeleton />}><Flatmates /></Suspense>} />
           {/* Legacy path kept as a permanent redirect: this was the public URL before
               the feature was renamed to Flatmates, so external links and search results
               still point at it. Only remaining use of the old name in the app. */}
@@ -238,9 +263,15 @@ export default function App() {
           />
           <Route
             path="/dashboard"
+            /* The boundary is inside ProtectedRoute on purpose. Outside it, a signed-out
+               visitor would be shown a dashboard taking shape for the split second before
+               the guard redirects them to /signin — a placeholder implying content they
+               have no access to. */
             element={
               <ProtectedRoute>
-                <Dashboard />
+                <Suspense fallback={<DashboardSkeleton />}>
+                  <Dashboard />
+                </Suspense>
               </ProtectedRoute>
             }
           />

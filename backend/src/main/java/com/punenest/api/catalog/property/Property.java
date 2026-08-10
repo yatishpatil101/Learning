@@ -9,6 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -234,6 +235,27 @@ public class Property extends SoftDeleteEntity {
     @Column(name = "featured", nullable = false)
     @Setter
     private boolean featured = false;
+
+    // Read-side mirror of the newest active boost window's end (D59), same shape and same reason as
+    // deal_status above: billing.boost already reads catalog, so ranking by a join into `boosts`
+    // would invert that and close a package cycle. BoostService keeps this in sync in the same
+    // transaction as every activation. Null = never boosted. A past value is left in place rather
+    // than swept, so ranking compares against now() instead of trusting the flag to be current.
+    @Column(name = "boosted_until")
+    @Setter
+    private Instant boostedUntil;
+
+    /**
+     * Is a paid promotion window open right now? (D59)
+     *
+     * <p>Derived rather than stored so it cannot go stale, and lives here rather than as a MapStruct
+     * {@code expression=} so the rule sits next to the column it reads — see {@link PropertyMapper},
+     * whose contract is that mechanical fields are generated and judgements are authored. This is
+     * the value {@code PropertySummary.boosted} discloses to buyers; nothing is gated on it.
+     */
+    public boolean isBoosted() {
+        return boostedUntil != null && boostedUntil.isAfter(Instant.now());
+    }
 
     @Column(name = "flag_reason")
     @Setter

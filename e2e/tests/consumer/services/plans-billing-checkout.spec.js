@@ -2,11 +2,18 @@ import { test, expect } from '../../../fixtures/base.js';
 
 // Plans → Checkout → subscription/order state. Behaviour verified from:
 //   pages/consumer/Plans.jsx (persona cards, CTAs → /checkout?plan=<id>),
-//   pages/consumer/Checkout.jsx (simulated pay → setPlan + addServiceOrder,
-//     alreadyOnThisPlan re-purchase guard, unknown-plan → Navigate('/plans')),
+//   pages/consumer/Checkout.jsx (pay → addServiceOrder + a `pending` subscription;
+//     `paid` requires status === 'active', alreadyOnThisPlan re-purchase guard,
+//     unknown-plan → Navigate('/plans')),
+//   services/providers/mock/planProvider.js (priced plan → `pending`;
+//     `mockActivateSubscription` is the local stand-in for the payment webhook),
 //   lib/store/billing.js (pnPlan:<mobile> + pnServiceOrders:<mobile> keys),
 //   components/RouteGuards.jsx (/checkout is ProtectedRoute → /signin?next=),
 //   i18n en/misc1.json (plans*) and en/misc2.json (co*).
+//
+// The load-bearing rule across this file: buying does not grant. Paying opens a gateway
+// order; only the payment webhook moves the subscription to `active`. No browser can make
+// that happen — one that could would be one that can grant itself a paid plan.
 //
 // The owner demo user's mobile is 9876500002 (helpers/seed.js), so the per-user
 // plan/order stores are keyed pnPlan:9876500002 / pnServiceOrders:9876500002.
@@ -77,7 +84,11 @@ test.describe('Plans, Checkout & subscription state', () => {
     await expect(page.getByRole('button', { name: /Pay ₹999/ })).toBeVisible();
   });
 
-  test('completing checkout activates the subscription and records the order', async ({ page, login }) => {
+  // The rule this test exists to protect: **the browser cannot activate a paid plan — only the
+  // payment webhook can.** Paying opens a gateway order and leaves the subscription `pending`;
+  // entitlement arrives later, out-of-band, signature-verified. A client that could flip its own
+  // subscription to `active` is a client that can grant itself a paid plan for free.
+  test('paying leaves the plan pending — only the webhook activates it', async ({ page, login }) => {
     await login.asOwner();
     await seedConsent(page);
     await page.goto('/checkout?plan=owner2');
@@ -85,22 +96,48 @@ test.describe('Plans, Checkout & subscription state', () => {
     await expect(page.getByRole('button', { name: /Pay ₹999/ })).toBeVisible();
     await page.getByRole('button', { name: /Pay ₹999/ }).click();
 
-    // Simulated gateway round-trip → success screen with an order reference.
-    await expect(page.getByRole('heading', { name: 'Payment successful!' })).toBeVisible();
+    // Pending, not paid. Telling someone the purchase landed before the money has is the one
+    // outcome Checkout.jsx is designed against, so the copy asserted here is the honest one.
+    await expect(page.getByRole('heading', { name: 'Payment pending' })).toBeVisible();
+    await expect(page.getByText(/waiting for your bank to confirm/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Payment successful!' })).toHaveCount(0);
+    // The order is recorded regardless of status — a pending payment is still an order the user
+    // must be able to find — and the gateway reference is shown so they can chase it.
     await expect(page.getByText('Order reference')).toBeVisible();
-    await expect(page.getByText(/so\d+/)).toBeVisible();
+    await expect(page.getByText(/mock-order-\d+/)).toBeVisible();
 
-    // Subscription state persists to pnPlan:<mobile>; the order lands in pnServiceOrders.
-    const state = await page.evaluate((m) => ({
+    // The entitlement key is the thing that must NOT have moved. `pnServiceOrders:<mobile>` holds
+    // the order; `pnPlan:<mobile>` stays empty until the webhook says the money arrived.
+    const beforeWebhook = await page.evaluate((m) => ({
       plan: JSON.parse(localStorage.getItem('pnPlan:' + m) || 'null'),
       orders: JSON.parse(localStorage.getItem('pnServiceOrders:' + m) || '[]'),
     }), OWNER_MOBILE);
-    expect(state.plan?.id).toBe('owner2');
-    expect(state.orders.length).toBeGreaterThanOrEqual(1);
-    expect(state.orders[0]).toMatchObject({ type: 'subscription', plan: 'owner2' });
+    expect(beforeWebhook.plan).toBeNull();
+    expect(beforeWebhook.orders.length).toBeGreaterThanOrEqual(1);
+    expect(beforeWebhook.orders[0]).toMatchObject({ type: 'subscription', plan: 'owner2' });
+    expect(beforeWebhook.orders[0].id).toMatch(/^so\d+/);
+
+    // Now play the webhook. `mockActivateSubscription` is the mock provider's stand-in for it and
+    // has no http counterpart on purpose (see providers/mock/planProvider.js), so the spec reaches
+    // for the provider directly rather than through planService — there is nothing to reach for
+    // in the service contract, which is exactly the point.
+    const activated = await page.evaluate(async () => {
+      const m = await import('/src/services/providers/mock/planProvider.js');
+      return m.mockActivateSubscription();
+    });
+    expect(activated.status).toBe('active');
+    expect(activated.id).toBe('owner2');
+
+    // Only now does the subscription persist to pnPlan:<mobile>.
+    const afterWebhook = await page.evaluate((m) => ({
+      plan: JSON.parse(localStorage.getItem('pnPlan:' + m) || 'null'),
+      orders: JSON.parse(localStorage.getItem('pnServiceOrders:' + m) || '[]'),
+    }), OWNER_MOBILE);
+    expect(afterWebhook.plan?.id).toBe('owner2');
+    expect(afterWebhook.orders.length).toBeGreaterThanOrEqual(1);
 
     // Re-visiting the same plan now short-circuits to the already-active screen
-    // (the re-purchase guard proves the subscription is durable).
+    // (the re-purchase guard proves the webhook's grant is durable).
     await page.goto('/checkout?plan=owner2');
     await expect(page.getByRole('heading', { name: "You're already on this plan" })).toBeVisible();
   });

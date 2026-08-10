@@ -5,7 +5,7 @@ import { USERS } from '../../../helpers/seed.js';
  *
  * `my-rental` asserts the link into this route and `feature-flags` asserts the
  * coming-soon/live switch, but nothing exercised what the page is for: the fee
- * breakdown, the payment, the receipt, and the deposit-financing tab. The
+ * breakdown, the payment, and the receipt. The
  * convenience fee is real money — a regression there is a billing bug, not a UI
  * bug, so it gets an arithmetic assertion rather than "a number is visible".
  *
@@ -114,18 +114,6 @@ test.describe('Pay rent', () => {
 
     // Switching rental repoints the amount at that tenancy's agreed rent.
     await expect(page.getByPlaceholder('25000')).toHaveValue(String(RENT + 5000));
-  });
-
-  test('deposit financing quotes an EMI and files an approved request', async ({ page }) => {
-    await openPayRent(page);
-
-    await tab(page, 'Deposit financing').click();
-    // ₹1,00,000 over 6 months at 1.5%/mo → (100000 + 9000) / 6 = ₹18,167/mo.
-    await expect(page.getByText('₹18,167/mo')).toBeVisible();
-
-    await page.getByRole('button', { name: 'Finance my deposit' }).click();
-    await expect(tab(page, 'History')).toHaveClass(/active/);
-    await expect(page.getByText('Security deposit')).toBeVisible();
   });
 
   test('a landlord payout account can be linked and removed', async ({ page }) => {

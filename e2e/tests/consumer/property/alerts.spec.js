@@ -4,12 +4,14 @@ const BASE = 'http://localhost:5173';
 
 /* The Property Alerts feature:
    - Listings "no results" → "Create a property alert" card (NotifyMeCard).
-   - Creating it feeds BOTH the user's dashboard Alerts tab AND the admin demand-gap.
+   - Submitting it always feeds the admin demand-gap (anonymous or signed-in).
+   - Since D85, a *managed* alert (dashboard Alerts tab) can only be created by a
+     signed-in user; an anonymous submit still records the demand signal but then
+     routes the visitor to sign in rather than writing a local alert they can't manage.
    A fake ?loc= slug guarantees zero results deterministically. */
 
-test('empty search shows the alert card and creating one confirms + feeds admin demand-gap', async ({ page }) => {
-  // Anonymous user is fine — addDemandAlert does not require login.
-  // ?ptype=flat pre-selects the Flat property type so it is carried into the alert.
+test('anonymous alert submit captures the demand signal then routes to sign-in (D85)', async ({ page }) => {
+  // ?ptype=flat pre-selects the Flat property type so it is carried into the demand signal.
   await page.goto(`${BASE}/listings?deal=rent&ptype=flat&loc=Testville`);
 
   // The redesigned alert card appears in the empty state.
@@ -22,11 +24,11 @@ test('empty search shows the alert card and creating one confirms + feeds admin 
   await page.getByLabel('Mobile number for alerts').fill('9876500077');
   await createBtn.click();
 
-  // Confirmation state with a link to manage alerts.
-  await expect(page.getByText(/first in line/i)).toBeVisible();
-  await expect(page.getByRole('link', { name: /Manage my alerts/i })).toBeVisible();
+  // D85: anonymous visitors can no longer self-serve a managed alert — they are routed
+  // to sign in (the demand signal is captured before the redirect).
+  await page.waitForURL(/\/signin\?reason=alerts/);
 
-  // The admin Supply-Gap tab surfaces this as a demand signal for the locality,
+  // The admin Supply-Gap tab still surfaces this as a demand signal for the locality,
   // including the requested property type (topType).
   await page.goto(`${BASE}/staff-login`);
   await page.getByRole('button', { name: /Admin/i }).first().click();
@@ -37,6 +39,23 @@ test('empty search shows the alert card and creating one confirms + feeds admin 
   await expect(page.getByText(/Top: testville/i)).toBeVisible();
   const demandCard = page.locator('div.rounded-xl', { has: page.getByRole('heading', { name: /Demand Alerts by Locality/i }) });
   await expect(demandCard.getByText('Flat', { exact: true })).toBeVisible();
+});
+
+test('signed-in alert submit confirms with a link to manage alerts (D85)', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876500077', role: 'buyer', loginAt: Date.now() }));
+  });
+  await page.goto(`${BASE}/listings?deal=rent&ptype=flat&loc=Testville`);
+
+  await expect(page.getByText('Nothing here yet? Get there first.')).toBeVisible();
+  const createBtn = page.getByRole('button', { name: /Create alert/i });
+  await expect(createBtn).toBeVisible();
+  await page.getByRole('button', { name: 'SMS', exact: true }).click();
+  await createBtn.click();
+
+  // Signed-in visitors self-serve a managed alert and stay on the page.
+  await expect(page.getByText(/first in line/i)).toBeVisible();
+  await expect(page.getByRole('link', { name: /Manage my alerts/i })).toBeVisible();
 });
 
 test('dashboard Alerts tab lists, toggles and deletes saved alerts', async ({ page }) => {

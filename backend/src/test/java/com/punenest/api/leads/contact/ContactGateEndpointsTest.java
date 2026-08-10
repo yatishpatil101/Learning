@@ -15,6 +15,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -156,6 +157,57 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Contacts.STATUS).param("propertyId", p.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(jsonPath("$.status").value(ContactStatuses.APPROVED));
+    }
+
+    /**
+     * Approving a request notifies the buyer — the positive outcome they were waiting on, and until
+     * tech-debt D92 one nothing announced. The notification points at the listing where the number
+     * is now visible, and nobody is told about their own decision.
+     */
+    @Test
+    void approvingAContactRequest_notifiesTheBuyer_andNotTheOwner() throws Exception {
+        User owner = user("9820000200", "owner");
+        User buyer = user("9820000201", "buyer");
+        Property p = listing(owner, "Notify on approve");
+        ask(buyer, p);
+
+        mvc.perform(patch(Routes.MeContactRequests.BASE + "/" + requestId(owner))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\"}"))
+                .andExpect(status().isOk());
+
+        List<Map<String, Object>> notes = notificationsFor(buyer);
+        assertThat(notes).hasSize(1);
+        assertThat(notes.getFirst().get("type")).isEqualTo("contact.approved");
+        assertThat(notes.getFirst().get("link")).isEqualTo("/property/" + p.getId());
+        assertThat(notificationsFor(owner)).isEmpty();
+    }
+
+    /**
+     * A decline is a terminal "no", not news to push at the buyer — so it stays silent by design.
+     * Recorded as a test so the silence is a decision the suite defends, not an omission.
+     */
+    @Test
+    void decliningAContactRequest_notifiesNobody() throws Exception {
+        User owner = user("9820000202", "owner");
+        User buyer = user("9820000203", "buyer");
+        Property p = listing(owner, "Silent decline");
+        ask(buyer, p);
+
+        mvc.perform(patch(Routes.MeContactRequests.BASE + "/" + requestId(owner))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"declined\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(buyer)).isEmpty();
+    }
+
+    /** Read straight from the table: the notification is a side effect, not part of any response. */
+    private List<Map<String, Object>> notificationsFor(User user) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ?", user.getId());
     }
 
     /** Mock-shape parity: exactly the four keys {@code frontend/src/lib/contact.js} reads. */
@@ -336,10 +388,10 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    // ---------------- the payoff: masked -> revealed ----------------
+    // ---------------- the payoff: masked, and stays masked (D5 global policy) ----------------
 
     @Test
-    void ownerMobileStaysMaskedUntilApproval_thenIsRevealedOnPropertyDetail() throws Exception {
+    void ownerMobileStaysMaskedEvenAfterApproval_onPropertyDetail() throws Exception {
         User owner = user("9829876543", "owner");
         User buyer = user("9820000023", "buyer");
         Property p = listing(owner, "Reveal");
@@ -365,15 +417,18 @@ class ContactGateEndpointsTest extends AbstractApiTest {
                         .content("{\"status\":\"approved\"}"))
                 .andExpect(status().isOk());
 
-        // Approval reveals - to the approved buyer only, and still not to anyone else.
+        // D5 (global policy): approval unlocks the in-app conversation, not the digits — the owner's
+        // number stays masked to the approved buyer and to everyone else.
         mvc.perform(get(detail).header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
-                .andExpect(jsonPath("$.owner.mobile").value("9829876543"));
+                .andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
         mvc.perform(get(detail)).andExpect(jsonPath("$.owner.mobile").value("98XXXXX543"));
 
-        // ...and reveals the buyer to the owner, symmetrically.
+        // ...and symmetrically the buyer's number stays masked to the owner: the inbox never emits a
+        // raw contact number, so the revealed `contact` object is absent and only the masked
+        // `requester` remains.
         mvc.perform(get(Routes.MeContactRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(jsonPath("$.content[0].contact.mobile").value("9820000023"))
+                .andExpect(jsonPath("$.content[0].contact").doesNotExist())
                 .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX023"));
     }
 

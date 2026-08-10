@@ -284,6 +284,56 @@ export async function postAsGroup(page) {
   await chooser(page).getByRole('button', { name: /We're already a group/i }).click();
 }
 
+/* ── Flatmate moderation (D72) ─────────────────────────────────────────────
+   Every post, room and group now starts at `modStatus: 'pending'` and the board
+   filters on a whitelist, so anything a spec creates through the UI is invisible
+   until a moderator approves it. That is the feature, not a bug — but it is not
+   what most of these specs are about, and rewriting them to assert an absence
+   would delete the behaviour they were written to protect.
+
+   So a spec that needs its own creation on the board stands in for the moderator,
+   in one named line. Specs that test the gate itself live in
+   `moderate-before-public.spec.js` and deliberately do NOT call this. */
+export const FLATMATE_STORES = {
+  posts: 'puneNestFlatmatePosts',
+  groups: 'puneNestFlatmateGroups',
+  rooms: 'puneNestRoomListings',
+};
+
+/**
+ * Approve every row in the named flatmate stores (all three by default), then
+ * reload so the board re-reads them.
+ *
+ * The reload is part of the helper rather than the caller's job because the
+ * approval happens in storage, behind the running page — without it the assertion
+ * that follows would race a feed the page has no reason to re-fetch, and would
+ * pass or fail on timing rather than on moderation.
+ *
+ * `?post=1` is dropped on the way: it is an "open the post form" instruction, not
+ * view state, and replaying it after a post exists reopens the form (or trips the
+ * duplicate guard) over the board the caller is about to assert on.
+ */
+export async function approveFlatmates(page, ...kinds) {
+  /* The create that precedes this call is async (`await refresh()` before the
+     modal closes), so under parallel load the write can still be in flight. Wait
+     for the form to go away first — approving a store mid-write would silently
+     miss the new row and leave the modal covering the tab strip afterwards. */
+  await page.locator('.sf-modal').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  const keys = (kinds.length ? kinds : Object.keys(FLATMATE_STORES)).map((k) => FLATMATE_STORES[k]);
+  await page.evaluate((ks) => {
+    ks.forEach((key) => {
+      const rows = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!Array.isArray(rows) || !rows.length) return;
+      rows.forEach((r) => { r.modStatus = 'approved'; });
+      localStorage.setItem(key, JSON.stringify(rows));
+    });
+  }, keys);
+  const url = new URL(page.url());
+  url.searchParams.delete('post');
+  await page.goto(url.toString());
+  await page.locator('.sf-card').first().waitFor({ timeout: 10_000 }).catch(() => {});
+}
+
 /* Switch to the Team up feed.
    A group you just created has no address yet, so it sorts into Team up — but
    creation returns you to the default Move in now tab, where the card genuinely

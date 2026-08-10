@@ -2,12 +2,15 @@ package com.punenest.api.deals.offer;
 
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,11 +65,18 @@ public class OfferController {
     }
 
     /**
-     * {@code GET /offers/mine} (contract {@code myOffers}) — offers the caller MADE.
+     * {@code GET /offers/mine} (contract {@code myOffers}) — offers the caller MADE, newest first,
+     * paged.
+     *
+     * <p><strong>Paged as of D77</strong>, in step with {@code /me/offers}. The two are the same
+     * table and the same projection from the two sides of a negotiation; leaving one an array would
+     * make the response shape depend on which side the caller is on.
      */
     @GetMapping(Routes.Offers.MINE)
-    public List<OfferDto> myOffers(@CurrentUser AuthPrincipal principal) {
-        return offerService.myOffers(principal.userId());
+    public PageResponse<OfferDto> myOffers(@CurrentUser AuthPrincipal principal,
+                                           @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                offerService.myOffers(principal.userId(), Pageables.unsorted(pageable)), o -> o);
     }
 
     private static UUID parseUuid(String token) {

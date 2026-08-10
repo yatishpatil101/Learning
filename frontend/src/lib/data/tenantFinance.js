@@ -24,9 +24,9 @@ function monthToDate(m) {
   return new Date(Number(y), Number(mm) - 1, 1);
 }
 
-/* A tenant's rent payments on PuneNest (excludes deposit-financing rows). */
+/* A tenant's rent payments on PuneNest. */
 export function rentPayments() {
-  return getRentPayments().filter((p) => p.type !== 'deposit-finance');
+  return getRentPayments();
 }
 
 /* Rent money summary from real payment history. */

@@ -4,13 +4,16 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Contract schema {@code Ticket}.
+ * Contract schema {@code Ticket} — the <strong>staff</strong> view of the ops board.
  *
- * <p>{@code notes} are internal, and so is every reader of this DTO except one: the customer who
- * just created a ticket gets it back from {@code POST /tickets}. A brand-new ticket has no notes, so
- * that response carries an empty list — but if the board ever gains a customer-facing read, the
- * notes have to be split off first. Recorded rather than guarded here, because a guard against a
- * caller that does not exist is a guard nobody maintains.
+ * <p>{@code notes} are internal, and every reader of this DTO is now ops: {@code GET /tickets} and
+ * {@code PATCH /tickets/{id}} are both behind a staff/admin guard. The one customer-facing response
+ * that used to be this type, the {@code POST /tickets} 201, returns {@link CustomerTicketDto}
+ * instead (debt D47) — a type with no {@code notes} component at all, so the guarantee is the
+ * compiler's rather than the accident of a fresh ticket having none.
+ *
+ * <p>Anything added to this record is staff-only by construction. If a field belongs to the raiser
+ * too, put it on both records rather than widening the audience of this one.
  *
  * @param assignee the staff member's display name, derived — assignment is by id (spec fix S42)
  * @param mobile   the requester's real number. Unmasked because every reader is either ops (who must

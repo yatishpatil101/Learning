@@ -1,4 +1,4 @@
-﻿# Checkstyle config — provenance and status
+# Checkstyle config — provenance and status
 
 **Status: stored for reference, NOT wired into the build.** See **D36** in
 `docs/system/tech-debt.md` for the decision and the measured baseline before changing that.

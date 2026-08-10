@@ -15,65 +15,555 @@
 > keeping goes into the docs above or into a comment next to the code it explains — those are read
 > when the code is read; a worklog entry is not.
 >
-> Compressed 2026-08-06 from 5,294 lines. Every one of the 86 open checkboxes was checked against
-> the tree before removal — 62 had shipped, 3 were fixed on the spot, and the rest moved to the
-> register. Details in the last entry.
+> Compressed 2026-08-06 from 5,294 lines, and again 2026-08-09 from 527 (the 2026-08-06/07 seam
+> narratives were collapsed into their one-line rows in the seam table below; the reasoning they
+> carried already lives in the code and docs they describe).
 
 ---
 
 ## In flight
 
-Nothing.
+- **Sandbox-verify plans + L&L together.** `backend/run-local.ps1` (Zulu 25, real `TEST_` keys,
+  `CASHFREE_ENABLED=true`) + frontend with `VITE_API_DOMAINS` covering `plan`/`serviceRequest`.
+  Drive `/checkout?plan=owner2` *and* the rent-agreement wizard through real Cashfree sandbox, and
+  confirm the webhook moves each off its pending state. `npm run parity:serviceRequest` also needs
+  the live backend (it prompts for an OTP) and has not been run against the paid path.
+  **No e2e can cover this**: e2e runs mock-mode and the mock provider returns no `paymentSessionId`,
+  so the checkout branch is unreachable there by design.
+- **Every developer now needs `PUNENEST_DEV_MACHINE` set** or the backend refuses to start under the
+  `dev` profile — see [`docs/LOCAL_DEV.md`](../docs/LOCAL_DEV.md), "One-time setup".
 
 ## Needs attention (not mine, not yet actioned)
 
-- **`npm run check:size` fails**: critical path 587.7 KB gzip vs `BUDGET_KB` 560 (budget unchanged
-  from HEAD). Not attributable to any single session — the tracked frontend diff is 1,570 insertions
-  across 51 files plus 10 untracked provider/mapper modules. This is what **D129** records; the gate
-  is doing its job. Either move weight into lazy chunks or raise the budget in a findable commit.
-  A stashed or worktree baseline cannot settle this: `git stash push -- <paths>` skips untracked
-  files, and a worktree at HEAD lacks them entirely, so both measure a different app.
+- **`RentMapper` carries a one-line `@Mapping(..., ignore = true)` that belongs to whoever is doing
+  D167.** The working tree already held uncommitted D167 work (`RentPaymentDto.withPaymentSessionId`),
+  which MapStruct reads as a second writable target under `unmappedTargetPolicy = ERROR`, so the
+  backend would not compile. The ignore is an unblock, not a decision — delete it and map the field
+  properly when D167 lands.
+- **The two new 409s (D160) have no e2e coverage and cannot have any yet.** e2e runs mock-mode and
+  the mock provider opens no gateway order, so there is no unpaid row to collide with; the cap is
+  covered at the API level instead by `UnpaidOrderCapTest` (13 tests, both families, index names
+  pinned) and the sweeps by `BillingCheckoutSweepTest` / `RentCheckoutSweepTest`. Revisit when the
+  sandbox-verify item above gives e2e a real checkout to drive.
+- **`backend/.env.local` was surfaced into an editor context during the 2026-08-09 debt wave.** It is
+  git-ignored and was never committed, but it holds live sandbox secrets (Cashfree TEST secret key,
+  R2 access key + secret, Supabase DB password) and its own header says not to paste it anywhere.
+  Rotate if there is any doubt about where that context went.
 
 ## Next up
 
-**The seam is complete — all 18 domains have a live consumer.** Diffing
-`frontend/src/services/providers/http/*Provider.js` against `VITE_API_DOMAINS` in
-`e2e/playwright.live.config.js` shows every domain is switched on. There is no next domain to flip.
+**The seam is complete — all 18 domains have a live consumer** (every
+`frontend/src/services/providers/http/*Provider.js` is in `VITE_API_DOMAINS`). No next domain to flip.
 
-**Documents — flipped on the honest subset (D124 closed, D125 raised).** The owner vault
-(`DocumentsTab`) now lists, uploads and deletes through `documentService`, reads the personal/KYC
-bucket from `/me/documents/personal`, and answers the request inbox through the seam; `document` is
-in the live e2e allow-list and the round-trip is asserted against the real API. `useRentAgreement`'s
-vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` — the first needs the
-bytes the signed URL withholds, the last two address mock-only managed-property ids — as does the
-whole buyer half (D123). What the flip left rough is D125: failure states that read as emptiness, no
-loading state. **D125's item (2) is now closed (2026-08-08):** `useDashboardData` reads the request
-inbox through `listDocRequests` and grants through `respondDocRequest` (the seam), so the Documents
-tab, the `leads` badge and the Action Center share one source of truth and a dashboard grant reaches
-the server in http mode — covered by `consumer/account/doc-requests-grant.spec.js`. D125's remaining
-items (1, 3, 4, 5) are **also closed (2026-08-08):** `DocumentsTab` now carries a per-list
-`loading`/`error`/`ready` status (failed reads show a retry affordance instead of vanishing, a loading
-vault shows a skeleton instead of a false `0/N`), applies each mutation's provider return value in
-place guarded by a ref (uploads land on the flat they targeted, grants patch only the answered row),
-and treats the non-resolving dev signed-URL as non-previewable. The only deliberate residue is the
-http grant success toast (live mode has no client-side doc count to flag an empty grant — the server
-is authoritative). **D125 is now fully resolved** and can be struck from the register once both the
-dashboard-seam slice and this cleanup land on the same branch.
-
-**Societies** — **UNBLOCKED (D104 closed 2026-08-08).** The catalogue now seeds the frontend's full
-set (348 societies + 155 localities) from a generator; `GET /societies` carries
-`avgRating`/`reviewCount` as of the reviews slice, which is what the three society-card call sites
-need. The seam itself (service + providers + call-site flip) is not yet built — that is the next
-society-domain slice, and it no longer 404s on real slugs.
+- **Documents** — flipped on the honest subset; D124 closed, D125 fully resolved (2026-08-08). Buyer
+  half, `useRentAgreement` vault reuse, `DocVault`, `PropertyPassport` stay on `lib/` by design (D123).
+- **Societies** — UNBLOCKED (D104 closed 2026-08-08): catalogue now seeds the full 348 societies +
+  155 localities and `GET /societies` carries `avgRating`/`reviewCount`. The service + provider +
+  call-site flip is the next society-domain slice — not yet built, no longer 404s on real slugs.
 
 ---
 
 ## Shipped
 
+### 2026-08-11 — D174, D175, D50/D51, D100, D42 and the e2e reliability pair (D28/D29)
+
+Six parallel lanes. Six register rows deleted outright, two rewritten to the part of themselves that
+is still true, and five new rows opened from findings the lanes surfaced along the way. Backend
+**1079 tests, 0 failures, 3 skipped** (up from 1056); frontend lint 0 errors, i18n gates pass, build ✓,
+bundle unchanged at 533.0 KB; targeted e2e 42 passed; spec clean at 179 paths / 159 schemas / 226 ops.
+
+**D174 — an owner could be shown the wrong financial year on the morning their tax figure matters.**
+`FinanceService` read the clock in the JVM's default zone. On a UTC host, between 00:00 and 05:30 IST
+the server's "today" is yesterday in India — harmless for a list, not harmless for a boundary. At
+02:00 IST on 1 April, `period=year` resolved to the **previous** Indian financial year and said
+nothing about it. Closed with a new `common/PlatformTime.IST` constant and two private helpers,
+`todayIst()` and `currentMonthIst()`, which are now the only date sources in the class.
+
+The interesting decision was the seam. The clock field is deliberately **zone-agnostic**
+(`Clock.systemUTC()`), with `PlatformTime.IST` applied at each use site, rather than a clock that
+already carries IST. If the clock knew about IST, a test pinning it would be proving that *the test*
+knows about IST. Keeping it zone-agnostic lets `FinanceIstBoundaryTest` pin a **UTC-zoned** clock —
+the exact host misconfiguration that causes the bug — so every IST answer that comes back is the
+service's own. The test pins `2026-03-31T20:00:00Z` (01:30 IST on 1 April: simultaneously the
+previous day, month and financial year to a UTC host) and seeds one row either side, so a wrong
+bucket shows up as the wrong rupee total rather than an empty result. It also asserts the cashflow
+bucket's **label**, because a series that is a month out but internally consistent still misleads the
+chart axis. The clock is set through `AopTestUtils.getTargetObject(...)`: writing it through the
+`@Transactional` proxy sets the field on the CGLIB subclass and leaves the target object — whose
+methods actually run — on the system clock, so the test would have passed for the wrong reason.
+
+**D175 — the same tap answered 201 or 409 depending on timing.** All three flatmate interest doors
+now lock, then re-read, then refuse with one 409 `already_interested`. The unique index catch stays
+as an unreachable backstop with a `debug` log, not a `warn` — if it ever fires, that means the lock
+has stopped working, which is worth being able to switch on and not worth waking anyone up for.
+
+Two things were silently broken and are now not. On the group door the auto-accept block (add a
+member, decrement `seatsOpen`) ran *before* the duplicate refusal, so a repeated press could add a
+second membership row and spend a seat. And `FlatmateSupplyEndpointsTest.secondOpenJoinTakesNothing`
+asserted `members == 1` — wrong, because the group creator is enrolled at create time, so the
+truthful count after one real join is 2. **The production code was right; the expectation was not.**
+Asserting 1 would have been asserting the host had vanished. The group-join fixture that was flagged
+as missing last wave is now built and real.
+
+**D50 + D51 — the support desk could not see its own queue.** `support_tickets.unread` was a single
+boolean, so it could only ever mean one thing: "a staff reply the raiser has not read". Migration
+**V53** adds `staff_unread` beside it, leaving the old column's meaning exactly intact so the customer
+UI and every existing test still hold. Two booleans rather than a `last_message_at` + two
+`last_read_at` trio: three nullable timestamps to derive a boolean the code already stores directly is
+more state, not less. Rules are symmetric — the raiser writing (including the opening message) queues
+it for the desk, a staff reply queues it for the raiser, neither marks the writer, and
+`POST /support/tickets/{id}/read` clears **only the caller's side**. Backfill applies the same rule
+once to history so the queue does not ship empty.
+
+`GET /admin/support-tickets` is new, paged, and staff+admin — staff included deliberately, because
+they could already read and answer any ticket by id, and withholding only the index leaves them able
+to act on tickets they cannot find. `Pageables.unsorted` strips any client `?sort=`, since an
+unvalidated sort property is a 500 any caller can guess into. The row shape is a **summary**: no
+thread (a page of twenty threads is an unbounded response by another route), no mobile (a list is the
+shape that gets exported) and no `notes`. The leak test asserts through the endpoint body *and*
+reflectively over the DTO's components — a test reading the column directly would still pass on the
+day nothing exposed it, which is the whole defect. `IMPLEMENTED_FLOOR` 216 → 217.
+
+The admin queue **screen** is deliberately outstanding and now carries its own row (D51, rewritten).
+`AdminSupport.jsx` is not it — that is the ops board over a different resource on a mock provider.
+
+**D100 — a test harness was publishing to the live site.** `review-parity.mjs` posted a real locality
+review on every run, and reviews are public, so "Parity probe review." rendered on `/locality/aundh`
+to anybody browsing. It now deletes its own row by the id the create returned, inside a `finally`, so
+a contract break does not also cost a public row. Every failure path either deletes exactly one row or
+exits non-zero printing the surviving id **and** the `DELETE` to run by hand; the `psql` command tag
+is treated as authoritative, so a `DELETE 0` can never read as success. One litter row was found and
+removed (`66c9ad47-…`), printed in full before execution.
+
+Two corrections worth recording. The register was **wrong about `conversation-parity.mjs`** — it
+writes nothing to the database; its "creates" go to a client-side staging queue which, under Node, is
+the in-memory stub the script installs itself. And a review pass caught a **HIGH in the new code**:
+the failure path printed the database password, because `execFileSync`'s `Error.message` is
+`Command failed: <argv…>` and the argv carries `-d <DB_URL>` — so taking the first line selected
+exactly the line with the credential *and* discarded the stderr explaining the failure. Fixed by
+preferring `err.stderr` and redacting on the **last** `@`, so a password containing `@` is removed
+whole rather than half-shown.
+
+A throwaway database was rejected as impossible here, not merely worse: the harness drives the real
+HTTP provider, so the *backend* chooses the database. Read-only was rejected because the write **is**
+the assertion — four of the invariants only exist on a row the server actually created.
+
+**D42 — the share token is a 7-day reusable bearer credential in a URL.** Everything closeable is
+closed: `LogSafeUri` redacts `token` and friends for any future request logger (denylist, deliberately
+— a forgotten allowlist entry leaks a secret, a forgotten denylist entry makes a log noisy), the
+Tomcat access-log pattern is pinned to `%m %U %H` so it never writes a query at all, and
+`Referrer-Policy: no-referrer` is set chain-wide. The token itself is well built: 256 bits of
+`SecureRandom`, scoped to one grant, expiry re-checked on every read rather than trusted to a sweeper,
+and never shown to the recipient's counterparty. What remains is the URL — history, bookmarks, proxy
+logs, and the recipient pasting it into chat. That needs a new contract operation, not an edit, and
+it is **unusually cheap right now**: nothing in the frontend constructs a share link yet, so there is
+nothing to keep back-compatible. That window closes the day a share button ships.
+
+**D29 was never a bug.** Git settles it: the path in the register
+(`e2e/tests/services-loans-team.spec.js`) was deleted by commit `57c3b68` — *the same commit that
+wrote the note*. Before that commit, two byte-identical copies of the test ran concurrently in one
+suite, both signing in as the same seeded buyer and both mutating the same `puneNestDB_v5`. The reorg
+fixed it as a side effect and nobody re-triaged. The surviving spec at
+`tests/consumer/services/loans-team.spec.js` passes standalone, inside its 98-test suite, and under
+`--repeat-each=5 --workers=2 --retries=0`. Four robustness fixes were made anyway (chiefly
+`networkidle` → `domcontentloaded`, which is a genuine fragility against a dev server that compiles
+the module graph on demand) and **zero assertions were changed**.
+
+**D28 — the console assertion was already half-gutted, and the fix made it stricter.** `pageerror`
+was completely unfiltered, so one uncaught rejection on an offline machine failed any spec; meanwhile
+four blanket text matches (`Failed to load resource`, `net::ERR`, …) swallowed **our own origin
+returning 404 and 500** along with the map tiles, and bare `cdn`/`unpkg` were short enough to hide a
+genuine application error that merely mentioned them. The helper now judges by **provenance, not
+wording**: a failed request is classified by whose server failed, read from the console message's
+URL. External failures are dropped; same-origin 404/500 is now *caught where it previously was not*.
+Vite allow-listing covers only the **transport**, never a compile error, and a grep confirmed no
+application websocket exists to be masked by it.
+
+Proved in both directions. A 16-case classification probe caught a regression in the first draft (a
+same-origin `favicon.ico` 404 misclassified as real, because the ignore list was only tested against
+message text, not the URL). Then a real `console.error` was injected into `AdminEnquiries` — two tests
+failed and the received array contained **only** the injected string, with no environmental noise
+alongside it — removed, re-run, 7 passed. A 95-spec regression sample chosen to stress exactly what
+changed: green.
+
+**Findings opened as rows rather than fixed:** D177 (DPDP erasure is the real gap behind
+`DELETE /reviews/{id}` — and the recommendation is explicitly **not** to build it as a moderation
+power, because a hidden review is reviewable and a deleted one is not), D178 (`FinancesTab.jsx`
+filters on the calendar year while the server filters on the Indian FY — the summary card and the
+table directly below it disagree by up to three months, live, every January to March), D179 (four more
+services on a bare `LocalDate.now()`, `RentService:220` being the same bug on the same surface), D180
+(`rent-agreement.spec.js:116` is an unstable checkbox in the review step — a product defect, and
+hardening a test around it is how a defect becomes permanent), D181 (the three flatmate interest
+buttons never call the API at all, so D175's correct 409 is currently unreachable — with the note that
+whoever wires them must route it to the benign strings that already exist).
+
+### 2026-08-10 — D163, D132, D47, D129 (partial) and the flatmate duplicate-interest race
+
+Five parallel lanes. Three register rows deleted outright, one rewritten to the third of itself that
+is still true, and one live bug closed that had no row at all. Backend **1056 tests, 0 failures,
+3 skipped** on a database rebuilt from empty, so the whole 52-migration chain is also verified.
+
+**D163 — the platform was billing ₹0 stamp duty on a document that legally attracts more.** The seed
+carried `stamp_duty = 0, registration = 0` for the rent row and D150 had already made the sidebar
+render the server's breakdown, so the displayed price and the charged price were wrong *together* —
+which is worse than wrong separately, because the agreement between them reads as confirmation. The
+fix is not a better constant: a Maharashtra Leave & Licence duty is 0.25% of a consideration built
+from rent, term and both deposits, so **there is no flat value that is right for more than one
+tenancy**. `V52` therefore drops `NOT NULL` from the two columns and the seed publishes `NULL` with
+the reason in `notes` — an honest schedule declining to publish a figure it cannot know — while
+`catalog/fee/LeaveAndLicenceCharges` computes the real one per agreement. Integer-only, basis points,
+`Math.*Exact`, consideration carried ×10 000 so the 10% deposit weighting cannot lose a paisa; a test
+pins ₹917.50 → **918** to fix the rounding direction. Rejected: rate columns (four new columns
+meaningless for the `buy` row, and a statutory rate changes by *legislative amendment*, which
+deserves a code change with a test rather than a config row someone can set to 0.30% at 2am with no
+reviewer); and seeding a flat "indicative" ₹918 (right for exactly one tenancy, and a confident wrong
+number on a public page is worse than the zero it replaces). No response shape changed — `Fees`
+declares no `required` list and `FeeResponse` already carried boxed `Long`. A term-less request still
+prices at **₹2,359, byte-identical to today**; a stated-but-impossible one (rent > ₹100 cr, term >
+600 months) is a **422**, not a clamp.
+
+The frontend half was the part that mattered and it nearly shipped without: `feesProvider.js` coerced
+`Number(row?.stampDuty) || 0`, justified in its own comment by "the server's columns are `NOT NULL`".
+V52 retires that premise, and until the coercion was fixed **the sidebar showed ₹0 while the server
+charged the real figure — the customer quoted less than they are billed.** Now an explicit `== null`
+check comes first for those two fields only; the other four keep the coercion, which exists so a
+money field arriving as a string cannot turn the sidebar's addition into `"1999360"`.
+
+**D132 — the premise was already stale, and the real cost was elsewhere.** The row said the endpoints
+"aggregate per call" and proposed a rollup table. In fact both repository queries already returned
+one row per group; nothing was summed in the JVM. What was actually expensive was the **heap**:
+`type` and `amount` were in no index, so Postgres found rows cheaply and then visited the table once
+per row. `V51` replaces `idx_transactions_property` with a covering index — `(property_id, date)
+INCLUDE (type, amount) WHERE archived = false` — equality column first, range column second, and the
+two summed columns in `INCLUDE` because that is what makes the scan index-only. The old index is
+**dropped**, not kept: its keys are byte-identical and differ only by a payload the planner ignores
+when navigating, so a second one would be paid for on every write and chosen by nothing. Accepted
+trade: entries are ~2× wider, so the paged ledger list reads more index pages — but it reads twenty
+rows either way, while the aggregate scans the owner's whole history. **The rollup table was
+deliberately not built.** These numbers are reconciled against bank statements and tax returns; a
+stale rollup is a *wrong* ledger, which is worse than a slow one. The pinning tests were written and
+run **before** the change (11 pass), then again after (12 — the extra one asserts the index exists in
+`pg_indexes`, since an index is otherwise invisible to the tests it speeds up). No latency measured;
+the claim is structural, not benchmarked.
+
+**D47 — internal ticket notes were one triage rule away from reaching the customer.** `TicketDto`
+carries `notes` and was returned from `POST /tickets` to the person who raised it. It was safe, but
+only by coincidence of three unrelated facts: that endpoint was the only one reaching a non-staff
+caller, it serialised the ticket *inside the transaction that inserted it* so the note query
+necessarily saw an empty set, and `ticket_notes` is written only by a staff-guarded route. Break any
+one — an auto-assignment, a triage rule stamping "raised via web", or the customer read the row
+itself anticipated — and the leak ships **with no diff on that path for a reviewer to see**. Closed by
+splitting the DTO: `CustomerTicketDto` has no `notes` component, so there is nothing to leak and the
+guarantee is the compiler's rather than the timing's. Rejected: role-filtering at the mapper boundary
+and `@JsonView`, both of which leave the field on the object the customer path constructs and make
+correctness depend on every future call site remembering — converting a structural question into a
+code-review question, at every site, forever. Follows the `PropertySummary` precedent, whose javadoc
+makes the same argument for the same reason. The test asserts `notes` is **absent** (not null) from
+the raiser's copy, that the note genuinely exists in the table, and that the staff board still
+returns it with exact text — *the leak is not closed by breaking the feature*. `assignee` was kept:
+the contract labels only `notes` internal. Honest limit: the final assertion is at the projection
+boundary rather than over HTTP, because there is no customer read endpoint on this board today —
+which is precisely the future D47 was filed against.
+
+**Flatmate duplicate interest — a live 500, and it had no register row.** Both interest doors
+check-then-insert against `uq_flatmate_requests_target_requester`, so two taps that interleave give
+the loser a `DataIntegrityViolationException` and a 500. Now caught and translated to the **409** the
+contract already declares. Sabotage proved the test is not a no-op: replacing the business refusal
+with a rethrow reproduced the raw constraint violation and failed the test. Two things are recorded
+rather than fixed — the pre-check answers **201** where the catch answers 409 (now **D175**), and
+`V27`'s comment claims the index is "the reason the service does not check-then-insert" when the
+service does exactly that, and has since V27 landed (now **D176**). The group-join door shares the
+same private method but is untested; it needs a `FlatmateGroup` fixture with seat state.
+
+**D129 — one third done, and it is the third that was still growing.** English locale JSON was the
+only eagerly-bundled language (mr/hi were already lazy), so the remaining win was splitting English
+*by namespace*: a 6-namespace eager shell, 14 route-deferred chunks, loaded inside the `lazy()`
+boundary each route already had. Critical path **591.9 → 533.0 KB gzip (−9.9%)**; entry chunk −12.2%;
+predicted 59.4 KB, delivered 58.9. No flash of untranslated content — `React.lazy` resolves only when
+*both* the component chunk and `addResourceBundle` have settled, and both fetches go out together
+under the existing Suspense fallback. English namespaces load in **every** language, because
+`fallbackLng: 'en'` means a fallback that is not loaded is not a fallback. The lasting part is
+`check-i18n-route-namespaces.mjs`, which walks the transitive import closure of every route and fails
+the build if a route can reach a key it did not declare — so the class of regression this item
+describes cannot silently return. **Not verified in a browser: runtime language switching still needs
+a manual pass.** The other two thirds are not a bundling problem at all — `db.json` (236 KB) and
+`societies-rera.js` (182 KB) compute at *module init*, and no amount of splitting defers a module
+whose top level does the work.
+
+**One test was wrong, not one lane.** `SourceTreeHygieneTest` defines an empty `.java` as one that
+"declares nothing" — comments, `package` and `import` lines stripped. A `package-info.java` is by
+definition nothing but a package javadoc and a package statement, so **every correctly-written one**
+reported as a stub. The rule was authored when the repository contained none, so the false positive
+lay dormant until package documentation landed. The zero-byte half still applies to it, which is the
+ghost-file case the guard actually exists for. Separately, `docs/mobile-design-review.md` reappeared
+at zero bytes after being deliberately retired in 59ab9c7 — the same regeneration the guard's javadoc
+warns about, caught by the guard, deleted again.
+
+### 2026-08-09 — D73, D92, D165 and the payment-hardening four (D169–D172)
+
+Four register rows closed alongside D77 and D151, recorded here because the register keeps its
+arithmetic by *deleting* retired rows (rows + gaps = highest id), so the reasoning has to live
+somewhere that is not the table.
+
+**D73 — every rate limit was check-then-write.** Closed with a transaction-scoped Postgres advisory
+lock (`common.persistence.RateLimitLock`), taken immediately before the count and released by
+Postgres when the transaction ends. Three things were considered and rejected, each for a reason
+worth keeping: `WriteRateLimiter` counts **in memory, per instance, resetting on deploy** (D158) —
+an OTP budget that resets on deploy is not a budget; `SELECT … FOR UPDATE` locks only rows that
+*exist*, so the loser resumes on its pre-block snapshot and never sees the winner's insert (a
+textbook phantom — the cap stays exactly as leaky); and the one-statement
+`INSERT … SELECT … WHERE (SELECT count …) < N` reads the statement's own snapshot under
+`READ COMMITTED`, so both writers see the pre-insert count. That last one *looks* atomic, which
+makes it the worse bug. **It was four call sites, not three:** `ShareFlatService` was retired by
+V28 and its ten-per-hour cap now has two entrances (`FlatmateSeekerService.express`,
+`FlatmateSupplyService.record`) counting the same rows — so they deliberately share one lock
+namespace, because giving each its own would leave the burst a second door.
+The correctness tests run **outside** `AbstractApiTest`, which is `@Transactional` and rolls back
+and therefore cannot observe a commit — the D90 lesson, and a race is a commit-time phenomenon.
+
+**D92 — the last four notification writers.** `visit.confirmed` to the visitor,
+`visit.rescheduled` to whichever side did *not* move it, `offer.received` to the owner,
+`document.granted` to the requester. All via the `Notifier` port, which is **mandatory** for
+`documents`: it is rank 2 and cannot import `engagement`, also rank 2, so the port is the only legal
+route and `ArchitectureBoundaryTest` proves it. Each is tested for the property that matters — the
+recipient gets exactly one row **and the actor gets none**. Deliberately still silent: offer
+counter/accept/decline, document decline, visit completed/no-show, matching the `contact.approved`
+precedent that a terminal "no" is not news to push at someone. `notificationMapper.js` gained
+`visit.`→`visit`, `offer.`→`price`, `document.`→`document` and `message.`→`enquiry`; **that last one
+was a pre-existing break** — every `message.received` row since the conversations slice has rendered
+as a grey `system` row matching no filter chip.
+
+**D165 — connectivity e2e.** Five tests. The one that earns the item: a request that never reaches
+the server hedges (`unreachable`) **while `navigator.onLine` stays true**, because only the
+browser's own signal licenses the confident "You're offline" — telling someone their connection is
+down when it is not is worse than saying nothing. A 500 paints no banner at all, since the server
+answered. Mock mode has no network to fault, so the spec rewrites the Vite-dev-served
+`/src/services/config.js` module to put listings on the http provider; verified by **negative
+control** — sabotaging the rewrite failed exactly the three network tests and left the two
+browser-signal tests standing.
+
+**D169–D172 — payment hardening.** `CheckoutTtl` owns one `Duration` and derives the sweep's
+look-back and Cashfree's `order_expiry_time` by mirror-image methods, so the two windows are equal
+*by construction* rather than by agreement (Cashfree's 15-minute floor is applied to the shared
+value, not to one side, or a 5-minute config would sweep at 5 and expire at 15).
+`ConstraintViolations.isOn` replaced what was about to become a fifth copy of a two-line index-name
+match. `Subscription.fail()`, `Boost.fail()` and `RentPayment.settle(FAILED, …)` now release the
+idempotency key — the PAID branch deliberately keeps it, because a replay of a successful payment
+must return the same row. The free-boost promotion moved below the save, so a future
+non-transactional caller inherits the survivable failure (a boost row with no promotion) rather than
+the unexplainable one (a promoted listing nothing accounts for).
+
+**One test was wrong, not the code.** `RateLimitLockTest.negativeHashesStayInTheirNamespace` asserted
+`"zzzzzzzzzzzz".hashCode()` is negative — it is `+1097476992`, so the test failed on its own premise
+while the masking it meant to verify was correct all along. Now keyed on `"9876500073"`, an ordinary
+ten-digit mobile that genuinely hashes negative — the real shape of an OTP key, which makes it a live
+defect rather than a contrived one.
+
+### 2026-08-09 — D77: the inbound-demand reads are paged, and the half that was already paged now works
+
+**The register said sixteen and named nine. Four were genuinely left.** Seven of the nine had already
+been paged; the count was never measured. What the count *did* find is that the deal cluster had been
+paged in the backend only: `dealProvider.js` and `visitProvider.js` still ran every response through
+`Array.isArray(rows) ? rows : []`, so `/me/deals`, `/offers/mine`, `/me/offers`,
+`/me/finalization-requests`, `/visits` and `/me/visit-requests` had all been returning `[]` against
+the live API — six screens showing nothing, with a green parity harness, because every assertion on
+those lists was a *negative* one (`!list.some(...)`, `Array.isArray(...)`) and an empty list satisfies
+all of them. Positive assertions added to `deal-parity.mjs` and `flatmate-parity.mjs`, plus a direct
+envelope check in `document-parity.mjs`, so the next half-migration is caught by its own harness.
+
+Newly paged: `/me/flatmate-requests` (host inbox, `?status=` filtered in the query so `totalElements`
+counts matches, not everything) and `/me/documents/requests` (owner inbox). Both ship their index in
+V49 — an unindexed paged read is slower than the unpaged one it replaces, since the scan and the sort
+still happen and a second `count(*)` pass is added on top. Screens without a pager read these through
+one shared `unwrapFullPage(res, label)` in `http.js`, which asks for `size=100` and warns when
+`totalElements` exceeds what came back; the pattern existed three times by hand before this.
+
+**Left unpaged on purpose:** `/tenancies` and `/me/tenancies`. Their rows come from a deal the owner
+themselves closed, which fails §5.1's inbound-demand test, and they are ordered by a `CASE` expression
+no index serves — paging them correctly needs either an expression index or a changed published order,
+which is a contract decision rather than a paging one. Recorded as the narrowed carve-out on D77.
+
+### 2026-08-09 — D151: the identity numbers reach one operator, are logged, and then stop existing
+
+A Leave & License names each party by PAN and Aadhaar. The paid-L&L security pass stopped both from
+reaching the server — correctly, because `details` is plaintext `jsonb` echoed verbatim to every
+staff read — and left the drafting desk with nothing. `PUT|GET /service-requests/{id}/identities`
+over a new `service_request_identities` table (V47) is the channel that was missing;
+`rejectIdentityNumbers` is untouched and the wizard still redacts. Reasoning lives in
+[`docs/system/tech-debt.md`](../docs/system/tech-debt.md) (D151 detail) and beside the code.
+
+**The register pointed at the document vault and this went elsewhere on purpose.** The vault's read
+model is `FileStorage.signedDownloadUrl(key)` — a URL that carries its own authority, that nobody can
+be excluded from, whose use never reaches our server — so neither of the two requirements that define
+this item is expressible against it. It has no authenticated read at all, only a signer.
+`DocumentUploads.validate` admits five image/PDF types by magic bytes, so numbers are not something
+it can hold without weakening that allowlist, and `DocumentService.delete` leaves the object behind
+forever, which is defensible for a sale deed and not for an Aadhaar. **Signed off 2026-08-10** — the
+dedicated table is the agreed design, not an unreviewed departure from the register's first wording.
+
+- **Only the assignee reads** — `assigneeId == caller.userId()`, or 403, with an admin refused like
+  anyone else until they take the request. Unassigned refuses everyone: "whoever asked first" is not
+  a name. Enforced by a refusal, not by an omitted DTO field.
+- **Both outcomes are audited**, and the refusal is the more interesting entry. Counts and roles
+  only — putting the numbers in `audit_log` would make the one table that must be trusted the second
+  place they are held.
+- **Retention is bounded by the work**: `purgeFor` runs from `transition` on every terminal move, and
+  the rows survive with their names so "recorded, since discarded" stays distinguishable from "never
+  recorded".
+- **Only the requester writes.** A desk that could write these could invent them.
+- **The wizard now sends what it used to discard** — one `PUT` after the live create, before the
+  checkout modal (which can outlive the page), built from live state by `identityParties` and never
+  held. Nothing new touches `localStorage`; mock mode drops them, because the mock store *is*
+  `localStorage`.
+
+Opened: D173 — the `GET` half has a tested server and no screen, because the ops back-office has no
+live client for service requests at all. **Nothing was executed this pass** (parallel Maven runs
+corrupt `target-cli/`): `ServiceRequestIdentityTest` is written, not run. No e2e spec is possible —
+in mock mode the call is a deliberate no-op, so there is nothing observable to assert.
+
+### 2026-08-09 — Every payment family now has the cap and the sweep, not just the one that needed them first (D160, D161)
+
+Two register rows that were both "service requests have this and the other three do not". The cap
+(D160) is a partial unique index on the open unpaid row plus an in-code count that agrees with it
+exactly — `uq_subscriptions_open_unpaid` on `subscriptions (user_id) where status = 'pending'`,
+`uq_boosts_open_unpaid` on `boosts (buyer_id) where status = 'pending'` (V44, V45), each violation
+translated to the same 409 the service-request cap answers with, by matching the index name rather
+than catching integrity violations wholesale. The sweep (D161) stopped being a service-request class
+and became a port: `common.payments.AbandonedCheckouts` with one `@Scheduled` driver over whatever
+implements it, so the fourth family cost an interface rather than a fourth copy of the same query.
+
+What the reviews changed, which is the part worth indexing:
+
+- **Six javadocs claimed `@Version` closed the sweep/webhook race and none of the three entities had
+  one.** Under READ COMMITTED the sweep reads `pending`, the webhook commits `active`, and the
+  sweep's update-by-primary-key overwrites it — cancelling a customer who has paid. V46 versions
+  `subscriptions`, `boosts` and `rent_payments`; the comment on each column says what raw SQL
+  bypasses. `service_requests` had been versioned since V26 and was the reason nobody noticed.
+- **A paid webhook landing on a swept row logged at INFO and returned `true`**, which is exactly the
+  shape that keeps the controller's "unreconciled" alarm quiet about the one case worth waking up
+  for. Each family now has a `reportRefusedSettlement` with a family-appropriate predicate: benign
+  when the row still entitles, ERROR naming the gateway order and the customer when it does not.
+- **The sweep was unbounded.** `MAX_PER_SWEEP = 500`, on the port rather than four times — and now
+  that the rows are version-checked a larger batch is not merely slower, it is likelier to achieve
+  nothing, because one webhook winning a race anywhere in the set rolls the whole transaction back.
+- **The migrations retire pre-existing violations rather than refusing to deploy**, newest-wins, and
+  each retirement now `RAISE NOTICE`s its gateway order id — the deploy log *is* the reconciliation
+  list, which is the only honest answer when the tiebreak can pick against an in-flight settlement.
+
+Closed: D160, D161. Opened: D169–D172 — the sweep closes our side of a checkout the gateway still
+considers payable (no `order_expiry_time` is ever sent; rent is a genuine double-charge window), plus
+three pre-existing faults the reviews surfaced next door. Backend 966 tests green.
+
+### 2026-08-09 — Paid Leave & License, and the thirteen register rows the review of it opened
+
+The rent-agreement desk is now a paid service request end to end (`create` prices from
+`platform_fees('rent')`, opens a Cashfree order, holds at `awaiting-payment` invisible to ops, and
+the webhook settles it into the queue), and the review passes that followed closed thirteen register
+rows across two parallel waves. The reasoning lives beside the code and in
+[`docs/system/tech-debt.md`](../docs/system/tech-debt.md); what is worth indexing here is what the
+reviews *found*, because in each case the shipped feature was correct and its surroundings were not:
+
+- **The payment gate was opt-in by spelling.** `type` was free text priced by exact match, so
+  `rental` bought the desk for free. Now a closed vocabulary + CHECK constraint + OpenAPI `enum`.
+- **`details` is plaintext `jsonb` echoed to every staff read**, and the wizard was posting the
+  owner's PAN and Aadhaar into it — the ops queue's first page was a bulk identity dump. Redacted at
+  the client, refused at any nesting depth by the server, purged from `localStorage` (D149), and the
+  hand-off to the people who actually draft from those numbers is now the open decision (D151).
+- **A check-then-act cap is not a cap** (D153) — a partial unique index now enforces what the count
+  observed. **An `awaiting-payment` row was a dead end** (D152) — a 45-minute sweep plus a requester
+  self-cancel. **A cap with no release valve locks the customer out** for doing the most ordinary
+  thing in a checkout modal, which is closing it.
+- **`DETAILS_MAX_CHARS = 8000` was a guess** (D157). Measured: worst realistic wizard state is 7,875
+  characters — 125 of headroom. Raised to 16,000 with the measurement recorded at both halves.
+- **The app had no offline state at all** (D128) — `navigator.onLine` returned zero matches across
+  `frontend/src`. One connectivity banner, one shared `useAsyncList`, ~0.7 KB gzip.
+- **The dev-affordance gate was a fail-open denylist** (D147) and its replacement now requires a
+  `PUNENEST_DEV_MACHINE` environment variable read outside Spring's relaxed binding, so no file in
+  this repository can grant dev privileges. Automated test runs are exempted on a test-scoped
+  classpath marker that is not present in the packaged app.
+- **The register was wrong about D114's callers** — filed as an N+1 across three components, it has
+  one. Fixed, then found to be only half-closable: the mobile it keys on arrives masked per D5.
+
+Closed: D9, D128, D135, D147, D148, D149, D150, D152, D153, D154, D155, D156, D157; D114 in part.
+Then a third wave closed the frontend and payment residue the second opened — D159 (the *draft*
+autosave was still writing the two identity numbers D149 had just removed from the KYC record, on
+the same origin by a shorter path; now redacted and purged on read), D160/D161 (subscriptions and
+boosts had no cap on open unpaid orders and no sweep for rows stranded by a hard kill — the
+service-request shape now applies to all four families through one `AbandonedCheckouts` port),
+D162, D164, D166 (the connectivity nudge moved down into `services/http.js`, so every provider
+failure feeds it rather than the two call sites that happened to use `useAsyncList`), D167, D168.
+
+**Three things that pass reviews only find by looking sideways.** Six javadocs claimed `@Version`
+closed the sweep/webhook race and none of the three entities had one — without it the sweep
+silently cancels a customer who has just paid. A paid webhook landing on a swept row logged at INFO
+and returned success, keeping the "unreconciled" alarm quiet about the one case worth waking up
+for. And two e2e failures that looked like a revenue regression were a race: the tests read
+`localStorage` the instant after a click, and the quota is spent when the request *resolves* — the
+passing siblings had always awaited an observable effect. Proved by instrumenting both reads in one
+run rather than assuming.
+
+Opened: D163, D165, D169–D172. Register 82 open (was 89). Backend 966 tests green, lint 396/0,
+bundle 591.6/595 KB.
+
+### 2026-08-09 — The owner→visitor WhatsApp handoff was dead in the field names
+
+`VisitsTab` read `v.customer` / `v.mobile`; the visit seam publishes `visitorName` / `visitorMobile`
+and both providers write exactly those, so neither field was ever populated. The owner saw a
+nameless visit row, and `isFullMobile(undefined)` suppressed the WhatsApp button — it **failed safe**,
+which is why nothing caught it: the D5 test asserts the buyer side has *no* handoff, and that passes
+whether the owner side works or not. Fixed at the eight read sites (component reads the seam's names;
+no compat alias added in the dashboard enrichment, which would just have hidden the drift). New
+regression test asserts the positive case — the visitor's name renders and the link resolves to
+`wa.me/919811111111` with their name in the `aria-label`. 8/8 green. `AdminEnquiries`' `r.customer`
+is a different, mock-only admin shape and is untouched.
+
+### 2026-08-09 — Eight decision-blocked register items closed in one pass
+
+Each had been sitting on a product ruling rather than on engineering. The rulings were taken, then
+executed smallest-first. Reasoning lives in the code comments and in `docs/system/tech-debt.md`.
+
+- **D115 — Pay-Rent deposit financing removed.** The CTA offered a product that does not exist; the
+  tab, the EMI panel, the `depositFinancing` flag and the two e2e tests are gone rather than stubbed.
+- **D93 — `DELETE /notifications/{id}`.** Dismiss was a client tombstone, so a notification cleared
+  on a phone came back on a laptop. Server-side now; the client tombstone survives only as a fallback
+  for rows the server never had. *(Malformed `@PathVariable UUID` answers **400**, not 404.)*
+- **D85 — alerts require sign-in.** An alert nobody can be notified about is not an alert. Anonymous
+  demand is still counted for the gap report; only the managed alert now needs an account.
+- **D87 — `PATCH /visits/{id}/slot`.** Rescheduling meant cancel-and-rebook, which lost the thread.
+  Either participant may move the slot in place; the visit resets to `scheduled`.
+- **D71 — already built.** A stale register row: `flatmate_seeker_posts` has had the full archive
+  triplet and a one-live-post cap for some time. Only the regression test was missing; it was added.
+- **D122 — `POST /me/verification/aadhaar/simulate`, `@Profile("!prod")`.** The DigiLocker webhook
+  cannot reach a dev machine, so the verified tier was unreachable locally. Synthesises a webhook and
+  calls the **real** handler, so idempotency and the flag flips are exercised, not bypassed.
+- **D59 — paid boost ranks, and says so.** Boost affects the **default sort only** — pinning paid
+  listings above a sort the user explicitly chose is deception — and every boosted card carries a
+  "Promoted" chip (ASCI paid-placement guidance). Read-side mirror `properties.boosted_until` (V40)
+  so the catalogue never has to ask billing anything.
+- **D57 — subscription lifecycle.** A scheduler alone only shrinks the "unpaid plan still works"
+  window to one tick, so entitlement is decided against the clock on **every read** and the hourly
+  sweep is bookkeeping on top. No grace period: nobody specified one, and inventing one is policy.
+  *Single-instance only — needs a lock before this runs on more than one node.*
+
+Also closed alongside these: **D5/Q2** and **D72**, both large enough for their own entries below.
+
+### 2026-08-09 — D5 / open-questions Q2 closed: owner number is never revealed to a buyer (global policy)
+
+Global privacy invariant: an owner's raw phone number is never shown to a buyer; approval unlocks
+in-app messaging, not the digits. `users.hide_number` is retained but is now a no-op (the number is
+hidden from buyers unconditionally). Backend enforced this first (`ContactStatuses.revealsContact`
+= owner-only, contact/offer/visit/finalization mappers reveal mobile self-only; signed-lease /
+closed-deal reveals stay). Frontend brought to parity: mock `contactProvider.gateFor` returns
+`ownerHidesNumber: true` unconditionally; `VisitsTab` suppresses the buyer→owner WhatsApp handoff
+(owner→visitor only) and guards every `wa.me` link with `isFullMobile` so a masked number never
+forms a broken link. Dead seeker i18n keys (`waOwner`, `waSeeker`, `waReschedSeeker`) removed across
+en/hi/mr. Two new regression specs (contact-identity-masking, scheduled-visits). 142 Java + 26 e2e
+green. D5 closed in the register (83→82 open); open-questions Q2 answered.
+
 ### 2026-08-09 — Decision-blocked items closed (open-questions Q1, Q3, Q4, Q5)
 
-Cleared the engineering-decision queue in `open-questions.md`. One index line each; reasoning lives
-in the closed-question entry, the code comment, or the repo-memory lesson.
+Four answers taken off the engineering-decision queue in `open-questions.md`. One index line each;
+reasoning lives in the closed-question entry, the code comment, or the repo-memory lesson.
 
 - **Q1 — valid mobile on input (option A: tolerant input, strict storage).** New
   `common.validation.@IndianMobile` (validator normalises via `MobileMask` then gates the result on
@@ -170,6 +660,7 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 
 | Date | Slice | Note |
 |---|---|---|
+| 2026-08-09 | **Flatmate posts, rooms and groups are moderated before they are public (D72 closed)** | The board published on write: anything a signed-in user typed was on the public feed immediately, and the only "moderation" was a blacklist (`mod_status not in ('flagged','removed')`) — so every state added later would have leaked by default. Now all three tables default to `mod_status = 'pending'` (entity default **and** column default, `V41`, so a row inserted by any route is held) and visibility is a **whitelist**: `FlatmateVocabulary.MOD_PUBLIC = {live, approved}` + `isPublic(...)`, applied to the feed native queries, their `countQuery` twins and the by-id `findVisible` JPQL on all three tables — hiding a row from the list while leaving it actionable by id is an unlisted page, not moderation. `MOD_HIDDEN` deleted so the blacklist cannot come back. Author-facing surfaces stay unfiltered: `getMyRequest` still returns the pending post, edit and delete still work, and the banner reads "Your request · in review" (amber, clock) instead of "Your live request", with the wait explained; the two create toasts said "is live!" and are now "saved — our team is checking it" (en/hi/mr). New `GET /admin/flatmates/moderation` (`STAFF_OR_ADMIN`, `kind`/`modStatus`/pageable) returns a `FlatmateModerationQueueDto` carrying the author's **name only, never their mobile**. Mock provider mirrors the same default + whitelist (`publicOnly`). Fixtures in the two existing endpoint suites now `publish(...)` explicitly, so the default is asserted once, in the dedicated `FlatmateModerationGateTest` (not-public / author-can-still-see-it / the-queue). 860/860 backend green; contract 174 paths, 0 dangling. New e2e `consumer/flatmates/moderate-before-public.spec.js`; eight sibling specs gained a named `approveFlatmates(page, …)` helper that stands in for the moderator. **Ships with no admin UI for the new queue — API only.** | A visibility **blacklist is a leak waiting for the next state** — name the states that may be public and let anything new fail closed. Changing a column default breaks every fixture that leaned on it: publish explicitly in the fixtures so the default is asserted in exactly one place. And a gate makes every "created it, now see it on the board" spec wrong — the fix is one named helper that plays the moderator, never a weakened default; the spec for the gate itself is the one that must not call it. A success toast that says "is live!" becomes a lie the moment a queue exists, so grep the copy when you add one. |
 | 2026-08-08 | **Three independent flatmate bugs fixed (D97 closed)** | (a) The board's "reissue the joint agreement" CTA links to `/services/rent-agreement?flat=<id>&reissue=1`, but the wizard's auto-fill effect read only `?listing=`, so that CTA opened a blank form. `useRentAgreement.js` now reads `searchParams.get('listing') \|\| searchParams.get('flat')` (a room's `propertyId` is its listing id) and, when `reissue=1`, prefills the property and confirms with a `services.ra.reissueHint` toast (added to en/hi/mr). (b) `addFlatmateRequest` (`lib/data/flatmates.js`) dropped the room `share`/`message` intent — both callers pass it and the mock provider's `requestVm` reads it back, but it was never persisted; now conditionally persisted on the record. (c) `occupancyOf` (`flatmates/model.js`) collapsed a stored `'filling'` straight to `occupied` via a single `!== EMPTY` guard, so `RoomCard` hid the whole vacant-home disclosure strip — a filling home became invisible. It now treats `'filling'` like `'empty'` and re-derives from the flat ledger. New spec `e2e/tests/consumer/flatmates/d97-occupancy-and-reissue.spec.js` covers (a) + (c) (2/2 green); (b) has no rendered consumer (the dashboard host inbox doesn't display `share`), so it's covered by code review + the provider VM. Graph re-indexed (new spec file). | A view-model that reads a field the persistence layer silently drops just returns a default forever (D97b). A single-value enum guard (`!== EMPTY`) sweeps every *other* value — including a legitimately derived one (`'filling'`) — into the terminal case (D97c). And a param-name mismatch between a link (`flat=`) and its reader (`listing`) fails open as a blank form, not an error (D97a). |
 | 2026-08-08 | **Two red mock e2e specs triaged and fixed — one real a11y bug, one stale test copy (D127 closed)** | The register's D127 description was itself stale (it named the nudge-banner at line 76); running the specs showed the true failures. **`listing-freshness`** actually failed at line 73 — `getByRole('button', { name: /WhatsApp reminder/i })` found nothing because the button in `myListings/ListingCard.jsx` carried an `aria-label` ("Send the interested buyer a WhatsApp nudge…") that *replaced* its visible "WhatsApp reminder" text as the accessible name. That is a genuine **WCAG 2.5.3 (Label in Name)** violation, not a test problem, so the fix is in the component: the aria-label now leads with the visible label ("WhatsApp reminder — nudge the interested buyer to reconfirm availability"), restoring label-in-name and the role query. **`view-documents-flow`** failed at line 82 asserting stale copy `/2 document\(s\) shared/i`; the viewer now renders the i18n-pluralised `viewDocs.sharedCount_other` → "2 documents shared for your review." — an intentional improvement, so the test assertion was updated to `/2 documents shared/i` rather than regressing the copy. Both specs green (7/7). No files added/renamed/deleted → no graph re-index; specs already in COVERAGE.md. | An `aria-label` on a button with visible text *overrides* the text as the accessible name — if it drops the visible words it both breaks `getByRole({name})` and violates WCAG 2.5.3. Fix a red `getByRole` by making the accessible name contain the visible label, not by loosening the selector. And always run the spec before trusting a triage note in the register — the recorded line/cause was wrong for both. |
 | 2026-08-08 | **Nine shipped-but-undeclared endpoints declared in the OpenAPI contract (D144 closed)** | `SpecCoverageTest.noUndeclaredRoutes` was red on nine served routes with no contract entry: the personal-KYC vault (`GET`/`POST /me/documents/personal`, `DELETE /me/documents/personal/{docId}`) and the managed-property lifecycle (`GET`/`POST /me/managed-properties`, `GET`/`PATCH`/`DELETE /me/managed-properties/{id}`, `POST /me/managed-properties/{id}/publish`). Declared all nine in `punenest-api.yaml` — personal-doc paths mirror the existing property-doc block and reuse the `Document` schema; managed-property paths reuse the `PropertyId` (`name: id`) param and got three new component schemas (`ManagedProperty`/`ManagedPropertyCreate`/`ManagedPropertyUpdate`) authored field-by-field from the DTOs, with `deal` enum `[buy, rent]` verified against `DealIntent.PATTERN`. All self-scoped (no `x-roles`), matching the controllers. Raised `IMPLEMENTED_FLOOR` 204→213 (exact new implemented count) and documented it in the test Javadoc; did **not** relax the assertion. 3/3 green. Contract-doc + one test constant only — no production code, no files added/renamed/deleted, so no e2e/COVERAGE/graph steps apply. | Spec-first fails silently in one direction unless enforced: a handler can ship served-but-undeclared and never have its `x-roles` reviewed. The fix is to declare the route (matching the served path/param shape so the set-equality holds) and raise the coverage floor to the real count — never to relax the equality test. |
@@ -189,15 +680,16 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 | 2026-08-07 | **Rent, tenancies and property finances** — seam domain 14 | 21 endpoints. **Paying rent yields `due`, not `paid`** — the third domain with that shape after plans and finalization. The payout account returns a mask, never the number. Summary/cashflow/dues stopped being client reductions over a *paged* ledger. Exposed D113: the dashboard decided who was an owner from localStorage, so a real owner got the tenant view |
 | 2026-08-07 | **Deals, offers and finalization** — seam domain 13 | Every signature dropped its `ownerMobile`: that parameter was the caller naming *whose* data to read, and the mock let anyone name anyone. Accept/decline are the owner's alone (403) — the property page had shipped a buyer-side Accept button. Two gaps raised: a buyer cannot see a listing is sold (D110), a declined finalization is invisible (D111) |
 | 2026-08-07 | **Subscription plans** — seam domain 12 | First domain read *during render* rather than awaited, so it is held in `PlanContext`. `pending ≠ active`: buying a priced plan does not grant it — the payment webhook does. Exposed D108: the page showed ₹999 while the server charged ₹2,499 |
-| 2026-08-07 | **Abuse reports** — seam domain 11 | See below |
-| 2026-08-07 | **Support tickets** — seam domain 10 | See below |
-| 2026-08-07 | **Reviews** — seam domain 9 | See below |
-| 2026-08-06 | **Conversations** — seam domain 8 | See below |
-| 2026-08-06 | **Worklog compression + OpenAPI 3.1 nullable fix** | See below |
+| 2026-08-07 | **4 domains switched on in live config** (contact/saved/savedSearch/visit) | They shipped complete providers + parity harnesses in `e330cd3` but were never added to `VITE_API_DOMAINS`, so every live run since had exercised their **mocks**. A harness imports the provider and calls it — it cannot see a call site that never awaits or a request fired for a session-less visitor. Five defects fell out (`isHttpDomain` casing, session-less 401 spam, `PageEnvelope.page` unwrap, un-awaited alert cards, reschedule-throws) → D105–D107 |
+| 2026-08-07 | **Abuse reports** — seam domain 11 | First domain whose two ends have different audiences (anyone files, only ops reads). Reason set is validated *against* target type — every flatmate report passed `kind='user'` and would have 400'd. Duplicate→409 (a localStorage write can't fail, so the modal used to toast success), terminal-is-terminal (no Reopen), `resolved`→`dismissed` on the way out only; `reporterId` withheld from ops |
+| 2026-08-07 | **Support tickets** — seam domain 10 | Three controls (priority, attachments, name) had nothing behind them → **hidden** in http, not merely not-sent: an unknown field is ignored, not rejected, so a kept `priority` would toast success for a ticket ops never sees as urgent. Status/author-role(`owner`=customer)/`updatedAt`(derived from last message) vocabularies reconciled |
+| 2026-08-07 | **Reviews** — seam domain 9 | `context` (the reviewer-standing badge) is server-derived and readOnly; three call sites forged it. Reviews were keyed on `soc.id`/display-name while everything else used `slug` — the one holdout, invisible on mocks. `avgRating` is **null, not 0**, for an unrated society; fields moved *up* to `Society` so hub and directory can't drift |
+| 2026-08-06 | **Conversations** — seam domain 8 | Five shape gaps ruled on (`state`/`youAre`/`property.*`/`from`/attachments — client-staged, derived or NOT-IMPLEMENTED). Added `authorId` because attributing by display name breaks the first time two users share a name. `img:''` re-requests the page as an image (live-only console error); the list contract drops `messages`, so the inbox must hydrate a thread on open |
+| 2026-08-06 | **Worklog compression + OpenAPI 3.1 nullable fix** | 5,294→ lines; the 86 "open" boxes were 62 already-shipped / 3 fixed here / 21 moved to register / 2 dup — a worklog never pruned stops being read. OpenAPI declared 3.1 but used the 3.0-only `nullable:true` ×66 (silently ignored → 66 fields typed non-null); converted to `type:[x,'null']` |
 | 2026-08-06 | **Notifications** — seam domain 7 | Server/UI type vocabularies had *zero* overlap; untranslated, every filter chip would silently empty the page. `dismiss` is a client tombstone (no endpoint) |
 | 2026-08-06 | **Listing moderation** — `GET /admin/properties` + the 4 decisions | The four writes had shipped months earlier with **no read that could find a listing to act on**. Inferring the route from filter flags 403'd every owner's dashboard — authorization-relevant routing must be named by the caller |
-| 2026-08-05 | **Visits** — seam domain 6 | Reschedule has no endpoint (D87); the seam carries the human `when` string and converts to the wire's ISO slot |
-| 2026-08-05 | **Saved searches + alerts** — seam domain 5 | Anonymous lead capture stays local (D85) — `POST /me/saved-searches` would 401 for exactly the signed-out visitor the card exists to capture |
+| 2026-08-05 | **Visits** — seam domain 6 | The seam carries the human `when` string and converts to the wire's ISO slot. *(Reschedule had no endpoint when this shipped; `PATCH /visits/{id}/slot` closed that in D87, 2026-08-09.)* |
+| 2026-08-05 | **Saved searches + alerts** — seam domain 5 | Anonymous lead capture stayed local because `POST /me/saved-searches` 401s for exactly the signed-out visitor the card exists to capture. *(D85 answered this the other way on 2026-08-09: the card now routes to sign-in; anonymous demand is still counted, but no alert is created without an account.)* |
 | 2026-08-04 | **Saved shortlist** — seam domain 4 | Membership answered from `SavedContext`, never per card — the naive conversion was 30 requests to draw 30 hearts |
 | 2026-08-04 | **Contact gate** — seam domain 3 | Keyed on `propertyId`: the grant is per listing, not per owner |
 | 2026-08-03 | **Owner number-hiding, city on profile, paged contact inbox** | Backend prep for the contact slice |
@@ -266,262 +758,3 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 | 2026-07-26 | OpenAPI established as the single source of truth; matured to cover all React needs |
 | 2026-07-25 | Platform & solution architecture (MVP pass), ADR-009a KYC, ADR-014 payments, legal/compliance advisory |
 
----
-
-## 2026-08-07 — Switching on the four domains that were live on paper only
-
-`contact`, `saved`, `savedSearch` and `visit` shipped complete http providers and parity harnesses
-in `e330cd3`, but were never added to `VITE_API_DOMAINS` — so no browser had ever run them, and
-every live e2e run since had been quietly exercising their mocks. Added to the live config; the
-seam is now 11 domains live, not 7.
-
-The parity harnesses had passed the whole time, which is the point. A harness imports the provider
-and calls it; it cannot see a React call site that never awaits, or a request fired for a visitor
-with no session. Five things were wrong and none were visible from that angle:
-
-- **`isHttpDomain('savedSearch')` could never match.** The allow-list is lower-cased when parsed,
-  the lookup key was not. Worst-case failure mode: the "enabled but has no http provider" warning is
-  itself gated on `isHttpDomain`, so the domain served mocks with **nothing in the console** — a live
-  run would have passed while testing the mock (D105).
-- **A signed-out visitor fired four `401 /contacts/status` per property page.** The gate asks where
-  *this caller* stands; someone with no session has made no request, so the server can only say 401.
-  Short-circuited on `readAccessToken()`; the 401 branch stays as a fast-path backstop.
-- **`PageEnvelope.page`, read as Spring's `number`** in four providers, each behind a fallback that
-  resolved to the *requested* page — right until the server clamps or redirects. Two parity
-  harnesses had the same bug in their own unwrapping, which is why it cancelled out and went
-  unreported (D106).
-- **Both alert cards showed "first in line" without awaiting the create.** Now awaited, with an
-  `alertFailed` toast in en/hi/mr and a disabled submit while in flight.
-- **Reschedule fired at a provider that throws by design** (D87), from a handler that closes the
-  modal and toasts success first — so the user would have seen "Rescheduled" *and* an error at once.
-  Control hidden in http mode, same treatment as support's priority picker.
-
-Also fixed: the four oldest parity harnesses could not run under Node ≥ 22 at all (bare `db.json`
-import, `import.meta.env` outside a bundler), so "the harness passes" had been vacuously true —
-migrated to the Vite SSR loader the newer three already used (D107). And `AdminReports`' detail
-drawer still rendered the Reopen button removed from the rows a slice ago, referencing an import
-that no longer existed: a lint error, and a control that would 409 on click.
-
----
-
-## 2026-08-07 — Abuse reports: the 11th seam domain
-
-`POST /reports` · `GET /reports` (staff/admin, paged) · `PATCH /reports/{id}`. `reportService.js` +
-mock/http providers + mapper, `parity:report`, live e2e walking the whole loop across two sessions.
-The **first domain whose two ends have different audiences** — anyone files, only ops reads.
-
-**The bug: a reason set that contradicted its target type.** The server validates the reason
-*against* the target type. `SHARE_REPORT_REASONS` is `FOR_POST` exactly — but `Flatmates.jsx` and
-all three flatmate cards passed `kind='user'` or `'listing'`. **Every flatmate report would have
-been a 400**, because `filled` is not something you can say about a person. It survived because the
-mock stores whatever it is handed: the report landed, the user was thanked, and it appeared in the
-ops queue under the wrong tab. Fixed at four call sites; the mapper now warns on an unknown kind.
-
-**Three server rules with no mock equivalent, each of which changed a control:**
-
-- **Duplicate → 409.** The modal closed and toasted success unconditionally, because a localStorage
-  write cannot fail. Thanking somebody for a report nobody received is the outcome worth avoiding —
-  they stop worrying about it.
-- **Terminal is terminal.** "Reopen" would 409 on click, so it is gone. Re-opening erases the record
-  that somebody judged it, and is how one moderator quietly undoes a colleague's decision.
-- **`resolved` does not exist server-side.** Translated to `dismissed` on the way *out* only, so the
-  queue never displays a status the server did not record.
-
-**What the wire withholds, and why nothing was invented:** `reporterId` is omitted on purpose —
-"naming the reporter to every member of ops is how a complaint becomes a reprisal". `targetTitle`
-falls back to the bare id rather than being resolved, because a resolved title would be a **stale**
-one: the listing may have been edited since it was reported, and judging yesterday's complaint
-against today's copy is worse than opening a tab.
-
-**Process:** the live test's "a consumer gets 403" probe was removed rather than kept — an in-browser
-`fetch` carries no bearer token, so it asserted 401-unauthenticated, not 403-wrong-role. Same class
-of mistake as last slice's vacuous badge assertion. The real 403 is asserted in the parity harness,
-which signs in as an actual consumer. Mutation-verified: `share→user`, terminal-status and the 409
-handler were each broken on purpose and each caught.
-
----
-
-## 2026-08-07 — Support tickets: the 10th seam domain
-
-`GET|POST /support/tickets`, `GET /support/tickets/{id}`, `POST .../messages`, `POST .../read`.
-Five endpoints, one page, a one-to-one mapping onto the mock's five functions. `supportService.js`
-+ mock/http providers + mapper, `parity:support`, live e2e. 6/6 mock e2e, parity PASS
-(mutation-verified 4×), live test verified red-able.
-
-**Three controls had nothing behind them**, and hiding them is the slice:
-
-| Control | On the wire | Shipped |
-|---|---|---|
-| Priority (low→urgent) | absent from `SupportTicket` **and** `SupportTicketCreate` | hidden in http mode |
-| Attachments (4 images) | `MessageCreate` is `{ body }` | hidden in http mode |
-| Name / mobile | absent — the raiser is the session | left visible, D102 |
-
-The first two had to be *hidden*, not merely not-sent: **an unknown property is ignored, not
-rejected**, so a form that kept sending `priority` would show a success toast for a ticket ops never
-sees as urgent. Worse than an error, because nobody learns anything.
-
-**Three vocabularies to reconcile**, each with a wrong answer that looks right:
-
-- **Status** — the server opens every ticket `open` (no `new`) and has an `in-progress` the page
-  cannot label. Passed through unchanged rather than collapsed onto `open`: erasing a distinction
-  ops made would tell the customer nothing was happening while somebody worked on it (D103).
-- **Author role** — `buyer|owner|staff|admin` → `customer|staff`. `owner` is a *customer* of
-  support. The first parity harness could not catch this because the probe signs in as a buyer; it
-  now drives every role through the mapper directly. That gap was found by mutation, not by reading.
-- **`updatedAt`** — not on the wire at all, and the list sorts by it. Derived from the last message;
-  the server's `createdAtDesc` would put a ticket answered this morning below one opened last week.
-
-**Scoping finding (D104):** I checked Societies first — it looked unblocked, since the reviews slice
-had just added `avgRating`/`reviewCount` to `GET /societies` for exactly that purpose. It is not:
-the frontend ships **348 societies and 155 localities**, the database has **28 and 16**. Migrating
-would 404 on 92% of society hubs. The same check killed Localities. Catalogue reference data is
-seeded thinly across the board, which is why this slice went to a *user-generated* domain instead —
-those have no alignment problem, because the rows are created by the user at runtime.
-
----
-
-## 2026-08-07 — Reviews: the 9th seam domain
-
-`GET|POST /reviews/property/{id}` and `GET|POST /reviews/{entityType}/{entityId}`.
-`reviewService.js` + mock/http providers + mapper, `parity:review`, live e2e. Backend: `avgRating`
-and `reviewCount` added to the society **directory** row (they were already on the hub), computed
-through the existing batched `RatingLookup`. 25/25 review endpoint tests, parity PASS
-(mutation-verified twice), live suite green.
-
-**The slice is that the wire is stricter than the mock, and the strictness is the product.**
-
-`context` is the reviewer-standing badge — "Verified resident" / "Visited". It is derived
-server-side from visit and tenancy history and is `readOnly` in the contract. Three call sites were
-asserting it anyway:
-
-- `ReviewModal.jsx` sent `context: 'visit'` hard-coded on **every** submission;
-- `useSocietyHub.js` sent `resident: isVerifiedResident(slug)`, a client-side lookup;
-- `ReviewsSection.jsx` rendered the chip **unconditionally**, so a null `context` fell through the
-  ternary and displayed "Visited".
-
-The first two were discarded live and believed on mocks — the worst split available, because the
-demo and the screenshots come from mocks, so the badge earned its credibility exactly where it meant
-nothing. The third is not a provider bug at all: the provider returned the correct null and the card
-invented a badge from it. A badge a browser can assert about itself is not evidence, and evidence is
-the only reason a stranger's rating is worth reading.
-
-**Two key bugs, same shape, both invisible on mocks** — a localStorage map will key on any string
-you hand it, so neither could fail until there was a server to disagree with:
-
-- The society hub keyed reviews on `soc.id` (a synthetic `S01`) while follow, Q&A, resident status,
-  board and WhatsApp all already used `soc.slug`. Reviews were the single holdout.
-- The locality page keyed reviews on `activeName.toLowerCase()` — the *display name* — while its
-  listings query, societies filter and URL used the slug. One-word localities agree, which is
-  exactly why it survived; `viman nagar` vs `viman-nagar` is where it did not.
-
-**What was deliberately not migrated, and why:**
-
-- **Owner reviews** stay on the mock store. `getOwner()` still reads `lib/mockApi/users.js`, so the
-  target id is a mock user id and the server keys on its own UUIDs. Migrating would issue a
-  well-formed request for an owner the server has never heard of and render the empty result as "no
-  reviews yet" — a silent wrong answer, worse than an honest mock.
-- **The three society-card rating sites** call `entityRating()` inside a `.map()`. The fix is not to
-  point them at the reviews service (one request per card) but at the aggregate the row now carries.
-  Hence the backend addition; they hold SEAM NOTEs saying so.
-
-`avgRating` is **null, not 0**, for an unrated society: a card rendering 0.0 for a society nobody has
-reviewed states something false about it. The fields moved *up* from `SocietyDetail` to `Society`
-rather than being duplicated, so the hub and the directory cannot drift into two different numbers.
-
----
-
-## 2026-08-06 — Conversations: the 8th seam domain
-
-`GET/POST /messages`, `GET /messages/{id}`, `POST /messages/{id}/reply`, `POST /messages/{id}/read`.
-`conversationService.js` + mock/http providers + mapper, `ConversationContext` behind the navbar
-badge, `Messages.jsx` and nine other `lib/chat.js` importers migrated, `parity:conversation`, live
-e2e. Backend: `authorId` on `MessageDto`, and a notification written to the other side on every
-reply. 750 backend tests green, 15/15 mock chat e2e, live suite green, parity PASS.
-
-**The five shape gaps and the ruling on each** — these are the slice; the wiring was routine:
-
-1. **`state: active|pending|incoming` does not exist server-side.** A thread only exists *after* an
-   approved contact request (`ConversationService.related`), so every server thread is `active`.
-   `pending` stays a **client-side staging queue** (`pnPendingRequests`) drained into `POST /messages`
-   once approval lands. `incoming` — and the accept/decline buttons that act on it — are mock-only:
-   on the server there is nothing left to accept, because the contact gate already did it.
-2. **`youAre` is not on the wire.** Derived from `counterpartyRole`. An approximation, documented as
-   one — a user who is both owner and buyer is classified per thread, which is what the page needs.
-3. **`property.{price,loc,img}` are absent** — the wire carries `propertyId` + `propertyTitle` only.
-   Degrade to title; resolving the rest would be N property reads per inbox render.
-4. **`from: me|them` could not be derived safely.** `MessageDto` carried `author` (a *display name*)
-   and no id, so the client would have had to match identity by string — works in dev, breaks the
-   first time two users share a name. Added `authorId`; the test seeds two users called "Same Name".
-5. **Share chips have no server representation.** The contract declares `MessageCreate.attachments`;
-   the Java record does not implement it. Marked NOT IMPLEMENTED in the spec rather than invented.
-
-**Three bugs the slice surfaced, all of which the mocks were hiding:**
-
-- **Same-rank dependency.** `ConversationService` reaching into `engagement.notification` to write
-  the notification is a cycle (leads=2, engagement=2) and `ArchitectureBoundaryTest` failed on it.
-  Fixed with a `common.trust.Notifier` port — the pattern `ContactGate`/`RatingLookup` already set.
-  That port is now the reusable mechanism for the rest of D92.
-- **`property.img: ''`.** `<img src="">` makes the browser re-request *the current page* as the
-  image. Mocks always had a URL, so it only appeared live, as a console error the e2e asserts on.
-- **The inbox omits `messages`.** `ConversationDto.messages` is `NON_NULL` and the list contract
-  drops it — a hundred previews would otherwise cost a hundred transcripts. The page worked
-  perfectly on mocks (one store, whole objects) and opened an *empty thread* against the API. Fixed
-  by hydrating on open. **A second-order bug fell out of the same async move:** the deep-link effect
-  (`?c=<id>`) ran once at mount against a `convs` that was no longer populated synchronously, so it
-  silently opened nothing — caught only because the mock e2e suite still deep-links. Both are the
-  same lesson: *replacing a synchronous store with a fetched one changes when every reader runs.*
-
----
-
-## 2026-08-06 — Worklog compression + OpenAPI 3.1 `nullable` fix
-
-This file had reached 5,294 lines with 86 unticked boxes, and its own header already admitted the
-boxes "are not a backlog". That is the failure mode worth naming: **a worklog that is never pruned
-stops being read, and an unread list of open items is indistinguishable from having none.**
-
-### What the 86 open boxes actually were
-
-Each was checked against the tree rather than trusted.
-
-- **62 had already shipped.** The 20 slice-2 property reconciliation and build-task items, the 14
-  Home Phase 3 items, the 7 S26/S27 + migration-V16 items, the bundle bug, and the JDK-version
-  blocker (`local JDK is 17, backend targets 21` — the toolchain is Zulu 25 and 747 tests pass).
-  They were never ticked because they were *decision records* written in checkbox form.
-- **3 were fixed here.** Both remaining ones were comments that contradicted their own code:
-  `submit.js` claimed identity was "guaranteed by the Aadhaar gate" when the floor is L1 sign-in —
-  a leftover from the pre-badge-not-gate model, and exactly the sort of stale comment that gets
-  believed. `useFlatmateDiscovery.jsx` documented a "unified" `h-9`/`rounded-xl` scale on the line
-  directly above one emitting `h-10`/`rounded-full`.
-- **21 moved to the register** as D95–D99, or were already there (the SEC items, rate-limiting,
-  Cashfree and the Wave L sheet all had entries).
-- **2 were duplicates** of `open-questions.md` Q6–Q10.
-
-**One was wrong in a way that mattered.** A "dead artefacts — no importers" note listed three files
-to delete. `QuickFilters.jsx` was indeed already gone, but `FlatmateFields.jsx` is imported by
-`Step1.jsx` and `REPORT_REASONS` has four importers. Acting on that note would have broken the
-build. Recorded because it is the argument for verifying a stale note before acting on it, not just
-before deleting it.
-
-### The OpenAPI fix
-
-The spec declares `openapi: 3.1.0` and used the 3.0-only `nullable: true` keyword **66 times**. In
-3.1 that keyword does not exist and is ignored silently, so all 66 fields were documented as
-non-nullable and a generated client would have typed them as required-non-null.
-
-Converted to the 3.1 spelling — `type: [string, 'null']` — by a scripted pass over three shapes:
-60 inline flow mappings, 5 own-line under a block mapping (one of which sat *below* a `format:`
-line, so the transform walks back to the sibling `type:` rather than assuming the line above), and
-one `allOf: [$ref] + nullable` that a type array cannot express at all and became an explicit
-`anyOf: [$ref, {type: 'null'}]`.
-
-`'null'` is quoted deliberately: inside a YAML flow sequence, bare `null` is the null *value*, not
-the type name JSON Schema needs.
-
-Verified: `validate_spec.py` → 166 paths / 147 schemas / 208 ops, no dangling refs; 66 type arrays
-present, 0 `nullable:` keywords left; file still CRLF, no BOM, no mojibake.
-
-### Deliberately not done
-
-`e2e` console filtering (D96) — 50 of 67 specs assert "zero console errors" with no noise filter
-while `helpers/console.js` exists for exactly that. It is a 50-file mechanical change, and burying
-one inside a cleanup pass is how a cleanup pass stops being reviewable.

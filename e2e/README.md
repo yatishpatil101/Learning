@@ -65,7 +65,9 @@ e2e/
     app.js               seed(page, {...}) + OWNER/SEEKER/ADMIN + listing factories
     auth.js              loginAsBuyer/Owner/Tenant (seeded) + loginAsAdmin/Staff/Manager (UI)
     seed.js              localStorage seeding (USERS, seedUser, seedStorage, STORAGE_KEYS)
-    console.js           IGNORE noise filter + trackErrors(page)
+    console.js           trackErrors(page) — a failed request is judged by whose
+                         origin it hit, not by wording; IGNORE lists third-party
+                         hosts that only complain through the console
     datePicker.helper.js pickDate(page, selector, iso) for the themed calendar
   tests/
     consumer/            the public product — what a buyer, tenant or owner touches
@@ -109,7 +111,11 @@ Conventions:
 - Prefer role/label/testid locators over CSS.
 - Assert the **guard** (unauthorized → redirect), an **empty state**, and any
   **maker-checker** transition the flow doc defines — not just the happy path.
-- Keep environmental console noise in `helpers/console.js` `IGNORE`, not per-spec.
+- Keep environmental console noise in `helpers/console.js`, not per-spec. Failed
+  requests to other people's hosts are already tolerated by origin, so a spec that
+  is only noisy offline needs no change; `IGNORE` is for third-party code that
+  logs without a URL to attribute. Our own origin returning 404/500 is a real
+  failure — do not add a pattern to hide one.
 
 ## Four things that fail a spec against correct code
 

@@ -1,4 +1,4 @@
-﻿-- ============================================================================================
+-- ============================================================================================
 -- R__zz_dev_demo_data.sql — the local demo catalogue. DEV ONLY.
 --
 -- WHY THE `zz_` PREFIX — it is not decoration, and removing it breaks the boot.

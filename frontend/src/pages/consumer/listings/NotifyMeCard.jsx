@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { addDemandAlert } from '../../../lib/mockApi.js';
-import { addSavedSearch, myMobile } from '../../../lib/store.js';
+import { myMobile } from '../../../lib/store.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildAlertRecord, criteriaChips, demandTypeLabel } from './alertCriteria.js';
@@ -15,9 +15,11 @@ const CHANNELS = [
 
 /**
  * "Create a property alert" card shown when a search returns no / few results.
- * Doubles as a cold-start lead capture: one submit both (a) creates a user-owned
- * saved-search alert (manageable from the dashboard) and (b) feeds the admin
- * demand-gap signal via addDemandAlert.
+ * Doubles as a cold-start lead capture: one submit (a) creates a user-owned
+ * saved-search alert (manageable from the dashboard) — account-gated since D85, so a
+ * signed-out visitor is redirected to `/signin?reason=alerts` instead — and (b) feeds
+ * the admin demand-gap signal via addDemandAlert, which still fires for anonymous
+ * visitors before the sign-in redirect.
  */
 export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const { t } = useTranslation();
@@ -27,6 +29,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const [saving, setSaving] = useState(false);
   const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
+  const navigate = useNavigate();
 
   const localityNames = [...filters.localities].map((s) => locNameBySlug[s] || s);
   const record = buildAlertRecord(filters, locNameBySlug);
@@ -37,38 +40,39 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
     e.preventDefault();
     if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('listings.invalidMobile'), 'error'); return; }
 
-    // User-owned, manageable alert (surfaced in dashboard → Alerts).
-    // Persists the full filter set so matching/display stays complete.
-    //
-    // Signed in → the seam, where ownership comes from the token. Signed out → localStorage: the
-    // API's create is caller-scoped and takes no mobile, so there is nothing to call for the very
-    // visitor this card exists to capture (D85). The demand signal below is unaffected either way.
-    //
-    // Awaited, because against the live API this is a network write that can fail. Fire-and-forget
-    // showed the "first in line" confirmation unconditionally, so a rejected create left the user
-    // certain they had an alert that was never recorded — and the rejection surfaced only as an
-    // unhandled promise in the console.
-    if (isIn) {
-      setSaving(true);
-      try {
-        await createSavedSearch({ ...record, query: '', channel });
-      } catch {
-        setSaving(false);
-        toast(t('listings.alertFailed'), 'error');
-        return;
-      }
-      setSaving(false);
-    } else {
-      addSavedSearch({ ...record, query: '', channel, mobile });
-    }
-
-    // Admin demand-gap signal — one per selected locality (or one blank if none).
+    // Admin demand-gap signal — one per selected locality (or one blank if none). Captured for
+    // signed-out visitors too, so cold-start demand is still measured even though the alert itself
+    // now requires an account (D85).
     const demandType = demandTypeLabel(record);
     const demandBhk = record.bhk.join('/');
     const targets = localityNames.length ? localityNames : [''];
     targets.forEach((locality) => {
       addDemandAlert({ locality, deal: filters.deal, type: demandType, bhk: demandBhk, budget: '', mobile });
     });
+
+    // The alert is user-owned and lives in the login-only dashboard, so it needs an account. Signed
+    // out → the demand above is recorded, then send them to sign in (matching the "Save search"
+    // gate in Listings). Writing an anonymous localStorage alert produced one the user was told they
+    // had but could never see once every read came from the server (D85).
+    if (!isIn) {
+      toast(t('listings.signInToAlert'), 'info');
+      navigate(`/signin?reason=alerts&next=${encodeURIComponent('/listings?deal=' + filters.deal)}`);
+      return;
+    }
+
+    // User-owned, manageable alert (surfaced in dashboard → Alerts). Persists the full filter set so
+    // matching/display stays complete. Awaited, because against the live API this is a network write
+    // that can fail — fire-and-forget showed the "first in line" confirmation unconditionally, so a
+    // rejected create left the user certain they had an alert that was never recorded.
+    setSaving(true);
+    try {
+      await createSavedSearch({ ...record, query: '', channel });
+    } catch {
+      setSaving(false);
+      toast(t('listings.alertFailed'), 'error');
+      return;
+    }
+    setSaving(false);
 
     setSent(true);
     toast(t('listings.alertCreated'), 'success');

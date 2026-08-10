@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Component;
 
 /**
@@ -72,5 +73,40 @@ public class SupportTicketMapper {
                                 .toList(),
                         t.getCreatedAt()))
                 .toList();
+    }
+
+    /**
+     * The ops queue projection (D51) — one page of {@link AdminSupportTicketDto}, threads omitted.
+     *
+     * <p>Names are resolved for the whole page before {@link org.springframework.data.domain.Page#map}
+     * walks it. Mapping element by element and looking each raiser up inside the lambda would be an
+     * N+1 that only shows itself under load, which is the failure mode this class was already
+     * written to avoid on the customer's list.
+     */
+    public Page<AdminSupportTicketDto> toAdminPage(Page<SupportTicket> page) {
+        Map<UUID, String> names = raiserNames(page.getContent());
+        return page.map(t -> new AdminSupportTicketDto(
+                t.getId().toString(),
+                t.getSubject(),
+                t.getCategory(),
+                t.getStatus(),
+                names.get(t.getUserId()),
+                t.isStaffUnread(),
+                t.isUnread(),
+                t.getCreatedAt()));
+    }
+
+    private Map<UUID, String> raiserNames(List<SupportTicket> tickets) {
+        Set<UUID> ids = tickets.stream()
+                .map(SupportTicket::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+        Map<UUID, String> names = new HashMap<>();
+        if (!ids.isEmpty()) {
+            for (User u : users.findAllById(ids)) {
+                names.put(u.getId(), u.getName());
+            }
+        }
+        return names;
     }
 }

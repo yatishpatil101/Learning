@@ -225,6 +225,14 @@ if (group && seekerInbox.some((r) => r.targetId === group.id)) {
 }
 become(hostSession);
 if (!Array.isArray(hostInbox)) failures.push('myRequests did not return an array');
+// A positive assertion, deliberately. The scoping check above and the isArray check both pass on an
+// empty list, so between them they would have said nothing when D77 paged this endpoint and the
+// provider kept reading the response as a bare array — every host would have seen an empty inbox
+// and the harness would have been green. The seeker joined the host's group a few lines up, so the
+// host's inbox has to contain exactly that.
+if (group && !hostInbox.some((r) => r.targetId === group.id)) {
+  failures.push('the host\'s /me/flatmate-requests does not contain the join that just happened — if it is also empty, the page envelope is not being unwrapped');
+}
 
 // ─── The mapper's derived fields ──────────────────────────────────────────────────────────────
 // Seats are set by the host, never inferred from membership: a group can have 3 members and 2 open

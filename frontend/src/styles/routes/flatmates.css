@@ -1,7 +1,13 @@
 /* flatmates — split out of styles/index.css so it ships with its own
    route chunk instead of blocking first paint on every page.
-   Share-a-flat: map popups, card flash highlight and the .sf-page block.
-   Loaded with the /share-flat route chunk (pages/consumer/Flatmates.jsx). */
+   Map popups, card flash highlight and the .sf-page block.
+   Loaded with the /flatmates route chunk (pages/consumer/Flatmates.jsx).
+
+   The `.sf-` prefix is a fossil of the old "share flat" name (D72a renamed the
+   feature to "flatmates"). It is deliberately NOT renamed: the prefix is a
+   private class namespace nobody reads, it is load-bearing in dozens of e2e
+   selectors, and a purely cosmetic sweep across them buys a regression risk for
+   no user-visible gain. Nothing a user can read says "share a flat". */
 
 /* Flatmate map: per-locality posting preview popup (dark, actionable). */
 .pn-sp {

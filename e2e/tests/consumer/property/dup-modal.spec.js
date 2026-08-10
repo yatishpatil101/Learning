@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 

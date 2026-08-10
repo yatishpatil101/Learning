@@ -21,6 +21,13 @@ public final class ServiceRequestStatuses {
     private ServiceRequestStatuses() {
     }
 
+    /**
+     * Filed and priced, but not yet paid for. The starting state of a rent-agreement request, and
+     * invisible to the ops queue until the payment webhook moves it on. A free service desk skips
+     * this and starts at {@link #NEW}.
+     */
+    public static final String AWAITING_PAYMENT = "awaiting-payment";
+
     /** Filed, nobody has picked it up. */
     public static final String NEW = "new";
 
@@ -49,6 +56,7 @@ public final class ServiceRequestStatuses {
      * asked for changes is the same move made twice, not a special case.
      */
     private static final Map<String, Set<String>> ALLOWED = Map.of(
+            AWAITING_PAYMENT, Set.of(NEW, CANCELLED),
             NEW, Set.of(ASSIGNED, IN_PROGRESS, CANCELLED),
             ASSIGNED, Set.of(IN_PROGRESS, DRAFT_SHARED, CANCELLED),
             IN_PROGRESS, Set.of(ASSIGNED, DRAFT_SHARED, CANCELLED),
@@ -68,7 +76,7 @@ public final class ServiceRequestStatuses {
      */
     private static final Set<String> STAFF_SETTABLE = Set.of(ASSIGNED, IN_PROGRESS, CANCELLED);
 
-    /** True if this is one of the seven the V7 CHECK will accept. */
+    /** True if this is one of the statuses the {@code service_requests_status_check} will accept. */
     public static boolean isKnown(String status) {
         return ALLOWED.containsKey(status);
     }

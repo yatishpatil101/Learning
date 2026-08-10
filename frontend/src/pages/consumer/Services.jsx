@@ -12,6 +12,7 @@ import MobileField from '../../components/MobileField.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { isValidMobile } from '../../lib/hooks.js';
+import { srcSetFor, CARD_SIZES } from '../../lib/imgSrcSet.js';
 
 const IMG = (id) => `https://images.unsplash.com/photo-${id}?w=800&q=80`;
 
@@ -312,7 +313,7 @@ export default function Services() {
               const Inner = (
                 <>
                   <div className="zoom relative h-40 sm:h-44">
-                    <img src={IMG(img)} alt={cardName} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={IMG(img)} srcSet={srcSetFor(IMG(img))} sizes={CARD_SIZES} alt={cardName} className="w-full h-full object-cover" loading="lazy" />
                     <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(8,7,16,.1) 40%,rgba(8,7,16,.65) 100%)' }} />
                     {/* Mobile: stronger bottom scrim so the overlaid title stays legible */}
                     <div className="absolute inset-0 sm:hidden" style={{ background: 'linear-gradient(180deg,rgba(8,7,16,0) 34%,rgba(8,7,16,.55) 62%,rgba(8,7,16,.9) 100%)' }} />

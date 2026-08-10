@@ -88,6 +88,9 @@ export async function getSubscription() {
     status: entitled ? 'active' : (pending ? 'pending' : null),
     pendingSlug: pending?.slug ?? null,
     paymentRef: pending?.paymentRef ?? null,
+    // The mock has no real gateway, so no hosted-checkout session — the http provider supplies
+    // this on a live subscribe. Null here keeps the two view models the same shape.
+    paymentSessionId: null,
     startedAt: null,
     renewsAt: null,
     isPaidOwner: entitled && PAID_OWNER_PLAN_SLUGS.includes(slug),

@@ -27,7 +27,7 @@
  * `flatmate.interest` without listing every leaf.
  */
 const TYPE_PREFIXES = [
-  // Someone wants to team up / share a flat — the "users" family, same as the mock's flatmate seed.
+  // Someone wants to team up as a flatmate — the "users" family, same as the mock's flatmate seed.
   ['flatmate.interest', 'share'],
   ['flatmate.request', 'share'],
   // A moderation outcome on the user's own post is a platform decision, not a lead.
@@ -36,6 +36,24 @@ const TYPE_PREFIXES = [
   ['flatmate.agreement', 'service'],
   // Catch-all for flatmate types added later; more specific rules above win.
   ['flatmate', 'share'],
+  // The owner answered a contact request the user made — an outcome on their own enquiry.
+  ['contact', 'enquiry'],
+  // A moderation verdict on the user's own listing is a platform decision, not a lead — same
+  // reasoning as flatmate.review above.
+  ['listing', 'system'],
+  // A visit was confirmed or moved. The UI vocabulary has a `visit` member that means exactly this,
+  // so the mapping is an identity — but it still has to be *stated*, because `PASSTHROUGH` matches
+  // the bare word only and every server type here is dotted (`visit.confirmed`, `visit.rescheduled`).
+  ['visit', 'visit'],
+  // An offer arrived. `price` is the UI's name for the money family; there is no `offer` chip.
+  ['offer', 'price'],
+  // Access to a document was granted. Identity mapping, stated for the same dotted-type reason as
+  // `visit` above.
+  ['document', 'document'],
+  // A message landed in a conversation. `message.received` predates the rest of this list and has
+  // been falling through to the grey `system` row since the notification page shipped — it is an
+  // enquiry thread from the reader's point of view, which is the chip they would reach for.
+  ['message', 'enquiry'],
 ];
 
 /** UI types that already mean what they say — passed through untouched. */

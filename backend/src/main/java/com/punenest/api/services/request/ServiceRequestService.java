@@ -5,22 +5,38 @@ import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.error.ValidationException;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.catalog.fee.LeaveAndLicenceCharges;
+import com.punenest.api.catalog.fee.PlatformFee;
+import com.punenest.api.catalog.fee.PlatformFeeRepository;
+import com.punenest.api.common.payments.AbandonedCheckouts;
+import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.documents.vault.DocumentService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
+import com.punenest.api.provider.PaymentGateway;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
+import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
@@ -51,46 +67,131 @@ import tools.jackson.databind.ObjectMapper;
  * (who is accountable). They are not redundant — see {@link ServiceRequestEvent}.
  */
 @Service
-public class ServiceRequestService {
+public class ServiceRequestService implements AbandonedCheckouts {
+
+    private static final Logger log = LoggerFactory.getLogger(ServiceRequestService.class);
 
     /**
      * Serialized-size ceiling for {@code details}, restoring the bound the old flat-string schema had
      * (D119: it was {@code @Size(4000)}). The field is now a free-form {@code jsonb} object reachable
      * by any authenticated caller and written verbatim, so an unbounded object is a storage-growth
      * vector; the cap is measured on the serialized JSON — the form actually persisted — mirroring
-     * {@code SavedSearchService.serializeFilters}, and is generous over the old 4000 to allow the
-     * object's own keys and structure.
+     * {@code SavedSearchService.serializeFilters}.
+     *
+     * <p><b>D157 — this number is measured, not guessed.</b> It was 8000, chosen for a payload nobody
+     * had sized. The rent-agreement wizard embeds its whole form state in {@code details._state}, and
+     * reconstructing that state from the form's real fields put the worst *realistic* case — four
+     * tenants, a 2000-character clauses field, 300-character addresses, a full furniture list — at
+     * <b>7875 characters</b>. That is 125 characters of headroom: the customer would have met a 400 at
+     * the end of a six-step form, which is exactly the failure the cap was not supposed to cause. Each
+     * additional tenant costs ~645 characters and each clauses character costs one.
+     *
+     * <p>16000 is twice that worst realistic case and above the pathological one (six tenants, a
+     * 5000-character clauses field, ~13065 characters), which bounds a row at ~48 KB of jsonb.
+     * Script is irrelevant here: Devanagari is BMP, so one UTF-16 unit per character against
+     * {@code String.length()} — only the on-disk byte count triples.
+     *
+     * <p><b>The wizard mirrors this number</b> in {@code helpers.js} so the form refuses before the
+     * submit does. Change both together: a client that believes in a larger cap than this one
+     * enforces is worse than no guard, because it promises a submit that will fail.
      */
-    private static final int DETAILS_MAX_CHARS = 8000;
+    private static final int DETAILS_MAX_CHARS = 16000;
+
+    /** The published fee breakdown a rent agreement is priced from ({@code platform_fees.deal}). */
+    private static final String RENT_FEE_DEAL = "rent";
+
+    /**
+     * The term assumed when a rent agreement states a rent but no months (D163).
+     *
+     * <p>Eleven, because that is the wizard's own default and the overwhelmingly common Indian
+     * tenancy — written to eleven months precisely so it falls outside rent-control registration.
+     * The number is mirrored by {@code useRentAgreement.js} ({@code parseInt(terms.months, 10) ||
+     * 11}); the two must agree or the sidebar's estimate and the charge diverge, which is exactly
+     * what D150 closed.
+     */
+    private static final int DEFAULT_TERM_MONTHS = 11;
+
+    /**
+     * How many unpaid priced requests one caller may hold open per desk.
+     *
+     * <p>One, because each opens a live gateway order and the legitimate need is exactly one: you
+     * are either paying for this agreement or you are not. This is a cap on outstanding orders, not
+     * a rate limit — the endpoint still has no throttle (D2).
+     *
+     * <p><strong>The value is mirrored by {@code uq_service_requests_open_unpaid}</strong> (V43,
+     * D153), which is what actually holds the cap under concurrency. A unique index can only express
+     * "at most one", so raising this constant means replacing that index too — otherwise this would
+     * wave a second order through and the database would refuse it with a message about the first.
+     */
+    private static final int MAX_OPEN_UNPAID_PER_TYPE = 1;
+
+    /**
+     * The V43 partial unique index that enforces {@link #MAX_OPEN_UNPAID_PER_TYPE} (D153).
+     *
+     * <p>Named here so its violation can be told apart from a not-null or foreign-key one and
+     * answered as the cap's own 409 rather than the generic "conflicts with existing data".
+     */
+    private static final String OPEN_UNPAID_INDEX = "uq_service_requests_open_unpaid";
+
+    /**
+     * The timeline event for a checkout that was opened and then walked away from (D152).
+     *
+     * <p>Deliberately not {@code payment.failed}. That means the gateway refused the money, which is
+     * something the customer may want to retry with another card; this means no money was ever
+     * attempted. Reading the two as one event would make "my payment was declined" and "I closed the
+     * tab" indistinguishable in support, and they call for opposite advice.
+     */
+    private static final String ABANDONED_EVENT = "payment.abandoned";
 
     private final ServiceRequestRepository requests;
     private final ServiceRequestEventRepository events;
     private final ServiceRequestMessageRepository messages;
     private final ServiceRequestMapper mapper;
     private final DocumentService documents;
+    /**
+     * The identity-number channel (D151) — held only so {@link #transition} can discard the numbers
+     * when a matter closes. Nothing here ever reads them: this class's own DTO is what the ops queue
+     * projects, and a getter on it is exactly the leak that channel exists to replace.
+     */
+    private final ServiceRequestIdentityService identities;
     private final UserRepository users;
     private final PropertyRepository properties;
+    private final PlatformFeeRepository fees;
+    private final PaymentGateway gateway;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
+
+    /** Runs the two short transactions {@link #create} is built from — see the field it mirrors on
+     * {@code SubscriptionService} for why the template is built here and why propagation is left at
+     * {@code REQUIRED}. */
+    private final TransactionTemplate transactions;
 
     public ServiceRequestService(ServiceRequestRepository requests,
             ServiceRequestEventRepository events,
             ServiceRequestMessageRepository messages,
             ServiceRequestMapper mapper,
             DocumentService documents,
+            ServiceRequestIdentityService identities,
             UserRepository users,
             PropertyRepository properties,
+            PlatformFeeRepository fees,
+            PaymentGateway gateway,
             AuditService audit,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this.requests = requests;
         this.events = events;
         this.messages = messages;
         this.mapper = mapper;
         this.documents = documents;
+        this.identities = identities;
         this.users = users;
         this.properties = properties;
+        this.fees = fees;
+        this.gateway = gateway;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -116,9 +217,42 @@ public class ServiceRequestService {
         return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
     }
 
-    /** Contract {@code createServiceRequest} — 201. Any authenticated caller, for themselves. */
-    @Transactional
+    /**
+     * Contract {@code createServiceRequest} — 201. Any authenticated caller, for themselves.
+     *
+     * <p><strong>Deliberately not {@code @Transactional}</strong> (D148). A priced request is
+     * committed in {@code awaiting-payment} <em>before</em> the Cashfree order is opened, and the
+     * order id is attached in a second transaction. Opening the order inside the transaction that
+     * persists the request means any later failure — the flush, the timeline write, a constraint —
+     * destroys the request while leaving a payable order behind it, so a customer could pay for an
+     * agreement that no longer exists and the callback would match nothing.
+     */
     public ServiceRequestDto create(AuthPrincipal caller, ServiceRequestCreate body) {
+        Opened opened = transactions.execute(tx -> open(caller, body));
+
+        if (opened.settled() != null) {
+            // A free desk: it is already in the queue and there is no money to collect.
+            return opened.settled();
+        }
+
+        PaymentGateway.PaymentOrder order;
+        try {
+            order = openOrder(opened);
+            return transactions.execute(tx -> attach(opened.requestId(), order));
+        } catch (RuntimeException checkoutFailed) {
+            // The attach is inside the guard, not only the gateway call. A second-transaction
+            // failure would otherwise leave an awaiting-payment request occupying this requester's
+            // one-open-unpaid slot for that desk, and they could not raise another.
+            abandon(opened);
+            throw checkoutFailed;
+        }
+    }
+
+    /**
+     * First transaction: validate, file the request, and commit it in the state that matches whether
+     * it needs paying for.
+     */
+    private Opened open(AuthPrincipal caller, ServiceRequestCreate body) {
         UUID propertyId = body.propertyId() == null || body.propertyId().isBlank()
                 ? null
                 : Ids.parseUuid(body.propertyId())
@@ -135,21 +269,519 @@ public class ServiceRequestService {
         }
 
         Map<String, Object> details = boundedDetails(body.details());
-        ServiceRequest request = requests.saveAndFlush(new ServiceRequest(
-                caller.userId(), body.type().trim(), propertyId, details));
-        // saveAndFlush: @UuidGenerator/@CreationTimestamp populate at INSERT, and the timeline entry
-        // below needs the id.
+        String type = body.type().trim();
+        // The type decides the price, so it has to be a closed set: `Rent-Agreement`, `rent_agreement`
+        // and the frontend's own `rental` all used to miss the exact-match pricer and file a *free*
+        // rent agreement that ops would then work for nothing. Rejecting the unknown spelling is what
+        // makes that mistake loud instead of free. See ServiceRequestTypes.
+        if (!ServiceRequestTypes.isKnown(type)) {
+            throw new BadRequestException("Unknown service request type '" + type + "'; expected one of "
+                    + ServiceRequestTypes.known());
+        }
+        Long price = priceFor(type, details);
+        if (price != null) {
+            // Each priced request opens a live gateway order. Nothing else throttles this endpoint,
+            // so without a ceiling a loop over POST /service-requests opens unbounded real orders
+            // against our merchant account at no cost to the caller. One open unpaid request per
+            // desk is the whole legitimate need — you are either paying for this agreement or you
+            // are not — and the existing one is visible in the caller's own list as
+            // `awaiting-payment`, so this points at something they can act on rather than a wall.
+            //
+            // This count is the fast path, not the guarantee (D153): it is an unlocked read over
+            // rows that do not exist yet, so N concurrent creates all see zero. It stays because it
+            // produces the better message on the ordinary double click; the unique index caught
+            // below is what holds under concurrency.
+            long openUnpaid = requests.countByRequesterIdAndTypeAndStatus(
+                    caller.userId(), type, ServiceRequestStatuses.AWAITING_PAYMENT);
+            if (openUnpaid >= MAX_OPEN_UNPAID_PER_TYPE) {
+                throw openUnpaidConflict(type);
+            }
+        }
+        ServiceRequest draft = new ServiceRequest(caller.userId(), type, propertyId, details);
+        if (price != null) {
+            // A priced desk (rent agreement) is held behind a Cashfree order: ops sees nothing until
+            // the payment webhook settles it (findForQueue excludes awaiting-payment). The hold is
+            // committed here, before the order exists; the order id lands in attach() a moment later.
+            //
+            // Set before the INSERT rather than after it, so the row enters the world in the state it
+            // belongs in — which is also what puts it inside uq_service_requests_open_unpaid on the
+            // INSERT itself, so a losing racer is refused by the flush below rather than at commit,
+            // where no handler could translate it.
+            draft.awaitPayment(price);
+        }
+        ServiceRequest request;
+        try {
+            // saveAndFlush: @UuidGenerator/@CreationTimestamp populate at INSERT, the timeline entry
+            // below needs the id, and the flush is what brings a unique-index refusal inside this
+            // try instead of letting Hibernate defer it to commit.
+            request = requests.saveAndFlush(draft);
+        } catch (DataIntegrityViolationException violation) {
+            // Answer the cap's own 409, with the cap's own message, so the API contract does not
+            // depend on which of the two guards refused the caller. Anything else — a foreign key,
+            // a not-null — is a real defect and must not be dressed up as a business rule.
+            if (isOpenUnpaidCollision(violation)) {
+                log.info("Concurrent create lost the open-unpaid race for {} on desk {}",
+                        caller.userId(), type);
+                throw openUnpaidConflict(type);
+            }
+            throw violation;
+        }
         record(request, "request.created", displayName(caller.userId()));
-        return mapper.toDto(request);
+        if (price == null) {
+            // A free desk enters the queue straight away.
+            return Opened.settled(mapper.toDto(request));
+        }
+        record(request, "payment.pending", null);
+        String phone = users.findById(caller.userId()).map(User::getMobile).orElse(null);
+        return new Opened(null, request.getId(), price,
+                new PaymentGateway.Customer(caller.userId().toString(), phone));
     }
 
     /**
-     * Reject a {@code details} object whose serialized form exceeds {@link #DETAILS_MAX_CHARS}.
+     * Second transaction: record the order the committed request is waiting on.
      *
-     * <p>The old flat-string schema capped this at 4000 chars ({@code @Size}); {@code @Size} cannot
-     * bound a {@code Map}, so the ceiling is re-established here on the serialized JSON — the form
-     * actually stored — exactly as {@code SavedSearchService.serializeFilters} does. A null or empty
-     * object passes through untouched — "no structured detail" is a valid request.
+     * <p>The session id rides back on this one response for the checkout SDK and is never stored.
+     */
+    private ServiceRequestDto attach(UUID requestId, PaymentGateway.PaymentOrder order) {
+        ServiceRequest request = requests.findById(requestId)
+                .orElseThrow(() -> new IllegalStateException("Service request " + requestId
+                        + " disappeared before gateway order " + order.orderId()
+                        + " could be attached"));
+        if (!request.attachOrder(order.orderId())) {
+            log.error("Service request {} would not take gateway order {}; it is {} with ref {}",
+                    requestId, order.orderId(), request.getStatus(), request.getPaymentRef());
+        }
+        return mapper.toDto(requests.saveAndFlush(request))
+                .withPaymentSessionId(order.paymentSessionId());
+    }
+
+    /**
+     * Compensating write for a gateway that refused the order after the request was committed
+     * (D148).
+     *
+     * <p>Cancelled, not deleted and not left waiting. Deleting is not available — the timeline rows
+     * written above reference it — and leaving it in {@code awaiting-payment} would be the worst of
+     * the three: the caller can never reach a checkout for it, ops never sees it, and it consumes
+     * the one-open-unpaid slot above, so the customer's retry would be refused with "you already
+     * have an unpaid request" pointing at a request they cannot pay. Cancelling frees that slot and
+     * gives the same timeline the webhook's own failure path writes.
+     *
+     * <p>A failure to compensate is logged and swallowed so the caller still gets the gateway's
+     * error rather than a bookkeeping one.
+     *
+     * <p>The null-reference guard mirrors {@code abandonUnopened} on the other three payment
+     * entities. A request that has a reference is one the gateway did accept, which means a webhook
+     * could already have settled it — and the transition table permits {@code NEW → CANCELLED}, so
+     * without this check a late compensation could cancel a request the customer has paid for.
+     * Unreachable today, because this path only runs while the reference is still null; guarded in
+     * code rather than by circumstance so it stays true when someone writes the reference earlier.
+     */
+    private void abandon(Opened opened) {
+        try {
+            transactions.executeWithoutResult(tx -> requests.findById(opened.requestId())
+                    .filter(request -> request.getPaymentRef() == null)
+                    .ifPresent(request -> {
+                        transition(request, ServiceRequestStatuses.CANCELLED);
+                        record(request, "payment.failed", null);
+                    }));
+            log.error("No gateway order for service request {}; cancelled it. Nothing was charged "
+                    + "and the requester may file another.", opened.requestId());
+        } catch (RuntimeException compensationFailed) {
+            log.error("Could not cancel service request {} after its gateway order failed; it will "
+                    + "sit in awaiting-payment and block the requester's next attempt",
+                    opened.requestId(), compensationFailed);
+        }
+    }
+
+    /**
+     * What survives the first transaction: a finished response, or plain values describing the order
+     * to open. No entity crosses a transaction boundary.
+     */
+    private record Opened(ServiceRequestDto settled, UUID requestId, long price,
+            PaymentGateway.Customer customer) {
+
+        static Opened settled(ServiceRequestDto dto) {
+            return new Opened(dto, null, 0, null);
+        }
+    }
+
+    /**
+     * The one 409 the unpaid-order cap returns, whichever guard produced it (D153).
+     *
+     * <p><strong>The wording is the fix for D152's other half.</strong> It used to say "pay for it or
+     * cancel it", and the customer could do neither: no webhook is generated by closing the Cashfree
+     * modal, so there was no way back to that checkout, and {@code PATCH /status} is staff-only. The
+     * message named two actions that did not exist and the wizard then hid the form. Both actions are
+     * real now — {@code POST /{id}/cancel} is the customer's, and the sweep does it for them if they
+     * never come back — so the message may finally be taken at face value.
+     */
+    private ConflictException openUnpaidConflict(String type) {
+        return new ConflictException("You already have an unpaid " + type + " request. Cancel it "
+                + "from your requests and start again, or finish paying for it — an unpaid request "
+                + "is cancelled automatically once its checkout has expired.");
+    }
+
+    /**
+     * Whether this constraint violation is the open-unpaid cap rather than a genuine bug.
+     *
+     * <p>Matched on the index name in the driver's own message, because {@code create} is also where
+     * a bad {@code property_id} or a missing column would surface, and translating those into "you
+     * already have an unpaid request" would hide a defect behind a business rule that reads as if the
+     * system were working. The match itself lives in {@link ConstraintViolations} — four services
+     * need the identical two lines against four different index names (D170).
+     */
+    private static boolean isOpenUnpaidCollision(DataIntegrityViolationException violation) {
+        return ConstraintViolations.isOn(violation, OPEN_UNPAID_INDEX);
+    }
+
+    /**
+     * The up-front charge for a service desk, or {@code null} when the desk is free.
+     *
+     * <p>A rent agreement (Leave &amp; License) is the one desk that charges before ops touches it;
+     * every other desk in {@link ServiceRequestTypes} is free and enters the queue immediately. It is
+     * priced from the published {@code rent} fee breakdown — platform fee plus GST — plus the
+     * statutory charges the state levies on the document. Brokerage is excluded: it is the cost of a
+     * property deal, not of drawing up the agreement. GST is charged on the platform fee alone and is
+     * already the seeded figure, because stamp duty and registration are taxes, not supplies, and
+     * nothing is levied on top of them.
+     *
+     * <p><strong>The statutory half is computed, not published (D163).</strong> Until now this summed
+     * four columns, and two of them were seeded zero — so the platform billed {@code 1999 + 0 + 0 +
+     * GST} for a document that legally attracts Art. 36A stamp duty and a registration fee, and would
+     * have had to remit the difference out of margin on every agreement. They were seeded zero
+     * because there is no correct flat value: the duty is 0.25% of a consideration built from the
+     * rent, the term and the deposit. The published row now says so by publishing {@code null}
+     * (V52), and {@link LeaveAndLicenceCharges} produces the real figure from this request's own
+     * terms.
+     *
+     * <p><strong>The wizard's sidebar has the same formula but does not yet see the null</strong> —
+     * {@code providers/http/feesProvider.js} still coerces it to {@code 0} — so until that one line
+     * changes the estimate on screen under-states this charge. V52's header carries the exact edit.
+     * That is a release-ordering constraint, not a licence to leave the bill wrong: D150's invariant
+     * is that the two agree, and they will once the coercion goes.
+     *
+     * <p><strong>When the terms are absent, nothing is invented.</strong> A request that carries no
+     * rent is not a wizard submission and cannot be taxed: pricing it from a zero rent would produce
+     * a confident ₹0 of duty, and a wrong statutory number is worse than an absent one. Such a
+     * request is charged the platform fee, GST and whatever the published row does state — which for
+     * {@code rent} is nothing — exactly as it was before this change. It is logged, because ops
+     * cannot produce the document from it either.
+     *
+     * <p>Because the price is decided by matching a string, the type it is matched against has to be
+     * a closed set — see {@link ServiceRequestTypes} for why free text made the gate optional.
+     */
+    private Long priceFor(String type, Map<String, Object> details) {
+        if (!ServiceRequestTypes.RENT_AGREEMENT.equals(type)) {
+            return null;
+        }
+        PlatformFee published = fees.findById(RENT_FEE_DEAL)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Missing platform fee row for deal " + RENT_FEE_DEAL));
+        long price = published.getPlatformFee() + published.getGst();
+        LeaveAndLicenceCharges.Terms terms = leaveAndLicenceTerms(details);
+        if (terms != null) {
+            return price + LeaveAndLicenceCharges.on(terms).total();
+        }
+        log.warn("Rent agreement raised without terms; statutory charges cannot be computed and are "
+                + "billed only if the published schedule states them");
+        return price + orZero(published.getStampDuty()) + orZero(published.getRegistration());
+    }
+
+    /** A published fee line that is absent contributes nothing — see {@link PlatformFee}. */
+    private static long orZero(Long publishedLine) {
+        return publishedLine == null ? 0L : publishedLine;
+    }
+
+    /**
+     * The leave-and-licence terms this request is taxed on, or {@code null} when it states none.
+     *
+     * <p>Read out of the free-form {@code details} object the wizard posts, which carries the terms
+     * twice: flattened at the top level ({@code rent}, {@code deposit}, {@code months},
+     * {@code regArea}) for ops to read, and verbatim inside {@code _state.terms} for co-fill and
+     * resume. Both are consulted, top level first, because the flattened copy omits the
+     * non-refundable deposit and the {@code _state} copy is the only place it exists.
+     *
+     * <p><strong>The defaults are the wizard's own defaults, deliberately.</strong> A blank term is
+     * eleven months ({@code parseInt(terms.months, 10) || 11}); an absent deposit is no deposit,
+     * which is a real and common tenancy and contributes a real zero rather than a missing one; an
+     * unrecognised registration area is municipal, because Pune city is and because municipal is the
+     * higher of the two fees — defaulting to the cheaper one would leave the platform remitting the
+     * difference. Any other choice here would make the sidebar and the charge disagree, which is the
+     * failure D150 closed.
+     *
+     * <p>Only the rent is load-bearing: with no rent there is no consideration and no honest duty, so
+     * this returns {@code null} and the caller declines to invent one. A rent that is present but
+     * outside the range that can be priced is a different thing — a malformed body, answered 422,
+     * rather than a request that simply said nothing.
+     */
+    private LeaveAndLicenceCharges.Terms leaveAndLicenceTerms(Map<String, Object> details) {
+        if (details == null || details.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> state = childObject(childObject(details, "_state"), "terms");
+        Long rent = rupees(details.get("rent"), state.get("rent"));
+        if (rent == null || rent <= 0L) {
+            return null;
+        }
+        Long months = rupees(details.get("months"), state.get("months"));
+        Long deposit = rupees(details.get("deposit"), state.get("deposit"));
+        Long nonRefundable = rupees(details.get("nrDeposit"), state.get("nrDeposit"));
+        boolean urban = !isRural(details.get("regArea"), state.get("regArea"));
+        try {
+            return new LeaveAndLicenceCharges.Terms(rent,
+                    deposit == null ? 0L : deposit,
+                    nonRefundable == null ? 0L : nonRefundable,
+                    months == null || months <= 0L ? DEFAULT_TERM_MONTHS : Math.toIntExact(months),
+                    urban);
+        } catch (ArithmeticException | IllegalArgumentException unpriceable) {
+            throw new ValidationException(
+                    "details states rent-agreement terms that cannot be priced: "
+                            + unpriceable.getMessage());
+        }
+    }
+
+    /**
+     * The first of {@code candidates} that reads as a whole non-negative rupee figure, or
+     * {@code null}.
+     *
+     * <p>Both shapes have to be accepted because both are posted: the flattened copy holds JSON
+     * numbers, the {@code _state} copy holds the raw form strings. A negative or fractional value is
+     * not coerced — it is treated as unstated, so it reaches the range check as an absent term rather
+     * than as a silently rounded one.
+     */
+    private static Long rupees(Object... candidates) {
+        for (Object candidate : candidates) {
+            if (candidate instanceof Number number && number.longValue() >= 0) {
+                return number.longValue();
+            }
+            if (candidate instanceof String text && text.strip().matches("\\d{1,18}")) {
+                return Long.valueOf(text.strip());
+            }
+        }
+        return null;
+    }
+
+    /** Whether any of {@code candidates} names a rural registering body — see the caller's default. */
+    private static boolean isRural(Object... candidates) {
+        for (Object candidate : candidates) {
+            if (candidate instanceof String text
+                    && text.toLowerCase(Locale.ROOT).contains("rural")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The nested object at {@code key}, or an empty map — so lookups can chain without null checks. */
+    private static Map<String, Object> childObject(Map<String, Object> parent, String key) {
+        Object child = parent.get(key);
+        if (child instanceof Map<?, ?> map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> typed = (Map<String, Object>) map;
+            return typed;
+        }
+        return Map.of();
+    }
+
+    /**
+     * Open the Cashfree order that gates a priced request. Called with no transaction open (D148).
+     *
+     * <p>The order id is the durable handle the payment webhook matches on ({@code payment_ref}); a
+     * blank one would strand a request in {@code awaiting-payment} forever, so it is treated as a
+     * refusal and routed into {@link #abandon} with everything else. The reference carries the
+     * request id so a settlement is traceable to a row.
+     */
+    private PaymentGateway.PaymentOrder openOrder(Opened opened) {
+        PaymentGateway.PaymentOrder order = gateway.createOrder(opened.price(),
+                "service-request:" + opened.requestId(), opened.customer());
+        if (order.orderId() == null || order.orderId().isBlank()) {
+            throw new IllegalStateException("Payment gateway returned no order id");
+        }
+        return order;
+    }
+
+    /**
+     * Settle a priced request from the payment webhook: a paid order lets it into the queue, a failed
+     * one cancels it.
+     *
+     * <p>Matched by order id, and idempotent by state — a redelivered callback finds the request no
+     * longer {@code awaiting-payment} and does nothing. An order id that matches no request (a
+     * subscription's, a boost's) is ignored, exactly as the other settle hooks do, because the
+     * webhook fans one event out to every payer; the return value is how the fan-out tells that
+     * apart from a paid order <em>no</em> payer owns, which is money taken against nothing.
+     *
+     * @param providerAmount what the provider says was charged, whole rupees, or {@code 0} if it
+     *                       sent none — checked against our own figure, never written over it
+     * @return whether this table owned the order
+     */
+    @Transactional
+    public boolean applyWebhookOutcome(String orderId, boolean paid, long providerAmount) {
+        if (orderId == null || orderId.isBlank()) {
+            return false;
+        }
+        ServiceRequest request = requests.findByPaymentRef(orderId).orElse(null);
+        if (request == null) {
+            return false;
+        }
+        // Reconciliation, not enforcement, and deliberately checked before the idempotence guard
+        // below, as RentService now does: a redelivery that reports a *different* amount than the
+        // first one is the case most worth shouting about, and it is the one that returns early.
+        Long billed = request.getAmount();
+        if (paid && providerAmount > 0 && billed != null && providerAmount != billed) {
+            log.error("Amount mismatch on service request {}: billed {} but provider charged {}",
+                    request.getId(), billed, providerAmount);
+        }
+        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+            reportRefusedSettlement(request, paid);
+            return true;
+        }
+        if (paid) {
+            transition(request, ServiceRequestStatuses.NEW);
+            record(request, "payment.received", null);
+        } else {
+            transition(request, ServiceRequestStatuses.CANCELLED);
+            record(request, "payment.failed", null);
+        }
+        return true;
+    }
+
+    /**
+     * Say what it means that a callback could not be applied — and say it at the right volume.
+     *
+     * <p><strong>Why this stopped being one log line (D161).</strong> Most refusals here are a
+     * redelivered callback on a request that is already working its way through the queue, which is
+     * routine. One is not: a <em>paid</em> callback on a {@code cancelled} request means the money
+     * arrived after the request was closed — because D152's sweep retired the checkout, or because a
+     * declined payment later went through — and nobody is doing the work it bought. The fan-out's
+     * own "unreconciled" alarm cannot see it, because this method returns {@code true}: the order is
+     * ours, we simply could not honour it. D161 made the same distinction in the other three payment
+     * families and it belongs here for the same reason.
+     */
+    private void reportRefusedSettlement(ServiceRequest request, boolean paid) {
+        if (!paid || !ServiceRequestStatuses.CANCELLED.equals(request.getStatus())) {
+            log.info("Ignored payment callback for service request {}: already {}",
+                    request.getId(), request.getStatus());
+            return;
+        }
+        log.error("Payment settled for service request {} but it is cancelled — the customer has "
+                + "been charged and no work is queued. Gateway order {}, raised by {}. Refund or "
+                + "reconcile.", request.getId(), request.getPaymentRef(), request.getRequesterId());
+    }
+
+    /**
+     * Contract-adjacent {@code POST /service-requests/{id}/cancel} — <strong>the requester, and
+     * nobody else</strong>. The customer's way out of a checkout they abandoned (D152).
+     *
+     * <p><strong>Why this exists at all.</strong> Closing the Cashfree modal generates no webhook, so
+     * an {@code awaiting-payment} row has, until now, had no exit: ops cannot see it
+     * ({@code findForQueue} excludes the status), {@code PATCH /status} is staff-only, and the
+     * one-open-unpaid cap then refused the customer's next attempt while pointing at a request they
+     * could not act on. A customer could lock themselves out of a paid desk by changing their mind.
+     *
+     * <p><strong>Why not widen {@code STAFF_SETTABLE} instead.</strong> That set is about what a
+     * <em>staff</em> caller may set through the status endpoint; the problem here is a customer with
+     * no endpoint at all. Adding a status the customer could set would have meant giving them the
+     * status endpoint, and the maker-checker depends on them not having it.
+     *
+     * <p><strong>Why the guard is the status and not the payment reference.</strong> The reference is
+     * present in exactly the case this endpoint exists for — the order was opened, the modal was
+     * closed — so refusing on it would make the endpoint a no-op for its own scenario. What proves no
+     * money arrived is the status: a settled payment moves the request to {@code new} and a refused
+     * one to {@code cancelled}, so a row still at {@code awaiting-payment} has never been paid. The
+     * narrow residual race — the customer paying and cancelling at the same moment — is closed by
+     * {@code @Version} on the row: one of the two writers loses with a 409.
+     *
+     * @throws ForbiddenException if the caller is not the requester (ops has {@code PATCH /status})
+     * @throws ConflictException  if the request is not waiting for payment
+     */
+    @Transactional
+    public ServiceRequestDto cancelUnpaid(AuthPrincipal caller, String id) {
+        ServiceRequest request = visible(caller, id);
+        if (!caller.userId().equals(request.getRequesterId())) {
+            throw new ForbiddenException(
+                    "Only the person who raised this request can cancel it.");
+        }
+        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+            throw new ConflictException(
+                    "Only a request still waiting for payment can be cancelled here — this one is "
+                            + request.getStatus() + ".");
+        }
+        transition(request, ServiceRequestStatuses.CANCELLED);
+        record(request, ABANDONED_EVENT, displayName(caller.userId()));
+        audit.record(caller, "service-request.cancelled-unpaid", "service_request",
+                request.getId().toString(), "from", ServiceRequestStatuses.AWAITING_PAYMENT);
+        return mapper.toDto(request);
+    }
+
+    /** {@inheritDoc} — "service request", so a sweep log line names the table that moved. */
+    @Override
+    public String family() {
+        return "service request";
+    }
+
+    /**
+     * Cancel every checkout that was opened and then walked away from (D152). Driven by
+     * {@code AbandonedCheckoutSweep}, which sweeps this family alongside subscriptions, boosts and
+     * rent payments (D161) — it replaced this class's own scheduler, which was the same trigger with
+     * one implementation hard-coded into it.
+     *
+     * <p><strong>Why a sweep as well as {@link #cancelUnpaid}.</strong> Self-cancel needs the
+     * customer to come back and press something; most people who abandon a checkout simply never
+     * return. Without the timer their row would hold the one-open-unpaid slot for that desk forever,
+     * so the desk would still be closed to them — and the ops queue would accumulate rows nobody can
+     * see, work or clear. The sweep is what makes the cap self-healing rather than a latch.
+     *
+     * <p><strong>Nothing paid is ever touched.</strong> The status filter is the proof: a settled
+     * payment moves the request to {@code new} and a refused one to {@code cancelled}, so a row still
+     * at {@code awaiting-payment} is one no money has arrived for. The status is re-checked per row
+     * on the way past — the same shape as the {@code paymentRef == null} guard in {@link #abandon},
+     * guarded in code rather than by circumstance so it stays true if someone widens the query. The
+     * race against a webhook settling mid-sweep is closed by {@code @Version}: one writer loses.
+     *
+     * <p>Runs in one transaction, like {@code SubscriptionService.expireLapsed}: the set is small
+     * (only rows past the TTL) and a partial commit would leave a state no reader could interpret.
+     *
+     * @param cutoff requests created before this instant have run out of checkout time; passed in so
+     *               tests need not wait on a clock
+     * @return how many requests this call actually cancelled
+     */
+    @Override
+    @Transactional
+    public int expireAbandonedCheckouts(Instant cutoff) {
+        List<ServiceRequest> stale = requests.findStaleByStatus(
+                ServiceRequestStatuses.AWAITING_PAYMENT, cutoff, Limit.of(MAX_PER_SWEEP));
+        int expired = 0;
+        for (ServiceRequest request : stale) {
+            if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+                continue;
+            }
+            transition(request, ServiceRequestStatuses.CANCELLED);
+            record(request, ABANDONED_EVENT, null);
+            expired++;
+            log.info("Service request {} cancelled: its checkout was opened at {} and never paid",
+                    request.getId(), request.getCreatedAt());
+        }
+        return expired;
+    }
+
+    /**
+     * Reject a {@code details} object that is too large, or that carries a statutory identity number.
+     *
+     * <p><strong>Size.</strong> The old flat-string schema capped this at 4000 chars ({@code @Size});
+     * {@code @Size} cannot bound a {@code Map}, so the ceiling is re-established here on the
+     * serialized JSON — the form actually stored — exactly as {@code SavedSearchService.serializeFilters}
+     * does. A null or empty object passes through untouched — "no structured detail" is a valid request.
+     *
+     * <p><strong>Identity numbers.</strong> {@code details} is stored as plaintext {@code jsonb} and
+     * echoed verbatim by {@link ServiceRequestMapper} on every read, including the paged ops queue.
+     * The rent-agreement wizard used to post the whole form state here, so a PAN and an Aadhaar for
+     * the owner and every tenant went into it — which made any {@code staff} account's first page of
+     * the queue a bulk identity dump, and Aadhaar is not ours to spread (Aadhaar Act s.29). The
+     * wizard now redacts them client-side; this refuses them, so a future call site that forgets
+     * fails loudly instead of leaking quietly. Nothing legitimate needs to send one: identity
+     * <em>documents</em> belong in the vault, identity <em>numbers</em> go to
+     * {@code PUT /service-requests/{id}/identities} (D151), where exactly one operator can read them
+     * and every read is recorded, and the other four desks send only free text.
      */
     private Map<String, Object> boundedDetails(Map<String, Object> details) {
         if (details == null || details.isEmpty()) {
@@ -166,7 +798,51 @@ public class ServiceRequestService {
             throw new BadRequestException(
                     "details is too large (max " + DETAILS_MAX_CHARS + " characters)");
         }
+        rejectIdentityNumbers(details);
         return details;
+    }
+
+    /**
+     * Substrings that mark a key as carrying a statutory identity number, matched at any depth.
+     *
+     * <p>Matched on the key rather than the value: a PAN-shaped string could be a coincidence, but a
+     * key called {@code aadhaar} is an intent. Matched on a normalised <em>substring</em> rather than
+     * an exact name because this is the backstop for a client-side redaction that a future call site
+     * may forget — {@code panNo}, {@code pan_number}, {@code aadhaarNumber} and {@code tenantPan} are
+     * the same disclosure as {@code pan}, and an exact-match list would wave all four through.
+     *
+     * <p>Only a <em>populated</em> value is refused. The wizard blanks these fields rather than
+     * dropping them ({@code captureShareableState}), because its state is restored slice-by-slice and
+     * a missing key would make a controlled input uncontrolled; an empty string discloses nothing, so
+     * refusing it would reject every well-behaved submission and leave only the malformed ones.
+     */
+    private static final Set<String> FORBIDDEN_DETAIL_KEY_MARKERS = Set.of("pan", "aadhaar", "aadhar");
+
+    /** Depth-first refusal of any populated identity-number field in the object. */
+    private void rejectIdentityNumbers(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                if (isIdentityKey(key) && isPopulated(entry.getValue())) {
+                    throw new BadRequestException(
+                            "details must not carry identity numbers (found '" + key
+                                    + "'); send them to PUT /service-requests/{id}/identities "
+                                    + "instead, and identity documents to the vault");
+                }
+                rejectIdentityNumbers(entry.getValue());
+            }
+        } else if (node instanceof Iterable<?> items) {
+            items.forEach(this::rejectIdentityNumbers);
+        }
+    }
+
+    private static boolean isIdentityKey(String key) {
+        String normalized = key.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
+        return FORBIDDEN_DETAIL_KEY_MARKERS.stream().anyMatch(normalized::contains);
+    }
+
+    private static boolean isPopulated(Object value) {
+        return value != null && !String.valueOf(value).isBlank();
     }
 
     /** Contract {@code getServiceRequest} — the requester or ops. */
@@ -348,7 +1024,21 @@ public class ServiceRequestService {
         return dto;
     }
 
-    /** Apply a transition or refuse it, returning the status moved from. */
+    /**
+     * Apply a transition or refuse it, returning the status moved from.
+     *
+     * <p><strong>Reaching a terminal status discards the parties' identity numbers</strong> (D151).
+     * The hook lives here rather than at each ending so there is one site: {@code completed} and
+     * {@code cancelled} are reachable from six places between the status endpoint, the final
+     * document, the customer's cancel, the compensating write and the abandoned-checkout sweep, and a
+     * retention rule enforced at five of six is not a retention rule. Both endings are real —
+     * completed because the registered document now carries the numbers, cancelled because nothing
+     * will ever be drafted from them.
+     *
+     * <p>The purge is deliberately <em>not</em> silent: a matter that held numbers says so on the
+     * timeline the customer reads, because "we have discarded your Aadhaar number" is the half of a
+     * retention promise that is worth showing rather than only keeping.
+     */
     private String transition(ServiceRequest request, String target) {
         String from = request.getStatus();
         if (!ServiceRequestStatuses.canTransition(from, target)) {
@@ -356,6 +1046,9 @@ public class ServiceRequestService {
                     "Cannot move a service request from %s to %s.".formatted(from, target));
         }
         request.moveTo(target);
+        if (ServiceRequestStatuses.isTerminal(target) && identities.purgeFor(request.getId()) > 0) {
+            record(request, "identities.purged", null);
+        }
         return from;
     }
 

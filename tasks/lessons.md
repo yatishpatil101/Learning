@@ -1,5 +1,166 @@
 # Lessons
 
+## Parallel-agent tech-debt waves (this session)
+
+- **An untracked file plus an unexplained build break is not proof of scope creep — read `git log`
+  before you delete anything.** Four agents ran in parallel on unrelated items; afterwards the pom
+  had an AWS SDK block nobody's report mentioned and `provider/storage/` held two untracked classes.
+  The offline build was failing. I concluded an agent had wandered and removed all of it — twice.
+  It was a real, deliberate, already-committed feature (`aaf52fa`, Cloudflare R2 behind the
+  `FileStorage` seam), authored between the agents being launched and their reports coming back.
+  A single `git log -- <path>` would have said so in one second. **The rule: unexplained ≠ unwanted.
+  Before removing anything you did not write, ask git who did.**
+- **A build failure right after an agent wave is more likely pre-existing than agent-caused, because
+  the agents were told not to build.** They never ran the compiler, so they had no way to introduce
+  a *resolution* failure and no way to notice one. The netty artifacts were unresolvable offline
+  because the exclusion that fixes it landed in a commit I had just reverted. Attribute a failure to
+  the change that could plausibly cause it, not to the change that is merely newest.
+- **When several actors edit the same tree, the working tree is not a diff of your own work.**
+  `git status` after a parallel wave mixes agent edits, the human's commits and your own. Establish
+  what HEAD is *first* (`git rev-parse HEAD`, `git status --porcelain -- <paths>`); a file that is
+  clean in `git status` is already committed and is not yours to revert.
+- **Restoring by hand what git can restore for you multiplies the damage.** Having removed the
+  files, I then hand-edited `FileStorage.java` and `application.properties` to strip the references
+  — inventing a third state that matched neither the commit nor my own change. If a removal turns
+  out to be wrong, `git checkout <sha> -- <paths>` is the whole fix; hand-reconciling is only needed
+  where two real changes genuinely overlap.
+
+## Paid rent-agreement security pass (this session)
+
+- **Grep whether a pattern is platform-wide before you "fix" one instance.** The review flagged
+  the gateway order being opened inside a rollback-able transaction in the rent-agreement path.
+  One grep showed all four payment paths do it. Fixing the one under review would have produced
+  an inconsistency — three sites with the old shape and one with a new one, and nothing to tell a
+  future reader which is intentional — without closing the hole. It went to the register as a
+  single item naming all four call sites.
+- **A free-text field that another component matches *exactly* is an unenforced enum.** The server
+  priced by `"rent-agreement".equals(type)`, so the payment gate was opt-in by spelling: `rental`
+  or `Rent-Agreement` bought the desk for free. The frontend had an alias mapping to paper over it,
+  with a comment explaining the danger — which is documentation of a hole, not a control, because
+  it only protects call sites that remember to go through it. Close the vocabulary at the boundary
+  that consumes it (allowlist + DB CHECK + contract `enum`), not at the caller that produces it.
+- **"Round-trip the form state so the other party can resume" is a data-exfiltration path.** The
+  wizard put its whole state into `details` so an invited tenant could continue filling it. That
+  field is plaintext `jsonb` echoed verbatim on every read — including the paged ops queue — so the
+  convenience feature quietly made page one of a staff screen a bulk PAN/Aadhaar dump. Ask *who
+  else reads this field* before deciding what to put in it; "the tenant needs it" and "every staff
+  account gets it" were the same decision.
+- **A test-only vocabulary hides a contract gap.** The suite raised requests of type
+  `legal-opinion`; no such desk exists in the product (it is `legal`). Nothing failed because the
+  field was free text, so the tests were exercising a value no user could produce, and the closed
+  vocabulary is what surfaced it. If a fixture invents a value, either the value is real and belongs
+  in the code, or the field is under-specified.
+- **Fan-out over independent handlers must be independent.** The webhook asked each settle handler
+  in turn; the first to throw skipped the rest, and a short-circuiting `||` meant "nobody claimed
+  this order" was indistinguishable from "the first handler claimed it". Both bugs are invisible
+  until the day they matter — a paid order silently dropped. Give each handler its own `try`, and
+  make "claimed" a value you can actually read.
+- **Redacting a field changes who can pass validation.** Blanking the owner's PAN and Aadhaar out
+  of the shared `_state` dead-ended the invited tenant: the wizard validated the Owner step on
+  `Next`, that step is read-only for the invitee, and the numbers it demanded were the ones we had
+  just removed. The privacy fix was right; what was wrong — and had been all along — was gating an
+  actor on a step they cannot type into. Whenever a security change empties a field, ask what reads
+  it, not just what writes it. E2E caught this and the unit tests could not: it needed two actors
+  and a round trip.
+- **Two correct fixes can be wrong together.** The same pass taught the client to blank the identity
+  numbers out of `details._state` and taught the server to refuse identity keys in `details`. Each
+  was right, each was tested, and together they would have 400'd every rent-agreement submission in
+  production: the client kept the keys and emptied the values, and the server banned the keys. The
+  gap is structural, not careless — a client test stubs the server and a server test hand-writes the
+  payload, so neither ever sees the other's actual output. When one change alters what is sent and
+  another alters what is accepted, the only test that means anything is one that carries a real
+  payload across the boundary. `rejectIdentityNumbers` now refuses only *populated* fields, and
+  `ServiceRequestFlowTest` posts the exact shape the wizard emits.
+- **A validator should ban the thing, not the spelling of the thing.** The identity-key check started
+  as an exact-match set, which stopped `pan` and `aadhaar` and waved through `panNo`, `pan_number`
+  and `tenantPan` — and its whole purpose is to be a backstop for a redaction some future call site
+  forgets, which is precisely the call site likely to name its fields differently. It now normalises
+  case and separators and matches a substring. The same reasoning had already been applied one layer
+  up, where free-text `type` let `Rent-Agreement` skip the payment gate; the lesson did not transfer
+  the first time because the two looked like different problems.
+- **A rule that must be remembered is a rule that will be forgotten.** D2 sat open for months partly
+  because the obvious shape — annotate the endpoints that need limiting — is the shape that fails
+  silently: it works on every endpoint someone remembered, and the one they didn't is the one an
+  attacker finds. Defaulting to *limit all writes* and listing the handful of exemptions inverts
+  that: forgetting now produces a limit where none was wanted, which someone notices immediately,
+  instead of no limit where one was needed, which nobody notices at all.
+- **Two register items that "share one fix" may not.** D2 and D73 were paired for months on the
+  reasoning that a principal-keyed counter answers both. Building D2 showed it cannot: D73's counters
+  have to be atomic *with the insert they guard*, which is a database concern, not a request-level
+  one. The pairing was plausible and wrong, and it had the effect of making the cheaper of the two
+  look as expensive as the harder — so both waited.
+- **Shared state in a test class does not roll back.** `@Transactional` rolls the database back
+  between test methods, which quietly trains you to expect isolation. A filter holding a counter is
+  one object in a context cached across the class, so the first version of the rate-limit test passed
+  or failed depending on how many requests the *previously executed* method had made — a dependency
+  on JUnit's ordering that would have gone red the day a test was inserted above it. Giving each
+  method its own caller key fixed it and exercised the keying at the same time.
+- **A test failure inside a new feature is not necessarily about the feature.** The rate-limit tests
+  failed to start with `FATAL: sorry, too many clients already`. Nothing to do with rate limiting:
+  Spring caches one context per distinct set of property overrides and each carries its own
+  connection pool, so *adding a test class with new `@SpringBootTest(properties = …)`* is what
+  exhausted Postgres. The suite had been one class away from this for a while and the cost would have
+  landed on whoever added the next one.
+- **If you match on a string, match the same string the framework matched on.** Three of the four
+  bypasses the review found in the rate limiter were one bug: the filter compared a value the
+  dispatcher had already transformed. The raw URI was not the decoded path Spring routes on, so
+  `/documents/share%64` slipped past a rule written for `/documents/shared`. `getRemoteAddr()` was not
+  the client's address once a proxy sat in front. And `"GET".equals(method)` was not the set of
+  methods that reach a `@GetMapping` handler, because `HEAD` does and merely loses its body. Any
+  filter that decides using a *copy* of the routing input has to derive that copy the same way, or
+  the two drift and the gap is the vulnerability.
+- **A safety limit that fails open is not a safety limit.** The limiter's map was bounded by refusing
+  to track new keys past a ceiling — which meant a flood large enough to hit the ceiling disabled the
+  limiter for everyone who arrived after it, while the flood's own traffic held it there. The
+  protection switched off precisely when it was needed and rewarded exactly the caller it existed to
+  stop. Bound by *eviction*, not by admission: the same cap, but enforcement never stops. Doing so
+  also deleted an O(n) sweep on the request thread and a lookup-then-lock race, which is usually the
+  sign the original design was carrying complexity to defend a bad decision.
+- **Two knobs, two silent failures, opposite directions.** `window-seconds=0` makes every request
+  start a fresh window, so nothing is ever limited and the service looks perfectly healthy;
+  `writes-per-window=0` refuses every write on the platform. Neither announces itself. Configuration
+  that can be wrong in a way the running system does not reveal should be rejected at construction,
+  not clamped into something plausible.
+- **A security control written as configuration is as reliable as the sloppiest way that
+  configuration can go missing.** The proxy fix started as two `server.*` lines in the prod profile
+  and had two silent failure modes: a staging deploy or a mistyped `SPRING_PROFILES_ACTIVE` never
+  loads that file at all, and Boot's `@ConfigurationProperties` binder resolves placeholders with
+  `ignoreUnresolvablePlaceholders`, so an unset variable binds the literal `${INTERNAL_PROXIES}`
+  instead of failing — while the commonest case of all, a declared-but-empty variable, makes Tomcat
+  trust nothing and log nothing. Owning the property in application code, reading it through
+  `@Value` (which does throw), putting it in the *base* file so every profile has an answer, and
+  validating it before the server starts turns four silent failures into one loud one. The test suite
+  refusing to boot until it declared its own topology was the proof, not an inconvenience.
+- **If a wrong answer is still possible, detect it from traffic.** The topology can be declared
+  honestly and still be wrong. A request arriving with `X-Forwarded-For` while the config says
+  nothing is in front is direct evidence of the misconfiguration, so the filter logs it once. A
+  control that can be silently wrong should be made to say so out of its own operation, not left to
+  be noticed during an incident.
+- **An exemption is not the same as a higher budget, and the difference is the whole safety margin.**
+  The payment webhook was exempted from rate limiting because refusing a genuine callback loses a
+  customer's money. Correct reasoning, wrong mechanism: it made the one `permitAll` write on the
+  platform completely unthrottled. Its own budget at fifty times the ordinary one satisfies the same
+  requirement and still bounds a flood. The related lesson is that "authenticated by HMAC" is not
+  "free to reject": the body is buffered and materialised before the signature is checked, and
+  nothing in this stack bounds a JSON body at all.
+- **"Greater than the limit" is not the same test as "within the limit".** The callback body cap
+  asked whether `getContentLengthLong()` *exceeded* 64 KB. An unknown length reports as `-1`, which
+  exceeds nothing — so `Transfer-Encoding: chunked` streamed an unbounded body through an
+  unauthenticated route in one request. Any bound read from a caller-supplied measurement has three
+  cases, not two, and the third is the one an attacker picks. Refuse the unknown case rather than
+  ranging over it.
+- **Normalise in the same order the framework does, not merely with the same operations.** The path
+  helper stripped `;` parameters and then decoded; Spring decodes and then strips. Same two steps,
+  opposite order, and `%3B` walks through the gap — carrying with it the callback body cap, which
+  only applies to paths that matched. Getting the steps right is not enough; the sequence is part of
+  the comparison.
+- **Three review rounds on one small filter, and every finding but one was the same mistake.** Not
+  the rate-limiting arithmetic — that was right the first time. It was always a mismatch between the
+  string the security code compared and the string the framework acted on: the client address, the
+  request path, the HTTP method, the percent-encoding, the declared body length. When writing a
+  control that inspects a request, the question to keep asking is not "is this rule correct?" but
+  "is this the same value the thing downstream will use?"
+
 ## Documents consumer flip (Slice D)
 
 - **Re-verify a blocker before you build for it.** D124 listed "the probe user has no seeded
@@ -154,6 +315,26 @@
   `Get-ChildItem -Filter` takes a single string (use `-Include` with `-Recurse` for multiple globs).
 - Concurrent `edit` calls to the *same* file in one turn can hit `EBUSY: resource busy or locked` -
   retry the failed edit on the next turn.
+- **Never put a non-ASCII char in a `.ps1`.** PowerShell 5.1 reads scripts as ANSI unless the file
+  has a UTF-8 BOM, so a UTF-8 em-dash decodes to `a^~"` - and that trailing byte is U+201D, which
+  PowerShell honours as a real string delimiter. One em-dash inside a `Write-Warning "..."` closed
+  the string early and surfaced as a bogus "string is missing the terminator" **11 lines later**,
+  plus a phantom "Missing closing '}'". The reported line is not the broken line. Keep `.ps1`
+  ASCII-only; verify with
+  `Select-String -Path x.ps1 -Pattern '[^\x00-\x7F]'` and statically parse before trusting a script:
+  `[System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$t,[ref]$e)` then check `$e`.
+- `mvnw.cmd` lives in `backend/`, not the repo root; `.\run-local.ps1 -Port 8099` is the intended
+  local entry point (pins Zulu 25, loads the git-ignored `.env.local`, then runs `spring-boot:run`).
+- **Backend verification has two false-green traps. Both bit on D59:**
+  1. `get_errors` on a `.java` file reports the **IDE language server's** view, which lags behind
+     disk. It said "No errors found" on four files that could not compile (missing `java.time.Instant`
+     import). Never accept `get_errors` as proof for backend Java - compile.
+  2. `mvnw.cmd compile` without `clean` is frequently a **no-op**, so it exits 0 while MapStruct
+     never regenerates. A record gaining a component therefore looks fine until a real build.
+     Use `clean compile` when a DTO/record/entity shape changed.
+  Also: the CLI build writes to **`backend/target-cli/`**, while `backend/target/` is the IDE's own
+  (often months-stale) output. Always inspect generated sources under `target-cli/`; reading
+  `target/` shows a mapper that predates the current contract.
 
 
 ## Platform architecture (free-tier-first) lessons
@@ -1406,4 +1587,85 @@ pm run check:i18n" + ) resolves every static
 - **Docs-only changes have no Playwright story.** Say so explicitly instead of skipping the
   verification step silently - "no source changed, so the applicable checks are the spec parse and
   the link check" is a verification result, not an omission.
+
+## Paid placement + subscription lifecycle (D59, D57)
+
+- **A scheduled job is rarely the whole fix for "nothing ages this out".** A timer only shrinks the
+  bad window to one tick. D57's real fix decides entitlement against the clock on every *read*
+  (`currentFor` filters `!hasLapsed(now)`); the sweep just makes the stored status honest. Ask "what
+  happens between ticks?" — if the answer is "an unpaid plan still works", the job is not the fix.
+- **A hardcoded date in a test fixture is a time bomb that arms itself later.**
+  `BillingEndpointsTest.deliverSigned` pinned `payment_time` to `2025-03-05`. Harmless for a year —
+  then D57 gave subscriptions a real term, that yearly term had already elapsed, and the webhook
+  started activating an already-expired subscription. Use `now()` in fixtures unless the literal is
+  the thing under test. The same literal still sits in `PaymentWebhookTest` and `ServiceFixtures`.
+- **An uncaught exception in a `@Scheduled` method cancels the schedule for the life of the
+  process.** One bad tick silently stops every later one. Catch, log, let the next tick retry.
+- **Disable timers in the test run.** A sweep firing on its own thread, outside the test's
+  transaction, mutates rows a test just seeded — failing at random in whichever test was running.
+  Gate the job on a property, set it false in `src/test/resources/application.properties`, and call
+  the underlying method directly with a fabricated `Instant`. Deterministic *and* a stronger
+  assertion than watching a clock.
+- **An ordering-only JPA `Specification` must skip the COUNT query.** Spring Data issues a separate
+  `Long`-typed query for the page total; adding `ORDER BY` to it throws. Guard with
+  `!Long.class.equals(query.getResultType())` and return `null` for the predicate.
+- **A `Pageable`'s sort overrides a Specification's `ORDER BY`.** To let the spec rank, pass
+  `PageRequest.of(page, size)` with no sort — otherwise the ranking silently does nothing.
+- **The mock provider's sort is not the sort the page renders.** `Listings.jsx` re-sorts everything
+  through `listingsResultsPipeline.js`, whose default is `relevance`, *not* `newest`. Changing
+  ranking in `lib/mockApi` alone changes nothing on screen.
+- **Pick e2e targets from the rendered DOM, not from the seeded database.** The cheapest row in the
+  store turned out to be a commercial listing the default tab filters out, so the promoted listing
+  was never on screen and three tests failed for a reason unrelated to what they asserted. Results
+  also page — a listing sorted last is simply absent, so assert badges in a view where the card is
+  actually visible.
+- **The sort control is a custom `Select`, not a native `<select>`.** `selectOption()` never
+  resolves; click the trigger button and then a `[role="option"]`. Option labels are "Price: Low to
+  High" / "Price: High to Low", so `/low/i` matches *both* — match exactly.
+- **Paid placement has to be disclosed and must not override an explicit sort.** Ranking a promoted
+  listing above one the buyer asked to see first is deception, not advertising. Keep the boost in
+  the default orders only, and label it (`Promoted`) wherever it appears.
+
+## Moderate-before-public on the flatmate board (D72)
+
+- **A visibility blacklist is a leak waiting for the next state.** `mod_status not in ('flagged',
+  'removed')` reads like moderation but it publishes by default: every state added later — `pending`,
+  `appealing`, `shadowbanned` — is public until someone remembers to extend the list. State the
+  whitelist instead (`in ('live','approved')`) so an unknown state fails **closed**. The same rule
+  applies to the frontend mirror; two whitelists that agree beat two blacklists that drift.
+- **Put the default in the column, not only the entity.** A JPA field initialiser is skipped by every
+  route that is not JPA — a data migration, a repair script, an admin `INSERT`. `ALTER COLUMN … SET
+  DEFAULT 'pending'` plus the matching `CHECK` constraint is what makes "held for review" true for
+  the table rather than for one code path.
+- **Gate the by-id path too, not just the list.** Hiding a row from the feed while leaving it
+  fetchable and actionable by id is an unlisted page, not moderation — anyone with the link (or a
+  loop over uuids) still reaches it. Every `findVisible`-style lookup needs the same predicate as
+  the feed, including the `countQuery` twin, which is easy to miss because it is a separate string.
+- **Changing a column default breaks every fixture that leaned on it.** Rather than patching
+  assertions one by one, give the fixtures an explicit `publish(...)` step. The default is then
+  asserted in exactly one place — a dedicated gate test — and the other suites stop silently
+  depending on it.
+- **A moderation gate makes every "created it, now see it on the board" e2e spec wrong.** The fix is
+  a single named helper that *stands in for the moderator* (`approveFlatmates(page, 'posts')`), not
+  a weakened default. Nine specs each grew one honest line. The spec that tests the gate itself is
+  the one that must deliberately never call the helper.
+- **`?post=1`-style action params must be dropped before a reload.** Replaying "open the post form"
+  after a post exists reopens the modal — or trips the duplicate guard — over the board the test is
+  about to assert on. Strip action params on reload; keep view params.
+- **A success toast that says "is live!" becomes a lie the moment a queue exists.** Grep the copy —
+  toasts, banners, help articles — when you add a gate. Two toasts and one help article were saying
+  the post was published while the code was holding it. The author-facing banner is the place to be
+  explicit: name the state ("in review"), say roughly how long, and keep Edit and Delete working. A
+  post trapped in a queue its author cannot withdraw from is worse than no queue.
+- **A moderation queue with no UI is half a feature and must be said out loud.** The API shipped
+  (`GET /admin/flatmates/moderation`); nobody can work it from a screen yet, so until an admin page
+  exists the gate means "invisible", not "reviewed". That belongs in the release note, not in a
+  comment.
+- **The queue DTO carries the author's name, never their mobile.** A moderation surface is a
+  legitimate reason to see a person's post; it is not a reason to see their phone number.
+- **A wall of unrelated red is usually the harness, not the code.** Sixteen specs across six files
+  failed at once with `net::ERR_CONNECTION_REFUSED` — Playwright's auto-started Vite had been killed
+  with the shell of an earlier, abandoned run. Read the *first* error before triaging the list: one
+  connection-refused explains all of them. When a run has been cancelled, start the dev server in
+  its own terminal so the next run reuses a server nothing else owns.
 

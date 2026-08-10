@@ -70,7 +70,22 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Owner KYC** - `puneNestOwnerKYC:<mobile>` (autofill + persist on submit).
 - **Document vault** - `getDocsForProp(mobile, 'personal')` / `addDocument`: owner PAN/Aadhaar/photo/
   ownership proof reused across the wizard and dashboard (`OWNER_VAULT_CAT`).
-- **Draft (`pnDraft:rentAgreement`)** - autosave/restore of the whole wizard.
+- **Draft (`pnDraft:rentAgreement`)** - autosave/restore of the whole wizard *except* PAN and
+  Aadhaar. Those are stripped before the draft is written (the same redaction the co-fill payload
+  uses), and a draft written before that rule is redacted in place the next time the wizard opens.
+  A mid-fill refresh therefore brings back every answer with those two blank, and the restored-draft
+  banner says so.
+- **Identity numbers (D151)** - `PUT /service-requests/{id}/identities`, once, immediately after the
+  live create and before the checkout modal opens. This is the *only* place PAN and Aadhaar leave the
+  tab: not in `details` (plaintext `jsonb`, echoed to every staff read), not in the draft, not in the
+  co-fill payload, not in `puneNestOwnerKYC`. Built by `identityParties(owner, tenants)` from live
+  component state, sent, and not retained; the server answers 204 so there is nothing to echo back.
+  On the desk's side only the operator the request is **assigned to** can read them back — an admin
+  is refused until they take the request — every read and every refusal is written to `audit_log`,
+  and the numbers are blanked when the request completes or is cancelled. A failure here is
+  non-fatal: the request exists and is about to be paid for, so the customer is told the team will
+  ask for the numbers rather than that their submission was lost. Mock mode drops them on purpose —
+  the mock store is `localStorage`, which is the threat the redaction closed.
 - **Notifications** - `pushNotificationFor(tenantMobile, ...)` on invite; cross-party bell alerts on
   every maker-checker transition (`serviceFlow.notify`).
 - **Fees** - `getFees().rentAgreementPlatform` (default 500).

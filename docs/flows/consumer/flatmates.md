@@ -215,6 +215,28 @@ The single decision point every supply path calls - group create, single-room po
   (fuzzy match, so flag-not-block to avoid false positives).
 - Result: `{ fingerprint, overCap, duplicate, flagForReview, blocked, reason }`.
 
+### Moderate-before-public (`mod_status`, D72)
+- Every seeker post, room and group is created with **`mod_status = 'pending'`** and is invisible on
+  the public board until a moderator approves it. Backend default is set in the entity *and* in the
+  column default (`V41__flatmate_moderate_before_public.sql`), so a row inserted by any route -
+  API, migration, manual SQL - is held.
+- Visibility is a **whitelist**, not a blacklist: `FlatmateVocabulary.MOD_PUBLIC = {live, approved}`
+  and `isPublic(status)`. Public feeds, the count queries and the by-id `findVisible` paths all use
+  it, so a moderation state added later fails **closed** instead of leaking until someone remembers
+  to add it to a "hidden" list. The frontend mirrors the same whitelist in
+  `providers/http/flatmateMapper.js` and `lib/data/flatmates.js`.
+- The gate covers the by-id path too, not just the list: hiding a row from the feed while leaving it
+  reachable and actionable by id is an unlisted page, not moderation.
+- **The author still sees their own post** (`getMyRequest` reads unfiltered) and can edit or delete
+  it while it waits. Their banner reads *"Your request · in review"* with the wait explained, not
+  *"Your live request"*; the create toasts say the post was **saved** and is being checked.
+- **Queue API:** `GET /admin/flatmates/moderation?kind=post|room|group&modStatus=…`
+  (`STAFF_OR_ADMIN`) returns `PageResponse<FlatmateModerationQueueItem>` - id, kind, status, author
+  id + **name only** (never the mobile), headline, locality, free text, createdAt. There is **no
+  admin UI for this queue yet**; it is API-only.
+- Distinct from the Ops review desk below, which is a *post-publication* trust check on tenant-tier
+  and flagged posts. This gate runs first, for everything.
+
 ### Ops moderation queue (`enqueueFlatmateReview` / `decideFlatmateReview`)
 - Tenant-tier posts (self-attested agreement), any flagged address, and any split whose **parent
   listing is not yet approved** land in `puneNestFlatmateReviews` with `status: 'pending'`. The

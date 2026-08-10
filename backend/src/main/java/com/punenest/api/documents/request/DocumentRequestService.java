@@ -5,6 +5,7 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.UnauthorizedException;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.documents.vault.DocumentMapper;
@@ -22,6 +23,8 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,16 +63,18 @@ public class DocumentRequestService {
     private final UserRepository users;
     private final DocumentRequestMapper mapper;
     private final DocumentMapper documentMapper;
+    private final Notifier notifier;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
             PropertyRepository properties, UserRepository users, DocumentRequestMapper mapper,
-            DocumentMapper documentMapper) {
+            DocumentMapper documentMapper, Notifier notifier) {
         this.requests = requests;
         this.documents = documents;
         this.properties = properties;
         this.users = users;
         this.mapper = mapper;
         this.documentMapper = documentMapper;
+        this.notifier = notifier;
     }
 
     /**
@@ -108,25 +113,34 @@ public class DocumentRequestService {
 
     /**
      * Contract {@code myDocumentRequests} — every request against listings the caller owns, newest
-     * first.
+     * first, paged (D77).
+     *
+     * <p>Paged because the owner writes none of these rows. Each one is a buyer asking to see the
+     * title deed and the society NOC, so the inbox is as long as the listing is in demand — the
+     * inbound-demand shape api-standards.md §5.1 requires a page envelope for. The owner it hurt
+     * most was the one whose flat everybody wanted to buy.
      *
      * <p>Strictly owner-scoped: the id set comes from {@code properties.owner_id}, so an owner with
-     * no listings gets an empty array without a second query and can never see a foreign request.
-     * N+1-safe: one query for the listing ids, one for the requests, one for all the requesters.
+     * no listings gets an empty page without a second query and can never see a foreign request.
+     * N+1-safe: one query for the listing ids, one for the page of requests, one for the requesters
+     * <em>on that page</em> — the batch that was already here, now over twenty rows instead of all
+     * of them.
      */
     @Transactional(readOnly = true)
-    public List<DocumentRequestDto> myRequests(UUID ownerId) {
+    public Page<DocumentRequestDto> myRequests(UUID ownerId, Pageable pageable) {
         List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(ownerId);
         if (ownedPropertyIds.isEmpty()) {
-            return List.of();
+            return Page.empty(pageable);
         }
-        List<DocumentRequest> rows = requests.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds);
+        Page<DocumentRequest> rows =
+                requests.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
         Map<UUID, User> requesters = users
-                .findAllById(rows.stream().map(DocumentRequest::getRequesterId).distinct().toList())
+                .findAllById(rows.getContent().stream()
+                        .map(DocumentRequest::getRequesterId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
-        return rows.stream().map(row -> mapper.toDto(row, requesters.get(row.getRequesterId()))).toList();
+        return rows.map(row -> mapper.toDto(row, requesters.get(row.getRequesterId())));
     }
 
     /**
@@ -157,6 +171,24 @@ public class DocumentRequestService {
             row.decline();
         }
         requests.save(row);
+
+        // Tell the buyer their access is open (tech-debt D92). They are the only party who does not
+        // already know — the owner just decided it — and this is the one outcome with a deadline on
+        // it: a grant lapses after GRANT_TTL whether or not anyone looked, so a buyer who is never
+        // told can lose access to documents they were given. A decline stays silent, the same
+        // reading ContactService.respond takes: a terminal "no" is not news to push at someone.
+        //
+        // The share token is deliberately NOT in the link. That token authenticates an anonymous
+        // read — anyone holding it can open the vault — so minting it into a stored, forwardable
+        // row would widen its blast radius for no gain. The listing page is where the buyer's own
+        // signed-in view of the shared documents already lives, and it carries nothing sensitive.
+        if (DocumentRequestStatuses.GRANTED.equals(body.status())) {
+            notifier.notify(row.getRequesterId(), "document.granted",
+                    "Property documents unlocked",
+                    "The owner approved your request \u2014 open the listing to view the shared "
+                            + "documents. Access expires in " + GRANT_TTL.toDays() + " days.",
+                    "/property/" + row.getPropertyId());
+        }
     }
 
     /**

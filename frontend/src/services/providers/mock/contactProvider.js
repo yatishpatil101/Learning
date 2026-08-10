@@ -18,7 +18,6 @@ import {
   getContactReqs,
   myMobile,
   NO_CONTACT_GATE,
-  ownerHidesNumber,
   ownerVerifiedOnly,
   pendingContactCount as _pendingContactCount,
   requestContact as _requestContact,
@@ -56,7 +55,10 @@ function gateFor(ownerMobile, propertyId) {
     verifiedContactOnly,
     // An owner is never gated out of their own listing, so the badge cannot apply to them.
     verificationRequired: status !== 'owner' && verifiedContactOnly && !viewerIsVerified(),
-    ownerHidesNumber: ownerHidesNumber(ownerMobile),
+    // D5 (global policy): the owner's raw number is never revealed to a buyer — approval unlocks
+    // in-app chat, not the digits. users.hide_number is retained but no-op, so this signal is
+    // constant-true, mirroring the backend ContactStatusResponse.
+    ownerHidesNumber: true,
   };
 }
 

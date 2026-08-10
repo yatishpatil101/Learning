@@ -49,7 +49,6 @@
     "reviewsEnabled": true,
     "zeroBrokerage": true,
     "onlineRentPayment": false,
-    "depositFinancing": false,
     "paidFeaturedListings": true,
     "subscriptionPlans": true,
     "kycBadgeEnabled": true,

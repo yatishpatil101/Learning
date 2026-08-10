@@ -9,11 +9,11 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * A user notification — a server-generated message in the caller's inbox. Notifications are never
- * deleted, only marked read.
+ * A user notification — a server-generated message in the caller's inbox.
  *
- * <p>Extends {@link BaseEntity} (id + created_at). No updated_at needed — the only mutation is
- * the {@code read} flag, which does not merit audit timestamps.
+ * <p>Extends {@link BaseEntity} (id + created_at). No updated_at needed — the only in-place mutation
+ * is the {@code read} flag, which does not merit audit timestamps; the only other change is a
+ * dismiss, which hard-deletes the row (there is nothing to time-stamp about a row that is gone).
  */
 @Entity
 @Table(name = "notifications")

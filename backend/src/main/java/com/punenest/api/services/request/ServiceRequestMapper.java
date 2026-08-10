@@ -8,6 +8,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,6 +31,12 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ServiceRequestMapper {
+
+    /** V42's audit trail for a row whose {@code type} it rewrote (D156). */
+    private static final String MIGRATED_FROM_TYPE = "_migratedFromType";
+
+    /** V42's defensive branch: the whole original payload, when {@code details} was not an object. */
+    private static final String MIGRATED_DETAILS = "_migratedDetails";
 
     private final ServiceRequestEventRepository events;
     private final ServiceRequestMessageRepository messages;
@@ -76,7 +83,7 @@ public class ServiceRequestMapper {
                         r.getType(),
                         r.getStatus(),
                         r.getPropertyId() == null ? null : r.getPropertyId().toString(),
-                        r.getDetails(),
+                        visibleDetails(r.getDetails()),
                         names.get(r.getAssigneeId()),
                         timelines.getOrDefault(r.getId(), List.of()).stream()
                                 .map(e -> new ServiceRequestDto.TimelineEntry(
@@ -88,8 +95,42 @@ public class ServiceRequestMapper {
                         threads.getOrDefault(r.getId(), List.of()).stream()
                                 .map(m -> toMessageDto(m, names))
                                 .toList(),
-                        r.getCreatedAt()))
+                        r.getCreatedAt(),
+                        r.getAmount(),
+                        null))
                 .toList();
+    }
+
+    /**
+     * {@code details} minus the migration markers V42 wrote into it.
+     *
+     * <p>D156 preserved each rewritten row's pre-migration {@code type} under
+     * {@code _migratedFromType} — and, in the branch where {@code details} was not a JSON object,
+     * the whole original payload under {@code _migratedDetails} — so the relabelling stayed
+     * auditable. Both are ours. {@code details} is otherwise the customer's own form state, so
+     * echoing our audit trail back inside it was wrong in principle (D162). The evidence is
+     * untouched in the database; this only stops it being served.
+     *
+     * <p><strong>These two keys only, not every {@code _}-prefixed key.</strong> The obvious
+     * generalisation would also take {@code details._state} — the rent-agreement wizard's full form
+     * snapshot, and the richest description of the agreement anyone downstream has. This one mapper
+     * serves the customer read and the staff read alike, so a blanket strip would take it off the
+     * desk that drafts from it. Naming the keys keeps the fix to the marker that is actually ours.
+     *
+     * <p>Returns the entity's own map untouched when there is nothing to strip: this runs per row of
+     * every page, and the copy is only worth making for the rows V42 actually rewrote. The copy
+     * matters where it is made — mutating {@code details} in place would dirty a managed entity and
+     * write the strip back to the database on flush, destroying the audit trail this is protecting.
+     */
+    private static Map<String, Object> visibleDetails(Map<String, Object> details) {
+        if (details == null
+                || !(details.containsKey(MIGRATED_FROM_TYPE) || details.containsKey(MIGRATED_DETAILS))) {
+            return details;
+        }
+        Map<String, Object> visible = new LinkedHashMap<>(details);
+        visible.remove(MIGRATED_FROM_TYPE);
+        visible.remove(MIGRATED_DETAILS);
+        return visible;
     }
 
     /** Projection for {@code POST /service-requests/{id}/messages}, which returns the one message. */

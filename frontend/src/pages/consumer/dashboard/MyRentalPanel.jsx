@@ -23,12 +23,10 @@ import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
    tenant's finalised tenancy (pnTenancies), not owner-side managed props. */
 export default function MyRentalPanel({ user, toast }) {
   const { flagEnabled } = useAppFlags();
-  // Money movement isn't live in the app yet — online rent payment and deposit
-  // financing are surfaced as "Coming soon". The /pay-rent route now renders an
-  // honest coming-soon page (no longer bounces home), so these links point there.
-  // Flip the admin flags on to light up the real flow.
+  // Money movement isn't live in the app yet — online rent payment is surfaced as
+  // "Coming soon". The /pay-rent route renders an honest coming-soon page (no longer
+  // bounces home), so these links point there. Flip the admin flag on to light up the flow.
   const payEnabled = flagEnabled('onlineRentPayment');
-  const depositEnabled = flagEnabled('depositFinancing');
   const [tenancies, setTenancies] = useState(() => loadTenancies(user));
   const [idx, setIdx] = useState(0);
   // loadTenancies always returns a fresh array, so setTenancies alone is the
@@ -40,10 +38,7 @@ export default function MyRentalPanel({ user, toast }) {
   const status = useMemo(() => (t ? tenancyStatus(t) : null), [t, tenancies]);
 
   /* The tenant's own payment history, mandate and profile — three caller-scoped reads, issued
-     together because none depends on another and the panel blocks on all of them.
-
-     Deposit financing has no endpoint and is not a rent payment, so it never appears in
-     `/me/rent-payments` and the old `type !== 'deposit-finance'` filter is no longer needed. */
+     together because none depends on another and the panel blocks on all of them. */
   const [rent, setRent] = useState({ payments: [], mandate: null, profile: null });
   useEffect(() => {
     let alive = true;
@@ -187,7 +182,6 @@ export default function MyRentalPanel({ user, toast }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <ActionTile to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} icon="wallet" title="Pay rent" desc="Online · instant HRA receipt" soon={!payEnabled} />
         <ActionTile to="/services/rent-agreement" icon="file-signature" title="Rent agreement" desc={agreement ? 'Registered · view' : 'Create & e-register'} />
-        <ActionTile to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} icon="hand-coins" title="Deposit EMIs" desc="Split your deposit" soon={!depositEnabled} />
         <ActionTile to={`/pay-rent?prop=${encodeURIComponent(t.propId)}`} icon="repeat" title="Autopay" desc={mandate ? 'On · manage' : 'Never miss a due date'} soon={!payEnabled} />
       </div>
 

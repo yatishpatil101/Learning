@@ -21,6 +21,7 @@
  */
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import { pickDate } from '../helpers/datePicker.helper.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -472,6 +473,36 @@ test.describe('LIVE: notifications against the real API', () => {
     );
     await markAll.first().click();
     expect((await call).status()).toBe(204);
+  });
+
+  /**
+   * Dismiss is now a server delete, not a localStorage tombstone (D93). The assertion is on the
+   * wire — the X issues a real `DELETE /notifications/{id}` and the server answers 204 — and on the
+   * effect: the row is gone after a reload, which a tombstone (cleared with site data) could not
+   * guarantee. Skips when the seeded account's inbox is empty, since only flatmate flows and
+   * message.received write server rows and this account may legitimately have none.
+   */
+  test('dismiss deletes the row via DELETE /notifications/{id} and it stays gone after reload', async ({ page }) => {
+    await signedInAs(page, OWNER.mobile);
+    await page.goto('/notifications');
+    await expect(page.locator('h1')).toBeVisible({ timeout: 15000 });
+
+    const rows = page.locator('.notif');
+    const before = await rows.count();
+    if (!before) {
+      test.skip(true, 'inbox is empty in this account; only flatmate flows write server notifications');
+    }
+
+    const del = page.waitForResponse(
+      (r) => /\/api\/notifications\/[^/?]+$/.test(r.url()) && r.request().method() === 'DELETE',
+    );
+    await page.locator('.notif').first().getByRole('button', { name: /dismiss/i }).click();
+    expect((await del).status()).toBe(204);
+
+    // The delete is durable: a fresh read from the server no longer returns the row.
+    await page.reload();
+    await expect(page.locator('h1')).toBeVisible({ timeout: 15000 });
+    await expect(rows).toHaveCount(before - 1);
   });
 });
 
@@ -983,11 +1014,23 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
         '200 GET /api/me/visit-requests',
       ]));
 
-    /* Reschedule has no server home: `PATCH /visit-requests/{id}/status` carries a status and
-       nothing else (D87). The control is hidden rather than left to fail, because `saveReschedule`
-       closes the modal and toasts success *before* the write settles — a live user would have seen
-       "Rescheduled" and an error toast at once, with no way to tell which was true. */
-    await expect(page.getByRole('button', { name: /^reschedule$/i })).toHaveCount(0);
+    /* Reschedule now has a server home: D87 added `PATCH /visits/{id}/slot`, which moves the slot in
+       place and resets the visit to scheduled. The control is offered in http mode again; drive it
+       and prove the write reaches the new endpoint rather than trusting the optimistic toast. */
+    const reschedule = page.getByRole('button', { name: /^reschedule$/i }).first();
+    await expect(reschedule).toBeVisible({ timeout: 10000 });
+    await reschedule.click();
+    const reDialog = page.getByRole('dialog');
+    await expect(reDialog.getByRole('button', { name: 'New visit date' })).toBeVisible({ timeout: 5000 });
+    const reTarget = new Date();
+    reTarget.setDate(reTarget.getDate() + 12);
+    const reIso = `${reTarget.getFullYear()}-${String(reTarget.getMonth() + 1).padStart(2, '0')}-${String(reTarget.getDate()).padStart(2, '0')}`;
+    await pickDate(page, '[aria-label="New visit date"]', reIso);
+    await reDialog.getByRole('button', { name: 'Save new slot' }).click();
+    await expect
+      .poll(() => calls.filter((c) => /PATCH \/api\/visits\/[^/]+\/slot$/.test(c)),
+        { timeout: 15000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .toEqual(expect.arrayContaining([expect.stringMatching(/^200 PATCH \/api\/visits\/[^/]+\/slot$/)]));
 
     /* `PageEnvelope` names the current page `page`, not Spring's raw `number`. Four providers read
        the wrong one behind a fallback that hid it, so this is asserted on the wire. */
@@ -1596,6 +1639,42 @@ test.describe('LIVE: identity verification against the real API', () => {
     // The POST really reached the wire, not a mock grant in localStorage.
     expect(
       apiCalls.some((c) => /POST \/api\/me\/verification\/aadhaar$/.test(c)),
+      `saw: ${apiCalls.join(', ')}`,
+    ).toBe(true);
+  });
+
+  test('the dev-only simulate endpoint finishes the badge where no real webhook lands (D122)', async ({ page }) => {
+    // Runs after the two read/start tests above so it grants only once the "badge is absent" and
+    // "start is pending" facts have been pinned on a fresh seed; the badge grant is durable, which is
+    // exactly the state this test exists to reach.
+    await signedInAs(page, CHATTER.mobile);
+    await page.goto('/dashboard');
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
+
+    const { simulate, after } = await page.evaluate(async () => {
+      // The dev affordance is a backend tool, not a service method, so it is called on the raw wire
+      // with the session token `services/http.js` would otherwise attach.
+      const tokens = JSON.parse(localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens') || 'null');
+      const res = await fetch('/api/me/verification/aadhaar/simulate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+      const body = await res.json();
+      const svc = await import('/src/services/verificationService.js');
+      const next = await svc.getAadhaarStatus();
+      return { simulate: { code: res.status, body }, after: next };
+    });
+
+    // The endpoint grants the badge the signed webhook otherwise would — a 200 carrying a verified row.
+    expect(simulate.code).toBe(200);
+    expect(simulate.body.badge).toBe(true);
+    expect(simulate.body.status).toBe('verified');
+    // And it is durable: the very next honest read off GET /me/verification/aadhaar reports the badge,
+    // so the earned-badge state is now demonstrable in http/dev mode (the whole point of D122).
+    expect(after.verified).toBe(true);
+
+    expect(
+      apiCalls.some((c) => /POST \/api\/me\/verification\/aadhaar\/simulate$/.test(c)),
       `saw: ${apiCalls.join(', ')}`,
     ).toBe(true);
   });

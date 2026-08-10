@@ -15,6 +15,7 @@ import { createServiceRequest as createFlowRequest } from '../../../services/ser
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
+import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 
 const IMG = (id, w = 900) => `https://images.unsplash.com/photo-${id}?w=${w}&q=80`;
 const BEFORE = 'images/before.png';
@@ -145,7 +146,7 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {SERVICES.map(([t, id, d], i) => (
               <div key={t} className="glass-card rounded-2xl overflow-hidden tile" onClick={() => setLightbox(IMG(id, 1400))}>
-                <div className="zoom h-44"><img src={IMG(id)} alt={tr('services.interior.service.' + i + '.name')} className="w-full h-full object-cover" loading="lazy" /></div>
+                <div className="zoom h-44"><img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.service.' + i + '.name')} className="w-full h-full object-cover" loading="lazy" /></div>
                 <div className="p-5"><h3 className="text-white font-bold mb-1.5">{tr('services.interior.service.' + i + '.name')}</h3><p className="text-gray-400 text-sm leading-relaxed">{tr('services.interior.service.' + i + '.desc')}</p></div>
               </div>
             ))}
@@ -158,7 +159,7 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {STYLES.map(([t, id], i) => (
               <div key={t} className="zoom tile rounded-2xl relative h-40 sm:h-44" onClick={() => setLightbox(IMG(id, 1400))}>
-                <img src={IMG(id)} alt={tr('services.interior.style.' + i)} className="w-full h-full object-cover" loading="lazy" />
+                <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.style.' + i)} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,transparent 45%,rgba(8,7,16,.85) 100%)' }} />
                 <span className="absolute bottom-3 left-3 text-white font-semibold text-sm">{tr('services.interior.style.' + i)}</span>
               </div>
@@ -185,7 +186,7 @@ export default function InteriorRenovation() {
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROJECTS.map(([t, id], i) => (
               <div key={t} className="zoom tile rounded-2xl relative h-48 sm:h-60 group" onClick={() => setLightbox(IMG(id, 1400))}>
-                <img src={IMG(id)} alt={tr('services.interior.project.' + i)} className="w-full h-full object-cover" loading="lazy" />
+                <img src={IMG(id)} srcSet={srcSetFor(IMG(id))} sizes={CARD_SIZES} alt={tr('services.interior.project.' + i)} className="w-full h-full object-cover" loading="lazy" />
                 <div className="reveal-on-hover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(8,7,16,.88) 100%)' }} />
                 <div className="reveal-on-hover absolute bottom-0 left-0 right-0 p-4 translate-y-2 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
                   <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="maximize-2" className="w-4 h-4 text-teal-300" /> {tr('services.interior.project.' + i)}</p>
@@ -231,7 +232,7 @@ export default function InteriorRenovation() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
             <div className="zoom rounded-2xl relative min-h-[320px] hidden lg:block">
-              <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80" alt="Designed living room" className="w-full h-full object-cover rounded-2xl" />
+              <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80" srcSet={srcSetFor('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1000&q=80')} sizes="(min-width: 1024px) 50vw, 100vw" alt="Designed living room" className="w-full h-full object-cover rounded-2xl" />
               <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(180deg,transparent 40%,rgba(15,13,26,.85) 100%)' }} />
               <div className="absolute bottom-6 left-6 right-6">
                 <div className="flex items-center gap-3 mb-3">

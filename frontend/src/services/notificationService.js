@@ -5,16 +5,17 @@
  * localStorage, `http` reads `GET /notifications`), and no call site may be able to tell which one
  * answered.
  *
- * ## The server surface is two endpoints, and the page needs more than that
+ * ## The server surface is three endpoints, and the page still needs a little more
  *
- * `GET /notifications` (paged) and `POST /notifications/read` are the whole contract. Everything
- * else the Notifications page does has no server home, so this seam is mostly a set of decisions
- * about *where each behaviour lives* rather than a set of request builders:
+ * `GET /notifications` (paged), `POST /notifications/read` and `DELETE /notifications/{id}` are the
+ * whole contract. What is left has no server home, so this seam is partly a set of decisions about
+ * *where each behaviour lives* rather than only a set of request builders:
  *
  * | Behaviour | Where it lives | Why |
  * |---|---|---|
- * | list, mark read, mark all read | **server** | the two endpoints |
- * | `dismiss` | **client tombstones** | no `DELETE /notifications/{id}` exists |
+ * | list, mark read, mark all read | **server** | the read + mark-read endpoints |
+ * | `dismiss` (server rows) | **server** | `DELETE /notifications/{id}` — permanent, syncs across devices (D93) |
+ * | `dismiss` (client-derived rows) | **client tombstones** | they have no server row to delete, so the server 404s them and the provider falls back locally |
  * | saved-search / saved-property alerts | **client-derived** | computed in the browser from `countMatches`; the server has no slot for them |
  * | `pushNotificationFor` | **mock only, permanently** | writing into *another* user's inbox is a server-side effect, never a client call |
  * | preferences + quiet hours | **`lib/` only** | no endpoint at all; `ProfileTab` is untouched |

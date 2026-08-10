@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,22 +73,28 @@ public class DealService {
     }
 
     /**
-     * Contract {@code myDeals} — all deals on the caller's own listings.
+     * Contract {@code myDeals} — one page of the deals on the caller's own listings, newest first.
      *
-     * <p>N+1-safe: one query for the owner's listing ids, one for the deal rows, one for the
-     * counterparty users.
+     * <p><strong>Paged (D77).</strong> {@code deals} is unique per property, so this collection
+     * grows with the size of the caller's portfolio — an agency with four hundred listings had four
+     * hundred deal documents in one response, and the dashboard panel that reads it renders twenty
+     * cards. The page carries {@code totalElements}, so a count is still available without the rows.
+     *
+     * <p>N+1-safe: one query for the owner's listing ids, one for the page of deal rows, one for
+     * that page's counterparty users. The batch load is what keeps the projection out of
+     * {@code Page.map}, which would run per element.
      */
     @Transactional(readOnly = true)
-    public List<DealDto> myDeals(UUID callerId) {
+    public Page<DealDto> myDeals(UUID callerId, Pageable pageable) {
         List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(callerId);
         if (ownedPropertyIds.isEmpty()) {
-            return List.of();
+            return Page.empty(pageable);
         }
 
-        List<Deal> rows = deals.findByPropertyIdIn(ownedPropertyIds);
+        Page<Deal> rows = deals.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
 
         // Batch load counterparty users.
-        List<UUID> counterpartyIds = rows.stream()
+        List<UUID> counterpartyIds = rows.getContent().stream()
                 .map(Deal::getCounterpartyId)
                 .filter(id -> id != null)
                 .distinct()
@@ -95,13 +104,14 @@ public class DealService {
                 : users.findAllById(counterpartyIds).stream()
                         .collect(Collectors.toMap(User::getId, Function.identity()));
 
-        return rows.stream()
+        List<DealDto> content = rows.getContent().stream()
                 .map(deal -> {
                     User cp = deal.getCounterpartyId() != null
                             ? userMap.get(deal.getCounterpartyId()) : null;
                     return DealMapper.toDto(deal, cp);
                 })
                 .toList();
+        return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
     }
 
     /**

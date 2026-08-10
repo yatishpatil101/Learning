@@ -64,7 +64,7 @@ test.describe('My Rental (tenant hub)', () => {
     await expect(page.getByText('Verified-Tenant score')).toBeVisible();
 
     // Quick actions present
-    await expect(page.getByText('Deposit EMIs')).toBeVisible();
+    await expect(page.getByText('Autopay')).toBeVisible();
     await expect(page.getByText('Rent agreement').first()).toBeVisible();
   });
 

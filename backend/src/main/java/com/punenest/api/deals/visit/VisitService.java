@@ -1,15 +1,15 @@
 package com.punenest.api.deals.visit;
 
+import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
-import com.punenest.api.leads.contact.ContactRequestRepository;
-import com.punenest.api.leads.contact.ContactRequestStatuses;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,6 +18,9 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,14 +57,14 @@ public class VisitService {
     private final VisitRepository visits;
     private final PropertyRepository properties;
     private final UserRepository users;
-    private final ContactRequestRepository contactRequests;
+    private final Notifier notifier;
 
     public VisitService(VisitRepository visits, PropertyRepository properties,
-                        UserRepository users, ContactRequestRepository contactRequests) {
+                        UserRepository users, Notifier notifier) {
         this.visits = visits;
         this.properties = properties;
         this.users = users;
-        this.contactRequests = contactRequests;
+        this.notifier = notifier;
     }
 
     /**
@@ -129,9 +132,9 @@ public class VisitService {
         Visit visit = visits.findById(visitId)
                 .orElseThrow(() -> NotFoundException.of("Visit"));
 
-        UUID ownerId = properties.findById(visit.getPropertyId())
-                .map(p -> p.getOwner().getId())
+        Property property = properties.findById(visit.getPropertyId())
                 .orElseThrow(() -> NotFoundException.of("Visit"));
+        UUID ownerId = property.getOwner().getId();
 
         boolean isVisitor = callerId.equals(visit.getVisitorId());
         boolean isOwner = callerId.equals(ownerId);
@@ -153,40 +156,138 @@ public class VisitService {
 
         visit.setStatus(body.status());
         visits.save(visit);
+
+        // Tell the visitor their slot is now real (tech-debt D92). Only `confirmed` is announced,
+        // and only ever to the visitor: the role-split above means the owner is the one who set it,
+        // so they already know. `completed` and `no-show` are bookkeeping after the fact and change
+        // nothing either party has to act on. `cancelled` is the one arguable omission — it is
+        // two-sided, so it would need the computed recipient reschedule uses below — but it is not
+        // on D92's list and is left flagged rather than quietly added.
+        //
+        // No slot time in the body. Rendering an Instant as a local time needs a timezone this
+        // service does not have, and a notification is a summons to the thing rather than a copy of
+        // it (see Notifier) — the visits tab it links to shows the slot correctly.
+        if (VisitStatuses.CONFIRMED.equals(body.status()) && !visit.getVisitorId().equals(callerId)) {
+            notifier.notify(visit.getVisitorId(), "visit.confirmed",
+                    "Your visit is confirmed",
+                    "The owner confirmed your visit to " + property.getTitle()
+                            + ". Open your visits to see the slot.",
+                    "/dashboard#visits");
+        }
     }
 
     /**
-     * Contract {@code listVisits} — visits the caller BOOKED (visitor surface), newest first.
+     * Contract {@code rescheduleVisit} — move a live visit to a new slot (D87).
+     *
+     * <p><strong>Scoping.</strong> The caller must be either the visitor or the listing owner.
+     * Anyone else → 404 (not 403 — do not confirm existence).
+     *
+     * <p><strong>Who may reschedule.</strong> Unlike {@link #updateStatus} (where the visitor may
+     * only cancel), <em>either</em> participant may reschedule: proposing a new time is not a
+     * privileged transition. The visit returns to {@code scheduled} so the other party re-confirms.
+     *
+     * <p><strong>What can be rescheduled.</strong> Only a live visit ({@code scheduled} or
+     * {@code confirmed}). A terminal visit ({@code completed}, {@code cancelled}, {@code no-show})
+     * is done — moving its slot would resurrect it, so it is a 409.
+     *
+     * @throws NotFoundException when the visit is unknown or the caller is not a participant
+     * @throws ConflictException when the visit is in a terminal state
+     */
+    @Transactional
+    public void reschedule(UUID callerId, UUID visitId, VisitSlotUpdateRequest body) {
+        Visit visit = visits.findById(visitId)
+                .orElseThrow(() -> NotFoundException.of("Visit"));
+
+        Property property = properties.findById(visit.getPropertyId())
+                .orElseThrow(() -> NotFoundException.of("Visit"));
+        UUID ownerId = property.getOwner().getId();
+
+        boolean isVisitor = callerId.equals(visit.getVisitorId());
+        boolean isOwner = callerId.equals(ownerId);
+        if (!isVisitor && !isOwner) {
+            throw NotFoundException.of("Visit");
+        }
+
+        if (!VisitStatuses.canReschedule(visit.getStatus())) {
+            throw new ConflictException(
+                    "Cannot reschedule a '" + visit.getStatus() + "' visit");
+        }
+
+        visit.reschedule(body.slot());
+        visits.save(visit);
+
+        // Tell whichever side did not move the slot (tech-debt D92). Reschedule is the one
+        // two-sided transition here, so the recipient is derived from who called rather than fixed:
+        // notifying by role would have told half of all reschedulers about their own action. The
+        // visit has just dropped back to `scheduled` and needs the other party to re-confirm, which
+        // is exactly the thing they would otherwise never learn.
+        //
+        // schedule() does not stop an owner booking a visit on their own listing, so both roles can
+        // land on the same person; the guard is for that case, not for tidiness.
+        UUID other = isOwner ? visit.getVisitorId() : ownerId;
+        if (!other.equals(callerId)) {
+            String mover = isOwner ? "The owner" : "The visitor";
+            notifier.notify(other, "visit.rescheduled",
+                    "A visit was moved to a new time",
+                    mover + " proposed a new slot for " + property.getTitle()
+                            + ". It is back to scheduled until you confirm it.",
+                    "/dashboard#visits");
+        }
+    }
+
+    /**
+     * Contract {@code listVisits} — one page of the visits the caller BOOKED (visitor surface),
+     * newest first.
      *
      * <p>Strictly caller-scoped: returns only visits where the caller is the visitor. The
      * pre-spec-fix-S3 version leaked every visit on the platform.
      *
-     * <p>N+1-safe: one query for the visits, one batch load for visitor users (trivially just
-     * the caller in practice, but the structure is correct for future expansion).
+     * <p><strong>Paged (D77)</strong>, as the owner surface below is: the two are the same table
+     * and the same projection seen from the two ends of a visit, and one paged / one not would make
+     * the response shape depend on which side you are.
+     *
+     * <p>N+1-safe: one query for the page of visits, one batch load for visitor users (trivially
+     * just the caller in practice, but the structure is correct for future expansion).
      */
     @Transactional(readOnly = true)
-    public List<VisitDto> myVisits(UUID callerId) {
-        List<Visit> rows = visits.findByVisitorIdOrderByCreatedAtDesc(callerId);
-        return projectVisits(rows, callerId);
+    public Page<VisitDto> myVisits(UUID callerId, Pageable pageable) {
+        Page<Visit> rows = visits.findByVisitorIdOrderByCreatedAtDesc(callerId, pageable);
+        return projectPage(rows, callerId);
     }
 
     /**
-     * Contract {@code myVisitRequests} — visits on the caller's own listings (owner surface).
+     * Contract {@code myVisitRequests} — one page of the visits on the caller's own listings
+     * (owner surface), newest first.
      *
      * <p>Strictly owner-scoped: the property-id set comes from {@code properties.owner_id}, so a
      * caller can never see visits against someone else's listing.
      *
-     * <p>N+1-safe: one query for the owner's listing ids, one for the visits, one for the
-     * visitors.
+     * <p><strong>Paged (D77).</strong> A visit booking is written by somebody else against the
+     * caller's listing, so the collection grows with inbound demand — the owner whose listing is
+     * doing well is the one an unpaged read punishes.
+     *
+     * <p>N+1-safe: one query for the owner's listing ids, one for the page of visits, one for the
+     * visitors on that page.
      */
     @Transactional(readOnly = true)
-    public List<VisitDto> visitRequestsOnMine(UUID callerId) {
+    public Page<VisitDto> visitRequestsOnMine(UUID callerId, Pageable pageable) {
         List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(callerId);
         if (ownedPropertyIds.isEmpty()) {
-            return List.of();
+            return Page.empty(pageable);
         }
-        List<Visit> rows = visits.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds);
-        return projectVisits(rows, callerId);
+        Page<Visit> rows = visits.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
+        return projectPage(rows, callerId);
+    }
+
+    /**
+     * Project one page of visits, keeping the visitor lookup a single batch load.
+     *
+     * <p>Deliberately not {@code Page.map}, which would run the projection per element and put that
+     * lookup back inside the loop.
+     */
+    private Page<VisitDto> projectPage(Page<Visit> rows, UUID viewerId) {
+        return new PageImpl<>(projectVisits(rows.getContent(), viewerId),
+                rows.getPageable(), rows.getTotalElements());
     }
 
     /**
@@ -204,41 +305,20 @@ public class VisitService {
 
         return rows.stream().map(visit -> {
             User visitor = visitorMap.get(visit.getVisitorId());
-            ContactVisibility visibility = visitorMobileVisibility(
-                    viewerId, visit.getVisitorId(), visit.getPropertyId(), visit.getStatus());
+            ContactVisibility visibility = visitorMobileVisibility(viewerId, visit.getVisitorId());
             return VisitMapper.toDto(visit, visitor, visibility);
         }).toList();
     }
 
     /**
-     * The contact-gate question for visits (D5): may the viewer see the visitor's mobile?
-     *
-     * <p>A visit request is itself an approach. The visitor's mobile stays masked until:
-     * <ul>
-     *   <li>the visit status is {@code confirmed}, {@code completed}, or {@code no-show}
-     *       (the owner has acted), <strong>or</strong></li>
-     *   <li>an {@code approved} contact request exists for (visitor → property)</li>
-     * </ul>
-     *
-     * <p>If the viewer IS the visitor, they always see their own mobile.
+     * The contact-gate question for visits (D5 global policy): may the viewer see the visitor's
+     * mobile? Only if the viewer is the visitor themselves — each party sees only their own number.
+     * The visitor's mobile stays masked to the owner at every visit status; confirming a visit
+     * unlocks the in-app conversation, not the digits, and no raw number is exchanged before a
+     * signed deal.
      */
-    private ContactVisibility visitorMobileVisibility(UUID viewerId, UUID visitorUserId,
-                                                      UUID propertyId, String visitStatus) {
-        // The visitor always sees their own number.
-        if (viewerId.equals(visitorUserId)) {
-            return ContactVisibility.REVEALED;
-        }
-        // Owner sees the visitor's number once they've confirmed/completed/no-showed.
-        if (VisitStatuses.CONFIRMED.equals(visitStatus)
-                || VisitStatuses.COMPLETED.equals(visitStatus)
-                || VisitStatuses.NO_SHOW.equals(visitStatus)) {
-            return ContactVisibility.REVEALED;
-        }
-        // Or if an approved contact request exists for this visitor on this property.
-        if (contactRequests.existsByRequesterIdAndPropertyIdAndStatus(
-                visitorUserId, propertyId, ContactRequestStatuses.APPROVED)) {
-            return ContactVisibility.REVEALED;
-        }
-        return ContactVisibility.MASKED;
+    private ContactVisibility visitorMobileVisibility(UUID viewerId, UUID visitorUserId) {
+        return viewerId.equals(visitorUserId)
+                ? ContactVisibility.REVEALED : ContactVisibility.MASKED;
     }
 }

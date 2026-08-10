@@ -39,6 +39,7 @@ const FREE_TIER = {
   status: null,
   pendingSlug: null,
   paymentRef: null,
+  paymentSessionId: null,
   startedAt: null,
   renewsAt: null,
   isPaidOwner: false,

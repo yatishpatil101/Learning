@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
@@ -39,6 +40,13 @@ const SHARE_OPENER = {
    that was taken down rather than hiding it — losing a post silently is worse than seeing why. */
 const PAGE = 200; // one page: the board sorts and filters the whole set client-side below
 
+/* The three feeds, hoisted so the initial read and `refresh` below call the same thing — the
+   duplicate the old code avoided by doing both in one function, which is also why neither had a
+   failure state. */
+const loadPosts = () => flatmateService.listPosts({}, 0, PAGE).then((r) => r.items);
+const loadRooms = () => flatmateService.listRooms({}, 0, PAGE).then((r) => r.items);
+const loadGroups = () => flatmateService.listGroups({}, 0, PAGE).then((r) => r.items);
+
 // Orchestrator: owns page context, the shared data collections (requests/rooms/
 // groups/saved/interests), tab/view nav state, shared derivations and the demand-
 // side interactions. Discovery (read-side filtering) and supply (posting/verify)
@@ -60,9 +68,25 @@ export function useFlatmates() {
   // one CTA asks whether they have a place and routes from the answer.
   const [postChooserOpen, setPostChooserOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
-  const [requests, setRequests] = useState([]);
-  const [rooms, setRooms] = useState([]);
-  const [groups, setGroups] = useState([]);
+  /* A room split from a not-yet-approved flat carries no owner badge. Ops approval lands on the
+     LISTING, which only the owner's session can read, so the badge is promoted here on the owner's
+     next visit rather than looked up live. Declared ABOVE the feeds on purpose: effects fire in
+     hook order, so this still lands before the first read, exactly as when the two shared one
+     effect. */
+  useEffect(() => { reconcileSplitVerification(); }, []);
+  /* The three public collections, each with its own lifecycle (D166).
+
+     They are still fetched together on mount — switching tabs is the most common interaction on
+     this page and paying a round trip for it would make the board feel slower than the
+     localStorage version it replaces — but a failure used to be a `console.warn` and an empty
+     array, so "no rooms in Kothrud" and "we never asked" rendered identically. Separate hooks keep
+     one dead feed from blanking the other two, which is what the old `allSettled` was for. */
+  const [requests, requestsStatus, setRequests, retryRequests, requestsError] = useAsyncList(loadPosts, []);
+  const [rooms, roomsStatus, setRooms, retryRooms, roomsError] = useAsyncList(loadRooms, []);
+  const [groups, groupsStatus, setGroups, retryGroups, groupsError] = useAsyncList(loadGroups, []);
+  const feedError = requestsError || roomsError || groupsError;
+  const feedFailed = requestsStatus === 'error' || roomsStatus === 'error' || groupsStatus === 'error';
+  const retryFeeds = useCallback(() => { retryRequests(); retryRooms(); retryGroups(); }, [retryRequests, retryRooms, retryGroups]);
   const [saved, setSaved] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('puneNestFlatmateSaved') || '{}');
@@ -72,31 +96,20 @@ export function useFlatmates() {
   const [interests, setInterests] = useState({});
   const [reportTarget, setReportTarget] = useState(null);
 
-  // Single source of truth for reloading the shared collections — supply-side handlers call this
-  // after mutating persisted data so the lists refresh uniformly.
+  // Single source of truth for reloading the shared collections after a mutation — supply-side
+  // handlers `await` this and then toast, so it stays a real promise rather than becoming the
+  // hooks' `retry` (which resolves instantly and would let the toast beat the data).
   //
-  // The three feeds are fetched together rather than per tab: switching tabs is the most common
-  // interaction on this page, and paying a round trip for it would make the board feel slower than
-  // the localStorage version it replaces. `allSettled` so one failing feed leaves the other two
-  // rendered — a 500 on groups should not blank out the rooms the user was reading.
+  // `allSettled` so one failing feed leaves the other two rendered: a 500 on groups should not
+  // blank out the rooms the user was reading. A failed refresh deliberately leaves the previous
+  // list standing rather than emptying it — the mutation that triggered it reports its own
+  // outcome, and the initial-load hooks above own the "we could not read this at all" case.
   const refresh = useCallback(async () => {
-    const [p, r, g] = await Promise.allSettled([
-      flatmateService.listPosts({}, 0, PAGE),
-      flatmateService.listRooms({}, 0, PAGE),
-      flatmateService.listGroups({}, 0, PAGE),
-    ]);
-    if (p.status === 'fulfilled') setRequests(p.value.items); else console.warn('[flatmates] posts failed', p.reason);
-    if (r.status === 'fulfilled') setRooms(r.value.items); else console.warn('[flatmates] rooms failed', r.reason);
-    if (g.status === 'fulfilled') setGroups(g.value.items); else console.warn('[flatmates] groups failed', g.reason);
-  }, []);
-
-  useEffect(() => {
-    // A room split from a not-yet-approved flat carries no owner badge. Ops approval lands on the
-    // LISTING, which only the owner's session can read, so the badge is promoted here on their next
-    // visit rather than looked up live. Runs before the fetch so one load reflects it.
-    reconcileSplitVerification();
-    refresh();
-  }, [refresh]);
+    const [p, r, g] = await Promise.allSettled([loadPosts(), loadRooms(), loadGroups()]);
+    if (p.status === 'fulfilled') setRequests(p.value); else console.warn('[flatmates] posts failed', p.reason);
+    if (r.status === 'fulfilled') setRooms(r.value); else console.warn('[flatmates] rooms failed', r.reason);
+    if (g.status === 'fulfilled') setGroups(g.value); else console.warn('[flatmates] groups failed', g.reason);
+  }, [setRequests, setRooms, setGroups]);
 
   const myPost = useMemo(() => (user ? getMyRequest(user.mobile, user.name) : null), [user, requests]);
   // Whether the signed-in user created a given group. Matches tolerantly by the
@@ -264,6 +277,9 @@ export function useFlatmates() {
     interests,
     reportTarget,
     setReportTarget,
+    feedFailed,
+    feedError,
+    retryFeeds,
     ...discovery,
     ...supply,
     emptyFilters,

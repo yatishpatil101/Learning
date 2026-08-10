@@ -11,8 +11,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * Access to {@code transactions}. Every query excludes soft-deleted rows so it can use the V12
- * partial indexes ({@code idx_transactions_property}, {@code idx_transactions_recurring}), which are
+ * Access to {@code transactions}. Every query excludes soft-deleted rows so it can use the partial
+ * indexes ({@code idx_transactions_property_agg}, {@code idx_transactions_recurring}), which are
  * themselves defined {@code WHERE archived = false}.
  *
  * <p>Reads are scoped by {@code propertyId} rather than {@code ownerId}: the controller has already
@@ -23,6 +23,13 @@ import org.springframework.data.repository.query.Param;
  * <p><strong>The aggregates are computed in the database, not in Java.</strong> Summing a year of
  * rows in the JVM means transferring every one of them to add up two numbers; it also makes the
  * response size grow with history for an endpoint whose answer is three integers.
+ *
+ * <p><strong>And they are answered from the index, not the table</strong> (tech debt D132). V51
+ * replaced V12's {@code (property_id, date)} index with one carrying {@code type} and
+ * {@code amount} in its payload, which is everything the two aggregates below read. Finding the
+ * rows was never the expensive part — visiting the heap once per row to add them up was, and that
+ * cost grew with every rent cycle the owner ever recorded. Keep it that way: a filter or a sum on
+ * a column outside {@code (property_id, date, type, amount)} silently puts the heap fetches back.
  */
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 
@@ -85,12 +92,28 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     }
 
     /**
-     * Monthly income/expense totals from {@code from} onward — the cashflow series, grouped in the
+     * Monthly income/expense totals over a half-open window — the cashflow series, grouped in the
      * database so one query answers a twelve-month chart.
      *
      * <p>Months with no activity simply do not appear; the service fills the gaps, because a chart
      * with a missing bar and a chart with a zero bar are different pictures and only the service
      * knows which months were asked for.
+     *
+     * <p><strong>{@code toExclusive} is not redundant with the caller's loop.</strong>
+     * {@link TransactionCreateRequest} deliberately allows a future date — next month's EMI, a
+     * post-dated cheque — so a real ledger contains rows beyond the last month the chart draws.
+     * Without the upper bound the database groups and sums those rows and the service throws the
+     * buckets away, which is work paid for on every request and unbounded in the one direction
+     * nothing prunes. Bounding it also lets the index range scan stop at the window's end instead
+     * of running to the end of the property's history.
+     *
+     * <p>Half-open {@code [from, toExclusive)}, so the caller passes the first day of the month
+     * <em>after</em> the last one it wants. An inclusive upper bound would need the last day of a
+     * month, which is the calculation that gets February wrong.
+     *
+     * <p>Grouping is on {@code to_char(date, 'YYYY-MM')} and {@code date} is a {@code date}
+     * column — no time, no zone, no conversion — so the month a row lands in is a property of the
+     * value the owner entered and cannot shift with the server's timezone.
      *
      * @return rows of {@code [yyyy-mm, income, expense]}
      */
@@ -98,9 +121,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             + "coalesce(sum(case when t.type = 'income' then t.amount else 0 end), 0), "
             + "coalesce(sum(case when t.type = 'expense' then t.amount else 0 end), 0) "
             + "from Transaction t where t.propertyId = :propertyId and t.archived = false "
-            + "and t.date >= :from "
+            + "and t.date >= :from and t.date < :toExclusive "
             + "group by function('to_char', t.date, 'YYYY-MM') "
             + "order by function('to_char', t.date, 'YYYY-MM')")
-    List<Object[]> monthlyTotalsSince(@Param("propertyId") UUID propertyId,
-                                      @Param("from") LocalDate from);
+    List<Object[]> monthlyTotalsBetween(@Param("propertyId") UUID propertyId,
+                                        @Param("from") LocalDate from,
+                                        @Param("toExclusive") LocalDate toExclusive);
 }

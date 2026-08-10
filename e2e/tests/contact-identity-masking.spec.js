@@ -197,3 +197,27 @@ test('owner privacy prefs round-trip on a full number and are isolated per owner
   expect(res.otherOwner).toBe(false);
   expect(res.viaMask).toBe(false);
 });
+
+/* D5 (global number-privacy policy): the owner's raw mobile is never handed to a buyer — approval
+ * unlocks in-app chat, not the digits. The contact gate therefore reports `ownerHidesNumber: true`
+ * unconditionally, mirroring the backend's ContactStatusResponse. This must hold *even when the
+ * owner's own hide-number preference is off*, because the policy is global, not per-owner opt-in.
+ * Exercised at the provider seam directly: the constant is pure gate logic, and this is the most
+ * precise way to pin that the pref no longer drives the signal. */
+test('the contact gate hides the owner number for a buyer regardless of the owner pref (D5)', async ({ page }) => {
+  await page.goto('/');
+  const gate = await page.evaluate(async () => {
+    const OWNER = '9530047855';
+    const PROP = 'P-D5-1';
+    // A resolvable listing owned by OWNER, in the mock DB the provider reads through getProperty.
+    localStorage.setItem('puneNestDB_v5', JSON.stringify({ listings: [{ id: PROP, ownerMobile: OWNER }] }));
+    // Owner has NOT opted into hiding — the policy must override this.
+    localStorage.setItem('pnOwnerPrefs:' + OWNER, JSON.stringify({ hideNumber: false }));
+    // A buyer viewing the listing, not the owner.
+    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
+    const m = await import(/* @vite-ignore */ '/src/services/providers/mock/contactProvider.js');
+    return m.contactStatus(PROP);
+  });
+
+  expect(gate.ownerHidesNumber).toBe(true);
+});

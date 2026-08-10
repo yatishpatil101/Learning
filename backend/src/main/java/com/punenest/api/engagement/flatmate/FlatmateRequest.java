@@ -83,15 +83,6 @@ public class FlatmateRequest extends AuditedEntity {
         this.decidedAt = joined ? Instant.now() : null;
     }
 
-    /**
-     * Rewrite the pitch on a resend. Deliberately does not re-notify: a button that alerts somebody
-     * else's phone on every press is a harassment tool with a rate limit on it.
-     */
-    void rewrite(String newMessage, String newShare) {
-        this.message = newMessage;
-        this.share = newShare;
-    }
-
     /** The host's decision. The check constraint guarantees the timestamp travels with it. */
     void decide(String decision) {
         this.status = decision;

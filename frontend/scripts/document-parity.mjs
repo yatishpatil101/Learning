@@ -173,6 +173,18 @@ if (!Array.isArray(mockReqs)) failures.push('mock.listDocRequests must resolve t
 
 // ─── Live round-trip (only when the backend is up) ────────────────────────────────────────────
 if (token) {
+  // The wire shape, before the provider touches it. Asserted directly because every other check
+  // below iterates the inbox, and an inbox that came back empty passes all of them: that is exactly
+  // how the deal cluster's providers stayed green for a session after D77 paged them and their
+  // `Array.isArray(rows) ? rows : []` quietly turned every envelope into nothing. Seeding an owned
+  // property with a real request is out of this harness's reach, but the envelope is not.
+  const raw = await api('GET', '/me/documents/requests', null, token);
+  if (raw.status === 200 && Array.isArray(raw.body)) {
+    failures.push('GET /me/documents/requests returned a bare array — it is paged by contract (D77); if the server was un-paged the provider is now asking for a `size` the endpoint ignores');
+  } else if (raw.status === 200 && !Array.isArray(raw.body?.content)) {
+    failures.push(`GET /me/documents/requests returned neither an array nor a page envelope (keys: ${Object.keys(raw.body || {})})`);
+  }
+
   const inbox = await live.listDocRequests();
   if (!Array.isArray(inbox)) {
     failures.push('live.listDocRequests must resolve to an array (an empty inbox is []), not throw');

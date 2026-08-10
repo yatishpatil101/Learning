@@ -84,6 +84,8 @@
     "reqFailedToast": "अनुरोध अपडेट नहीं हो सका — कृपया फिर से प्रयास करें",
     "vaultLoadError": "आपके दस्तावेज़ लोड नहीं हो सके — कृपया फिर से प्रयास करें",
     "reqsLoadError": "आपके अनुरोध लोड नहीं हो सके — कृपया फिर से प्रयास करें",
+    "dashboardLoadError": "आपका डैशबोर्ड लोड नहीं हो सका — नीचे जो दिख रहा है वह अधूरा हो सकता है",
+    "contactReqsLoadError": "आपके संपर्क अनुरोध लोड नहीं हो सके — कृपया फिर से प्रयास करें",
     "retry": "पुनः प्रयास करें"
   },
   "visits": {
@@ -107,7 +109,6 @@
     "you": "आप",
     "whatsapp": "WhatsApp",
     "waVisitor": "{{name}} को WhatsApp करें",
-    "waOwner": "मालिक को WhatsApp करें",
     "visitorFallback": "आगंतुक",
     "confirm": "पुष्टि करें",
     "markVisited": "देखा गया दर्ज करें",
@@ -159,9 +160,7 @@
     "waConfirmed": "नमस्ते {{name}}, {{listing}} की आपकी विज़िट {{when}} पुष्ट हो गई है। मिलते हैं! — PuneNest",
     "waCancelled": "नमस्ते {{name}}, खेद है कि {{listing}} की {{when}} विज़िट रद्द हो गई है। नया समय तय करने में मदद कर सकते हैं। — PuneNest",
     "waPending": "नमस्ते {{name}}, {{listing}} के लिए {{when}} आपके विज़िट अनुरोध के बारे में। बताएँ कि समय ठीक है तो मैं पुष्टि कर दूँ। — PuneNest",
-    "waSeeker": "नमस्ते, {{listing}} की मेरी {{when}} विज़िट के बारे में (PuneNest से बुक)। क्या आप समय की पुष्टि कर सकते हैं?",
     "waReschedOwner": "नमस्ते {{name}}, क्या {{listing}} की आपकी विज़िट {{date}} को {{time}} बजे कर सकते हैं? पुष्टि करें तो मैं तय कर दूँ। — PuneNest",
-    "waReschedSeeker": "नमस्ते, क्या {{listing}} की मेरी विज़िट {{date}} को {{time}} बजे कर सकते हैं? (PuneNest से)",
     "thereFallback": "जी",
     "whenOn": "{{date}} को",
     "whenAt": "{{time}} बजे"

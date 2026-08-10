@@ -140,6 +140,64 @@ public class FlatmateModerationService {
     }
 
     /**
+     * {@code GET /admin/flatmates/moderation} — the backlog D72 created.
+     *
+     * <p>Making posts start invisible is only defensible if somebody can see the queue; without
+     * this read, "moderated before public" would in practice mean "never public", which is a worse
+     * outcome for honest supply than the unmoderated board was.
+     *
+     * <p>One {@code kind} per call. Posts, rooms and groups are three tables with three shapes, and
+     * a merged board would have to page across all of them — which means either loading every
+     * pending row to sort it in memory, or reporting a {@code totalElements} that is true of one
+     * table and false of the screen. Both are worse than asking the caller which board they want.
+     *
+     * <p>Defaults to {@code pending} because that is the queue. Any other {@code MOD_STATUS} is
+     * accepted so an admin can review their own past decisions — "what did we remove last week" is
+     * a question a moderation team has to be able to answer about itself.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateModerationQueueDto> moderationQueue(String kind, String modStatus,
+            Pageable pageable) {
+        String state = FlatmateVocabulary.orDefault(modStatus, FlatmateVocabulary.MOD_STATUS,
+                FlatmateVocabulary.MOD_PENDING, "modStatus");
+
+        return switch (FlatmateVocabulary.require(kind == null ? "" : kind.strip(),
+                java.util.Set.of(FlatmateModerationQueueDto.KIND_POST,
+                        FlatmateModerationQueueDto.KIND_ROOM,
+                        FlatmateModerationQueueDto.KIND_GROUP), "kind")) {
+            case FlatmateModerationQueueDto.KIND_POST -> {
+                Page<FlatmateSeekerPost> page =
+                        posts.findByModStatusAndArchivedFalse(state, pageable);
+                Map<UUID, String> names = namesOf(
+                        page.getContent().stream().map(FlatmateSeekerPost::getUserId).toList());
+                yield page.map(p -> FlatmateModerationQueueDto.of(p, names.get(p.getUserId())));
+            }
+            case FlatmateModerationQueueDto.KIND_ROOM -> {
+                Page<FlatmateRoom> page = rooms.findByModStatusAndArchivedFalse(state, pageable);
+                Map<UUID, String> names = namesOf(
+                        page.getContent().stream().map(FlatmateRoom::getHostId).toList());
+                yield page.map(r -> FlatmateModerationQueueDto.of(r, names.get(r.getHostId())));
+            }
+            default -> {
+                Page<FlatmateGroup> page = groups.findByModStatusAndArchivedFalse(state, pageable);
+                Map<UUID, String> names = namesOf(
+                        page.getContent().stream().map(FlatmateGroup::getHostId).toList());
+                yield page.map(g -> FlatmateModerationQueueDto.of(g, names.get(g.getHostId())));
+            }
+        };
+    }
+
+    /** Author names for one page, in one query rather than one per row. */
+    private Map<UUID, String> namesOf(List<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return users.findAllById(userIds.stream().distinct().toList()).stream()
+                .filter(u -> u.getName() != null)
+                .collect(Collectors.toMap(User::getId, User::getName));
+    }
+
+    /**
      * {@code PATCH /admin/flatmates/{id}/moderation} — the moderation axis.
      *
      * <p>The id may name a seeker post, a room or a group; the contract has one operation for all

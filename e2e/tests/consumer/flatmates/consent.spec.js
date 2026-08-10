@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
 
 /* Owner-consent OTP ping. A sitting tenant listing a replacement flatmate confirms
    the flat owner is aware via an OTP sent to the owner's phone. On success the
@@ -43,6 +43,8 @@ test('tenant completes owner-consent OTP → group shows Owner-consented (persis
   await expect(page.getByText(/Owner consent confirmed/i).first()).toBeVisible({ timeout: 5000 });
   // Publish and assert the card cue.
   await page.getByRole('button', { name: /Create group/i }).click();
+  // Held for review (D72) — the consent cue is what this test is about.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   const card = page.locator('.sf-card', { hasText: title }).first();
   await expect(card.getByText(/Owner-consented/i)).toBeVisible({ timeout: 5000 });

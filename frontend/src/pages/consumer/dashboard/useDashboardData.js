@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useGroupApplications } from '../../../lib/groupApplications.js';
 import { listEnquiries } from '../../../lib/mockApi.js';
 import { listProperties } from '../../../services/propertyService.js';
@@ -53,10 +54,8 @@ export function useDashboardData({ user, toast }) {
   const [recent, setRecent] = useState([]);
   const [recommended, setRecommended] = useState([]);
   const [alertMatches, setAlertMatches] = useState([]);
-  const [contactReqs, setContactReqs] = useState([]);
   const [photoReqs, setPhotoReqs] = useState([]);
   const [flatmateReqs, setFlatmateReqs] = useState([]);
-  const [docReqs, setDocReqs] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
   const [reviewTick, setReviewTick] = useState(0);
@@ -75,34 +74,25 @@ export function useDashboardData({ user, toast }) {
   // uses is what keeps the Documents tab, this sidebar badge and the Action Center on one source of
   // truth — before this, the tab read the seam while the badge read localStorage, so in http mode a
   // real request showed in one place and not the other, and a grant issued here never reached the
-  // server. A failed read resolves to an empty inbox rather than taking the dashboard down with it.
-  useEffect(() => {
-    if (!user?.mobile) {
-      setDocReqs([]);
-      return undefined;
-    }
-    let alive = true;
-    listDocRequests(user.mobile)
-      .then((rows) => alive && setDocReqs(rows || []))
-      .catch(() => alive && setDocReqs([]));
-    return () => { alive = false; };
-  }, [user]);
+  // server.
+  //
+  // It used to `.catch` to an empty inbox, which told an owner nobody had asked for their documents
+  // when in fact we had failed to look (D166). `useAsyncList` keeps the failure separable from the
+  // genuinely-empty case; `enabled` covers the signed-out state, which really is empty.
+  const [docReqs, docReqsStatus, setDocReqs, retryDocReqs, docReqsError] = useAsyncList(
+    () => listDocRequests(user.mobile),
+    [user],
+    !!user?.mobile,
+  );
 
   // The contact inbox is a network read and is owner-scoped by the session, so unlike the
-  // localStorage panels above it takes no mobile argument and needs its own effect. Failures
-  // resolve to an empty inbox rather than propagating: one unreachable panel must not take the
-  // whole dashboard down with it.
-  useEffect(() => {
-    if (!user?.mobile) {
-      setContactReqs([]);
-      return undefined;
-    }
-    let alive = true;
-    myContactRequests()
-      .then((res) => alive && setContactReqs(res.items.map(toLeadRow)))
-      .catch(() => alive && setContactReqs([]));
-    return () => { alive = false; };
-  }, [user]);
+  // localStorage panels above it takes no mobile argument. Same reasoning as the document inbox:
+  // "no one has asked for your number" is a claim we cannot make from a failed request.
+  const [contactReqs, contactReqsStatus, setContactReqs, retryContactReqs, contactReqsError] = useAsyncList(
+    () => myContactRequests().then((res) => res.items.map(toLeadRow)),
+    [user],
+    !!user?.mobile,
+  );
 
   const decideContact = async (reqId, decision) => {
     await respondToContactRequest(reqId, decision);
@@ -199,9 +189,18 @@ export function useDashboardData({ user, toast }) {
     setReviewTick((t) => t + 1);
   };
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([
+  /* The dashboard's core read: everything the tabs, the stats row and the owner/tenant decision are
+     derived from. It had no `.catch` at all, so a failure was an unhandled rejection and the page
+     simply stayed as it was born — no listings, no visits, no enquiries. That is worse than an
+     empty state, because `isOwner` is computed from `listings`: a landlord whose read failed was
+     shown the *tenant* dashboard, with a rent wallet where their property ledger should be. The
+     load now has a status the page can render and a retry (D166).
+
+     Kept on `[searches]` rather than `[user]` \u2014 the saved-search context reloads per session, so
+     this still re-runs on sign-in, and widening the deps here would change refetch behaviour that
+     is not what D166 is about. */
+  const [bundle, dataStatus, , retryData, dataError] = useAsyncList(
+    () => Promise.all([
       loadMyListings(user),
       listProperties({ includeAllStatuses: true }, 'newest'),
       listEnquiries(),
@@ -211,54 +210,58 @@ export function useDashboardData({ user, toast }) {
       // user strangers' visits.
       listVisits(),
       myVisitRequests(),
-    ]).then(([shownListings, props, enq, mine, onMine]) => {
-      if (!alive) return;
-      // Combined owner view: property listings + flatmate/room posts (rooms-aware).
-      setListings(shownListings);
-      shownListings.forEach((l) => { if (!l.flatmate) ensureOwnerReview({ id: l.id, title: l.title, loc: l.locality, price: l.price, deal: l.deal }); });
-      setReviewTick((t) => t + 1);
-      setEnquiries(enq.slice(0, 8));
-      // Enrich each visit from the catalogue we already hold: the owner mobile for the Visits tab's
-      // WhatsApp handoff (the visit record only carries the visitor's number), and the listing
-      // title, which the wire does not carry — resolving it in the provider would be one property
-      // fetch per visit.
-      const byId = new Map(props.map((p) => [p.id, p]));
-      // Deduped by id: a user visiting their own listing legitimately appears in both reads.
-      const merged = [...new Map([...mine, ...onMine].map((v) => [v.id, v])).values()]
-        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      setVisits(merged.slice(0, 8).map((v) => {
-        const p = byId.get(v.listingId);
-        return {
-          ...v,
-          listing: v.listing || p?.title || '',
-          ownerMobile: v.ownerMobile || p?.ownerMobile || '',
-        };
-      }));
-      // Recently Viewed = the user's REAL view history (per-user MRU), resolved
-      // against the live catalog. `recommended` is a neutral discovery fallback
-      // used only when the user hasn't viewed anything yet — never mislabeled as
-      // "recently viewed".
-      const approved = props.filter((p) => p.status === 'approved');
-      const approvedById = new Map(approved.map((p) => [p.id, p]));
-      const realRecent = getRecentProps().map((id) => approvedById.get(id)).filter(Boolean).slice(0, 6);
-      setRecent(realRecent);
-      setRecommended(approved.slice(0, 6));
-      // Retention loop: for each active saved search, count how many LIVE approved
-      // listings match its criteria right now. Only surface searches with real
-      // matches; each links to the actual filtered results. Nothing is fabricated.
-      const matches = searches
-        .filter((s) => s.alerts !== false)
-        .map((s) => ({ id: s.id, label: s.label || 'your saved search', count: countMatches(s, approved), href: searchHref(s) }))
-        .filter((m) => m.count > 0)
-        .slice(0, 3);
-      setAlertMatches(matches);
-    });
-    return () => {
-      alive = false;
-    };
+    ]),
+    [searches],
+  );
+
+  /* Derivation, split from the fetch so the loader stays a pure read and every `set*` below runs
+     off one settled result. Guarded on the tuple's length because `useAsyncList` starts (and
+     re-starts) from `[]`, and a partially-destructured bundle would blank the page mid-retry. */
+  useEffect(() => {
+    if (bundle.length < 5) return;
+    const [shownListings, props, enq, mine, onMine] = bundle;
+    // Combined owner view: property listings + flatmate/room posts (rooms-aware).
+    setListings(shownListings);
+    shownListings.forEach((l) => { if (!l.flatmate) ensureOwnerReview({ id: l.id, title: l.title, loc: l.locality, price: l.price, deal: l.deal }); });
+    setReviewTick((t) => t + 1);
+    setEnquiries(enq.slice(0, 8));
+    // Enrich each visit from the catalogue we already hold: the owner mobile for the Visits tab's
+    // WhatsApp handoff (the visit record only carries the visitor's number), and the listing
+    // title, which the wire does not carry — resolving it in the provider would be one property
+    // fetch per visit.
+    const byId = new Map(props.map((p) => [p.id, p]));
+    // Deduped by id: a user visiting their own listing legitimately appears in both reads.
+    const merged = [...new Map([...mine, ...onMine].map((v) => [v.id, v])).values()]
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    setVisits(merged.slice(0, 8).map((v) => {
+      const p = byId.get(v.listingId);
+      return {
+        ...v,
+        listing: v.listing || p?.title || '',
+        ownerMobile: v.ownerMobile || p?.ownerMobile || '',
+      };
+    }));
+    // Recently Viewed = the user's REAL view history (per-user MRU), resolved
+    // against the live catalog. `recommended` is a neutral discovery fallback
+    // used only when the user hasn't viewed anything yet — never mislabeled as
+    // "recently viewed".
+    const approved = props.filter((p) => p.status === 'approved');
+    const approvedById = new Map(approved.map((p) => [p.id, p]));
+    const realRecent = getRecentProps().map((id) => approvedById.get(id)).filter(Boolean).slice(0, 6);
+    setRecent(realRecent);
+    setRecommended(approved.slice(0, 6));
+    // Retention loop: for each active saved search, count how many LIVE approved
+    // listings match its criteria right now. Only surface searches with real
+    // matches; each links to the actual filtered results. Nothing is fabricated.
+    const matches = searches
+      .filter((s) => s.alerts !== false)
+      .map((s) => ({ id: s.id, label: s.label || 'your saved search', count: countMatches(s, approved), href: searchHref(s) }))
+      .filter((m) => m.count > 0)
+      .slice(0, 3);
+    setAlertMatches(matches);
     // Saved searches arrive asynchronously now, so the match counts have to be recomputed once the
     // list lands — on the first pass it is empty and the retention strip would never appear.
-  }, [searches]);
+  }, [bundle, searches]);
 
   return {
     listings, enquiries, visits, recent, recommended, alertMatches,
@@ -266,5 +269,10 @@ export function useDashboardData({ user, toast }) {
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewTick,
     apps, setStatus,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
+    // Load state, so the page can say "we couldn't load this" instead of rendering a plausible
+    // dashboard for a user whose data never arrived.
+    dataStatus, dataError, retryData,
+    docReqsStatus, docReqsError, retryDocReqs,
+    contactReqsStatus, contactReqsError, retryContactReqs,
   };
 }

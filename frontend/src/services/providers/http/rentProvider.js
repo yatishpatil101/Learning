@@ -5,7 +5,7 @@
  *
  * ```
  *   tenancy    GET /me/tenancies · GET /tenancies · GET/PUT /me/tenant-profile
- *              GET /tenant-profiles/{mobile}
+ *              GET /tenant-profiles/{mobile} · POST /tenant-profiles/verified
  *   rent       GET/POST /me/rent-payments · GET /me/rent-ledger
  *              GET/PUT /me/rent-mandate · GET/PUT /me/payout-account
  *   finances   GET/POST /me/finances/{propId}/transactions · PATCH/DELETE .../{txnId}
@@ -105,6 +105,49 @@ export async function tenantProfileFor(mobile) {
     if (err?.status === 404) return null;
     throw err;
   }
+}
+
+/**
+ * The server's own cap on one batch. Mirrored here so a long list is *paged* rather than refused —
+ * a 400 in the middle of a render would cost every row its badge, including the earned ones.
+ */
+const VERIFIED_BATCH_SIZE = 50;
+
+/** Last ten digits, or `''`. A masked number (`98XXXXX210`) yields five, and is therefore dropped. */
+const tenDigits = (mobile) => {
+  const d = String(mobile || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? d : '';
+};
+
+/**
+ * `POST /tenant-profiles/verified` — the Verified Tenant badge for a whole list at once (D114).
+ *
+ * A `POST` that reads: the input is a list of mobile numbers, and putting those in a query string
+ * would write the identifier the contact gate exists to protect into access logs and proxy caches.
+ *
+ * Junk is filtered here rather than sent. The important case is a **masked** number — live offer
+ * and finalization rows arrive with `98XXXXX210` until the owner approves contact (D5), and five
+ * digits is not a question worth asking. Those rows simply get no badge, which is the same answer
+ * the mask itself is making.
+ *
+ * Duplicates are collapsed before sending: the caller's list is one row per offer, not one row per
+ * person, and a buyer with three offers is one question.
+ */
+export async function tenantsVerified(mobiles = []) {
+  const wanted = [...new Set((Array.isArray(mobiles) ? mobiles : []).map(tenDigits).filter(Boolean))];
+  const verified = new Set();
+  if (!signedIn() || !wanted.length) return verified;
+  for (let i = 0; i < wanted.length; i += VERIFIED_BATCH_SIZE) {
+    const rows = await post('/tenant-profiles/verified', {
+      mobiles: wanted.slice(i, i + VERIFIED_BATCH_SIZE),
+    });
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      // The server echoes the caller's own input back, so this is the same string that went out.
+      if (row?.verified) verified.add(tenDigits(row.mobile));
+    });
+  }
+  verified.delete('');
+  return verified;
 }
 
 /* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */

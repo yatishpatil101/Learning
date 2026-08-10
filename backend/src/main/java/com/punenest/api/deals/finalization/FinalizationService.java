@@ -20,6 +20,9 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -198,33 +201,39 @@ public class FinalizationService {
     }
 
     /**
-     * Contract {@code myFinalizationRequests} — requests awaiting the caller's decision.
-     * Strictly counterparty-scoped: returns only requests where the caller is the counterparty
-     * and the status is pending.
+     * Contract {@code myFinalizationRequests} — one page of the requests awaiting the caller's
+     * decision, newest first. Strictly counterparty-scoped: returns only requests where the caller
+     * is the counterparty and the status is pending.
      *
-     * <p>N+1-safe: one query for the requests, one batch load for all participant users.
+     * <p><strong>Paged (D77).</strong> Every row is a proposal somebody else aimed at the caller,
+     * so the collection grows with inbound demand rather than with anything the caller did.
+     *
+     * <p>N+1-safe: one query for the page of requests, one batch load for that page's participant
+     * users.
      */
     @Transactional(readOnly = true)
-    public List<FinalizationRequestDto> myRequests(UUID callerId) {
-        List<FinalizationRequest> rows = finalizationRequests.findPendingByCounterparty(callerId);
+    public Page<FinalizationRequestDto> myRequests(UUID callerId, Pageable pageable) {
+        Page<FinalizationRequest> rows =
+                finalizationRequests.findPendingByCounterparty(callerId, pageable);
         if (rows.isEmpty()) {
-            return List.of();
+            return new PageImpl<>(List.of(), rows.getPageable(), rows.getTotalElements());
         }
 
         // Batch load all participant users.
-        List<UUID> userIds = rows.stream()
+        List<UUID> userIds = rows.getContent().stream()
                 .flatMap(r -> Stream.of(r.getInitiatorId(), r.getCounterpartyId()))
                 .distinct()
                 .toList();
         Map<UUID, User> userMap = users.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
-        return rows.stream()
+        List<FinalizationRequestDto> content = rows.getContent().stream()
                 .map(r -> FinalizationMapper.toDto(r,
                         userMap.get(r.getInitiatorId()),
                         userMap.get(r.getCounterpartyId()),
                         callerId))
                 .toList();
+        return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
     }
 
     /**

@@ -5,7 +5,7 @@ category: renting
 audience: tenant
 order: 4
 updated: 2026-07-27
-summary: Share a flat, find a room in an existing one, or add a flatmate to a place you already rent.
+summary: Find a flatmate, take a room in an existing flat, or add a flatmate to a place you already rent.
 tags: [flatmates, sharing, pg, roommate]
 ---
 
@@ -17,6 +17,15 @@ tags: [flatmates, sharing, pg, roommate]
 2. Add the property, the room type (private or shared) and the rent share.
 3. State your preferences honestly — food habits, working hours, guests, smoking.
 4. Publish. Interested people message you in-app; your number is not shown until you choose to share it.
+
+## Why your post does not appear straight away
+
+Everything posted on the flatmate board is read by our team before anyone else sees it — usually within a few hours. Until then your post sits on your own screen marked **in review**, and you can edit or delete it as normal.
+
+The board is where a broker would most like to slip a phone number into a free-text note and pull people off the platform. Reading each post first is the cost of keeping the board people rather than agents.
+
+> [!NOTE]
+> A post that is turned down stays visible to you with the reason, so you can fix it and post again.
 
 ## Looking for a room
 

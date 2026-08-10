@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 /* Admin anti-staleness: when a LIVE listing goes unconfirmed (freshness stale/dormant),

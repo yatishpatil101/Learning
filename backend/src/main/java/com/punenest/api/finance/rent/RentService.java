@@ -3,10 +3,13 @@ package com.punenest.api.finance.rent;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.payments.AbandonedCheckouts;
+import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.finance.tenancy.Tenancy;
 import com.punenest.api.finance.tenancy.TenancyRepository;
 import com.punenest.api.provider.PaymentGateway;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -14,10 +17,13 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The rent money rail — initiating a payment, reading both sides of the ledger, and the autopay
@@ -37,7 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Answering 403 would confirm that a given tenancy id exists and belongs to someone else.
  */
 @Service
-public class RentService {
+public class RentService implements AbandonedCheckouts {
 
     private static final Logger log = LoggerFactory.getLogger(RentService.class);
 
@@ -51,6 +57,40 @@ public class RentService {
     /** How many trailing digits of an account number survive masking. */
     private static final int VISIBLE_ACCOUNT_DIGITS = 4;
 
+    /**
+     * V14's partial unique index over one live payment per tenancy per month. Named here so the
+     * catch block in {@link #open} can tell its own collision apart from every other integrity
+     * failure the same insert can raise (D170).
+     */
+    private static final String LIVE_PER_DUE_DATE_INDEX = "uq_rent_payments_live_per_due_date";
+
+    /**
+     * V14's partial unique index over one non-revoked mandate per tenancy. Same job as
+     * {@link #LIVE_PER_DUE_DATE_INDEX} for {@link #setMandate}.
+     */
+    private static final String ACTIVE_MANDATE_INDEX = "uq_rent_mandates_active_per_tenancy";
+
+    /**
+     * What a tenant is told when the checkout could not be opened (D148).
+     *
+     * <p>Written for the person reading their own ledger, and deliberately distinguishable from a
+     * decline: the money never moved and retrying is the right thing to do.
+     */
+    private static final String CHECKOUT_UNAVAILABLE =
+            "We could not open the payment page. Nothing was charged — please try again.";
+
+    /**
+     * What a tenant is told when they opened a checkout and never came back (D161).
+     *
+     * <p>Deliberately different wording from {@link #CHECKOUT_UNAVAILABLE}: that one is our failure
+     * and "try again" is an apology, this one is the tenant's own abandoned session and the useful
+     * message is that the month is free to pay again. Neither says "declined", because no bank ever
+     * saw it — a ledger that cannot distinguish those three is a ledger support cannot work from.
+     */
+    private static final String CHECKOUT_EXPIRED =
+            "This payment was not completed in time and the checkout expired. Nothing was charged — "
+                    + "you can pay this month's rent again.";
+
     private final RentPaymentRepository payments;
     private final RentMandateRepository mandates;
     private final PayoutAccountRepository payoutAccounts;
@@ -59,9 +99,15 @@ public class RentService {
     private final PaymentGateway gateway;
     private final RentMapper mapper;
 
+    /** Runs the two short transactions {@link #payRent} is built from — see the field it mirrors on
+     * {@code SubscriptionService} for why the template is built here and why propagation is left at
+     * {@code REQUIRED}. */
+    private final TransactionTemplate transactions;
+
     public RentService(RentPaymentRepository payments, RentMandateRepository mandates,
             PayoutAccountRepository payoutAccounts, TenancyRepository tenancies,
-            RentFeeCalculator fees, PaymentGateway gateway, RentMapper mapper) {
+            RentFeeCalculator fees, PaymentGateway gateway, RentMapper mapper,
+            PlatformTransactionManager transactionManager) {
         this.payments = payments;
         this.mandates = mandates;
         this.payoutAccounts = payoutAccounts;
@@ -69,6 +115,7 @@ public class RentService {
         this.fees = fees;
         this.gateway = gateway;
         this.mapper = mapper;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     /** Contract {@code myRentPayments} — what the caller has paid or owes, as tenant. */
@@ -96,18 +143,52 @@ public class RentService {
      *       reading another's payment by presenting their key.</li>
      *   <li>Derive the amount, then check {@code expectedAmount} against it.</li>
      *   <li>Refuse a month that is already settled or in flight.</li>
-     *   <li>Only then call the gateway, so a rejected request never creates an order.</li>
+     *   <li>Persist the payment as {@code due} and <strong>commit it</strong>, so that every reason
+     *       to refuse has been exhausted before any order exists.</li>
+     *   <li>Only then call the gateway, and attach the order id in a second transaction.</li>
      * </ol>
+     *
+     * <p><strong>Steps 5 and 6 used to be one step, in the wrong order</strong> (D148): the order
+     * was opened inside the transaction that persisted the payment, so the duplicate-month index
+     * firing on commit rolled the row away and left a live, payable Cashfree order behind it. The
+     * tenant could then pay an order that matched no payment row. Committing first means the worst
+     * case is a row with no order, which {@link #abandon} can and does clean up.
+     *
+     * <p>Deliberately not {@code @Transactional} for that reason — the boundaries are inside.
      *
      * @param idempotencyKey the client's {@code Idempotency-Key} header, may be null
      */
-    @Transactional
     public RentPaymentDto payRent(UUID callerId, RentPaymentCreateRequest body,
             String idempotencyKey) {
+        String key = blankToNull(idempotencyKey);
+        Opened opened = transactions.execute(tx -> open(callerId, body, key));
 
+        if (opened.settled() != null) {
+            // An idempotent replay: the original payment already has its order.
+            return opened.settled();
+        }
+
+        PaymentGateway.PaymentOrder order;
+        try {
+            order = createOrder(opened);
+            return transactions.execute(tx -> attach(opened.paymentId(), order));
+        } catch (RuntimeException checkoutFailed) {
+            // The attach is inside the guard, not only the gateway call. Rent is the worst place to
+            // strand a row: a payment left at 'due' holds the month in
+            // uq_rent_payments_live_per_due_date, so the tenant is refused with "already paid or in
+            // progress" even on a fresh idempotency key, and cannot pay that month by any route.
+            abandon(opened);
+            throw checkoutFailed;
+        }
+    }
+
+    /**
+     * First transaction: run every check in the order documented above, then commit the payment as
+     * {@code due} with no order against it yet.
+     */
+    private Opened open(UUID callerId, RentPaymentCreateRequest body, String key) {
         Tenancy tenancy = tenantTenancy(callerId, parseTenancyId(body.tenancyId()));
 
-        String key = blankToNull(idempotencyKey);
         if (key != null) {
             Optional<RentPayment> replayed =
                     payments.findByTenancyIdAndIdempotencyKey(tenancy.getId(), key);
@@ -115,7 +196,7 @@ public class RentService {
                 // why: the tenant tapped Pay twice, or their connection dropped and the client
                 // retried. Returning the original is the whole point of the header - creating a
                 // second payment here is a real double charge.
-                return mapper.toDto(replayed.get());
+                return Opened.settled(mapper.toDto(replayed.get()));
             }
         }
 
@@ -142,26 +223,105 @@ public class RentService {
         }
 
         RentFeeCalculator.Breakdown breakdown = fees.compute(rent);
-        PaymentGateway.PaymentOrder order = gateway.createOrder(
-                breakdown.total(), "rent:" + tenancy.getId() + ":" + dueDate);
-
-        if (order.orderId() == null || order.orderId().isBlank()) {
-            // why: `reference` is how the webhook finds this row again. A payment stored without
-            // one can never be settled - the callback would arrive, match nothing, and the tenant
-            // would sit at "due" having actually been charged. Failing here, before anything is
-            // persisted, is the only outcome that does not strand money.
-            throw new IllegalStateException("Payment gateway returned no order id");
-        }
-
         RentPayment payment = new RentPayment(tenancy.getId(), breakdown.amount(),
-                breakdown.platformFee(), breakdown.gst(), dueDate, method, order.orderId(), key);
+                breakdown.platformFee(), breakdown.gst(), dueDate, method, key);
+        RentPayment saved;
         try {
-            return mapper.toDto(payments.saveAndFlush(payment));
+            saved = payments.saveAndFlush(payment);
         } catch (DataIntegrityViolationException raced) {
             // why: the check above is not a guard, it is a courtesy. Two taps on a flaky connection
             // both pass it before either commits, and only V14's partial unique index settles the
             // argument. Without this the loser of the race gets a 500 for behaving correctly.
+            //
+            // Only that index is translated (D170). The same insert can trip a foreign key on
+            // tenancy_id or a not-null, and answering one of those with "already paid or in
+            // progress" would dress a defect up as the system working — the tenant retries, the
+            // retry fails identically, and nothing ever reaches the error log. Anything else goes
+            // up untouched and becomes a 500.
+            if (!ConstraintViolations.isOn(raced, LIVE_PER_DUE_DATE_INDEX)) {
+                throw raced;
+            }
+            log.info("Concurrent rent payment lost the duplicate-month race for tenancy {} on {}",
+                    tenancy.getId(), dueDate);
             throw new ConflictException("Rent for this month is already paid or in progress");
+        }
+        return new Opened(null, saved.getId(), breakdown.total(),
+                "rent:" + tenancy.getId() + ":" + dueDate);
+    }
+
+    /**
+     * Second transaction: record the order the committed payment is waiting on.
+     *
+     * <p>Nothing deletes rent payments, so a row missing here is an unmodelled concurrent write and
+     * is raised rather than swallowed — returning a checkout that settles against nothing is how a
+     * tenant ends up charged and still showing as unpaid.
+     */
+    private RentPaymentDto attach(UUID paymentId, PaymentGateway.PaymentOrder order) {
+        RentPayment payment = payments.findById(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Rent payment " + paymentId
+                        + " disappeared before gateway order " + order.orderId()
+                        + " could be attached"));
+        if (!payment.attachOrder(order.orderId())) {
+            log.error("Rent payment {} would not take gateway order {}; it is {} with reference {}",
+                    paymentId, order.orderId(), payment.getStatus(), payment.getReference());
+        }
+        // The session id is single-use and lives only in this response: the checkout SDK consumes
+        // it, and the payment webhook - not any stored id - is what later settles the month (D167).
+        return mapper.toDto(payments.saveAndFlush(payment))
+                .withPaymentSessionId(order.paymentSessionId());
+    }
+
+    /**
+     * Open the gateway order for a committed payment. Called with no transaction open (D148).
+     *
+     * <p>A blank order id is a refusal: {@code reference} is how the webhook finds this row again, so
+     * a payment left without one could never be settled — the callback would arrive, match nothing,
+     * and a tenant who had actually been charged would sit at {@code due} forever.
+     */
+    private PaymentGateway.PaymentOrder createOrder(Opened opened) {
+        PaymentGateway.PaymentOrder order =
+                gateway.createOrder(opened.total(), opened.reference());
+        if (order.orderId() == null || order.orderId().isBlank()) {
+            throw new IllegalStateException("Payment gateway returned no order id");
+        }
+        return order;
+    }
+
+    /**
+     * Compensating write for a gateway that refused the order after the payment was committed
+     * (D148).
+     *
+     * <p>The row must not be left {@code due}. {@code due} occupies the month in
+     * {@code uq_rent_payments_live_per_due_date} and in {@link RentPaymentRepository#existsLiveForDueDate},
+     * so a payment that can never be paid would block that tenancy's rent for that month
+     * permanently — a far worse outcome than the one being fixed. {@code failed} is excluded from
+     * both, which frees the month, and it carries a reason the tenant can read in their ledger.
+     *
+     * <p>A failure to compensate is logged and swallowed: the caller needs the gateway's error, not
+     * a bookkeeping one.
+     */
+    private void abandon(Opened opened) {
+        try {
+            transactions.executeWithoutResult(tx -> payments.findById(opened.paymentId())
+                    .ifPresent(payment -> payment.abandonUnopened(CHECKOUT_UNAVAILABLE)));
+            log.error("No gateway order for rent payment {} ({}); failed it and released the "
+                    + "idempotency key. Nothing was charged.",
+                    opened.paymentId(), opened.reference());
+        } catch (RuntimeException compensationFailed) {
+            log.error("Could not fail rent payment {} after its gateway order failed; it will hold "
+                    + "this month open at 'due' and block the tenant's retry",
+                    opened.paymentId(), compensationFailed);
+        }
+    }
+
+    /**
+     * What survives the first transaction: a finished response, or plain values describing the order
+     * to open. No entity crosses a transaction boundary.
+     */
+    private record Opened(RentPaymentDto settled, UUID paymentId, long total, String reference) {
+
+        static Opened settled(RentPaymentDto dto) {
+            return new Opened(dto, null, 0, null);
         }
     }
 
@@ -181,37 +341,121 @@ public class RentService {
      * @param failureReason provider reason; ignored unless failed
      * @param providerAmount what the provider says was charged, whole rupees, or {@code 0} if it
      *                       sent none — checked against our own figure, never written over it
+     * @return whether this table owned the order — the fan-out alerts on a paid event nobody claims
      */
     @Transactional
-    public void applyWebhookOutcome(String orderId, String nextStatus, LocalDate settledOn,
+    public boolean applyWebhookOutcome(String orderId, String nextStatus, LocalDate settledOn,
             String failureReason, long providerAmount) {
         if (orderId == null || orderId.isBlank()) {
-            return;
+            return false;
         }
         Optional<RentPayment> found = payments.findByReference(orderId);
         if (found.isEmpty()) {
             log.info("Payment callback for order {} matched no rent payment; ignoring", orderId);
-            return;
+            return false;
         }
         RentPayment payment = found.get();
-        if (!payment.settle(nextStatus, settledOn, failureReason)) {
-            // why: a redelivered callback on an already-terminal payment. Expected, not an error -
-            // but worth a line, because a *contradictory* redelivery is worth noticing.
-            log.info("Ignored {} callback for order {}: payment is already {}",
-                    nextStatus, orderId, payment.getStatus());
-            return;
-        }
 
         // Reconciliation, not enforcement. If the provider charged something other than what we
         // billed, that is a misconfiguration or a tampered order and somebody must look at it --
         // but the money has already moved, so refusing to record it would leave a tenant who has
-        // genuinely paid showing as unpaid. Record, then shout.
+        // genuinely paid showing as unpaid. Checked before the idempotence guard below, not after:
+        // a *contradictory redelivery* -- the same order coming back with a different amount -- is
+        // the case most worth noticing, and it is exactly the one the guard returns early on.
         long billed = payment.getAmount() + payment.getPlatformFee() + payment.getGst();
         if (providerAmount > 0 && providerAmount != billed) {
             log.error("Amount mismatch on rent payment {}: billed {} but provider charged {}",
                     payment.getId(), billed, providerAmount);
         }
+
+        if (!payment.settle(nextStatus, settledOn, failureReason)) {
+            reportRefusedSettlement(payment, nextStatus, orderId);
+            return true;
+        }
         log.info("Rent payment {} moved to {} by provider callback", payment.getId(), nextStatus);
+        return true;
+    }
+
+    /**
+     * Say what it means that a callback could not be applied — and say it at the right volume.
+     *
+     * <p><strong>Why this stopped being one log line (D161).</strong> Until the abandoned-checkout
+     * sweep existed, a rent payment reached a terminal status only through this method, so a refused
+     * transition was always a redelivered callback: harmless, and correctly INFO. The sweep adds a
+     * second route to {@code failed}, and it frees the month deliberately — which is right for the
+     * tenant who walked away, and wrong for the one whose money lands afterwards. That tenant may by
+     * then have paid the month a second time, so this is the one branch in the file that can mean a
+     * double charge. It must not read like routine noise.
+     *
+     * <p>Only a {@code paid} callback is escalated. A redelivered {@code failed} on an already-failed
+     * row moved no money and stays INFO.
+     */
+    private void reportRefusedSettlement(RentPayment payment, String nextStatus, String orderId) {
+        if (!RentPaymentStatuses.PAID.equals(nextStatus)) {
+            log.info("Ignored {} callback for order {}: payment is already {}",
+                    nextStatus, orderId, payment.getStatus());
+            return;
+        }
+        if (RentPaymentStatuses.PAID.equals(payment.getStatus())) {
+            log.info("Ignored paid callback for order {}: payment is already paid", orderId);
+            return;
+        }
+        log.error("Rent payment {} was settled by the gateway but is {} — the tenant has been "
+                + "charged for {} and the month still reads unpaid, so they may have paid it "
+                + "twice. Gateway order {}, tenancy {}. Refund or reconcile.", payment.getId(),
+                payment.getStatus(), payment.getDueDate(), orderId, payment.getTenancyId());
+    }
+
+    /** {@inheritDoc} — "rent payment", so a sweep log line names the table that moved. */
+    @Override
+    public String family() {
+        return "rent payment";
+    }
+
+    /**
+     * Fail every checkout that was opened and then walked away from (D161). Driven by
+     * {@code AbandonedCheckoutSweep}.
+     *
+     * <p><strong>Rent is the worst place to strand a row, which is why this matters most here.</strong>
+     * A payment left at {@code due} occupies the month in
+     * {@code uq_rent_payments_live_per_due_date} and in {@link RentPaymentRepository#existsLiveForDueDate},
+     * so the tenant is refused with "already paid or in progress" and cannot pay that month by any
+     * route — not with a fresh idempotency key, not from a different device. {@link #abandon}
+     * already handles a gateway that refuses the order, but it runs in this process: a hard kill
+     * between the commit and the gateway call, or a tenant simply closing the checkout (which
+     * generates no webhook), leaves the row with nothing to clear it. Before this sweep, that meant
+     * a permanently unpayable month.
+     *
+     * <p><strong>Only an abandoned checkout can be in this set.</strong> Nothing but {@link #payRent}
+     * creates a rent payment, and it creates one only when a tenant has asked to pay — there is no
+     * scheduled biller stamping {@code due} rows for months nobody has started. So "still
+     * {@code due} well past the TTL" means an abandoned session, never an unpaid month, and the
+     * sweep cannot silently write off rent somebody owes.
+     *
+     * <p><strong>Nothing paid is ever touched.</strong> A settled payment is {@code paid} and a
+     * refused one {@code failed}, so a row still {@code due} is one no money has arrived for.
+     * {@link RentPayment#abandonCheckout} re-checks that per row, and {@code @Version} settles the
+     * last instant of the race against a webhook landing mid-sweep.
+     *
+     * @param cutoff payments created before this instant have run out of checkout time; passed in so
+     *               tests need not wait on a clock
+     * @return how many payments this call actually failed
+     */
+    @Override
+    @Transactional
+    public int expireAbandonedCheckouts(Instant cutoff) {
+        List<RentPayment> stale = payments.findByStatusAndCreatedAtBeforeOrderByCreatedAtAsc(
+                RentPaymentStatuses.DUE, cutoff, Limit.of(MAX_PER_SWEEP));
+        int expired = 0;
+        for (RentPayment payment : stale) {
+            if (payment.abandonCheckout(CHECKOUT_EXPIRED)) {
+                expired++;
+                log.info("Rent payment {} failed: its checkout was opened at {} and never paid; "
+                        + "{} is free to pay again",
+                        payment.getId(), payment.getCreatedAt(), payment.getDueDate());
+            }
+        }
+        return expired;
     }
 
     /**
@@ -265,6 +509,14 @@ public class RentService {
             } catch (DataIntegrityViolationException raced) {
                 // Same race as payRent, worse consequence: two standing instructions against one
                 // rent means the tenant is debited twice every month until somebody notices.
+                //
+                // And the same rule about which violation this is (D170): only the mandate index is
+                // a real conflict. A bad tenancy_id or a missing column here would otherwise be
+                // reported as "autopay is already set up", which is both wrong and unfalsifiable
+                // from the tenant's side — they can see they have no mandate.
+                if (!ConstraintViolations.isOn(raced, ACTIVE_MANDATE_INDEX)) {
+                    throw raced;
+                }
                 throw new ConflictException("Autopay is already set up on this tenancy");
             }
         }

@@ -86,6 +86,10 @@ export function toRentPaymentViewModel(row) {
     // tenant has if they need to ask what happened to a payment.
     reference: row?.reference || '',
     failureReason: row?.failureReason || '',
+    // The single-use Cashfree session, present only on the `payRent` response for a freshly opened
+    // order and null on every ledger read (D167). Mirrors `planMapper`'s subscription shape so a
+    // checkout can be opened from whatever the seam returns rather than from component state.
+    paymentSessionId: row?.paymentSessionId ?? null,
   };
 }
 

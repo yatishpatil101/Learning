@@ -173,6 +173,38 @@ class RentEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
     }
 
+    /**
+     * D167: the checkout session is returned once and is never readable back.
+     *
+     * <p>{@code reference} is the durable handle the webhook settles against; the session is the
+     * single-use token the Cashfree drop-in needs, and it was being created and discarded. Without
+     * it on the response the only place it could live was component state, so a refresh mid-checkout
+     * stranded the payment — which the plan and service-request flows both recover from.
+     *
+     * <p>The negative half matters as much: the session is deliberately not persisted, so serving a
+     * stale one from the ledger would make a dead row look resumable and fail at the gateway.
+     */
+    @Test
+    void payRent_returnsACheckoutSessionOnceAndNeverFromTheLedger() throws Exception {
+        User owner = user("9833300041", "owner");
+        User tenant = user("9833300042", "buyer");
+        Tenancy t = tenancyFor(owner, tenant);
+
+        mvc.perform(post(Routes.Rent.PAYMENTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payBody(t.getId())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reference").isNotEmpty())
+                .andExpect(jsonPath("$.paymentSessionId").isNotEmpty());
+
+        mvc.perform(get(Routes.Rent.PAYMENTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reference").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].paymentSessionId").doesNotExist());
+    }
+
     // ---- 2: paying twice ----
 
     @Test

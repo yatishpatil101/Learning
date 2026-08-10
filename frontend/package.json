@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint \"src/**/*.{js,jsx}\"",
-    "check:i18n": "node scripts/check-i18n-keys.cjs && node scripts/check-i18n-locales.cjs",
+    "check:i18n": "node scripts/check-i18n-keys.cjs && node scripts/check-i18n-locales.cjs && node scripts/check-i18n-route-namespaces.mjs",
     "check:help": "node scripts/check-help-content.cjs",
     "check:size": "node scripts/check-bundle-size.mjs",
     "check": "npm run lint && npm run check:i18n && npm run check:help",
@@ -39,6 +39,7 @@
     "rename:brand": "node scripts/rename-brand.mjs"
   },
   "dependencies": {
+    "@cashfreepayments/cashfree-js": "^1.0.7",
     "@phosphor-icons/react": "^2.1.10",
     "@vis.gl/react-google-maps": "^1.9.0",
     "chart.js": "^4.4.7",

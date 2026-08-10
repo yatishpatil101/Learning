@@ -146,6 +146,11 @@ export function toViewModel(p) {
     // approved. Read by the buyer's DealPanel and by card badges.
     dealStatus: p.dealStatus ?? 'active',
     featured: p.featured ?? false,
+    // Paid placement (D59). `featured` above is an editorial pick made by staff; this one is bought,
+    // and the two are not interchangeable — a promoted card must say so, which is why it is carried
+    // as its own field rather than folded into `featured`. The server computes it from the live
+    // window at request time, so it is never stale and needs no client-side expiry check.
+    boosted: p.boosted ?? false,
     verified: p.verified ?? false,
     ownerVerified: p.ownerVerified ?? false,
     ownershipVerified: p.ownershipVerified ?? false,

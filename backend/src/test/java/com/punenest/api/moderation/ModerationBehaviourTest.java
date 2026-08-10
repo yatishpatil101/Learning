@@ -120,6 +120,45 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     /**
+     * Approving or rejecting a listing tells its owner (tech-debt D92) — until this writer nothing
+     * did, so an owner learned their listing's fate only by revisiting the dashboard. Both terminal
+     * verdicts are announced and the rejection reason travels with it; the moderator is told nothing
+     * about their own decision. Notifications share the business transaction, so unlike the audit
+     * rows above they roll back with the test and need no cleanup.
+     */
+    @Test
+    @DisplayName("a moderation verdict notifies the listing's owner, approve and reject")
+    void moderationNotifiesTheOwner() throws Exception {
+        User owner = user("9800000131", "owner", "Owner");
+        User staff = user("9800000132", "staff", "Ops");
+        Property approved = listing(owner);
+        Property rejected = listing(owner);
+
+        mvc.perform(patch("/properties/{id}/status", approved.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(patch("/properties/{id}/status", rejected.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"rejected\",\"reason\":\"blurry photos\"}"))
+                .andExpect(status().isOk());
+
+        List<Map<String, Object>> notes = notificationsFor(owner);
+        assertThat(notes).extracting(n -> n.get("type"))
+                .containsExactlyInAnyOrder("listing.approved", "listing.rejected");
+        assertThat(notes).anySatisfy(n ->
+                assertThat((String) n.get("body")).contains("blurry photos"));
+        assertThat(notificationsFor(staff)).isEmpty();
+    }
+
+    private List<Map<String, Object>> notificationsFor(User user) {
+        return jdbc.queryForList(
+                "select type, title, body from notifications where user_id = ?", user.getId());
+    }
+
+    /**
      * A moderator's note is operator-supplied free text landing in a jsonb column. Hand-built JSON
      * was the obvious shortcut here and would have let a quote in a note forge fields inside the one
      * table that exists to be trusted — so this asserts the note survives a quote intact and that the

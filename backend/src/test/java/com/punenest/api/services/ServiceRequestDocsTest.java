@@ -36,7 +36,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
     void noPropertyNoDocuments() throws Exception {
         User buyer = customer("9820000201");
         User desk = staff("9820000202", Teams.LEGAL);
-        String id = raise(buyer, "legal-opinion", null);
+        String id = raise(buyer, "legal", null);
 
         upload(buyer, id, "identity", 409);
         setStatus(desk, id, "assigned", 200);
@@ -79,7 +79,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
         Property p = listing(owner);
 
         // anyone may raise a request about any listing — a tenant or a buyer legitimately does
-        String id = raise(stranger, "legal-opinion", p);
+        String id = raise(stranger, "legal", p);
         upload(stranger, id, "Aadhaar", 201);
 
         mvc.perform(get(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
@@ -102,7 +102,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
         mvc.perform(post(Routes.ServiceRequests.BASE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"legal-opinion\",\"propertyId\":\""
+                        .content("{\"type\":\"legal\",\"propertyId\":\""
                                 + java.util.UUID.randomUUID() + "\"}"))
                 .andExpect(status().isNotFound());
     }
@@ -118,7 +118,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documents[0].category").value("Aadhaar"))
-                .andExpect(jsonPath("$.timeline[1].event").value("document.uploaded"));
+                .andExpect(jsonPath("$.timeline[?(@.event=='document.uploaded')]").isNotEmpty());
     }
 
     @Test

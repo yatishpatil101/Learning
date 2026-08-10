@@ -24,16 +24,27 @@ export function parseWhen(when) {
   if (iso) return { date: new Date(+iso[1], +iso[2] - 1, +iso[3]), timeLabel: '', mode: '' };
   const timeM = /(\d{1,2}:\d{2})\s*([AP]M)/i.exec(when);
   const modeM = /\(([^)]+)\)/.exec(when);
-  const dm = /(\d{1,2})\s+([A-Za-z]{3,})/.exec(when);
+  // The canonical string carries the year ("19 Jul 2026"); capture it when present. The `\d{4}` after
+  // the month cannot collide with the time — `10:30` has a colon — so this stays a superset of the
+  // old day+month match.
+  const dm = /(\d{1,2})\s+([A-Za-z]{3,})(?:\s+(\d{4}))?/.exec(when);
   let date = null;
   if (dm) {
     const mon = MON_ABBR[dm[2].slice(0, 3).toLowerCase()];
     if (mon != null) {
-      const now = new Date();
-      let d = new Date(now.getFullYear(), mon, +dm[1]);
-      const floor = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      if (d < floor) d = new Date(now.getFullYear() + 1, mon, +dm[1]);
-      date = d;
+      if (dm[3]) {
+        // Honour the year the string states (D88). Reconstructing it from "now" — the fallback below
+        // — is wrong for any visit whose year is not the current one: a completed visit in a past
+        // year rendered a year in the future, and a booking that crosses a December would roll to the
+        // wrong side. Only strings that omit the year (legacy seed data) fall through to the guess.
+        date = new Date(+dm[3], mon, +dm[1]);
+      } else {
+        const now = new Date();
+        let d = new Date(now.getFullYear(), mon, +dm[1]);
+        const floor = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        if (d < floor) d = new Date(now.getFullYear() + 1, mon, +dm[1]);
+        date = d;
+      }
     }
   }
   return { date, timeLabel: timeM ? `${timeM[1]} ${timeM[2].toUpperCase()}` : '', mode: modeM ? modeM[1] : '' };

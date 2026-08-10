@@ -9,8 +9,20 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Prerequisites:
  *   1. Postgres up with the seeded dev DB (`punenest`).
- *   2. Backend on :8081 — `cd backend; ./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.port=8081`
- *      with its console tee'd to a log the spec can read the OTP from (BACKEND_LOG).
+ *   2. `PUNENEST_DEV_MACHINE` set in the environment the **backend** is launched from. Since
+ *      2026-08-09 the `dev` profile alone does not enable the dev stubs: `DevProfileGuard` also
+ *      requires this variable, as positive proof that the JVM is on a developer's machine rather
+ *      than a container that inherited `dev` from a copied environment file. It is in no committed
+ *      file on purpose, so set it once per machine and never in the repo:
+ *
+ *        [Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
+ *
+ *      Without it the backend refuses to start, and this suite fails at step 3 below with a login
+ *      timeout rather than anything that names the cause — so check the backend console first.
+ *   3. Backend on :8081 — `cd backend; ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev -Dspring-boot.run.arguments=--server.port=8081`
+ *      with its console tee'd to a log the spec can read the OTP from (BACKEND_LOG). The `dev`
+ *      profile is what wires the mock OTP sender; without it the backend boots the SMS sender,
+ *      which throws, and no OTP ever reaches the log this suite is reading.
  *
  * The dev server is started here with the property domain switched on, so this config is the single
  * place that knows the live wiring:
@@ -23,6 +35,18 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 const API_PORT = process.env.API_PORT || '8081';
+
+// A warning rather than a hard failure: the variable is required by the *backend* process, and the
+// backend is started by hand (possibly from another terminal), so its absence here is suggestive,
+// not conclusive. Worth saying out loud all the same — the symptom of a backend that refused to
+// boot is a login timeout thirty seconds into the first spec, which reads like a flaky test.
+if (!process.env.PUNENEST_DEV_MACHINE) {
+  console.warn(
+    '[live] PUNENEST_DEV_MACHINE is not set in this shell. If the backend was started without it, ' +
+      'it refused to boot under the `dev` profile and every login below will time out. ' +
+      'See docs/LOCAL_DEV.md.',
+  );
+}
 
 export default defineConfig({
   testDir: './tests',

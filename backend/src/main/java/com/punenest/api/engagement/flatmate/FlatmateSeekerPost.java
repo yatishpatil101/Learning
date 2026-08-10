@@ -111,7 +111,7 @@ public class FlatmateSeekerPost extends AuditedEntity {
 
     @Column(name = "mod_status", nullable = false)
     @Setter
-    private String modStatus = FlatmateVocabulary.MOD_LIVE;
+    private String modStatus = FlatmateVocabulary.MOD_PENDING;
 
     @Column(name = "lat")
     @Setter
@@ -149,8 +149,8 @@ public class FlatmateSeekerPost extends AuditedEntity {
         this.archiveReason = reason;
     }
 
-    /** Visible on a consumer surface: neither archived nor hidden by a moderator. */
+    /** Visible on a consumer surface: neither archived nor awaiting/denied by a moderator. */
     public boolean isVisible() {
-        return !archived && !FlatmateVocabulary.MOD_HIDDEN.contains(modStatus);
+        return !archived && FlatmateVocabulary.isPublic(modStatus);
     }
 }

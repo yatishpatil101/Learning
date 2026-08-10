@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
 
 /* "Backfill a seat" — a sitting tenant or group owner manages open seats without
    re-verifying the group. A replacement listing declares only the seat(s) actually
@@ -27,6 +27,8 @@ async function createGroup(page, title, { sharing = '3', open = '1', agreement =
   await page.getByPlaceholder(/Your name/i).fill('Backfill Host');
   if (agreement) await page.getByText(/registered rent agreement/i).click();
   await page.getByRole('button', { name: /Create group/i }).click();
+  // The group is held for review (D72); seat management is what this file is about.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   await expect(page.getByText(title).first()).toBeVisible({ timeout: 5000 });
 }

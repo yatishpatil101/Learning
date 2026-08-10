@@ -78,7 +78,22 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                         .content(roomBody(locality, society)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        return publish("flatmate_rooms", json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+    }
+
+    /**
+     * Let a freshly created row out of the moderation queue (D72).
+     *
+     * <p>Since D72 a room or group is born {@code pending} and is invisible on every consumer
+     * surface until a moderator decides. Nearly every test below is about the <em>feed</em> — how
+     * it filters, sorts, prices and paginates — and none of them is about moderation, so they seed
+     * published supply on purpose rather than inheriting visibility from a default. That the
+     * default is now the other way round is asserted once, deliberately, in
+     * {@link FlatmateModerationGateTest}.
+     */
+    private String publish(String table, String id) {
+        jdbc.update("update " + table + " set mod_status = 'approved' where id = ?::uuid", id);
+        return id;
     }
 
     private static String groupBody(String title, String locality) {
@@ -95,7 +110,7 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                         .content(groupBody(title, locality)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        return publish("flatmate_groups", json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
     }
 
     @Nested
@@ -287,7 +302,8 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                                     """))
                     .andExpect(status().isCreated())
                     .andReturn().getResponse().getContentAsString();
-            String id = json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+            String id = publish("flatmate_groups",
+                    json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
 
             mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
@@ -327,6 +343,137 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
         }
     }
 
+    /**
+     * D175 — one answer to "I already asked", on both of this service's doors.
+     *
+     * <p>These are deliberately <em>sequential</em>. The racing version of the same question lives
+     * in {@code FlatmateDuplicateInterestRaceTest}, which needs real commits and therefore cannot be
+     * on {@code AbstractApiTest}; this suite covers the path nobody was testing, which is a person
+     * simply pressing the button again a minute later. That path used to answer 201 while the racing
+     * one answered 409 — same action, two contract-visible outcomes, and only one of them declared.
+     */
+    @Nested
+    @DisplayName("asking twice")
+    class Duplicates {
+
+        @Test
+        @DisplayName("a second room enquiry is refused with 409 and leaves one row")
+        void secondRoomInterestIsRefused() throws Exception {
+            User host = user("9820000050", "RoomHost");
+            User requester = user("9820000051", "Keen");
+            String id = createRoom(host, "Baner", "Blue House");
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(requester))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"share\":\"solo\",\"message\":\"First ask.\"}"))
+                    .andExpect(status().isCreated());
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(requester))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"share\":\"solo\",\"message\":\"Second ask.\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+
+            Integer rows = jdbc.queryForObject(
+                    "select count(*) from flatmate_requests where kind = 'room' and target_id = ?::uuid",
+                    Integer.class, id);
+            assertThat(rows).isOne();
+
+            // The refusal is total — the host keeps the pitch they were actually sent.
+            String stored = jdbc.queryForObject(
+                    "select message from flatmate_requests where target_id = ?::uuid",
+                    String.class, id);
+            assertThat(stored).isEqualTo("First ask.");
+        }
+
+        @Test
+        @DisplayName("a second request to a restricted group is refused with 409")
+        void secondGroupRequestIsRefused() throws Exception {
+            User host = user("9820000052", "PickyHost");
+            User joiner = user("9820000053", "Applicant");
+            String id = createGroup(host, "Women only in Kothrud", "Kothrud");
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("pending"));
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+
+            Integer rows = jdbc.queryForObject(
+                    "select count(*) from flatmate_requests where kind = 'group' and target_id = ?::uuid",
+                    Integer.class, id);
+            assertThat(rows).isOne();
+        }
+
+        @Test
+        @DisplayName("a second join of an open group does not take a second seat")
+        void secondOpenJoinTakesNothing() throws Exception {
+            User host = user("9820000054", "OpenHost");
+            User joiner = user("9820000055", "Joiner");
+
+            String json = mvc.perform(post(Routes.Flatmates.GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"title":"Open house in Wakad","locality":"Wakad","policy":"any",
+                                     "rent":40000,"seats":3,"seatsOpen":2,"name":"OpenHost"}
+                                    """))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            String id = publish("flatmate_groups",
+                    json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"share\":\"solo\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("accepted"));
+
+            // Re-publish, and not to paper over anything: this suite seeds moderation state with a
+            // raw JDBC update, which the persistence context it shares with the service never sees.
+            // The auto-accept branch of join() saves the group to spend the seat, and that write
+            // carries the entity's stale `pending` back to the row. A real approval goes through the
+            // moderation API and leaves the loaded entity agreeing with the row, so this is a
+            // property of the harness rather than of the endpoint — but without it the second call
+            // answers 404 and stops telling us anything about duplicates.
+            publish("flatmate_groups", id);
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"share\":\"solo\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+
+            // The seat and the member card are what made this door worse than the other two: the
+            // old pre-check returned the existing row as a success, and join() then ran its
+            // auto-accept block a second time on the strength of it — a duplicate member and a seat
+            // spent on nobody.
+            Integer seatsOpen = jdbc.queryForObject(
+                    "select seats_open from flatmate_groups where id = ?::uuid", Integer.class, id);
+            assertThat(seatsOpen).isOne();
+
+            // Two, and two is the whole claim: the host, who is enrolled as the first member when
+            // the group is created, plus the one person who actually joined. The duplicate press
+            // added nobody. Asserting one here would be asserting the host had vanished.
+            Integer members = jdbc.queryForObject(
+                    "select count(*) from flatmate_group_members where group_id = ?::uuid",
+                    Integer.class, id);
+            assertThat(members).isEqualTo(2);
+        }
+    }
+
     @Nested
     @DisplayName("the mixed feed")
     class Feed {
@@ -338,13 +485,16 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
             User seeker = user("9820000041", "Seeker");
             createRoom(roomHost, "Hinjewadi", "Tech Park Homes");
 
-            mvc.perform(post(Routes.Flatmates.POSTS)
+            String postJson = mvc.perform(post(Routes.Flatmates.POSTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(seeker))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"name":"Seeker","budget":12000,"localities":["Hinjewadi"]}
                                     """))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            publish("flatmate_seeker_posts",
+                    postJson.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
 
             mvc.perform(get(Routes.Flatmates.FEED)
                             .param("tab", "move-in").param("locality", "Hinjewadi"))
@@ -508,12 +658,14 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
 
         private void createFacetRoom(User host, String locality, String society, String lookingFor,
                 String foodPref, long rentShare, String bhk) throws Exception {
-            mvc.perform(post(Routes.Flatmates.ROOMS)
+            String json = mvc.perform(post(Routes.Flatmates.ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(facetRoomBody(
                                     locality, society, lookingFor, foodPref, rentShare, bhk)))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            publish("flatmate_rooms", json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
         }
 
         private String facetGroupBody(String title, String locality, String policy, long rent) {
@@ -525,11 +677,13 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
 
         private void createFacetGroup(User host, String title, String locality, String policy,
                 long rent) throws Exception {
-            mvc.perform(post(Routes.Flatmates.GROUPS)
+            String json = mvc.perform(post(Routes.Flatmates.GROUPS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(facetGroupBody(title, locality, policy, rent)))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            publish("flatmate_groups", json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
         }
 
         @Test

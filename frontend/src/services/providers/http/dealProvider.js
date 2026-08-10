@@ -22,7 +22,7 @@
  * sites below rather than smoothed over, because a control that quietly does nothing is worse than
  * one that is absent.
  */
-import { del, get, post } from '../../http.js';
+import { del, get, post, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
   mayRespond,
@@ -37,12 +37,27 @@ const signedIn = () => !!readAccessToken();
 
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
 
+/**
+ * The four owner/buyer collections below are paged on the wire (D77) and read as plain lists here.
+ *
+ * Every screen that consumes them — the dashboard's listing cards, the property page's deal panel —
+ * filters and totals the rows client-side, so none of them has a pager to drive. `size=100` is the
+ * server's ceiling: the request is bounded, the read is index-served, and {@link unwrapFullPage}
+ * warns on the console the day a caller outgrows it. Handing the envelope through the seam instead
+ * would change the shape of six service functions and every page that calls them, to feed pagers
+ * that do not exist.
+ *
+ * The other reads in this file stay on {@link toList}: they are bare arrays server-side and
+ * deliberately so (`/me/deals/{propId}/parties` is bounded by the parties to one deal).
+ */
+const paged = { size: MAX_PAGE_SIZE };
+
 /* ─── Deals (owner-scoped) ──────────────────────────────────────────────────────────────────── */
 
-/** `GET /me/deals` — every deal on the caller's own listings. */
+/** `GET /me/deals` — every deal on the caller's own listings. Paged (D77). */
 export async function myDeals() {
   if (!signedIn()) return [];
-  return toList(await get('/me/deals'), toDealViewModel);
+  return unwrapFullPage(await get('/me/deals', paged), 'deal').map(toDealViewModel);
 }
 
 /**
@@ -174,16 +189,16 @@ export async function respondOffer(id, action, counterAmount, opts = {}) {
   });
 }
 
-/** `GET /offers/mine` — offers the caller **made**, newest first. */
+/** `GET /offers/mine` — offers the caller **made**, newest first. Paged (D77). */
 export async function myOffers() {
   if (!signedIn()) return [];
-  return toList(await get('/offers/mine'), toOfferViewModel);
+  return unwrapFullPage(await get('/offers/mine', paged), 'offer').map(toOfferViewModel);
 }
 
-/** `GET /me/offers` — offers **on** the caller's own listings, newest first. */
+/** `GET /me/offers` — offers **on** the caller's own listings, newest first. Paged (D77). */
 export async function offersOnMine() {
   if (!signedIn()) return [];
-  return toList(await get('/me/offers'), toOfferViewModel);
+  return unwrapFullPage(await get('/me/offers', paged), 'offer').map(toOfferViewModel);
 }
 
 /* ─── Finalization (maker/checker) ──────────────────────────────────────────────────────────── */
@@ -239,8 +254,8 @@ export async function cancelFinalization(propId) {
  */
 export async function myFinalizationRequests() {
   if (!signedIn()) return [];
-  const rows = await get('/me/finalization-requests');
-  return toList(rows, toFinalizationViewModel).filter(Boolean);
+  const rows = unwrapFullPage(await get('/me/finalization-requests', paged), 'finalization');
+  return rows.map(toFinalizationViewModel).filter(Boolean);
 }
 
 /**

@@ -20,7 +20,11 @@ import java.time.LocalDate;
  * @param status        see {@link RentPaymentStatuses} — {@code due} means pending, not overdue
  * @param method        see {@link PaymentMethods}
  * @param reference     the gateway order id, so a tenant can quote it to support
- * @param failureReason the provider's reason when {@code status} is {@code failed}, else null
+ * @param failureReason why it failed when {@code status} is {@code failed}, else null — usually the
+ *                      provider's reason, or ours when the checkout could never be opened
+ * @param paymentSessionId the single-use Cashfree session for the checkout SDK, present only in the
+ *                      immediate {@code payRent} response for a freshly opened order; never
+ *                      persisted, so always null from the ledger read (D167)
  */
 public record RentPaymentDto(
         String id,
@@ -33,5 +37,12 @@ public record RentPaymentDto(
         String status,
         String method,
         String reference,
-        String failureReason) {
+        String failureReason,
+        String paymentSessionId) {
+
+    /** Same payment with the single-use checkout session attached (fresh order only). */
+    public RentPaymentDto withPaymentSessionId(String sessionId) {
+        return new RentPaymentDto(id, tenancyId, amount, platformFee, gst, dueDate, paidDate,
+                status, method, reference, failureReason, sessionId);
+    }
 }

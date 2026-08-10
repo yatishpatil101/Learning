@@ -62,12 +62,32 @@ public final class FlatmateVocabulary {
      */
     public static final Set<String> VERIFICATION_TIER = Set.of("identity", "tenant", "owner");
 
-    /** Admin moderation axis. Absent reads as {@code live}, so a never-moderated post is not special. */
+    /**
+     * Admin moderation axis.
+     *
+     * <p>{@code pending} is where every newly written post, room and group starts (D72). It is not
+     * a failure state and carries no accusation — it means only that nobody has looked yet. The
+     * board is free-text {@code title}, {@code note} and {@code locality}, which is exactly where a
+     * broker puts a phone number to route around the contact rules, so "visible the instant it is
+     * written" made the moderation queue a cleanup crew rather than a gate.
+     */
     public static final Set<String> MOD_STATUS =
-            Set.of("live", "approved", "flagged", "removed", "rejected");
+            Set.of("pending", "live", "approved", "flagged", "removed", "rejected");
 
-    /** Moderation states that hide a post from every consumer surface — feed, map and alerts alike. */
-    public static final Set<String> MOD_HIDDEN = Set.of("flagged", "removed", "rejected");
+    /**
+     * The moderation states a consumer surface may show — feed, map and alerts alike.
+     *
+     * <p><strong>A whitelist, deliberately.</strong> This used to be its inverse, {@code MOD_HIDDEN}
+     * = {@code flagged, removed, rejected}, and the difference is what happens when somebody adds a
+     * sixth state: with a blacklist the new state is public until a human remembers to add it here,
+     * which is precisely how {@code pending} would have leaked. Stated this way an unknown state is
+     * invisible, and the mistake is a post nobody can see rather than a post nobody vetted.
+     *
+     * <p>{@code live} is here alongside {@code approved} because every row written before D72 has
+     * it, and those posts were published under the old rule. Retroactively pulling the whole board
+     * into a queue would punish people for a policy they could not have known about.
+     */
+    public static final Set<String> MOD_PUBLIC = Set.of("live", "approved");
 
     /** How many people a requester intends to bring to a per-room-priced room. */
     public static final Set<String> SHARE_INTENT = Set.of("solo", "bring", "match");
@@ -93,6 +113,18 @@ public final class FlatmateVocabulary {
     public static final String POLICY_OPEN = "any";
     public static final String STATUS_PENDING = "pending";
     public static final String MOD_LIVE = "live";
+
+    /**
+     * Where a newly written post, room or group starts (D72) — visible to its author, to nobody
+     * else. Shares its spelling with {@link #STATUS_PENDING} but not its meaning: that one is a
+     * host deciding about a person, this one is the platform deciding about a post.
+     */
+    public static final String MOD_PENDING = "pending";
+
+    /** Whether a row in this moderation state may be shown to somebody other than its author. */
+    public static boolean isPublic(String modStatus) {
+        return MOD_PUBLIC.contains(modStatus);
+    }
 
     /**
      * Deprecated {@code ?view=} values, kept as read aliases.

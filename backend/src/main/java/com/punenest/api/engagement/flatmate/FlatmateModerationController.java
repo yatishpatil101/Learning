@@ -66,6 +66,23 @@ public class FlatmateModerationController {
     }
 
     /**
+     * {@code GET /admin/flatmates/moderation} — the queue D72 created.
+     *
+     * <p>Oldest first by default: a moderation queue served newest-first starves the person who has
+     * been waiting longest, which is the one outcome that turns "we moderate posts" into "we lose
+     * posts".
+     */
+    @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
+    @PreAuthorize(STAFF_OR_ADMIN)
+    public PageResponse<FlatmateModerationQueueDto> moderationQueue(
+            @RequestParam(defaultValue = "post") String kind,
+            @RequestParam(required = false) String modStatus,
+            @PageableDefault(size = 20, sort = "createdAt",
+                    direction = Sort.Direction.ASC) Pageable pageable) {
+        return PageResponse.of(service.moderationQueue(kind, modStatus, pageable), dto -> dto);
+    }
+
+    /**
      * {@code PATCH /admin/flatmates/{id}/moderation} (contract {@code moderateFlatmatePost}).
      *
      * <p>200 with no body: the contract declares no response schema, and the client already knows

@@ -15,6 +15,7 @@ import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.JwtService;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -251,8 +252,9 @@ class OfferEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Offers.MINE)
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].amount").value(5000000));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].amount").value(5000000));
     }
 
     // ---- §11 test 8: /me/offers returns only offers on the caller's listings ----
@@ -270,14 +272,15 @@ class OfferEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Offers.ME)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].propertyId").value(p1.getId().toString()));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
     }
 
-    // ---- §11 test 9: Buyer's mobile masked on pending, revealed on accepted ----
+    // ---- §11 test 9: Buyer's mobile masked on pending, stays masked to the owner once accepted ----
 
     @Test
-    void buyerMobile_maskedOnPending_revealedOnAccepted() throws Exception {
+    void buyerMobile_staysMaskedToOwner_evenAfterAccepted() throws Exception {
         User owner = user("9820100020", "owner");
         User buyer = user("9829876543", "buyer");
         Property p = listing(owner, "Mask test");
@@ -287,7 +290,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Offers.ME)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].from.mobile").value("98XXXXX543"));
+                .andExpect(jsonPath("$.content[0].from.mobile").value("98XXXXX543"));
 
         // Accept the offer.
         respond(owner, offerId, "accept", null, null);
@@ -296,7 +299,7 @@ class OfferEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Offers.ME)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].from.mobile").value("9829876543"));
+                .andExpect(jsonPath("$.content[0].from.mobile").value("98XXXXX543"));
     }
 
     // ---- §11 test 10: Duplicate live offer → 409 (DB constraint) ----
@@ -348,6 +351,66 @@ class OfferEndpointsTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"propertyId\":\"" + p.getId() + "\",\"amount\":5000000}"))
                 .andExpect(status().isConflict());
+    }
+
+    // ---- D77: the owner's offer book is paged, and the total counts the book not the page ----
+
+    /**
+     * The whole point of paging an inbound-demand collection: an owner whose listings attract more
+     * offers than fit on a page must still be told how many there are.
+     *
+     * <p>Asserted on {@code totalElements} rather than on {@code content.length()} alone because the
+     * failure this guards against is the plausible one — a count derived from the page, which agrees
+     * with the truth for every owner until the first one gets popular. That is the exact bug D78
+     * fixed for the contact inbox, arriving here by the same route.
+     */
+    @Test
+    void offersOnMine_isPaged_andTotalCountsTheWholeBookNotThePage() throws Exception {
+        User owner = user("9820100040", "owner");
+        Property p1 = listing(owner, "Paging A");
+        Property p2 = listing(owner, "Paging B");
+        Property p3 = listing(owner, "Paging C");
+        // One offer per property: `uq_offers_live_per_user_property` forbids a buyer stacking two
+        // live offers on one listing, so three rows need three listings, not three amounts.
+        submitOffer(user("9820100041", "buyer"), p1, 5000000);
+        submitOffer(user("9820100042", "buyer"), p2, 5100000);
+        submitOffer(user("9820100043", "buyer"), p3, 5200000);
+
+        mvc.perform(get(Routes.Offers.ME).param("page", "0").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mvc.perform(get(Routes.Offers.ME).param("page", "1").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.totalElements").value(3));
+    }
+
+    /**
+     * The order is fixed server-side, so a client sort must be ignored rather than reach the query.
+     *
+     * <p>An unknown property name in {@code ?sort=} is otherwise appended to the JPA query and comes
+     * back as a 500 — a server error any signed-in caller can trigger by guessing. {@code
+     * Pageables.unsorted} is what prevents that, and this is the test that notices if it is dropped.
+     */
+    @Test
+    void offersOnMine_ignoresAClientSuppliedSort_ratherThanFailingOnAnUnknownField() throws Exception {
+        User owner = user("9820100044", "owner");
+        Property p = listing(owner, "Sort strip");
+        submitOffer(user("9820100045", "buyer"), p, 5000000);
+
+        mvc.perform(get(Routes.Offers.ME).param("sort", "notAColumn,desc")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.sort").doesNotExist());
     }
 
     // ---- §11 test 12: Route-constant ↔ SecurityConfig matcher agreement ----
@@ -434,5 +497,49 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .extracting(OfferHistory::getBy)
                 .containsExactly(OfferStatuses.BY_BUYER, OfferStatuses.BY_OWNER,
                         OfferStatuses.BY_BUYER);
+    }
+
+    // ---- Notification on offer submit (tech-debt D92) ----
+
+    private List<Map<String, Object>> notificationsFor(User u) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ?", u.getId());
+    }
+
+    @Test
+    void submitOffer_notifiesOwnerNotBuyer() throws Exception {
+        User owner = user("9820100037", "owner");
+        User buyer = user("9820100038", "buyer");
+        Property p = listing(owner, "Offer notify test");
+
+        submitOffer(buyer, p, 4_100_000L);
+
+        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("offer.received");
+            assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
+            assertThat((String) row.get("title")).contains("Offer notify test");
+            assertThat((String) row.get("body")).contains("4100000");
+            // D5/Q2: the amount and the buyer's display name are fair game, the mobile is not.
+            assertThat((String) row.get("body")).doesNotContain(buyer.getMobile());
+        });
+
+        // Submitting is the buyer's own action.
+        assertThat(notificationsFor(buyer)).isEmpty();
+    }
+
+    @Test
+    void ownerCounters_addsNoFurtherNotification() throws Exception {
+        User owner = user("9820100039", "owner");
+        User buyer = user("9820100040", "buyer");
+        Property p = listing(owner, "Counter silence test");
+        String offerId = submitOffer(buyer, p, 4_000_000L);
+
+        respond(owner, offerId, "counter", 4_500_000L, null);
+
+        // Only the submit is announced, so the owner still has just the one row and the buyer none.
+        // A counter lands inside a negotiation both sides are already reading; announcing every
+        // turn of it would train people to ignore the bell.
+        assertThat(notificationsFor(owner)).hasSize(1);
+        assertThat(notificationsFor(buyer)).isEmpty();
     }
 }

@@ -19,21 +19,28 @@
  *
  * ## 2. `modStatus` decides visibility, and the client must not second-guess it
  *
- * Every flatmate resource carries `modStatus` (`live | approved | flagged | removed | rejected`).
- * The server already filters hidden rows out of public feeds — `MOD_HIDDEN` is
- * `flagged | removed | rejected` — so a public list never contains one.
+ * Every flatmate resource carries `modStatus`
+ * (`pending | live | approved | flagged | removed | rejected`). A new post starts at `pending`
+ * (D72) and the server filters public feeds down to `MOD_PUBLIC` = `live | approved` — so a
+ * public list never contains anything else.
  *
- * But **the owner's own list does**, because somebody whose post was removed needs to know. The
- * client therefore keeps `modStatus` and `isPubliclyVisible`, and uses them only to *label* the
- * owner's copy. Re-filtering a public feed on the client would be duplicating a decision the server
- * has already made, and the two would drift.
+ * But **the owner's own list does**, because somebody whose post is still in review, or was
+ * removed, needs to know. The client therefore keeps `modStatus` and `isPubliclyVisible`, and
+ * uses them only to *label* the owner's copy. Re-filtering a public feed on the client would be
+ * duplicating a decision the server has already made, and the two would drift.
+ *
+ * The rule is expressed as a whitelist for the same reason it is on the server: an unrecognised
+ * state must read as "not public", not as "public".
  */
 
-/** Moderation states that hide a row from everyone but its author. Mirrors `FlatmateVocabulary`. */
-export const MOD_HIDDEN = ['flagged', 'removed', 'rejected'];
+/** Moderation states a row is public in. Mirrors `FlatmateVocabulary.MOD_PUBLIC`. */
+export const MOD_PUBLIC = ['live', 'approved'];
+
+/** The state every newly written post, room and group starts in (D72). */
+export const MOD_PENDING = 'pending';
 
 /** True when a row is visible to people other than its author. */
-export const isPubliclyVisible = (modStatus) => !MOD_HIDDEN.includes(modStatus || 'live');
+export const isPubliclyVisible = (modStatus) => MOD_PUBLIC.includes(modStatus || 'live');
 
 /**
  * ## 3. Seats are the one number that must never be inferred

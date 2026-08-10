@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -98,8 +99,17 @@ class FinanceEndpointsTest extends AbstractApiTest {
     }
 
     private String today() {
-        return LocalDate.now().toString();
+        return today.toString();
     }
+
+    /**
+     * The date the <em>service</em> considers today — India's, not the host's (D174).
+     *
+     * <p>A bare {@code LocalDate.now()} here would disagree with the server for the first 5.5 hours
+     * of every Indian day on a UTC host, and the period windows below would start failing at
+     * midnight IST for reasons that have nothing to do with the contract they are pinning.
+     */
+    private static final LocalDate today = LocalDate.now(PlatformTime.IST);
 
     // ---- 1: a ledger row round-trips with money intact ----
 
@@ -258,7 +268,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
         addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":900000,"
                 + "\"date\":\"" + today() + "\"}");
         addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":700000,"
-                + "\"date\":\"" + LocalDate.now().minusMonths(6) + "\"}");
+                + "\"date\":\"" + today.minusMonths(6) + "\"}");
 
         mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=all")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -280,7 +290,7 @@ class FinanceEndpointsTest extends AbstractApiTest {
         addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":500000,"
                 + "\"date\":\"" + today() + "\"}");
         addTxn(owner, p, "{\"type\":\"income\",\"category\":\"Rent\",\"amount\":400000,"
-                + "\"date\":\"" + LocalDate.now().minusYears(3) + "\"}");
+                + "\"date\":\"" + today.minusYears(3) + "\"}");
 
         mvc.perform(get("/me/finances/" + p.getId() + "/summary?period=quarter")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
@@ -367,9 +377,9 @@ class FinanceEndpointsTest extends AbstractApiTest {
         User owner = user("9821100018");
         Property p = listing(owner);
         addTxn(owner, p, "{\"type\":\"expense\",\"category\":\"Maintenance\",\"amount\":250000,"
-                + "\"date\":\"" + LocalDate.now().minusMonths(2) + "\",\"recurring\":\"monthly\"}");
+                + "\"date\":\"" + today.minusMonths(2) + "\",\"recurring\":\"monthly\"}");
         addTxn(owner, p, "{\"type\":\"expense\",\"category\":\"Repairs\",\"amount\":100000,"
-                + "\"date\":\"" + LocalDate.now().minusMonths(2) + "\"}");
+                + "\"date\":\"" + today.minusMonths(2) + "\"}");
 
         mvc.perform(get("/me/finances/" + p.getId() + "/dues")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))

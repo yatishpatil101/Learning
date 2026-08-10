@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 /* Listings "Map view" marker interaction. On the listings map, clicking a price

@@ -51,6 +51,28 @@ export const saveTenantProfile = (profile) => provider().saveTenantProfile(profi
 /** Somebody else's profile, by mobile — the screening read. `null` when they have none. */
 export const tenantProfileFor = (mobile) => provider().tenantProfileFor(mobile);
 
+/**
+ * Which of these people carry the Verified Tenant badge — **one call for a whole list** (D114).
+ *
+ * The verified tick renders beside every row of a list: every offer on a property, every applicant,
+ * every reviewer. `tenantProfileFor` answers for one person, so asking it per row is an N+1 on a
+ * render path — which is why this badge sat on localStorage for so long, and why it was wrong for
+ * anyone whose profile this browser had never seen.
+ *
+ * Takes an array of mobiles and resolves to a **`Set` of normalised 10-digit numbers** that are
+ * verified. Ask with `set.has(digits(mobile).slice(-10))`.
+ *
+ * **Fails closed, by construction.** The set only ever contains people the server confirmed, so
+ * every failure mode — a rejected request, a signed-out caller, a number the caller only holds in
+ * masked form, a person the caller has no relationship with — produces *absence*, and absence
+ * renders no badge. A verified tenant may lose a tick; an unverified one can never gain one. Callers
+ * should `.catch(() => new Set())` and mean it.
+ *
+ * Only numbers the caller already holds ever cross the wire, and the server echoes each one back
+ * unchanged, so this cannot be used to obtain a number — see the endpoint's own note.
+ */
+export const tenantsVerified = (mobiles) => provider().tenantsVerified(mobiles);
+
 /* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */
 
 /** What the caller has paid, as a tenant. Paged: `{ items, page, size, total, totalPages }`. */

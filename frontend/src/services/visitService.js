@@ -69,9 +69,9 @@ export const updateVisitStatus = (id, status) => provider().updateVisitStatus(id
 /**
  * Reschedule to a new slot, returning the visit to `scheduled` so the other party re-confirms.
  *
- * **The API cannot do this yet.** `PATCH /visit-requests/{id}/status` takes a status and nothing
- * else, and there is no slot-update route — so the http provider throws rather than pretending.
- * Cancel-and-rebook is not a silent substitute: it mints a new id, drops the visit's history, and
- * would 409 against the row it just cancelled if the cancel had not settled first (D87).
+ * Served by `PATCH /visits/{id}/slot` (D87): the seam converts the dashboard's human `when` string
+ * to the ISO instant the server stores. Either participant may reschedule a *live* visit; the
+ * server rejects a terminal one (completed/cancelled/no-show) with a 409, so this does not
+ * second-guess it client-side.
  */
 export const rescheduleVisit = (id, when) => provider().rescheduleVisit(id, when);

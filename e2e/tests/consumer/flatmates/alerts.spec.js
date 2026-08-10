@@ -4,8 +4,10 @@ import { test, expect } from '@playwright/test';
    alert feature. The "create an alert" card (FlatmateAlertCard) is the single entry
    point: it appears whenever the list is empty OR the seeker has narrowed with 2+
    filters (mirroring how the listings page surfaces its alert card as the search
-   tightens). Submitting it creates a per-mobile, dashboard-manageable alert that
-   works even signed-out, keyed by the entered number.
+   tightens). Submitting it creates a per-mobile, dashboard-manageable alert.
+
+   Since D85 the card requires sign-in: a signed-out seeker who submits is routed to
+   /signin?reason=alerts instead of getting a local alert they cannot manage.
 
    The alert's `tab` is one of the two current values, `move-in` or `team-up` — not
    the older `rooms` / `flatmates` / `groups` (tech-debt D86). Those three still work
@@ -56,6 +58,22 @@ test('empty-state card creates a flatmates alert keyed to the entered mobile', a
   expect(saved[0].kind).toBe('flatmates');
   // Entered via the legacy `?view=rooms`; stored as the value it normalises to.
   expect(saved[0].tab).toBe('move-in');
+});
+
+test('signed-out seeker submitting the alert card is routed to sign-in (D85)', async ({ page }) => {
+  await page.goto(`${BASE}/flatmates?view=rooms`);
+  await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
+
+  await forceEmpty(page);
+
+  const createBtn = page.getByRole('button', { name: /Create alert/i });
+  await expect(createBtn).toBeVisible();
+  await createBtn.click();
+
+  await page.waitForURL(/\/signin\?reason=alerts/);
+  // No local alert was written for the signed-out seeker.
+  const saved = await savedSearches(page);
+  expect(saved.length).toBe(0);
 });
 
 test('selecting 2 filters reveals the alert card while results remain, and captures the filters', async ({ page }) => {

@@ -88,7 +88,22 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                         .content(body(name, locality)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        String id = json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        return publish(id);
+    }
+
+    /**
+     * Let a freshly created post out of the moderation queue (D72).
+     *
+     * <p>Since D72 a seeker post is born {@code pending} and is invisible until a moderator decides.
+     * The tests below are about the feed — filtering, contact masking, the one-live-post rule — and
+     * none of them is about moderation, so they seed published supply deliberately rather than
+     * inheriting visibility from a default. The default itself is asserted in
+     * {@link FlatmateModerationGateTest}.
+     */
+    private String publish(String id) {
+        jdbc.update("update flatmate_seeker_posts set mod_status = 'approved' where id = ?::uuid", id);
+        return id;
     }
 
     @Nested
@@ -248,19 +263,27 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("resending edits the pitch and does not notify a second time")
-        void resendIsIdempotent() throws Exception {
+        @DisplayName("a plain sequential resend is refused with 409, not quietly accepted (D175)")
+        void resendIsRefused() throws Exception {
             User host = user("9810000022", "Kiran");
             User requester = user("9810000023", "Lata");
             String id = createPost(host, "Kiran", "Baner");
 
-            for (String message : List.of("First try.", "Better pitch.")) {
-                mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
-                                .header(HttpHeaders.AUTHORIZATION, bearer(requester))
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"message\":\"" + message + "\"}"))
-                        .andExpect(status().isCreated());
-            }
+            mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(requester))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"First try.\"}"))
+                    .andExpect(status().isCreated());
+
+            // No race, no concurrency — just the same person pressing again. This used to answer
+            // 201 and rewrite the pitch while the simultaneous version of the same press answered
+            // 409, which is two contract-visible answers to one action.
+            mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(requester))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"Better pitch.\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
 
             Integer requests = jdbc.queryForObject(
                     "select count(*) from flatmate_requests where target_id = ?::uuid", Integer.class, id);
@@ -271,10 +294,11 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     Integer.class, host.getId().toString());
             assertThat(notifications).isOne();
 
+            // The refusal is total: the first pitch is what the host still has.
             String stored = jdbc.queryForObject(
                     "select message from flatmate_requests where target_id = ?::uuid",
                     String.class, id);
-            assertThat(stored).isEqualTo("Better pitch.");
+            assertThat(stored).isEqualTo("First try.");
         }
 
         @Test
@@ -309,7 +333,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.verifiedContactOnly").value(true))
                     .andReturn().getResponse().getContentAsString();
-            String id = json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+            String id = publish(json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
 
             mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(requester))
@@ -359,9 +383,63 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
             mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].requesterName").value("Sameer"))
-                    .andExpect(jsonPath("$[0].requesterMobile").value("9810000031"))
-                    .andExpect(jsonPath("$[0].status").value("pending"));
+                    .andExpect(jsonPath("$.content[0].requesterName").value("Sameer"))
+                    .andExpect(jsonPath("$.content[0].requesterMobile").value("9810000031"))
+                    .andExpect(jsonPath("$.content[0].status").value("pending"));
+        }
+
+        /**
+         * D77 paged this inbox. The three things a paged read can silently get wrong are all
+         * asserted here: that an unspecified page still answers (so no existing caller had to
+         * change), that {@code totalElements} counts the whole inbox rather than the slice
+         * returned, and that {@code ?status=} narrows *before* the page rather than filtering the
+         * twenty rows that happened to come back.
+         *
+         * <p>Would fail if: the controller lost its {@code @PageableDefault} and 400'd on a bare
+         * request; the service returned {@code new PageImpl<>(dtos)} without the total, making the
+         * count read as the page size; or the filter moved into the mapper, which would report the
+         * unfiltered total beside a filtered list.
+         */
+        @Test
+        @DisplayName("is paged, counts the whole inbox, and filters by status before the page")
+        void inboxIsPagedAndFiltersBeforePaging() throws Exception {
+            User host = user("9810000090", "Vikram");
+            String id = createPost(host, "Vikram", "Baner");
+            for (int i = 0; i < 3; i++) {
+                User requester = user("981000009" + (i + 1), "Asker" + i);
+                mvc.perform(post(Routes.Flatmates.POST_INTEREST, id)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(requester))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"message\":\"Hi!\"}"))
+                        .andExpect(status().isCreated());
+            }
+
+            // No page asked for: the whole inbox, as before paging.
+            mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(3))
+                    .andExpect(jsonPath("$.totalElements").value(3))
+                    .andExpect(jsonPath("$.size").value(20))
+                    .andExpect(jsonPath("$.page").value(0));
+
+            // A page of two: the second page holds the remaining row, and the count is still three.
+            mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
+                            .param("page", "1").param("size", "2")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(1))
+                    .andExpect(jsonPath("$.totalElements").value(3))
+                    .andExpect(jsonPath("$.totalPages").value(2));
+
+            // The filter runs in the query, so a status nobody has is an empty page, not an empty
+            // slice of a non-zero total.
+            mvc.perform(get(Routes.Flatmates.MY_REQUESTS)
+                            .param("status", "accepted")
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(0))
+                    .andExpect(jsonPath("$.totalElements").value(0));
         }
 
         @Test
@@ -441,11 +519,13 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
 
         private void createFacetPost(User author, String name, String locality, String gender,
                 long budget) throws Exception {
-            mvc.perform(post(Routes.Flatmates.POSTS)
+            String json = mvc.perform(post(Routes.Flatmates.POSTS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(author))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(facetBody(name, locality, gender, budget)))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            publish(json.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
         }
 
         @Test

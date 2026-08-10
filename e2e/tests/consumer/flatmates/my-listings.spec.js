@@ -25,12 +25,16 @@ async function postRequest(page) {
   await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Post request/i }).click();
-  /* The "Your live request" manage banner lives on the **Team up** tab only: a flatmate request is
+  /* The own-request manage banner lives on the **Team up** tab only: a flatmate request is
      a person looking for people, so it is not inventory the "Move in now" tab lists. Posting does
      not switch tabs, and the page opens on Move in now — so the banner has to be navigated to
      rather than waited for where the old single-list page used to put it. */
   await page.getByRole('button', { name: /Team up —/i }).click();
-  await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
+  /* The banner reads "in review", not "live": D72 holds every new post until a
+     moderator approves it. The author still manages it from here and from My
+     Listings, which is what this file is about — a post waiting for review must
+     not vanish from its owner's own dashboard. */
+  await expect(page.getByText(/in review/i).first()).toBeVisible({ timeout: 10000 });
 }
 
 test('a non-owner seeker sees My Listings tab and their flatmate request in it', async ({ page }) => {

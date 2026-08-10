@@ -12,7 +12,9 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -69,6 +71,20 @@ public class NotificationController {
                 ? request.ids().stream().map(NotificationController::parseId).toList()
                 : List.of();
         notificationService.markRead(principal.userId(), ids);
+    }
+
+    /**
+     * {@code DELETE /notifications/{id}} (contract {@code dismissNotification}) — 204.
+     *
+     * <p>Dismisses one notification: a hard delete, scoped to the caller. A non-UUID id is answered
+     * 404 by the shared path-id handler, and a well-formed id that is not the caller's own is also
+     * 404 (never 403) — the resource-scoping convention {@code deleteSavedSearch} uses, so an id
+     * space cannot be probed by status code.
+     */
+    @DeleteMapping(Routes.Engagement.NOTIFICATION_BY_ID)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void dismiss(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
+        notificationService.dismiss(principal.userId(), id);
     }
 
     /**

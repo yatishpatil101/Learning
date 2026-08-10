@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
 
 /* Group lifecycle parity with flatmate requests / rooms. Regression cover for the
    three confirmed bugs:
@@ -26,6 +26,8 @@ async function createGroup(page) {
   await page.getByPlaceholder(/e\.g\. 34000/i).fill('40000');
   await page.getByPlaceholder(/Your name/i).fill('Group Owner');
   await page.getByRole('button', { name: /Create group/i }).click();
+  // Held for review (D72); the lifecycle below is what this file protects.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 5000 });
 }

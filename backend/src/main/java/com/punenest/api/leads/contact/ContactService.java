@@ -6,6 +6,7 @@ import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.VerificationRequiredException;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -50,13 +51,15 @@ public class ContactService {
     private final PropertyRepository properties;
     private final UserRepository users;
     private final ContactMapper contactMapper;
+    private final Notifier notifier;
 
     public ContactService(ContactRequestRepository contactRequests, PropertyRepository properties,
-            UserRepository users, ContactMapper contactMapper) {
+            UserRepository users, ContactMapper contactMapper, Notifier notifier) {
         this.contactRequests = contactRequests;
         this.properties = properties;
         this.users = users;
         this.contactMapper = contactMapper;
+        this.notifier = notifier;
     }
 
     /**
@@ -197,6 +200,19 @@ public class ContactService {
         }
         row.setStatus(body.status());
         contactRequests.save(row);
+
+        // Tell the buyer the moment the owner grants contact — the positive outcome they are
+        // waiting on, and until now (tech-debt D92) one nothing announced. A decline is left
+        // silent on purpose: it is a terminal "no", not news the buyer needs pushed at them. The
+        // notify runs inside this transaction, so a rollback takes it with the approval it reports.
+        if (ContactRequestStatuses.APPROVED.equals(body.status())) {
+            notifier.notify(
+                    row.getRequesterId(),
+                    "contact.approved",
+                    "Your contact request was approved",
+                    "You can now message the owner \u2014 open the listing to start the conversation.",
+                    "/property/" + row.getPropertyId());
+        }
     }
 
     /**
@@ -209,9 +225,6 @@ public class ContactService {
     private ContactStatusResponse describe(UUID viewerId, Property property) {
         User owner = property.getOwner();
         boolean verifiedContactOnly = owner != null && owner.isVerifiedContactOnly();
-        // The owner's own view is never affected by their own hide-number preference — it is about
-        // who else sees the number — so this is reported as false on the owner branch below.
-        boolean ownerHidesNumber = owner != null && owner.isHideNumber();
 
         if (owner != null && owner.getId().equals(viewerId)) {
             return new ContactStatusResponse(ContactStatuses.OWNER, verifiedContactOnly, false, false);
@@ -219,9 +232,13 @@ public class ContactService {
         String status = contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId())
                 .map(ContactRequest::getStatus)
                 .orElse(ContactStatuses.NONE);
+        // D5 (global policy): the owner's raw number is never revealed to another viewer, whatever
+        // their own hide-number preference — approval unlocks the in-app conversation, not the
+        // digits. The signal is therefore constant-true for every non-owner viewer, which routes the
+        // client to the message affordance instead of a tel:/wa.me link.
         return new ContactStatusResponse(
                 status, verifiedContactOnly, verifiedContactOnly && !hasBadge(viewerId),
-                ownerHidesNumber);
+                true);
     }
 
     /**

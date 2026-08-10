@@ -7,10 +7,12 @@ import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +34,13 @@ public class PropertyModerationService {
 
     private final PropertyRepository properties;
     private final AuditService audit;
+    private final Notifier notifier;
 
-    public PropertyModerationService(PropertyRepository properties, AuditService audit) {
+    public PropertyModerationService(PropertyRepository properties, AuditService audit,
+            Notifier notifier) {
         this.properties = properties;
         this.audit = audit;
+        this.notifier = notifier;
     }
 
     /**
@@ -63,6 +68,25 @@ public class PropertyModerationService {
         }
         audit.record(actor, "property.status", "property", id, "from", from, "to", status,
                 "reason", reason, "owner", String.valueOf(property.getOwner().getId()));
+
+        // Tell the owner what the moderator decided about their listing (tech-debt D92). Only the
+        // two terminal verdicts are announced: a bounce back to `pending` is an internal queue
+        // move, not an outcome the owner acted to reach. A rejected listing is not publicly
+        // viewable, so its link points at the dashboard rather than the dead /property page.
+        UUID ownerId = property.getOwner().getId();
+        if (PropertyStatus.APPROVED.equals(status)) {
+            notifier.notify(ownerId, "listing.approved",
+                    "Your listing is approved",
+                    "It is now live and visible to buyers.",
+                    "/property/" + property.getId());
+        } else if (PropertyStatus.REJECTED.equals(status)) {
+            notifier.notify(ownerId, "listing.rejected",
+                    "Your listing needs changes",
+                    reason == null || reason.isBlank()
+                            ? "A moderator could not approve it. Please review and resubmit."
+                            : "A moderator could not approve it: " + reason,
+                    "/dashboard");
+        }
         return property;
     }
 

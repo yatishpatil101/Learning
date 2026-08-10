@@ -32,6 +32,11 @@ import java.time.Instant;
  * @param status       moderation status (always {@code approved} on public results)
  * @param dealStatus   deal outcome ({@code active|reserved|closed}); {@code reserved} badges a card
  *                     "under offer" without an extra fetch (D110)
+ * @param boosted      the owner is paying for this listing's position in the default order (D59).
+ *                     Present so the card can <em>disclose</em> paid placement rather than only
+ *                     benefit from it — ranking a listing higher for money without saying so is an
+ *                     undisclosed ad. Computed from the promotion window against request time, so
+ *                     it is never stale. It is a label, not a capability: nothing is gated on it.
  * @param createdAt    row creation time
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -58,5 +63,6 @@ public record PropertySummary(
         String postedByType,
         String status,
         String dealStatus,
+        boolean boosted,
         Instant createdAt) {
 }

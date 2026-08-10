@@ -7,6 +7,15 @@ import { matchRentType, matchBuyType, bhkMatch, commercialTypeMatch, offersShari
 import { RANGE } from './filterState.js';
 import { propLatLng } from './geo.js';
 
+/**
+ * Sort key for paid placement (D59): 1 while the promotion window is open, 0 otherwise.
+ *
+ * Reads the derived `boosted` flag the read boundary attaches (the wire's own field in http mode,
+ * `isBoostedNow` in mock mode) rather than re-deriving it from `boostedUntil` here, so there is one
+ * definition of "promoted right now" per mode and this pipeline cannot drift from the badge.
+ */
+const boostRank = (p) => (p.boosted ? 1 : 0);
+
 // Relevance ranking: promote the listings a buyer/tenant should trust and act on first —
 // featured slots, verified owners/ownership + RERA, actively-managed (fresh) listings, and
 // more complete listings (photos, description, amenities via the shared quality score).
@@ -102,8 +111,12 @@ export function computeResults({ all, df, sort, urlQ, locNameBySlug, tr }) {
     list = list.slice();
     if (sort === 'price-low') list.sort((a, b) => a.price - b.price);
     else if (sort === 'price-high') list.sort((a, b) => b.price - a.price);
-    else if (sort === 'newest') list.sort((a, b) => createdMs(b.createdAt) - createdMs(a.createdAt));
-    else list.sort((a, b) => relevanceScore(b) - relevanceScore(a) || createdMs(b.createdAt) - createdMs(a.createdAt));
+    // Paid placement (D59) applies to the two *default-ish* orders only — `newest` and the
+    // `relevance` fallback — and never to an explicit price sort above. Ranking a promoted listing
+    // above one the buyer asked to see first is deception, not advertising; the server draws the
+    // line in the same place (`PropertySort.hasExplicitSort`).
+    else if (sort === 'newest') list.sort((a, b) => boostRank(b) - boostRank(a) || createdMs(b.createdAt) - createdMs(a.createdAt));
+    else list.sort((a, b) => boostRank(b) - boostRank(a) || relevanceScore(b) - relevanceScore(a) || createdMs(b.createdAt) - createdMs(a.createdAt));
     return list;
   };
 

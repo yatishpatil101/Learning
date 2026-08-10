@@ -1,14 +1,14 @@
 /**
  * HTTP visit provider — the live counterpart to `providers/mock/visitProvider.js`.
  *
- * Two reads, one write, and one operation the API cannot serve yet (see `rescheduleVisit`).
+ * Two reads and two writes (schedule, and reschedule via `PATCH /visits/{id}/slot`, D87).
  *
  * The only real translation is the slot: the server carries a single ISO instant plus a separate
  * `mode`, while the dashboard reads one human `when` string through `parseWhen`. Both directions
  * live in `lib/visitWhen.js`, beside the parser they have to stay mutually readable with.
  */
-import { get, patch, post } from '../../http.js';
-import { slotFromParts, whenFromSlot } from '../../../lib/visitWhen.js';
+import { get, patch, post, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
+import { slotFromParts, slotFromWhen, whenFromSlot } from '../../../lib/visitWhen.js';
 
 /**
  * Wire `Visit` → the seam's shape.
@@ -38,16 +38,24 @@ function toViewModel(row) {
   };
 }
 
-const toList = (rows) => (Array.isArray(rows) ? rows : []).map(toViewModel);
+/**
+ * Both reads are paged on the wire (D77) and read as plain lists here.
+ *
+ * The dashboard groups visits into upcoming/past and the calendar buckets them by day, both from
+ * one array; neither has a pager. `size=100` is the server's ceiling, so the request stays bounded
+ * and {@link unwrapFullPage} warns the day somebody's visit history outgrows it — which matters
+ * more here than elsewhere, because a missing row reads as "that viewing was cancelled".
+ */
+const paged = { size: MAX_PAGE_SIZE };
 
-/** `GET /visits` — visits the caller booked. Caller-scoped by the token. */
+/** `GET /visits` — visits the caller booked. Caller-scoped by the token. Paged (D77). */
 export async function listVisits() {
-  return toList(await get('/visits'));
+  return unwrapFullPage(await get('/visits', paged), 'visit').map(toViewModel);
 }
 
-/** `GET /me/visit-requests` — visits on the caller's own listings. */
+/** `GET /me/visit-requests` — visits on the caller's own listings. Paged (D77). */
 export async function myVisitRequests() {
-  return toList(await get('/me/visit-requests'));
+  return unwrapFullPage(await get('/me/visit-requests', paged), 'visit').map(toViewModel);
 }
 
 /**
@@ -80,20 +88,15 @@ export async function updateVisitStatus(id, status) {
 }
 
 /**
- * Not supported by the API.
+ * `PATCH /visits/{id}/slot` — reschedule a live visit to a new slot (D87).
  *
- * `PATCH /visit-requests/{id}/status` accepts a status and a note — there is no route that moves a
- * visit's slot. Cancel-and-rebook is not a silent substitute: it mints a new id (breaking the row
- * the UI is holding), discards the visit's history, and would hit the duplicate-visit 409 against
- * the row it had just cancelled unless that write had already settled.
- *
- * Throwing follows the same convention as `propertyProvider`'s unshipped admin moderation and the
- * saved-search anonymous capture: an operation with no server home fails loudly rather than writing
- * somewhere the reads will never look (D87).
+ * The dashboard passes a human `when` string; the seam converts it to the ISO instant the server
+ * stores, via `slotFromWhen` (the same converter the booking form uses, kept beside `parseWhen` so
+ * the two never drift). The server resets the visit to `scheduled`; it returns 200 with no body, so
+ * the caller gets the id and new `when` back rather than a row — the dashboard already applied the
+ * change optimistically and only rolls back on rejection.
  */
-export async function rescheduleVisit() {
-  throw new Error(
-    '[visit] Reschedule is not supported by the API: PATCH /visit-requests/{id}/status carries a '
-      + 'status only, and there is no slot-update route. Needs a reschedule endpoint (D87).',
-  );
+export async function rescheduleVisit(id, when) {
+  await patch(`/visits/${encodeURIComponent(id)}/slot`, { slot: slotFromWhen(when) });
+  return { id, when };
 }

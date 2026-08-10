@@ -34,7 +34,7 @@ public class ServiceRequest extends VersionedEntity {
     @Column(name = "requester_id", updatable = false)
     private UUID requesterId;
 
-    /** Free text by contract ({@code rent-agreement}, {@code legal-opinion}) — the desk's word. */
+    /** One of {@link com.punenest.api.services.request.ServiceRequestTypes} — the desk's word. */
     @Column(name = "type", nullable = false, updatable = false)
     private String type;
 
@@ -59,6 +59,23 @@ public class ServiceRequest extends VersionedEntity {
     @Column(name = "details")
     private Map<String, Object> details;
 
+    /**
+     * What the customer was charged, in whole rupees. {@code null} for a free desk (a legal
+     * opinion), set once at creation for a priced one (a rent agreement) from the published fee.
+     */
+    @Column(name = "amount")
+    private Long amount;
+
+    /**
+     * The Cashfree order id, and how the payment webhook finds this request again.
+     *
+     * <p>Null between {@link #awaitPayment} and {@link #attachOrder}: the request is committed in
+     * {@code awaiting-payment} before the order is opened (D148), because opening it first means an
+     * exception on the way to commit destroys the request while its order stays payable at Cashfree.
+     */
+    @Column(name = "payment_ref")
+    private String paymentRef;
+
     protected ServiceRequest() {
         // JPA
     }
@@ -68,6 +85,38 @@ public class ServiceRequest extends VersionedEntity {
         this.type = type;
         this.propertyId = propertyId;
         this.details = details;
+    }
+
+    /**
+     * Hold this request behind a gateway order until it is paid for.
+     *
+     * <p>Sets the initial state to {@link ServiceRequestStatuses#AWAITING_PAYMENT} — not a
+     * transition, the starting state of a priced request — and records what it costs. The order it
+     * is waiting on lands separately in {@link #attachOrder}, because the row must be committed
+     * before Cashfree is asked for one (D148). Package-private for the same reason {@link #moveTo}
+     * is: only {@link ServiceRequestService} decides a request is priced.
+     */
+    void awaitPayment(long amount) {
+        this.status = ServiceRequestStatuses.AWAITING_PAYMENT;
+        this.amount = amount;
+    }
+
+    /**
+     * Record the order this request is waiting on, in the transaction after the one that committed
+     * it (D148).
+     *
+     * <p>Refuses to overwrite an existing ref: the displaced order would still be payable and its
+     * callback would then match no request, so a customer who paid for their agreement would sit at
+     * {@code awaiting-payment} while the money sits unallocated.
+     *
+     * @return whether the id was taken
+     */
+    boolean attachOrder(String orderId) {
+        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(status) || paymentRef != null) {
+            return false;
+        }
+        this.paymentRef = orderId;
+        return true;
     }
 
     /**

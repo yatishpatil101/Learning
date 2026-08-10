@@ -205,6 +205,22 @@ public final class Routes {
         public static final String PUBLISH = BASE + "/{id}/publish";
     }
 
+    /**
+     * Listing photo upload. Unscoped by property on purpose: in the create-listing wizard the
+     * photos are chosen before the property exists, so there is nothing to scope to yet. Any
+     * signed-in user may upload — the same stance as {@link MeDocuments}, since anyone becomes an
+     * owner the moment they post a listing — and the returned CDN URL travels with the listing
+     * through the normal create/update contract.
+     */
+    public static final class MePhotos {
+
+        private MePhotos() {
+        }
+
+        public static final String BASE = "/me/photos";
+    }
+
+
     /** The contact gate: what a signed-in caller may see of a listing owner, and how to ask. */
     public static final class Contacts {
 
@@ -283,7 +299,10 @@ public final class Routes {
         /** The raiser or ops — add a message. */
         public static final String MESSAGES = BY_ID + "/messages";
 
-        /** The raiser — clear the unread flag. */
+        /**
+         * The raiser or ops — clear the caller's own unread flag, and only that one (D50, V53).
+         * The platform-wide queue this feeds is {@link Admin#SUPPORT_TICKETS}.
+         */
         public static final String READ = BY_ID + "/read";
     }
 
@@ -356,7 +375,7 @@ public final class Routes {
         public static final String DECLINE = "/finalization/requests/{reqId}/decline";
     }
 
-    /** The visit lifecycle: schedule, list, update status. Two surfaces, one entity (D3). */
+    /** The visit lifecycle: schedule, list, update status, reschedule. Two surfaces, one entity (D3). */
     public static final class Visits {
 
         private Visits() {
@@ -373,6 +392,9 @@ public final class Routes {
 
         /** Authenticated — update visit status (confirm/cancel/complete/no-show). */
         public static final String STATUS = "/visit-requests/{id}/status";
+
+        /** Authenticated — reschedule a live visit to a new slot; either participant may (D87). */
+        public static final String SLOT = BASE + "/{id}/slot";
     }
 
     /** The caller's opt-in identity badge (L2). Absence never blocks anything (ADR-019). */
@@ -383,6 +405,13 @@ public final class Routes {
 
         /** Authenticated — {@code GET} reads the badge, {@code POST} starts the DigiLocker flow. */
         public static final String AADHAAR = "/me/verification/aadhaar";
+
+        /**
+         * Authenticated, <strong>{@code dev} profile only</strong> ({@code @DevOnly}) — grants the
+         * caller the badge by synthesizing a DigiLocker success, so the earned-badge state can be
+         * demonstrated in http/dev mode where no real webhook ever arrives (D122).
+         */
+        public static final String AADHAAR_SIMULATE = AADHAAR + "/simulate";
     }
 
     /**
@@ -438,6 +467,16 @@ public final class Routes {
 
         /** Authenticated — an owner screening a tenant they have a relationship with. */
         public static final String PROFILE_BY_MOBILE = "/tenant-profiles/{mobile}";
+
+        /**
+         * Authenticated — the badge-only batch of {@link #PROFILE_BY_MOBILE} (D114).
+         *
+         * <p>{@code POST} because the input is a list of mobile numbers: a query string carrying
+         * them would put the identifier the whole contact gate exists to protect into access logs,
+         * proxy caches and browser history. No collision with {@link #PROFILE_BY_MOBILE} — that is
+         * a {@code GET} and this is a {@code POST}, so the two never compete for a path pattern.
+         */
+        public static final String PROFILES_VERIFIED = "/tenant-profiles/verified";
     }
 
     /**
@@ -500,6 +539,9 @@ public final class Routes {
 
         /** Authenticated — marks the given ids read, or all of them when the body is absent. */
         public static final String NOTIFICATIONS_READ = NOTIFICATIONS + "/read";
+
+        /** Authenticated — {@code DELETE} one notification the caller owns (dismiss). */
+        public static final String NOTIFICATION_BY_ID = NOTIFICATIONS + "/{id}";
     }
 
     /**
@@ -737,6 +779,18 @@ public final class Routes {
         /** Customer or staff — attach a document to the request. */
         public static final String DOCS = BY_ID + "/docs";
 
+        /**
+         * The parties' PAN and Aadhaar (D151) — <strong>written by the requester, read only by the
+         * staff member the request is assigned to</strong>.
+         *
+         * <p>The narrowest route on this resource, and the only one whose read guard is neither a
+         * role nor "the requester" but a specific person. A Leave &amp; License prints these numbers,
+         * so the drafting desk needs them; {@code details} used to carry them and echoed them to
+         * every staff read of the queue, which is why they now have a route of their own instead of
+         * a field on {@link #BY_ID}.
+         */
+        public static final String IDENTITIES = BY_ID + "/identities";
+
         /** Staff/admin — the maker: share a draft for approval (spec fix S41). */
         public static final String DRAFT = BY_ID + "/draft";
 
@@ -968,6 +1022,24 @@ public final class Routes {
          */
         public static final String FLATMATE_MODERATION = "/admin/flatmates/{id}/moderation";
 
+        /**
+         * Admin — the flatmate moderation queue: what is waiting to be let out (D72).
+         *
+         * <p>Since D72 a seeker post, room or group starts {@code pending} and is invisible until a
+         * moderator says otherwise. That rule is only honest if there is somewhere to see the
+         * backlog; without this route "moderate before public" would mean "never public".
+         *
+         * <p>Separate from {@link #FLATMATE_REVIEWS}, which is the <em>verification</em> queue —
+         * "has this host proved what they claimed" — and answers a different question about a
+         * different table. Collapsing them would make an unbadged post look like an unvetted one.
+         *
+         * <p>The caller names one {@code kind} per request rather than getting a merged board.
+         * Posts, rooms and groups live in three tables with three shapes; a union would have to
+         * page across all three, which cannot be done without either loading everything or lying
+         * about the total.
+         */
+        public static final String FLATMATE_MODERATION_QUEUE = "/admin/flatmates/moderation";
+
         /** Admin — flatmate group applications to owners' listings. */
         public static final String GROUP_APPLICATIONS = "/admin/group-applications";
 
@@ -1026,6 +1098,16 @@ public final class Routes {
 
         /** Staff/admin — one metric, bucketed over a date range. */
         public static final String ANALYTICS = "/admin/analytics";
+
+        /**
+         * Staff/admin — the platform-wide support queue, paged (D51).
+         *
+         * <p>Lives here rather than as a role branch inside {@code GET /support/tickets}, which is
+         * the caller's own tickets for everybody (S47). One operation cannot be a bare array for a
+         * customer and a page envelope for an admin, and "every support conversation on the
+         * platform" unpaged is a PII export whichever role asks for it.
+         */
+        public static final String SUPPORT_TICKETS = "/admin/support-tickets";
 
         /**
          * Admin only — revenue, liabilities and the revenue split.

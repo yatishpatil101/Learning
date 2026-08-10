@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { hasInterest as hasInterestDB } from '../../../lib/data/flatmates.js';
+import LoadError from '../../../components/LoadError.jsx';
+import { hasInterest as hasInterestDB, isPubliclyVisible } from '../../../lib/data/flatmates.js';
 import { inr, isVerifiedPost } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
@@ -10,14 +11,20 @@ import GroupCard from './GroupCard.jsx';
 import Empty from './Empty.jsx';
 import FlatmateAlertCard from './FlatmateAlertCard.jsx';
 
-export default function Results({ tab, myPost, openPostModal, markFilled, deleteMyRequest, activeList = [], otherCount = 0, onSwitchTab, saved, onSave, interests, onInterest, onRoomInterest, onReport, onJoin, ownsGroup, onDeleteGroup, onSeatsChange, onRoomSeatsChange, onRoomPeopleChange, onReissueAgreement, ownsRoom, reviews = {}, filtersActive, onClearFilters, onPost, filters, toast, activeFilterCount = 0, raiseHint, onRaiseBudget }) {
+export default function Results({ tab, myPost, openPostModal, markFilled, deleteMyRequest, activeList = [], otherCount = 0, onSwitchTab, saved, onSave, interests, onInterest, onRoomInterest, onReport, onJoin, ownsGroup, onDeleteGroup, onSeatsChange, onRoomSeatsChange, onRoomPeopleChange, onReissueAgreement, ownsRoom, reviews = {}, filtersActive, onClearFilters, onPost, filters, toast, activeFilterCount = 0, raiseHint, onRaiseBudget, feedFailed = false, feedError, onRetryFeeds }) {
   const { t } = useTranslation();
   const isMoveIn = tab === TAB_MOVE_IN;
+  /* A feed that failed and a feed that is genuinely empty look the same from here, so the board
+     asks which one it is before saying anything (D166). Only the *empty* case is ambiguous — if
+     something loaded, the user has real posts to read and the app-wide banner is already saying
+     the connection is unhappy, so we do not bury results under a warning. */
+  const showLoadError = feedFailed && activeList.length === 0;
 
   // Offer the "create an alert" card as the search tightens: whenever the list is
   // empty, or the seeker has narrowed with 2+ filters (enough intent to want a ping
-  // when a match lists). Mirrors the listings page surfacing its alert card.
-  const showAlert = activeList.length === 0 || activeFilterCount >= 2;
+  // when a match lists). Mirrors the listings page surfacing its alert card. Not
+  // offered on a failed read — "get alerted when one appears" implies there are none.
+  const showAlert = !showLoadError && (activeList.length === 0 || activeFilterCount >= 2);
 
   // Trust merchandising + smarter empty states: how many results are verified, the
   // active filters spelled out as chips (WHY it's empty), and the live text query.
@@ -41,15 +48,23 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
   return (
     <>
       {/* The user's own live request is a "people" object, so its manage banner
-          belongs on the Team up side only. */}
-      {myPost && !isMoveIn && (
-        <div className="mb-5 rounded-2xl border border-teal-500/30 bg-teal-500/5 p-4 sm:p-5">
+          belongs on the Team up side only.
+
+          A new post is not on the board yet — it waits for a moderator (D72). The
+          banner has to say so, because the alternative is a success toast followed
+          by a board the author cannot find themselves on, which reads as a bug and
+          invites them to post again. */}
+      {myPost && !isMoveIn && (() => {
+        const inReview = !isPubliclyVisible(myPost);
+        return (
+        <div className={'mb-5 rounded-2xl border p-4 sm:p-5 ' + (inReview ? 'border-amber-500/30 bg-amber-500/5' : 'border-teal-500/30 bg-teal-500/5')}>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-300 mb-1 flex items-center gap-1.5"><Icon name="megaphone" className="w-3.5 h-3.5" /> {t('flatmates.yourLiveRequest')}</p>
+              <p className={'text-[11px] font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5 ' + (inReview ? 'text-amber-300' : 'text-teal-300')}><Icon name={inReview ? 'clock' : 'megaphone'} className="w-3.5 h-3.5" /> {inReview ? t('flatmates.yourRequestInReview') : t('flatmates.yourLiveRequest')}</p>
               <p className="text-white font-semibold">{myPost.name} · {inr(myPost.budget)}{t('flatmates.perMonth')} · {(myPost.localities || []).join(', ')}</p>
               {myPost.note && <p className="text-gray-400 text-xs mt-1 line-clamp-2">"{myPost.note}"</p>}
-              <p className="text-[11px] text-gray-500 mt-1 inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{myPost.time}{myPost.verified ? ' · ' + t('flatmates.verifiedSeeker') : ''}{myPost.verifiedContactOnly ? ' · ' + t('flatmates.verifiedOnlyContact') : ''}</p>
+              {inReview && <p className="text-amber-200/80 text-xs mt-1.5">{t('flatmates.inReviewHint')}</p>}
+              <p className="text-[11px] text-gray-500 mt-1 inline-flex items-center gap-1"><span className={'w-1.5 h-1.5 rounded-full ' + (inReview ? 'bg-amber-400' : 'bg-emerald-400')} />{myPost.time}{myPost.verified ? ' · ' + t('flatmates.verifiedSeeker') : ''}{myPost.verifiedContactOnly ? ' · ' + t('flatmates.verifiedOnlyContact') : ''}</p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => openPostModal(myPost.id)} className="btn-ghost text-xs font-medium text-gray-200 px-3.5 py-2 rounded-xl inline-flex items-center gap-1.5"><Icon name="pencil" className="w-3.5 h-3.5" /> {t('flatmates.edit')}</button>
@@ -58,17 +73,24 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <p className="text-sm text-gray-400">
-          <span className="text-white font-semibold">{activeList.length}</span>{' '}
-          {isMoveIn ? t('flatmates.homesAvailable', { count: activeList.length }) : t('flatmates.peopleLooking', { count: activeList.length })}
-          {verifiedCount > 0 && <> · <span className="text-emerald-300 font-semibold">{t('flatmates.nVerified', { count: verifiedCount })}</span></>}
+          {showLoadError ? t('flatmates.countUnavailable') : (
+            <>
+              <span className="text-white font-semibold">{activeList.length}</span>{' '}
+              {isMoveIn ? t('flatmates.homesAvailable', { count: activeList.length }) : t('flatmates.peopleLooking', { count: activeList.length })}
+              {verifiedCount > 0 && <> · <span className="text-emerald-300 font-semibold">{t('flatmates.nVerified', { count: verifiedCount })}</span></>}
+            </>
+          )}
         </p>
       </div>
 
-      {activeList.length ? (
+      {showLoadError ? (
+        <LoadError message={t('flatmates.loadError')} error={feedError} onRetry={onRetryFeeds} />
+      ) : activeList.length ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">{activeList.map(renderCard)}</div>
       ) : (
         <Empty

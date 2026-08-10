@@ -3,8 +3,14 @@
 -- idempotent (ON CONFLICT). Reference/master data only -- never user data.
 
 -- Platform fee breakdown backing GET /fees (illustrative INR; confirm real figures before launch).
+--
+-- The `rent` row publishes NULL for stamp duty and registration on purpose (D163, V52). Both are
+-- statutory and neither is a flat number: Art. 36A duty is 0.25% of a consideration built from the
+-- rent, the term and the deposit, and registration is Rs 1000 municipal / Rs 500 rural. A single
+-- seeded figure would be right for one tenancy and wrong for every other, so the schedule declines
+-- to publish one and `catalog.fee.LeaveAndLicenceCharges` computes the real figure per request.
 INSERT INTO platform_fees (deal, brokerage, platform_fee, stamp_duty, registration, gst, notes) VALUES
-    ('rent', 0, 1999, 0,     0,     360, 'Zero brokerage; flat rent-agreement platform fee + 18% GST.'),
+    ('rent', 0, 1999, NULL,  NULL,  360, 'Zero brokerage; flat rent-agreement platform fee + 18% GST. Maharashtra stamp duty (0.25% of rent for the term + non-refundable deposit + 10% of the refundable deposit per year) and registration (Rs 1,000 municipal / Rs 500 rural) are statutory, computed per agreement from your terms, and collected on top.'),
     ('buy',  0, 4999, 0,     30000, 900, 'Zero brokerage; stamp duty/registration are indicative, state-specific.')
 ON CONFLICT (deal) DO UPDATE SET
     brokerage    = EXCLUDED.brokerage,

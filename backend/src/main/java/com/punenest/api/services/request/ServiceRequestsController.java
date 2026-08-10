@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -46,8 +47,30 @@ public class ServiceRequestsController {
 
     private final ServiceRequestService service;
 
-    public ServiceRequestsController(ServiceRequestService service) {
+    /**
+     * The identity-number channel (D151). A separate collaborator rather than more methods on
+     * {@link ServiceRequestService}, because its authorisation rule is unlike anything else on this
+     * resource — not a role and not the requester, but the one person the request is assigned to —
+     * and folding it in would have hidden that among nine methods that all resolve "ops or the
+     * customer".
+     */
+    private final ServiceRequestIdentityService identities;
+
+    /**
+     * {@code POST /service-requests/{id}/cancel} — the customer's escape from an abandoned checkout
+     * (D152).
+     *
+     * <p>Composed from {@link Routes.ServiceRequests#BY_ID} here rather than declared in
+     * {@code Routes} alongside its siblings, which is where it belongs and where it should be moved:
+     * it is left local only because this change could not touch that file. Both forms are the same
+     * compile-time constant, so the annotation and every test resolve to one string either way.
+     */
+    private static final String CANCEL = Routes.ServiceRequests.BY_ID + "/cancel";
+
+    public ServiceRequestsController(ServiceRequestService service,
+            ServiceRequestIdentityService identities) {
         this.service = service;
+        this.identities = identities;
     }
 
     /**
@@ -118,6 +141,51 @@ public class ServiceRequestsController {
     }
 
     /**
+     * {@code PUT /service-requests/{id}/identities} (contract {@code putServiceRequestIdentities})
+     * — 204. The requester's, and nobody else's (D151).
+     *
+     * <p><strong>No {@code @PreAuthorize}, deliberately</strong>, and for the same reason as the
+     * draft decision: the guard is participant identity, which is stronger than a role. A staff
+     * caller is refused by the service — a desk that could write the parties' identity numbers could
+     * also invent them, and the agreement would then name somebody the customer never identified.
+     *
+     * <p>{@code PUT} rather than {@code POST} because the body is the complete set: the wizard
+     * resubmits every party when the customer corrects one, and append semantics would leave the
+     * mistyped number behind. 204 rather than the recorded set, because echoing identity numbers
+     * onto a response that nobody reads them from is exactly the habit that made {@code details} a
+     * leak.
+     */
+    @PutMapping(Routes.ServiceRequests.IDENTITIES)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void putIdentities(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @Valid @RequestBody ServiceRequestIdentitiesRequest body) {
+        identities.replace(principal, id, body);
+    }
+
+    /**
+     * {@code GET /service-requests/{id}/identities} (contract
+     * {@code getServiceRequestIdentities}, {@code x-roles: [staff, admin]}) — the parties' PAN and
+     * Aadhaar, for the operator drafting from them (D151).
+     *
+     * <p><strong>The role annotation is the outer guard, not the real one.</strong> It keeps
+     * customers off a staff route; the service then refuses every staff member except the one the
+     * request is assigned to, admins included. An admin who needs the numbers assigns the request to
+     * themselves first — two visible moves if somebody else already holds it, since there is no
+     * {@code assigned → assigned} transition — and each one is a timeline entry and an audit row. The
+     * control is accountability, not prohibition, but it has to be crossed on purpose.
+     *
+     * <p>Every call here is written to {@code audit_log}, refusals as well as reads. Nothing else on
+     * this controller is audited on the read path, because nothing else on it returns an Aadhaar
+     * number.
+     */
+    @GetMapping(Routes.ServiceRequests.IDENTITIES)
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    public List<ServiceRequestIdentityDto> getIdentities(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id) {
+        return identities.forAssignee(principal, id);
+    }
+
+    /**
      * {@code POST /service-requests/{id}/draft} (contract {@code shareServiceRequestDraft},
      * spec fix S41, {@code x-roles: [staff, admin]}) — the maker's half of the maker-checker.
      */
@@ -156,6 +224,29 @@ public class ServiceRequestsController {
     public DocumentDto uploadFinalDoc(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestParam("file") MultipartFile file) {
         return service.uploadFinalDoc(principal, id, file);
+    }
+
+    /**
+     * {@code POST /service-requests/{id}/cancel} — 200. The requester's own, and nobody else's.
+     *
+     * <p><strong>No {@code @PreAuthorize}, for the same reason as the draft decision above and the
+     * mirror image of it.</strong> This one belongs to the customer, and the service refuses anyone
+     * who is not the requester — including an admin, who already has {@code PATCH /status} for the
+     * ops-side cancellation and does not need a second door into it.
+     *
+     * <p>A separate verb rather than opening {@code cancelled} to the customer through
+     * {@code PATCH /status}: that endpoint is the ops workflow and its guard is a role. Handing the
+     * customer a status field is handing them every status the field will ever accept, and the
+     * maker-checker is exactly the thing that depends on them not having it.
+     *
+     * <p>404 if the request is not theirs (a stranger's is invisible, never forbidden), 403 if a
+     * staff caller tries it, 409 if the request is not waiting for payment — the file's existing
+     * convention for "the resource is not in a state where this makes sense", as on the draft
+     * decision and the final document.
+     */
+    @PostMapping(CANCEL)
+    public ServiceRequestDto cancel(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.cancelUnpaid(principal, id);
     }
 
     /** Body of {@code updateServiceRequestStatus} (schema {@code StatusUpdate}). */

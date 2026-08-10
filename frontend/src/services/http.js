@@ -10,6 +10,7 @@
  *    on raw status codes or guess at the body shape
  *  - transparently recover from an expired access token: 401 → refresh → retry once
  *  - surface the server's `X-Trace-Id` on every error so a UI report maps to a backend log line
+ *  - report every request's *reachability* to whoever is listening (see {@link observeReachability})
  */
 import { API_BASE } from './config.js';
 import { logoutUser, readAccessToken, readRefreshToken, tokensRemembered, writeTokens } from '../lib/auth.js';
@@ -48,6 +49,38 @@ export class NetworkError extends Error {
     this.name = 'NetworkError';
     this.cause = cause;
   }
+}
+
+/** The single reachability listener, or null when nobody is watching. @see observeReachability */
+let reachabilityObserver = null;
+
+/**
+ * Watch whether requests are reaching the server (D166).
+ *
+ * Every provider in the app funnels through {@link send}, so this is the one place that sees all
+ * of them — which is why the connectivity nudge lives here rather than at each call site. Before
+ * this, only the two surfaces that happened to use `useAsyncList` fed the store, so a dropped
+ * connection was announced on the vault and silently swallowed everywhere else.
+ *
+ * The observer is called **once per HTTP attempt** with the {@link NetworkError} that the attempt
+ * is about to throw, or `null` when the server answered. "Answered" deliberately includes a 500 or
+ * a 422: the request arrived, so it is not a connectivity fact and must never be captioned as one.
+ * Classifying it is the listener's job, not ours — passing the error rather than a boolean keeps
+ * the one definition of "unreachable" in `hooks/useConnectivity.js`, so the banner and any list
+ * error can never disagree about what happened.
+ *
+ * A 401-recovered call reports twice (the original attempt and the replay). That is correct rather
+ * than tolerated: both really were attempts, and the store they feed is a latch — repeating a
+ * verdict it already holds costs nothing and cannot double-count anything.
+ *
+ * Deliberately an inversion rather than an `import` of the store: `services/` must not depend on
+ * `hooks/`, and a cycle between these two modules (the store already imports {@link NetworkError})
+ * would be resolved only by class-hoisting luck.
+ *
+ * @param {((err: NetworkError|null) => void)|null} fn single listener; a second call replaces it
+ */
+export function observeReachability(fn) {
+  reachabilityObserver = fn;
 }
 
 /**
@@ -143,6 +176,53 @@ export function unwrapPage(res, requested = {}) {
   };
 }
 
+/**
+ * The server's hard ceiling on `size` (`spring.data.web.pageable.max-page-size`).
+ *
+ * Asking for more is silently clamped, not rejected, so a client that asked for 500 and got 100
+ * would believe it had read everything. That silence is the reason {@link unwrapFullPage} measures
+ * truncation against `totalElements` rather than against this constant.
+ */
+export const MAX_PAGE_SIZE = 100;
+
+/**
+ * Read a paged endpoint that the UI consumes as a plain list, and say so out loud when it overflows.
+ *
+ * Several collections are paged on the wire — because the *server* must not be asked to serialise
+ * an unbounded result set (api-standards.md §5.1) — while the screen that reads them has no pager:
+ * the dashboard filters and totals its deals client-side, the visits calendar groups by day. For
+ * those, `?size=100` is the honest translation. It is not "paging turned off": the request is
+ * bounded, the server does one indexed page-one scan, and the response cannot grow without limit.
+ *
+ * What it *is* is a ceiling, and a ceiling nobody is told about is how a list quietly starts lying.
+ * `totalElements` counts the whole result set, so comparing it against the rows actually returned
+ * detects both the overflow and the silent clamp above. The warning names the caller, because
+ * "some list is truncated" is not something anyone can act on.
+ *
+ * A bare array is passed through unchanged: an endpoint that is deliberately unbounded server-side
+ * (a capped or reference collection) is not truncated, and must not warn.
+ *
+ * `providers/http/conversationProvider.js` grew this pattern first and still carries its own copy:
+ * its mapper takes the envelope rather than the rows, so folding it in here is a mapper change, not
+ * a call swap. It is the reason this lives in `http.js` instead of being copied a third time.
+ *
+ * @param {object|Array} res    the parsed response body
+ * @param {string} label        the domain to name in the warning, e.g. `'deal'`
+ * @returns {unknown[]}         the rows, in server order
+ */
+export function unwrapFullPage(res, label) {
+  if (Array.isArray(res)) return res;
+  const rows = res?.content ?? [];
+  const total = res?.totalElements ?? rows.length;
+  if (total > rows.length) {
+    console.warn(
+      `[${label}] ${total} rows exist but only ${rows.length} were fetched. This list, and any ` +
+        'count or filter computed from it, is now reading a partial result — the screen needs a pager.',
+    );
+  }
+  return rows;
+}
+
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
 /** True for a `multipart/form-data` body: the platform owns its `Content-Type` (boundary and all). */
@@ -159,13 +239,20 @@ async function send(path, { method = 'GET', body, query, headers: extra }, token
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    return await fetch(API_BASE + path + buildQuery(query), {
+    const res = await fetch(API_BASE + path + buildQuery(query), {
       method,
       headers,
       body: body === undefined ? undefined : isFormData(body) ? body : JSON.stringify(body),
     });
+    // The server answered — whatever its status, the connection is demonstrably working, so clear
+    // any standing "can't reach" verdict. Reported here and not in `toResult`, because a 500 is
+    // just as much proof of reachability as a 200.
+    reachabilityObserver?.(null);
+    return res;
   } catch (cause) {
-    throw new NetworkError(cause);
+    const err = new NetworkError(cause);
+    reachabilityObserver?.(err);
+    throw err;
   }
 }
 

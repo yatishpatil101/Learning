@@ -212,15 +212,14 @@ if (sent[1]?.ids?.length) {
   failures.push(`markAllRead must send no ids (the server reads that as "all"), sent ${JSON.stringify(sent[1])}`);
 }
 
-// Dismiss has no endpoint and is a local tombstone. What matters is that it is *durable enough to
-// hide the row on the next read* — otherwise the X appears to do nothing, which is worse than not
-// offering it. This is the one behaviour in the slice with no server counterpart at all, so leaving
-// it unasserted because the live inbox happened to be empty would be leaving the new mechanism
-// entirely uncovered.
+// Dismiss now has a server endpoint for real rows (`DELETE /notifications/{id}`, D93) and falls back
+// to a local tombstone only for client-derived rows (a saved-search match has no server row to
+// delete, so the server 404s it). What matters either way is that the row is *hidden on the next
+// read* — otherwise the X appears to do nothing, which is worse than not offering it.
 //
-// A client-derived row is used when the server has none. Both kinds pass through the same
-// `dismissedIds()` filter in `listNotifications`, so this drives the real tombstone path either way
-// — only the server round-trip is skipped, and there is nothing server-side to round-trip to.
+// So this asserts both halves: a server row is dismissed with a DELETE to its id; a derived row
+// makes no such call and is hidden by the tombstone instead. `victim` is a real server id when the
+// live inbox has rows, and the derived probe otherwise (only flatmate flows write server rows).
 const derivedProbe = {
   id: 'parity-derived-probe',
   type: 'match',
@@ -230,16 +229,34 @@ const derivedProbe = {
   at: Date.now(),
 };
 const victim = liveList[0]?.id ?? derivedProbe.id;
-const extras = liveList.length ? [] : [derivedProbe];
+const victimIsServerRow = Boolean(liveList.length);
+const extras = victimIsServerRow ? [] : [derivedProbe];
 
 const beforeDismiss = await live.listNotifications(extras);
 if (!beforeDismiss.some((n) => n.id === victim)) {
   failures.push(`the row to be dismissed (${victim}) was not in the list to begin with — the merge dropped it`);
 }
+
+const dismissCalls = [];
+const beforeDismissFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  if ((init?.method === 'DELETE') && String(url).includes('/notifications/')) dismissCalls.push(String(url));
+  return beforeDismissFetch(url, init);
+};
 await live.dismiss(victim);
+globalThis.fetch = beforeDismissFetch;
+
+const deletedVictim = dismissCalls.some((u) => u.endsWith(`/notifications/${victim}`));
+if (victimIsServerRow && !deletedVictim) {
+  failures.push(`dismiss() of a server row must DELETE /notifications/${victim}, but no such call was made`);
+}
+if (!victimIsServerRow && deletedVictim) {
+  failures.push('dismiss() of a client-derived row must not issue a DELETE — it has no server row to delete');
+}
+
 const afterDismiss = await live.listNotifications(extras);
 if (afterDismiss.some((n) => n.id === victim)) {
-  failures.push('dismiss() did not hide the row from the next listNotifications() — the tombstone is not being applied');
+  failures.push('dismiss() did not hide the row from the next listNotifications() — the row was neither deleted nor tombstoned');
 }
 if (!liveList.length) {
   warnings.push('live inbox is empty, so dismiss() was driven against a client-derived row (only flatmate flows write server rows)');

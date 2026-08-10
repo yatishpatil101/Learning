@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { listTickets, updateTicket, logAudit } from '../../lib/mockApi.js';
 import { fmtINR, fmtNum, classNames } from '../../lib/format.js';

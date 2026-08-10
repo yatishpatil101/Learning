@@ -28,12 +28,15 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
      * visibility predicate exist in exactly one copy.
      *
      * <p>The {@code mod_status} clause is not decoration: a flagged post must <em>disappear</em>
-     * from the feed rather than merely render a different badge, or moderation is advisory.
+     * from the feed rather than merely render a different badge, or moderation is advisory. It is a
+     * whitelist rather than the blacklist it used to be, for the reason
+     * {@code FlatmateVocabulary.MOD_PUBLIC} gives — a state nobody thought about must default to
+     * invisible, and since D72 {@code pending} is exactly such a state.
      */
     @Query(value = """
             select * from flatmate_seeker_posts p
             where p.archived = false
-              and p.mod_status not in ('flagged','removed','rejected')
+              and p.mod_status in ('live','approved')
               and (cast(:locality as text) is null
                    or p.localities @> to_jsonb(cast(:locality as text)))
               and (cast(:gender as text) is null or p.gender = cast(:gender as text))
@@ -47,7 +50,7 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
             countQuery = """
                     select count(*) from flatmate_seeker_posts p
                     where p.archived = false
-                      and p.mod_status not in ('flagged','removed','rejected')
+                      and p.mod_status in ('live','approved')
                       and (cast(:locality as text) is null
                            or p.localities @> to_jsonb(cast(:locality as text)))
                       and (cast(:gender as text) is null or p.gender = cast(:gender as text))
@@ -67,7 +70,7 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
     @Query("""
             select p from FlatmateSeekerPost p
             where p.id = :id and p.archived = false
-              and p.modStatus not in ('flagged','removed','rejected')
+              and p.modStatus in ('live','approved')
             """)
     Optional<FlatmateSeekerPost> findVisible(@Param("id") UUID id);
 
@@ -76,4 +79,13 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
 
     /** Backs the one-live-post rule's error message; the unique index is what actually enforces it. */
     boolean existsByUserIdAndArchivedFalse(UUID userId);
+
+    /**
+     * The moderation queue (D72), filtered to one state — in practice {@code pending}.
+     *
+     * <p>Archived rows are excluded because the author has already withdrawn them: deciding a post
+     * that no longer exists wastes the moderator's time and can only produce a notification about
+     * something the seeker has moved on from.
+     */
+    Page<FlatmateSeekerPost> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
 }

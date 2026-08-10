@@ -4,6 +4,7 @@ import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
+import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.security.AuthPrincipal;
@@ -42,10 +43,14 @@ public class SocietyLeadService {
 
     private final SocietyLeadRepository leads;
     private final AuditService audit;
+    /** Makes the per-mobile budget check atomic with the insert it guards (D73). */
+    private final RateLimitLock locks;
 
-    public SocietyLeadService(SocietyLeadRepository leads, AuditService audit) {
+    public SocietyLeadService(SocietyLeadRepository leads, AuditService audit,
+            RateLimitLock locks) {
         this.leads = leads;
         this.audit = audit;
+        this.locks = locks;
     }
 
     /** {@code GET /society-leads} — the pipeline, newest first, optionally one column. */
@@ -66,6 +71,13 @@ public class SocietyLeadService {
      * <p>Rate-limited per mobile against the table itself rather than an in-memory counter: this
      * endpoint has no session to hang a bucket off, and a counter that resets on deploy is not a
      * limit. The index {@code idx_society_leads_mobile_created} exists for exactly this query.
+     *
+     * <p><strong>And serialised per mobile before the count, because counting against a table is
+     * only a limit if nobody can insert between the count and the insert</strong> (D73). This is the
+     * platform's only unauthenticated write, so the burst that defeats it costs an attacker nothing
+     * to arrange: with two leads already filed, three concurrent posts all read two, all find room
+     * under a cap of three, and the ops queue takes five. The lock is held to commit, so the second
+     * caller's count includes the first caller's row.
      */
     @Transactional
     public SocietyLeadDto submit(SocietyLeadCreateRequest request) {
@@ -76,6 +88,7 @@ public class SocietyLeadService {
         // @IndianMobile validated the shape; canonicalise once so the rate-limit lookup and the
         // stored row key off the same ten digits.
         String mobile = MobileMask.normalise(request.mobile());
+        locks.holdUntilCommit(RateLimitLock.Limit.SOCIETY_LEAD_SUBMIT, mobile);
         long recent = leads.countByMobileAndCreatedAtAfter(
                 mobile, Instant.now().minus(RATE_WINDOW));
         if (recent >= MAX_SUBMISSIONS) {

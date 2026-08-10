@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 /* Regression cover for the consumer "Post a property" bug fixes:

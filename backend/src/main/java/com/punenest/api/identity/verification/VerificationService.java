@@ -164,6 +164,42 @@ public class VerificationService {
     }
 
     /**
+     * <strong>Dev profile only</strong> (called solely from the {@code @DevOnly}
+     * {@code DevVerificationController}). Grant the caller the badge by synthesizing a DigiLocker
+     * {@code SUCCESS} for their current — or a freshly-created — verification handle and running it
+     * through the real {@link #handleWebhook} path, so idempotency, the one-Aadhaar-one-account dedup
+     * and the {@code verified}/{@code aadhaar_verified} flag flips are all exercised rather than
+     * bypassed.
+     *
+     * <p>Exists because the badge's happy path is otherwise undemonstrable in dev: {@link #start}
+     * hands back a pending handle and the grant only ever arrives on
+     * {@code /webhooks/cashfree/digilocker}, which a developer's backend never receives (D122). The
+     * synthetic identity is namespaced by user id so two dev accounts never collide on the
+     * {@code identity_hash} UNIQUE index, and the Aadhaar-linked mobile is set to the caller's own
+     * number so the soft {@code mobileMatch} signal reads true — the common real-world case.
+     */
+    @Transactional
+    public AadhaarVerificationResponse simulateSuccess(UUID userId) {
+        IdentityVerification row = verifications.findByUserId(userId)
+                .orElseGet(() -> new IdentityVerification(userId));
+        if (row.getRef() == null) {
+            row.setRef("dev-sim-" + userId);
+            row.setStatus(VerificationStatuses.PENDING);
+            row.setSource(VerificationSources.DIGILOCKER);
+            verifications.save(row);
+        }
+
+        User user = users.findById(userId).orElse(null);
+        String mobile = user != null ? user.getMobile() : null;
+        String last4 = String.format("%04d", Math.floorMod(userId.hashCode(), 10_000));
+        DigilockerWebhook synthetic = new DigilockerWebhook(
+                "DIGILOCKER_VERIFICATION_SUCCESS", row.getRef(), WebhookStatuses.SUCCESS,
+                new DigilockerWebhook.Data("XXXX XXXX " + last4, mobile, "dev-sim-hash-" + userId));
+        handleWebhook(synthetic);
+        return status(userId);
+    }
+
+    /**
      * The soft mobile-match signal (ADR-009a): does the Aadhaar-linked number equal the account
      * number? Compared on digits only, since the two sources format differently.
      *

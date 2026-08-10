@@ -34,6 +34,34 @@ public class TicketMapper {
         return toDtos(List.of(ticket)).getFirst();
     }
 
+    /**
+     * The raiser's view of their own ticket (debt D47) — everything {@link #toDto} carries except
+     * the internal notes, which {@link CustomerTicketDto} has no component for.
+     *
+     * <p>Single-row, so it resolves the assignee name with one lookup instead of the batch
+     * {@link #toDtos} needs. There is no customer list path and there should not be a batched
+     * customer projection until there is.
+     */
+    public CustomerTicketDto toCustomer(Ticket ticket) {
+        String assignee = ticket.getAssigneeId() == null
+                ? null
+                : users.findById(ticket.getAssigneeId()).map(User::getName).orElse(null);
+        return new CustomerTicketDto(
+                ticket.getId().toString(),
+                ticket.getSubject(),
+                ticket.getTeam(),
+                ticket.getPriority(),
+                ticket.getStatus(),
+                ticket.getPropertyId() == null ? null : ticket.getPropertyId().toString(),
+                assignee,
+                ticket.getService(),
+                ticket.getCustomer(),
+                ticket.getMobile(),
+                ticket.getValue(),
+                ticket.getDetail(),
+                ticket.getCreatedAt());
+    }
+
     public List<TicketDto> toDtos(List<Ticket> tickets) {
         if (tickets.isEmpty()) {
             return List.of();

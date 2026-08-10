@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
 
 /* Agreement evidence + Ops-gated badge (honest trust model). A tenant's
    "Tenant-verified" badge is EARNED, not self-claimed: it is withheld until the
@@ -34,6 +34,8 @@ async function createTenantGroup(page, title, { upload = true } = {}) {
   await page.getByText(/registered rent agreement/i).click();
   if (upload) await page.getByLabel('Upload registered rent agreement for group').setInputFiles(PDF);
   await page.getByRole('button', { name: /Create group/i }).click();
+  // The group is held for review (D72); this spec is about the badge, not the gate.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   await expect(page.locator('.sf-card', { hasText: title }).first()).toBeVisible({ timeout: 5000 });
 }

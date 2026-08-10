@@ -73,6 +73,14 @@ Rules:
 Note the deliberate split: **`400` = can't parse**, **`422` = parsed but invalid**. Auth failures stay
 vague (`Invalid credentials`) so endpoints never leak whether an identity exists.
 
+**`429` is now possible on every mutating request, not just OTP send.** `WriteRateLimitFilter` caps
+`POST`/`PUT`/`PATCH`/`DELETE` per caller in a fixed window (closing D2), so a client must treat 429 as
+a general answer and honour `Retry-After` rather than special-casing the one endpoint that used to
+return it. Because the refusal happens in the filter chain, the body is rendered by `SecurityErrors`
+rather than the advice — byte-identical `Error` envelope, same `traceId`, and it is worth keeping that
+way: two shapes for one status is how a client ends up parsing only the one it saw first. Reads are
+not limited, with the single exception of the anonymous `GET /documents/shared`.
+
 **`409` vs `412` is also a deliberate split, and it is about who asked.** A `409` says the request
 conflicts with reality and would conflict again if resent — a duplicate unique key, an illegal state
 transition, or a lost optimistic-lock race on a row two ops staff were editing. A `412` says the

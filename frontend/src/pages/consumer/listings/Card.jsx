@@ -114,9 +114,14 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 <Icon name="shield-check" />
               </span>
             ) : null}
-            {isFeaturedActive(p) && (
-              <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
-            )}
+            <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
+              {isFeaturedActive(p) && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
+              )}
+              {p.boosted ? (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
+              ) : null}
+            </div>
             <div className="absolute top-3 right-3 flex flex-col gap-2">
               <span className={'heart-btn w-11 h-11 sm:w-9 sm:h-9 rounded-full bg-black/40 backdrop-blur flex items-center justify-center t-all hover:bg-black/60' + (saved ? ' active' : '')} role="button" tabIndex={0} onClick={handleHeart} onKeyDown={onKeyActivate(handleHeart)} aria-label={saved ? t('listings.removeFromSaved') : t('listings.saveProperty')} aria-pressed={saved}>
                 <Icon name="heart" weight={saved ? 'fill' : 'regular'} className="w-4 h-4" />
@@ -190,6 +195,12 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           {isFeaturedActive(p) && (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/70 text-amber-50">Featured</span>
           )}
+          {/* Paid placement, disclosed (D59). Deliberately a separate badge from Featured and not
+              merged with it: Featured is an editorial pick, this one was bought, and collapsing the
+              two would turn a paid ad into what looks like a staff recommendation. */}
+          {p.boosted ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-violet-600/70 text-violet-50" title={t('listings.promotedHint')}>{t('listings.promoted')}</span>
+          ) : null}
           {isRent ? (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-teal-600/50 text-teal-50">{t('listings.badgeRent')}</span>
           ) : (

@@ -2,12 +2,15 @@ package com.punenest.api.deals.finalization;
 
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,12 +74,18 @@ public class FinalizationController {
 
     /**
      * {@code GET /me/finalization-requests} (contract {@code myFinalizationRequests}) —
-     * requests awaiting the caller's decision (counterparty-scoped).
+     * requests awaiting the caller's decision (counterparty-scoped), newest first, paged.
+     *
+     * <p><strong>Paged as of D77.</strong> Every row is a proposal a buyer aimed at the caller, so
+     * the collection grows with inbound demand. Sort is fixed server-side.
      */
     @GetMapping(Routes.Finalization.ME_REQUESTS)
-    public List<FinalizationRequestDto> myFinalizationRequests(
-            @CurrentUser AuthPrincipal principal) {
-        return finalizationService.myRequests(principal.userId());
+    public PageResponse<FinalizationRequestDto> myFinalizationRequests(
+            @CurrentUser AuthPrincipal principal,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                finalizationService.myRequests(principal.userId(), Pageables.unsorted(pageable)),
+                r -> r);
     }
 
     /**

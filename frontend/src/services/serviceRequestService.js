@@ -18,6 +18,7 @@
  * | list own requests | `GET /service-requests` |
  * | read one | `GET /service-requests/{id}` |
  * | create | `POST /service-requests` |
+ * | record the parties' identity numbers | `PUT /service-requests/{id}/identities` |
  * | post a message | `POST /service-requests/{id}/messages` |
  * | approve / reject a draft | `POST /service-requests/{id}/draft/decision` |
  *
@@ -31,6 +32,7 @@
  * | unread badges / read receipts | no read-receipt endpoint |
  * | `changes_requested` as a distinct state | the server collapses a rejection back to `in-progress` |
  * | staff transitions (assign, share draft, upload final) | the ops surface, not the customer tracker |
+ * | identity numbers (`recordServiceRequestIdentities`) | mock storage is `localStorage`; writing a PAN and an Aadhaar there is the threat the wizard's redaction closed, so the mock provider drops them on purpose |
  * | "preview a sample draft" | a demo affordance the tracker hides when this domain is live |
  *
  * ## Presentation stays on `serviceFlow.js`
@@ -66,6 +68,28 @@ export const getServiceRequest = (id) => provider().getServiceRequest(id);
 
 /** Create a request from a service form. Structured `details` round-trip to the server (D119). */
 export const createServiceRequest = (data) => provider().createServiceRequest(data);
+
+/**
+ * Hand the parties' PAN and Aadhaar to the drafting desk (D151).
+ *
+ * `PUT /service-requests/{id}/identities`. These numbers are deliberately absent from `details` —
+ * that object is echoed verbatim to every staff read of the ops queue, which is what made carrying
+ * them there a bulk identity dump — and absent from the autosave and the co-fill payload for the
+ * same reason. This is the one channel that carries them, and it goes to exactly the operator the
+ * request is assigned to.
+ *
+ * Mock-only no-op, and that is a decision rather than a gap: the mock store is `localStorage`, so
+ * "support identities in mock mode" means writing an Aadhaar number to plain JSON on a shared
+ * device, which is the precise threat the redaction closed. A demo that cannot show these is the
+ * correct demo.
+ *
+ * @param {string} id the service request the numbers belong to
+ * @param {{partyRole:'owner'|'tenant',partyIndex:number,partyName?:string,pan?:string,aadhaar?:string}[]} parties
+ *   the complete set — this replaces whatever was recorded before, it does not append
+ * @returns {Promise<void>}
+ */
+export const recordServiceRequestIdentities = (id, parties) =>
+  provider().recordServiceRequestIdentities(id, parties);
 
 /** Post a customer message onto a request's thread. Resolves to the updated request. */
 export const addServiceRequestMessage = (id, text) =>

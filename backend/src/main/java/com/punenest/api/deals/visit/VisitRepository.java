@@ -1,8 +1,9 @@
 package com.punenest.api.deals.visit;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,11 +14,18 @@ import org.springframework.data.repository.query.Param;
  */
 public interface VisitRepository extends JpaRepository<Visit, UUID> {
 
-    /** The caller's own visits (visitor surface), newest first. Hits {@code idx_visits_visitor}. */
-    List<Visit> findByVisitorIdOrderByCreatedAtDesc(UUID visitorId);
+    /**
+     * One page of the caller's own visits (visitor surface), newest first. Hits
+     * {@code idx_visits_visitor_created} (V47), which carries the sort.
+     */
+    Page<Visit> findByVisitorIdOrderByCreatedAtDesc(UUID visitorId, Pageable pageable);
 
-    /** All visits against a set of the caller's listings (owner surface), newest first. */
-    List<Visit> findByPropertyIdInOrderByCreatedAtDesc(java.util.Collection<UUID> propertyIds);
+    /**
+     * One page of the visits against a set of the caller's listings (owner surface), newest first.
+     * Hits {@code idx_visits_property_created} (V47).
+     */
+    Page<Visit> findByPropertyIdInOrderByCreatedAtDesc(java.util.Collection<UUID> propertyIds,
+                                                       Pageable pageable);
 
     /**
      * Duplicate-prevention probe: does this visitor already have a live (scheduled or confirmed)

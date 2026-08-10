@@ -32,7 +32,7 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
             select distinct g from FlatmateGroup g
             left join fetch g.members
             where g.archived = false
-              and g.modStatus not in ('flagged','removed','rejected')
+              and g.modStatus in ('live','approved')
               and (cast(:locality as string) is null
                    or lower(g.locality) = lower(cast(:locality as string)))
               and (cast(:policy as string) is null
@@ -44,7 +44,7 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
             countQuery = """
                     select count(g) from FlatmateGroup g
                     where g.archived = false
-                      and g.modStatus not in ('flagged','removed','rejected')
+                      and g.modStatus in ('live','approved')
                       and (cast(:locality as string) is null
                            or lower(g.locality) = lower(cast(:locality as string)))
                       and (cast(:policy as string) is null
@@ -59,7 +59,7 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
             select g from FlatmateGroup g
             left join fetch g.members
             where g.id = :id and g.archived = false
-              and g.modStatus not in ('flagged','removed','rejected')
+              and g.modStatus in ('live','approved')
             """)
     Optional<FlatmateGroup> findVisible(@Param("id") UUID id);
 
@@ -72,4 +72,7 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
     long countCappedByHost(@Param("hostId") UUID hostId);
 
     List<FlatmateGroup> findByAddressFingerprintAndArchivedFalse(String fingerprint);
+
+    /** The moderation queue (D72) — see {@code FlatmateSeekerPostRepository} for the same finder. */
+    Page<FlatmateGroup> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
 }

@@ -34,6 +34,7 @@ import {
   getTenantProfile as _storeGetProfile,
   saveTenantProfile as _storeSaveProfile,
   getTenantProfileFor,
+  isTenantVerifiedFor,
   tenantScore,
 } from '../../../lib/store.js';
 import {
@@ -171,6 +172,28 @@ export async function tenantProfileFor(mobile) {
   return profileVm(getTenantProfileFor(d), d);
 }
 
+/**
+ * The Verified Tenant badge for a whole list at once (D114) — the mock half.
+ *
+ * This browser's localStorage is the mock's whole world, so `isTenantVerifiedFor` *is* the honest
+ * answer here: it knows about the profiles this browser has written and nothing else. What changed
+ * is where that lives. It used to be called straight from a component during render, which meant
+ * the seam had no say and the live mode had no answer at all; now it sits behind the same call the
+ * http provider serves, so a component asks one question and gets one shape in both modes.
+ *
+ * Fails closed in the same direction as the server: a number this browser has never seen is simply
+ * absent from the set, and absence renders no badge.
+ */
+export async function tenantsVerified(mobiles = []) {
+  const verified = new Set();
+  if (!me()) return verified;
+  (Array.isArray(mobiles) ? mobiles : []).forEach((mobile) => {
+    const d = digits(mobile || '').slice(-10);
+    if (d.length === 10 && isTenantVerifiedFor(d)) verified.add(d);
+  });
+  return verified;
+}
+
 /* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */
 
 const paymentVm = (p) => {
@@ -192,6 +215,9 @@ const paymentVm = (p) => {
     method: p.method || '',
     reference: p.reference || '',
     failureReason: p.failureReason || '',
+    // Shape parity with the http mapper (D167). There is no gateway in the mock, so the session is
+    // always null here — the field exists so a call site can read it in either mode.
+    paymentSessionId: null,
   };
 };
 

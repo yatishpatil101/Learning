@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { pickDate } from '../../../helpers/datePicker.helper.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const OWNER = { name: 'Owner Test', mobile: '9800000001', email: '', role: 'owner', joinedAt: Date.now() };
@@ -82,6 +83,42 @@ test.describe('Scheduled Visits', () => {
     await expect(page.getByText(/Awaiting confirmation/)).toHaveCount(Math.max(0, beforeRows - 1), { timeout: 5000 });
   });
 
+  test('completing a reschedule moves the visit to the new slot and resets it to scheduled (D87)', async ({ page }) => {
+    await loginOwner(page);
+    await page.goto(`${BASE}/dashboard#visits`, { waitUntil: 'networkidle' });
+    await expect(page.getByRole('heading', { name: /Upcoming visits/i }).first()).toBeVisible({ timeout: 10000 });
+
+    // Confirm the first visit so the reschedule has a status to reset: a moved slot returns to
+    // "scheduled" (Awaiting confirmation) because the other party has not agreed to the new time.
+    await page.getByRole('button', { name: /Confirm/ }).first().click();
+    await expect(page.getByText('Confirmed').first()).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole('button', { name: /Reschedule/ }).first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('button', { name: 'New visit date' })).toBeVisible({ timeout: 5000 });
+
+    // A fresh date 9 days out — clear of the seeded 3/5-day rows and never "Today"/"Tomorrow",
+    // so the row renders the absolute date we can assert on.
+    const target = new Date();
+    target.setDate(target.getDate() + 9);
+    const iso = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+    await pickDate(page, '[aria-label="New visit date"]', iso);
+    await dialog.getByRole('button', { name: 'Save new slot' }).click();
+    await expect(page.getByText('Visit rescheduled')).toBeVisible({ timeout: 5000 });
+
+    // Both of the seam's effects land through rescheduleVisit: the row shows the moved date, and it
+    // is back to "Awaiting confirmation" (no row is Confirmed any longer). The row renders
+    // `weekday, month day` (e.g. "Tue, Aug 18"); match either word order so the assertion holds
+    // regardless of the runner's default locale.
+    const mon = target.toLocaleDateString('en-US', { month: 'short' });
+    const day = target.getDate();
+    const dateRe = new RegExp(`${mon} ${day}\\b|\\b${day} ${mon}`);
+    await expect(page.getByText(dateRe).first()).toBeVisible({ timeout: 5000 });
+    // Confirming took one row out of "Awaiting confirmation" (2 → 1); the reschedule reset it, so
+    // both rows are awaiting again — proof the seam moved the status back to scheduled.
+    expect(await page.getByText(/Awaiting confirmation/).count()).toBe(2);
+  });
+
   test('Requests tab no longer carries a Visit-requests sub-tab (deduped)', async ({ page }) => {
     await loginOwner(page);
     await page.goto(`${BASE}/dashboard#leads`, { waitUntil: 'networkidle' });
@@ -112,5 +149,56 @@ test.describe('Scheduled Visits', () => {
     await expect(page.getByText('Waiting on you')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Open leads')).toBeVisible();
     await expect(page.getByText('Oldest waiting')).toBeVisible();
+  });
+
+  /* D5 (global number-privacy policy): a buyer never receives the owner's phone number — approval
+     unlocks in-app messaging, not the digits. A buyer viewing a visit they booked must therefore
+     see NO WhatsApp handoff on the visit card (the buyer→owner channel is in-app chat). Regression
+     guard: the mock's buyer-side read carries the owner's raw mobile on the row, so the protection
+     lives entirely in VisitsTab suppressing the handoff for a non-owner viewer. */
+  test('a buyer viewing their booked visit gets no WhatsApp handoff to the owner (D5)', async ({ page }) => {
+    const BUYER = { name: 'Buyer Test', mobile: '9833333333', email: '', role: 'seeker', joinedAt: Date.now() };
+    // A visit the buyer booked. Stored in the buyer's own request bucket keyed by their mobile —
+    // where the mock's `listVisits` finds "visits I booked" without needing the owner catalogue.
+    const booked = [{
+      id: 'V-BUYER-1', propId: 'L-TEST-1', propTitle: 'Test 2 BHK, Baner',
+      visitorName: 'Buyer Test', visitorMobile: BUYER.mobile, phone: BUYER.mobile,
+      date: dayAhead(3), time: '10:30 AM', mode: 'in-person', note: '',
+      status: 'scheduled', createdAt: Date.now(), completedAt: 0,
+    }];
+    await page.addInitScript(({ u, v }) => {
+      localStorage.setItem('puneNestUser', JSON.stringify(u));
+      localStorage.setItem('puneNestUsers', JSON.stringify([u]));
+      localStorage.setItem('puneNestPropVisitReqs:' + u.mobile, JSON.stringify(v));
+    }, { u: BUYER, v: booked });
+
+    await page.goto(`${BASE}/dashboard#visits`, { waitUntil: 'networkidle' });
+    await expect(page.getByRole('heading', { name: /upcoming visits/i }).first()).toBeVisible({ timeout: 10000 });
+
+    // The booked visit is on the buyer's Upcoming list (assertion is non-vacuous)…
+    await expect(page.getByText('Test 2 BHK, Baner').first()).toBeVisible();
+    // …but a seeker gets no WhatsApp handoff at all — the owner channel is in-app messaging.
+    await expect(page.getByRole('link', { name: /WhatsApp/i })).toHaveCount(0);
+    await expect(page.locator('a[href*="wa.me"]')).toHaveCount(0);
+  });
+
+  /* The mirror of the test above, and the reason it needed writing: the owner→visitor direction is
+     the one handoff D5 keeps, so it has to actually render. `VisitsTab` used to read `v.customer`
+     and `v.mobile`, which no provider publishes (the seam's names are `visitorName`/`visitorMobile`)
+     — so the owner saw a nameless row and the `isFullMobile` guard silently swallowed the undefined
+     number, suppressing the button. It failed *safe*, which is exactly why nothing caught it: the
+     buyer-side test above passes either way. This asserts the positive case. */
+  test('the owner sees the visitor by name and can WhatsApp them (visitorName/visitorMobile)', async ({ page }) => {
+    await loginOwner(page);
+    await page.goto(`${BASE}/dashboard#visits`, { waitUntil: 'networkidle' });
+    await expect(page.getByRole('heading', { name: /Upcoming visits/i }).first()).toBeVisible({ timeout: 10000 });
+
+    // The visitor's name is rendered, not a blank or the "there" fallback.
+    await expect(page.getByText('Asha Kulkarni').first()).toBeVisible();
+
+    // …and the handoff points at that visitor's real number, not the owner's own.
+    const wa = page.locator('a[href*="wa.me/919811111111"]');
+    await expect(wa.first()).toBeVisible();
+    await expect(wa.first()).toHaveAttribute('aria-label', /Asha Kulkarni/);
   });
 });

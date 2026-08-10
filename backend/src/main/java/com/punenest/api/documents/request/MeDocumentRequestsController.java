@@ -1,10 +1,13 @@
 package com.punenest.api.documents.request;
 
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,10 +33,23 @@ public class MeDocumentRequestsController {
         this.requestService = requestService;
     }
 
-    /** {@code GET /me/documents/requests} (contract {@code myDocumentRequests}). */
+    /**
+     * {@code GET /me/documents/requests} (contract {@code myDocumentRequests}) — paged (D77).
+     *
+     * <p>Was a bare array. Every row is written by a prospective buyer, not by the owner reading
+     * it, so the list grows with demand for the listing — the shape api-standards.md §5.1 requires
+     * a page envelope for. An unspecified page returns the newest twenty, which is what every
+     * existing caller was already reading off the front of the old array.
+     *
+     * <p>No {@code sort} parameter: the order is fixed server-side, so {@link Pageables#unsorted}
+     * drops a client {@code ?sort=} rather than letting an unmapped property reach the query.
+     */
     @GetMapping(Routes.MeDocuments.REQUESTS)
-    public List<DocumentRequestDto> myDocumentRequests(@CurrentUser AuthPrincipal principal) {
-        return requestService.myRequests(principal.userId());
+    public PageResponse<DocumentRequestDto> myDocumentRequests(
+            @CurrentUser AuthPrincipal principal, @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                requestService.myRequests(principal.userId(), Pageables.unsorted(pageable)),
+                dto -> dto);
     }
 
     /**

@@ -33,8 +33,9 @@ const randToken = () => {
 };
 
 export const STEPS = ['Submitted', 'Documents', 'Draft & approval', 'Registration', 'Ready'];
-const ACTIVE = { awaiting_party: 0, submitted: 1, docs_review: 1, draft_shared: 2, changes_requested: 2, approved: 3, registration: 3, completed: 4, cancelled: 0 };
+const ACTIVE = { awaiting_payment: 0, awaiting_party: 0, submitted: 1, docs_review: 1, draft_shared: 2, changes_requested: 2, approved: 3, registration: 3, completed: 4, cancelled: 0 };
 const LABEL = {
+  awaiting_payment: 'Awaiting payment',
   awaiting_party: 'Awaiting the other party',
   submitted: 'Request submitted', docs_review: 'Documents under review',
   draft_shared: 'Draft shared for your review', changes_requested: 'Changes requested',
@@ -60,6 +61,9 @@ export const progressPct = (status) => {
 };
 
 export const STATUS_META = {
+  // A paid desk (rent agreement) parks here until the payment webhook settles it. Deliberately not
+  // styled as an error: the customer can still pay, and ops has not started work either way.
+  awaiting_payment: { label: 'Payment pending', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'clock' },
   awaiting_party: { label: 'Waiting for the other party', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'hourglass' },
   submitted: { label: 'Submitted', color: '#a5b4fc', bg: 'rgba(99,102,241,.2)', icon: 'inbox' },
   docs_review: { label: 'Documents under review', color: '#fcd34d', bg: 'rgba(245,158,11,.2)', icon: 'folder-check' },

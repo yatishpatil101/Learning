@@ -1,4 +1,16 @@
 {
+  "common": {
+    "somethingWentWrong": "Something went wrong. Please try again."
+  },
+  "connectivity": {
+    "offlineTitle": "You're offline.",
+    "offlineBody": "Anything already loaded still works. New results will appear once you're back.",
+    "unreachableTitle": "Can't reach the server.",
+    "unreachableBody": "Your connection may have dropped, so some things won't load until it returns.",
+    "restoredTitle": "Back online.",
+    "restoredBody": "Retry anything that didn't load.",
+    "listUnreachable": "We couldn't reach the server. Check your connection and try again."
+  },
   "nav": {
     "buy": "Buy",
     "rent": "Rent",

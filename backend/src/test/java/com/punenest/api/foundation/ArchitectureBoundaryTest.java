@@ -74,20 +74,27 @@ class ArchitectureBoundaryTest {
         // starts a rent ledger (slice 5, D1), so the arrow points deals -> finance. Ranking finance
         // above deals would make that legitimate call a violation and invite someone to "fix" it by
         // having finance call back into deals — which is the cycle this whole test exists to
-        // prevent. leads (2) and finance (3) never interact; only the strict ordering matters.
-        LAYER.put("finance", 3);
-        // services sits beside finance: it reads down into documents (the draft and the registered
-        // copy are vault rows), catalog and identity, and touches neither finance nor deals. The
-        // assisted-service workflow and the rent ledger never interact, so only the strict ordering
-        // against documents (2) matters.
+        // prevent. leads (2) and finance (4) never interact; only the strict ordering matters.
+        //
+        // It also sits *above* services rather than beside it, and that is the same rule as billing:
+        // finance owns the one payment webhook, and a webhook that settles a purchase must be able
+        // to reach whatever was bought. Services learned to sell a paid draft (V39), so the arrow
+        // finance -> services is now real and must be legal. The alternative — having services
+        // subscribe upward to a finance event — buys nothing here and inverts the direction the
+        // money actually flows in.
+        LAYER.put("finance", 4);
+        // services sits below finance and above documents: it reads down into documents (the draft
+        // and the registered copy are vault rows), catalog and identity, and touches neither finance
+        // nor deals — the assisted-service workflow and the rent ledger never interact. Only the
+        // strict ordering against documents (2) below and finance (4) above matters.
         LAYER.put("services", 3);
-        LAYER.put("deals", 4);
+        LAYER.put("deals", 5);
         // moderation sits at the top because it is the one context that legitimately reaches into
         // everything: taking content down means touching catalog (properties), identity (users) and
         // engagement (reviews), and the abuse queue can point at any of them. Ranking it highest
         // means those reads are all downward and legal, while nothing below can call back up into
         // it — a listing can never decide it has been moderated.
-        LAYER.put("moderation", 5);
+        LAYER.put("moderation", 6);
         // admin sits above everything and imports none of it. The back-office reports on the whole
         // platform, so ranking it top is the only placement that makes its reads legal — but it
         // reaches the tables through native SQL rather than through the other contexts' repositories
@@ -95,7 +102,7 @@ class ArchitectureBoundaryTest {
         // here to keep it that way: if someone later injects PropertyRepository into an admin
         // service, the rank makes it legal — which is the point, because the alternative was leaving
         // admin off the map entirely and having this test silently ignore it.
-        LAYER.put("admin", 6);
+        LAYER.put("admin", 7);
     }
 
     @Test

@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 /* Map-view detail panel "Contact Owner" must match the property-detail page:

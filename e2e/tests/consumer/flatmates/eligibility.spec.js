@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { postAsGroup, switchToTeamUp, openFlatmateFilters } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp, openFlatmateFilters } from '../../../helpers/app.js';
 
 /* Host eligibility tiers on flatmate groups. A sitting tenant seeking a
    replacement flatmate can't produce ownership docs, so they UPLOAD a registered
@@ -41,6 +41,8 @@ test('tenant who uploads a rent agreement lands in Pending Ops review (no badge 
   await page.getByText(/registered rent agreement/i).click();
   await page.getByLabel('Upload registered rent agreement for group').setInputFiles({ name: 'agreement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test agreement') });
   await page.getByRole('button', { name: /Create group/i }).click();
+  // Held for review (D72) — the host tier, not the moderation gate, is under test.
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   const card = page.locator('.sf-card', { hasText: title }).first();
   await expect(card).toBeVisible({ timeout: 5000 });
@@ -57,6 +59,7 @@ test('tenant who declares but does not upload posts identity-only (no badge)', a
   // Check the box but attach no file — declaration alone can't earn the tier.
   await page.getByText(/registered rent agreement/i).click();
   await page.getByRole('button', { name: /Create group/i }).click();
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   const card = page.locator('.sf-card', { hasText: title }).first();
   await expect(card).toBeVisible({ timeout: 5000 });
@@ -70,6 +73,7 @@ test('tenant without an agreement posts identity-only (no host badge)', async ({
   await fillCore(page, title);
   // Leave the agreement box unchecked.
   await page.getByRole('button', { name: /Create group/i }).click();
+  await approveFlatmates(page, 'groups');
   await switchToTeamUp(page);
   const card = page.locator('.sf-card', { hasText: title }).first();
   await expect(card).toBeVisible({ timeout: 5000 });
@@ -86,6 +90,7 @@ test('owner with a verified property can attach it and earns Owner-verified', as
   await page.getByRole('button', { name: /Attach a verified property/i }).click();
   await page.getByRole('option', { name: 'My 2BHK, Baner' }).click();
   await page.getByRole('button', { name: /Create group/i }).click();
+  await approveFlatmates(page, 'groups');
   /* NO Team-up hop here, unlike the other group tests: attaching a property gives
      this group an address, and `tabOf()` sorts an addressed group into Move in now
      (it is a place you can move into, not a set of people still hunting). */

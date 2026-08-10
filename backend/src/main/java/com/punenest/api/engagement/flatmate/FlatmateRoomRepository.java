@@ -39,7 +39,7 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
     @Query(value = """
             select r from FlatmateRoom r
             where r.archived = false
-              and r.modStatus not in ('flagged','removed','rejected')
+              and r.modStatus in ('live','approved')
               and (cast(:locality as string) is null
                    or lower(r.locality) = lower(cast(:locality as string)))
               and (cast(:gender as string) is null
@@ -56,7 +56,7 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
             countQuery = """
                     select count(r) from FlatmateRoom r
                     where r.archived = false
-                      and r.modStatus not in ('flagged','removed','rejected')
+                      and r.modStatus in ('live','approved')
                       and (cast(:locality as string) is null
                            or lower(r.locality) = lower(cast(:locality as string)))
                       and (cast(:gender as string) is null
@@ -78,7 +78,7 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
     @Query("""
             select r from FlatmateRoom r
             where r.id = :id and r.archived = false
-              and r.modStatus not in ('flagged','removed','rejected')
+              and r.modStatus in ('live','approved')
             """)
     Optional<FlatmateRoom> findVisible(@Param("id") UUID id);
 
@@ -107,4 +107,7 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
     List<FlatmateRoom> findByAddressFingerprintAndArchivedFalse(String fingerprint);
 
     List<FlatmateRoom> findByHostIdAndArchivedFalseOrderByCreatedAtDesc(UUID hostId);
+
+    /** The moderation queue (D72) — see {@code FlatmateSeekerPostRepository} for the same finder. */
+    Page<FlatmateRoom> findByModStatusAndArchivedFalse(String modStatus, Pageable pageable);
 }

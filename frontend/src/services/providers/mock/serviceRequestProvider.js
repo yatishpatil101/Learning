@@ -62,6 +62,20 @@ export async function createServiceRequest(data) {
   return _create(myMobile(), { ...data, customer: { ...customer, mobile: myMobile() } });
 }
 
+/**
+ * Record the parties' identity numbers (D151) — <strong>deliberately dropped in mock mode</strong>.
+ *
+ * This is not an unimplemented stub. The mock store is `localStorage`: honouring this call would
+ * write an owner's and every tenant's PAN and Aadhaar to plain JSON on the origin, readable by any
+ * XSS and inherited by the next person on a shared or resold device — which is exactly what the
+ * wizard's `redactIdentityNumbers` was added to stop, and stopping it in one place while a provider
+ * re-created it in another would be worse than never having tried.
+ *
+ * The consequence is honest and small: a mock-mode demo shows the desk without the numbers, and the
+ * ops runbook's "ask the customer" fallback is the mock's permanent answer.
+ */
+export async function recordServiceRequestIdentities() {}
+
 export async function addServiceRequestMessage(id, text) {
   return _addMessage(ownerOf(id), id, 'user', text);
 }

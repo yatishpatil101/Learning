@@ -19,6 +19,7 @@ import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.provider.cashfree.WebhookSignature;
 import com.punenest.api.security.JwtService;
 import java.math.BigDecimal;
+import java.time.Instant;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,13 +87,23 @@ class BillingEndpointsTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
-    /** The nested payload Cashfree actually sends (spec fix S15), signed with the real HMAC. */
+    /**
+     * The nested payload Cashfree actually sends (spec fix S15), signed with the real HMAC.
+     *
+     * <p>{@code payment_time} is <strong>now</strong>, not a literal. It used to be a fixed
+     * 2025-03-05, which quietly became a time bomb once D57 gave subscriptions a real end: the
+     * yearly term dated from that instant elapsed in March 2026, so from then on the webhook
+     * activated a subscription that was already over and the read path — correctly — declined to
+     * report it. A fixture that encodes a date the suite then ages past will keep doing this.
+     */
     private void deliverSigned(String orderId, String status) throws Exception {
+        String paidAt = java.time.OffsetDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"));
         String body = "{\"type\":\"PAYMENT_SUCCESS_WEBHOOK\",\"data\":{"
                 + "\"order\":{\"order_id\":\"" + orderId + "\"},"
                 + "\"payment\":{\"payment_status\":\"" + status + "\","
                 + "\"payment_amount\":2499.00,"
-                + "\"payment_time\":\"2025-03-05T11:20:00+05:30\"}}}";
+                + "\"payment_time\":\"" + paidAt + "\"}}}";
         String ts = String.valueOf(System.currentTimeMillis());
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
                         .header("x-webhook-timestamp", ts)
@@ -259,6 +270,10 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(BoostStatuses.PENDING))
                 .andExpect(jsonPath("$.startsAt").value(Matchers.nullValue()))
                 .andExpect(jsonPath("$.paymentRef").value(Matchers.notNullValue()))
+                // D167: the single-use Cashfree session, the one thing the checkout SDK cannot be
+                // opened without. It was being created and thrown away, so the only route to a
+                // paid boost was a checkout the browser could never open.
+                .andExpect(jsonPath("$.paymentSessionId").isNotEmpty())
                 .andReturn().getResponse().getContentAsString();
 
         String orderId = jsonField(created, "paymentRef");
@@ -268,15 +283,54 @@ class BillingEndpointsTest extends AbstractApiTest {
         assertThat(boost.getStatus()).isEqualTo(BoostStatuses.ACTIVE);
         assertThat(boost.getStartsAt()).isNotNull();
         assertThat(boost.getEndsAt()).isAfter(boost.getStartsAt());
+
+        // The window is also mirrored onto the listing (D59), because that is what search ranks and
+        // discloses on. Asserting it here rather than only in BoostRankingTest is deliberate: those
+        // tests set `boostedUntil` by hand and would stay green forever if payment stopped writing
+        // it, leaving a paid boost that ranks nothing.
+        assertThat(properties.findById(p.getId()).orElseThrow().getBoostedUntil())
+                .isEqualTo(boost.getEndsAt());
+    }
+
+    /**
+     * Stacking a second pack extends the promotion; it can never cut it short (D59).
+     *
+     * <p>The mirror is a single {@code boosted_until} column, so a second purchase has to decide what
+     * to do with the value already there. Overwriting is the obvious implementation and it is wrong
+     * in exactly one direction that matters: buying a short pack while a long one is still running
+     * would shorten what the owner already paid for, and they would have paid to lose ranking.
+     */
+    @Test
+    void stackingAShorterBoostNeverShortensTheWindow() throws Exception {
+        User owner = user("9855500018", "owner");
+        Property p = listing(owner);
+
+        // A long window already running, further out than any pack this test can buy.
+        Instant faroff = Instant.now().plus(365, java.time.temporal.ChronoUnit.DAYS);
+        Property saved = properties.findById(p.getId()).orElseThrow();
+        saved.setBoostedUntil(faroff);
+        properties.saveAndFlush(saved);
+
+        String created = mvc.perform(post("/me/properties/" + p.getId() + "/boost")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"packId\":\"" + BOOST_PACK + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        deliverSigned(jsonField(created, "paymentRef"), "SUCCESS");
+
+        assertThat(properties.findById(p.getId()).orElseThrow().getBoostedUntil())
+                .as("a shorter pack must not claw back a longer window already paid for")
+                .isEqualTo(faroff);
     }
 
     /**
      * {@code GET /me/properties/{propId}/boost} — the read the boost surface shipped without.
      *
      * <p>Buying a window was a write with no corresponding read anywhere: no boost list, and no
-     * {@code boosted} flag on the listing either (deliberately — a boost does not yet affect
-     * ranking, tech-debt D59). So an owner who had paid could not be shown what they had paid for,
-     * and the state was only observable by querying the database.
+     * {@code boosted} flag on the listing either. The flag exists now (D59) but answers only
+     * "promoted right now" — it cannot show a pack whose payment never completed, which is the
+     * state an owner asking "I paid and nothing happened" needs to see.
      */
     @Test
     void anOwnerCanReadTheBoostsTheyBought() throws Exception {
@@ -302,7 +356,11 @@ class BillingEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].status").value(BoostStatuses.PENDING))
-                .andExpect(jsonPath("$[0].packId").value(BOOST_PACK));
+                .andExpect(jsonPath("$[0].packId").value(BOOST_PACK))
+                // D167: the session is single-use and deliberately not persisted, so a re-read
+                // must never carry one. The row is resumable through `paymentRef`; handing back a
+                // stale session would look resumable and fail at the gateway instead.
+                .andExpect(jsonPath("$[0].paymentSessionId").doesNotExist());
     }
 
     /** Same owner-scoping as the write: another owner's boost history is a 404, not a 403. */

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { switchToTeamUp, postAsSolo } from '../../../helpers/app.js';
+import { approveFlatmates, switchToTeamUp, postAsSolo } from '../../../helpers/app.js';
 
 /* Regression coverage for flatmates interaction bugs:
    1. A user's own live request must NOT also render as an interactable seeker card
@@ -32,6 +32,10 @@ test('own live request is not listed as an interactable seeker card', async ({ p
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Post request/i }).click();
 
+  /* Approve it (D72 holds a new post for review). This test is about the own-post
+     filter, and a pending post is hidden from the grid for a different reason —
+     without the approval it would pass without exercising the filter at all. */
+  await approveFlatmates(page, 'posts');
   await switchToTeamUp(page);
   await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
   // The banner shows our name, but no grid card (.sf-card) should.
@@ -113,6 +117,7 @@ test('posting a request surfaces match pills on other flatmate cards', async ({ 
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Post request/i }).click();
 
+  await approveFlatmates(page, 'posts'); // held for review by D72; match scoring is the subject here
   await switchToTeamUp(page);
   await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
   // At least one other card now carries a match pill tied to the posted request.
@@ -151,6 +156,7 @@ test('duplicate-post guard routes a returning poster to edit their live request'
   await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Post request/i }).click();
+  await approveFlatmates(page, 'posts'); // held for review by D72; the duplicate guard is the subject here
   await switchToTeamUp(page);
   await expect(page.getByText('Your live request')).toBeVisible({ timeout: 10000 });
 

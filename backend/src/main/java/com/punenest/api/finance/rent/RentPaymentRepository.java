@@ -1,8 +1,11 @@
 package com.punenest.api.finance.rent;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -70,4 +73,19 @@ public interface RentPaymentRepository extends JpaRepository<RentPayment, UUID> 
             + "and p.dueDate = :dueDate and p.status in ('due', 'paid')")
     boolean existsLiveForDueDate(@Param("tenancyId") UUID tenancyId,
             @Param("dueDate") LocalDate dueDate);
+
+    /**
+     * Checkouts opened before {@code cutoff} and still unpaid — the sweep's input (D161).
+     *
+     * <p>{@code due} is the only status this may return, and that is what makes the sweep safe:
+     * nothing but {@code payRent} creates a rent payment, and it creates one only when a tenant has
+     * asked to pay. There is no scheduled biller producing {@code due} rows for months nobody has
+     * started, so "still {@code due} 45 minutes after it was created" means an abandoned checkout
+     * and never an unpaid month.
+     *
+     * <p>Ordered oldest-first and taken a {@code batch} at a time, for the reasons set out on
+     * {@code SubscriptionRepository}'s equivalent.
+     */
+    List<RentPayment> findByStatusAndCreatedAtBeforeOrderByCreatedAtAsc(String status,
+            Instant cutoff, Limit batch);
 }

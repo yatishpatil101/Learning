@@ -21,6 +21,15 @@ import lombok.Getter;
  * <p>Reference data — seeded by {@code R__seed_reference_data.sql}, never written by application
  * code, so no setters. Only the columns the contract's {@code Fees} schema names are mapped;
  * {@code ddl-auto=validate} ignores the rest.
+ *
+ * <p><strong>{@link #stampDuty} and {@link #registration} are nullable, and null is meaningful</strong>
+ * (D163, V52). It says "this line is not a flat figure — it is computed per agreement", which is the
+ * literal truth for a leave-and-licence: stamp duty is 0.25% of a consideration built from the rent,
+ * the term and the deposit, and the registration fee depends on whether the registering body is
+ * municipal or rural. Seeding either as a number would be right for one tenancy and wrong for every
+ * other, and this table is read by the public. The arithmetic lives in
+ * {@link LeaveAndLicenceCharges}; a caller that sums this row must decide what an absent line means
+ * rather than coercing it to zero.
  */
 @Entity
 @Table(name = "platform_fees")
@@ -41,11 +50,13 @@ public class PlatformFee {
     @Column(name = "platform_fee", nullable = false)
     private long platformFee;
 
-    @Column(name = "stamp_duty", nullable = false)
-    private long stampDuty;
+    /** Whole rupees, or {@code null} when the duty is computed per agreement — see the class note. */
+    @Column(name = "stamp_duty")
+    private Long stampDuty;
 
-    @Column(name = "registration", nullable = false)
-    private long registration;
+    /** Whole rupees, or {@code null} when the fee depends on the registering body. */
+    @Column(name = "registration")
+    private Long registration;
 
     @Column(name = "gst", nullable = false)
     private long gst;

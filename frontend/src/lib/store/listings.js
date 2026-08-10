@@ -29,8 +29,17 @@ export const updateListing = (id, patch) => {
 };
 
 /* Foundation fields: changing any of these on an approved listing reverts it for
-   re-verification (anti bait-and-switch). Mirrors HTML Auth.LISTING_FOUNDATION_FIELDS. */
-export const LISTING_FOUNDATION_FIELDS = ['deal', 'title', 'locality', 'localitySlug', 'bhk', 'bhkNum', 'area', 'type', 'facing', 'floor', 'age', 'construction'];
+   re-verification (anti bait-and-switch). These MUST mirror the server's revert set,
+   which is exactly the searchable facets a buyer can filter on — the shape a
+   bait-and-switch takes. The server derives the set by reflection off
+   PropertyController.search's @RequestParam facets and enforces it in
+   ListingService.apply; ListingFoundationTest#everySearchFacetIsClassified pins the
+   seven facets: price, bhk, propertyType(wire `type`), locality, deal, furnishing,
+   possession. Mapped to this store's field names, `propertyType`→`type` and the
+   possession facet is carried by the seed's `construction` field (see tileMeta.js).
+   Excludes derived projections (localitySlug/bhkNum) and non-facet fields
+   (title/area/facing/floor/age) the server leaves as ordinary, non-reverting edits. */
+export const LISTING_FOUNDATION_FIELDS = ['deal', 'locality', 'bhk', 'type', 'price', 'furnishing', 'construction'];
 export const listingFoundationChanged = (oldL, patch) => {
   return LISTING_FOUNDATION_FIELDS.some((f) => (f in patch) && String(patch[f] ?? '') !== String((oldL && oldL[f]) ?? ''));
 };

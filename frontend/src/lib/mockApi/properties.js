@@ -102,6 +102,22 @@ function matchesFilters(p, f = {}) {
   return true;
 }
 
+/**
+ * Is a paid promotion window open right now? Mirrors the server's `Property.isBoosted()` (D59):
+ * compared against the current time rather than swept, so an elapsed window stops counting on its
+ * own and a stale row can never keep rank it no longer pays for.
+ */
+export const isBoostedNow = (p) => !!p.boostedUntil && new Date(p.boostedUntil).getTime() > Date.now();
+
+/**
+ * Attach the derived `boosted` flag the card reads.
+ *
+ * The store keeps the window (`boostedUntil`); the wire carries only the boolean, computed by the
+ * server at request time. Deriving it here at the read boundary rather than storing it keeps the
+ * two modes honest in the same way — there is no persisted flag that can survive its own window.
+ */
+const withBoosted = (p) => (p ? { ...p, boosted: isBoostedNow(p) } : p);
+
 function sortProps(list, sort) {
   const arr = list.slice();
   switch (sort) {
@@ -113,7 +129,12 @@ function sortProps(list, sort) {
       return arr.sort((a, b) => b.area - a.area);
     case 'newest':
     default:
-      return arr.sort((a, b) => createdMs(b.createdAt) - createdMs(a.createdAt));
+      // Paid placement applies to the default order only (D59) — an explicit price/area sort above
+      // is honoured exactly, because ranking a paid listing above one the buyer asked to see first
+      // is deception rather than promotion. Same rule as `PropertySpecs.boostedFirst` server-side.
+      return arr.sort((a, b) =>
+        (isBoostedNow(b) ? 1 : 0) - (isBoostedNow(a) ? 1 : 0)
+        || createdMs(b.createdAt) - createdMs(a.createdAt));
   }
 }
 
@@ -131,12 +152,12 @@ export function listProperties(filters = {}, sort = 'newest') {
     list = list.filter((p) => !isSplitOccupied(p.id));
   }
   const out = sortProps(list, sort);
-  return delay(out);
+  return delay(out.map(withBoosted));
 }
 
 export function getProperty(id) {
   const db = rawLoad();
-  return delay(db.listings.find((p) => p.id === id) || null);
+  return delay(withBoosted(db.listings.find((p) => p.id === id) || null));
 }
 
 export function featuredProperties(limit = 6) {
@@ -144,7 +165,7 @@ export function featuredProperties(limit = 6) {
   const live = db.listings.filter((p) => p.status === 'approved' && !p.archived && !(p.real && isDormant(p)) && !isSplitOccupied(p.id));
   const feat = live.filter((p) => isFeaturedActive(p));
   const rest = live.filter((p) => !isFeaturedActive(p));
-  return delay([...feat, ...rest].slice(0, limit));
+  return delay([...feat, ...rest].slice(0, limit).map(withBoosted));
 }
 
 /**

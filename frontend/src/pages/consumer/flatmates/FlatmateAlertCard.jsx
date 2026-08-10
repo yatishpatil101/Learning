@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { addSavedSearch, myMobile } from '../../../lib/store.js';
+import { myMobile } from '../../../lib/store.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
@@ -15,9 +15,10 @@ const CHANNELS = [
 
 /**
  * "Get alerted" card shown in a Flatmates empty state (no flatmates/rooms/groups
- * match). Mirrors the listings NotifyMeCard: one submit creates a user-owned,
- * dashboard-manageable saved-search alert keyed by the entered mobile — so even a
- * signed-out seeker's lead lands under their number and surfaces after sign-in.
+ * match). Mirrors the listings NotifyMeCard, but the managed alert is account-gated
+ * (D85): a signed-in seeker's submit creates a dashboard-manageable saved-search
+ * alert keyed by their mobile, while a signed-out seeker is redirected to sign in
+ * (`/signin?reason=alerts`) — no anonymous lead is captured on this surface.
  */
 export default function FlatmateAlertCard({ filters, tab, toast }) {
   const { t } = useTranslation();
@@ -27,6 +28,7 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
   const [saving, setSaving] = useState(false);
   const { isIn } = useAuth();
   const { create: createSavedSearch } = useSavedSearches();
+  const navigate = useNavigate();
 
   // Per-tab copy so the invitation reads naturally for each share intent. Keyed
   // off the two live tabs — and `word` is a plural NOUN, not the tab label, so the
@@ -40,33 +42,31 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('flatmates.invalidMobile'), 'error'); return; }
-    /* Two paths, because the server only models one of them.
+    /* The alert is user-owned and dashboard-managed, so it needs an account. Signed out → send them
+       to sign in (matching the listings "Save search" gate); an anonymous localStorage alert was one
+       the user was told they had but could never see once every read came from the server (D85).
+       There is no demand-gap capture on this surface, so gating before the mobile check loses
+       nothing — unlike the listings card, there is no anonymous signal worth the number.
 
        Signed in → the seam. Ownership comes from the token, so `mobile` is redundant and is
-       deliberately not sent; passing it would only invite the API's anonymous-capture guard.
-
-       Signed out → localStorage, as before. `POST /me/saved-searches` is caller-scoped and takes
-       no mobile, so there is nothing to call for a visitor who has not signed in — and this card
-       exists precisely to capture that visitor. Keeping it local means the alert is still claimed
-       when they later sign in on this device, which is the behaviour it has always had (D85).
-
-       The signed-in branch is awaited: it is a network write against the live API, and showing the
-       "first in line" confirmation before it settles told the user they had an alert that a
-       rejected create never recorded. */
-    if (isIn) {
-      setSaving(true);
-      try {
-        await createSavedSearch({ ...record, channel });
-      } catch {
-        setSaving(false);
-        toast(t('flatmates.alertFailed'), 'error');
-        return;
-      }
-      setSaving(false);
-    } else {
-      addSavedSearch({ ...record, channel, mobile });
+       deliberately not sent; passing it would only invite the API's anonymous-capture guard. The
+       create is awaited: showing the "first in line" confirmation before it settles told the user
+       they had an alert that a rejected create never recorded. */
+    if (!isIn) {
+      toast(t('flatmates.signInToAlert'), 'info');
+      navigate(`/signin?reason=alerts&next=${encodeURIComponent('/flatmates')}`);
+      return;
     }
+    if (!/^[6-9]\d{9}$/.test(mobile)) { toast(t('flatmates.invalidMobile'), 'error'); return; }
+    setSaving(true);
+    try {
+      await createSavedSearch({ ...record, channel });
+    } catch {
+      setSaving(false);
+      toast(t('flatmates.alertFailed'), 'error');
+      return;
+    }
+    setSaving(false);
     setSent(true);
     toast(t('flatmates.alertCreatedChannel', { channel: channel === 'sms' ? 'SMS' : 'WhatsApp' }), 'success');
   };

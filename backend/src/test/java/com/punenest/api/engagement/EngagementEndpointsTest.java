@@ -572,6 +572,47 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(0));
     }
 
+    /** Dismiss removes the caller's own notification: 204, and it is gone from the inbox (D93). */
+    @Test
+    void dismiss_removesCallerOwnRow() throws Exception {
+        User u = user("9820100039");
+        UUID id = UUID.randomUUID();
+        jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'Bye')",
+                id, u.getId());
+
+        mvc.perform(delete("/notifications/" + id).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(get("/notifications").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+    }
+
+    /** Invariant 1: dismissing another user's notification is 404 (never 403), and leaves it intact. */
+    @Test
+    void dismiss_callerScoped_returns404() throws Exception {
+        User a = user("9820100040");
+        User b = user("9820100041");
+        UUID notifA = UUID.randomUUID();
+        jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'For A')",
+                notifA, a.getId());
+
+        mvc.perform(delete("/notifications/" + notifA).header(HttpHeaders.AUTHORIZATION, bearer(b)))
+                .andExpect(status().isNotFound());
+
+        int stillThere = jdbc.queryForObject(
+                "select count(*) from notifications where id = ?", Integer.class, notifA);
+        assertThat(stillThere).isOne();
+    }
+
+    /** A non-UUID path token is a 400 (type-mismatch), not a 500 — same as {@code markRead}. */
+    @Test
+    void dismiss_malformedId_returns400NotServerError() throws Exception {
+        User u = user("9820100042");
+        mvc.perform(delete("/notifications/not-a-uuid").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isBadRequest());
+    }
+
     // ========================= Auth required =========================
 
     @Test
@@ -590,5 +631,6 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/notifications")).andExpect(status().isUnauthorized());
         mvc.perform(post("/notifications/read")).andExpect(status().isUnauthorized());
+        mvc.perform(delete("/notifications/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
     }
 }

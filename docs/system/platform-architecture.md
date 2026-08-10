@@ -167,6 +167,38 @@ non-zero cost. Only two needs have no free production tier anywhere: SMS OTP and
 
 ---
 
+## 4.2 Free-tier capacity — which limit we hit first
+
+How much product the pure free tiers actually hold. The useful answer is not one number but
+**which ceiling binds first**. Assumptions (adjust as reality lands): ~6-10 photos/listing,
+client-side compressed to ~200-300 KB each = **~1.5-2.5 MB images/listing**; a listing row +
+FTS `tsvector` + amenities JSONB + b-tree indexes = **~2-4 KB**; a user row ~0.5-1 KB.
+
+| Free tier | Allowance | What consumes it | Ceiling |
+| --- | --- | --- | --- |
+| **Cloudflare R2** | 10 GB · 1M writes/mo · 10M reads/mo · **egress free** | listing photos, KYC/property docs, reels | **~3,000-6,000 photo-backed listings** (10 GB ÷ ~2 MB). **Reels fill this fastest** — video is MBs *per clip* |
+| **Cloud Run** | 2M req/mo (~66k/day) | every API call | **~1,500-3,000 active sessions/day** (20-50 calls/session) — a *traffic* wall, independent of stored volume |
+| **Supabase Postgres** | 500 MB DB · 5 GB egress/mo | all rows + FTS indexes + audit/outbox/notifications | content is cheap (~15k listings + ~100k users ≈ 125 MB); the real risk is **write-amplifying tables** (audit, otp_codes, notifications/outbox) growing unbounded |
+
+**Binding order.** (1) **R2 storage** is the tightest hard wall (~5k photo-backed listings; reels
+fill it faster). (2) **Cloud Run requests** is the traffic wall on a busy day. (3) **Postgres 500 MB**
+is the *last* wall for content **only if** audit/otp/notification retention is enforced — left
+unpruned it becomes the *first* wall instead.
+
+**Bottom line.** The free tiers comfortably carry a **Pune neighbourhood-scale MVP**: a few thousand
+live photo-backed listings, **tens of thousands of registered users**, ~1.5-3k sessions/day. Scaling
+past that is a **~USD 25/mo Supabase Pro upgrade + pennies-per-GB R2 overage** (R2 zero-egress ⇒
+storage-only overage ~USD 0.015/GB-mo), **not a re-architecture** — the "clear path to millions
+without rewrite" the ADRs target.
+
+**Two caveats that are not capacity but bite in prod.** (a) **The first paid dollar is R2, not the
+DB** — the moment photo-backed listings cross ~5k or reels get popular; it scales gracefully because
+egress is free. (b) **Supabase free pauses after 7 days of *no DB connections* and offers only shared
+CPU + a small direct-connection cap** — so a real prod app should move off the pausing tier early;
+Pro (~USD 25/mo) is the first upgrade actually *needed*, well before the 500 MB fills (see §6.2).
+
+---
+
 ## 5. Diagrams
 
 All seven standard views are complete: **5.1** System Context · **5.2** High-Level Architecture ·

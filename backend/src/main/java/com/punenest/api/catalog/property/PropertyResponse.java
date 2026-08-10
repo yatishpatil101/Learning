@@ -44,6 +44,10 @@ public record PropertyResponse(
         // `status` (sold/rented also imply closed) but carries the one state `status` cannot:
         // `reserved`, an under-offer listing whose moderation status is still `approved`.
         String dealStatus,
+        // Paid-placement disclosure (D59). Carried on detail as well as the card because `Property`
+        // is `allOf: [PropertySummary, ...]` in the contract -- omitting it here would make the
+        // spec claim a field the detail read does not return.
+        boolean boosted,
         Instant createdAt,
         // ---- detail ----
         String description,

@@ -2,12 +2,15 @@ package com.punenest.api.deals.visit;
 
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -37,11 +40,17 @@ public class VisitRequestController {
 
     /**
      * {@code GET /me/visit-requests} (contract {@code myVisitRequests}) — visit requests on the
-     * caller's own listings, newest first. Strictly owner-scoped.
+     * caller's own listings, newest first, paged. Strictly owner-scoped.
+     *
+     * <p><strong>Paged as of D77.</strong> A booking here is made by a <em>visitor</em>, so the
+     * collection grows with demand for the listing rather than with anything its owner did.
      */
     @GetMapping(Routes.Visits.ME_REQUESTS)
-    public List<VisitDto> myVisitRequests(@CurrentUser AuthPrincipal principal) {
-        return visitService.visitRequestsOnMine(principal.userId());
+    public PageResponse<VisitDto> myVisitRequests(@CurrentUser AuthPrincipal principal,
+                                                  @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                visitService.visitRequestsOnMine(principal.userId(), Pageables.unsorted(pageable)),
+                v -> v);
     }
 
     /**

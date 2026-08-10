@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>The list is a bare array per {@code api-standards.md} §5.1 — it grows with one user's own
  * support history. That is only true because S47 narrowed the operation to the caller's own tickets;
- * a platform-wide view would have to be paged.
+ * the platform-wide view is paged, and lives on {@link AdminSupportTicketsController} (D51).
  */
 @RestController
 public class SupportTicketsController {

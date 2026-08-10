@@ -14,6 +14,7 @@ import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import NewCityEmptyState from '../../components/city/NewCityEmptyState.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
+import useAsyncList from '../../hooks/useAsyncList.js';
 import { enrichWithVerification } from '../../lib/data/enrichProperties.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
@@ -29,6 +30,11 @@ import { buildActiveChips } from './listings/listingsChips.js';
 import { parseSmartQuery } from './listings/listingsSmartQuery.js';
 
 const SORTS = ['relevance', 'price-low', 'price-high', 'newest'];
+
+/* The page's one remote read: the catalogue plus the locality registry, which are needed together
+   before anything can be filtered. Hoisted out of the component so its identity is stable —
+   `useAsyncList` re-runs on dep change, and an inline arrow would be a new loader every render. */
+const loadCatalogue = () => Promise.all([listProperties({ includeAllStatuses: false }, 'newest'), listLocalities()]);
 
 export default function Listings() {
   const { t: tr } = useTranslation();
@@ -64,8 +70,16 @@ export default function Listings() {
   const [page, setPage] = useState(1);
   const [view, setView] = useState(params.get('view') === 'map' ? 'map' : params.get('view') === 'list' ? 'list' : 'grid');
   const [activeId, setActiveId] = useState(params.get('property') || null);
-  const [all, setAll] = useState([]);
-  const [loaded, setLoaded] = useState(false);
+  /* The catalogue read, with a lifecycle instead of a hope (D166). It used to be a bare
+     `.then()` with no `.catch`: a failed read left `loaded` false forever, so the most-visited
+     page in the app answered a dropped connection with six skeleton cards that never resolved,
+     and the rejection went to the console. `useAsyncList` gives the failure a name and a retry. */
+  const [catalogue, loadStatus, , retryLoad, loadError] = useAsyncList(loadCatalogue, []);
+  const all = useMemo(
+    () => (catalogue[0] || []).map((p) => enrichWithVerification(enrichRent(p))),
+    [catalogue],
+  );
+  const loaded = loadStatus === 'ready';
   // Active city: we only have inventory for Pune today, so a data-less live city gets an
   // honest empty state here instead of Pune listings mislabelled as its own.
   const { city } = useCity();
@@ -142,19 +156,17 @@ export default function Listings() {
   useEffect(() => { setF((prev) => (prev.deal === urlDeal ? prev : INITIAL(urlDeal))); }, [urlDeal]);
 
   useEffect(() => {
-    Promise.all([listProperties({ includeAllStatuses: false }, 'newest'), listLocalities()]).then(([ps, ls]) => {
-      setAll(ps.map((p) => enrichWithVerification(enrichRent(p))));
-      // Offer the full canonical registry (curated + community) as filter options,
-      // not just the handful of listing-derived localities — so any Pune locality is
-      // searchable here even without the Maps SDK loaded (list view). Live Places
-      // suggestions layer on top of this in the Localities filter.
-      const seen = new Set(ls.map((l) => l.slug));
-      const merged = [...ls];
-      allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
-      setLocalities(merged);
-      setLoaded(true);
-    });
-  }, []);
+    const ls = catalogue[1];
+    if (!ls) return;
+    // Offer the full canonical registry (curated + community) as filter options,
+    // not just the handful of listing-derived localities — so any Pune locality is
+    // searchable here even without the Maps SDK loaded (list view). Live Places
+    // suggestions layer on top of this in the Localities filter.
+    const seen = new Set(ls.map((l) => l.slug));
+    const merged = [...ls];
+    allLocalities().forEach((l) => { if (l.slug && !seen.has(l.slug)) { merged.push({ slug: l.slug, name: l.name }); seen.add(l.slug); } });
+    setLocalities(merged);
+  }, [catalogue]);
 
   // A live Places pick can resolve to a locality that isn't in the option list yet;
   // register it (slug → name) so its chip and the dropdown summary show a friendly name.
@@ -316,7 +328,7 @@ export default function Listings() {
               </div>
             </aside>
 
-            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
+            <ResultsArea f={f} set={set} localities={localities} aiQuery={aiQuery} setAiQuery={setAiQuery} smartSearch={smartSearch} saveSearch={saveSearch} results={pageResults} total={results.length} verifiedCount={verifiedCount} relaxedNear={relaxedNear} page={safePage} pageCount={pageCount} goToPage={goToPage} view={effView} setView={setView} sort={sort} setSort={setSort} flagEnabled={flagEnabled} activeChips={activeChips} clearAll={clearAll} locNameBySlug={locNameBySlug} loaded={loaded} loadFailed={loadStatus === 'error'} loadError={loadError} onRetryLoad={retryLoad} toast={toast} onOpenFilters={() => setDrawer(true)} mapGated={mapGated} mapAreaCount={mapAreaCount} mapMaxAreas={MAP_MAX_AREAS} mapMarkerCap={MAP_MARKER_CAP} mapFocus={mapFocus} activeId={activeId} activeProperty={activeProperty} activeIndex={activeIndex} onSelectProperty={onSelectProperty} onCloseProperty={onCloseProperty} fromSearch={buildReturnSearch()} onOpenProperty={saveReturnContext} isIn={isIn} mapUnavailable={view === 'map' && !mapEnabled} />
           </div>
           )}
         </div>

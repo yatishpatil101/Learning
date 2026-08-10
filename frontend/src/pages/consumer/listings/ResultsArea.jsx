@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
+import LoadError from '../../../components/LoadError.jsx';
 import Card from './Card.jsx';
 import NotifyMeCard from './NotifyMeCard.jsx';
 import MapGate from './MapGate.jsx';
@@ -27,7 +28,7 @@ function pageItems(current, total) {
   return items;
 }
 
-export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
+export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, smartSearch, saveSearch, results, total, verifiedCount = 0, relaxedNear, page, pageCount, goToPage, view, setView, sort, setSort, flagEnabled, activeChips, clearAll, locNameBySlug, loaded, loadFailed = false, loadError, onRetryLoad, toast, onOpenFilters, mapGated, mapAreaCount, mapMaxAreas, mapMarkerCap, mapFocus, activeId, activeProperty, activeIndex, onSelectProperty, onCloseProperty, fromSearch, onOpenProperty, isIn, mapUnavailable }) {
   const { t } = useTranslation();
   const count = total ?? results.length;
   const mapCapped = view === 'map' && !mapGated && total > results.length;
@@ -72,6 +73,11 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
     <p className="text-gray-400 text-sm">{t('listings.showing')} <span className="text-teal-400 font-semibold">{count}</span> {t('listings.propertyNoun', { count })}
       {verifiedCount > 0 ? <span className="text-emerald-300/90"> · <Icon name="shield-check" className="w-3.5 h-3.5 inline-block -mt-0.5" /> {t('listings.verifiedCount', { count: verifiedCount })}</span> : null}
     </p>
+  ) : loadFailed ? (
+    /* "Showing 0 properties" is a claim about Pune's inventory, and after a failed read it is a
+       false one. Say nothing about the count rather than something wrong — the card below says
+       what actually happened. */
+    <p className="text-gray-400 text-sm">{t('listings.countUnavailable')}</p>
   ) : (
     <p className="text-gray-400 text-sm inline-flex items-center gap-2" aria-live="polite">
       <span className="w-3.5 h-3.5 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /> {t('listings.searchingCity')}
@@ -200,6 +206,11 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                     ) : null}
                   </>
                 )
+              ) : loadFailed ? (
+                /* A search that could not run must not look like a search that found nothing:
+                   the "broaden your filters" empty state below would send the user to widen a
+                   budget that was never actually applied (D166). */
+                <LoadError message={t('listings.loadError')} error={loadError} onRetry={onRetryLoad} className="glass rounded-2xl px-5 py-8 sm:p-12" />
               ) : !loaded ? (
                 <div className={view === 'list' ? 'flex flex-col gap-4' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'}>
                   {Array.from({ length: 6 }).map((_, i) => (

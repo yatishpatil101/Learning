@@ -93,9 +93,13 @@ test('Team & Access page renders seeded members and roles', async ({ page }) => 
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/team`);
   await expect(page.getByRole('heading', { name: /Team & Access/i })).toBeVisible({ timeout: 5000 });
-  // Seeded internal users
-  await expect(page.getByText('Rohan Kulkarni').first()).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText('Sneha Patil').first()).toBeVisible({ timeout: 5000 });
+  /* Seeded internal users. Table renders the `sm:hidden` stacked card for every
+     row *before* the `hidden sm:block` table, so each name is in the DOM twice
+     and a bare getByText(...).first() resolves to the mobile duplicate — which
+     is permanently hidden at this desktop viewport. Assert on the table row, as
+     the edit test below does. */
+  await expect(page.getByRole('row', { name: /Rohan Kulkarni/ })).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('row', { name: /Sneha Patil/ })).toBeVisible({ timeout: 5000 });
   expect(errors).toHaveLength(0);
 });
 

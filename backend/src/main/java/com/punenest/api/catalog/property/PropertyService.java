@@ -2,6 +2,7 @@ package com.punenest.api.catalog.property;
 
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,10 +37,23 @@ public class PropertyService {
      * Faceted public search (contract {@code searchProperties}). The specification pins
      * approved+non-archived; the page's sort is sanitized to the whitelist so a client can't sort by
      * (or thereby probe) an unindexed/internal column.
+     *
+     * <p><strong>Promoted-first on the default order only (D59).</strong> When the caller expressed
+     * no preference, paid boosts float to the top via {@link PropertySpecs#boostedFirst}; when the
+     * caller chose an order, that order is honoured exactly. The ranked branch hands the repository
+     * an <em>unsorted</em> pageable on purpose — a {@code Pageable} sort overrides a
+     * specification's {@code ORDER BY}, so leaving the default {@code createdAt DESC} on would
+     * silently discard the ranking. {@code boostedFirst} carries that tiebreaker itself instead.
      */
     @Transactional(readOnly = true)
     public Page<Property> search(PropertySearchQuery filters, Pageable pageable) {
-        return properties.findAll(PropertySpecs.publicSearch(filters), PropertySort.sanitize(pageable));
+        Pageable safe = PropertySort.sanitize(pageable);
+        if (PropertySort.hasExplicitSort(pageable)) {
+            return properties.findAll(PropertySpecs.publicSearch(filters), safe);
+        }
+        return properties.findAll(
+                PropertySpecs.publicSearch(filters).and(PropertySpecs.boostedFirst(Instant.now())),
+                PageRequest.of(safe.getPageNumber(), safe.getPageSize()));
     }
 
     /**

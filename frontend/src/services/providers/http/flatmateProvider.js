@@ -18,7 +18,7 @@
  * it exists to convert. Everything that names *me* (`/me/flatmate-requests`) or acts as me
  * (create, interest, join) is caller-scoped and short-circuits without a session.
  */
-import { del, get, patch, post, unwrapPage } from '../../http.js';
+import { del, get, patch, post, unwrapPage, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
   toGroupViewModel,
@@ -291,14 +291,17 @@ export async function postInterest(id, { share = 'solo', message } = {}) {
 /* ─── Requests (the host's inbox) ───────────────────────────────────────────────────────────── */
 
 /**
- * `GET /me/flatmate-requests` — requests addressed to the caller as host.
+ * `GET /me/flatmate-requests` — requests addressed to the caller as host. Paged (D77).
  *
  * Host-scoped: the query is `findByHostId`, so this is never somebody else's inbox. Contains both
- * `pending` rows awaiting a decision and already-`accepted` joins — see `awaitingDecision`.
+ * `pending` rows awaiting a decision and already-`accepted` joins — see `awaitingDecision`, which
+ * counts across the whole list and would undercount on a partial one. `size` is therefore asked
+ * for explicitly rather than left to the server's default of twenty.
  */
 export async function myRequests(status) {
   if (!signedIn()) return [];
-  return toList(await get('/me/flatmate-requests', clean({ status })), toRequestViewModel);
+  const res = await get('/me/flatmate-requests', clean({ status, size: MAX_PAGE_SIZE }));
+  return unwrapFullPage(res, 'flatmate').map(toRequestViewModel);
 }
 
 /** `PATCH /me/flatmate-requests/{id}` — accept or decline. Host only. */

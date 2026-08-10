@@ -24,7 +24,7 @@ public final class ContactStatuses {
     /** The viewer owns the listing — full contact, no request needed, no row created. */
     public static final String OWNER = "owner";
 
-    /** The owner approved the request; the raw mobile may now be revealed. */
+    /** The owner approved the request; the buyer may now message the owner in-app (D5). */
     public static final String APPROVED = "approved";
 
     /** A request exists and is awaiting the owner's decision. Contact stays masked. */
@@ -37,15 +37,16 @@ public final class ContactStatuses {
     public static final String NONE = "none";
 
     /**
-     * The reveal rule in one place (ADR-019): the raw owner mobile is emitted only at {@link #OWNER}
-     * or {@link #APPROVED}.
+     * The reveal rule in one place (ADR-019 / D5 global policy): the raw mobile is emitted only to
+     * the listing {@link #OWNER} viewing their own number. Approval no longer reveals digits — an
+     * {@code approved} request unlocks the in-app conversation, not the phone number — so it does not
+     * appear here, and neither party is ever handed the other's raw number before a signed deal.
      *
      * <p>Lives with the constants rather than in a service because it is a property <em>of</em> the
      * vocabulary — any new status must confront this method, which is exactly the review moment we
-     * want. The owner's future {@code hideNumber} preference (no backing column today, see the
-     * slice-3 reconciliation log) would enter here as an additional {@code &&} on the approved arm.
+     * want. {@code users.hide_number} (V31) is retained as a no-op preference under this policy.
      */
     public static boolean revealsContact(String status) {
-        return OWNER.equals(status) || APPROVED.equals(status);
+        return OWNER.equals(status);
     }
 }

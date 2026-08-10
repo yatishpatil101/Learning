@@ -67,4 +67,14 @@ public class Visit extends AuditedEntity {
         this.note = note;
     }
 
+    /**
+     * Move this visit to {@code newSlot} and return it to {@code scheduled} — a moved slot is not
+     * one the other party has agreed to yet, so it must be re-confirmed (D87). Terminal-state
+     * guarding lives in the service; this is the state change once that check has passed.
+     */
+    public void reschedule(Instant newSlot) {
+        this.slot = newSlot;
+        this.status = VisitStatuses.SCHEDULED;
+    }
+
 }

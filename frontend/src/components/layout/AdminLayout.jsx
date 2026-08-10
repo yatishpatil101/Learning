@@ -7,6 +7,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import LogoMark from '../brand/LogoMark.jsx';
+import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
 import { ADMIN_MODULES } from '../../lib/adminModules.js';
@@ -58,6 +59,10 @@ function AdminLayoutInner({ variant = 'admin' }) {
 
   return (
     <div className="min-h-[100dvh] bg-ink lg:flex">
+      {/* Staff get the same connectivity answer consumers do (D164). An ops screen is where a
+          dropped connection is *most* expensive to misread: a queue that fails to load looks
+          exactly like a queue that is finally empty, and one of those ends a shift early. */}
+      <ConnectivityBanner />
       <aside
         className={
           'fixed inset-y-0 left-0 z-50 w-64 transform border-r border-white/10 bg-ink-2 transition-transform lg:static lg:translate-x-0 ' +

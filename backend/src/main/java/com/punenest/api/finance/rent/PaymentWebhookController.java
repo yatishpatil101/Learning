@@ -3,12 +3,15 @@ package com.punenest.api.finance.rent;
 import com.punenest.api.billing.BillingPayments;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.provider.cashfree.WebhookSignature;
+import com.punenest.api.services.request.ServiceRequestService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
+import java.util.List;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -67,13 +70,16 @@ public class PaymentWebhookController {
 
     private final RentService rentService;
     private final BillingPayments billingPayments;
+    private final ServiceRequestService serviceRequests;
     private final WebhookSignature webhookSignature;
     private final ObjectMapper objectMapper;
 
     public PaymentWebhookController(RentService rentService, BillingPayments billingPayments,
-            WebhookSignature webhookSignature, ObjectMapper objectMapper) {
+            ServiceRequestService serviceRequests, WebhookSignature webhookSignature,
+            ObjectMapper objectMapper) {
         this.rentService = rentService;
         this.billingPayments = billingPayments;
+        this.serviceRequests = serviceRequests;
         this.webhookSignature = webhookSignature;
         this.objectMapper = objectMapper;
     }
@@ -99,29 +105,79 @@ public class PaymentWebhookController {
         }
         try {
             JsonNode root = objectMapper.readTree(rawBody);
-            JsonNode payment = root.path("data").path("payment");
+            JsonNode data = root.path("data");
+            JsonNode payment = data.path("payment");
 
-            String orderId = root.path("data").path("order").path("order_id").asString(null);
+            String orderId = data.path("order").path("order_id").asString(null);
             String providerStatus = payment.path("payment_status").asString(null);
             boolean paid = PROVIDER_SUCCESS.equals(providerStatus);
 
             String next = paid ? RentPaymentStatuses.PAID : RentPaymentStatuses.FAILED;
+            String paymentTime = payment.path("payment_time").asString(null);
+            LocalDate settledOn = settlementDate(paymentTime);
+            Instant settledAt = settlementInstant(paymentTime);
+            long amount = toWholeRupees(payment.path("payment_amount").asString(null));
 
-            rentService.applyWebhookOutcome(orderId, next,
-                    settlementDate(payment.path("payment_time").asString(null)),
-                    failureReason(root.path("data").path("error_details")),
-                    toWholeRupees(payment.path("payment_amount").asString(null)));
+            // Rent is not the only thing bought through this gateway: a subscription, a listing
+            // boost and a paid rent agreement all land on the same callback. Each side ignores an
+            // order id it does not own, so all four are always offered the event rather than
+            // guessing from the payload which it was.
+            //
+            // Each gets its own try/catch. They used to share one, which meant a failure in the
+            // first — an unrelated bug in the rent path, say — returned 200 without the others
+            // ever being asked. Cashfree does not retry a 200, so a paid agreement would have sat
+            // at awaiting-payment forever with the money already taken.
+            List<Settlement> outcomes = List.of(
+                    settle("rent", () -> rentService.applyWebhookOutcome(orderId, next, settledOn,
+                            failureReason(data.path("error_details")), amount)),
+                    settle("subscription", () -> billingPayments.settleSubscription(orderId, paid, settledAt)),
+                    settle("boost", () -> billingPayments.settleBoost(orderId, paid, settledAt)),
+                    settle("service-request", () -> serviceRequests.applyWebhookOutcome(orderId, paid, amount)));
 
-            // Rent is not the only thing bought through this gateway: a subscription or a listing
-            // boost lands on the same callback. Each side ignores an order id it does not own, so
-            // both are always offered the event rather than guessing from the payload which it was.
-            billingPayments.applyWebhookOutcome(orderId, paid,
-                    settlementInstant(payment.path("payment_time").asString(null)));
+            if (paid && !outcomes.contains(Settlement.CLAIMED)) {
+                // Money moved and nothing recorded it. Dropping this silently is how a customer pays
+                // and nothing at all happens; there is no automatic recovery and no retry, so the
+                // only correct response is to make it findable — and to say which of the two very
+                // different causes it was, because they send whoever is paged to different places.
+                if (outcomes.contains(Settlement.FAILED)) {
+                    log.error("Paid webhook for order {} was not settled: a handler failed (see the "
+                            + "error above). The payment is unreconciled and will not be retried", orderId);
+                } else {
+                    log.error("Paid webhook for order {} matched no rent payment, subscription, boost "
+                            + "or service request; the payment is unreconciled", orderId);
+                }
+            }
 
         } catch (Exception unprocessable) {
             // why: a signed-but-unreadable payload is our bug or a provider change, not the
             // sender's problem. Retrying will not help, so we swallow it and keep the 200 contract.
             log.error("Signed payment webhook could not be processed", unprocessable);
+        }
+    }
+
+    /** What one settle handler did with the event. */
+    private enum Settlement {
+        /** The handler owned the order and recorded the outcome. */
+        CLAIMED,
+        /** The handler does not own this order id — the normal answer for three of the four. */
+        NOT_MINE,
+        /** The handler threw. Distinct from {@link #NOT_MINE}: the order may well have been ours. */
+        FAILED
+    }
+
+    /**
+     * Run one settle handler in isolation, so a failure in it cannot cost the others their event.
+     *
+     * @return what the handler did; {@link Settlement#FAILED} if it threw, because a handler that
+     *         failed cannot be said to have settled anything — nor to have disowned the order
+     */
+    private Settlement settle(String handler, BooleanSupplier settlement) {
+        try {
+            return settlement.getAsBoolean() ? Settlement.CLAIMED : Settlement.NOT_MINE;
+        } catch (Exception failed) {
+            log.error("Payment webhook handler '{}' failed; the other handlers still ran", handler,
+                    failed);
+            return Settlement.FAILED;
         }
     }
 

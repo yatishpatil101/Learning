@@ -2,11 +2,14 @@ package com.punenest.api.services.support;
 
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,17 +17,26 @@ import org.springframework.transaction.annotation.Transactional;
  * The customer's support conversation with the platform.
  *
  * <p><strong>Two audiences, one resource.</strong> The raiser owns the ticket; staff and admin may
- * read and answer any of them, because that is the job. The list, however, is the caller's own for
- * everyone (spec fix S47) — "every support conversation on the platform" is an unbounded export of
- * names, mobiles and message bodies, and it is not what a bare array can safely be. Ops triage
- * already has its own paginated, team-scoped board at {@code GET /tickets}.
+ * read and answer any of them, because that is the job. The list at {@code GET /support/tickets},
+ * however, is the caller's own for everyone (spec fix S47) — "every support conversation on the
+ * platform" is an unbounded export of names, mobiles and message bodies, and it is not what a bare
+ * array can safely be.
  *
- * <p>An admin therefore has no platform-wide support list here, deliberately. When one is needed it
- * belongs under {@code /admin/} with a page envelope, not as a role branch inside this method.
+ * <p>The platform-wide view ops needs now exists, and it is a different operation rather than a role
+ * branch inside that one: {@link #queue} serves {@code GET /admin/support-tickets}, paged, staff and
+ * admin only, threads omitted (D51). Ops triage for work items still has its own team-scoped board
+ * at {@code GET /tickets}; this is the customer-conversation side of the desk.
  *
- * <p><strong>{@code unread} points one way.</strong> It means "a support reply the raiser has not
- * read". Staff replying sets it; the raiser replying does not; {@code POST /{id}/read} clears it. Ops
- * gets no unread signal from this column — see the debt register.
+ * <p><strong>{@code unread} points both ways now, through two columns (D50, V53).</strong> Each side
+ * is marked by the other side writing and cleared by its own side reading:
+ *
+ * <ul>
+ *   <li>a staff or admin reply raises the raiser's {@code unread}; the raiser's own reply does not,
+ *       because answering your own ticket gives you nothing new to read;</li>
+ *   <li>the raiser writing — the opening message included — raises the desk's {@code staffUnread};
+ *       a staff reply does not;</li>
+ *   <li>{@code POST /{id}/read} clears whichever flag belongs to the caller, and only that one.</li>
+ * </ul>
  */
 @Service
 public class SupportTicketService {
@@ -49,11 +61,40 @@ public class SupportTicketService {
         return mapper.toDtos(tickets.findByUserIdOrderByCreatedAtDesc(caller.userId()));
     }
 
-    /** {@code POST /support/tickets} — 201, with the opening message already on the thread. */
+    /**
+     * {@code GET /admin/support-tickets} — the platform-wide queue, paged (D51).
+     *
+     * <p>Authorisation is the controller's: this is a plain role question, unlike every other read
+     * here, which is "is this your ticket, or are you ops" and has to see the row to answer.
+     *
+     * @param awaitingReply {@code true} to narrow to tickets with a customer message nobody on the
+     *     desk has read — the working view. {@code null} for everything, which is the archive.
+     *     {@code false} is accepted and means "tickets nobody is waiting on", which nothing asks for
+     *     but is the honest reading of the parameter rather than a silently ignored value.
+     */
+    @Transactional(readOnly = true)
+    public Page<AdminSupportTicketDto> queue(Boolean awaitingReply, Pageable pageable) {
+        Pageable page = Pageables.unsorted(pageable);
+        if (awaitingReply == null) {
+            return mapper.toAdminPage(tickets.findAllByOrderByCreatedAtDesc(page));
+        }
+        return awaitingReply
+                ? mapper.toAdminPage(tickets.findByStaffUnreadTrueOrderByCreatedAtDesc(page))
+                : mapper.toAdminPage(tickets.findByStaffUnreadFalseOrderByCreatedAtDesc(page));
+    }
+
+    /**
+     * {@code POST /support/tickets} — 201, with the opening message already on the thread.
+     *
+     * <p>Raised for the desk from the moment it exists: the opening message is a customer message
+     * nobody has read, and a queue that only counts <em>replies</em> would show an empty board on a
+     * day full of new tickets.
+     */
     @Transactional
     public SupportTicketDto create(AuthPrincipal caller, SupportTicketCreate body) {
-        SupportTicket ticket = tickets.saveAndFlush(
-                new SupportTicket(caller.userId(), body.subject(), body.category()));
+        SupportTicket raised = new SupportTicket(caller.userId(), body.subject(), body.category());
+        raised.setStaffUnread(true);
+        SupportTicket ticket = tickets.saveAndFlush(raised);
         write(ticket, caller, body.body());
         return mapper.toDto(ticket);
     }
@@ -67,17 +108,20 @@ public class SupportTicketService {
     /**
      * {@code POST /support/tickets/{id}/messages} — 201 with the message as sent.
      *
-     * <p>A staff or admin reply raises {@code unread}; the raiser's own reply does not, because the
-     * flag is theirs and answering your own ticket does not give you something new to read.
+     * <p>A reply marks the <em>other</em> side unread and never the writer's own: staff answering
+     * raises the raiser's flag, the raiser answering raises the desk's. Answering your own ticket
+     * gives you nothing new to read, in either direction.
      */
     @Transactional
     public MessageDto reply(AuthPrincipal caller, String id, String body) {
         SupportTicket ticket = readable(caller, id);
         SupportTicketMessage sent = write(ticket, caller, body);
-        if (!ticket.getUserId().equals(caller.userId())) {
+        if (ticket.getUserId().equals(caller.userId())) {
+            ticket.setStaffUnread(true);
+        } else {
             ticket.setUnread(true);
-            tickets.saveAndFlush(ticket);
         }
+        tickets.saveAndFlush(ticket);
         User author = users.findById(caller.userId()).orElse(null);
         return new MessageDto(
                 sent.getId().toString(),
@@ -91,16 +135,20 @@ public class SupportTicketService {
     /**
      * {@code POST /support/tickets/{id}/read} — 204, idempotent.
      *
-     * <p>Clears the flag only for the raiser. A staff caller reaches this successfully and changes
-     * nothing, which is the accurate outcome rather than a swallowed failure: the column tracks the
-     * customer's reading, ops has no unread signal on this surface, and clearing the customer's flag
-     * on ops' behalf would tell the customer they had read a reply they have not seen.
+     * <p>Clears the caller's own side and only that one. A staff read no longer does nothing (which
+     * was the accurate outcome while the desk had no flag of its own) — it clears
+     * {@code staffUnread}, taking the ticket out of the ops queue. What it still must not do is
+     * clear the customer's flag, which would tell them they had read a reply they have not seen.
      */
     @Transactional
     public void markRead(AuthPrincipal caller, String id) {
         SupportTicket ticket = readable(caller, id);
-        if (ticket.getUserId().equals(caller.userId()) && ticket.isUnread()) {
+        boolean raiser = ticket.getUserId().equals(caller.userId());
+        if (raiser && ticket.isUnread()) {
             ticket.setUnread(false);
+            tickets.saveAndFlush(ticket);
+        } else if (!raiser && ticket.isStaffUnread()) {
+            ticket.setStaffUnread(false);
             tickets.saveAndFlush(ticket);
         }
     }

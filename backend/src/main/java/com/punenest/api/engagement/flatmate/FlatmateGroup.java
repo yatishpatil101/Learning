@@ -104,7 +104,7 @@ public class FlatmateGroup extends AuditedEntity {
 
     @Column(name = "mod_status", nullable = false)
     @Setter
-    private String modStatus = FlatmateVocabulary.MOD_LIVE;
+    private String modStatus = FlatmateVocabulary.MOD_PENDING;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "tags", nullable = false)
@@ -156,7 +156,7 @@ public class FlatmateGroup extends AuditedEntity {
     }
 
     public boolean isVisible() {
-        return !archived && !FlatmateVocabulary.MOD_HIDDEN.contains(modStatus);
+        return !archived && FlatmateVocabulary.isPublic(modStatus);
     }
 
     /**

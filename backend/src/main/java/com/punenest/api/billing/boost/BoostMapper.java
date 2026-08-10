@@ -25,6 +25,8 @@ public class BoostMapper {
     }
 
     public BoostDto toDto(Boost boost) {
+        // paymentSessionId is single-use and never stored, so it is null from the entity; the
+        // purchase flow attaches a fresh one via withPaymentSessionId for a priced pack (D167).
         return new BoostDto(
                 boost.getId().toString(),
                 boost.getPropertyId().toString(),
@@ -32,6 +34,7 @@ public class BoostMapper {
                 boost.getStartsAt(),
                 boost.getEndsAt(),
                 boost.getStatus(),
-                boost.getPaymentRef());
+                boost.getPaymentRef(),
+                null);
     }
 }

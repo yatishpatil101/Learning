@@ -2,6 +2,7 @@ package com.punenest.api.identity.auth;
 
 import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.error.UnauthorizedException;
+import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.provider.OtpSender;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -57,16 +58,19 @@ public class OtpService {
 
     private final OtpCodeRepository repository;
     private final OtpSender sender;
+    /** Makes the budget check below atomic with the send it guards (D73). */
+    private final RateLimitLock locks;
     /** Enforced cooldown between codes; {@link #SEND_COOLDOWN} unless overridden for local dev. */
     private final Duration sendCooldown;
     /** Enforced per-window ceiling; {@link #MAX_SENDS_PER_WINDOW} unless overridden for local dev. */
     private final int maxSendsPerWindow;
 
-    public OtpService(OtpCodeRepository repository, OtpSender sender,
+    public OtpService(OtpCodeRepository repository, OtpSender sender, RateLimitLock locks,
             @Value("${punenest.otp.send-cooldown-seconds:60}") long sendCooldownSeconds,
             @Value("${punenest.otp.max-sends-per-window:5}") int maxSendsPerWindow) {
         this.repository = repository;
         this.sender = sender;
+        this.locks = locks;
         this.sendCooldown = Duration.ofSeconds(sendCooldownSeconds);
         this.maxSendsPerWindow = maxSendsPerWindow;
     }
@@ -141,8 +145,19 @@ public class OtpService {
      * <p>Reads at most {@link #MAX_SENDS_PER_WINDOW} rows — enough to answer both questions from one
      * query: the newest row gives the cooldown, and a full page means the window budget is spent, with
      * its oldest row saying when the budget frees up.
+     *
+     * <p><strong>Locked first, and this is the whole of D73 at this call site.</strong> Read and then
+     * insert is not a budget under concurrency: two requests naming the same number both read the
+     * page before either has written to it, both find room, and both cause an SMS. A cooldown of
+     * sixty seconds is defeated by arriving twice in the same millisecond, which is the one thing a
+     * script finds easier than a person. Holding the lock across the read <em>and</em> the save in
+     * {@link #sendCode} — the transaction is what joins them — makes the loser's page the winner's
+     * page plus one row, so it is refused with the truthful {@code Retry-After} it should have had.
+     * Keyed on (mobile, purpose) to match what the limits are keyed on: two purposes have separate
+     * budgets and must not queue behind each other.
      */
     private void enforceSendBudget(String mobile, String purpose) {
+        locks.holdUntilCommit(RateLimitLock.Limit.OTP_SEND, mobile + ":" + purpose);
         List<OtpCode> recent = repository.findByMobileAndPurposeOrderByCreatedAtDesc(
                 mobile, purpose, PageRequest.of(0, maxSendsPerWindow));
         if (recent.isEmpty()) {

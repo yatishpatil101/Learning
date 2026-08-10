@@ -9,8 +9,10 @@ package com.punenest.api.catalog.fee;
  * @param deal         the deal intent this breakdown applies to: {@code buy} or {@code rent}
  * @param brokerage    PuneNest's brokerage — {@code 0}, and the product's whole point
  * @param platformFee  what the platform actually charges
- * @param stampDuty    indicative and state-specific; see {@code notes}
- * @param registration indicative government registration cost
+ * @param stampDuty    indicative and state-specific; {@code null} when the duty is not a flat
+ *                     figure and is computed per agreement instead (D163) — see {@code notes}
+ * @param registration indicative government registration cost; {@code null} when it depends on the
+ *                     registering body and is computed per agreement (D163)
  * @param gst          statutory tax on the platform fee
  * @param notes        the qualifications a bare number cannot carry
  */

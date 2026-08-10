@@ -1,9 +1,10 @@
 package com.punenest.api.deals.offer;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,11 +15,19 @@ import org.springframework.data.repository.query.Param;
  */
 public interface OfferRepository extends JpaRepository<Offer, UUID> {
 
-    /** The caller's own offers, newest first. Hits {@code idx_offers_from}. */
-    List<Offer> findByFromUserIdOrderByCreatedAtDesc(UUID fromUserId);
+    /**
+     * One page of the caller's own offers, newest first. Hits {@code idx_offers_from_created} (V47),
+     * which carries the sort so the top page is a range scan rather than a sort of every row the
+     * caller has ever written.
+     */
+    Page<Offer> findByFromUserIdOrderByCreatedAtDesc(UUID fromUserId, Pageable pageable);
 
-    /** All offers against a set of the caller's listings, newest first. Hits {@code idx_offers_property}. */
-    List<Offer> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds);
+    /**
+     * One page of the offers against a set of the caller's listings, newest first. Hits
+     * {@code idx_offers_property_created} (V47).
+     */
+    Page<Offer> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds,
+                                                       Pageable pageable);
 
     /**
      * Duplicate-prevention probe: does this user already have a live (pending or countered) offer

@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import ServiceTracker from '../../../components/ServiceTracker.jsx';
@@ -28,7 +29,7 @@ export default function RentAgreement() {
     terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,
     isChecked, toggleFurn, bumpQty, removeFurn, addCustom, furnitureText,
     wit, setWit,
-    declare, setDeclare, generate,
+    declare, setDeclare, generate, submitting, paymentPending, paymentConfirming,
     clearErr, fc, cost, locked, startNewAgreement, restored, startFresh, myInvites,
     copyInviteLink, next, prev,
   } = ctx;
@@ -78,11 +79,25 @@ export default function RentAgreement() {
 
               {done ? (
                 <div className="space-y-4">
+                  {/* The checkout modal resolves on close, not on payment, and the webhook that
+                      settles it arrives afterwards. This panel is only reached once the poll has
+                      spent its whole budget still seeing `awaiting_payment` — so it says we could
+                      not confirm the payment, not that it failed. Claiming failure here sends
+                      someone whose money has already left their account to pay a second time. */}
+                  {paymentPending ? (
+                    <div className="p-6 rounded-xl bg-amber-500/10 text-center">
+                      <Icon name="clock" className="w-10 h-10 text-amber-400 mx-auto mb-2" />
+                      <p className="text-white font-semibold">{tr('services.ra.donePaymentPendingTitle')}</p>
+                      <p className="text-gray-400 text-sm mt-1">{tr('services.ra.donePaymentPendingDesc')}</p>
+                      <Link to="/dashboard#rental" className="btn-teal inline-flex items-center justify-center gap-2 px-5 py-3 mt-4 rounded-xl text-white text-sm font-semibold min-h-[44px]"><Icon name="credit-card" className="w-4 h-4" /> {tr('services.ra.donePaymentPendingCta')}</Link>
+                    </div>
+                  ) : (
                   <div className="p-6 rounded-xl bg-emerald-500/10 text-center">
                     <Icon name="check-circle-2" className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
                     <p className="text-white font-semibold">{tenantMode === 'invite' ? tr('services.ra.doneInviteTitle') : tr('services.ra.doneOwnerTitle')}</p>
                     <p className="text-gray-400 text-sm mt-1">{tenantMode === 'invite' ? tr('services.ra.doneInviteDesc') : tr('services.ra.doneOwnerDesc')}</p>
                   </div>
+                  )}
                   {tenantMode === 'invite' && inviteResult ? (
                     <div className="p-5 rounded-xl bg-white/[0.03]">
                       <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4 text-emerald-400" /> {tr('services.ra.invite.sendTitle')}</p>
@@ -94,6 +109,16 @@ export default function RentAgreement() {
                       <p className="text-gray-600 text-[11px] mt-2.5 leading-relaxed">{tr('services.ra.invite.sendNote')}</p>
                     </div>
                   ) : null}
+                </div>
+              ) : paymentConfirming ? (
+                /* For the few seconds between the modal closing and the webhook landing, a paid
+                   agreement and an abandoned one are indistinguishable from the browser. Showing
+                   either verdict in that window is a lie roughly half the time, so hold this
+                   neutral panel until the poll actually knows which one it is. */
+                <div className="p-6 rounded-xl bg-teal-500/10 text-center" role="status" aria-live="polite">
+                  <Icon name="circle-notch" className="w-10 h-10 text-teal-300 mx-auto mb-2 animate-spin" />
+                  <p className="text-white font-semibold">{tr('services.ra.donePaymentConfirmingTitle')}</p>
+                  <p className="text-gray-400 text-sm mt-1">{tr('services.ra.donePaymentConfirmingDesc')}</p>
                 </div>
               ) : locked ? (
                 <div className="text-center py-4">
@@ -192,7 +217,7 @@ export default function RentAgreement() {
                   </fieldset>
 
                   {/* Step 6: Review */}
-                  <StepReview step={step} aType={aType} prop={prop} owner={owner} tenantMode={tenantMode} invite={invite} tenants={tenants} terms={terms} cost={cost} maint={maint} furnitureText={furnitureText} regArea={regArea} declare={declare} setDeclare={setDeclare} generate={generate} />
+                  <StepReview step={step} aType={aType} prop={prop} owner={owner} tenantMode={tenantMode} invite={invite} tenants={tenants} terms={terms} cost={cost} maint={maint} furnitureText={furnitureText} regArea={regArea} declare={declare} setDeclare={setDeclare} generate={generate} submitting={submitting} />
 
                   {/* Nav buttons — sticky at viewport bottom on mobile so step actions stay reachable */}
                   <div className="flex justify-between items-center gap-3 mt-8 sticky bottom-0 z-20 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4 bg-[#12101f]/95 backdrop-blur border-t border-white/10 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none lg:border-0">

@@ -4,6 +4,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.jpa.domain.Specification;
@@ -49,6 +50,39 @@ final class PropertySpecs {
                 where.add(cb.equal(root.get("status"), filters.status()));
             }
             return cb.and(where.toArray(Predicate[]::new));
+        };
+    }
+
+    /**
+     * Ordering-only specification that floats currently-promoted listings to the top (D59).
+     *
+     * <p><strong>Filters nothing.</strong> It returns a {@code null} predicate and contributes only
+     * an {@code ORDER BY}, so it composes with {@link #publicSearch} without changing which rows
+     * come back — a boost buys position, never visibility. It is applied by
+     * {@link PropertyService#search} <em>only</em> when the caller did not ask for a specific order:
+     * a buyer who sorts by price low-to-high gets price low-to-high, because silently pinning paid
+     * listings above a sort the buyer explicitly chose is a lie about what the control does.
+     *
+     * <p>The rank is computed as {@code boosted_until > now} rather than read as a flag, so an
+     * elapsed window stops promoting the moment it elapses and correctness never depends on a
+     * sweeper having run. The trailing {@code created_at DESC} preserves today's default order
+     * within each rank, so an unboosted catalogue is ordered exactly as it was before this existed.
+     *
+     * @param now the instant to measure the promotion window against; passed in rather than taken
+     *     inside so a test can place a window on either side of it deterministically
+     */
+    static Specification<Property> boostedFirst(Instant now) {
+        return (root, query, cb) -> {
+            // Spring Data issues a separate COUNT query for the page total. An ORDER BY there is
+            // both useless and, on a count over a grouped/distinct shape, invalid SQL.
+            if (query != null && !Long.class.equals(query.getResultType())) {
+                query.orderBy(
+                        cb.desc(cb.selectCase()
+                                .when(cb.greaterThan(root.get("boostedUntil"), now), 1)
+                                .otherwise(0)),
+                        cb.desc(root.get("createdAt")));
+            }
+            return null; // ordering only — no restriction to add
         };
     }
 

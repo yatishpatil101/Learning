@@ -6,15 +6,6 @@ import Modal from '../ui/Modal.jsx';
 import DateField from '../ui/DateField.jsx';
 import TimeField from '../ui/TimeField.jsx';
 import { parseWhen, formatWhen } from '../../lib/visitWhen.js';
-import { isHttpDomain } from '../../services/config.js';
-
-/* Rescheduling has no server home: `PATCH /visit-requests/{id}/status` carries a status and
-   nothing else, and there is no slot-update route (D87). The control is *hidden* rather than left
-   to fail, because the failure is invisible until too late — `saveReschedule` closes the modal and
-   toasts success optimistically, so a live user would see "Rescheduled" and an error toast at once
-   and have no way to tell which one was true. Cancel-and-rebook is not a silent substitute either:
-   it mints a new id and drops the visit's history. Restore this the day the endpoint ships. */
-const canReschedule = !isHttpDomain('visit');
 
 /* Intl ships month and weekday names for hi and mr, so the calendar chrome reads
    in the visitor's language without a hand-maintained table to drift. */
@@ -75,23 +66,34 @@ const LegendDot = ({ cls, label }) => (
 );
 
 // ─── WhatsApp handoff (prototype: opens wa.me with a status-aware, pre-filled
-// message). The owner messages the visitor (v.mobile); the seeker messages the
+// message). The owner messages the visitor (v.visitorMobile); the seeker messages the
 // owner (v.ownerMobile, enriched at load). Matches the app-wide wa.me/91… pattern.
+//
+// Field names are the visit seam's, not this component's: `visitService.js` publishes
+// `visitorName`/`visitorMobile` and both providers write exactly those. This tab used to read
+// `v.customer`/`v.mobile`, which nothing populates — the owner saw a blank visitor name and no
+// handoff button (the `isFullMobile` guard swallowed the undefined number, so it failed safe and
+// silently). Read the seam's names here; do not re-alias in the dashboard enrichment.
 const waDigits = (m) => (m || '').replace(/\D/g, '').replace(/^91/, '');
+// D5 (global number-privacy policy): a WhatsApp handoff must only render for a genuinely dialable,
+// full 10-digit number. A contact-gated value arrives masked (`98XXXXX543`), which strips to a
+// 5-digit fragment — a broken `wa.me/9198543` link, never a real number. This guard suppresses the
+// button for any masked/partial value while still rendering it for a genuinely revealed number.
+const isFullMobile = (m) => waDigits(m).length === 10;
 const btnWhatsapp = 'px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/25 flex items-center gap-1';
 
-function visitWaMessage(v, isOwner, dateStr, timeLabel, t) {
+// The visitor-facing WhatsApp message the owner sends. Under the D5 number-privacy policy only the
+// owner→visitor handoff exists (a buyer never gets the owner's number), so there is no seeker
+// variant here.
+function visitWaMessage(v, dateStr, timeLabel, t) {
   const listing = (v.listing || t('visits.propertyFallback')).split(' in ')[0];
   // Built as whole sentences per status: word order differs across languages, so
   // stitching fragments would read as broken Hindi/Marathi.
   const when = [dateStr && t('visits.whenOn', { date: dateStr }), timeLabel && t('visits.whenAt', { time: timeLabel })].filter(Boolean).join(' ');
-  const name = v.customer || t('visits.thereFallback');
-  if (isOwner) {
-    if (v.status === 'confirmed') return t('visits.waConfirmed', { name, listing, when });
-    if (v.status === 'cancelled' || v.status === 'no-show') return t('visits.waCancelled', { name, listing, when });
-    return t('visits.waPending', { name, listing, when });
-  }
-  return t('visits.waSeeker', { listing, when });
+  const name = v.visitorName || t('visits.thereFallback');
+  if (v.status === 'confirmed') return t('visits.waConfirmed', { name, listing, when });
+  if (v.status === 'cancelled' || v.status === 'no-show') return t('visits.waCancelled', { name, listing, when });
+  return t('visits.waPending', { name, listing, when });
 }
 
 const waHref = (mobile, text) => `https://wa.me/91${waDigits(mobile)}?text=${encodeURIComponent(text)}`;
@@ -192,7 +194,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     const dateStr = d ? d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }) : t('visits.dateTbd');
     const tag = dayTag(d);
     const isPast = d && d < startOfToday;
-    const who = isOwner ? v.customer : t('visits.yourVisitMode', { mode: p.mode || t('visits.visitWord') });
+    const who = isOwner ? v.visitorName : t('visits.yourVisitMode', { mode: p.mode || t('visits.visitWord') });
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
         <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="calendar-clock" className="w-5 h-5 text-teal-400" /></div>
@@ -214,18 +216,22 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
             `sm` up, so the desktop row stays exactly as before. */}
         <div className="flex items-center gap-1.5 flex-wrap [&>*]:min-h-[44px] sm:[&>*]:min-h-0">
           {(() => {
-            const target = isOwner ? v.mobile : v.ownerMobile;
-            if (!waDigits(target)) return null;
-            const text = visitWaMessage(v, isOwner, tag || dateStr, p.timeLabel, t);
+            // D5: a buyer never gets the owner's number — the buyer→owner channel is in-app
+            // messaging, not a wa.me handoff. Only the owner's outbound handoff to the visitor
+            // remains, and only for a genuinely dialable full number.
+            if (!isOwner) return null;
+            const target = v.visitorMobile;
+            if (!isFullMobile(target)) return null;
+            const text = visitWaMessage(v, tag || dateStr, p.timeLabel, t);
             return (
-              <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp} aria-label={isOwner ? t('visits.waVisitor', { name: v.customer || t('visits.visitorFallback') }) : t('visits.waOwner')}>
+              <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp} aria-label={t('visits.waVisitor', { name: v.visitorName || t('visits.visitorFallback') })}>
                 <Icon name="message-circle" className="w-3.5 h-3.5" /> {t('visits.whatsapp')}
               </a>
             );
           })()}
           {v.status === 'scheduled' && isOwner && <button onClick={() => updateVisit(v.id, 'confirmed')} className={btnConfirm}><Icon name="check" className="w-3.5 h-3.5" /> {t('visits.confirm')}</button>}
           {v.status === 'confirmed' && isPast && <button onClick={() => updateVisit(v.id, 'completed')} className={btnConfirm}><Icon name="check-circle" className="w-3.5 h-3.5" /> {t('visits.markVisited')}</button>}
-          {canReschedule && <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>}
+          <button onClick={() => openReschedule(v)} className={btnGhost}><Icon name="calendar" className="w-3.5 h-3.5" /> {t('visits.reschedule')}</button>
           <button onClick={() => updateVisit(v.id, 'cancelled')} className={btnCancel}><Icon name="x" className="w-3.5 h-3.5" /> {t('visits.cancel')}</button>
           <Link to={`/property/${v.listingId}`} className={btnGhost}><Icon name="arrow-right" className="w-3.5 h-3.5" /> {t('visits.property')}</Link>
         </div>
@@ -269,7 +275,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                 <div className={`w-10 h-10 rounded-xl ${iconCls.includes('emerald') ? 'bg-emerald-500/15' : 'bg-rose-500/15'} flex items-center justify-center flex-shrink-0`}><Icon name={icon} className={`w-5 h-5 ${iconCls}`} /></div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium truncate">{v.listing}</p>
-                  <p className="text-gray-500 text-xs">{isOwner ? v.customer : t('visits.yourVisit')} · {dateStr}</p>
+                  <p className="text-gray-500 text-xs">{isOwner ? v.visitorName : t('visits.yourVisit')} · {dateStr}</p>
                 </div>
                 <Link to={`/property/${v.listingId}`} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 font-semibold hover:bg-white/10">{t('visits.viewProperty')}</Link>
               </div>
@@ -295,7 +301,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     >
       {reschedule ? (
         <div className="space-y-3">
-          <p className="text-sm text-gray-400">{isOwner ? reschedule.customer : t('visits.yourVisit')}</p>
+          <p className="text-sm text-gray-400">{isOwner ? reschedule.visitorName : t('visits.yourVisit')}</p>
           <label className="block text-xs font-semibold text-gray-300">{t('visits.newDate')}</label>
           <DateField
             value={reDate}
@@ -312,13 +318,14 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
           />
           <p className="text-xs text-gray-500">{isOwner ? t('visits.reconfirmVisitor') : t('visits.reconfirmOwner')}</p>
           {(() => {
-            const target = isOwner ? reschedule.mobile : reschedule.ownerMobile;
-            if (!waDigits(target) || !reDate || !reTime) return null;
+            // D5: the buyer→owner reschedule ping is in-app, not a wa.me handoff. Only the owner's
+            // handoff to the visitor remains, and only for a genuinely dialable full number.
+            if (!isOwner) return null;
+            const target = reschedule.visitorMobile;
+            if (!isFullMobile(target) || !reDate || !reTime) return null;
             const label = new Date(reDate + 'T00:00:00').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' });
             const listing = (reschedule.listing || t('visits.propertyFallback')).split(' in ')[0];
-            const text = isOwner
-              ? t('visits.waReschedOwner', { name: reschedule.customer || t('visits.thereFallback'), listing, date: label, time: reTime })
-              : t('visits.waReschedSeeker', { listing, date: label, time: reTime });
+            const text = t('visits.waReschedOwner', { name: reschedule.visitorName || t('visits.thereFallback'), listing, date: label, time: reTime });
             return (
               <a href={waHref(target, text)} target="_blank" rel="noopener noreferrer" className={btnWhatsapp + ' w-full justify-center'}>
                 <Icon name="message-circle" className="w-3.5 h-3.5" /> {t('visits.notifyWa')}
@@ -385,7 +392,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
                         return (
                           <Link key={v.id} to={`/property/${v.listingId}`} className={'block rounded-lg border px-2 py-1.5 ' + colors}>
                             <p className="text-[11px] font-bold truncate leading-tight">{v.listing.split(' in ')[0]}</p>
-                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || t('visits.timeTbd')} · {isOwner ? v.customer : t('visits.you')}</p>
+                            <p className="text-[10px] opacity-80 truncate">{p.timeLabel || t('visits.timeTbd')} · {isOwner ? v.visitorName : t('visits.you')}</p>
                           </Link>
                         );
                       })}

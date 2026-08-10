@@ -4,6 +4,7 @@ import Navbar from './Navbar.jsx';
 import BottomNav from './BottomNav.jsx';
 import Footer from './Footer.jsx';
 import CityChrome from '../CityChrome.jsx';
+import ConnectivityBanner from '../ConnectivityBanner.jsx';
 import CookieConsent from '../CookieConsent.jsx';
 import InstallPrompt from '../InstallPrompt.jsx';
 import AssistantWidget from '../assistant/AssistantWidget.jsx';
@@ -43,10 +44,21 @@ export default function ConsumerLayout() {
   const { pathname } = useLocation();
   const { user } = useAuth();
 
-  // Maintenance mode: block consumer pages, exempt internal users
+  // Maintenance mode: block consumer pages, exempt internal users.
+  //
+  // The banner rides along rather than being left behind the early return (D164). Maintenance mode
+  // and a dead uplink look identical from the sofa — a static "we'll be back shortly" page that
+  // cannot also say "and by the way, your connection is down" sends the user to support for
+  // something a bar of signal fixes. It renders above the overlay's z-[99999] because the overlay
+  // is deliberately on top of everything else.
   const isInternal = user && (user.role === 'admin' || user.role === 'staff');
   if (isMaintenanceMode() && !isInternal) {
-    return <MaintenanceOverlay />;
+    return (
+      <>
+        <ConnectivityBanner zClass="z-[100000]" />
+        <MaintenanceOverlay />
+      </>
+    );
   }
 
   /* Every chrome decision for this route, resolved in one place — see lib/chrome.js.
@@ -59,6 +71,10 @@ export default function ConsumerLayout() {
     <AppFlagsProvider>
       <div className={'flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
         <Navbar />
+        {/* Connectivity state, announced once for the whole app rather than guessed at per page.
+            Docks under the navbar precisely so it can never cover the bottom nav or its raised
+            centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
+        <ConnectivityBanner />
         <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
           <Outlet />
         </main>

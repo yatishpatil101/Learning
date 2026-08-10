@@ -6,6 +6,8 @@ import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.error.VerificationRequiredException;
+import com.punenest.api.common.persistence.ConstraintViolations;
+import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.engagement.notification.Notification;
 import com.punenest.api.engagement.notification.NotificationRepository;
 import com.punenest.api.identity.user.User;
@@ -17,9 +19,12 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +48,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FlatmateSeekerService {
 
+    private static final Logger log = LoggerFactory.getLogger(FlatmateSeekerService.class);
+
     /**
      * New hosts one account may contact per {@link #RATE_WINDOW}.
      *
@@ -59,22 +66,35 @@ public class FlatmateSeekerService {
     /** Contract {@code FlatmateInterestCreate.message} — {@code maxLength: 4000}. */
     private static final int MAX_MESSAGE = 4000;
 
+    /**
+     * V27's {@code (kind, target_id, requester_id)} unique index — one request per person per
+     * target, and the only thing that can settle two presses that arrive together.
+     *
+     * <p>Shared with {@link FlatmateSupplyService}, which writes the same table through the room and
+     * group doors. Named here rather than centrally because the constant is only useful next to the
+     * catch block that reads it.
+     */
+    private static final String ONE_PER_TARGET_INDEX = "uq_flatmate_requests_target_requester";
+
     private final FlatmateSeekerPostRepository posts;
     private final FlatmateRequestRepository requests;
     private final FlatmateMapper mapper;
     private final UserRepository users;
     private final NotificationRepository notifications;
     private final AuditService audit;
+    /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
+    private final RateLimitLock locks;
 
     public FlatmateSeekerService(FlatmateSeekerPostRepository posts,
             FlatmateRequestRepository requests, FlatmateMapper mapper, UserRepository users,
-            NotificationRepository notifications, AuditService audit) {
+            NotificationRepository notifications, AuditService audit, RateLimitLock locks) {
         this.posts = posts;
         this.requests = requests;
         this.mapper = mapper;
         this.users = users;
         this.notifications = notifications;
         this.audit = audit;
+        this.locks = locks;
     }
 
     /** {@code GET /flatmates/posts} — public. Visible posts, newest first, filtered server-side. */
@@ -157,10 +177,16 @@ public class FlatmateSeekerService {
     /**
      * {@code POST /flatmates/posts/{id}/interest} — answer somebody's ad.
      *
-     * <p>Idempotent per (post, requester). A resend rewrites the pitch and deliberately does
-     * <em>not</em> notify again: the second message is the same person saying the same thing better,
-     * and a channel where pressing a button repeatedly produces repeated alerts on someone else's
-     * phone is a harassment tool with a rate limit on it.
+     * <p>One request per (post, requester), and a second press is <strong>refused</strong> with the
+     * 409 the contract declares rather than quietly rewriting the first message. It used to depend
+     * on timing: a leisurely second press met a pre-check that rewrote the pitch and answered 201, a
+     * simultaneous one met the unique index and got a 409, and the same action therefore had two
+     * contract-visible answers (D175). The re-read below is now the only existence check, it happens
+     * behind the lock, and it gives the same answer the index would.
+     *
+     * <p>The host is not notified a second time either way: a channel where pressing a button
+     * repeatedly produces repeated alerts on someone else's phone is a harassment tool with a rate
+     * limit on it.
      *
      * <p>Audited, because this is a contact release. The audit row is the answer to "how did this
      * person get my number", and it is the only place that answer is written down.
@@ -188,13 +214,26 @@ public class FlatmateSeekerService {
                 share, FlatmateVocabulary.SHARE_INTENT, "solo", "share intent");
         String body = pitch(message, intent);
 
-        Optional<FlatmateRequest> existing = requests.findByKindAndTargetIdAndRequesterId(
-                "flatmate", post.getId(), caller.userId());
-        if (existing.isPresent()) {
-            FlatmateRequest already = existing.get();
-            already.rewrite(body, intent);
-            requests.saveAndFlush(already);
-            return;
+        // Serialised on the requester before the count, and held to commit, so a burst of interests
+        // from one account cannot all read the same pre-insert total and all pass (D73). This is the
+        // cap the register was raised against: ten deliveries an hour, each one a stranger's number
+        // on somebody else's phone, guarded by a count that ten simultaneous requests could clear
+        // together. The key is the requester alone and deliberately matches the one
+        // FlatmateSupplyService uses — the two services count the same rows against the same ceiling,
+        // so they have to queue on the same lock or the burst just uses both doors.
+        locks.holdUntilCommit(RateLimitLock.Limit.FLATMATE_INTEREST, caller.userId().toString());
+
+        // Read AFTER the lock, which is the whole point (D175): the loser of a double press only
+        // gets here once the winner's transaction has committed and released the lock, so under READ
+        // COMMITTED this statement takes a fresh snapshot and sees the row. Reading before the lock —
+        // as this method used to — is a stale read by construction, and it was answering 201 while
+        // the identical press one millisecond later answered 409.
+        //
+        // Ahead of the rate-limit count on purpose: a repeat press is not a delivery, so telling
+        // somebody they have contacted too many people would be both unhelpful and untrue.
+        if (requests.findByKindAndTargetIdAndRequesterId(
+                "flatmate", post.getId(), caller.userId()).isPresent()) {
+            throw alreadyInterested();
         }
 
         if (requests.countByRequesterIdAndCreatedAtAfter(
@@ -204,8 +243,31 @@ public class FlatmateSeekerService {
                     (int) RATE_WINDOW.toSeconds());
         }
 
-        requests.saveAndFlush(new FlatmateRequest(
-                "flatmate", post.getId(), hostId, caller.userId(), "request", intent, body));
+        try {
+            requests.saveAndFlush(new FlatmateRequest(
+                    "flatmate", post.getId(), hostId, caller.userId(), "request", intent, body));
+        } catch (DataIntegrityViolationException raced) {
+            // why: the backstop, and it should now be unreachable. The re-read above closes the
+            // window under READ COMMITTED, but the isolation level is a property of the datasource
+            // rather than of this method, and a repeatable-read session would carry its pre-lock
+            // snapshot past the check and arrive here believing it is the first. V27's unique index
+            // is what actually refuses that, and without this the caller got a 500 for pressing a
+            // button twice.
+            //
+            // Only that index is translated (D170). The same insert can trip the host or requester
+            // foreign key, or a check constraint on kind, and answering one of those with "you have
+            // already expressed interest" would dress a defect up as the system working: the
+            // requester believes their message was delivered, the host never sees it, and nothing
+            // reaches the error log. Anything else goes up untouched and becomes a 500.
+            if (!isDuplicateInterest(raced)) {
+                throw raced;
+            }
+            // Logged because reaching this line means the re-read did not do its job, and the caller
+            // cannot tell the difference — they get the same 409 either way (D175).
+            log.debug("duplicate flatmate interest reached the index: post={} requester={}",
+                    post.getId(), caller.userId());
+            throw alreadyInterested();
+        }
 
         User requester = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
@@ -214,15 +276,29 @@ public class FlatmateSeekerService {
                 "host", hostId.toString());
     }
 
-    /** {@code GET /me/flatmate-requests} — the host's inbox. */
+    /**
+     * {@code GET /me/flatmate-requests} — the host's inbox, paged (D77).
+     *
+     * <p>Paged because the host does not write these rows: each one is a stranger who answered the
+     * ad, so the collection grows with the ad's reach. §5.1 of api-standards.md calls that the
+     * inbound-demand shape, and the host it punishes hardest is the one whose room everybody wants.
+     *
+     * <p>The rows are fetched as a page and then hydrated <em>as a batch</em>, exactly as before:
+     * {@link #hydrate} resolves every requester and target in two queries rather than two per row.
+     * Mapping row-by-row over a page would look tidier and quietly reinstate the N+1 that method
+     * exists to prevent. {@link PageImpl} re-wraps the mapped rows around the original
+     * {@code totalElements}, so the envelope still counts the whole inbox rather than this slice —
+     * which is what any "N new requests" badge has to read.
+     */
     @Transactional(readOnly = true)
-    public List<FlatmateRequestDto> inbox(AuthPrincipal caller, String status) {
+    public Page<FlatmateRequestDto> inbox(AuthPrincipal caller, String status, Pageable pageable) {
         String filter = FlatmateVocabulary.optional(
                 status, FlatmateVocabulary.REQUEST_STATUS, "status");
-        List<FlatmateRequest> rows = filter == null
-                ? requests.findByHostIdOrderByRequestedAtDesc(caller.userId())
-                : requests.findByHostIdAndStatusOrderByRequestedAtDesc(caller.userId(), filter);
-        return hydrate(rows);
+        Page<FlatmateRequest> rows = filter == null
+                ? requests.findByHostIdOrderByRequestedAtDesc(caller.userId(), pageable)
+                : requests.findByHostIdAndStatusOrderByRequestedAtDesc(
+                        caller.userId(), filter, pageable);
+        return new PageImpl<>(hydrate(rows.getContent()), pageable, rows.getTotalElements());
     }
 
     /**
@@ -320,6 +396,29 @@ public class FlatmateSeekerService {
             case "match" -> "Hi! I'm interested, and happy to share the room with someone.";
             default -> "Hi! I'm interested in teaming up.";
         };
+    }
+
+    /**
+     * Whether this violation is the one-per-target rule rather than a genuine bug.
+     *
+     * <p>Matched on the index name in the driver's own message; the match itself lives in
+     * {@link ConstraintViolations}, which several services share against their own index names
+     * (D170). Named so the catch block reads as the rule it is enforcing rather than as a string
+     * comparison.
+     */
+    private static boolean isDuplicateInterest(DataIntegrityViolationException violation) {
+        return ConstraintViolations.isOn(violation, ONE_PER_TARGET_INDEX);
+    }
+
+    /**
+     * The 409 the contract declares for {@code flatmatePostInterest} — {@code already_interested}.
+     *
+     * <p>Says the earlier message survived, because the thing the requester actually wants to know
+     * after a refused press is whether the host heard them the first time. They did.
+     */
+    private static ConflictException alreadyInterested() {
+        return new ConflictException("You have already expressed interest in this post — your "
+                + "earlier message is with them. (already_interested)");
     }
 
     /**

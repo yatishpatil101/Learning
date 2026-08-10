@@ -1,5 +1,7 @@
 package com.punenest.api.provider;
 
+import com.punenest.api.security.DevOnly;
+import com.punenest.api.security.DevProfileGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -7,8 +9,12 @@ import org.springframework.stereotype.Component;
 
 /**
  * Seam for outbound OTP delivery (ADR-007 provider strategy). The app must run and be demoable with
- * zero paid keys, so the dev/default impl just logs the code; a real SMS gateway is wired only under
- * the {@code prod} profile.
+ * zero paid keys, so the {@code dev} profile logs the code instead of sending it.
+ *
+ * <p>Which way round the two implementations are selected is the security control, not a detail
+ * (D147). The mock is opt-in under {@link DevOnly}; anything else — a named profile we do not
+ * recognise, a typo, no profile at all — gets the real sender, so a login that accepts any six
+ * digits can only appear where someone asked for it by name.
  */
 public interface OtpSender {
 
@@ -16,9 +22,9 @@ public interface OtpSender {
     void send(String mobile, String code);
 }
 
-/** Dev/default: log the OTP so testers can read it from the console — no external call, no key. */
+/** Dev only: log the OTP so testers can read it from the console — no external call, no key. */
 @Component
-@Profile("!prod")
+@DevOnly
 class MockOtpSender implements OtpSender {
 
     private static final Logger log = LoggerFactory.getLogger(MockOtpSender.class);
@@ -43,9 +49,13 @@ class MockOtpSender implements OtpSender {
  * deployment does not yet have — get it wrong and you either throttle every user behind the balancer
  * as one IP, or throttle a header the client can forge. An in-app limiter that can be spoofed is worse
  * than none, because it reads as protection.
+ *
+ * <p>Bound to "not dev" rather than to {@code prod} so that a staging or preview environment gets an
+ * {@code OtpSender} at all: bound to {@code prod}, an unrecognised profile would leave the bean
+ * missing and the app would fail to start for a reason that reads as a wiring bug.
  */
 @Component
-@Profile("prod")
+@Profile(DevProfileGuard.NOT_DEV)
 class SmsOtpSender implements OtpSender {
 
     @Override

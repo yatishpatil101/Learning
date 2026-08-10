@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, Check, Clock, Download, Flag, Lock, ShieldAlert, ShieldCheck, Undo2, X, XCircle } from 'lucide-react';
 import { listReferrals, mutateDb, logAudit } from '../../lib/mockApi.js';
 import { creditReferrer } from '../../lib/store/referrals.js';

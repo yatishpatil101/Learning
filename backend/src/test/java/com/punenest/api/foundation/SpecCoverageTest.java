@@ -58,8 +58,20 @@ class SpecCoverageTest {
      * {@code deletePersonalDocument}) and the managed-property lifecycle ({@code myManagedProperties},
      * {@code registerManagedProperty}, {@code getManagedProperty}, {@code updateManagedProperty},
      * {@code deleteManagedProperty}, {@code publishManagedProperty}).
+     *
+     * <p>The R2 storage slice added one: {@code uploadPhoto} ({@code POST /me/photos}) — real photo
+     * upload to the public bucket, replacing the front end's throwaway {@code data:} URLs.
+     *
+     * <p>D151 added two: {@code putServiceRequestIdentities} and
+     * {@code getServiceRequestIdentities} — the channel that carries the parties' PAN and Aadhaar to
+     * the one operator drafting the agreement, after the security pass stopped both reaching the
+     * server at all.
+     *
+     * <p>D51 added one: {@code adminSupportTickets} — the paged platform-wide support queue S47's
+     * note said would be needed, once narrowing {@code listSupportTickets} to the caller's own
+     * tickets left ops with no support overview at all.
      */
-    private static final int IMPLEMENTED_FLOOR = 213;
+    private static final int IMPLEMENTED_FLOOR = 217;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");
@@ -132,7 +144,7 @@ class SpecCoverageTest {
         Set<String> served = new TreeSet<>();
         handlers.getHandlerMethods().forEach((info, handler) -> {
             var patterns = info.getPathPatternsCondition();
-            if (patterns == null) {
+            if (patterns == null || isDevOnly(handler)) {
                 return;
             }
             for (String pattern : patterns.getPatternValues()) {
@@ -145,6 +157,29 @@ class SpecCoverageTest {
             }
         });
         return served;
+    }
+
+    /**
+     * Is this handler's controller absent from production?
+     *
+     * <p>The contract describes <em>the API clients can call</em>, and clients are generated from it.
+     * A controller annotated {@code @DevOnly} is registered only where the {@code dev} profile is
+     * named, so declaring its routes would publish an operation that answers 404 everywhere it
+     * matters — the exact inverse of the declared-but-unimplemented rot
+     * {@code everyDeclaredRouteIsServed} exists to catch. {@code DevVerificationController} is the
+     * case in hand (D122): it synthesizes the DigiLocker callback a dev backend never receives.
+     *
+     * <p>Keyed on the marker annotation rather than on the profile expression behind it (D147). The
+     * previous test read the {@code @Profile} value and looked for the literal {@code "!prod"},
+     * which meant the exemption silently stopped applying the moment that expression changed — and
+     * it did change, to an allowlist. A test that stops exempting is at least loud; one that starts
+     * exempting a controller that really does ship is not, so the narrowness matters either way: a
+     * controller enabled by some other profile still reaches production under it and must be
+     * declared like anything else.
+     */
+    private static boolean isDevOnly(org.springframework.web.method.HandlerMethod handler) {
+        return org.springframework.core.annotation.AnnotatedElementUtils
+                .hasAnnotation(handler.getBeanType(), com.punenest.api.security.DevOnly.class);
     }
 
     @SuppressWarnings("unchecked")

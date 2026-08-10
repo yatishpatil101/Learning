@@ -2,6 +2,7 @@ package com.punenest.api.identity.verification;
 
 import com.punenest.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
@@ -214,10 +216,47 @@ class VerificationEndpointsTest extends AbstractApiTest {
 
     @Test
     void aBlankSigningKeyIsRefusedRatherThanSilentlyAcceptingEverySignature() {
-        assertThatThrownBy(() -> new WebhookSignature("  "))
+        assertThatThrownBy(() -> new WebhookSignature("  ", false, profiles("dev")))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new WebhookSignature(null))
+        assertThatThrownBy(() -> new WebhookSignature(null, false, profiles("dev")))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void theCommittedDefaultSecretIsRefusedOnceTheLiveGatewayIsSwitchedOn() {
+        // Harmless under `dev` with the gateway off -- that is the whole point of a demoable default
+        // -- but a developer pointing at the Cashfree sandbox is receiving callbacks from outside
+        // their machine, so the flag refuses the published key even there.
+        assertThatThrownBy(() -> new WebhookSignature("dev-webhook-secret", true, profiles("dev")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("committed default");
+        assertThatCode(() -> new WebhookSignature("dev-webhook-secret", false, profiles("dev")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void theCommittedDefaultSecretIsRefusedAnywhereButDev_notOnlyInProd() {
+        // The guard is an allowlist, not a check for `prod` (D147/D155). A container called
+        // staging, preview, or nothing at all -- the ordinary state of a first deploy, before the
+        // payment rail is switched on -- would otherwise boot on a secret that is in the repository,
+        // and both webhook routes are permitAll. Anyone holding this repo could then sign a
+        // DigiLocker "verified" result for their own account and take the Verified badge.
+        assertThatThrownBy(() -> new WebhookSignature("dev-webhook-secret", false, profiles("prod")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("committed default");
+        assertThatThrownBy(
+                () -> new WebhookSignature("dev-webhook-secret", false, profiles("staging")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("committed default");
+        assertThatThrownBy(() -> new WebhookSignature("dev-webhook-secret", false, profiles()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("committed default");
+    }
+
+    private static StandardEnvironment profiles(String... active) {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles(active);
+        return environment;
     }
 
     // ---------------- one Aadhaar = one account (ADR-009b) ----------------
@@ -241,5 +280,46 @@ class VerificationEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(second)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("aadhaar_already_registered"));
+    }
+
+    // ---------------- dev-only "simulate DigiLocker success" (D122) ----------------
+
+    @Test
+    void simulate_grantsTheBadgeInDev_withoutARealWebhook() throws Exception {
+        User u = user("9830000020");
+
+        mvc.perform(post(Routes.Verification.AADHAAR_SIMULATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.badge").value(true))
+                .andExpect(jsonPath("$.status").value(VerificationStatuses.VERIFIED))
+                .andExpect(jsonPath("$.source").value(VerificationSources.DIGILOCKER))
+                .andExpect(jsonPath("$.verifiedAt").exists());
+
+        // The user flags leads.contact reads live are flipped, same as a real callback.
+        User granted = users.findById(u.getId()).orElseThrow();
+        assertThat(granted.isAadhaarVerified()).isTrue();
+        assertThat(granted.isVerified()).isTrue();
+    }
+
+    @Test
+    void simulate_isIdempotentOnReplay_andSelfScoped() throws Exception {
+        User u = user("9830000021");
+
+        mvc.perform(post(Routes.Verification.AADHAAR_SIMULATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk());
+        var firstStamp = verifications.findByUserId(u.getId()).orElseThrow().getVerifiedAt();
+
+        // A second call is a no-op — the badge is not re-granted nor the stamp re-written.
+        mvc.perform(post(Routes.Verification.AADHAAR_SIMULATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(VerificationStatuses.VERIFIED));
+        assertThat(verifications.findByUserId(u.getId()).orElseThrow().getVerifiedAt())
+                .isEqualTo(firstStamp);
+
+        // Self-scoped: no auth, no grant.
+        mvc.perform(post(Routes.Verification.AADHAAR_SIMULATE)).andExpect(status().isUnauthorized());
     }
 }

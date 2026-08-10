@@ -5,11 +5,11 @@
  * is the only contract between them and no page may care which one is active. Shape translation
  * lives in `notificationMapper.js`.
  *
- * The server offers two endpoints. The two behaviours that have no endpoint — dismissing a row, and
- * client-derived alerts — are handled here rather than being dropped or thrown, and both are
- * confined to this file so the page cannot tell.
+ * The server offers three endpoints: list, mark-read, and now delete (dismiss). The one behaviour
+ * with no endpoint — client-derived alerts, which have no server row — is handled here rather than
+ * being dropped or thrown, and is confined to this file so the page cannot tell.
  */
-import { get, post } from '../../http.js';
+import { del, get, post } from '../../http.js';
 import { toViewModelList } from './notificationMapper.js';
 
 /**
@@ -26,15 +26,17 @@ import { toViewModelList } from './notificationMapper.js';
  */
 const PAGE_SIZE = 100;
 
-/** Tombstones for dismissed notifications, per signed-in user. */
+/** Tombstones for dismissed client-derived notifications, per browser. */
 const DISMISSED_KEY = 'pnDismissedNotifs';
 
 /**
  * Read the tombstone set.
  *
  * Keyed only by name, not by mobile, unlike the mock's `pnNotifications:<mobile>`: these ids are
- * server UUIDs and are already unique per user, so a shared key cannot collide. Sharing it also
- * means the set does not have to be rebuilt when the signed-in user changes.
+ * already unique, so a shared key cannot collide. Sharing it also means the set does not have to be
+ * rebuilt when the signed-in user changes. Since `DELETE /notifications/{id}` exists, this now only
+ * holds client-derived rows (saved-search matches etc.) that have no server home — real server rows
+ * are dismissed on the server and never reach this set.
  */
 function dismissedIds() {
   try {
@@ -112,23 +114,32 @@ export async function markAllRead() {
 }
 
 /**
- * Hide a notification.
+ * Dismiss a notification.
  *
- * **No server endpoint exists**, so this is a local tombstone rather than a delete. Three properties
- * of that are worth stating plainly, because they are invisible from the call site:
+ * A real server row is removed with `DELETE /notifications/{id}`, so the dismissal is permanent and
+ * **syncs across the user's devices** (this replaced the local-tombstone-only behaviour that was
+ * recorded as debt D93).
  *
- * - it does not sync across devices;
- * - clearing site data brings the row back;
- * - a client-derived row can be dismissed too, and will stay dismissed until the tombstones are
- *   cleared, even though nothing server-side records it.
+ * A **client-derived** alert (a saved-search match, a saved-property availability nudge) has no
+ * server row, so the server answers its id with a 404 (or a 400 for a non-UUID). That is expected,
+ * not a failure: fall back to a local tombstone for exactly those, which is the only store they can
+ * have. The consequence is unchanged and worth stating — a dismissed derived row is device-local
+ * and returns if site data is cleared — but it now applies only to rows the server never owned.
  *
- * The alternative — throwing, or hiding the X in http mode — removes a control that works today.
- * A tombstone is honest about being a local preference; a missing button would just look broken.
- * Recorded as debt so a real `DELETE /notifications/{id}` replaces it rather than joining it.
+ * Any other error (5xx, offline) propagates: the row was already removed optimistically by the
+ * caller and simply reappears on the next read, the same tolerance `markRead` documents.
  */
 export async function dismiss(id) {
   if (!id) return;
-  rememberDismissed(id);
+  try {
+    await del(`/notifications/${id}`);
+  } catch (err) {
+    if (err?.status === 404 || err?.status === 400) {
+      rememberDismissed(id);
+      return;
+    }
+    throw err;
+  }
 }
 
 function warnIfTruncated(page) {

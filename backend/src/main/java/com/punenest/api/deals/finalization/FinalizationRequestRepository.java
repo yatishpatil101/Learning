@@ -3,6 +3,7 @@ package com.punenest.api.deals.finalization;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -45,12 +46,23 @@ public interface FinalizationRequestRepository extends JpaRepository<Finalizatio
             @Param("callerId") UUID callerId,
             Pageable pageable);
 
-    /** Requests awaiting the caller's decision (counterparty = caller, pending). */
-    @Query("select fr from FinalizationRequest fr " +
-           "where fr.counterpartyId = :counterpartyId and fr.status = 'pending' " +
-           "order by fr.createdAt desc")
-    List<FinalizationRequest> findPendingByCounterparty(
-            @Param("counterpartyId") UUID counterpartyId);
+    /**
+     * One page of the requests awaiting the caller's decision (counterparty = caller, pending),
+     * newest first.
+     *
+     * <p>The count query is spelled out rather than derived: the read query carries its own
+     * {@code order by}, and an explicit counterpart is both cheaper and immune to a derivation that
+     * changes between Spring Data versions. Hits {@code idx_finalization_counterparty_created}
+     * (V47) \u2014 before that index this predicate had no index at all and scanned the table.
+     */
+    @Query(value = "select fr from FinalizationRequest fr "
+                 + "where fr.counterpartyId = :counterpartyId and fr.status = 'pending' "
+                 + "order by fr.createdAt desc",
+           countQuery = "select count(fr) from FinalizationRequest fr "
+                      + "where fr.counterpartyId = :counterpartyId and fr.status = 'pending'")
+    Page<FinalizationRequest> findPendingByCounterparty(
+            @Param("counterpartyId") UUID counterpartyId,
+            Pageable pageable);
 
     /**
      * Auto-decline: set all OTHER pending requests on the same property to declined, except the
