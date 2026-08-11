@@ -80,7 +80,13 @@ final class PropertySpecs {
                         cb.desc(cb.selectCase()
                                 .when(cb.greaterThan(root.get("boostedUntil"), now), 1)
                                 .otherwise(0)),
-                        cb.desc(root.get("createdAt")));
+                        cb.desc(root.get("createdAt")),
+                        // Same total-order guarantee PropertySort appends to the sorted branch, and
+                        // for the same reason: neither the rank nor created_at is unique, and this
+                        // branch is paged. Two listings posted in the same instant would otherwise
+                        // be ordered by whatever the planner picked for that particular query, so a
+                        // reader paging through could see one of them twice and never see the other.
+                        cb.desc(root.get("id")));
             }
             return null; // ordering only — no restriction to add
         };
@@ -99,9 +105,14 @@ final class PropertySpecs {
      *     {@code false} = live only. Tri-state rather than a plain boolean because "show me
      *     everything" and "show me only the un-archived" are different questions, and a two-valued
      *     flag can only ask one of them.
+     * @param recheck  tri-state on the same reasoning: {@code true} is the stays-live re-check queue
+     *     (Q14) — listings whose owner edited price/furnishing/possession and which are waiting for
+     *     a moderator while still approved and still in search. A third axis rather than a status
+     *     value precisely because every status but {@code approved} is off search.
      * @return a specification with no visibility floor — <strong>staff/admin routes only</strong>
      */
-    static Specification<Property> adminSearch(PropertySearchQuery filters, Boolean archived) {
+    static Specification<Property> adminSearch(PropertySearchQuery filters, Boolean archived,
+            Boolean recheck) {
         return (root, query, cb) -> {
             List<Predicate> where = facets(filters, root, cb);
             if (filters.status() != null) {
@@ -110,6 +121,11 @@ final class PropertySpecs {
             if (archived != null) {
                 where.add(archived ? cb.isTrue(root.get("archived")) : cb.isFalse(root.get("archived")));
             }
+            if (recheck != null) {
+                where.add(recheck
+                        ? cb.isNotNull(root.get("recheckRequestedAt"))
+                        : cb.isNull(root.get("recheckRequestedAt")));
+            }
             // An unfiltered moderation query is legal and means "everything"; `cb.and()` over an
             // empty array is a vacuous truth in JPA, but conjunction() says so explicitly.
             return where.isEmpty() ? cb.conjunction() : cb.and(where.toArray(Predicate[]::new));
@@ -117,9 +133,10 @@ final class PropertySpecs {
     }
 
     /**
-     * The facets both searches share. Status and archived are deliberately <em>not</em> here: they
-     * are the two axes on which the public and moderation reads differ, so keeping them at the call
-     * sites means neither can be changed by accident while editing a price or locality filter.
+     * The facets both searches share. Status, archived and recheck are deliberately <em>not</em>
+     * here: they are the axes on which the public and moderation reads differ, so keeping them at
+     * the call sites means neither can be changed by accident while editing a price or locality
+     * filter.
      */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb) {

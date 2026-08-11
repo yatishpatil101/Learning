@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { jsPDF } from 'jspdf';
 import '../../styles/routes/compare.css';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import { getPropertiesByIds, listProperties } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 import { useCompare } from '../../context/CompareContext.jsx';
@@ -251,7 +252,7 @@ export default function Compare() {
                           {m.available ? (
                             <div className="col-card rounded-2xl overflow-hidden">
                               <div className="relative h-32 overflow-hidden">
-                                <img src={m.img} alt="" className="w-full h-full object-cover" />
+                                <PropertyImage src={m.img} alt="" className="w-full h-full object-cover" />
                                 <span className="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-black/40 backdrop-blur text-teal-300">{m.deal}</span>
                                 <button type="button" onClick={() => toggle(m.id)} aria-label={t('compare.removeAria', { title: m.title })} className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-black/40 backdrop-blur flex items-center justify-center text-white hover:bg-red-500/70 transition-colors"><Icon name="x" className="w-4 h-4" /></button>
                               </div>
@@ -380,7 +381,7 @@ export default function Compare() {
                 <p className="text-center text-gray-500 text-sm py-6">{t('compare.noMore')}</p>
               ) : pickable.slice(0, 20).map((p) => (
                 <button type="button" key={p.id} onClick={() => { toggle(p.id); setModal(false); }} className="modal-pick w-full flex items-center gap-3 rounded-xl p-2.5 text-left">
-                  <img src={p.image} alt="" className="w-16 h-12 rounded-lg object-cover flex-shrink-0" />
+                  <PropertyImage src={p.image} alt="" className="w-16 h-12 rounded-lg object-cover flex-shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm font-semibold truncate">{p.bhkNum ? p.bhkNum + ' BHK ' : ''}{p.type}</p>
                     <p className="text-gray-500 text-xs truncate">{p.locality}, {cityLabelFor(p)}</p>

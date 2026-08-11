@@ -60,18 +60,37 @@ export function deleteTeamMember(id) {
   return delay(true);
 }
 
+/* Custom roles are console-local module bundles. They used to live inside the settings document
+   as `settings.customRoles`, and they cannot any more: the server refuses that key outright with
+   422 (`AdminSettingsService.UNSUPPORTED_KEYS`, migration V61 deletes the stored row — D67), on the
+   grounds that the console composes BASE ∪ role-bundle ∪ moduleAccess, a *widening* union, while
+   the server's PermissionMap may only ever narrow. A mock whose settings document carries a key the
+   API rejects is a mock that lies about the contract, so they live at `db.customRoles` instead —
+   outside anything getSettings/updateSettings hands over. This lifts an existing browser store
+   across on first read and takes the dead key out of its settings document at the same time. */
+function customRoleStore(db) {
+  if (Array.isArray(db.customRoles)) return db.customRoles;
+  db.customRoles = Array.isArray(db.settings?.customRoles) ? db.settings.customRoles : [];
+  if (db.settings && 'customRoles' in db.settings) {
+    const { customRoles: _removed, ...settings } = db.settings;
+    db.settings = settings;
+    rawSave(db);
+  }
+  return db.customRoles;
+}
+
 export function listCustomRoles() {
-  return delay(rawLoad().settings?.customRoles || []);
+  return delay(customRoleStore(rawLoad()));
 }
 
 // Synchronous read for permission resolution (nav filtering / route guards).
 export function getCustomRoles() {
-  return rawLoad().settings?.customRoles || [];
+  return customRoleStore(rawLoad());
 }
 
 export function saveCustomRole(role) {
   const db = rawLoad();
-  const roles = Array.isArray(db.settings?.customRoles) ? [...db.settings.customRoles] : [];
+  const roles = [...customRoleStore(db)];
   const clean = {
     name: (role.name || '').trim() || 'Custom role',
     modules: Array.isArray(role.modules) ? role.modules : [],
@@ -83,7 +102,7 @@ export function saveCustomRole(role) {
     if (idx >= 0) { rec = { ...roles[idx], ...clean, id: role.id }; roles[idx] = rec; }
   }
   if (!rec) { rec = { id: 'CR' + Date.now(), ...clean }; roles.push(rec); }
-  db.settings = { ...db.settings, customRoles: roles };
+  db.customRoles = roles;
   rawSave(db);
   window.dispatchEvent(new CustomEvent('punenest-settings-change'));
   return delay(rec);
@@ -91,8 +110,7 @@ export function saveCustomRole(role) {
 
 export function deleteCustomRole(id) {
   const db = rawLoad();
-  const roles = (db.settings?.customRoles || []).filter((r) => r.id !== id);
-  db.settings = { ...db.settings, customRoles: roles };
+  db.customRoles = customRoleStore(db).filter((r) => r.id !== id);
   rawSave(db);
   window.dispatchEvent(new CustomEvent('punenest-settings-change'));
   return delay(true);

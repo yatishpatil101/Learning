@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { shareOrCopy } from '../../lib/share.js';
 import { Stars } from './property/Stars.jsx';
 import { useSocietyHub } from './society/useSocietyHub.js';
+import { REVIEW_CATS, REVIEW_CAT_KEYS } from './society/constants.js';
 import OverviewTab from './society/tabs/OverviewTab.jsx';
 import HomesTab from './society/tabs/HomesTab.jsx';
 import ReviewsTab from './society/tabs/ReviewsTab.jsx';
@@ -21,7 +22,7 @@ export default function Society() {
   const {
     rootRef, soc, locName, hero, onFollow, followed, setRateOpen,
     claimed, verified, iAmResident, showEstimate, rating, overall,
-    rateOpen, pick, setPick, revText, setRevText, inp, submitReview,
+    rateOpen, pick, setPick, revText, setRevText, cats, setCat, inp, submitReview,
     sugRec, openSuggest, stats, tabs, current, selectTab,
   } = hub;
 
@@ -37,9 +38,13 @@ export default function Society() {
   return (
     <div ref={rootRef} className="soc-page">
       <div className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Breadcrumb links are their own tap targets, not a line of prose: each sits
+            alone between chevrons, so WCAG 2.5.8's inline-text exemption does not
+            apply and a 55x20 box is simply undersized. `tap-target` grows the hit
+            area without changing the type or the row's look. */}
         <nav className="flex items-center gap-2 text-sm text-gray-400 mb-5 reveal" aria-label="Breadcrumb">
-          <Link to="/societies" className="hover:text-white">{t('society.breadcrumb')}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
-          <Link to={`/locality/${soc.localitySlug}`} className="hover:text-white capitalize">{locName}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
+          <Link to="/societies" className="tap-target inline-flex items-center hover:text-white">{t('society.breadcrumb')}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
+          <Link to={`/locality/${soc.localitySlug}`} className="tap-target inline-flex items-center hover:text-white capitalize">{locName}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
           <span className="text-white font-medium">{soc.name}</span>
         </nav>
 
@@ -47,12 +52,19 @@ export default function Society() {
         <section className="rounded-3xl overflow-hidden relative mb-6 glass reveal">
           <img src={hero} alt={soc.name} className="w-full h-56 sm:h-72 object-cover" />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(15,13,26,.1),rgba(15,13,26,.88))' }} />
+          {/* !h-11 below sm: these three float over the hero photo, so a taller pill
+              reflows nothing, and the row is 256px of a 360px screen even at its
+              widest — there is room. Back to 36px from sm up, where the hero is
+              taller and the pills read as chips rather than buttons. */}
           <div className="absolute top-4 right-4 flex gap-2">
-            <button onClick={onFollow} className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-9 !px-3 text-sm'}><Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('society.following') : t('society.follow')}</button>
-            <button onClick={() => setRateOpen((v) => !v)} className="btn-outline !h-9 !px-3 text-sm"><Icon name="star" className="w-4 h-4 mr-1.5" /> {t('society.review')}</button>
+            <button onClick={onFollow} className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-9 !px-3 text-sm'}><Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('society.following') : t('society.follow')}</button>
+            <button onClick={() => setRateOpen((v) => !v)} className="btn-outline !h-11 sm:!h-9 !px-3 text-sm"><Icon name="star" className="w-4 h-4 mr-1.5" /> {t('society.review')}</button>
             {/* Label collapses below sm: three labelled pills overflow a 360px hero.
-                aria-label carries the name in the icon-only state. */}
-            <button onClick={shareSociety} aria-label={t('society.share')} className="btn-outline !h-9 !px-3 text-sm"><Icon name="share-2" className="w-4 h-4 sm:mr-1.5" /> <span className="hidden sm:inline">{t('society.share')}</span></button>
+                aria-label carries the name in the icon-only state — and because the
+                label is gone, px-3 around a 16px glyph leaves the pill 42px wide, so
+                it also needs an explicit min-width that the other two get from their
+                text. */}
+            <button onClick={shareSociety} aria-label={t('society.share')} className="btn-outline !h-11 sm:!h-9 !px-3 !min-w-[44px] sm:!min-w-0 justify-center text-sm"><Icon name="share-2" className="w-4 h-4 sm:mr-1.5" /> <span className="hidden sm:inline">{t('society.share')}</span></button>
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
             <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -65,7 +77,14 @@ export default function Society() {
             <p className="text-gray-300 mt-1 flex items-center gap-3 flex-wrap">
               {soc.builder ? <span className="flex items-center gap-1.5"><Icon name="hard-hat" className="w-4 h-4 text-teal-400" /> {soc.builder}</span> : null}
               <span className="flex items-center gap-1.5"><Icon name="map-pin" className="w-4 h-4 text-teal-400" /> {locName}, Pune</span>
-              {!showEstimate && !rating.count ? (
+              {/* Loading and failure are distinct from "nobody has rated it": the hero star strip is
+                  the most quotable number on the page, so it stays blank until the summary read
+                  settles rather than briefly asserting an estimate it may be about to contradict. */}
+              {rating.loading ? (
+                <span className="skeleton inline-block h-4 w-24 rounded" aria-hidden="true" />
+              ) : rating.failed ? (
+                <span className="flex items-center gap-1.5 text-amber-300/80 text-sm"><Icon name="alert-triangle" className="w-4 h-4" /> {t('society.ratingUnavailable')}</span>
+              ) : !showEstimate && !rating.count ? (
                 <span className="flex items-center gap-1.5 text-gray-300 text-sm"><Icon name="sparkles" className="w-4 h-4 text-teal-400" /> {t('society.notRatedYet')}</span>
               ) : (
                 <span className="flex items-center gap-1.5"><Stars value={overall} size={14} /> <span className="font-semibold text-white">{overall}</span> <span className="text-gray-400 text-sm">{rating.count ? `(${rating.count})` : t('society.communityEstimate')}</span></span>
@@ -84,7 +103,34 @@ export default function Society() {
               </span>
             </div>
             <textarea value={revText} onChange={(e) => setRevText(e.target.value)} rows={3} placeholder={t('society.reviewPlaceholder')} className={inp} />
-            <div className="flex justify-end gap-2 mt-2"><button onClick={() => setRateOpen(false)} className="btn-outline">{t('society.cancel')}</button><button onClick={submitReview} className="btn-teal">{t('society.postReview')}</button></div>
+            {/* Per-aspect rows, the ones the Reviews tab draws bars for. Optional and independent:
+                an untouched row sends no key at all, so "did not rate Connectivity" reaches the
+                column as absent rather than as a 1 that would drag the aspect's average down.
+                Each button names its aspect so the five rows do not collide with the overall
+                star strip above — or with each other — for a screen reader or a test. */}
+            <div className="mt-3">
+              <p className="text-sm font-medium text-gray-300 mb-2">{t('society.rateByCategory')}</p>
+              <div className="space-y-2">
+                {REVIEW_CATS.map((k) => (
+                  <div key={k} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-gray-400">{t(REVIEW_CAT_KEYS[k])}</span>
+                    <span className="inline-flex items-center" style={{ gap: 2 }}>
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setCat(k, i)}
+                          aria-label={t('society.starAriaCat', { count: i, aspect: t(REVIEW_CAT_KEYS[k]) })}
+                        >
+                          <Icon name="star" style={{ width: 18, height: 18 }} className={i <= (cats[k] || 0) ? 'fill-amber-400 text-amber-400' : 'text-gray-600'} />
+                        </button>
+                      ))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-3"><button onClick={() => setRateOpen(false)} className="btn-outline">{t('society.cancel')}</button><button onClick={submitReview} className="btn-teal">{t('society.postReview')}</button></div>
           </div>
         ) : null}
 

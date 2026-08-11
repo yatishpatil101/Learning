@@ -118,6 +118,19 @@ export function toViewModel(p) {
     // NON_NULL on the wire, but the UI renders it unconditionally.
     flagReason: p.flagReason ?? '',
 
+    // ── the stays-live re-check queue (Q14) ────────────────────────────────────────────────
+    // A price/furnishing/possession edit on an approved listing keeps it approved and in search
+    // and files a moderator work item instead. Carried through because `status` cannot express
+    // it — that is the entire point of the outcome — so an admin screen reading only `status`
+    // sees a perfectly ordinary live listing and the queue is invisible.
+    //
+    // `recheckRequestedAt` is the one that matters most and is the easiest to leave behind: the
+    // boolean says a re-check is owed, only the timestamp says it has been owed for eleven days,
+    // and without it an undrained queue renders identically to an empty one.
+    recheckPending: p.recheckPending ?? false,
+    recheckReason: p.recheckReason ?? '',
+    recheckRequestedAt: p.recheckRequestedAt ?? '',
+
     // ── owner: object → the mock's three flat fields ────────────────────────────────────────
     // `mobile` is masked (98XXXXX210) until the contact gate is passed — that masking is a server
     // decision (ADR-019) and is deliberately passed through untouched.
@@ -245,10 +258,16 @@ export const unsupportedFilters = (filters = {}) =>
  * error to explain the other 22.
  *
  * `status` and `archived` still narrow it when supplied, which is what the tab filters use.
+ *
+ * `recheck` is the third axis and the one a caller must ask for by name: it is the stays-live
+ * queue (Q14), and because those listings are `approved` and un-archived, neither of the other two
+ * can express it. It was declared server-side and tested there while nothing on this side ever
+ * sent it — so the queue existed, was correct, and was unreachable.
  */
 export function toModerationQuery(filters = {}, sort = 'newest') {
   const q = toQuery(filters, sort);
   if (filters.archived !== undefined) q.archived = filters.archived;
+  if (filters.recheck !== undefined) q.recheck = filters.recheck;
   return q;
 }
 

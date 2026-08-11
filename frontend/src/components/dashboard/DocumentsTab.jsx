@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
+import PropertyImage from '../ui/PropertyImage.jsx';
 import Select from '../ui/Select.jsx';
 import Tip from '../ui/Tip.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
@@ -523,7 +524,7 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
         <>
           {selectedTenancy && (
             <div className="glass-card rounded-2xl p-4 sm:p-5 flex items-center gap-4">
-              <img src={selectedTenancy.image} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
+              <PropertyImage src={selectedTenancy.image} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-white text-sm font-semibold truncate">{selectedTenancy.title}</p>
                 <p className="text-gray-500 text-xs truncate">{selectedTenancy.address}</p>

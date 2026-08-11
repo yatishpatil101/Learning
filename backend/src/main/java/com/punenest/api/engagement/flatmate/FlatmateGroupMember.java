@@ -35,7 +35,20 @@ public class FlatmateGroupMember extends AuditedEntity {
     @Setter
     private UUID userId;
 
-    @Column(name = "name", nullable = false)
+    /**
+     * Display name, or {@code null} when this person has not given one (D118, V55).
+     *
+     * <p>Nullable because the source is: an OTP sign-in creates an account with a verified mobile
+     * and no name, so a joiner may genuinely have none. The column was {@code NOT NULL} until V55,
+     * which meant the join path had to substitute a literal ("Member") to satisfy it — a fabricated
+     * value, stored permanently, indistinguishable from a real name and rendered to other people as
+     * <em>this person's</em>. A constraint that can only be met by inventing data protects nothing.
+     *
+     * <p>So null is the honest state and it is not to be defaulted here. The fallback belongs to the
+     * display layer, where it is a rendering choice rather than a stored claim, and where it
+     * disappears by itself the moment the person fills in their profile.
+     */
+    @Column(name = "name")
     @Setter
     private String name;
 

@@ -38,17 +38,19 @@ export const updateListing = (id, patch) => {
    possession. Mapped to this store's field names, `propertyType`→`type` and the
    possession facet is carried by the seed's `construction` field (see tileMeta.js).
    Excludes derived projections (localitySlug/bhkNum) and non-facet fields
-   (title/area/facing/floor/age) the server leaves as ordinary, non-reverting edits. */
+   (title/area/facing/floor/age) the server leaves as ordinary, non-reverting edits.
+   Pinned to the server by `frontend/scripts/check-listing-foundation.mjs` (npm run
+   check:listing), which also pins the live copy of this rule — FOUNDATION_FORM_KEYS in
+   pages/consumer/list-property/editPolicy.js, the one the owner-facing banner reads.
+
+   No runtime caller remains: the mock store never re-ran the foundation check itself, and the
+   live rule the UI enforces is editPolicy.js's copy. The only consumer of THIS export is the
+   gate script above, which regex-parses the array out of this file to hold all three copies in
+   sync — so the constant stays exported even though nothing imports it. */
 export const LISTING_FOUNDATION_FIELDS = ['deal', 'locality', 'bhk', 'type', 'price', 'furnishing', 'construction'];
-export const listingFoundationChanged = (oldL, patch) => {
-  return LISTING_FOUNDATION_FIELDS.some((f) => (f in patch) && String(patch[f] ?? '') !== String((oldL && oldL[f]) ?? ''));
-};
 export const isListingApproved = (id) => {
   const l = getListing(id);
   return !!(l && /approved|verified|live/i.test(String(l.status || '')));
-};
-export const revertListingForReview = (id) => {
-  updateListing(id, { status: 'pending', statusClass: 'pill-pending' });
 };
 
 /* =========================================================================

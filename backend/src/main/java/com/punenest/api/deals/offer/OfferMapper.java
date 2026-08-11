@@ -27,13 +27,15 @@ public final class OfferMapper {
      * @param buyer      the user who submitted the offer (resolved in batch)
      * @param history    the negotiation trail entries for this offer
      * @param visibility whether the buyer's mobile should be revealed
+     * @param verified   whether the buyer carries the Verified Tenant badge, resolved by the
+     *                   service from the buyer's <em>user id</em> — see {@link OfferDto.Party}
      */
     public static OfferDto toDto(Offer offer, User buyer, List<OfferHistory> history,
-                                  ContactVisibility visibility) {
+                                  ContactVisibility visibility, boolean verified) {
         return new OfferDto(
                 offer.getId().toString(),
                 offer.getPropertyId().toString(),
-                toParty(buyer, visibility),
+                toParty(buyer, visibility, verified),
                 offer.getAmount(),
                 offer.getStatus(),
                 offer.getMessage(),
@@ -45,8 +47,12 @@ public final class OfferMapper {
     /**
      * Build a {@link OfferDto.Party} for the buyer. Mobile is masked unless the owner has acted
      * (offer accepted) or an approved contact request exists (D5).
+     *
+     * <p>{@code verified} is passed in rather than recomputed here, and specifically it is never
+     * recomputed from the value {@link #maskMobile} just returned: masking is lossy on purpose, so
+     * anything downstream of it can only get the badge wrong.
      */
-    private static OfferDto.Party toParty(User buyer, ContactVisibility visibility) {
+    private static OfferDto.Party toParty(User buyer, ContactVisibility visibility, boolean verified) {
         if (buyer == null) {
             return null;
         }
@@ -54,7 +60,8 @@ public final class OfferMapper {
                 buyer.getId().toString(),
                 buyer.getName(),
                 maskMobile(buyer.getMobile(), visibility),
-                "buyer");
+                "buyer",
+                verified);
     }
 
     private static OfferDto.HistoryEntry toHistoryEntry(OfferHistory h) {

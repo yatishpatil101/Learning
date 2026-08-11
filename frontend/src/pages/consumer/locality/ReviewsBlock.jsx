@@ -1,13 +1,28 @@
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 
-export default function ReviewsBlock({ activeName, locReviews, onSubmit, revText, setRevText, pick, setPick }) {
+export default function ReviewsBlock({ activeName, locReviews, summary, summaryFailed, onSubmit, revText, setRevText, pick, setPick }) {
   const { t } = useTranslation();
+  /**
+   * The headline is the server's aggregate, not a reduce over the cards below.
+   *
+   * The cards are page one of a paged fetch, so averaging them published the mean of a locality's
+   * twenty most recent reviews as the neighbourhood's rating. Four outcomes now, and the third is
+   * the one that matters: a failed read says so rather than borrowing the "no reviews yet" copy,
+   * because "nobody has reviewed Baner" is a claim about Baner.
+   */
+  const loading = !summary && !summaryFailed;
+  const rated = !!summary && summary.count > 0 && Number.isFinite(summary.avg);
   return (
     <div className="glass-card rounded-2xl p-6 reveal">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2"><Icon name="star" className="w-5 h-5 text-amber-400" /> {t('locality.reviewsTitle')}</h2>
-        <div className="text-sm text-gray-300">{locReviews.length ? <><span className="text-amber-400 font-bold">{(locReviews.reduce((a, r) => a + r.rating, 0) / locReviews.length).toFixed(1)}</span> ★ · {t('locality.reviewsCount', { count: locReviews.length })}</> : t('locality.reviewsNone')}</div>
+        <div className="text-sm text-gray-300">
+          {loading ? <span className="skeleton inline-block h-4 w-28 rounded align-middle" aria-hidden="true" />
+            : summaryFailed ? <span className="text-amber-300/80 inline-flex items-center gap-1.5" data-testid="locality-rating-unavailable"><Icon name="alert-triangle" className="w-4 h-4" /> {t('locality.reviewsUnavailable')}</span>
+              : rated ? <><span className="text-amber-400 font-bold">{summary.avg.toFixed(1)}</span> ★ · {t('locality.reviewsCount', { count: summary.count })}</>
+                : t('locality.reviewsNone')}
+        </div>
       </div>
       <form onSubmit={onSubmit} className="rounded-xl p-4 mb-5" style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)' }}>
         <p className="text-sm font-semibold text-white mb-2"><Trans i18nKey="locality.reviewPrompt" values={{ name: activeName }} components={{ 1: <span className="text-teal-400" /> }} /></p>

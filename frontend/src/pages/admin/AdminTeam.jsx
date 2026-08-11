@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, Check, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, UsersRound } from 'lucide-react';
+import { Ban, Check, Info, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, UsersRound } from 'lucide-react';
 import {
   listTeamMembers, saveTeamMember, setTeamMemberStatus, deleteTeamMember,
   listCustomRoles, saveCustomRole, deleteCustomRole, logAudit,
@@ -262,7 +262,22 @@ export default function AdminTeam() {
           mobileCard={memberCard}
         />
       ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>
+        <>
+          {/* Custom roles are not a security boundary and must not read like one. The server has no
+              concept of them: it refuses `settings.customRoles` outright (422, D67) because this
+              screen composes BASE ∪ role-bundle ∪ moduleAccess — a widening union — while the
+              server's permission map may only narrow. An operator who ticks three modules here and
+              believes they have restricted someone has been misled, so say what it does do. */}
+          <div className="pn-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-gray-400">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <span>
+              <span className="font-semibold text-amber-300">Console-only — not enforced by the server.</span>{' '}
+              Custom roles decide which modules this admin console shows a member. Server-side access
+              still comes from their role and team alone, so treat these as navigation tidying rather
+              than as a restriction on what someone can reach.
+            </span>
+          </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>
           {customRoles.length === 0 ? (
             <div className="pn-card p-8 text-center text-gray-500">No custom roles yet. Create reusable module bundles like “Requests Desk”.</div>
           ) : customRoles.map((r) => (
@@ -288,7 +303,8 @@ export default function AdminTeam() {
               ) : null}
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
 
       {/* Member modal */}

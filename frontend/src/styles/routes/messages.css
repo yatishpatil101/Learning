@@ -50,6 +50,10 @@
   flex: 1;
   font-size: 12px;
   font-weight: 700;
+  /* 7px of padding around 12px text drew a 32px tab: wide (172px) but short, and
+     the short axis is the one a thumb misses. The pill keeps its drawn look —
+     `padding` still sets the rhythm — while `min-height` guarantees the floor. */
+  min-height: 44px;
   padding: 7px 0;
   border-radius: 9px;
   color: #94a3b8;
@@ -149,7 +153,8 @@
   flex-shrink: 0;
 }
 
-.pc-conv-av img {
+.pc-conv-av img,
+.pc-conv-av .img-empty {
   width: 50px;
   height: 50px;
   border-radius: 14px;
@@ -348,7 +353,8 @@
   flex-shrink: 0;
 }
 
-.pc-head-av img {
+.pc-head-av img,
+.pc-head-av .img-empty {
   width: 42px;
   height: 42px;
   border-radius: 12px;
@@ -431,7 +437,8 @@
   border-radius: 14px;
 }
 
-.pc-propchip img {
+.pc-propchip img,
+.pc-propchip .img-empty {
   width: 38px;
   height: 38px;
   border-radius: 10px;

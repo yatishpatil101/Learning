@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { approveFlatmates, switchToTeamUp, postAsSolo } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Regression coverage for flatmates interaction bugs:
    1. A user's own live request must NOT also render as an interactable seeker card
@@ -43,8 +44,7 @@ test('own live request is not listed as an interactable seeker card', async ({ p
 });
 
 test('room "Message owner" flips to a sent state', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seedUser(page);
   await page.goto(`${BASE}/flatmates?view=rooms`);
 

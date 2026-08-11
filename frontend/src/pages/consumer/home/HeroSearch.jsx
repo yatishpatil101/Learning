@@ -7,6 +7,7 @@ import { pushRecentSearch } from '../../../lib/store.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { localityByName, slugifyLocality, matchLocalityToCanonical, nearestLocality } from '../../../data/localities.js';
 import { buildEntityIndex, searchEntities, paramsFromTokens, KIND_ICON } from '../../../lib/searchEntities.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { newAutocompleteSession, fetchSuggestions, fetchPlaceDetails } from '../../../lib/places.js';
 import { useCity } from '../../../context/CityContext.jsx';
 import { cityHasData } from '../../../lib/geoConfig.js';
@@ -68,9 +69,16 @@ export default function HeroSearch({ idPrefix = '' }) {
       .catch(() => {});
     return () => { alive = false; };
   }, [hasData]);
+  /* buildEntityIndex() resolves every listing to a society to count homes per society.
+     No *seed* listing carries a societyId, but a user who has posted one does — and
+     SocietySelect binds to RERA societies. Before the chunk lands societyById() misses,
+     the count lands on a wrong curated society via the hash fallback, and without this
+     dep the memo never rebuilds: the phantom count and the missing real suggestion both
+     survive the whole session. */
+  const catalogueReady = useSocietyCatalogue();
   const index = useMemo(
     () => buildEntityIndex(hasData ? listings.filter((p) => p.status === 'approved' && p.deal === tab) : []),
-    [listings, tab, hasData],
+    [listings, tab, hasData, catalogueReady], // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
   );
 
   // Close any open dropdown when clicking outside the widget.

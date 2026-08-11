@@ -41,6 +41,19 @@ async function pick(page, name, optionName) {
   await closeMenus(page);
 }
 
+/* Assert the whole result set is this subtype, and non-empty.
+
+   Not `count()` + a `nth(i)` loop: the results grid renders from a deferred value, so the
+   pre-filter set is still on screen for a beat after the pick. That loop samples the stale
+   list (`n` = the wider commercial count) and then reads it index by index while React
+   swaps it underneath — a card that existed at count time is gone by the time `nth(1)` is
+   read. Both assertions below auto-retry over the live set, so they can only agree once the
+   filtered list has actually landed; there is no snapshot to go stale. */
+async function expectOnly(page, label) {
+  await expect(cards(page).filter({ hasNotText: label })).toHaveCount(0);
+  await expect(cards(page)).not.toHaveCount(0);
+}
+
 test('Commercial Type sub-filter is hidden until Commercial is selected', async ({ page }) => {
   await page.goto(`${BASE}/listings`);
   await expect(trigger(page, 'Property type')).toBeVisible();
@@ -75,12 +88,7 @@ for (const [, label] of SUBTYPES) {
 
     // Results are limited to the chosen subtype (seed has one buy unit each);
     // every rendered card's title must be this subtype's label.
-    await cards(page).first().waitFor({ timeout: 10000 });
-    const n = await cards(page).count();
-    expect(n).toBeGreaterThan(0);
-    for (let i = 0; i < n; i++) {
-      await expect(cards(page).nth(i)).toContainText(label);
-    }
+    await expectOnly(page, label);
   });
 }
 
@@ -89,12 +97,7 @@ test('Commercial Type sub-filter also works on the Rent tab', async ({ page }) =
   await expect(trigger(page, 'Commercial type')).toBeVisible();
 
   await pick(page, 'Commercial type', 'Warehouse / Godown');
-  await cards(page).first().waitFor({ timeout: 10000 });
-  const n = await cards(page).count();
-  expect(n).toBeGreaterThan(0);
-  for (let i = 0; i < n; i++) {
-    await expect(cards(page).nth(i)).toContainText('Warehouse / Godown');
-  }
+  await expectOnly(page, 'Warehouse / Godown');
 });
 
 test('Removing the Commercial Type chip restores the full commercial list', async ({ page }) => {

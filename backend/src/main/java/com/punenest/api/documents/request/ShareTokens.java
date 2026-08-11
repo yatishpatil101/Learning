@@ -26,6 +26,21 @@ public final class ShareTokens {
     private ShareTokens() {
     }
 
+    /**
+     * The request header the token is presented in (D42).
+     *
+     * <p>It used to be a query parameter, and that was the defect: a URL is copied into browser
+     * history, bookmarks, proxy and CDN access logs, and a chat window the moment the recipient
+     * forwards the link. None of those carry a request header. The fix is the same one
+     * {@code Authorization} exists for — the credential travels in a header and the URL stays
+     * shareable-looking without being a credential.
+     *
+     * <p>Deliberately <em>not</em> {@code Authorization}: {@link com.punenest.api.security.JwtAuthFilter}
+     * owns that header, and a share token arriving in it would be parsed as a session bearer,
+     * rejected, and the caller left unauthenticated with no way to tell the two failures apart.
+     */
+    public static final String HEADER = "X-Share-Token";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /** URL-safe and unpadded, so the token survives a WhatsApp forward without re-encoding. */

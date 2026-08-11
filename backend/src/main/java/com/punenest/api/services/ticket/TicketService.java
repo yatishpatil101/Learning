@@ -142,6 +142,11 @@ public class TicketService {
      * That is correct: misfiled work should go to the right desk, and the desk that no longer owns
      * it should no longer see it.
      *
+     * <p>An omitted {@code assigneeId} leaves the current assignee alone; the reserved value
+     * {@link TicketUpdate#UNASSIGN} hands the ticket back to the pool (debt D46). Those are the only
+     * two ways to not-assign somebody — anything else that fails to resolve to an ops user is still
+     * a 404, so a mistyped id cannot quietly become an unassignment.
+     *
      * @throws NotFoundException  if the assignee id does not resolve to an ops user — assigning work
      *                            to a customer is not a typo worth honouring
      * @throws ForbiddenException if the ticket belongs to another desk
@@ -174,7 +179,11 @@ public class TicketService {
             ticket.setTeam(team);
         }
         String assigneeId = blankToNull(body.assigneeId());
-        if (assigneeId != null) {
+        if (body.unassigns()) {
+            // Debt D46. The one intent a record cannot express as a null, so it has a word instead;
+            // see TicketUpdate.UNASSIGN for why that is a word and not a wrapper or an endpoint.
+            ticket.setAssigneeId(null);
+        } else if (assigneeId != null) {
             User assignee = Ids.parseUuid(assigneeId)
                     .flatMap(users::findById)
                     .filter(u -> Roles.Wire.STAFF.equals(u.getRole())

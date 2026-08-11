@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { APIProvider, Map, AdvancedMarker, InfoWindow, useMap } from '@vis.gl/react-google-maps';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
+import PropertyImage from '../ui/PropertyImage.jsx';
 import '../../styles/routes/property-map.css';
 import { fmtINR } from '../../lib/format.js';
 import { SHARING_LBL, FURN_LBL } from '../../pages/consumer/listings/constants.js';
@@ -112,7 +113,7 @@ function PropertyPopup({ p, locName }) {
   return (
     <div className="pn-mp-card">
       <div className="pn-mp-media">
-        <img src={p.image} alt={p.title} loading="lazy" />
+        <PropertyImage src={p.image} alt={p.title} loading="lazy" />
         <span className={'pn-mp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'Rent' : 'Sale'}</span>
         {verified ? <span className="pn-mp-verified" title={t('pmap.verified')}><Icon name="badge-check" /></span> : null}
       </div>

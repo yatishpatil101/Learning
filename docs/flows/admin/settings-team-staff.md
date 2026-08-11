@@ -36,7 +36,11 @@
 
 ## 4. Entities touched
 - [`settings`](../../system/data-model.md) - **read / updated**: `site`, `fees`, `movePack`, `geo`,
-  `flags` (app), `adminFlags` (admin modules, via `AdminFlagsContext`), `customRoles`.
+  `flags` (app), `adminFlags` (admin modules, via `AdminFlagsContext`).
+  **Not** `customRoles`: `PUT /admin/settings` answers **422** for that key
+  (`AdminSettingsService.UNSUPPORTED_KEYS`; migration `V61` deletes the stored row - D67), so it is
+  not part of the settings document at all. It lives in its own `customRoles` collection (see 5.8).
+- `customRoles` (console-local) - **read / created / updated / deleted**. Never sent to the server.
 - [`team`](../../system/data-model.md) (internal accounts, separate from consumer `users`) - **read / created / updated / deleted**.
 - [`audit_log`](../../system/data-model.md) - **read / created / cleared** (Settings audit tab; every save/toggle logs).
 
@@ -79,7 +83,7 @@ A banner cross-links to `/admin/staff-activity` for operational (staff) activity
 ### 5.6 Team & Access - the RBAC model (`permissions.js` + `adminModules.js`)
 Three internal roles:
 - **admin (super-admin):** full access to every module (the `'*'` grant); can see Team & Access + Settings.
-- **manager (scoped):** sees BASE modules (`dashboard`) UNION their custom-role bundle (`roleId -> settings.customRoles`)
+- **manager (scoped):** sees BASE modules (`dashboard`) UNION their custom-role bundle (`roleId -> customRoles`)
   UNION per-user `moduleAccess` overrides - but never `adminOnly` modules. `effectiveModuleKeys(user, customRoles)`
   computes this; `properties:verify` sub-scope also unlocks the Properties module in a verify-only mode (`propertiesScope`).
 - **staff (ops):** no admin shell; scoped to ops service **teams** (`OPS_TEAMS` = rental, legal, loans, interior,
@@ -100,11 +104,21 @@ Grantable permissions grid = every non-base, non-admin-only module, with a "Prop
 - `saveTeamMember` (mock) assigns `id = 'TM'+Date.now()`, `createdAt` on create; audits "Created/Updated <RoleLabel> \"name\"".
 - `toggleMemberStatus` flips `active <-> suspended`; `removeMember` confirms then deletes. Status pill = active/suspended.
 
-### 5.8 Team & Access - custom roles (reusable module bundles)
+### 5.8 Team & Access - custom roles (reusable module bundles, **console-only**)
 `customRoles` (seed: `CR_requests` = enquiries+services+postOnBehalf; `CR_verify` = properties:verify;
 `CR_content` = content+localities+societies). `saveCustomRole` -> `id='CR'+Date.now()`, stores `{name, modules, teams}`
-into `settings.customRoles` and fires `punenest-settings-change`. `removeRole` warns how many members use it
+into the `customRoles` collection and fires `punenest-settings-change`. `removeRole` warns how many members use it
 (they fall back to their manual tab access). Roles are picked as a manager "preset"; ticked tabs add on top.
+
+**They are not a permission grant and the tab says so.** The server has no concept of them and refuses
+the key outright (422, D67): this screen composes `BASE UNION role-bundle UNION moduleAccess`, a
+*widening* union, whereas the server's `PermissionMap` may only ever **narrow** a role baseline -
+honouring the console's model server-side would be privilege escalation. What a custom role actually
+does is decide which modules this admin console renders for a member; server-side access still comes
+from their role and team alone. Whether scoped back-office accounts should exist server-side at all
+is open (D13, [`../../system/open-questions.md`](../../system/open-questions.md)); until it is
+answered, the affordance stays but is labelled console-only rather than removed, so the decision is
+not foreclosed by deleting the UI.
 
 ### 5.9 How team-scoping drives ops queues
 A staff member's `teams[]` (or a role's `teams`) select which service verticals they own; the Services desk

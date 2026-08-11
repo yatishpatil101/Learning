@@ -30,7 +30,13 @@ const FIRST_FEATURE_PERK_MS = 7 * 24 * 60 * 60 * 1000; // 7-day free Featured bo
    on every listing this user owns — lighting up the +250 ranking boost and the buyer-facing
    Verified badge — and (2) the FIRST time only, grant a free 7-day Featured slot on their newest
    approved listing (reuses the existing `featured` flag / +1000 boost, with an expiry so it lapses
-   honestly). Idempotent: safe to call on every verification; the perk is guarded to fire once. */
+   honestly). Idempotent: safe to call on every verification; the perk is guarded to fire once.
+
+   This writes a mock *fixture*, it does not decide trust (D26). Its only caller is the mock half of
+   the verification seam; on `http` the badge arrives already decided on `PropertyResponse
+   .ownerVerified` — only the DigiLocker webhook may set it server-side — and `propertyMapper` reads
+   it. Every renderer of the Verified Owner pill reads that field and none of them computes it, so
+   nothing here is a second opinion the live path could disagree with. */
 export function applyVerifiedBadgeToListings(mobile) {
   const mine = last10(mobile);
   if (!mine) return null;
@@ -83,6 +89,12 @@ export function verifiedStats(localitySlug) {
 
 function matchesFilters(p, f = {}) {
   if (!f.includeArchived && p.archived) return false;
+  // Explicit tri-state `archived`, matching what `toModerationQuery` forwards and what
+  // `PropertySpecs.adminSearch` does with it. Distinct from `includeArchived`, which only widens:
+  // a moderation read forces the widening on, so `archived: false` is the only way a caller can
+  // narrow back to live rows — and without this the mock would answer that question differently
+  // from the server, which is the whole class of bug the seam exists to avoid.
+  if (f.archived !== undefined && Boolean(p.archived) !== Boolean(f.archived)) return false;
   if (f.deal && p.deal !== f.deal) return false;
   if (f.type && p.type.toLowerCase() !== f.type.toLowerCase()) return false;
   if (f.locality && p.localitySlug !== f.locality) return false;
@@ -99,8 +111,46 @@ function matchesFilters(p, f = {}) {
   } else if (!f.includeAllStatuses) {
     if (p.status !== 'approved') return false;
   }
+  // The stays-live re-check queue (Q14), tri-state exactly like the server's `recheck` param:
+  // undefined means both. Admin-only in practice — `toQuery` never forwards it, only
+  // `toModerationQuery` does — which mirrors `PropertySpecs`, where it lives on `adminSearch`
+  // and not on the public one.
+  if (f.recheck !== undefined && Boolean(p.recheckPending) !== Boolean(f.recheck)) return false;
   return true;
 }
+
+/**
+ * Mirror of `Property.requestRecheck` (Q14) for the mock store.
+ *
+ * Returns the three re-check fields to merge onto a listing record. Kept here, beside
+ * `setListingStatus` which clears them, so the pair that owns this work item lives in one place.
+ *
+ * Two rules are copied deliberately, because a mock that is *more permissive* than the server
+ * passes tests the real thing would fail:
+ *  - the reason accumulates field names rather than replacing them (two edits before a moderator
+ *    looks must leave the moderator both fields, not just the last one), and
+ *  - `requestedAt` is set once and never refreshed, so queue age is honest and an owner editing
+ *    their price daily cannot keep resetting their own place in the queue.
+ */
+export function requestRecheckFields(prev = {}, fields = []) {
+  const merged = [...new Set([
+    ...String(prev.recheckReason || '').split(/,\s*/).filter(Boolean),
+    ...fields,
+  ])];
+  if (!merged.length) return {};
+  return {
+    recheckPending: true,
+    recheckReason: merged.join(', '),
+    recheckRequestedAt: prev.recheckRequestedAt || new Date().toISOString(),
+  };
+}
+
+/** Mirror of `Property.clearRecheck` — a moderator has looked. Idempotent. */
+export const clearedRecheckFields = () => ({
+  recheckPending: false,
+  recheckReason: '',
+  recheckRequestedAt: '',
+});
 
 /**
  * Is a paid promotion window open right now? Mirrors the server's `Property.isBoosted()` (D59):
@@ -177,6 +227,11 @@ export function featuredProperties(limit = 6) {
  * call — which was a no-op against the API, because `ListingUpdate` has no `flagReason` field and
  * the patch serialised to an empty body. Rejecting deliberately keeps the reason: it is why the
  * listing was taken down.
+ *
+ * Setting **any** status also clears a pending stays-live re-check (Q14), mirroring
+ * `PropertyModerationService.setStatus`. That is what makes re-approving an already-approved
+ * listing the "checked it, all fine" action, and why draining the re-check queue needs no endpoint
+ * of its own.
  */
 export function setListingStatus(id, status) {
   const db = rawLoad();
@@ -184,6 +239,7 @@ export function setListingStatus(id, status) {
   if (it) {
     it.status = status;
     if (status === 'approved') it.flagReason = '';
+    Object.assign(it, clearedRecheckFields());
     rawSave(db);
   }
   return delay(it);

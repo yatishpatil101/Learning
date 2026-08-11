@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876543210';
@@ -71,8 +72,7 @@ test('selected date is displayed as DD/MM/YYYY', async ({ page }) => {
 });
 
 test('"Available From" needs a date before the step can advance', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoStep2(page);
   await page.locator('[data-err="possession"]').getByText('Available From', { exact: true }).click();
   // Leave the date empty and try to proceed.

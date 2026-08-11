@@ -3,7 +3,10 @@ package com.punenest.api.documents.vault;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.error.PayloadTooLargeException;
+import com.punenest.api.common.error.UnsupportedMediaTypeException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.provider.DocumentScanner;
 import com.punenest.api.provider.FileStorage;
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +35,12 @@ import org.springframework.web.multipart.MultipartFile;
  * persist whatever it returns. The client's declared type is used to reject and then dropped, so it
  * never reaches the object store or the {@code documents} row and cannot come back out as a response
  * header.
+ *
+ * <p><strong>Nothing is stored before it is scanned (D131).</strong> Every upload path runs
+ * {@link DocumentUploads#validate} and then every registered {@link DocumentScanner}, and only then
+ * calls {@link FileStorage#store}. The order is the control: a file that is scanned after it is
+ * stored has already been given a signed URL, and a rejected upload that leaves an object behind is
+ * a rejected upload that can still be served.
  */
 @Service
 public class DocumentService {
@@ -41,15 +50,24 @@ public class DocumentService {
     private final PropertyRepository properties;
     private final DocumentMapper mapper;
     private final FileStorage storage;
+    private final List<DocumentScanner> scanners;
 
+    /**
+     * @param scanners every registered scanner, in bean order. A {@code List} rather than a single
+     *                 bean because these are cumulative rather than alternative: the built-in
+     *                 structural check is always present, clamd joins it when configured, and the
+     *                 OCR validator intended for this seam will join both. Injecting one bean would
+     *                 have made each new scanner a replacement for the last.
+     */
     public DocumentService(DocumentRepository documents,
             PersonalDocumentRepository personalDocuments, PropertyRepository properties,
-            DocumentMapper mapper, FileStorage storage) {
+            DocumentMapper mapper, FileStorage storage, List<DocumentScanner> scanners) {
         this.documents = documents;
         this.personalDocuments = personalDocuments;
         this.properties = properties;
         this.mapper = mapper;
         this.storage = storage;
+        this.scanners = scanners;
     }
 
     /** Contract {@code listDocuments} — the vault for one of the caller's listings, newest first. */
@@ -77,6 +95,7 @@ public class DocumentService {
         UUID propertyId = ownedProperty(ownerId, propId);
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
+        scan(file.getOriginalFilename(), type, bytes);
 
         String key = "documents/" + propertyId + "/" + UUID.randomUUID();
         storage.store(key, bytes, type);
@@ -108,6 +127,7 @@ public class DocumentService {
             String category, MultipartFile file) {
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
+        scan(file.getOriginalFilename(), type, bytes);
 
         String key = "documents/" + propertyId + "/" + UUID.randomUUID();
         storage.store(key, bytes, type);
@@ -162,6 +182,7 @@ public class DocumentService {
     public DocumentDto uploadPersonal(UUID ownerId, String category, MultipartFile file) {
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
+        scan(file.getOriginalFilename(), type, bytes);
 
         String key = "personal/" + ownerId + "/" + UUID.randomUUID();
         storage.store(key, bytes, type);
@@ -204,6 +225,35 @@ public class DocumentService {
             return file.getBytes();
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException("cannot read uploaded file", e);
+        }
+    }
+
+    /**
+     * Run every registered scanner and refuse on the first one that objects (D131).
+     *
+     * <p>The proved type is passed, not the declared one: a scanner told "this claims to be a PDF"
+     * would be reasoning about the same string {@link DocumentUploads#validate} has already thrown
+     * away.
+     *
+     * <p>A scanner that cannot reach a verdict throws rather than returning, and that throw is left
+     * to propagate. It is the whole point of {@code ClamAvScanner}: an upload nobody could scan must
+     * fail, because catching it here would turn "the scanner is down" into "the file is fine".
+     *
+     * @throws UnsupportedMediaTypeException if a scanner refuses the file's content (415)
+     * @throws PayloadTooLargeException      if a scanner refuses it as oversized (413)
+     */
+    private void scan(String fileName, String provedType, byte[] bytes) {
+        for (DocumentScanner scanner : scanners) {
+            DocumentScanner.Verdict verdict = scanner.scan(fileName, provedType, bytes);
+            switch (verdict.outcome()) {
+                case CLEAN -> {
+                    // keep going: every scanner gets a look, none of them can wave a file through
+                }
+                case TOO_LARGE -> throw new PayloadTooLargeException(verdict.detail());
+                case REJECTED -> throw new UnsupportedMediaTypeException(verdict.detail());
+                default -> throw new IllegalStateException(
+                        "unhandled scan outcome " + verdict.outcome());
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Group lifecycle parity with flatmate requests / rooms. Regression cover for the
    three confirmed bugs:
@@ -33,8 +34,7 @@ async function createGroup(page) {
 }
 
 test('A: a created group survives a reload', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seedUser(page);
   await createGroup(page);
   await page.reload();

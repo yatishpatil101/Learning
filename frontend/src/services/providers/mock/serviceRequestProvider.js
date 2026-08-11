@@ -30,6 +30,7 @@ import {
   list as _list,
   get as _get,
   create as _create,
+  assign as _assign,
   addMessage as _addMessage,
   decideDraft as _decideDraft,
   markRead as _markRead,
@@ -75,6 +76,72 @@ export async function createServiceRequest(data) {
  * ops runbook's "ask the customer" fallback is the mock's permanent answer.
  */
 export async function recordServiceRequestIdentities() {}
+
+/**
+ * The desk's queue (D173) — every request in the mock store, newest activity first.
+ *
+ * `allRequests()` already sweeps every `puneNestServiceReq:<mobile>` key, which is the mock's
+ * equivalent of the server deriving scope from a staff role. Filtering and windowing happen here
+ * because there is no server to do them, and the return shape matches the http provider's envelope
+ * so the desk cannot tell which one answered.
+ */
+export async function listServiceRequestQueue({ type, status, page = 0, size = 20 } = {}) {
+  const all = _allRequests(type).filter((r) => !status || r.status === status);
+  const from = Math.max(0, page) * size;
+  return { items: all.slice(from, from + size), total: all.length, page, size };
+}
+
+/** Take a request for the signed-in operator. The mock's assignment is by display name. */
+export async function takeServiceRequest(id) {
+  const r = _allRequests().find((x) => x.id === id);
+  if (!r) return null;
+  return _assign(r._mobile, id, readUser()?.name || 'Me');
+}
+
+/**
+ * Read the parties' identity numbers (D151/D173) — <strong>and the mock has none to give</strong>.
+ *
+ * This is the read half of `recordServiceRequestIdentities`, which drops the numbers on purpose:
+ * the mock store is `localStorage`, and honouring the write would put an owner's and every tenant's
+ * Aadhaar into plain JSON on the origin. So the numbers were never recorded, and the honest answer
+ * is rows with names and empty numbers — exactly what the contract means by a null `pan` with no
+ * `purgedAt`: *the customer left that field blank*. Inventing a demo Aadhaar to make the screen look
+ * finished would re-create the threat the redaction closed, in the one place nobody would look for
+ * it.
+ *
+ * **The refusal is modelled, though, because the refusal is the design.** An unassigned request, or
+ * one held by somebody else, throws with the server's own sentence rather than returning an empty
+ * list — a demo where the guard silently does nothing teaches the desk the wrong thing about what
+ * this screen is.
+ */
+export async function readServiceRequestIdentities(id) {
+  const r = _allRequests().find((x) => x.id === id);
+  if (!r) throw new Error('No such request.');
+  const me = readUser()?.name || 'Me';
+  if (!r.assignedTo) {
+    throw new Error(
+      'This request is not assigned to anyone yet. Take it first — identity numbers are visible '
+        + 'only to the person working the matter.',
+    );
+  }
+  if (r.assignedTo !== me) {
+    throw new Error(
+      'This request is assigned to somebody else. Identity numbers are visible only to the person '
+        + 'working the matter.',
+    );
+  }
+  const d = r.details || {};
+  const tenants = String(d.tenants || '')
+    .split(/\s*,\s*/)
+    .filter(Boolean);
+  const party = (partyRole, partyIndex, partyName) => ({
+    partyRole, partyIndex, partyName: partyName || '', pan: '', aadhaar: '', purged: false, purgedAt: 0,
+  });
+  return [
+    party('owner', 0, d.ownerName),
+    ...tenants.map((name, i) => party('tenant', i, name)),
+  ];
+}
 
 export async function addServiceRequestMessage(id, text) {
   return _addMessage(ownerOf(id), id, 'user', text);

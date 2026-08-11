@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { fmtINR, timeAgo } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useCompare } from '../../../context/CompareContext.jsx';
@@ -108,7 +109,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
       <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="list-card card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
         <div className="lr">
           <div className="lr-img">
-            <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
+            <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={248} height={186} className="w-full h-full object-cover" loading="lazy" />
             {verified ? (
               <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
                 <Icon name="shield-check" />
@@ -175,7 +176,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   return (
     <Link to={`/property/${p.id}`} state={linkState} onClick={onOpen} viewTransition onMouseEnter={() => import('../Property.jsx')} className="card-hover glass rounded-2xl overflow-hidden t-all block list-reveal" style={{ animationDelay: `${120 + Math.min(index, 14) * 45}ms` }}>
       <div className="relative overflow-hidden card-img-wrap h-48">
-        <img src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
+        <PropertyImage src={p.image} srcSet={srcSetFor(p.image)} sizes={CARD_SIZES} alt={p.title} width={400} height={192} className="card-img w-full h-full object-cover" loading="lazy" style={{ viewTransitionName: `property-hero-${p.id}` }} />
         {verified ? (
           <span className="badge-verified-icon absolute top-3 left-3" role="img" aria-label={verifiedLabel} title={verifiedLabel}>
             <Icon name="shield-check" />

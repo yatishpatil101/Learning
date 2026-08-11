@@ -10,6 +10,7 @@
    admin-specific helpers that are NOT in the service's public API (archiveListing, restoreListing,
    the review functions, duplicate detection). See docs/system/frontend-data-seam.md. */
 import { rawDb, mutateDb, archiveRecord, restoreRecord } from '../mockApi.js';
+import { clearedRecheckFields } from '../mockApi/properties.js';
 import { keysForListing, listingActive } from './propertyIdentity.js';
 import { photoSetsMatch } from './imageHash.js';
 
@@ -35,6 +36,10 @@ export function clearFlag(id) {
     if (l) {
       l.status = 'approved';
       l.flagReason = '';
+      // Mirrors `PropertyModerationService.clearFlag`, which also calls `clearRecheck()`: a
+      // moderator has just looked at this listing, which is exactly what a queued re-check was
+      // asking for. Leaving it queued would put the same listing back in front of them.
+      Object.assign(l, clearedRecheckFields());
     }
     return l;
   });
@@ -50,7 +55,15 @@ export function archiveListing(id, reason) {
 }
 
 export function restoreListing(id) {
-  return restoreRecord('listings', id, 'pending');
+  const out = restoreRecord('listings', id, 'pending');
+  /* Restoring sends the listing back to `pending`, and `Property.revertToPending()` calls
+     `clearRecheck()`. Without this the restored listing would sit in the verification queue and
+     the re-check queue at once, asking two moderators to look at the same listing. */
+  mutateDb((db) => {
+    const l = (db.listings || []).find((x) => String(x.id) === String(id));
+    if (l) Object.assign(l, clearedRecheckFields());
+  });
+  return out;
 }
 
 export function updateListingFields(id, patch) {

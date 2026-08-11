@@ -9,8 +9,11 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,6 +70,18 @@ public class PropertyVerificationService {
         PropertyReview review = reviews.findByPropertyId(property.getId())
                 .orElseThrow(() -> new NotFoundException("No verification review for this listing"));
         return toResponse(review, property.getOwner().getId());
+    }
+
+    /** {@code GET /admin/property-reviews} — paged verification case queue for staff/admin. */
+    @Transactional(readOnly = true)
+    public Page<PropertyReviewSummary> listCases(Pageable pageable) {
+        return reviews.findAllByOrderByUpdatedAtDesc(pageable)
+                .map(review -> new PropertyReviewSummary(
+                        review.getPropertyId().toString(),
+                        review.getStatus(),
+                        review.getReviewer(),
+                        review.getDecidedAt(),
+                        review.getUpdatedAt()));
     }
 
     /**
@@ -197,5 +212,14 @@ public class PropertyVerificationService {
                         .toList(),
                 review.getNotes(),
                 review.getDecidedAt());
+    }
+
+    /** Paged queue shape for {@code /admin/property-reviews}. */
+    public record PropertyReviewSummary(
+            String propertyId,
+            String status,
+            String reviewer,
+            Instant decidedAt,
+            Instant updatedAt) {
     }
 }

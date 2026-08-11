@@ -640,8 +640,33 @@ public final class Routes {
          */
         public static final String FOR_PROPERTY = "/properties/{propId}/reviews";
 
+        /**
+         * {@code GET} public — the server-computed rating summary for one listing (D79).
+         *
+         * <p>A sibling of {@link #FOR_PROPERTY} rather than a field on it: the list is unpaged by
+         * ruling D8.6 and stays that way, so this adds the aggregate without touching the array's
+         * shape or anything reading it.
+         */
+        public static final String SUMMARY_FOR_PROPERTY = FOR_PROPERTY + "/summary";
+
         /** {@code GET} public, {@code POST} authenticated — reviews of a society, locality or owner. */
         public static final String FOR_ENTITY = "/reviews/{entityType}/{entityId}";
+
+        /**
+         * {@code GET} public — the server-computed rating summary for a society, locality or owner.
+         *
+         * <p>One route for all three rather than three bespoke ones, because nothing below this line
+         * distinguishes them: {@code ReviewTargetKey} already turns {@code (entityType, entityId)}
+         * into the single canonical {@code target_id} the table stores, and the aggregate queries
+         * take {@code target_type} as a parameter. Three routes would be three spellings of one
+         * query, and the fourth entity type would be a fourth.
+         *
+         * <p>The property summary stays on its own path ({@link #SUMMARY_FOR_PROPERTY}) for the same
+         * reason the property list does: {@code entityType} is declared
+         * {@code enum: [society, locality, owner]} in the contract, disjoint from {@code property},
+         * and only a property review carries an evidenced badge.
+         */
+        public static final String SUMMARY_FOR_ENTITY = FOR_ENTITY + "/summary";
     }
 
     /**
@@ -852,6 +877,27 @@ public final class Routes {
 
         /** Authenticated — {@code GET} the caller's orders, {@code POST} to place one. */
         public static final String ORDERS = "/me/service-orders";
+
+        /** One of the caller's own orders. Not served on its own; the two verbs below hang off it. */
+        public static final String ORDER = ORDERS + "/{id}";
+
+        /**
+         * The customer's decision on a quote (D58). Theirs alone — ops sets the price, the customer
+         * agrees to it, and {@link #ORDER_STATUS} cannot reach {@code scheduled}.
+         */
+        public static final String ORDER_ACCEPT = ORDER + "/accept";
+
+        /** The customer calling the job off, any time before work starts (D58). */
+        public static final String ORDER_CANCEL = ORDER + "/cancel";
+
+        /**
+         * Staff/admin — quote an order and drive it to completion (D58).
+         *
+         * <p>Off {@code /service-orders} rather than {@code /me/service-orders}: the desk is acting
+         * on somebody else's order, and hanging an ops verb off a {@code /me/} path would make the
+         * one place in this API where {@code /me/} does not mean "the caller's own".
+         */
+        public static final String ORDER_STATUS = "/service-orders/{id}/status";
     }
 
     /**
@@ -955,6 +1001,9 @@ public final class Routes {
 
         /** Staff/admin — the checker half of the maker-checker listing review. */
         public static final String VERIFICATION_DECISION = PROPERTY_VERIFICATION + "/decision";
+
+        /** Staff/admin — list verification case files (D91). */
+        public static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
 
         /**
          * POST is open to any signed-in user (file a report); GET is staff/admin (read the queue).

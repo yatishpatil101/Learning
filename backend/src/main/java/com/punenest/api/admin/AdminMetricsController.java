@@ -2,6 +2,7 @@ package com.punenest.api.admin;
 
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import java.time.LocalDate;
@@ -20,6 +21,13 @@ import org.springframework.web.bind.annotation.RestController;
  * overview is admin-only because what the platform earns is not needed to do that job. The same
  * split is why {@code AdminKpis.revenue30d} is null for staff — a staff-readable dashboard carrying
  * a revenue line would have quietly re-opened the door the finance endpoint closes.
+ *
+ * <p><strong>The two staff-visible reads additionally require the {@code view_dashboard} capability</strong>
+ * (tech debt D67). That is a narrowing of the role guard beside it and never a widening of it: a
+ * desk whose bundle omits the capability is refused, and no bundle can admit a caller the role check
+ * has already rejected. {@code /admin/finance} is left on the role axis alone — it is admin-only
+ * already, and the map's seeded {@code admin} bundle is {@code ["*"]}, so a capability there would
+ * be a second lock on a door with one key.
  */
 @RestController
 public class AdminMetricsController {
@@ -27,6 +35,8 @@ public class AdminMetricsController {
     private static final String STAFF_OR_ADMIN =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
     private static final String ADMIN_ONLY = "hasRole('" + Roles.ADMIN + "')";
+    private static final String SCORECARD_READ =
+            STAFF_OR_ADMIN + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD;
 
     private final AdminMetricsService service;
 
@@ -36,14 +46,14 @@ public class AdminMetricsController {
 
     /** {@code GET /admin/dashboard} (contract {@code adminDashboard}). */
     @GetMapping(Routes.Admin.DASHBOARD)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(SCORECARD_READ)
     public AdminKpis dashboard(@CurrentUser AuthPrincipal principal) {
         return service.dashboard(principal);
     }
 
     /** {@code GET /admin/analytics} (contract {@code adminAnalytics}). */
     @GetMapping(Routes.Admin.ANALYTICS)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(SCORECARD_READ)
     public List<AnalyticsPoint> analytics(
             @RequestParam String metric,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

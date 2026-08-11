@@ -10,6 +10,7 @@
     "test:mobile-small": "playwright test --project=mobile-small",
     "test:list": "playwright test --list",
     "check:coverage": "node scripts/check-coverage-citations.mjs",
+    "check:console": "node scripts/check-console-filter.mjs",
     "report": "playwright show-report"
   },
   "devDependencies": { "@playwright/test": "^1.61.1" }

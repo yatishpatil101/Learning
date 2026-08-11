@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* "Post your flatmate request" modal redesign:
    - Preferred localities & Lifestyle are now themed dropdowns (pn-dropdown), not chip rows.
@@ -16,8 +17,7 @@ async function seedUser(page) {
 }
 
 test('post modal shows dropdowns for localities/lifestyle and the new P0 selects', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await seedUser(page);
   await page.goto(`${BASE}/flatmates?post=1`);

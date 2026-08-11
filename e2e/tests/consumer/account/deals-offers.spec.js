@@ -1,5 +1,5 @@
 import { test, expect } from '../../../fixtures/base.js';
-import { ownerMobileOf } from '../../../helpers/app.js';
+import { ownerIdOf, ownerMobileOf } from '../../../helpers/app.js';
 
 /* Offers, negotiation & maker-checker deal finalization.
  *
@@ -7,18 +7,21 @@ import { ownerMobileOf } from '../../../helpers/app.js';
  * rendered on the public route /property/:id via PropertyHeader. Owner-side deal management also
  * surfaces on the /dashboard "My Listings" panel, which sits behind ProtectedRoute.
  *
- * All deal/offer/finalization state is localStorage keyed by the OWNER's mobile digits
- * (src/lib/store/deals.js): pnOffers:<owner>, puneNestDealReq:<owner>, puneNestDeals:<owner>.
+ * All deal/offer/finalization state is localStorage keyed by the OWNER's account id
+ * (src/lib/store/deals.js): pnOffers:<ownerId>, puneNestDealReq:<ownerId>, puneNestDeals:<ownerId>.
  * So a buyer's offer and the owner's inbox share the same origin store — tests seed that store
  * before boot to reach negotiation / finalize states, then assert the REAL DealPanel behaviour.
+ * The contact-request store is a separate module and is still mobile-keyed, so both constants are
+ * needed here.
  *
  * Fixtures: `PROP` is an approved RENT listing from the seed catalog (src/data/db.json) so a
- * finalize-accept also exercises the rent tenancy side-effect. `OWNER` is that listing's mobile;
- * we log in as the owner by overriding the seeded owner's mobile so isOwner === true.
+ * finalize-accept also exercises the rent tenancy side-effect. `OWNER` is that listing's account
+ * id; we log in as the owner by overriding the seeded owner's mobile so isOwner === true.
  */
 
-const PROP = 'P5000';            // approved rent listing in the seed DB
-const OWNER = ownerMobileOf('P5000');      // read from properties.json, never copied
+const PROP = 'P5000';                          // approved rent listing in the seed DB
+const OWNER = ownerIdOf('P5000');              // read from properties.json, never copied
+const OWNER_MOBILE = ownerMobileOf('P5000');   // ditto — for the mobile-keyed contact store
 const BUYER = '9876500001';      // default seeded buyer mobile (helpers/seed.js)
 
 // The global cookie-consent banner is role="dialog"; seed consent so it never overlays the
@@ -32,14 +35,14 @@ async function seedConsent(page) {
   });
 }
 
-// Seed the owner-keyed offer store (pnOffers:<owner>) before the app boots.
+// Seed the owner-keyed offer store (pnOffers:<ownerId>) before the app boots.
 async function seedOffers(page, owner, offers) {
   await page.addInitScript(({ owner, offers }) => {
     localStorage.setItem('pnOffers:' + owner, JSON.stringify(offers));
   }, { owner, offers });
 }
 
-// Seed the owner-keyed finalize-request store (puneNestDealReq:<owner>).
+// Seed the owner-keyed finalize-request store (puneNestDealReq:<ownerId>).
 async function seedFinalizeReqs(page, owner, reqs) {
   await page.addInitScript(({ owner, reqs }) => {
     localStorage.setItem('puneNestDealReq:' + owner, JSON.stringify(reqs));
@@ -68,7 +71,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
 
   test('empty state: an owner with no offers sees the "no offers yet" prompt', async ({ page, login }) => {
     await seedConsent(page);
-    await login.asOwner({ mobile: OWNER });
+    await login.asOwner({ mobile: OWNER_MOBILE });
     await page.goto(`/property/${PROP}`);
 
     // Owner branch of renderOffers with an empty list.
@@ -115,7 +118,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await seedOffers(page, OWNER, [
       { id: 'of1', propId: PROP, buyerName: 'Aarti Shah', buyerMobile: '9812300000', amount: 38000, status: 'pending', from: 'buyer', at: Date.now(), history: [] },
     ]);
-    await login.asOwner({ mobile: OWNER });
+    await login.asOwner({ mobile: OWNER_MOBILE });
     // The owner "counter" affordance is a window.prompt; answer it before clicking.
     page.once('dialog', (d) => d.accept('42000'));
     await page.goto(`/property/${PROP}`);
@@ -132,7 +135,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await seedOffers(page, OWNER, [
       { id: 'of2', propId: PROP, buyerName: 'Aarti Shah', buyerMobile: '9812300000', amount: 41000, status: 'pending', from: 'buyer', at: Date.now(), history: [] },
     ]);
-    await login.asOwner({ mobile: OWNER });
+    await login.asOwner({ mobile: OWNER_MOBILE });
     await page.goto(`/property/${PROP}`);
 
     await expect(page.getByRole('heading', { name: 'Offers (1)' })).toBeVisible();
@@ -168,7 +171,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
 
   test('a buyer sends a finalize request (maker-checker: buyer is the maker)', async ({ page, login }) => {
     await seedConsent(page);
-    await seedApprovedContact(page, OWNER, BUYER, PROP);
+    await seedApprovedContact(page, OWNER_MOBILE, BUYER, PROP);
     await login.asBuyer();
     await page.goto(`/property/${PROP}`);
 
@@ -185,7 +188,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await seedConsent(page);
     // Contact is approved — a buyer only reaches a declined row by first sending a request, which
     // requires an approved contact; the panel also only loads the finalize status once approved.
-    await seedApprovedContact(page, OWNER, BUYER, PROP);
+    await seedApprovedContact(page, OWNER_MOBILE, BUYER, PROP);
     // A turned-down request for this buyer. Before D111 the status read was pending-only, so a
     // declined row read the same as never having asked and the refusal copy never rendered.
     await seedFinalizeReqs(page, OWNER, [
@@ -206,7 +209,7 @@ test.describe('Deals — offers, negotiation & finalization', () => {
     await seedFinalizeReqs(page, OWNER, [
       { id: 'f1', propId: PROP, deal: 'rent', buyerName: 'Aarti Shah', buyerMobile: '9812300000', status: 'pending', at: Date.now() },
     ]);
-    await login.asOwner({ mobile: OWNER });
+    await login.asOwner({ mobile: OWNER_MOBILE });
     await page.goto(`/property/${PROP}`);
 
     // Owner finalize inbox lists the maker's request.

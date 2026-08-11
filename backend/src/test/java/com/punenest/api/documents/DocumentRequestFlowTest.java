@@ -14,10 +14,12 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.documents.request.DocumentRequestRepository;
+import com.punenest.api.documents.request.ShareTokens;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -362,7 +364,7 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---------------- GET /documents/shared ----------------
+    // ---------------- GET /documents/shared (X-Share-Token) ----------------
 
     @Test
     void sharedRead_isAnonymousAndReturnsOnlyTheGrantedCategories() throws Exception {
@@ -375,7 +377,7 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
 
         // No Authorization header: the lawyer or banker the link is forwarded to has no account.
-        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].category").value("Sale Deed"));
@@ -383,10 +385,11 @@ class DocumentRequestFlowTest extends AbstractApiTest {
 
     @Test
     void sharedRead_tellsTheBrowserNeverToForwardThisUrl() throws Exception {
-        // D42: the token is in the query string, so the URL is a credential. `no-referrer` is what
-        // stops a browser that has this URL open from putting it in a Referer header on the way to
-        // anywhere else. Asserted on this route because it is the one that would be harmed, and it
-        // is set chain-wide so a future header change here has to notice this test.
+        // D42: `no-referrer` is what stops a browser that has a PuneNest URL open from putting it in
+        // a Referer header on the way to anywhere else. It matters less now that the credential is a
+        // header rather than part of the URL, and it is kept precisely because that is a claim about
+        // one route's parameters rather than about the whole chain -- this is the belt behind the
+        // braces, asserted on the route it exists for.
         User owner = user("9820002050", "owner");
         User buyer = user("9820002051", "buyer");
         Property p = listing(owner, "Referrer flat");
@@ -394,9 +397,48 @@ class DocumentRequestFlowTest extends AbstractApiTest {
 
         String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
 
-        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Referrer-Policy", "no-referrer"));
+    }
+
+    @Test
+    void sharedRead_isNeverStoredByAnySharedCache() throws Exception {
+        // The one thing a credentialed GET risks that a POST would not: an intermediary caching the
+        // response against the URL alone -- which, now that the token is a header, is identical for
+        // every buyer -- and serving one person's title deeds to the next caller. `no-store` is what
+        // forbids that, and it is a chain default, which is exactly the kind of thing that gets
+        // reconfigured by someone who does not know this route depends on it.
+        User owner = user("9820002052", "owner");
+        User buyer = user("9820002053", "buyer");
+        Property p = listing(owner, "Cacheable flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL,
+                        Matchers.containsString("no-store")));
+    }
+
+    @Test
+    void sharedRead_staysUsableForTheWholeGrant_notJustTheFirstOpen() throws Exception {
+        // The grant is deliberately reusable until it expires: the buyer forwards the link to their
+        // lawyer, who opens it more than once. Single-use would be a different product decision, and
+        // moving the credential from the query string to a header must not have quietly made one --
+        // a header is easier to drop on a retry than a URL is, so this is worth pinning.
+        User owner = user("9820002056", "owner");
+        User buyer = user("9820002057", "buyer");
+        Property p = listing(owner, "Reused flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+
+        for (int open = 0; open < 3; open++) {
+            mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1));
+        }
     }
 
     @Test
@@ -409,7 +451,7 @@ class DocumentRequestFlowTest extends AbstractApiTest {
 
         String token = grantedToken(owner, buyer, p, "[]");
 
-        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
     }
@@ -425,7 +467,7 @@ class DocumentRequestFlowTest extends AbstractApiTest {
 
         String token = grantedToken(owner, buyer, shared, "[\"Sale Deed\"]");
 
-        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].propertyId").value(shared.getId().toString()));
     }
@@ -442,7 +484,8 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"declined\"}"));
 
-        String unknown = mvc.perform(get(Routes.Documents.SHARED).param("token", "made-up-token"))
+        String unknown = mvc.perform(
+                        get(Routes.Documents.SHARED).header(ShareTokens.HEADER, "made-up-token"))
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
@@ -464,14 +507,47 @@ class DocumentRequestFlowTest extends AbstractApiTest {
         row.grant(token, Instant.now().minusSeconds(60));
         requests.saveAndFlush(row);
 
-        mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void sharedRead_withoutATokenIsARejectedRequest_notAnEmptyVault() throws Exception {
-        mvc.perform(get(Routes.Documents.SHARED))
-                .andExpect(status().is4xxClientError());
+    void sharedRead_ignoresATokenOfferedInTheQueryString() throws Exception {
+        // The whole point of D42. The query parameter is gone, not deprecated: a link that carries
+        // the credential in its URL is the vulnerability, so a live-but-legacy `?token=` path would
+        // have preserved exactly the thing being removed. A real, currently valid token presented
+        // the old way must buy nothing -- and must be indistinguishable from a wrong one.
+        User owner = user("9820002054", "owner");
+        User buyer = user("9820002055", "buyer");
+        Property p = listing(owner, "Legacy link flat");
+        upload(owner, p, "Sale Deed", "deed.pdf");
+        String token = grantedToken(owner, buyer, p, "[\"Sale Deed\"]");
+
+        // Proof the token itself is live, so the 401 below is about *where* it was presented.
+        mvc.perform(get(Routes.Documents.SHARED).header(ShareTokens.HEADER, token))
+                .andExpect(status().isOk());
+
+        String body = mvc.perform(get(Routes.Documents.SHARED).param("token", token))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).contains("This share link is not valid");
+    }
+
+    @Test
+    void sharedRead_answersAMissingOrBlankHeaderWithTheSameOpaque401() throws Exception {
+        // A stale `?token=` link now arrives as "no header at all", so absent must look exactly like
+        // wrong. Letting Spring reject the missing header with its own 400 would have separated the
+        // two -- the first bit of the oracle this endpoint refuses to be -- and a blank header is the
+        // same request with an empty string, which must not reach the repository lookup either.
+        for (var request : java.util.List.of(
+                get(Routes.Documents.SHARED),
+                get(Routes.Documents.SHARED).header(ShareTokens.HEADER, ""),
+                get(Routes.Documents.SHARED).header(ShareTokens.HEADER, "   "))) {
+            String body = mvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(body).contains("This share link is not valid");
+        }
     }
 
     // ---------------- notification on grant (tech-debt D92) ----------------

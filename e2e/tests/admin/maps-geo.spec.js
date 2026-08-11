@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Admin control for the Google Places geo policy (Settings ▸ Maps).
    Verifies the city-limit toggle and the locality/society blacklist persist to
@@ -89,8 +90,7 @@ test.describe('Maps & Places admin control', () => {
     // and a hint tells the operator how to enable the outline. This asserts that fail-soft
     // path (the live-boundary render itself needs a configured Map ID + Google boundary
     // data, which isn't available in test).
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(String(e)));
+    const errors = trackErrors(page);
 
     await loginAsAdmin(page);
     await page.goto(`${BASE}/admin/settings?tab=maps`);

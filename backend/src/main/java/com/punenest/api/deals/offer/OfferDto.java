@@ -35,11 +35,20 @@ public record OfferDto(
     /**
      * A platform user acting as a participant on the offer (contract {@code Party}).
      *
-     * @param id     user id
-     * @param mobile contact-gated; masked ({@code 98XXXXX210}) until the owner has acted
-     * @param role   {@code buyer} or {@code owner}
+     * <p><strong>{@code verified} is on this object because it cannot be derived from
+     * {@code mobile}</strong> (tech-debt D114). The badge used to be resolved client-side by
+     * looking the party's number up against the verified list. That works only while the number is
+     * real: {@code mobile} here is contact-gated and normally arrives as {@code 98XXXXX210}, and a
+     * mask is not reversible, so the lookup silently answered "not verified" for everyone. The
+     * server holds both the identity and the badge, so it answers the question directly and the
+     * masked digits are never asked to stand in for an identity.
+     *
+     * @param id       user id
+     * @param mobile   contact-gated; masked ({@code 98XXXXX210}) until the owner has acted
+     * @param role     {@code buyer} or {@code owner}
+     * @param verified whether this party carries the Verified Tenant badge
      */
-    public record Party(String id, String name, String mobile, String role) {
+    public record Party(String id, String name, String mobile, String role, boolean verified) {
     }
 
     /**

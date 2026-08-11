@@ -22,7 +22,8 @@
   flex: none;
 }
 
-.pn-mp-media img {
+.pn-mp-media img,
+.pn-mp-media .img-empty {
   width: 100%;
   height: 100%;
   object-fit: cover;

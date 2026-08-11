@@ -1,4 +1,5 @@
 import { test, expect } from '../../../fixtures/base.js';
+import { appReady } from '../../../helpers/app.js';
 
 // Property comparison (/compare).
 //
@@ -37,9 +38,12 @@ async function seedCompare(page, ids) {
 // Explicitly turn the compareProperties flag ON so the route is reachable regardless
 // of seed state — mirrors the feature-flags spec pattern.
 async function enableCompareFlag(page) {
+  // The only caller reaches this straight off a `goto`, which resolves before the seed is
+  // written (D129); the silent `return` below then left the flag at its default.
+  await appReady(page);
   await page.evaluate(() => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    if (!db || !db.settings || !db.settings.flags) return;
+    if (!db || !db.settings || !db.settings.flags) throw new Error('mock store has no settings.flags after appReady()');
     db.settings.flags.compareProperties = true;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     window.dispatchEvent(new CustomEvent('punenest-settings-change'));

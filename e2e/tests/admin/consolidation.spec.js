@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -131,8 +132,7 @@ test('Settings Audit Log shows Staff Activity cross-link', async ({ page }) => {
 // ─── No page errors ───
 
 test('admin dashboard loads without errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin`);
   await page.waitForTimeout(1000);
@@ -140,8 +140,7 @@ test('admin dashboard loads without errors', async ({ page }) => {
 });
 
 test('admin services page loads without errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/services`);
   await page.waitForTimeout(1000);
@@ -150,8 +149,7 @@ test('admin services page loads without errors', async ({ page }) => {
 });
 
 test('admin analytics page loads without errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/analytics`);
   await page.waitForTimeout(1000);
@@ -161,8 +159,7 @@ test('admin analytics page loads without errors', async ({ page }) => {
 // ─── Enquiries module ───
 
 test('admin enquiries page loads with KPIs and tabs', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/enquiries`);
   await expect(page.getByRole('heading', { name: 'Enquiries & Deals' })).toBeVisible({ timeout: 5000 });
@@ -198,8 +195,7 @@ test('enquiries Visits tab shows scheduled visits', async ({ page }) => {
 // ─── Flatmates module ───
 
 test('admin flatmates page loads with KPIs and seeded data', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   // Ensure flatmates seed data exists in localStorage DB
   await page.goto(`${BASE}/admin/flatmates`);
@@ -234,8 +230,10 @@ test('admin flatmates page loads with KPIs and seeded data', async ({ page }) =>
 test('flatmates Groups tab shows groups with moderation buttons', async ({ page }) => {
   await loginAsAdmin(page);
   await page.evaluate(() => {
+    // Read-modify-write — falling back to `{}` writes an empty DB back over the catalogue.
     const raw = localStorage.getItem('puneNestDB_v5');
-    const db = raw ? JSON.parse(raw) : {};
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     db.flatmateGroups = [{ id: 'SG1', title: 'TestGroup Baner 2BHK', locality: 'Baner', policy: 'women', rent: 34000, seatsTotal: 3, members: [{ name: 'Riya' }, { name: 'Sneha' }], seed: true }];
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
   });

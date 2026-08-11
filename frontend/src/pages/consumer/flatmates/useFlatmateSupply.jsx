@@ -3,14 +3,14 @@ import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { isSeekerVerified, setSeekerVerified, hasInterest as hasInterestDB, addInterest as addInterestDB, evaluateHostEligibility, enqueueFlatmateReview, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, pushNotification, pushPendingRequest, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
 
 // Supply: posting / group / room / verify / aadhaar / consent state and handlers.
 // Shared data mutations go through `refresh` (reloads requests+rooms+groups from
 // the store) so this hook never owns the source-of-truth collections.
-export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, interests, setInterests, ownsGroup, ownsRoom, myPost }) {
+export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost }) {
   const [params] = useSearchParams();
   const [postOpen, setPostOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -382,21 +382,59 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     await refresh();
     toast(t('flatmates.groupRemoved'));
   };
-  const onJoin = (g) => {
+  /* Joining a group. Goes through the seam (D181).
+
+     The client-side "is it full?" pre-check is gone on purpose. It read the list the board was
+     rendering, which is a snapshot — the seat this person is reaching for may have gone a minute
+     ago, and the card would still offer the button. Only the provider knows, and it answers
+     `group_full`: a DIFFERENT 409 from `already_interested`, on the same door, needing the opposite
+     tone. `already_interested` is informational (the host has the ask); `group_full` is a refusal.
+     Neither is `common.somethingWentWrong`.
+
+     The card still hides the button on a group it knows to be full — that is a legitimate render
+     gate on the data it has, and it makes `group_full` the race it actually is. */
+  const onJoin = async (g) => {
     if (!user) { navigate('/signin?next=' + encodeURIComponent(window.location.pathname)); return; }
     if (ownsGroup(g)) { toast(t('flatmates.alreadyMember')); return; }
-    if (seatsLeft(g) <= 0) { toast(t('flatmates.groupAlreadyFull', { title: g.title }), 'error'); return; }
     const key = 'group-' + g.id;
-    if (interests[key] || hasInterestDB(key)) { toast(t('flatmates.alreadyAskedJoin', { title: g.title })); return; }
     const open = g.policy === 'any';
-    addInterestDB(key);
+    const opener = open
+      ? "Hi! I'd love to join your flatmate group. When can I move in?"
+      : "Hi! I'd like to request a spot in your flatmate group — is it still open?";
+    // Optimistic, and it doubles as the re-entrancy guard: the card re-renders into its joined
+    // state before the request settles, so a second tap has no button to land on.
     setInterests((m) => ({ ...m, [key]: true }));
-
-    addFlatmateRequest(g.ownerMobile, { kind: 'group', action: open ? 'join' : 'request', targetId: key, targetTitle: g.title, locality: g.locality || '', requesterName: user.name || 'Someone', requesterMobile: user.mobile || '' });
+    try {
+      await flatmateService.joinGroup(g.id, { share: 'solo', message: opener });
+    } catch (err) {
+      if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
+        rememberAsk(user.mobile, key);
+        /* Names only what the host holds, never a thread to open: the Messages entry is written on
+           the success path into this browser's localStorage, so the device that receives this 409
+           may have nothing to show. Same reasoning as the seeker branch in useFlatmates.jsx;
+           revisit when Messages reads a server inbox (D183). */
+        toast(t('flatmates.joinRequestAlreadyRecorded', { title: g.title }));
+        return;
+      }
+      setInterests((m) => { const n = { ...m }; delete n[key]; return n; });
+      if (err?.code === flatmateService.CONFLICT_GROUP_FULL) {
+        // This 409 is the only authoritative word that the board's snapshot is stale — it is the
+        // reason the client-side seat pre-check was removed. Rolling back alone would re-render the
+        // card as "1 seat left" with a live Join button, so the user's only move is to tap again and
+        // be refused again, forever. Refresh first, so the card comes back as Full.
+        await refresh();
+        toast(t('flatmates.groupAlreadyFull', { title: g.title }), 'error');
+        return;
+      }
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    rememberAsk(user.mobile, key);
+    await refresh();
 
     pushNotification({ type: 'share', title: open ? 'You joined ' + g.title : 'Join request sent', desc: (user.name || 'A seeker') + (open ? ' joined the flatmate group ' : ' asked to join the flatmate group ') + g.title + '.', link: '/messages' });
 
-    pushPendingRequest({ propertyId: key, property: { title: g.title, price: inr(perHead(g)) + '/mo', loc: (g.locality || 'Pune') + ', Pune', img: FLATMATE_GROUP_IMG }, party: { name: g.title, avatar: (g.title || 'GR').slice(0, 2).toUpperCase() }, firstMessage: open ? "Hi! I'd love to join your flatmate group. When can I move in?" : "Hi! I'd like to request a spot in your flatmate group — is it still open?" });
+    pushPendingRequest({ propertyId: key, property: { title: g.title, price: inr(perHead(g)) + '/mo', loc: (g.locality || 'Pune') + ', Pune', img: FLATMATE_GROUP_IMG }, party: { name: g.title, avatar: (g.title || 'GR').slice(0, 2).toUpperCase() }, firstMessage: opener });
 
     toast(open ? t('flatmates.joinedToast', { title: g.title }) : t('flatmates.requestJoinToast', { title: g.title }));
   };

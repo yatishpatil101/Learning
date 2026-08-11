@@ -81,6 +81,7 @@ public class SavedSearch extends BaseEntity {
     private String channel = "whatsapp";
 
     @Column(name = "new_count", nullable = false)
+    @Setter
     private int newCount = 0;
 
     @UpdateTimestamp

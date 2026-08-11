@@ -37,7 +37,13 @@ public record FlatmateGroupDto(
         String ownerMobile,
         Instant createdAt) {
 
-    /** The contract's inline member object. No user id: a member is a person, not necessarily a user. */
+    /**
+     * The contract's inline member object. No user id: a member is a person, not necessarily a user.
+     *
+     * <p>{@link #name} and {@link #initials} are null when this member has not given a name — an OTP
+     * account carries none until its profile is filled in (D118). They are then simply absent from
+     * the response; a client renders its own placeholder rather than being handed an invented one.
+     */
     public record Member(String name, String initials, boolean verified) {
     }
 }

@@ -73,6 +73,32 @@ public record PropertyResponse(
         boolean featured,
         String flagReason,
         /**
+         * Is a stays-live moderation re-check queued on this listing? (Q14)
+         *
+         * <p>True when the owner has edited {@code price}, {@code furnishing} or {@code possession}
+         * on an approved listing: the edit is waiting for a moderator, but — unlike the identity
+         * fields, which revert {@code status} to {@code pending} — the listing is still approved and
+         * still in search. Without this field the two outcomes are indistinguishable on the wire,
+         * because the only thing that changes for the second is a column nobody can read.
+         */
+        boolean recheckPending,
+        /** Which fields raised the pending re-check, e.g. {@code "price, furnishing"} (Q14). */
+        String recheckReason,
+        /**
+         * When the re-check was first queued — the queue's <em>age</em>, and the only thing that
+         * makes the stays-live outcome auditable (Q14).
+         *
+         * <p>Emitted because {@code recheckPending} alone cannot answer the question a re-check
+         * queue exists to answer. A listing that stays live and earning while it waits is only a
+         * rebalanced control if somebody drains the queue; a boolean says a re-check is owed but
+         * not that it has been owed for eleven days, so an undrained queue looks exactly like an
+         * empty one. {@link Property#requestRecheck} deliberately does not refresh this on later
+         * edits, so the age is honest and an owner cannot edit their way back to the front.
+         *
+         * <p>Absent (NON_NULL) when nothing is queued, matching {@code recheckReason}.
+         */
+        Instant recheckRequestedAt,
+        /**
          * The soft-delete flag. Always {@code false} on the public detail read — {@code getPublic}
          * filters archived rows out — and meaningful only on the two status-complete reads,
          * {@code GET /me/listings} and {@code GET /admin/properties}.

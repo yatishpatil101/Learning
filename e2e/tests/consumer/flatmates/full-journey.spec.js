@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9811122233';
@@ -14,8 +15,7 @@ async function seed(page) {
 }
 
 test('post a flatmate via UI, then see it in dashboard My Listings', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await seed(page);
   await page.goto(`${BASE}/list-property`);

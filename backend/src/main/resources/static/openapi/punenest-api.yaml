@@ -501,7 +501,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Listings]
-      summary: Update listing (foundation-field changes revert status to pending)
+      summary: Update listing (foundation-field changes cost a re-review)
+      description: >-
+        Partial update; only the fields present are applied. Every **foundation** field — the set a
+        buyer can search on — earns a moderator's attention when its value actually changes, but not
+        the same amount of it (Q14).
+
+
+        Changing `locality`, `propertyType`, `bhk` or `deal` changes what the listing fundamentally
+        *is*, so leaving it in search would return a wrong answer (a 2BHK under 3BHK, a rental under
+        sale). The response comes back with `status: pending` and the listing is off search until a
+        moderator re-approves it.
+
+
+        Changing `price`, `furnishing` or `possession` changes an attribute of a listing that is
+        still the same property, so the worst case is a briefly out-of-date value. The response
+        keeps `status: approved`, the listing stays in search, and `recheckPending` comes back true
+        with `recheckReason` naming the fields. A PATCH that does both is treated as the first: the
+        full re-moderation covers the attribute change too, so no separate re-check is raised.
+
+
+        Every other field (description, photos, deposit, address, …) publishes immediately and
+        raises nothing.
       operationId: updateListing
       requestBody:
         required: true
@@ -1373,6 +1394,78 @@ paths:
       responses:
         '200': { description: Decided }
         '403': { $ref: '#/components/responses/Forbidden' }
+  # D91: GET /admin/property-reviews ADDED to the contract (D144-class defect — it shipped served
+  # but undeclared, so no reviewer ever saw its `x-roles` line get written).
+  /admin/property-reviews:
+    get:
+      tags: [Moderation]
+      summary: Listing verification queue
+      operationId: listPropertyReviews
+      description: >
+        Every listing verification case file, most recently updated first, so ops can work the
+        thread that has been waiting longest. The four operations above all address a case by
+        property id and none of them can produce one: `getPropertyVerification` is
+        participant-scoped and answers 404 to anyone who is neither the owner nor staff, so without
+        this the only way into a case nobody had messaged about was the database. Staff and admin
+        only — unlike the thread itself there is no participant here to widen the guard for, since
+        the queue spans every owner's listings at once.
+      x-roles: [staff, admin]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: Paged case files, most recently updated first
+          content:
+            application/json:
+              # Deliberately NOT `PageEnvelope`, and deliberately spelled out inline rather than
+              # given a reusable name. This is the only paged handler in the tree that returns a
+              # Spring Data `Page` directly instead of mapping it through `PageResponse`, so what
+              # reaches the wire is Spring's own envelope: `number` where all twenty-odd other
+              # lists say `page`, `sort` as an object rather than the `field,dir` string, and six
+              # further fields no caller asked for. Recorded as it actually serialises, because a
+              # contract describing the envelope we wish we had is worse than one that admits the
+              # exception — Spring Data itself logs, on every call, that this shape carries no
+              # stability guarantee. The fix is to change the handler to `PageResponse.of(...)`;
+              # that is a breaking change to a live ops screen and belongs in its own slice, and
+              # leaving no `$ref` here is what stops the shape being adopted by anything else in
+              # the meantime.
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items: { $ref: '#/components/schemas/PropertyReviewSummary' }
+                  number: { type: integer, description: 'Zero-based page index — `page` everywhere else.', example: 0 }
+                  size: { type: integer, example: 20 }
+                  numberOfElements: { type: integer, description: 'Items on this page.', example: 1 }
+                  totalElements: { type: integer, format: int64, example: 137 }
+                  totalPages: { type: integer, example: 7 }
+                  first: { type: boolean }
+                  last: { type: boolean }
+                  empty: { type: boolean }
+                  sort:
+                    type: object
+                    properties:
+                      empty: { type: boolean }
+                      sorted: { type: boolean }
+                      unsorted: { type: boolean }
+                  pageable:
+                    type: object
+                    properties:
+                      offset: { type: integer, format: int64 }
+                      pageNumber: { type: integer }
+                      pageSize: { type: integer }
+                      paged: { type: boolean }
+                      unpaged: { type: boolean }
+                      sort:
+                        type: object
+                        properties:
+                          empty: { type: boolean }
+                          sorted: { type: boolean }
+                          unsorted: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
   # S30 (slice 9): PATCH /reports/{id} ADDED.
   #
   # The contract shipped an abuse queue that could be written to (POST) and read (GET) but never
@@ -1452,6 +1545,19 @@ paths:
             Tri-state. Omit for both live and archived listings; `true` for archived only; `false`
             for live only. A separate axis from `status` — archiving preserves the moderation state
             the listing was archived from.
+          schema: { type: boolean }
+        - name: recheck
+          in: query
+          description: >
+            Tri-state. `true` is the stays-live re-check queue (Q14): listings whose owner edited
+            `price`, `furnishing` or `possession`, which are waiting for a moderator *while still
+            approved and still in search*. `false` excludes them; omit for both. A third axis, for
+            the same reason `archived` is one — a re-check does not move `status`, so
+            `status=pending` cannot surface it, and `flagged` is not a substitute because flagging
+            takes the listing off search, which is exactly the cost this outcome exists to avoid.
+            `recheckReason` on each item names the fields to look at. Not sortable by queue age:
+            `sort` is clamped to the catalogue's shared whitelist (createdAt/price/area/bhk), and
+            widening that would expose the column to the public search too.
           schema: { type: boolean }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -1537,6 +1643,20 @@ paths:
           in: query
           description: Filter to one triage state. Omitted returns the whole queue.
           schema: { type: string, enum: [open, reviewing, actioned, dismissed] }
+        # D68: served rather than left to the client. The admin queue used to read the whole table
+        # unpaged and filter in the browser, which works until the queue outgrows one page - and
+        # then every filter and every tab count silently starts describing page one while still
+        # looking like a total.
+        - name: reason
+          in: query
+          description: >
+            Filter to one complaint code. Validated against the union of all four target
+            vocabularies, because a caller may filter by reason without also naming a target type.
+          schema: { type: string }
+        - name: targetType
+          in: query
+          description: Filter to one reportable kind. Omitted returns every kind.
+          schema: { type: string, enum: [property, user, review, post] }
       responses:
         '200':
           description: Paged reports
@@ -1566,6 +1686,113 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Report' }
+  /me/erasure:
+    post:
+      tags: [Account]
+      summary: Ask to be erased (DPDP right to erasure)
+      description: >
+        D177. Files a request under DPDP Act 2023 s.12(3). Nothing is erased here - erasure is the
+        one destructive act on this platform that the person it was done to cannot appeal, because
+        afterwards there is no account to appeal from, so a tapped button or a stolen session must
+        not reach it in one hop. An admin decides the request; see
+        `PATCH /admin/erasure-requests/{id}`.
+
+
+        Deliberately **no x-roles**: the right is the subject's, and gating it behind ops would
+        turn a statutory entitlement into a favour. The subject is taken from the principal and
+        there is no body field naming a target - an erasure endpoint that accepted one would be a
+        single-request account-deletion attack on any user whose id leaked.
+      operationId: requestErasure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ErasureCreate' }
+      responses:
+        '201':
+          description: Filed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErasureRequest' }
+        '409':
+          description: A request is already awaiting a decision
+    get:
+      tags: [Account]
+      summary: My erasure requests
+      description: >
+        Pending and rejected requests only - not a filter, but a consequence: a completed request
+        no longer carries a subject id, so there is nothing left to scope the query by.
+      operationId: myErasureRequests
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged erasure requests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ErasureRequest' }
+  /admin/erasure-requests:
+    get:
+      tags: [Admin]
+      summary: Erasure request queue (admin)
+      operationId: listErasureRequests
+      # Admin, not staff - one rung above every other moderation power here. Listing takedowns and
+      # user suspensions are reversible; an executed erasure is not, by anybody.
+      x-roles: [admin]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, completed, rejected] }
+      responses:
+        '200':
+          description: Paged erasure requests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/ErasureRequest' }
+  /admin/erasure-requests/{id}:
+    patch:
+      tags: [Admin]
+      summary: Carry out or refuse an erasure request (admin)
+      description: >
+        `execute` pseudonymises the identity root and sweeps the tables that duplicate identity
+        outside it, in one transaction, and records what was removed and what was kept.
+        `reject` refuses with a required reason - DPDP s.8(7) permits retention where another law
+        requires it, so a subject with a live registered rent agreement or an unsettled payment is
+        a case where the platform must say no and say why. Both are terminal.
+      operationId: decideErasureRequest
+      x-roles: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ErasureDecision' }
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErasureRequest' }
+        '409':
+          description: Already decided
   /admin/flatmate-reviews:
     get:
       tags: [Moderation]
@@ -2666,20 +2893,35 @@ paths:
       tags: [Documents]
       summary: View shared documents via link token
       description: |
-        Public but token-scoped. `token` IS the authorisation — there is no session, and the link is
-        meant to be forwarded to a lawyer or a bank officer who has no PuneNest account.
+        Public but token-scoped. The `X-Share-Token` header IS the authorisation — there is no
+        session, and the link is meant to be forwarded to a lawyer or a bank officer who has no
+        PuneNest account.
 
         Treat it as a bearer credential: whoever holds the string can read the owner's title deeds
         until the grant expires (7 days from the grant). It must never be written to an access log,
-        an error report or an analytics event; server-side, the container access-log pattern is
-        pinned to exclude query strings and responses carry `Referrer-Policy: no-referrer` (D42).
-        Every failure — unknown, declined, expired — is the same 401, deliberately, so the endpoint
-        cannot be used as an oracle for which tokens were ever real.
+        an error report or an analytics event.
+
+        **The token is a header, never a query parameter (D42).** It used to be `?token=…`, which
+        made every share link itself a bearer credential — copied into browser history and
+        bookmarks, written to any proxy or CDN access log, and forwarded verbatim when the recipient
+        pasted it into a chat. The query parameter has been removed outright rather than deprecated:
+        no client had ever built a link carrying one, so there was no compatibility window, and a
+        still-live bearer-in-URL path is the vulnerability rather than a migration aid. A stale
+        `?token=…` URL fails closed with the same 401 as any other bad credential.
+
+        The intended caller is the web client's `/shared-documents` route, which carries the token
+        in the URL **fragment** and puts it on this header. A fragment is never transmitted to a
+        server, so it cannot appear in an access log or in `Referer`.
+
+        Server-side the older defences still stand behind it: the container access-log pattern is
+        pinned to exclude query strings and responses carry `Referrer-Policy: no-referrer`.
+        Every failure — missing, unknown, declined, expired — is the same 401, deliberately, so the
+        endpoint cannot be used as an oracle for which tokens were ever real.
       security: []
       operationId: getSharedDocuments
       parameters:
-        - name: token
-          in: query
+        - name: X-Share-Token
+          in: header
           required: true
           schema: { type: string }
           description: Bearer credential for one grant. Do not log, store or forward.
@@ -2934,6 +3176,13 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/ServiceRequest' }
+        # D67. Documented here and not on the role-guarded operations because this is the only route
+        # whose refusals are new: it carries no `x-roles`, so before the permission map was wired
+        # there was no way for an authenticated caller to be refused it at all. A staff or admin
+        # caller whose bundle in `AdminSettings.permissions` omits `view_service_requests` is refused
+        # the queue; a customer reading their own requests is never affected, because the capability
+        # only governs the branch the role selects.
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Services & Support]
       summary: Create service request
@@ -3411,6 +3660,68 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServiceOrder' }
+  # D58. The order lifecycle, which shipped with no operation at all: status and amount could only
+  # be changed by hand-written SQL. Split across two paths because it is driven from two sides --
+  # ops quotes and works the job, the customer accepts the price. `scheduled` is deliberately absent
+  # from ServiceOrderStatusUpdate: it means the customer said yes, so ops cannot set it and accept
+  # its own quote.
+  /service-orders/{id}/status:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    patch:
+      tags: [Billing & Growth]
+      summary: Quote or advance a service order (staff)
+      operationId: updateServiceOrderStatus
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceOrderStatusUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        # The order is not in a state this move is legal from -- resending will not help.
+        '409': { $ref: '#/components/responses/Conflict' }
+        # `amount` missing on a quote, or sent with any other status.
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/service-orders/{id}/accept:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Accept the quote on my service order
+      operationId: acceptServiceOrder
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        # A staff caller. Ops sets the price and may not also agree to it.
+        '403': { $ref: '#/components/responses/Forbidden' }
+        # Somebody else's order is invisible, never forbidden.
+        '404': { $ref: '#/components/responses/NotFound' }
+        # The order has not been quoted yet, or has already moved on.
+        '409': { $ref: '#/components/responses/Conflict' }
+  /me/service-orders/{id}/cancel:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Billing & Growth]
+      summary: Cancel my service order
+      operationId: cancelServiceOrder
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceOrder' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        # Work has started, or the order is already closed.
+        '409': { $ref: '#/components/responses/Conflict' }
   /me/referrals:
     get:
       tags: [Billing & Growth]
@@ -3639,6 +3950,34 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Review' }
+  /properties/{propId}/reviews/summary:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    get:
+      tags: [Engagement]
+      summary: Rating summary for a property
+      operationId: getReviewSummary
+      security: []
+      # D79: `listReviews` above is unpaged, and the reason it is allowed to be (D8.6) is that the
+      # property page derives the star average, the 1-5 distribution and the per-aspect averages
+      # from the whole array. That bound is real -- only someone with a completed visit or a
+      # tenancy may review a listing, and the UNIQUE index allows each of them one -- but it makes
+      # three displayed numbers depend on the list never being paged. Page it for any reason and
+      # the page would go on rendering them, now silently describing page one.
+      #
+      # So the summary is served separately and computed in SQL. Purely additive: `listReviews`
+      # keeps its exact response shape and stays unpaged, no client has to change, and paging that
+      # list later becomes a decision instead of a regression.
+      description: >
+        Aggregate ratings for one listing, computed by the database over every published review --
+        not over a page, and not by reducing the list client-side. Public for the same reason the
+        list is: this is what an anonymous visitor is weighing up.
+      responses:
+        '200':
+          description: Rating summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /reviews/{entityType}/{entityId}:
     parameters:
       - { name: entityType, in: path, required: true, schema: { type: string, enum: [society, locality, owner] } }
@@ -3684,6 +4023,38 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Review' }
+  /reviews/{entityType}/{entityId}/summary:
+    parameters:
+      - { name: entityType, in: path, required: true, schema: { type: string, enum: [society, locality, owner] } }
+      - { name: entityId, in: path, required: true, schema: { type: string }, description: Slug or id of the target entity }
+    get:
+      tags: [Engagement]
+      summary: Rating summary for a society / locality / owner
+      operationId: getEntityReviewSummary
+      security: []
+      # The counterpart of `getReviewSummary` for the three entity targets, and the more urgent
+      # half of D79. `listEntityReviews` above is PAGED (S27), so every client reducing it into a
+      # star average -- the society hub, the owner profile, the locality reviews block -- has been
+      # averaging page one and rendering it as the rating. On the property side that was a latent
+      # defect; here it has already happened.
+      #
+      # One operation for all three types rather than three, because ReviewTargetKey already
+      # resolves (entityType, entityId) to the single canonical target_id the table stores, and the
+      # aggregate takes target_type as a parameter. `property` is deliberately NOT accepted here --
+      # the enum is the same disjoint one `listEntityReviews` declares, and the property summary
+      # keeps its own path.
+      description: >
+        Aggregate ratings for one society, locality or owner, computed by the database over every
+        published review -- not over a page. Public for the same reason the list is. 404 when the
+        entity type is not one of the three, or when nothing of that kind exists under that
+        identifier.
+      responses:
+        '200':
+          description: Rating summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
   # ---------------------------------------------------------------------------------------------
   # The /share-flat/* operations that used to sit here were removed when the flatmates backend
   # landed (V28). They were the legacy surface: listShareFlatPosts, createShareFlatPost and
@@ -4409,6 +4780,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: >-
+            The body names a key this server stores but enforces nothing with, currently
+            `customRoles` (D67/D13). Refused rather than dropped, and refused whole: accepting it
+            with a 200 is how an administrator ends up believing a decorative control granted
+            something. Nothing was written and no audit row was recorded - resend without the key.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /admin/audit-log:
     get:
       tags: [Admin & Analytics]
@@ -4849,6 +5229,9 @@ components:
         A platform user acting as a participant on an offer, visit, deal or finalization
         request. Always resolves to a registered account, so `id` is the user id.
         `mobile` is contact gated and arrives masked until the owner has acted.
+        `verified` is stated by the server rather than derived from `mobile`: the mask is
+        lossy, so a client matching `98XXXXX210` against a verified-user list can only ever
+        answer false (tech-debt D114).
       properties:
         id:
           type: string
@@ -4857,6 +5240,13 @@ components:
         name: { type: string }
         mobile: { $ref: '#/components/schemas/Mobile' }
         role: { type: string, enum: [buyer, owner] }
+        verified:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether this party carries the Verified Tenant badge. Server-computed, and optional
+            like every other property here: populated today on `Offer.from` and on the two
+            `FinalizationRequest` parties, absent from the payloads that have no badge to show.
     # Slice-4 spec fix S6. Distinct from Party on purpose. An under-offer party is an
     # off-platform person the owner jotted down while the listing is reserved -- a free-text
     # name, a raw mobile and a private note. It has no account, so it has no `role` and no
@@ -5099,6 +5489,34 @@ components:
             enquiries: { type: integer, description: Denormalized enquiry counter }
             featured: { type: boolean }
             flagReason: { type: [string, 'null'], description: Admin moderation flag; empty when unflagged }
+            recheckPending:
+              type: boolean
+              description: >
+                A stays-live moderation re-check is queued on this listing (Q14). Raised when the
+                owner edits `price`, `furnishing` or `possession` on an approved listing: the edit
+                is waiting for a moderator, but the listing keeps `status: approved` and stays in
+                search. Distinct from a `pending` status, which is what the identity-changing
+                foundation fields (`locality`/`propertyType`/`bhk`/`deal`) still cost. Cleared when
+                a moderator sets any status on the listing, and superseded (dropped) if a later edit
+                reverts it to `pending`.
+            recheckReason:
+              type: [string, 'null']
+              example: price, furnishing
+              description: >
+                Which fields raised the pending re-check, accumulated across edits until a moderator
+                clears it. Empty when `recheckPending` is false.
+            recheckRequestedAt:
+              type: [string, 'null']
+              format: date-time
+              description: >
+                When the re-check was first queued — the queue's age. Set once, at the first
+                unreviewed edit, and deliberately *not* refreshed by later ones, so an owner cannot
+                edit their way back to the front of the queue. Absent when `recheckPending` is
+                false. This is what makes the stays-live outcome auditable: `recheckPending` says a
+                re-check is owed, only this says it has been owed for eleven days, and an undrained
+                queue is otherwise indistinguishable from an empty one. Sort on it client-side —
+                `sort` is clamped to the catalogue's shared whitelist (createdAt/price/area/bhk),
+                and widening that would expose the column to the public search too.
             archived: { type: boolean, description: Soft-delete flag. A separate axis from status - always false on the public detail read; meaningful on /me/listings and /admin/properties. }
             ownerVerified: { type: boolean }
             ownershipVerified: { type: boolean }
@@ -5251,8 +5669,8 @@ components:
         deal: { $ref: '#/components/schemas/DealIntent' }
         brokerage: { $ref: '#/components/schemas/Money' }
         platformFee: { $ref: '#/components/schemas/Money' }
-        stampDuty: { $ref: '#/components/schemas/Money' }
-        registration: { $ref: '#/components/schemas/Money' }
+        stampDuty: { $ref: '#/components/schemas/Money', description: 'Omitted when the duty is not a flat published figure and is computed per transaction instead — which is both deals: leave-and-licence duty is 0.25% of a consideration built from the rent, term and deposit, and sale duty is 5-7% of the higher of agreement value and ready reckoner rate. **Absent is not zero.** A client that renders a missing value as ₹0 is telling the customer the state waived a charge it did not.'}
+        registration: { $ref: '#/components/schemas/Money', description: 'Omitted when the fee depends on the registering body (rent: ₹1,000 municipal / ₹500 rural). Present for `buy`, where it is 1% capped at ₹30,000. Absent is not zero.'}
         gst: { $ref: '#/components/schemas/Money' }
         notes: { type: string }
     # ---- Listings (owner) ----
@@ -5542,6 +5960,21 @@ components:
         body: { type: string }
         at: { type: string, format: date-time }
         read: { type: boolean }
+    PropertyReviewSummary:
+      # D91: one row of the ops verification queue. Not `PropertyReview` with fields dropped — the
+      # queue deliberately carries neither `checklist` nor `messages`, because a hundred case files
+      # each dragging their whole clarification thread along is a page nobody can render and a
+      # thread nobody reads at that width. `updatedAt` exists only here, and only because it is
+      # what the queue is ordered by: the row that has gone longest without a reply is the one ops
+      # needs to see first, and a sort key the client cannot read is a sort it cannot explain.
+      type: object
+      description: One listing under review, as it appears in the ops queue.
+      properties:
+        propertyId: { type: string }
+        status: { $ref: '#/components/schemas/PropertyStatus' }
+        reviewer: { type: string }
+        decidedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     Report:
       type: object
       properties:
@@ -5561,6 +5994,72 @@ components:
       properties:
         status: { type: string, enum: [open, reviewing, actioned, dismissed] }
         note: { type: string, maxLength: 2000 }
+        enforcement:
+          type: string
+          enum: [none, hide_content, suspend_account]
+          default: none
+          description: >
+            D68. What to actually do to the target, applied in the same transaction as the status
+            change. Before this field existed, `actioned` was a word: the report changed state and
+            the reported listing stayed live.
+
+
+            Only legal alongside `status=actioned` - "dismissed, and also taken down" is not a
+            decision anybody means. Supported per target type: `property` accepts `hide_content`
+            (flags the listing, which removes it from every public read); `user` accepts
+            `suspend_account` (the same soft-delete an admin drives from the users screen).
+            `review` and `post` accept `none` only - a review is taken down through
+            `PATCH /reviews/{id}/status`, which also removes it from the rating average, and
+            share-flat posts have no moderation verb yet. Both are refused with a message naming
+            the endpoint to use instead, rather than accepted and silently discarded.
+    ErasureCreate:
+      type: object
+      description: >
+        D177. `reason` is optional and always will be - a statutory right is not conditional on
+        explaining yourself, and a required field here would turn one into a negotiation.
+      properties:
+        reason: { type: string, maxLength: 2000 }
+    ErasureDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [execute, reject] }
+        note:
+          type: string
+          maxLength: 2000
+          description: Required when rejecting. A refusal the subject cannot understand is one they cannot act on.
+    ErasureRequest:
+      type: object
+      description: >
+        D177. **`subjectId` is deliberately absent from this schema.** The subject reads their own
+        request and knows who they are; an admin decides on whether a live obligation exists, which
+        the id does not answer either way. Putting it on the wire would make the admin queue a list
+        of everybody who has asked to be forgotten, which is the shape this feature exists to avoid.
+      properties:
+        id: { type: string }
+        subjectDigest:
+          type: string
+          description: >
+            SHA-256 over a deployment-held pepper and the subject's UUID, lowercase hex. A
+            verifier, not an index: given a UUID you can confirm a request concerned it; given the
+            table you cannot enumerate who was erased. Survives completion, when `subjectId` is
+            cleared from the row.
+        status: { type: string, enum: [pending, completed, rejected] }
+        reason: { type: string }
+        requestedAt: { type: string, format: date-time }
+        decidedAt: { type: string, format: date-time }
+        decisionNote: { type: string }
+        erased:
+          type: string
+          description: >
+            JSON document of what was removed - table names and row counts, never values. Null
+            until the request completes.
+        retained:
+          type: string
+          description: >
+            JSON document of what was kept and the statute requiring it, plus the categories this
+            implementation is known not to reach. Written at execution rather than resolved at read
+            time, so a request decided today still carries the reasoning it was decided under.
     ReviewStatusUpdate:
       type: object
       description: >
@@ -6096,12 +6595,14 @@ components:
     # Slice-11 spec fix S42. `Ticket.assignee` is a display name, and a display name is not a
     # key -- two staffers called Rohit cannot be told apart, and a rename would orphan the ticket.
     # Assignment therefore takes the staff user id; the name is derived for display.
+    # Debt D46: omitting `assigneeId` leaves the current assignee alone, so unassigning needs a
+    # spelling of its own -- the reserved value `none`. A JSON null is absence, not an instruction.
     TicketUpdate:
       type: object
       properties:
         status: { type: string, enum: [open, in-progress, waiting, resolved, closed] }
         priority: { type: string, enum: [low, medium, high, urgent] }
-        assigneeId: { type: string, description: User id of the staff member to assign, or null to unassign }
+        assigneeId: { type: string, description: 'User id of the staff member to assign, or the reserved value "none" to unassign. Omit to leave the assignee unchanged; a null is treated as omitted.' }
         team: { $ref: '#/components/schemas/Team' }
     SupportTicket:
       type: object
@@ -6391,7 +6892,10 @@ components:
       properties:
         id: { type: string }
         offeringId: { type: string }
-        status: { type: string, enum: [placed, scheduled, in-progress, completed, cancelled] }
+        # D58 added `quoted`. The other five are unchanged: renaming shipped enum values to match
+        # the register's prose (pending/accepted/in_progress) would break every generated client
+        # and rewrite live rows for nothing a user can see.
+        status: { type: string, enum: [placed, quoted, scheduled, in-progress, completed, cancelled] }
         amount: { $ref: '#/components/schemas/Money' }
         scheduledFor: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
@@ -6403,6 +6907,22 @@ components:
         propertyId: { type: string }
         preferredSlot: { type: string, format: date-time }
         notes: { type: string }
+    # D58. Body of `updateServiceOrderStatus`.
+    #
+    # `scheduled` is absent: it means the customer accepted the price, and is reached only through
+    # `acceptServiceOrder`. `placed` is absent because it is what ordering produces and nothing may
+    # go back to it.
+    #
+    # `amount` is required when `status` is `quoted` and rejected (422) with every other value --
+    # a conditional rule OpenAPI cannot express, and the reason this is not a plain status setter.
+    # Quoting is the step that attaches money to an order; an amount that could move after the
+    # customer accepted would be a repricing.
+    ServiceOrderStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [quoted, in-progress, completed, cancelled] }
+        amount: { $ref: '#/components/schemas/Money' }
     ReferralSummary:
       type: object
       properties:
@@ -6503,17 +7023,24 @@ components:
             who can POST. Absent on society / locality / owner reviews, which have no visit or
             tenancy concept.
         categories:
-          type: object
+          $ref: '#/components/schemas/ReviewCategories'
           description: >
             Optional per-aspect sub-ratings, each 1-5. Sparse -- the UI renders only the keys
-            present. The key set is closed; an unknown key is rejected rather than stored.
-          properties:
-            locality:  { type: integer, minimum: 1, maximum: 5 }
-            condition: { type: integer, minimum: 1, maximum: 5 }
-            value:     { type: integer, minimum: 1, maximum: 5 }
-            owner:     { type: integer, minimum: 1, maximum: 5 }
-            accuracy:  { type: integer, minimum: 1, maximum: 5 }
-          additionalProperties: false
+            present, and an aspect nobody rated is absent rather than 0.
+
+            **The vocabulary depends on the target type, and the server enforces that.** A listing
+            is rated on `locality / condition / value / owner / accuracy`; a housing society on
+            `Safety / Maintenance / Management / Amenities / Connectivity` -- the ids the society
+            hub's aspect bars are keyed on, capitalisation included. The two sets are disjoint,
+            because there is no aspect a flat and a society are both rated on. `locality` and
+            `owner` targets use the property vocabulary: nothing in the product has named one for
+            them, so they keep what they have always accepted.
+
+            JSON Schema cannot make `properties` depend on a path parameter, so the union of both
+            vocabularies is declared in `ReviewCategories` and the server narrows it per target --
+            a society aspect posted to a property is **rejected with 400**, not dropped. Dropping
+            it would return 201 for a review whose bar then renders empty, which is the failure
+            nobody reports.
         recommend:
           type: [boolean, 'null']
           description: >
@@ -6524,12 +7051,90 @@ components:
     ReviewCreate:
       # Note what is NOT here: `context`. It is derived server-side (see Review.context) and a
       # client-settable badge would defeat the anti-fake-review rule this slice exists to enforce.
+      #
+      # `categories` and `recommend` were both accepted by the server and sent by the property
+      # review modal long before they were declared here -- a spec drift, corrected now that the
+      # society hub sends sub-ratings too and the vocabulary is target-dependent.
       type: object
       required: [rating]
       properties:
         rating: { type: integer, minimum: 1, maximum: 5 }
         title: { type: string }
         body: { type: string }
+        categories: { $ref: '#/components/schemas/ReviewCategories' }
+        recommend:
+          type: [boolean, 'null']
+          description: >-
+            Omit for "did not say". `false` is a different answer, and the UI shows it as one.
+    ReviewCategories:
+      # Extracted so `Review` and `ReviewCreate` cannot drift apart on what an aspect map may hold.
+      # See Review.categories for why the union is declared and the server narrows it.
+      type: object
+      properties:
+        locality:     { type: integer, minimum: 1, maximum: 5 }
+        condition:    { type: integer, minimum: 1, maximum: 5 }
+        value:        { type: integer, minimum: 1, maximum: 5 }
+        owner:        { type: integer, minimum: 1, maximum: 5 }
+        accuracy:     { type: integer, minimum: 1, maximum: 5 }
+        Safety:       { type: integer, minimum: 1, maximum: 5 }
+        Maintenance:  { type: integer, minimum: 1, maximum: 5 }
+        Management:   { type: integer, minimum: 1, maximum: 5 }
+        Amenities:    { type: integer, minimum: 1, maximum: 5 }
+        Connectivity: { type: integer, minimum: 1, maximum: 5 }
+      additionalProperties: false
+    ReviewSummary:
+      # D79 (tech debt): the property page computed all four of these in the browser by reducing
+      # the unpaged `listReviews` array. That worked only for as long as the array stayed whole,
+      # which made "do not page this endpoint" a correctness constraint rather than a preference.
+      # Computed in SQL now; `listReviews` is unchanged and still unpaged.
+      type: object
+      required: [reviewCount, distribution, categoryAverages]
+      properties:
+        avgRating:
+          type: [number, 'null']
+          description: >-
+            Mean published rating to one decimal, as the UI renders it. Null -- not 0 -- when the
+            listing has no reviews, matching `Society.avgRating`: no rating is not a rating of
+            zero, and a star strip showing 0.0 states something false about a listing nobody has
+            reviewed yet.
+        reviewCount:
+          type: integer
+          description: >-
+            How many published reviews the summary is over. Always present, 0 included: unlike an
+            average, "how many" always has an answer.
+        distribution:
+          type: object
+          description: >-
+            Reviews per star rating. **All five keys are always present and zero-filled**, so a bar
+            chart needs no guard per bucket -- an absent bar and a zero-height bar are not the same
+            picture, and only one of them is true.
+          properties:
+            '1': { type: integer }
+            '2': { type: integer }
+            '3': { type: integer }
+            '4': { type: integer }
+            '5': { type: integer }
+          additionalProperties: false
+        categoryAverages:
+          type: object
+          description: >-
+            Mean per-aspect sub-rating to one decimal, over only the reviews that answered that
+            aspect. Sparse and closed, exactly like `Review.categories`, and over the **same
+            per-target-type vocabulary**: an aspect nobody rated is absent rather than 0, because
+            averaging it over everyone would understate it, and an aspect belonging to another
+            target's vocabulary is never published even if a legacy row holds one.
+          properties:
+            locality:     { type: number }
+            condition:    { type: number }
+            value:        { type: number }
+            owner:        { type: number }
+            accuracy:     { type: number }
+            Safety:       { type: number }
+            Maintenance:  { type: number }
+            Management:   { type: number }
+            Amenities:    { type: number }
+            Connectivity: { type: number }
+          additionalProperties: false
     # ---- Engagement · Flatmates ----
     # Two feeds, split by the one question a seeker can always answer: is there an
     # address yet? Behavioural spec: docs/flows/consumer/flatmates.md
@@ -6789,8 +7394,8 @@ components:
           items:
             type: object
             properties:
-              name: { type: string }
-              initials: { type: string, maxLength: 2 }
+              name: { type: string, description: 'Omitted when this member has not given a name — an OTP account has none until its profile is filled in. Render a placeholder; do not invent one, and do not treat the absence as an error.' }
+              initials: { type: string, maxLength: 2, description: Omitted with `name`, since there is nothing to take initials from. }
               verified: { type: boolean }
         propertyId: { type: [string, 'null'] }
         hostRole: { $ref: '#/components/schemas/HostRole' }
@@ -7009,12 +7614,19 @@ components:
       type: object
       description: >
         The ops scorecard. Counts exclude soft-deleted rows. `pendingModeration` is listings
-        awaiting a moderation decision (`status=pending`); the abuse-report queue is a separate
-        surface and is not folded in here.
+        awaiting a moderation decision (`status=pending`); the abuse-report queue is counted
+        separately as `openReports` and is deliberately not folded in - the two queues are worked
+        by different people against different SLAs, so one combined number would be a figure
+        neither desk could act on.
       properties:
         totalListings: { type: integer }
         activeListings: { type: integer }
         pendingModeration: { type: integer }
+        openReports:
+          type: integer
+          description: >
+            D68. Abuse reports still awaiting a decision (`open` or `reviewing`). A claimed but
+            undecided report still counts as outstanding work, because it is.
         totalUsers: { type: integer }
         newUsers7d: { type: integer }
         dealsClosed30d: { type: integer }
@@ -7086,15 +7698,27 @@ components:
           additionalProperties: { type: boolean }
         permissions:
           type: object
-          description: Per-team permission map (team -> capability -> allowed).
+          description: >
+            Per-team capability allow-list (team-or-`admin` -> [capability, ...]), enforced server-side
+            since D67 was wired. It narrows the role guards and can never widen them: every capability
+            check is composed onto the `x-roles` check that was already there, so no value here admits
+            a caller a role would refuse. An absent, malformed or non-object document falls back to the
+            role guards alone; within a well-formed document an unlisted team or an unlisted capability
+            is a denial, and `"*"` means all. Editing this changes access control - the four
+            capabilities are `view_dashboard` (GET /admin/dashboard, GET /admin/analytics),
+            `view_service_requests` (the ops branch of GET /service-requests), `update_ticket`
+            (PATCH /tickets/{id}, POST /tickets/{id}/notes) and `export_csv`, which is stored but
+            enforces nothing because the platform has no export endpoint (D5 - exports render in the
+            browser).
           additionalProperties: true
-        customRoles:
-          type: array
-          items:
-            type: object
-            properties:
-              name: { type: string }
-              permissions: { type: array, items: { type: string } }
+      # `customRoles` was removed from this schema (D67/D13, migration V61). It described named
+      # module bundles for scoped back-office accounts, keyed by a `roleId` that no user row, no
+      # JWT claim and no endpoint has ever carried, and its module vocabulary is the admin client's
+      # (`enquiries`, `properties:verify`, ...) rather than the server's `permissions` capabilities.
+      # It was stored faithfully and read by nothing. Worse, it composes by UNION where the
+      # permission map may only NARROW, so honouring it later would widen access using a document
+      # written while it granted nothing. PUT /admin/settings now answers 422 for this key rather
+      # than accepting it, so the contract not listing it is the whole truth rather than an omission.
     ContentItem:
       type: object
       description: >

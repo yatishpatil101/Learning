@@ -115,6 +115,18 @@ function demoDocs() {
   ];
 }
 
+/* Request id.
+   Was `'SR' + Date.now() + Math.floor(Math.random() * 100)`, which collides: `seedDemo()` and any
+   burst creation write several requests inside the *same* millisecond, leaving a two-digit random
+   number as the only distinguishing part — across 100 buckets that is a coin flip, not an id. The
+   collision surfaced as React's "two children with the same key" warning on the ops queue, and a
+   duplicate key means one of the two rows is the one that gets dropped or mis-updated.
+   The suffix is now a per-page counter so ids inside one page are unique by construction, and it
+   starts at a random offset so two tabs creating in the same millisecond do not line up either.
+   Fixed width matters too: unpadded, "…100" + "12" and "…10012" + nothing are the same string. */
+let seq = Math.floor(Math.random() * 100);
+const newRequestId = () => 'SR' + Date.now() + String(seq++ % 100).padStart(2, '0');
+
 export const list = (m) => load(m);
 export const get = (m, id) => load(m).filter((x) => x.id === id)[0] || null;
 
@@ -122,7 +134,7 @@ export const create = (m, data) => {
   data = data || {};
   const arr = load(m);
   const r = {
-    id: 'SR' + Date.now() + Math.floor(Math.random() * 100),
+    id: newRequestId(),
     type: data.type || 'rental', service: data.service || 'Rent Agreement',
     status: 'submitted',
     customer: { name: (data.customer && data.customer.name) || 'Customer', mobile: digits(m) },
@@ -323,7 +335,7 @@ export const createCoFill = (ownerMobile, data) => {
   data = data || {};
   const arr = load(ownerMobile);
   const r = {
-    id: 'SR' + Date.now() + Math.floor(Math.random() * 100),
+    id: newRequestId(),
     type: data.type || 'rental', service: data.service || 'Rent Agreement',
     status: 'awaiting_party',
     customer: { name: (data.customer && data.customer.name) || 'Owner', mobile: digits(ownerMobile) },

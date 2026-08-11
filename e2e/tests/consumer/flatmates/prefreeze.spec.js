@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Pre-freeze fixes for Flatmates (Rent):
    1. Joining / requesting a group must follow through like "Express interest":
@@ -22,8 +23,7 @@ async function seedUser(page, mobile = MOBILE) {
 }
 
 test('joining a group flips to a done-state and creates a notification + pending chat', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seedUser(page);
   await page.goto(`${BASE}/flatmates?view=groups`);
   await page.locator('.sf-card').first().waitFor({ timeout: 10000 });

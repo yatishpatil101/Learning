@@ -23,8 +23,8 @@ export default function CommunityTab({ ctx }) {
                 <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="calendar" className="w-5 h-5 text-teal-400" /> {t('society.eventsNoticesTitle')}</h2>
                 {iAmResidentOrAdmin ? (
                   <div className="flex gap-2">
-                    <button onClick={() => openBoard('event')} className="btn-outline !h-9 !px-3 text-sm"><Icon name="plus" className="w-4 h-4 mr-1.5" /> {t('society.boardAddEvent')}</button>
-                    <button onClick={() => openBoard('notice')} className="btn-outline !h-9 !px-3 text-sm"><Icon name="megaphone" className="w-4 h-4 mr-1.5" /> {t('society.boardAddNotice')}</button>
+                    <button onClick={() => openBoard('event')} className="btn-outline !h-11 sm:!h-9 !px-3 text-sm"><Icon name="plus" className="w-4 h-4 mr-1.5" /> {t('society.boardAddEvent')}</button>
+                    <button onClick={() => openBoard('notice')} className="btn-outline !h-11 sm:!h-9 !px-3 text-sm"><Icon name="megaphone" className="w-4 h-4 mr-1.5" /> {t('society.boardAddNotice')}</button>
                   </div>
                 ) : null}
               </div>
@@ -95,7 +95,7 @@ export default function CommunityTab({ ctx }) {
 
               <div className="flex flex-wrap gap-2 mb-4">
                 {Object.entries(CONTRIB_META).map(([kind, m]) => (
-                  <button key={kind} onClick={() => openContribute(kind)} className="btn-outline !h-9 !px-3 text-sm"><Icon name={m.icon} className="w-4 h-4 mr-1.5" /> {t(m.addKey)}</button>
+                  <button key={kind} onClick={() => openContribute(kind)} className="btn-outline !h-11 sm:!h-9 !px-3 text-sm"><Icon name={m.icon} className="w-4 h-4 mr-1.5" /> {t(m.addKey)}</button>
                 ))}
               </div>
 

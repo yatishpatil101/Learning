@@ -454,16 +454,37 @@ class PropertiesEndpointsTest extends AbstractApiTest {
 
     // ---------------- PATCH /me/listings/{id} ----------------
 
+    // why: since Q14 a foundation edit has two possible outcomes, and this endpoint is a different
+    // controller path from the one ListingFoundationTest drives — so both are pinned here too. BHK
+    // changes what the listing fundamentally is, so a stale index entry would be a wrong answer
+    // (a 2BHK appearing under 3BHK) and the listing comes off search.
     @Test
-    void updateFoundationFieldRevertsStatusToPending() throws Exception {
+    void updateIdentityFieldRevertsStatusToPending() throws Exception {
         User o = owner("9810000016");
+        Property p = save(o, "Live", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
+
+        mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"bhk\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bhk").value(3))
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.recheckPending").value(false));
+    }
+
+    // why: price is still the same property at a different number, so the listing keeps earning
+    // while staff confirm it — approved, searchable, and a re-check queued rather than a takedown.
+    @Test
+    void updatePriceStaysApprovedAndQueuesARecheck() throws Exception {
+        User o = owner("9810000029");
         Property p = save(o, "Live", "rent", "apartment", new BigDecimal("2"), 25000, "Kothrud", "approved", false);
 
         mvc.perform(patch("/me/listings/" + p.getId()).header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"price\":28000}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.price").value(28000))
-                .andExpect(jsonPath("$.status").value("pending"));
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").value(true))
+                .andExpect(jsonPath("$.recheckReason").value("price"));
     }
 
     @Test

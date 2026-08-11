@@ -122,28 +122,69 @@ export function calculateEMI(principal, annualRate, tenureYears) {
   return { emi: Math.round(emi), total: Math.round(total), interest: Math.round(total - P) };
 }
 
-export function financeSummary(mobile, propId, period = 'all') {
-  let txns = getTransactions(mobile, propId);
-  const now = new Date();
-  const fyStart = now.getMonth() >= 3 ? new Date(now.getFullYear(), 3, 1) : new Date(now.getFullYear() - 1, 3, 1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+/* ---- The period window — ONE copy, for the whole frontend (D178) ---- */
 
-  if (period === 'fy') txns = txns.filter((t) => new Date(t.date) >= fyStart);
-  else if (period === 'month') txns = txns.filter((t) => new Date(t.date) >= monthStart);
+/** The four windows the Finances period selector offers. Mirrors `SummaryPeriods` on the server. */
+export const FIN_PERIODS = ['all', 'month', 'quarter', 'year'];
+
+/**
+ * The inclusive lower bound of a period window, or `null` for `all`.
+ *
+ * **This is the only copy of this arithmetic in the frontend, and it must stay a mirror of
+ * `backend/.../finance/ledger/SummaryPeriods.startOf`.** There used to be three: the summary card
+ * pivoted `year` on 1 April, the transaction table directly below it pivoted on 1 January, and the
+ * expense breakdown did not implement `year` at all — so between January and March one screen
+ * showed the owner three different answers to the same question (D178). The KPI strip is now
+ * answered by the server, and the table and the breakdown filter from this function, which returns
+ * the same date the server's `startOf` would.
+ *
+ * `year` is the **Indian financial year**, 1 April – 31 March, because the reason an owner asks
+ * what a flat earned "this year" is almost always that they are filing against it.
+ *
+ * `now` is a parameter, not a `new Date()` buried inside, so the pivot is testable against a fixed
+ * clock — a probe in June cannot tell 1 April from 1 January.
+ *
+ * @param {string} period one of {@link FIN_PERIODS}
+ * @param {Date} [now] the reference instant, local time
+ * @returns {Date|null} local midnight on the first day of the window, or null for `all`
+ */
+export function periodStart(period, now = new Date()) {
+  switch (period) {
+    case 'month':
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'quarter':
+      return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    case 'year':
+      // Month index 3 is April. Before April we are still in the FY that began last April.
+      return now.getMonth() >= 3
+        ? new Date(now.getFullYear(), 3, 1)
+        : new Date(now.getFullYear() - 1, 3, 1);
+    default:
+      return null;
+  }
+}
+
+/** Rows on or after the window's start. `all` (a null start) keeps everything. */
+export function filterByPeriod(txns, period, now = new Date()) {
+  const start = periodStart(period, now);
+  if (!start) return [...(txns || [])];
+  return (txns || []).filter((t) => new Date(t.date) >= start);
+}
+
+export function financeSummary(mobile, propId, period = 'all', now = new Date()) {
+  const txns = filterByPeriod(getTransactions(mobile, propId), period, now);
 
   const income = txns.filter((t) => t.type === 'income').reduce((s, t) => s + (t.amount || 0), 0);
   const expense = txns.filter((t) => t.type === 'expense').reduce((s, t) => s + (t.amount || 0), 0);
   return { income, expense, net: income - expense, count: txns.length };
 }
 
-export function expenseBreakdown(mobile, propId, period = 'all') {
-  let txns = getTransactions(mobile, propId).filter((t) => t.type === 'expense');
-  const now = new Date();
-  const fyStart = now.getMonth() >= 3 ? new Date(now.getFullYear(), 3, 1) : new Date(now.getFullYear() - 1, 3, 1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  if (period === 'fy') txns = txns.filter((t) => new Date(t.date) >= fyStart);
-  else if (period === 'month') txns = txns.filter((t) => new Date(t.date) >= monthStart);
+export function expenseBreakdown(mobile, propId, period = 'all', now = new Date()) {
+  const txns = filterByPeriod(
+    getTransactions(mobile, propId).filter((t) => t.type === 'expense'),
+    period,
+    now,
+  );
 
   const byCategory = {};
   txns.forEach((t) => { byCategory[t.category] = (byCategory[t.category] || 0) + (t.amount || 0); });

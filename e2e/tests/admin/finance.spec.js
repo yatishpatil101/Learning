@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -19,8 +20,7 @@ async function pickSelectOption(page, ariaLabel, optionText) {
 // ─── Page load ───
 
 test('finance page loads without JS errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/finance`);
   await page.waitForTimeout(1000);
@@ -107,8 +107,7 @@ test('Revenue mix doughnut card is visible', async ({ page }) => {
 });
 
 test('Revenue window selector changes range', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/finance`);
   await page.waitForTimeout(500);
@@ -303,8 +302,7 @@ test('Transaction detail modal closes on Cancel/Escape', async ({ page }) => {
 // ─── No regressions ───
 
 test('finance page: no console errors on load', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/finance`);
   await page.waitForTimeout(1000);

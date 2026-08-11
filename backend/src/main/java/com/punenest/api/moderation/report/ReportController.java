@@ -65,17 +65,31 @@ public class ReportController {
      * anything out of it, which makes it the platform's clearest growth case. The sort is stripped
      * via {@link Pageables#unsorted(Pageable)} — newest-first is fixed server-side and index-backed
      * (V18), so an incoming {@code ?sort=} would otherwise be an unmapped-property 500.
+     *
+     * <p><strong>{@code reason} and {@code targetType} are served here rather than left to the
+     * client</strong> (tech debt D68). The admin queue used to read the whole table unpaged and
+     * filter in the browser, which works exactly until the queue outgrows one page — and then every
+     * filter, every tab count and the repeat-offender badge silently start describing page one while
+     * still looking like totals. A filter that the server cannot apply is a filter that stops being
+     * true without saying so.
      */
     @GetMapping(Routes.Moderation.REPORTS)
     @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
     public PageResponse<ReportResponse> list(@RequestParam(required = false) String status,
+            @RequestParam(required = false) String reason,
+            @RequestParam(required = false) String targetType,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(reportService.list(status, Pageables.unsorted(pageable)), dto -> dto);
+        return PageResponse.of(
+                reportService.list(status, reason, targetType, Pageables.unsorted(pageable)),
+                dto -> dto);
     }
 
     /**
      * {@code PATCH /reports/{id}} (contract {@code triageReport}, spec fix S30,
      * {@code x-roles: [staff, admin]}).
+     *
+     * <p>The body's optional {@code enforcement} is what makes this endpoint do something rather
+     * than say something — see {@link ReportEnforcement}.
      */
     @PatchMapping(Routes.Moderation.REPORT_BY_ID)
     @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")

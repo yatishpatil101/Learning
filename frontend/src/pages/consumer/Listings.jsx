@@ -15,6 +15,8 @@ import { cityHasData } from '../../lib/geoConfig.js';
 import NewCityEmptyState from '../../components/city/NewCityEmptyState.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import useAsyncList from '../../hooks/useAsyncList.js';
+import usePullToRefresh from '../../lib/usePullToRefresh.js';
+import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { enrichWithVerification } from '../../lib/data/enrichProperties.js';
 import { allLocalities } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
@@ -74,7 +76,15 @@ export default function Listings() {
      `.then()` with no `.catch`: a failed read left `loaded` false forever, so the most-visited
      page in the app answered a dropped connection with six skeleton cards that never resolved,
      and the rejection went to the console. `useAsyncList` gives the failure a name and a retry. */
-  const [catalogue, loadStatus, , retryLoad, loadError] = useAsyncList(loadCatalogue, []);
+  const [catalogue, loadStatus, , retryLoad, loadError, refreshCatalogue] = useAsyncList(loadCatalogue, []);
+  /* Pull down from the top of the results to re-read the catalogue. `refresh` rather than
+     `retryLoad` because the latter flips the list back to `loading` — right for an error state's
+     retry button, wrong here, where it would replace the results the user is looking at with
+     skeletons. It is the hook's own refresh rather than `loadCatalogue().then(setCatalogue)` so
+     the pull is sequenced against the effect's read: an outside refresh can be overtaken by an
+     earlier load that settles later, and an earlier load that *fails* later would wipe the freshly
+     pulled results into an error screen. */
+  const ptr = usePullToRefresh(refreshCatalogue);
   const all = useMemo(
     () => (catalogue[0] || []).map((p) => enrichWithVerification(enrichRent(p))),
     [catalogue],
@@ -176,7 +186,11 @@ export default function Listings() {
   }, []);
 
   const locNameBySlug = useMemo(() => Object.fromEntries(localities.map((l) => [l.slug, l.name])), [localities]);
-  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), []);
+  // A `?society=` filter can name any of the 348 rows, so the chip label needs the
+  // whole catalogue — not the 28 readable before the bulk chunk lands (D129).
+  const catalogueReady = useSocietyCatalogue();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `catalogueReady` is an invalidation signal for the module-level society store, which the rule cannot see. See `lib/useSocietyCatalogue.js`.
+  const socNameBySlug = useMemo(() => Object.fromEntries(allSocieties().map((s) => [s.slug, s.name])), [catalogueReady]);
 
   // Deferred filter state — keeps inputs responsive while heavy results recompute in background
   const deferredF = useDeferredValue(f);
@@ -286,7 +300,20 @@ export default function Listings() {
       {/* Own top offset (this route is selfPadded), derived from the navbar token plus
           a breathing gap rather than restating the bar's height. The gaps make ≥768px
           resolve to the 92px it hardcoded before; phones inherit the shorter bar. */}
-      <div className="pt-[calc(var(--pn-nav-h)+8px)] sm:pt-[calc(var(--pn-nav-h)+20px)] pb-20">
+      <div ref={ptr.ref} className="pt-[calc(var(--pn-nav-h)+8px)] sm:pt-[calc(var(--pn-nav-h)+20px)] pb-20">
+        {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
+          <div
+            aria-hidden="true"
+            className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
+            style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+          >
+            <Icon
+              name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
+              className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
+              style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
+            />
+          </div>
+        )}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="hidden sm:flex items-center gap-2 text-sm mb-3 list-reveal" style={{ animationDelay: '0ms' }}>
             <Link to="/" className="text-gray-500 hover:text-teal-400 t-all flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('listings.breadcrumbHome')}</Link>

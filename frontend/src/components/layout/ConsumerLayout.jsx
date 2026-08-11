@@ -5,6 +5,7 @@ import BottomNav from './BottomNav.jsx';
 import Footer from './Footer.jsx';
 import CityChrome from '../CityChrome.jsx';
 import ConnectivityBanner from '../ConnectivityBanner.jsx';
+import ErrorBoundary from '../ErrorBoundary.jsx';
 import CookieConsent from '../CookieConsent.jsx';
 import InstallPrompt from '../InstallPrompt.jsx';
 import AssistantWidget from '../assistant/AssistantWidget.jsx';
@@ -69,14 +70,21 @@ export default function ConsumerLayout() {
 
   return (
     <AppFlagsProvider>
-      <div className={'flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
+      <div className={'consumer-layout flex min-h-[100dvh] flex-col' + (chatRoute ? ' route-messages' : '') + (authRoute ? ' route-auth' : '') + (fullBleed ? ' route-fullbleed' : '') + (showBottomNav ? ' has-bottom-nav' : '')}>
         <Navbar />
         {/* Connectivity state, announced once for the whole app rather than guessed at per page.
             Docks under the navbar precisely so it can never cover the bottom nav or its raised
             centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
         <ConnectivityBanner />
         <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
-          <Outlet />
+          {/* Around the outlet, not around the layout: a page that throws during render takes the
+              page down and leaves the navbar, the bottom nav and the connectivity banner standing,
+              so the reader can simply go somewhere else. Keyed on the pathname, so doing exactly
+              that clears the fallback — otherwise the boundary would outlive the broken route and
+              become the outage itself. */}
+          <ErrorBoundary scope="consumer-route" resetKey={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
         {showFooter && <Footer />}
         {/* Nestor help assistant — floating concierge, all consumer pages except full-bleed (reels) */}

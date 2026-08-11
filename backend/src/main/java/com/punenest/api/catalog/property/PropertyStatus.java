@@ -1,5 +1,7 @@
 package com.punenest.api.catalog.property;
 
+import java.util.Set;
+
 /**
  * The moderation lifecycle values of {@code properties.status}.
  *
@@ -48,4 +50,15 @@ public final class PropertyStatus {
 
     /** Terminal: the rental closed (D110). The rent-deal counterpart of {@link #SOLD}. */
     public static final String RENTED = "rented";
+
+    /**
+     * The statuses a direct link resolves on — the query-side spelling of
+     * {@link Property#isDirectlyReachable()}.
+     *
+     * <p>Exists so a public read that only needs to answer 404-or-not can apply the visibility floor
+     * without hydrating the row. Kept next to the constants it is built from, because the failure
+     * mode is the two drifting apart: a floor that is enforced in one of two places is not a floor,
+     * and the endpoint that skips it becomes an existence oracle for listings moderation refused.
+     */
+    public static final Set<String> DIRECTLY_REACHABLE = Set.of(APPROVED, SOLD, RENTED);
 }

@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { Link } from 'react-router';
 import { timeAgo, avatarFor } from '../../../lib/format.js';
 import { myMobile } from '../../../lib/contact.js';
-import { isSeriousBuyer } from '../../../lib/seriousBuyer.js';
+import { tenantsVerified } from '../../../services/rentService.js';
 import { getLeadAnnotations, setLeadAnnotation } from '../../../lib/leadNotes.js';
 import { Card, SectionHead, StatusBadge, SubNav, RequestList, RequestRow, RequestEmpty, CallBtn, WhatsAppBtn, FollowUpChip } from './components.jsx';
 import LoadError from '../../../components/LoadError.jsx';
@@ -13,6 +13,13 @@ import LeadSheet from './LeadSheet.jsx';
 /* Attention-first ordering: items awaiting the owner's action float to the top of
    each list without reordering equal items (stable). */
 const attentionFirst = (arr, isAttn) => [...arr].sort((a, b) => (isAttn(b) ? 1 : 0) - (isAttn(a) ? 1 : 0));
+
+/* Last ten digits, or `''`. A masked number (`98XXXXX210`) yields five and is therefore dropped —
+   the key the badge is looked up under is the same shape the seam normalises to. */
+const tenDigits = (mobile) => {
+  const d = String(mobile || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? d : '';
+};
 
 /* Per-row urgency badge for items still awaiting the owner. The app's own promise is
    "reply within an hour", so anything past 1h reads as `hot` (rose), fresh items as a
@@ -133,6 +140,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
   const itemNumber = (r) => ({
     id: 'number:' + r.id, type: 'number', typeLabel: 'Number request', typeIcon: 'lock-keyhole',
     name: r.buyerName, contactMobile: r.status === 'approved' ? r.buyerMobile : undefined,
+    verified: !!r.verified,
     propLabel: r.propId ? titleOf(r.propId) : '',
     detail: 'Requested your phone number', requestedAt: r.requestedAt, status: r.status,
     attention: r.status === 'pending', canApprove: true,
@@ -191,6 +199,33 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
     return (a.requestedAt || Infinity) - (b.requestedAt || Infinity);
   });
 
+    /* Generic enquiries still only carry a phone number, so their badge remains a batch lookup.
+      Owner contact requests no longer do: the server states `requester.verified` on each row, which
+      is the bit D185 exists to surface on the *pending* rows where the mobile is still masked.
+
+     `tenantsVerified` fails closed by construction: an unknown number, a still-masked one, a
+     signed-out caller or a rejected request all produce *absence*, and absence renders no badge. A
+     verified buyer may lose their tick; an unverified one can never gain one, which is the only
+     direction this is allowed to be wrong in.
+
+     Keyed on the sorted, de-duplicated digit list rather than the array, so the request fires when
+     the *people* change and not on every re-render of a list rebuilt each pass. */
+    const badgeKey = [...new Set(enquiries.map((e) => tenDigits(e.mobile)).filter(Boolean))].sort().join(',');
+  const [verifiedBuyers, setVerifiedBuyers] = useState(() => new Set());
+  useEffect(() => {
+    if (!badgeKey) { setVerifiedBuyers(new Set()); return undefined; }
+    let live = true;
+    tenantsVerified(badgeKey.split(','))
+      .then((set) => { if (live) setVerifiedBuyers(set); })
+      .catch(() => { if (live) setVerifiedBuyers(new Set()); });
+    return () => { live = false; };
+  }, [badgeKey]);
+  const isVerifiedBuyer = (mobile) => {
+    const d = tenDigits(mobile);
+    return !!d && verifiedBuyers.has(d);
+  };
+  const badgeFor = (item) => (item?.verified ? t('verify.seriousBuyer') : (isVerifiedBuyer(item?.contactMobile) ? t('verify.seriousBuyer') : undefined));
+
   // Lead detail sheet + owner-private annotations (notes / follow-up dates).
   const owner = myMobile();
   const [annos, setAnnos] = useState(() => getLeadAnnotations(owner));
@@ -240,7 +275,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={item.id}
                 avatar={avatarFor(item.name)}
                 title={item.name}
-                badge={isSeriousBuyer(item.contactMobile) ? t('verify.seriousBuyer') : undefined}
+                badge={badgeFor(item)}
                 meta={`${item.typeLabel}${item.propLabel ? ' · ' + item.propLabel : ''}`}
                 time={item.requestedAt ? timeAgo(item.requestedAt) : undefined}
                 urgency={item.attention ? waitPill(item.requestedAt) : undefined}
@@ -286,6 +321,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={r.id}
                 avatar={avatarFor(r.buyerName)}
                 title={r.buyerName}
+                badge={r.verified ? t('verify.seriousBuyer') : undefined}
                 meta={`Requested your number${r.propId ? ' · ' + titleOf(r.propId) : ''}`}
                 time={timeAgo(r.requestedAt)}
                 urgency={r.status === 'pending' ? waitPill(r.requestedAt) : undefined}
@@ -442,7 +478,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, enquiries, 
                 key={e.id}
                 avatar={avatarFor(e.customer)}
                 title={e.customer}
-                badge={isSeriousBuyer(e.mobile) ? t('verify.seriousBuyer') : undefined}
+                badge={isVerifiedBuyer(e.mobile) ? t('verify.seriousBuyer') : undefined}
                 meta={`${e.listing} · ${e.mobile}`}
                 onOpen={() => setSheetLead(itemEnquiry(e))}
               >

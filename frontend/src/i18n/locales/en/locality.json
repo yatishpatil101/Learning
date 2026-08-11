@@ -96,6 +96,7 @@
     "reviewsCount_one": "{{count}} review",
     "reviewsCount_other": "{{count}} reviews",
     "reviewsNone": "No reviews yet",
+    "reviewsUnavailable": "Rating unavailable right now",
     "reviewPrompt": "Lived or living here? Rate <1>{{name}}</1>",
     "reviewPlaceholder": "Connectivity, safety, water, value for money…",
     "reviewPost": "Post review",

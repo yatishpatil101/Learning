@@ -90,6 +90,70 @@ export const TIER_B_FIELDS = [
   { key: 'waterSource', label: 'Water source' },
 ];
 
+/* ---------- what the SERVER does, as opposed to what we model above ----------
+   Tier A/B is a client-side UX model: "the edit stays live, we flag it for a quick
+   re-check". The server has its own, narrower rule, and since Q14 it has two prices
+   rather than one. `ListingService.apply`
+   (backend/…/catalog/listing/ListingService.java) classifies exactly the seven wire
+   fields below — the facets a buyer can filter on, which is the shape a
+   bait-and-switch takes — into two blocks:
+
+     • OFF SEARCH  — bhk, propertyType, locality, deal. `update` calls
+       `Property.revertToPending()`: the listing leaves search until a moderator
+       re-approves it. These change what the listing fundamentally *is*, so leaving
+       it indexed returns a wrong answer (a 2BHK under 3BHK, a rental under sale).
+
+     • STAYS LIVE  — price, furnishing, possession. `update` calls
+       `Property.requestRecheck()`: a moderator still gets the work item, but the
+       listing keeps `status: approved` and stays in search. These change an attribute
+       of a listing that is still the same property, so the worst case is a briefly
+       out-of-date value on a listing that is genuinely what it claims to be.
+
+   `ListingFoundationTest` pins both sets behaviourally through the real endpoint.
+
+   Tier A/B and the server's rule still disagree in both directions — `price` and
+   `furnishing` are Tier B here ("publishes instantly") and cost a re-check there;
+   `floor`/`facing`/`age`/`carpetArea` are Tier A here and are ordinary edits there,
+   several not even in the update contract. That is deliberate and stays: Tier A/B
+   drives the 3-edits-per-30-days throttle and the paywall, the server's rule drives
+   what happens to the listing, and collapsing them would make one of the two lie.
+   So `classifyChanges` reports the server's outcome in its own orthogonal buckets and
+   the banner reads those.
+
+   Keyed by the server's wire field name; the value is every wizard form key feeding
+   it. `price` has two because the wizard splits sale price from monthly rent while
+   the entity has a single `price` column.
+
+   `scripts/check-listing-foundation.mjs` fails the build if either map drifts from
+   `ListingService.apply`, from `ListingFoundationTest`, or from the
+   `LISTING_FOUNDATION_FIELDS` mirror in `lib/store/listings.js` — including a field
+   that has quietly moved from one set to the other. Three lists in three vocabularies
+   is what produced D76; the gate is what stops it recurring. */
+
+/** Foundation fields whose edit takes the listing off search (server: revertToPending). */
+export const FOUNDATION_OFF_SEARCH_KEYS = {
+  bhk: ['bhk'],
+  propertyType: ['propertyType'],
+  locality: ['locality'],
+  deal: ['deal'],
+};
+
+/** Foundation fields whose edit is re-checked but stays in search (server: requestRecheck). */
+export const FOUNDATION_STAYS_LIVE_KEYS = {
+  price: ['price', 'monthlyRent'],
+  furnishing: ['furnishing'],
+  possession: ['possession'],
+};
+
+/** Both halves, for callers that only care that a field is a foundation field at all. */
+export const FOUNDATION_FORM_KEYS = {
+  ...FOUNDATION_OFF_SEARCH_KEYS,
+  ...FOUNDATION_STAYS_LIVE_KEYS,
+};
+
+const OFF_SEARCH_KEYS = new Set(Object.values(FOUNDATION_OFF_SEARCH_KEYS).flat());
+const STAYS_LIVE_KEYS = new Set(Object.values(FOUNDATION_STAYS_LIVE_KEYS).flat());
+
 /* Thresholds. */
 export const PRICE_REDUCED_PCT = 0.15;   // buyer-facing "Price reduced" badge
 export const PRICE_JUMP_FLAG_PCT = 0.20; // admin flag on a sharp price increase
@@ -130,10 +194,36 @@ export const classifyChanges = (oldForm = {}, newForm = {}, oldPhotoUrls = [], n
   const tierA = changed(TIER_A_FIELDS);
   const removedPhotos = photosRemoved(oldPhotoUrls, newPhotoUrls);
   if (removedPhotos) tierA.push({ key: PHOTO_FIELD.key, label: PHOTO_FIELD.label, from: 'Original photos', to: 'Edited' });
+  const tierB = changed(TIER_B_FIELDS);
+
+  /* The server's outcome, in its own buckets. It cuts across both tiers, so these are
+     derived rather than taken straight from tierA/tierB: a price edit must not be
+     counted as "publishes instantly" when it does the opposite. tierA/tierB are still
+     returned unchanged — the edit-throttle and the paywall read them, and this is a
+     reporting concern, not a change to either.
+
+     `remoderation` is now only the half the server takes offline. The stays-live half
+     is still a re-check, and still must not be described as instant, but the owner
+     must not be told their listing goes dark for it — which is the entire point of
+     the split. */
+  const remoderation = [...tierA, ...tierB].filter((c) => OFF_SEARCH_KEYS.has(c.key));
+  const remoderationKeys = new Set(remoderation.map((c) => c.key));
+  const staysLive = [...tierA, ...tierB].filter(
+    (c) => STAYS_LIVE_KEYS.has(c.key) && !remoderationKeys.has(c.key),
+  );
+  const staysLiveKeys = new Set(staysLive.map((c) => c.key));
 
   return {
     tierA,
-    tierB: changed(TIER_B_FIELDS),
+    tierB,
+    remoderation,
+    staysLive,
+    recheck: [
+      ...remoderation,
+      ...staysLive,
+      ...tierA.filter((c) => !remoderationKeys.has(c.key) && !staysLiveKeys.has(c.key)),
+    ],
+    instant: tierB.filter((c) => !remoderationKeys.has(c.key) && !staysLiveKeys.has(c.key)),
     identityChanged: IDENTITY_FIELDS.some((k) => norm(oldForm[k]) !== norm(newForm[k])),
     photosRemoved: removedPhotos,
     priceSwing: priceSwing(oldForm, newForm),

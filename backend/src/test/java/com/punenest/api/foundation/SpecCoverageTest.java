@@ -70,8 +70,24 @@ class SpecCoverageTest {
      * <p>D51 added one: {@code adminSupportTickets} — the paged platform-wide support queue S47's
      * note said would be needed, once narrowing {@code listSupportTickets} to the caller's own
      * tickets left ops with no support overview at all.
+     *
+     * <p>D177 added four: the DPDP right-to-erasure spine — {@code requestErasure} and
+     * {@code myErasureRequests} for the subject, {@code listErasureRequests} and
+     * {@code decideErasureRequest} for the admin who carries one out or refuses it.
+     *
+     * <p>D58 added three: the service-order lifecycle, which shipped with none at all —
+     * {@code updateServiceOrderStatus} for the desk that quotes and works the job, and
+     * {@code acceptServiceOrder} / {@code cancelServiceOrder} for the customer. Until these
+     * existed, {@code ServiceOrder.status} and {@code amount} could only be changed by hand-written
+     * SQL against production.
+     *
+     * <p>The floor is 221 + 3, not the live count. At the time D58 landed the tree actually served
+     * 233 — nine operations from work in flight alongside it had not been ratcheted yet. Claiming
+     * their number here would make this file assert somebody else's change, and the ratchet would
+     * then fail on any branch that has D58 without them. Each slice raises the floor by what it
+     * added; the arithmetic catching up is the next author's to do.
      */
-    private static final int IMPLEMENTED_FLOOR = 217;
+    private static final int IMPLEMENTED_FLOOR = 224;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

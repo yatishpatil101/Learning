@@ -2,6 +2,7 @@ package com.punenest.api.admin;
 
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.PreconditionFailedException;
+import com.punenest.api.common.error.ValidationException;
 import com.punenest.api.common.settings.Setting;
 import com.punenest.api.common.settings.SettingRepository;
 import com.punenest.api.security.AuthPrincipal;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,9 +37,15 @@ import tools.jackson.databind.node.ObjectNode;
  * <p><strong>PUT merges rather than replaces (S60).</strong> Every property of {@code AdminSettings}
  * is optional, which makes {@code {"flags":{"beta":true}}} a complete, well-formed document. Under
  * replace semantics an admin who opens the feature-flag panel and presses Save would delete the fee
- * table, the permission map and the custom roles, and the platform would silently start charging
- * its compiled-in defaults. So the only safe reading of an all-optional body is "these are the keys
- * I am changing".
+ * table and the permission map, and the platform would silently start charging its compiled-in
+ * defaults. So the only safe reading of an all-optional body is "these are the keys I am changing".
+ *
+ * <p><strong>Storing a key is not the same as honouring it, so one key is now refused (D67/D13).</strong>
+ * The table is open by design and this endpoint understands very little of what it holds — which is
+ * fine for a block some other component reads, and dishonest for a block nothing reads at all.
+ * {@code customRoles} was the second kind: an access-control document the admin console composed,
+ * this endpoint stored, and no server code has ever consulted. It is now answered with 422 and
+ * deleted from storage by {@code V61}; see {@link #UNSUPPORTED_KEYS}.
  *
  * <p><strong>The merge narrowed the blast radius; {@code If-Match} closes what was left (S68, tech
  * debt D66).</strong> Merging stopped the flags panel from wiping the fee table, but two admins
@@ -59,6 +67,32 @@ public class AdminSettingsService {
      * limit is a {@code StackOverflowError} in a request thread.
      */
     private static final int MAX_MERGE_DEPTH = 12;
+
+    /**
+     * Top-level keys this endpoint refuses outright — configuration that would be stored and
+     * enforced by nothing (tech debt D67/D13, migration {@code V61}).
+     *
+     * <p><strong>Why a refusal and not a silent drop.</strong> Both stop the value being stored;
+     * only one of them tells the administrator. A settings form that accepts a custom role, returns
+     * 200 and grants nothing is the exact failure this list exists to end — the operator has no way
+     * to discover that the control they just used is decorative, and neither does the next engineer,
+     * who finds a populated access-control key and reasonably assumes it governs something.
+     *
+     * <p><strong>Why the whole write is refused rather than the offending key.</strong> A PUT is one
+     * document. Storing the six keys that were understood and rejecting the seventh would leave the
+     * caller unable to say what state they are now in, and would make the 422 look survivable when
+     * the form it came from is not.
+     *
+     * <p><strong>Why an explicit deny-list and not an allow-list of known keys.</strong> The table
+     * is deliberately open — {@code geo} is written by the admin console and read by the client's
+     * locality search without appearing in {@code AdminSettings} at all, and an allow-list would
+     * silently break it. Naming what is dead is a claim this code can defend; naming everything that
+     * is alive is a claim that goes stale the first time somebody adds a block.
+     *
+     * <p>{@code customRoles} is the whole list, and it is a list rather than a constant so that the
+     * next dead key is a one-line addition instead of a second branch.
+     */
+    private static final Set<String> UNSUPPORTED_KEYS = Set.of("customRoles");
 
     private final SettingRepository settings;
     private final ObjectMapper objectMapper;
@@ -136,18 +170,26 @@ public class AdminSettingsService {
      * result.
      *
      * <p>Objects merge key by key; arrays and scalars are replaced whole. Replacing arrays is the
-     * right call even inside a merge: {@code customRoles} is an ordered list, and merging two lists
-     * positionally would produce a role nobody wrote.
+     * right call even inside a merge: {@code geo.blacklist} is an ordered list, and merging two
+     * lists positionally would produce an entry nobody wrote.
+     *
+     * <p>Both refusals below happen before anything is written, so a rejected write leaves the
+     * document and the audit log exactly as they were. {@link #UNSUPPORTED_KEYS} is checked first:
+     * it is a permanent defect in what the caller sent, whereas a stale {@code If-Match} is a race
+     * that succeeds on retry, and answering the transient problem first would send a client round a
+     * loop it can never get out of.
      *
      * @param ifMatch the caller's {@code If-Match} header, or {@code null} for an unconditional
-     *                write. Checked first, so a refused precondition writes nothing and records no
-     *                audit row
+     *                write
+     * @throws ValidationException         if the patch names a key this server stores but enforces
+     *                                     nothing with
      * @throws PreconditionFailedException if {@code ifMatch} names a document that is no longer
      *                                     stored
      */
     @Transactional
     public SettingsDocument update(AuthPrincipal caller, Map<String, Object> patch,
             String ifMatch) {
+        rejectUnsupportedKeys(patch);
         requirePrecondition(ifMatch);
         List<String> touched = new ArrayList<>();
         for (Map.Entry<String, Object> entry : patch.entrySet()) {
@@ -169,6 +211,24 @@ public class AdminSettingsService {
         audit.record(caller, "settings.update", "settings", "platform",
                 "keys", String.join(",", touched));
         return current();
+    }
+
+    /**
+     * Refuse a patch that names a key in {@link #UNSUPPORTED_KEYS}.
+     *
+     * <p>A {@code null} value is refused alongside a real one. Elsewhere in this method a null means
+     * "I am not changing this" and is skipped, but a client that sends {@code customRoles} at all —
+     * even empty — is a client built against a feature that does not exist, and telling it so on the
+     * first call is more useful than letting it discover the truth on the call that carries data.
+     */
+    private static void rejectUnsupportedKeys(Map<String, Object> patch) {
+        for (String key : patch.keySet()) {
+            if (UNSUPPORTED_KEYS.contains(key)) {
+                throw new ValidationException("'" + key + "' is not supported by this server: it "
+                        + "would be stored and enforced by nothing. Back-office access is decided by "
+                        + "role, team and the 'permissions' allow-list. Nothing was saved.");
+            }
+        }
     }
 
     /**

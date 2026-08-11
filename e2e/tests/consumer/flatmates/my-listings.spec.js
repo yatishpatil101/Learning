@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* A flatmate request posted via the Flatmates modal must appear under
    Dashboard > My Listings — even for a NON-owner user. Previously the request
@@ -38,8 +39,7 @@ async function postRequest(page) {
 }
 
 test('a non-owner seeker sees My Listings tab and their flatmate request in it', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await seedUser(page);
   await postRequest(page);

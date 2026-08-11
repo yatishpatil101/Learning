@@ -120,20 +120,32 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
 
     private static final String FORWARDED_FOR = "X-Forwarded-For";
 
-    private final WriteRateLimiter limiter;
-    private final WriteRateLimiter callbackLimiter;
+    private final WriteRateLimitStore limiter;
+    private final WriteRateLimitStore callbackLimiter;
     private final Duration window;
     private final boolean proxyAware;
     private volatile boolean misconfigurationLogged;
 
+    /** Counts in this instance's memory — the default, and what every test uses. */
     public WriteRateLimitFilter(int budget, Duration window, boolean proxyAware) {
-        this.limiter = new WriteRateLimiter(budget, window);
+        this(budget, window, proxyAware, InMemoryWriteRateLimitStore::new);
+    }
+
+    /**
+     * @param stores where the counters live (tech-debt D158). The two families get separate
+     *               namespaces because they must never share a counter — obvious for a per-instance
+     *               map, which is two objects, and load-bearing for a shared backend, where one
+     *               namespace would add every instance's callbacks to every instance's users
+     */
+    public WriteRateLimitFilter(int budget, Duration window, boolean proxyAware,
+            WriteRateLimitStore.Factory stores) {
+        this.limiter = stores.create("w", budget, window);
         // Computed as a long and clamped: at int width this multiplication wraps above 42,949,672
         // and would hand the callbacks a *smaller* budget than everyone else, quietly, from a
         // configuration value that is merely absurd rather than obviously invalid.
         long callbackBudget = (long) budget * CALLBACK_BUDGET_MULTIPLIER;
-        this.callbackLimiter =
-                new WriteRateLimiter((int) Math.min(Integer.MAX_VALUE, callbackBudget), window);
+        this.callbackLimiter = stores.create(
+                "cb", (int) Math.min(Integer.MAX_VALUE, callbackBudget), window);
         this.window = window;
         this.proxyAware = proxyAware;
     }
@@ -175,7 +187,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
      *
      * @return {@code true} if the caller may proceed
      */
-    private boolean allow(WriteRateLimiter against, HttpServletRequest request,
+    private boolean allow(WriteRateLimitStore against, HttpServletRequest request,
             HttpServletResponse response) throws IOException {
         int retryAfter = against.tryAcquire(callerKey(request), Instant.now());
         if (retryAfter == 0) {

@@ -1,6 +1,7 @@
 package com.punenest.api.catalog.listing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,11 +29,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 /**
  * The foundation-field rule, tied to the search facets it exists to protect.
  *
- * <p><strong>What the rule is for.</strong> Editing a foundation field on an approved listing sends
- * it back to {@code pending}. That exists to stop bait-and-switch, and bait-and-switch has a precise
+ * <p><strong>What the rule is for.</strong> Editing a foundation field on an approved listing costs
+ * the owner a re-review. That exists to stop bait-and-switch, and bait-and-switch has a precise
  * shape: get approved into one set of search results, then edit your way into a different, more
- * valuable one. So the fields that must trigger re-moderation are exactly the fields a buyer can
+ * valuable one. So the fields that must trigger a re-review are exactly the fields a buyer can
  * filter on. A facet outside the rule is a hole of exactly that shape.
+ *
+ * <p><strong>Two prices, not one (Q14).</strong> Every foundation edit is re-checked; they differ
+ * only in whether the listing keeps earning while it waits. {@code locality}, {@code propertyType},
+ * {@code bhk} and {@code deal} change what the listing fundamentally <em>is</em>, so leaving it in
+ * the index returns a wrong answer — a 2BHK under 3BHK, a rental under sale — and it goes back to
+ * {@code pending}. {@code price}, {@code furnishing} and {@code possession} change an attribute of
+ * a listing that is still the same property, so the worst case is a briefly stale value on a
+ * listing that is genuinely what it claims to be; those stay {@code approved}, stay in search, and
+ * raise {@code recheckPending} instead.
  *
  * <p><strong>Why the facets are read by reflection.</strong> The rule was five fields — price, bhk,
  * type, locality, deal — while {@code GET /properties} accepted seven facets. The two extra,
@@ -46,12 +56,13 @@ import org.springframework.web.bind.annotation.RequestParam;
  * <p><strong>And why the rule is asserted behaviourally.</strong> Reflection can see the facets but
  * not what {@code ListingService.apply} does with them; a constant listing the foundation fields
  * would be a claim about the implementation rather than a measurement of it. So each field is
- * actually PATCHed onto an approved listing through the real endpoint, and the resulting status is
- * the assertion. The two halves together are what make this self-maintaining: a new facet fails
- * {@link #everySearchFacetIsClassified} until it is classified, and a field that stops reverting
+ * actually PATCHed onto an approved listing through the real endpoint, and the resulting status —
+ * and, for the stays-live half, an actual {@code GET /properties} hit — is the assertion. The two
+ * halves together are what make this self-maintaining: a new facet fails
+ * {@link #everySearchFacetIsClassified} until it is classified, and a field that changes sides
  * fails its own case here.
  */
-@DisplayName("Listings — every search facet costs re-moderation")
+@DisplayName("Listings — every search facet costs a re-review, at one of two prices")
 class ListingFoundationTest extends AbstractApiTest {
 
     @Autowired
@@ -60,7 +71,23 @@ class ListingFoundationTest extends AbstractApiTest {
     PropertyRepository properties;
 
     /**
-     * Facets that legitimately do not revert a listing, each for a reason about the facet rather
+     * Foundation fields whose edit takes the listing <strong>off search</strong>: they change what
+     * the listing is, so a stale index entry is a wrong answer rather than a late one (Q14).
+     *
+     * <p>Kept here, and only here, as this test's half of the contract — the other half is the
+     * blocks in {@code ListingService.apply}, which is what the cases below actually measure.
+     */
+    private static final Set<String> OFF_SEARCH =
+            Set.of("bhk", "propertyType", "locality", "deal");
+
+    /**
+     * Foundation fields whose edit <strong>stays live</strong>: re-checked, but still approved and
+     * still in search, because the listing is still the same property (Q14).
+     */
+    private static final Set<String> STAYS_LIVE = Set.of("price", "furnishing", "possession");
+
+    /**
+     * Facets that legitimately do not cost a re-review, each for a reason about the facet rather
      * than about convenience.
      *
      * <ul>
@@ -102,7 +129,11 @@ class ListingFoundationTest extends AbstractApiTest {
     }
 
     private Property approvedListing(User owner) {
-        Property p = new Property(owner, "Bright 2BHK", "rent", "apartment",
+        return approvedListing(owner, "Bright 2BHK");
+    }
+
+    private Property approvedListing(User owner, String title) {
+        Property p = new Property(owner, title, "rent", "apartment",
                 25000L, "Kothrud", "Pune");
         p.setBhk(new BigDecimal("2"));
         p.setPriceUnit("per-month");
@@ -114,13 +145,19 @@ class ListingFoundationTest extends AbstractApiTest {
 
     /**
      * The guard against a facet being added and quietly left unprotected. It does not check the
-     * behaviour — the cases below do that — only that somebody has decided which side a facet is on.
+     * behaviour — the cases below do that — only that somebody has decided which side a facet is on,
+     * and that "which side" is a real answer: exactly one of the two sets, never both and never
+     * neither.
      */
     @Test
     @DisplayName("every search facet is either a foundation field or a recorded exemption")
     void everySearchFacetIsClassified() {
-        Set<String> foundationCases = Set.of(
-                "price", "bhk", "propertyType", "locality", "deal", "furnishing", "possession");
+        assertThat(OFF_SEARCH)
+                .as("a field cannot both leave search and stay in it — one of the two sets is wrong")
+                .doesNotContainAnyElementsOf(STAYS_LIVE);
+
+        Set<String> foundationCases = new TreeSet<>(OFF_SEARCH);
+        foundationCases.addAll(STAYS_LIVE);
 
         List<String> facets = searchFacets();
         assertThat(facets)
@@ -138,9 +175,10 @@ class ListingFoundationTest extends AbstractApiTest {
 
         assertThat(unclassified)
                 .as("a buyer can filter on these but an owner can change them on an approved "
-                        + "listing without re-moderation. Add the field to the foundation block in "
-                        + "ListingService.apply and give it a case below, or record why it is "
-                        + "exempt in NOT_LISTING_ATTRIBUTES")
+                        + "listing with no re-review at all. Add the field to one of the two "
+                        + "foundation blocks in ListingService.apply, to the matching set here, "
+                        + "and give it a case below — or record why it is exempt in "
+                        + "NOT_LISTING_ATTRIBUTES")
                 .isEmpty();
     }
 
@@ -153,13 +191,32 @@ class ListingFoundationTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonPatch))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("pending"));
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.recheckPending").value(false));
+    }
+
+    /**
+     * The stays-live half: still approved, and a re-check work item naming the field that earned it.
+     * Searchability itself is proven separately in {@link #aPriceEditKeepsTheListingInSearch} —
+     * status is the mechanism, but being findable is the promise.
+     */
+    private void assertStaysLiveAndQueuesRecheck(String jsonPatch, String field) throws Exception {
+        User o = owner("98764" + String.format("%05d", Math.abs(jsonPatch.hashCode()) % 100000));
+        Property p = approvedListing(o);
+
+        mvc.perform(patch("/me/listings/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonPatch))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").value(true))
+                .andExpect(jsonPath("$.recheckReason").value(field));
     }
 
     @Test
-    @DisplayName("price, bhk, type, locality and deal revert an approved listing")
-    void theOriginalFiveRevert() throws Exception {
-        assertRevertsToPending("{\"price\":31000}");
+    @DisplayName("bhk, type, locality and deal take the listing off search — they change what it is")
+    void identityEditsRevert() throws Exception {
         assertRevertsToPending("{\"bhk\":3}");
         assertRevertsToPending("{\"propertyType\":\"villa\"}");
         assertRevertsToPending("{\"locality\":\"Baner\"}");
@@ -167,23 +224,106 @@ class ListingFoundationTest extends AbstractApiTest {
     }
 
     /**
-     * The two this pass added, and the reason the whole test exists. Relabelling an unfurnished flat
-     * as furnished, or an under-construction one as ready to move, moves it into a filter a buyer
-     * trusts — which is the definition of the thing re-moderation is for.
+     * The other three foundation fields (Q14). Each is still a filter a buyer trusts, so each is
+     * still re-checked — relabelling an unfurnished flat as furnished, or an under-construction one
+     * as ready to move, moves it into a filter it has not earned. But the listing is still that
+     * flat, so the re-check happens with it in search rather than out of it.
      */
     @Test
-    @DisplayName("furnishing and possession revert too — they are filters a buyer trusts")
-    void theTwoThatUsedToSlipThrough() throws Exception {
-        assertRevertsToPending("{\"furnishing\":\"furnished\"}");
-        assertRevertsToPending("{\"possession\":\"ready-to-move\"}");
+    @DisplayName("price, furnishing and possession stay live and queue a re-check instead")
+    void attributeEditsStayLive() throws Exception {
+        assertStaysLiveAndQueuesRecheck("{\"price\":31000}", "price");
+        assertStaysLiveAndQueuesRecheck("{\"furnishing\":\"furnished\"}", "furnishing");
+        assertStaysLiveAndQueuesRecheck("{\"possession\":\"ready-to-move\"}", "possession");
     }
 
     /**
-     * The other half of the rule. Without this, "revert on everything" would pass every case above
-     * and make editing a photo caption cost a day offline.
+     * The point of the whole split, asserted against the thing that actually pays the owner: the
+     * public search. {@code status} staying {@code approved} is only the mechanism —
+     * {@code GET /properties} hard-floors to approved and un-archived, so this is the promise.
      */
     @Test
-    @DisplayName("a non-searchable edit still leaves an approved listing approved")
+    @DisplayName("a price edit leaves the listing findable in public search, re-check and all")
+    void aPriceEditKeepsTheListingInSearch() throws Exception {
+        User o = owner("9876533333");
+        Property p = approvedListing(o, "Zephyrine Riverside Loft");
+
+        mvc.perform(patch("/me/listings/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"price\":31000}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/properties").param("q", "Zephyrine Riverside Loft"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id=='" + p.getId() + "')]").exists())
+                .andExpect(jsonPath("$.content[?(@.id=='" + p.getId() + "')].price")
+                        .value(org.hamcrest.Matchers.contains(31000)));
+
+        assertThat(properties.findById(p.getId()).orElseThrow().isRecheckPending())
+                .as("the edit must still be queued for a moderator — staying live is not the same "
+                        + "as going unreviewed")
+                .isTrue();
+    }
+
+    /**
+     * When one PATCH trips both halves, the revert wins and no separate re-check is left behind: a
+     * full re-moderation already looks at the whole listing, so queueing the price change as well
+     * would put the same edit in front of a moderator twice.
+     */
+    @Test
+    @DisplayName("an edit that trips both halves reverts, and does not also queue a re-check")
+    void remoderationSupersedesRecheck() throws Exception {
+        User o = owner("9876544444");
+        Property p = approvedListing(o);
+
+        mvc.perform(patch("/me/listings/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"price\":31000,\"bhk\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.recheckPending").value(false));
+    }
+
+    /**
+     * A stays-live re-check is a request for a moderator's decision, and this is where decisions are
+     * made — so acting on the listing at all clears it. Without this the queue only ever grows, and
+     * "live but flagged" becomes a flag nobody reads, which is the failure mode Q14 named.
+     */
+    @Test
+    @DisplayName("a moderator setting a status clears the pending re-check")
+    void moderatorActionClearsTheRecheck() throws Exception {
+        User o = owner("9876555555");
+        User staff = new User("9000000001", "staff");
+        staff.setName("Ops");
+        staff.setMobileVerified(true);
+        users.saveAndFlush(staff);
+        Property p = approvedListing(o);
+
+        mvc.perform(patch("/me/listings/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"price\":31000}"))
+                .andExpect(jsonPath("$.recheckPending").value(true));
+
+        mvc.perform(patch("/properties/" + p.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\",\"reason\":\"price checked\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(properties.findById(p.getId()).orElseThrow().isRecheckPending())
+                .as("the moderator has looked; the work item is done")
+                .isFalse();
+    }
+
+    /**
+     * The other half of the rule. Without this, "re-review everything" would pass every case above
+     * and make editing a photo caption cost a moderator's time.
+     */
+    @Test
+    @DisplayName("a non-searchable edit still leaves an approved listing approved and unqueued")
     void nonFoundationEditsDoNotRevert() throws Exception {
         User o = owner("9876511111");
         Property p = approvedListing(o);
@@ -193,17 +333,18 @@ class ListingFoundationTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"description\":\"Newly painted, great light\",\"deposit\":50000}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("approved"));
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").value(false));
     }
 
     /**
      * PATCH semantics: re-sending a field's current value is not an edit. Worth pinning separately
-     * because the natural implementation — "the field was present, so revert" — passes every test
-     * above while sending listings back to moderation for changing nothing, which is how an owner
-     * saving a form twice loses a day.
+     * because the natural implementation — "the field was present, so re-review" — passes every test
+     * above while sending listings to a moderator for changing nothing, which is how an owner saving
+     * a form twice loses a day (or, now, wastes a moderator's).
      */
     @Test
-    @DisplayName("re-sending an unchanged foundation value does not revert")
+    @DisplayName("re-sending an unchanged foundation value is not an edit, on either side")
     void unchangedValuesAreNotEdits() throws Exception {
         User o = owner("9876522222");
         Property p = approvedListing(o);
@@ -211,8 +352,10 @@ class ListingFoundationTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + p.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"furnishing\":\"unfurnished\",\"possession\":\"under-construction\"}"))
+                        .content("{\"bhk\":2,\"furnishing\":\"unfurnished\","
+                                + "\"possession\":\"under-construction\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("approved"));
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.recheckPending").value(false));
     }
 }

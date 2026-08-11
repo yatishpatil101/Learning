@@ -181,6 +181,41 @@ class DocumentVaultTest extends AbstractApiTest {
     }
 
     @Test
+    void uploadDocument_refusesAPdfThatCarriesActiveContent() throws Exception {
+        User owner = user("9820001015");
+        Property p = listing(owner, "Active content flat");
+
+        // D131: the seam is wired in, and it runs on a file the allowlist and the sniffer both pass
+        // -- these really are the leading bytes of a PDF. Nothing before the scanner looks inside.
+        mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
+                        .file(new MockMultipartFile("file", "deed.pdf", "application/pdf",
+                                "%PDF-1.7\n/Type/Action/S/JavaScript(app.alert(1))".getBytes()))
+                        .param("category", "Sale Deed")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
+
+        // And nothing was written: the scan runs before the object store, so a refusal leaves no
+        // row and no object that a signed URL could still serve.
+        assertThat(documents.findAll()).noneMatch(d -> d.getPropertyId().equals(p.getId()));
+    }
+
+    @Test
+    void uploadDocument_refusesARealPdfNamedAsAnExecutable() throws Exception {
+        User owner = user("9820001016");
+        Property p = listing(owner, "Double extension flat");
+
+        // The bytes are a genuine PDF, so every byte-level guard in the vault passes it. The name is
+        // what the recipient's computer reads when they save the download (D131).
+        mvc.perform(multipart(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
+                        .file(new MockMultipartFile("file", "deed.pdf.exe", "application/pdf",
+                                "%PDF-1.4 deed".getBytes()))
+                        .param("category", "Sale Deed")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
     void uploadDocument_isA404OnSomeoneElsesListing_notA403() throws Exception {
         User owner = user("9820001005");
         User stranger = user("9820001006");

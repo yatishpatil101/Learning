@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -16,8 +17,7 @@ test.describe('Admin Reports page redesign', () => {
   });
 
   test('page loads without errors', async ({ page }) => {
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    const errors = trackErrors(page);
     await expect(page.getByRole('heading', { name: 'Reports & Moderation' })).toBeVisible({ timeout: 5000 });
     expect(errors).toHaveLength(0);
   });

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -30,8 +31,7 @@ async function pickSelectOption(page, ariaLabel, optionText) {
 
 test.describe('Properties page structure', () => {
   test('loads without JS errors', async ({ page }) => {
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    const errors = trackErrors(page);
     await goToProperties(page);
     expect(errors).toHaveLength(0);
   });

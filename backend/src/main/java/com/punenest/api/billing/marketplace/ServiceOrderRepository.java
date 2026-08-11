@@ -20,4 +20,13 @@ public interface ServiceOrderRepository extends JpaRepository<ServiceOrder, UUID
 
     /** Replays a client's {@code Idempotency-Key}. Unique per user (V23). */
     Optional<ServiceOrder> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
+
+    /**
+     * The caller's own order by id, for the two customer-driven transitions (D58).
+     *
+     * <p>Owner-scoped in the query rather than fetched and then checked, so a stranger's order is a
+     * 404 by construction: there is no branch on this path that could turn it into a 403 and
+     * confirm the id exists.
+     */
+    Optional<ServiceOrder> findByIdAndUserId(UUID id, UUID userId);
 }

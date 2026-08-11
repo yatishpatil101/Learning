@@ -28,6 +28,10 @@ export const seedProperty = (id) => {
 };
 /** Owner mobile for a seed listing — the suffix of `puneNestContactReq:` etc. */
 export const ownerMobileOf = (id) => seedProperty(id).ownerMobile;
+/** Owner *account id* for a seed listing — the suffix of the owner-scoped deal/visit buckets
+ *  (`puneNestDeals:`, `pnOffers:`, `puneNestPropVisitReqs:`). Those moved off the mobile in D30,
+ *  because a masked number strips to a short string several owners share. */
+export const ownerIdOf = (id) => seedProperty(id).ownerId;
 
 export const OWNER = { name: 'Test Owner', mobile: '9800000001', role: 'owner' };
 export const SEEKER = { name: 'Test Seeker', mobile: '9800000002', role: 'buyer' };
@@ -44,6 +48,10 @@ const KEYS = {
   groups: 'puneNestFlatmateGroups',
   reviews: 'puneNestFlatmateReviews',
   interests: 'puneNestFlatmateInterests',
+  // The mock provider's own interest ledger — its stand-in for the API's unique index (D181).
+  // Distinct from `interests`, which is only what this browser remembers asking. Both are cleared
+  // so a spec that asks twice gets the real 409 rather than a leftover from the previous test.
+  mockInterests: 'pnMockFlatmateInterests',
   saved: 'puneNestFlatmateSaved',
 };
 
@@ -163,6 +171,33 @@ export async function seed(page, {
   }, [KEYS, { user, listings, rooms, posts, groups, aadhaar, contactsUsed, referralStats, plan, referredBy }]);
 }
 
+/**
+ * Wait until the app has finished booting.
+ *
+ * Use this before ANY `page.evaluate` that reads or writes the mock store directly.
+ *
+ * `waitUntil: 'networkidle'` does not mean the app is ready, and on this app it is not
+ * even close. Vite downloads the whole module graph and only then evaluates it, so the
+ * last response lands about a second before `main.jsx` runs — `networkidle` resolves
+ * against an empty document. Specs got away with it while the store was written
+ * synchronously during evaluation, because a command queued at idle could not run until
+ * the main thread was free, which was after the write. The seed now arrives via
+ * `import()` (D129), putting the write one hop past that point, and the coincidence
+ * stopped holding.
+ *
+ * Probing `localStorage['puneNestDB_v5']` instead is closer but still wrong: the dev-only
+ * disk hydration writes that key *before* the one-shot migrations run, so it can be
+ * present and stale. `main.jsx` sets `data-pn-boot="ready"` once the store is genuinely
+ * complete, which is the only signal that covers both.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export const appReady = (page) => page.waitForFunction(
+  () => document.documentElement.dataset.pnBoot === 'ready',
+  null,
+  { timeout: 30_000 },
+);
+
 /** Read a localStorage key back out as JSON (assertions on persisted state). */
 export const readStore = (page, key) =>
   page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
@@ -178,7 +213,7 @@ export const readStore = (page, key) =>
  */
 export async function publishListing(page, listing) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!localStorage.getItem('puneNestDB_v5'), null, { timeout: 30_000 });
+  await appReady(page);
   await page.evaluate((l) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
     db.listings = [l, ...db.listings.filter((p) => p.id !== l.id)];
@@ -216,7 +251,7 @@ export const readReviews = (page) => readStore(page, KEYS.reviews);
  */
 export async function setFlags(page, flags) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => !!localStorage.getItem('puneNestDB_v5'), null, { timeout: 30_000 });
+  await appReady(page);
   await page.evaluate((f) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
     db.settings.flags = { ...db.settings.flags, ...f };

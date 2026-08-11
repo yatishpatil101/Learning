@@ -6,7 +6,7 @@ import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
 import Select from '../../../components/ui/Select.jsx';
 import InternalNote from '../../../components/ui/InternalNote.jsx';
-import { EDIT_DEAL_OPTS, EDIT_STATUS_OPTS, dealLabel, perSqftLabel, liveHref, detailKvs } from './constants.js';
+import { EDIT_DEAL_OPTS, EDIT_STATUS_OPTS, dealLabel, perSqftLabel, liveHref, detailKvs, fmtAgo } from './constants.js';
 
 /* ─── Edit Modal ─── */
 export function PropertyEditModal({ edit, setEdit, onSubmit }) {
@@ -160,6 +160,43 @@ export function PropertyViewModal({ view, setView }) {
             ))}
           </div>
         </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+/* ─── Re-check Reject Modal ───
+   The failure branch of the stays-live re-check queue (Q14). Its own modal rather than a reuse of
+   the bulk one because the moderator needs the two facts the queue is about — which fields changed
+   and how long ago — in front of them while they type the reason, and because the copy has to say
+   out loud that the listing has been live the whole time. Same status transition as every other
+   take-down: `setListingStatus(id, 'rejected', reason)`. */
+export function PropertyRecheckRejectModal({ target, setTarget, reason, setReason, onSubmit }) {
+  return (
+    <Modal
+      open={!!target}
+      onClose={() => setTarget(null)}
+      title="Re-check failed — take listing down"
+      footer={
+        <>
+          <button onClick={() => setTarget(null)} className="pn-btn pn-btn-ghost">Cancel</button>
+          <button onClick={onSubmit} className="pn-btn pn-btn-danger"><XCircle className="h-4 w-4" /> Reject listing</button>
+        </>
+      }
+    >
+      {target ? (
+        <>
+          <p className="mb-3 text-sm text-gray-400">
+            <span className="text-gray-200">{target.title}</span> has stayed live and searchable since the
+            owner edited <span className="text-gray-200">{target.recheckReason || 'these fields'}</span>
+            {target.recheckRequestedAt ? <> ({fmtAgo(target.recheckRequestedAt)})</> : null}. Rejecting removes it
+            from search now and sends the reason below to the owner.
+          </p>
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-300">Reason for rejection</span>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} placeholder={'Be specific so the owner knows what to fix\u2026'} className="pn-input resize-none" aria-label="Reason for rejection" />
+          </label>
+        </>
       ) : null}
     </Modal>
   );

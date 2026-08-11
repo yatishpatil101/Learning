@@ -419,7 +419,7 @@ class FinalizationEndpointsTest extends AbstractApiTest {
         // directly here with the owner as viewer to assert the masking in isolation.
         User buyerUser = users.findById(buyer.getId()).orElseThrow();
         FinalizationRequestDto dto = FinalizationMapper.toDto(
-                accepted, buyerUser, owner, owner.getId());
+                accepted, buyerUser, owner, owner.getId(), Set.of());
         assertThat(dto.initiator().mobile()).isEqualTo("98XXXXX210");
     }
 

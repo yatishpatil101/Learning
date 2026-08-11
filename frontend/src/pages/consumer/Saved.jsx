@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { fmtINR } from '../../lib/format.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
+import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { buildAlertRecord } from './listings/alertCriteria.js';
+import CategorySwitcher from './saved/CategorySwitcher.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import '../../styles/routes/saved.css';
@@ -16,7 +19,7 @@ const FLATMATE_SAVED_KEY = 'puneNestFlatmateSaved';
 const CATEGORIES = [
   { key: 'buy', label: 'For Sale', labelKey: 'catBuyLabel', icon: 'home', desc: 'Properties you want to buy', descKey: 'catBuyDesc' },
   { key: 'rent', label: 'For Rent', labelKey: 'catRentLabel', icon: 'key', desc: 'Rentals you shortlisted', descKey: 'catRentDesc' },
-  { key: 'flatmates', label: 'Flatmates & Rooms', labelKey: 'catFlatmatesLabel', shortKey: 'catFlatmatesShort', short: 'Flatmates', icon: 'users-round', desc: 'Shared living saves', descKey: 'catFlatmatesDesc' },
+  { key: 'flatmates', label: 'Flatmates & Rooms', labelKey: 'catFlatmatesLabel', icon: 'users-round', desc: 'Shared living saves', descKey: 'catFlatmatesDesc' },
 ];
 
 const SORTS = [['newest', 'Newest', 'sortNewest'], ['price-desc', 'Price: High to Low', 'sortPriceHigh'], ['price-asc', 'Price: Low to High', 'sortPriceLow']];
@@ -29,6 +32,33 @@ const statusLabelFor = (status) => {
   return status.charAt(0).toUpperCase() + status.slice(1);
 };
 
+/* The flatmate half of the shortlist. Read as a function rather than inline in the initial
+   state because pull-to-refresh has to be able to read it a second time — saves made in another
+   tab, or a removal that has since committed, live only in this key. */
+function readFlatmateSaves() {
+  const savedMap = {};
+  try {
+    const stored = localStorage.getItem(FLATMATE_SAVED_KEY);
+    if (stored) Object.assign(savedMap, JSON.parse(stored));
+  } catch (e) { /* a corrupt key reads as an empty shortlist, not as a broken page */ }
+
+  return Object.keys(savedMap).map((k) => {
+    const v = savedMap[k];
+    if (!v || typeof v !== 'object') return null;
+    return {
+      id: k,
+      cat: 'flatmates',
+      kind: v.kind || 'flatmate',
+      title: v.title || 'Saved item',
+      loc: v.loc || 'Pune',
+      price: v.price || '',
+      badge: v.badge || (v.kind === 'group' ? 'Flatmate group' : 'Flatmate'),
+      sub: v.sub || '',
+      img: v.img || 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80',
+    };
+  }).filter(Boolean);
+}
+
 /* Arms swipe-left-to-remove on one saved card. A component rather than an inline
    hook call because hooks can't run inside a .map(). The gesture itself is
    mobile-only (useSwipeDismiss never arms above 640px), and `pan-y` keeps the
@@ -36,7 +66,7 @@ const statusLabelFor = (status) => {
 function SwipeCard({ onRemove, className, children }) {
   const swipe = useSwipeDismiss(onRemove, { axis: 'x' });
   return (
-    <div {...swipe} className={className} style={{ touchAction: 'pan-y' }}>
+    <div {...swipe} data-testid="saved-card" className={className} style={{ touchAction: 'pan-y' }}>
       {children}
     </div>
   );
@@ -87,31 +117,16 @@ export default function Saved() {
     };
   }), [savedList.items]);
 
-  const [cards, setCards] = useState(() => {
-    const savedMap = {};
-    try {
-      const stored = localStorage.getItem(FLATMATE_SAVED_KEY);
-      if (stored) Object.assign(savedMap, JSON.parse(stored));
-    } catch (e) {}
+  const [cards, setCards] = useState(readFlatmateSaves);
 
-    const flatmateCards = Object.keys(savedMap).map((k) => {
-      const v = savedMap[k];
-      if (!v || typeof v !== 'object') return null;
-      return {
-        id: k,
-        cat: 'flatmates',
-        kind: v.kind || 'flatmate',
-        title: v.title || 'Saved item',
-        loc: v.loc || 'Pune',
-        price: v.price || '',
-        badge: v.badge || (v.kind === 'group' ? 'Flatmate group' : 'Flatmate'),
-        sub: v.sub || '',
-        img: v.img || 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80',
-      };
-    }).filter(Boolean);
-
-    return flatmateCards;
-  });
+  /* Pull down from the top of the list to re-read both halves: the shortlist from its provider
+     and the flatmate saves from the device. Refreshing only one would leave the gesture looking
+     like it half worked on a page that shows the two interleaved. */
+  const refreshShortlist = savedList.refresh;
+  const ptr = usePullToRefresh(useCallback(
+    () => Promise.resolve(refreshShortlist()).catch(() => {}).then(() => setCards(readFlatmateSaves())),
+    [refreshShortlist],
+  ));
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 20);
@@ -202,8 +217,12 @@ export default function Saved() {
   }, [allCards]);
 
   const activeCat = CATEGORIES.find((c) => c.key === tab) || CATEGORIES[0];
-  const activeCatLabel = tr('saved.' + activeCat.labelKey, { defaultValue: activeCat.label });
-  const activeCatDesc = tr('saved.' + activeCat.descKey, { defaultValue: activeCat.desc });
+  /* Shared by the pill strip, the bottom-sheet switcher and the per-category empty
+     state, so the three can never drift apart on a rename. */
+  const catLabel = useCallback((c) => (c ? tr('saved.' + c.labelKey, { defaultValue: c.label }) : ''), [tr]);
+  const catDesc = useCallback((c) => (c ? tr('saved.' + c.descKey, { defaultValue: c.desc }) : ''), [tr]);
+  const activeCatLabel = catLabel(activeCat);
+  const activeCatDesc = catDesc(activeCat);
   const items = useMemo(() => {
     const filtered = allCards.filter((c) => c.cat === tab);
     return [...filtered].sort((a, b) => {
@@ -214,7 +233,21 @@ export default function Saved() {
   }, [allCards, tab, sort]);
 
   return (
-    <div className="saved-page">
+    <div ref={ptr.ref} className="saved-page">
+      {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
+        <div
+          aria-hidden="true"
+          data-testid="ptr-indicator"
+          className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
+          style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+        >
+          <Icon
+            name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
+            className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
+            style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
+          />
+        </div>
+      )}
       <div className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className={'mb-6 sm:mb-10 fade-in' + (mounted ? ' visible' : '')}>
@@ -254,27 +287,29 @@ export default function Saved() {
 
           {allCards.length > 0 ? (
             <>
-              {/* Three tabs behind a horizontal scroll meant the third was often
-                  off-screen with no affordance that it existed. With only three
-                  categories a 3-up grid shows all of them at once on a phone; the
-                  sm: branch restores today's centred wrap for tablet and desktop. */}
-              <div className={'saved-tabs grid grid-cols-3 gap-2 sm:flex sm:items-center sm:flex-wrap sm:justify-center sm:gap-2.5 mb-6 sm:mb-10 fade-in' + (mounted ? ' visible' : '')}>
+              {/* Three pills across a 360 px viewport truncated their own labels —
+                  "Flatmates & Rooms" only fit as "Flatmates" — and left no room for
+                  the descriptions that tell the categories apart. Phones get the
+                  dashboard's bottom-sheet switcher instead; tablet and desktop keep
+                  the centred pill strip below, unchanged. */}
+              <CategorySwitcher
+                categories={CATEGORIES}
+                activeKey={tab}
+                counts={counts}
+                onSelect={setTab}
+                labelFor={catLabel}
+                descFor={catDesc}
+              />
+              <div className={'saved-tabs hidden sm:flex sm:items-center sm:flex-wrap sm:justify-center sm:gap-2.5 sm:mb-10 fade-in' + (mounted ? ' visible' : '')}>
                 {CATEGORIES.map((c) => (
                   <button
                     key={c.key}
                     onClick={() => setTab(c.key)}
                     aria-pressed={tab === c.key}
-                    className={'saved-tab seg text-[13px] sm:text-sm font-semibold min-h-[44px] px-2 sm:px-5 py-2.5 rounded-xl text-gray-300 flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 sm:flex-shrink-0 whitespace-nowrap min-w-0' + (tab === c.key ? ' active' : '')}
+                    className={'saved-tab seg text-sm font-semibold min-h-[44px] px-5 py-2.5 rounded-xl text-gray-300 flex items-center justify-start gap-2 flex-shrink-0 whitespace-nowrap min-w-0' + (tab === c.key ? ' active' : '')}
                   >
                     <Icon name={c.icon} className="w-4 h-4 flex-shrink-0" />
-                    {c.shortKey ? (
-                      <>
-                        <span className="sm:hidden truncate">{tr('saved.' + c.shortKey, { defaultValue: c.short })}</span>
-                        <span className="hidden sm:inline">{tr('saved.' + c.labelKey, { defaultValue: c.label })}</span>
-                      </>
-                    ) : (
-                      <span className="truncate">{tr('saved.' + c.labelKey, { defaultValue: c.label })}</span>
-                    )}
+                    <span className="truncate">{catLabel(c)}</span>
                     <span className="tab-count px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0">{counts[c.key]}</span>
                   </button>
                 ))}
@@ -330,7 +365,7 @@ export default function Saved() {
                     >
                       <Link to={`/property/${c.id}`} className="block">
                         <div className="card-image relative h-44 sm:h-56">
-                          <img src={c.img} alt={c.title} className="w-full h-full object-cover" />
+                          <PropertyImage src={c.img} alt={c.title} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                           <div className="absolute top-4 right-4 w-10 h-10 rounded-xl bg-black/30 backdrop-blur-md flex items-center justify-center"><Icon name="heart" weight="fill" className="w-5 h-5 text-red-400" /></div>
                           <div className="absolute top-4 left-4"><span className="type-badge px-3 py-1.5 rounded-full text-xs font-semibold text-teal-300 backdrop-blur-md">{c.badge}</span></div>

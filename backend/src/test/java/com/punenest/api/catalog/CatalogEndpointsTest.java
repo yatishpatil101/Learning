@@ -101,6 +101,32 @@ class CatalogEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$[1].platformFee").value(1999));
     }
 
+    /**
+     * Neither deal publishes a flat stamp duty, because neither has one.
+     *
+     * <p>The {@code buy} row was seeded {@code 0} and V52 left it there on purpose, naming it as a
+     * separate untruth. Zero is not "unknown": on a public page beside a zero-brokerage promise it
+     * reads as the state waiving the single largest cost of buying a home. Maharashtra charges 5-7%
+     * of the higher of agreement value and ready reckoner rate — several lakh rupees on a typical
+     * flat — and no figure in this table can be right, because the table has never seen the value it
+     * is a percentage of.
+     *
+     * <p>So the assertion is {@code doesNotExist}, not {@code value(0)}. Registration stays present
+     * for {@code buy}: 1% capped at ₹30,000 is a genuinely published cap, and a figure that exists
+     * should be sent. The distinction being pinned is exactly that — absent means uncomputable, not
+     * free — and it is what stops a client summing a false zero into a quote.
+     */
+    @Test
+    void neitherDealPublishesAFlatStampDuty() throws Exception {
+        mvc.perform(get("/fees"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].deal").value("buy"))
+                .andExpect(jsonPath("$[0].stampDuty").doesNotExist())
+                .andExpect(jsonPath("$[0].registration").value(30000))
+                .andExpect(jsonPath("$[1].deal").value("rent"))
+                .andExpect(jsonPath("$[1].stampDuty").doesNotExist());
+    }
+
     // ---------------- GET /cities ----------------
 
     /**

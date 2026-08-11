@@ -399,7 +399,7 @@ public class FlatmateSupplyService {
             throw new ForbiddenException("You cannot ask to join your own group.");
         }
         if (group.openSeats() <= 0) {
-            throw new ConflictException("This group is full. (group_full)");
+            throw FlatmateConflicts.groupFull("This group is full.");
         }
         String intent = FlatmateVocabulary.orDefault(
                 share, FlatmateVocabulary.SHARE_INTENT, "solo", "share intent");
@@ -415,14 +415,15 @@ public class FlatmateSupplyService {
             // Auto-accepted, so the seat is genuinely taken and the member is real.
             User joiner = users.findById(caller.userId())
                     .orElseThrow(() -> NotFoundException.of("User"));
-            // why: `users.name` is nullable (an OTP sign-in sets no name until the person fills in
-            // their profile) but `flatmate_group_members.name` is NOT NULL, because a member card
-            // has to render something. Passing the null straight through is a constraint violation
-            // at flush time -- a 500 on the join, for the very users who have just signed up. The
-            // fallback is neutral rather than invented: we genuinely do not know their name yet.
-            String memberName = FlatmateVocabulary.blankToNull(joiner.getName());
+            // why: `users.name` is nullable — an OTP sign-in sets no name until the person fills in
+            // their profile — and since V55 so is `flatmate_group_members.name`, so the null goes
+            // through untouched. It used to be substituted with the literal "Member" to satisfy a
+            // NOT NULL the schema had no business asserting; that stored a name the platform made
+            // up and then showed it to other people as this person's. Absent is not the same claim
+            // as "called Member", and only one of the two is true. The member card renders its own
+            // fallback for the absent case (D118).
             group.addMember(new FlatmateGroupMember(
-                    memberName == null ? "Member" : memberName,
+                    FlatmateVocabulary.blankToNull(joiner.getName()),
                     joiner.getId(), caller.aadhaarVerified()));
             group.setSeatsOpen(Math.max(0, group.openSeats() - 1));
             groups.saveAndFlush(group);
@@ -646,10 +647,14 @@ public class FlatmateSupplyService {
      * <p>One message for both doors, because the row they collide on is the same row and the
      * requester's question after a refused press is the same either way: did the host hear me the
      * first time. They did.
+     *
+     * <p>Only the sentence is written here. {@link FlatmateConflicts} appends the marker the client
+     * routes on, so nothing can be added after it by accident — see that class for why the position
+     * matters (D182).
      */
     private static ConflictException alreadyInterested() {
-        return new ConflictException("You have already sent this host a request — your earlier "
-                + "message is with them. (already_interested)");
+        return FlatmateConflicts.alreadyInterested(
+                "You have already sent this host a request — your earlier message is with them.");
     }
 
     /** People living across every sibling room of this flat. Standalone rooms have no siblings. */

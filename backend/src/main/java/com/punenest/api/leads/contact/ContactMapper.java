@@ -3,6 +3,7 @@ package com.punenest.api.leads.contact;
 import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.identity.user.User;
+import java.util.Set;
 import java.util.UUID;
 import org.mapstruct.Context;
 import org.mapstruct.Mapper;
@@ -47,19 +48,24 @@ public interface ContactMapper {
     @Mapping(target = "requester", source = "requester")
     @Mapping(target = "contact", source = "requester")
     ContactRequestResponse toResponse(ContactRequest request, User requester,
-            @Context ContactVisibility visibility);
+            @Context ContactVisibility visibility, @Context Set<UUID> verifiedIds);
 
     /**
      * The always-masked side of the request. Hand-written and unconditional: there is no argument that
      * can make this emit a raw number, which is the property we want a reviewer to be able to confirm
      * by reading five lines.
+     *
+     * <p>{@code verifiedIds} arrives as a context rather than being looked up here because the badge
+     * is a batched, id-keyed answer computed once per page — asking per party would reintroduce the
+     * N+1 this surface already avoids for the users themselves.
      */
-    default ContactRequestResponse.Party toParty(User requester) {
+    default ContactRequestResponse.Party toParty(User requester, @Context Set<UUID> verifiedIds) {
         if (requester == null) {
             return null;
         }
         return new ContactRequestResponse.Party(
-                requester.getName(), maskMobile(requester.getMobile()), "buyer");
+                requester.getName(), maskMobile(requester.getMobile()), "buyer",
+                verifiedIds != null && verifiedIds.contains(requester.getId()));
     }
 
     /**

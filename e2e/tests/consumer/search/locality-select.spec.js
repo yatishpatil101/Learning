@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Google-Places-powered Locality picker on List Property → Location & pricing.
    Verifies: (1) typing shows LIVE Pune locality suggestions (any locality, not just
@@ -92,8 +93,7 @@ async function openLocality(page) {
 }
 
 test('typing a non-listed locality shows a live suggestion; picking it sets the value and recenters the map', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoStep2(page);
   await stubPlacesOn(page, { lat: 18.538, lng: 73.807 });
 
@@ -112,8 +112,7 @@ test('typing a non-listed locality shows a live suggestion; picking it sets the 
 });
 
 test('with Google unavailable the picker falls back to filtering the static list (no regression, no errors)', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoStep2(page);
   await stubPlacesOff(page);
 

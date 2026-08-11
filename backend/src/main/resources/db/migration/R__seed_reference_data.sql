@@ -9,9 +9,23 @@
 -- rent, the term and the deposit, and registration is Rs 1000 municipal / Rs 500 rural. A single
 -- seeded figure would be right for one tenancy and wrong for every other, so the schedule declines
 -- to publish one and `catalog.fee.LeaveAndLicenceCharges` computes the real figure per request.
+--
+-- The `buy` row's stamp duty is NULL for the same reason, and V52 named it while deliberately
+-- leaving it alone. It was seeded 0, and 0 is not "we don't know" -- it is a published claim that
+-- the state charges nothing. Maharashtra charges 5-7% of the higher of agreement value and ready
+-- reckoner rate on a sale (plus metro cess and LBT where they apply, with a concession for a woman
+-- sole buyer), which on a 1 crore flat is several lakh rupees. Publishing 0 next to a "zero
+-- brokerage" promise on a public page reads as a waiver of the largest single cost of buying a
+-- home, and it is legally wrong rather than merely imprecise. There is no flat figure to put here
+-- instead -- the rate is a percentage of a value this table has never seen -- so the column stops
+-- claiming to know, and the estimate stays where the buyer's own numbers are (the property page's
+-- cost breakdown and the legal-cost calculator, both of which take a price as input).
+--
+-- Registration stays 30000 because it genuinely is a published cap: 1% of agreement value up to a
+-- Rs 30,000 maximum. Capped-and-usually-hit is a figure; a percentage of an unknown is not.
 INSERT INTO platform_fees (deal, brokerage, platform_fee, stamp_duty, registration, gst, notes) VALUES
     ('rent', 0, 1999, NULL,  NULL,  360, 'Zero brokerage; flat rent-agreement platform fee + 18% GST. Maharashtra stamp duty (0.25% of rent for the term + non-refundable deposit + 10% of the refundable deposit per year) and registration (Rs 1,000 municipal / Rs 500 rural) are statutory, computed per agreement from your terms, and collected on top.'),
-    ('buy',  0, 4999, 0,     30000, 900, 'Zero brokerage; stamp duty/registration are indicative, state-specific.')
+    ('buy',  0, 4999, NULL,  30000, 900, 'Zero brokerage; the platform fee and GST are ours, the rest is the state''s. Maharashtra stamp duty is a percentage (5-7% incl. cess) of the higher of agreement value and ready reckoner rate, so it is calculated on your property, not published here; registration is 1% capped at Rs 30,000.')
 ON CONFLICT (deal) DO UPDATE SET
     brokerage    = EXCLUDED.brokerage,
     platform_fee = EXCLUDED.platform_fee,

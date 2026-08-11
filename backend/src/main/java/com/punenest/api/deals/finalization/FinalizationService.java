@@ -9,10 +9,12 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.deals.deal.DealService;
+import com.punenest.api.finance.tenancy.TenantProfileService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -59,15 +61,18 @@ public class FinalizationService {
     private final PropertyRepository properties;
     private final UserRepository users;
     private final DealService dealService;
+    private final TenantProfileService tenantProfiles;
 
     public FinalizationService(FinalizationRequestRepository finalizationRequests,
                                PropertyRepository properties,
                                UserRepository users,
-                               DealService dealService) {
+                               DealService dealService,
+                               TenantProfileService tenantProfiles) {
         this.finalizationRequests = finalizationRequests;
         this.properties = properties;
         this.users = users;
         this.dealService = dealService;
+        this.tenantProfiles = tenantProfiles;
     }
 
     /**
@@ -139,7 +144,8 @@ public class FinalizationService {
         }
 
         User initiator = users.findById(callerId).orElse(null);
-        return FinalizationMapper.toDto(request, initiator, counterparty, callerId);
+        return FinalizationMapper.toDto(request, initiator, counterparty, callerId,
+                verifiedAmong(request));
     }
 
     /**
@@ -167,7 +173,8 @@ public class FinalizationService {
         return FinalizationMapper.toDto(request,
                 userMap.get(request.getInitiatorId()),
                 userMap.get(request.getCounterpartyId()),
-                callerId);
+                callerId,
+                verifiedAmong(request));
     }
 
     /**
@@ -227,11 +234,17 @@ public class FinalizationService {
         Map<UUID, User> userMap = users.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
+        // One badge query for the whole page, alongside the one user query (D114). Keyed by user
+        // id: every counterparty mobile on this payload is masked, and a mask is not reversible, so
+        // there is no number here a badge could honestly be looked up by.
+        Set<UUID> verified = tenantProfiles.verifiedAmong(userIds);
+
         List<FinalizationRequestDto> content = rows.getContent().stream()
                 .map(r -> FinalizationMapper.toDto(r,
                         userMap.get(r.getInitiatorId()),
                         userMap.get(r.getCounterpartyId()),
-                        callerId))
+                        callerId,
+                        verified))
                 .toList();
         return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
     }
@@ -332,5 +345,19 @@ public class FinalizationService {
     private Map<UUID, User> batchLoadUsers(UUID... ids) {
         return users.findAllById(List.of(ids)).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
+    }
+
+    /**
+     * Which of this request's two participants carry the Verified Tenant badge (D114).
+     *
+     * <p>Asked by user id. The obvious alternative — let the client match the party's mobile
+     * against the verified list — is what used to happen and could never work: D5 masks a
+     * counterparty's number at every status, and {@code 98XXXXX210} matches nobody, so the badge
+     * was permanently absent in live. The mask is doing its job; the badge simply must not be
+     * derived from it.
+     */
+    private Set<UUID> verifiedAmong(FinalizationRequest request) {
+        return tenantProfiles.verifiedAmong(
+                List.of(request.getInitiatorId(), request.getCounterpartyId()));
     }
 }

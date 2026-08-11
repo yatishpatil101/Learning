@@ -52,7 +52,7 @@ export default function DailyScorecardPanel({ ops }) {
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-semibold text-gray-200">Top performers today</span>
-              <Link to="/admin/staff-activity" className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors">View all →</Link>
+              <Link to="/admin/staff-activity" className="tap-target inline-flex items-center justify-end text-[11px] text-teal-400 hover:text-teal-300 transition-colors">View all →</Link>
             </div>
             <div className="space-y-2.5">
               {ops.staffBreakdown.map((s, i) => (

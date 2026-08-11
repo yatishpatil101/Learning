@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import { ArrowRight, BadgeCheck, Bell, CalendarCheck, CheckCircle2, Loader2, Mail, Send, ShieldCheck, User, UserCircle } from 'lucide-react';
@@ -11,6 +11,7 @@ import { isHttpDomain } from '../../services/config.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import AuthShell from '../../components/auth/AuthShell.jsx';
 import MobileAuthIntro from '../../components/auth/MobileAuthIntro.jsx';
+import TurnstileWidget from '../../components/security/TurnstileWidget.jsx';
 import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
@@ -76,7 +77,9 @@ export default function Signup() {
   const [terms, setTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(false);
-  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
+  // See Signin.jsx: a ref rather than state, because a re-render can throw away a solved challenge.
+  const turnstileRef = useRef(null);
+  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m, turnstileToken: turnstileRef.current }));
   const [createError, setCreateError] = useState(null);
   const { city } = useCity();
   const cityKnown = cityHasData(city);
@@ -205,6 +208,8 @@ export default function Signup() {
 
           {!otp.otpSent ? (
             <>
+              {/* Inert without VITE_TURNSTILE_SITE_KEY. Not gating the button — see Signin.jsx. */}
+              <TurnstileWidget onToken={(tok) => { turnstileRef.current = tok; }} className="flex justify-center" />
               <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
                 <Send className="w-4 h-4" /> {otp.sending ? t('auth.sending') : t('auth.sendOtp')}
               </button>

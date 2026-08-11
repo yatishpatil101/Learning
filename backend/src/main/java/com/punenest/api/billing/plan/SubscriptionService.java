@@ -1,5 +1,6 @@
 package com.punenest.api.billing.plan;
 
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.payments.AbandonedCheckouts;
@@ -69,7 +70,7 @@ public class SubscriptionService implements AbandonedCheckouts {
     private static final String OPEN_UNPAID_INDEX = "uq_subscriptions_open_unpaid";
 
     /** Terms are whole calendar periods in the customer's own timezone, not 365-day windows. */
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final ZoneId TERM_ZONE = PlatformTime.IST;
 
     /** Months in each {@code billingCycle}. An unrecognised cycle falls back to a year. */
     private static final int MONTHLY = 1;
@@ -563,7 +564,7 @@ public class SubscriptionService implements AbandonedCheckouts {
 
     /** End of one paid term, measured in whole calendar months from {@code from}. */
     private static Instant renewalFrom(Instant from, String billingCycle) {
-        ZonedDateTime start = from.atZone(IST);
+        ZonedDateTime start = from.atZone(TERM_ZONE);
         return start.plusMonths(monthsIn(billingCycle)).toInstant();
     }
 

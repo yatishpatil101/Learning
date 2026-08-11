@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Location trust & recovery — two additions that keep a location search from
    ever dead-ending or hiding stock quality:
@@ -14,8 +15,7 @@ const HERO = '.hero-search-wrap';
 const INPUT = 'input[aria-label="Search localities, societies or landmarks"]';
 
 async function gotoHome(page) {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/`);
   await page.locator(HERO).waitFor({ timeout: 15000 });
@@ -47,8 +47,7 @@ test('home suggestions show a live listing-count badge (stocked vs empty)', asyn
 });
 
 test('impossible locality ∩ near-a-place link auto-relaxes to proximity with a banner', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
 
   // Magarpatta has 0 BUY listings in its own slug, but ~7 sit within 5km in

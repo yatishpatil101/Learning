@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Phase B/C — community-locality mint layer (the "locality graph").
    Mirrors the community-society pattern: a listing whose picked locality matches
@@ -13,8 +14,7 @@ import { test, expect } from '@playwright/test';
 const BASE = 'http://localhost:5173';
 
 test('unmatched locality mints a community locality, registers it, and verify promotes it', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.goto(BASE);
 
   const res = await page.evaluate(async () => {
@@ -63,8 +63,7 @@ test('unmatched locality mints a community locality, registers it, and verify pr
 });
 
 test('admin Localities queue lists a pending community locality and Verify promotes it', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   // Seed a pending community locality before the app loads; store.js rehydrates
   // the registry from this key at module load.
   await page.addInitScript(() => {

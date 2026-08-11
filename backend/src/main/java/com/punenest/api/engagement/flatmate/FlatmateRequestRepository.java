@@ -14,6 +14,16 @@ public interface FlatmateRequestRepository extends JpaRepository<FlatmateRequest
      * One request per (kind, target, requester). The unique index is what actually enforces this;
      * the finder is the re-read the write paths do behind their advisory lock, so a second ask is
      * refused with the contract's 409 rather than racing the index for it (D175).
+     *
+     * <p><strong>V27's comment on that index is wrong; do not believe it</strong> (D176). It says
+     * the index "is the reason the service does not check-then-insert" and that the interest
+     * endpoints are "idempotent". Neither is true: this finder <em>is</em> a check-then-insert, in
+     * both {@code FlatmateSeekerService.express} and {@code FlatmateSupplyService.record}, and has
+     * been since V27 landed; and a second ask is <em>refused</em> with a 409, which is the opposite
+     * of answering it idempotently. The index's real job is the backstop above READ COMMITTED,
+     * where a pre-lock snapshot could carry a caller past this check. V27 cannot be edited in place
+     * because Flyway validates checksums on every boot, so the correction lives in V54's header and
+     * in a {@code COMMENT ON INDEX} that ships with the schema.
      */
     Optional<FlatmateRequest> findByKindAndTargetIdAndRequesterId(
             String kind, UUID targetId, UUID requesterId);

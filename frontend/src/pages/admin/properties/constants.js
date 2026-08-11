@@ -53,18 +53,10 @@ export const perSqftLabel = (l) =>
     : '\u2014';
 export const liveHref = (l) => `/property/${l.realId || l.id}`;
 
-export function fmtAgo(ts) {
-  const t = typeof ts === 'string' ? new Date(ts).getTime() : ts;
-  const s = Math.floor((Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.floor(h / 24);
-  if (d < 30) return d + 'd ago';
-  return new Date(t).toLocaleDateString('en-IN');
-}
+/* Re-exported so the admin property modules keep importing it from here, but it now lives in
+   lib/format.js — AdminPropertyCard needs it for the re-check queue age and is a component, which
+   has no business reaching into a page's constants module. */
+export { fmtAgo } from '../../../lib/format.js';
 
 export { exportCsv } from '../../../lib/csv.js';
 

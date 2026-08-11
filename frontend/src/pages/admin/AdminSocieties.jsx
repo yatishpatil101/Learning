@@ -5,6 +5,7 @@ import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useTabParam } from '../../lib/useTabParam.js';
+import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { allSocieties } from '../../data/societies.js';
 import {
   getSocietyClaims, setSocietyClaimStatus,
@@ -41,10 +42,24 @@ export default function AdminSocieties() {
   const [merge, setMerge] = useState(null); // { cand, target, query }
   const [review, setReview] = useState(null); // pending suggestion under review
 
-  const reload = () => { setClaims(getSocietyClaims()); setResidents(getResidentReqs()); setCandidates(getSocietyCandidates()); setSuggestions(getPendingSocietySuggestions()); setReports(getSocietyReports('open')); setWaPending(pendingSocietyWhatsapps()); setLocFixes(pendingSocietyLocationFixes()); };
-  useEffect(() => { reload(); }, [bump]);
+  // Ops read this as the whole directory, and the merge picker searches it for a
+  // canonical target — both are wrong against the curated-only head (D129).
+  const catalogueReady = useSocietyCatalogue();
 
-  const directory = useMemo(() => allSocieties().map((s) => resolveSociety(s.slug) || s), [bump]);
+  const reload = () => { setClaims(getSocietyClaims()); setResidents(getResidentReqs()); setCandidates(getSocietyCandidates()); setSuggestions(getPendingSocietySuggestions()); setReports(getSocietyReports('open')); setWaPending(pendingSocietyWhatsapps()); setLocFixes(pendingSocietyLocationFixes()); };
+  // `catalogueReady` is a real dependency, not a redundant one: getSocietyCandidates()
+  // runs suggestDuplicates(), which reads allSocieties(). Keyed on `bump` alone this
+  // scan only ever saw the 28 curated rows, so a candidate that is a textbook duplicate
+  // of a RERA society came back with `dupes: []` — and openMerge() then opened the
+  // merge dialog with no target, which reads to the operator as "no duplicate exists"
+  // and gets the junk row verified into a permanent one.
+  useEffect(() => { reload(); }, [bump, catalogueReady]);
+
+  /* eslint-disable-next-line react-hooks/exhaustive-deps -- `bump` and `catalogueReady` are
+     invalidation signals, not values: `allSocieties()` reads a module-level store that the
+     catalogue chunk and local writes mutate in place, which the rule cannot see. Dropping either
+     leaves the directory showing 28 of 348 rows forever. See `lib/useSocietyCatalogue.js`. */
+  const directory = useMemo(() => allSocieties().map((s) => resolveSociety(s.slug) || s), [bump, catalogueReady]);
   const pendingClaims = claims.filter((c) => c.status === 'pending').length;
   const pendingRes = residents.filter((r) => r.status === 'pending').length;
 
@@ -101,7 +116,7 @@ export default function AdminSocieties() {
     return searchSocieties(merge.query, titleCase(merge.cand.localitySlug))
       .filter((r) => r.slug !== merge.cand.slug)
       .slice(0, 8);
-  }, [merge]);
+  }, [merge, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- see `directory` above: `searchSocieties` reads the mutable module store.
 
   const suggMap = useMemo(() => Object.fromEntries(suggestions.map((s) => [s.slug, s])), [suggestions]);
   const applyReview = () => {

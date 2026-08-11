@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -69,9 +70,12 @@ const seedUser = (page, mobile) =>
 
 async function setSignupsFlag(page, value) {
   await page.goto(`${BASE}/`);
+  // The store lands ~a second after any navigation wait resolves (D129); without this the
+  // evaluate found nothing and returned silently, leaving signups at their default.
+  await appReady(page);
   await page.evaluate((v) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    if (!db) return;
+    if (!db) throw new Error('mock store missing after appReady()');
     db.settings = db.settings || {};
     db.settings.flags = db.settings.flags || {};
     db.settings.flags.signupsEnabled = v;

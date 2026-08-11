@@ -155,7 +155,7 @@ public class VisitService {
         }
 
         visit.setStatus(body.status());
-        visits.save(visit);
+        visits.saveAndFlush(visit);
 
         // Tell the visitor their slot is now real (tech-debt D92). Only `confirmed` is announced,
         // and only ever to the visitor: the role-split above means the owner is the one who set it,
@@ -214,7 +214,7 @@ public class VisitService {
         }
 
         visit.reschedule(body.slot());
-        visits.save(visit);
+        visits.saveAndFlush(visit);
 
         // Tell whichever side did not move the slot (tech-debt D92). Reschedule is the one
         // two-sided transition here, so the recipient is derived from who called rather than fixed:

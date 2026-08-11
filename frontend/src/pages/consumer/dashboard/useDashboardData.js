@@ -38,6 +38,7 @@ const toLeadRow = (r) => ({
   propId: r.propertyId || '',
   buyerName: r.requester?.name || 'A buyer',
   buyerMobile: r.contact?.mobile || r.requester?.mobile || '',
+  verified: !!r.requester?.verified,
   status: r.status,
   requestedAt: r.createdAt ? Date.parse(r.createdAt) : 0,
 });

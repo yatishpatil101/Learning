@@ -32,9 +32,12 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  * endpoint left guarded that should be public, or a matcher too broad). The docs/actuator paths below
  * stay literal — they belong to the framework and have no controller to drift from.
  *
- * <p>Two filters are added, in the order they must run: {@link JwtAuthFilter} resolves the bearer
+ * <p>Three filters are added, in the order they must run: {@link JwtAuthFilter} resolves the bearer
  * token, then {@link WriteRateLimitFilter} counts the request against whoever that turned out to be.
- * The reverse order would leave every authenticated caller sharing an address-keyed bucket.
+ * The reverse order would leave every authenticated caller sharing an address-keyed bucket. Last,
+ * {@link BotDefenceFilter} challenges the small set of writes anyone on the internet may post to —
+ * last of the three because it is the only one that can make a network call, so a flood should have
+ * been refused by the counter before it gets here.
  */
 @Configuration
 @EnableMethodSecurity
@@ -44,13 +47,16 @@ public class SecurityConfig {
     private final JwtService jwtService;
     private final RestAuthEntryPoint authEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
+    private final BotDefence botDefence;
+    private final WriteRateLimitStore.Factory rateLimitStores;
     private final boolean rateLimitEnabled;
     private final int writeBudget;
     private final Duration rateLimitWindow;
     private final boolean proxyAware;
 
     public SecurityConfig(JwtService jwtService, RestAuthEntryPoint authEntryPoint,
-            RestAccessDeniedHandler accessDeniedHandler,
+            RestAccessDeniedHandler accessDeniedHandler, BotDefence botDefence,
+            WriteRateLimitStore.Factory rateLimitStores,
             @Value("${punenest.security.rate-limit.enabled:true}") boolean rateLimitEnabled,
             @Value("${punenest.security.rate-limit.writes-per-window:120}") int writeBudget,
             @Value("${punenest.security.rate-limit.window-seconds:60}") long windowSeconds,
@@ -58,6 +64,14 @@ public class SecurityConfig {
         this.jwtService = jwtService;
         this.authEntryPoint = authEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
+        // Exactly one BotDefence bean always exists: the Turnstile one when the flag is on, the
+        // no-op otherwise (matchIfMissing). Injected rather than resolved on demand so a
+        // misconfiguration that produced none — or both — fails at startup rather than on the first
+        // anonymous form submission in production.
+        this.botDefence = botDefence;
+        // Where the counters live (D158): per-instance memory by default, Redis when configured.
+        // Resolved once at startup so the filter never has to ask.
+        this.rateLimitStores = rateLimitStores;
         this.rateLimitEnabled = rateLimitEnabled;
         this.writeBudget = writeBudget;
         this.rateLimitWindow = Duration.ofSeconds(windowSeconds);
@@ -153,7 +167,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 Routes.Content.ANNOUNCEMENTS, Routes.Content.SERVICES,
                                 Routes.Content.FAQS, Routes.Content.BANNERS,
-                                Routes.Reviews.FOR_PROPERTY, Routes.Reviews.FOR_ENTITY).permitAll()
+                                Routes.Reviews.FOR_PROPERTY, Routes.Reviews.SUMMARY_FOR_PROPERTY,
+                                Routes.Reviews.FOR_ENTITY,
+                                Routes.Reviews.SUMMARY_FOR_ENTITY).permitAll()
                         // Token-scoped document share (contract: security: []). Anonymous because
                         // the link is forwarded to a lawyer or a banker with no PuneNest account;
                         // the unguessable, expiring share token IS the credential and is checked
@@ -183,9 +199,16 @@ public class SecurityConfig {
             // anonymous caller from 127.0.0.1, so a shared bucket would fail whichever test happened
             // to run 121st. The behaviour is proved by WriteRateLimitTest, which turns it back on
             // with a budget small enough to reach deliberately.
-            http.addFilterAfter(new WriteRateLimitFilter(writeBudget, rateLimitWindow, proxyAware),
+            http.addFilterAfter(
+                    new WriteRateLimitFilter(writeBudget, rateLimitWindow, proxyAware,
+                            rateLimitStores),
                     JwtAuthFilter.class);
         }
+        // Registered unconditionally, unlike the rate limiter above: whether it does anything is
+        // decided by which BotDefence bean was wired, not by whether the filter is in the chain. One
+        // shape in every environment means the enabled and disabled paths cannot drift, and with the
+        // no-op the per-request cost is a single boolean read.
+        http.addFilterAfter(new BotDefenceFilter(botDefence), JwtAuthFilter.class);
         return http.build();
     }
 

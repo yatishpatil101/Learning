@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -11,8 +12,7 @@ async function loginAsAdmin(page) {
 // ─── Analytics page load ───
 
 test('analytics page loads without errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/analytics`);
   await page.waitForTimeout(1000);

@@ -122,14 +122,18 @@ test.describe('Dynamic type', () => {
     const label = page.locator('.pn-bottom-nav__label').first();
     await expect(label).toBeVisible();
 
+    // 12px = the D134 legibility floor. Asserted as the *computed* size so this also
+    // fails if styles/min-font-size.js ever floors the rule down to a px literal.
     const before = await label.evaluate((e) => getComputedStyle(e).fontSize);
-    expect(before).toBe('11px');
+    expect(before).toBe('12px');
 
     // The bug this guards: a px font-size is immune to the browser/OS font setting.
     // That looks safe (nothing ever overflows) but is the accessibility failure.
+    // It has regressed once already — the D134 floor plugin rewrote this rule's rem
+    // to `12px`, fixing legibility by killing dynamic type. 2x root => exactly 2x here.
     await setRootFont(page, 32);
     const after = await label.evaluate((e) => getComputedStyle(e).fontSize);
-    expect(after).toBe('22px');
+    expect(after).toBe('24px');
   });
 
   test('at 200% type nothing bursts the bar or the page', async ({ page }) => {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -77,8 +78,7 @@ test.describe('Nestor assistant', () => {
   });
 
   test('no console/page errors with the assistant mounted', async ({ page }) => {
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    const errors = trackErrors(page);
     await page.goto(`${BASE}/`);
     await openPanel(page);
     const box = page.getByRole('dialog', { name: /Nestor/i });

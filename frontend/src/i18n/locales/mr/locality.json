@@ -96,6 +96,7 @@
     "reviewsCount_one": "{{count}} परीक्षण",
     "reviewsCount_other": "{{count}} परीक्षणे",
     "reviewsNone": "अद्याप परीक्षणे नाहीत",
+    "reviewsUnavailable": "रेटिंग सध्या उपलब्ध नाही",
     "reviewPrompt": "इथे राहता किंवा राहिला आहात? <1>{{name}}</1> ला गुण द्या",
     "reviewPlaceholder": "कनेक्टिव्हिटी, सुरक्षा, पाणी, पैशाचे मूल्य…",
     "reviewPost": "परीक्षण नोंदवा",

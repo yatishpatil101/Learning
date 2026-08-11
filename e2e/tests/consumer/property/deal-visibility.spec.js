@@ -1,5 +1,5 @@
 import { test, expect } from '../../../fixtures/base.js';
-import { ownerMobileOf } from '../../../helpers/app.js';
+import { ownerIdOf } from '../../../helpers/app.js';
 
 /* Buyer-facing deal visibility on the property detail page (D110).
  *
@@ -14,14 +14,18 @@ import { ownerMobileOf } from '../../../helpers/app.js';
  *                offers so a buyer can queue up if it falls through).
  *
  * In mock mode `dealStatusForBuyer(property)` reads the owner-keyed client deal store
- * (src/lib/store/deals.js, key `puneNestDeals:<owner>`), the stand-in for the wire's mirrored
+ * (src/lib/store/deals.js, key `puneNestDeals:<ownerId>`), the stand-in for the wire's mirrored
  * field — so these tests seed that store before boot, log in as a *buyer* (not the owner), and
  * assert the real buyer chrome. `PROP` is an approved RENT listing from the seed catalog, so the
  * closed banner exercises the rent wording ("rented out").
+ *
+ * The bucket is named by the owner's account id rather than their mobile (D30): a buyer is exactly
+ * the caller who may hold only the masked number, which strips to a short string several owners
+ * share.
  */
 
-const PROP = 'P5000';                 // approved rent listing in the seed DB
-const OWNER = ownerMobileOf('P5000'); // read from properties.json, never copied
+const PROP = 'P5000';             // approved rent listing in the seed DB
+const OWNER = ownerIdOf('P5000'); // read from properties.json, never copied
 
 // Seed cookie consent so the role="dialog" banner never overlays the panel.
 async function seedConsent(page) {
@@ -33,7 +37,7 @@ async function seedConsent(page) {
   });
 }
 
-// Seed the owner-keyed deal store (puneNestDeals:<owner>) before the app boots — the mock's
+// Seed the owner-keyed deal store (puneNestDeals:<ownerId>) before the app boots — the mock's
 // stand-in for the property's mirrored public `dealStatus`.
 async function seedDeal(page, owner, propId, deal) {
   await page.addInitScript(({ owner, propId, deal }) => {

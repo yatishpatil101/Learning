@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Persisted-search access. Queries are always user-scoped so no caller can see another's
@@ -19,4 +20,12 @@ public interface SavedSearchRepository extends JpaRepository<SavedSearch, UUID> 
 
     /** How many saved searches this user already holds — backs the per-user count cap on create. */
     long countByUserId(UUID userId);
+
+    /**
+     * Sweep-friendly read ordered by row id for deterministic batching.
+     *
+     * <p>D7 recomputes {@code new_count} in the background, so the scheduler needs bounded chunks
+     * rather than loading every alert row in one transaction.
+     */
+    List<SavedSearch> findAllByOrderByIdAsc(Pageable page);
 }

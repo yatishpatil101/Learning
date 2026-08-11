@@ -143,6 +143,46 @@ class PropertyModerationQueueTest extends AbstractApiTest {
     }
 
     /**
+     * The stays-live re-check queue (Q14). A price/furnishing/possession edit keeps the listing
+     * {@code approved}, so neither {@code status} nor {@code archived} can surface it — the whole
+     * outcome would be invisible to ops, which is how "live but flagged" becomes a flag nobody
+     * reads. Tri-state for the same reason {@code archived} is.
+     */
+    @Test
+    @DisplayName("recheck is tri-state — the stays-live queue, its complement, and both")
+    void recheckIsTriState() throws Exception {
+        User owner = user("9850000011", "owner");
+        User staff = user("9850000012", "staff");
+        Property quiet = listing(owner, "Untouched flat", PropertyStatus.APPROVED);
+        Property edited = listing(owner, "Repriced flat", PropertyStatus.APPROVED);
+        edited.requestRecheck(java.util.List.of("price"));
+        properties.saveAndFlush(edited);
+
+        mvc.perform(get("/admin/properties").header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.totalElements").value(2));
+
+        mvc.perform(get("/admin/properties").param("recheck", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(edited.getId().toString()))
+                .andExpect(jsonPath("$.content[0].status").value(PropertyStatus.APPROVED))
+                .andExpect(jsonPath("$.content[0].recheckReason").value("price"))
+                // The age, not just the fact. A queue nobody drains is the failure mode this
+                // outcome creates — the listing keeps earning while it waits — and it is
+                // indistinguishable from an empty queue unless the wire says *how long*.
+                .andExpect(jsonPath("$.content[0].recheckRequestedAt").exists());
+
+        mvc.perform(get("/admin/properties").param("recheck", "false")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(quiet.getId().toString()))
+                // NON_NULL: nothing queued, so the two re-check fields are absent rather than
+                // present-and-empty. A client cannot mistake "clean" for "queued at the epoch".
+                .andExpect(jsonPath("$.content[0].recheckRequestedAt").doesNotExist())
+                .andExpect(jsonPath("$.content[0].recheckPending").value(false));
+    }
+
+    /**
      * {@code archived} had to be added to the {@code Property} response for this endpoint to be
      * usable at all. Without it a client reading the unfiltered queue cannot tell a live pending
      * listing from an archived one — and the only assumption available, "not archived", is wrong for

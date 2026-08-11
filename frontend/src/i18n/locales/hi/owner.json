@@ -35,6 +35,7 @@
     "reviewsTitle": "समीक्षाएँ और रेटिंग",
     "reviewsSub": "उन खरीदारों और किरायेदारों से जिन्होंने सीधे इस मालिक से डील की।",
     "noReviews": "अभी कोई समीक्षा नहीं",
+    "ratingUnavailable": "रेटिंग अभी उपलब्ध नहीं",
     "reviewsSummary_one": "{{count}} समीक्षा",
     "reviewsSummary_other": "{{count}} समीक्षाएँ",
     "rateExperience": "इस मालिक के साथ अपने अनुभव को रेट करें",

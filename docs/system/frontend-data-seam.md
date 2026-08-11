@@ -478,8 +478,11 @@ happily key on any string you hand it:
 
 ### The society cards are still on the mock aggregate, and there is a reason
 
-`SocietiesSection`, `Societies.jsx` and `SocietySection.jsx` call `entityRating('society', soc.id)`
-inside a `.map()`. They were left alone and given SEAM NOTEs, because the fix is not to migrate them
+`SocietiesSection`, `Societies.jsx` and `SocietySection.jsx` call `entityRating('society', soc.slug)`
+inside a `.map()`. They used to key on `soc.id` — the synthetic `S01` minted by `data/societies.js`,
+which the hub (and the server) never write under — so the read addressed a bucket nothing fills and
+every card showed "Not rated" regardless. They were otherwise left alone and given SEAM NOTEs,
+because the fix is not to migrate them
 to the reviews service — that would be one request per card — but to read the aggregate the row
 already carries. **`GET /societies` now returns `avgRating` and `reviewCount` per row**, added by
 this slice for exactly that call site, computed through `RatingLookup.forSocieties` in one batched
@@ -997,19 +1000,49 @@ sees, so they are recorded here rather than only in the contract.
 | **Four reads are now paged**: `GET /me/saved`, `GET /messages`, `GET /admin/flatmate-reviews`, `GET /admin/group-applications` | A provider reading `response.length` or iterating the body gets the envelope, not the rows. Unwrap `content`, and read `totalElements` for counts — `$.length()` on an envelope returns the *field count* (6), which is the confusing failure these produced in the backend's own tests |
 | **Three endpoints added**: `PATCH /me/saved-searches/{id}`, `GET /me/properties/{propId}/boost`, `GET /admin/reviews` | Each was a feature whose UI could write but never read. `toggleSearchAlert` in the mock provider now has a real counterpart; the boost UI can render its own state; the review moderation queue is reachable |
 | **`GET /properties/{id}/rooms` now exists** | It was declared in the contract and served by nothing — a generated client 404'd on a promise the document made |
-| **`furnishing` and `possession` now revert a listing to `pending`** | The client's `LISTING_FOUNDATION_FIELDS` list disagrees with the server in *both* directions and must be reconciled before the listing domain goes live — see below |
+| **`furnishing` and `possession` now revert a listing to `pending`** | The client's `LISTING_FOUNDATION_FIELDS` list disagrees with the server in *both* directions and must be reconciled before the listing domain goes live — see below. (Superseded 2026-08-11: `furnishing` and `possession` no longer revert; they queue a background re-check while the listing stays live — Q14.) |
 
-### The foundation-field list is still wrong client-side
+### The foundation-field list — reconciled, then split (D76, Q14)
 
-`lib/store/listings.js` lists twelve fields; the server's rule is the **searchable** set:
-`price`, `bhk`, `propertyType`, `locality`, `deal`, `furnishing`, `possession`. The two disagree
-both ways — the client warns on `title`/`area`/`facing`/`floor`/`age` (which do *not* revert) and
-stays silent on `price` (which does). So the UI currently warns "this will send your listing back
-for review" on edits that don't, and says nothing about the edit that does.
+**Closed 2026-08-11.** `lib/store/listings.js` once listed twelve fields against the server's seven
+searchable facets, and disagreed both ways — it warned on `title`/`area`/`facing`/`floor`/`age`
+(which do *not* revert) and stayed silent on `price` (which did). Both client mirrors are now derived
+from the server's set rather than restated, and `npm run check:listing`
+(`frontend/scripts/check-listing-foundation.mjs`, 61 assertions) fails the build if any of them
+drifts.
 
-The server side is fixed and self-enforcing: `ListingFoundationTest` reads the facets off
+The rule then split in two, because "foundation" was answering two different questions at once:
+
+| Fields | Outcome | Why |
+|---|---|---|
+| `locality`, `propertyType`, `bhk`, `deal` | reverts to `pending`, **off search** | They change *what the listing fundamentally is*, so a stale index entry is a wrong answer — a 2BHK under 3BHK, a rental under sale |
+| `price`, `furnishing`, `possession` | stays `approved` and searchable, **re-check queued** | They change *an attribute of a listing that is still the same property*, so the worst case is a briefly stale number on a listing that is genuinely what it claims to be |
+
+For the seam this means `PropertyResponse` carries three more fields — `recheckPending` (a primitive
+`boolean`, so it always serializes), `recheckReason` and `recheckRequestedAt` (both omitted when
+clean) — without which the two outcomes are indistinguishable to any client, since a stays-live edit
+leaves `status` at `approved` and looks exactly like no edit at all. `GET /admin/properties` gained a
+tri-state `recheck` filter shaped like the existing `archived` one.
+
+`recheckRequestedAt` and the filter's client half were both added later, on 2026-08-11, when the
+admin Re-check Queue was built and the queue turned out to be unreachable from this side. Two
+separate holes, each invisible on its own end: the timestamp existed on the entity, in V62 and in the
+partial index, but was never added to `PropertyResponse`, so the queue's *age* — the only thing that
+makes an un-drained backlog visible, and the whole reason the column is set once and never refreshed
+— never left the server; and `toModerationQuery` dropped `recheck` on the floor, so the axis was
+declared, tested and correct server-side while nothing on the client ever asked for it. The mock
+modelled none of the three fields, which is the more instructive half: the tab would have rendered
+an empty list in mock mode and every e2e assertion written against it would have passed vacuously.
+The mock now carries the recheck axis in `matchesFilters`, raises a real re-check from the edit
+wizard (`requestRecheckFields`, mirroring `Property.requestRecheck` — merge the field names, set the
+timestamp only if unset), and clears all three on any status change and on `clearFlag`, mirroring
+`PropertyModerationService`. Standing rule: a mock more permissive than the server passes tests the
+real thing would fail — a mock that models *fewer* fields than the server passes tests that assert
+nothing at all.
+
+The server side is self-enforcing: `ListingFoundationTest` reads the facets off
 `PropertyController.search` by reflection, so a new search facet fails the build until somebody
-decides whether it is a foundation field. The client list still needs updating to match.
+decides which of the two sets it belongs to.
 
 ## The flatmates slice: two tabs, three resources, and a filter bar that filtered nothing
 

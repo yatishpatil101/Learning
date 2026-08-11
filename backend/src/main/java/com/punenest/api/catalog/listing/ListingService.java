@@ -15,6 +15,8 @@ import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,8 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Domain invariants enforced here, not just in the UI (ADR-019, trust): a new listing is forced
  * {@code pending} with the owner set from the token (never the body); editing a <em>foundation</em>
- * field reverts {@code status} to {@code pending} for re-moderation; restore-from-archive also
- * resets to {@code pending}; removals are soft-deletes only.
+ * field earns a moderator's attention — how much of one depends on which field (below); restore-from
+ * -archive resets to {@code pending}; removals are soft-deletes only.
  *
  * <p><strong>What counts as a foundation field, and why that set.</strong> It is exactly the set a
  * buyer can <em>search on</em>: {@code price}, {@code bhk}, {@code propertyType}, {@code locality},
@@ -47,6 +49,27 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>{@code furnishing} and {@code possession} were missing from this set until the API polish pass.
  * Both are live filters, so an approved unfurnished flat could be relabelled "furnished", and an
  * under-construction listing relabelled "ready to move", with no moderator ever seeing it.
+ *
+ * <p><strong>What re-review costs, and why it is not one price (Q14).</strong> Every foundation edit
+ * is re-checked; the split is only over whether the listing keeps earning while it waits.
+ *
+ * <ul>
+ *   <li><strong>Off search</strong> — {@code locality}, {@code propertyType}, {@code bhk},
+ *       {@code deal}. These change <em>what the listing fundamentally is</em>, so a stale index
+ *       entry would actively mislead searchers: a 2BHK appearing under 3BHK, or a rental under
+ *       sale, is a wrong answer, not a slightly stale one. {@link Property#revertToPending()}, as
+ *       before.</li>
+ *   <li><strong>Stays live</strong> — {@code price}, {@code furnishing}, {@code possession}. These
+ *       change <em>an attribute of a listing that is still the same property</em>, so the worst
+ *       case is a briefly out-of-date number on a listing that is still genuinely what it claims to
+ *       be. {@link Property#requestRecheck(java.util.List)} raises the same moderator work item
+ *       without touching {@code status}.</li>
+ * </ul>
+ *
+ * <p>Fraud risk is handled by the re-check either way; the difference is only whether the listing
+ * earns while it waits. Price is the most-edited field on any marketplace and the one an owner is
+ * most often asked to move — a rule that takes the listing dark for a day every time it moves
+ * teaches owners not to move it, which is the opposite of what a marketplace wants.
  */
 @Service
 public class ListingService {
@@ -109,16 +132,24 @@ public class ListingService {
 
     /**
      * Partial update of an owned listing (contract {@code updateListing}). Only non-null fields are
-     * applied (PATCH). If any foundation field actually changes value — the searchable set named in
-     * this class's Javadoc — the listing reverts to {@code pending} so the change is re-moderated;
-     * non-foundation edits (photos, description, deposit, …) leave the status untouched.
+     * applied (PATCH). A foundation-field change earns a re-review either way; which one it earns is
+     * the split documented on this class (Q14) — an identity change reverts to {@code pending} and
+     * leaves search, an attribute change raises a re-check and stays live. Non-foundation edits
+     * (photos, description, deposit, …) leave both untouched.
+     *
+     * <p>When one PATCH does both, the revert wins and no re-check is raised: a full re-moderation
+     * looks at the whole listing, so queueing the attribute change separately would put the same
+     * edit in front of a moderator twice.
      */
     @Transactional
     public Property update(UUID userId, String idOrSlug, ListingUpdate in) {
         Property p = resolveOwned(userId, idOrSlug)
                 .orElseThrow(() -> NotFoundException.of("Listing"));
-        if (apply(p, in)) {
+        EditImpact impact = apply(p, in);
+        if (impact.remoderationRequired()) {
             p.revertToPending();
+        } else if (impact.recheckOnly()) {
+            p.requestRecheck(impact.rechecked());
         }
         return p;
     }
@@ -154,51 +185,83 @@ public class ListingService {
     }
 
     /**
-     * Apply a PATCH body to a listing. Returns {@code true} when a <em>foundation</em> field
-     * actually changed value — the caller decides what that means.
+     * What a PATCH earned. {@code remoderationRequired} is the off-search outcome,
+     * {@code recheckOnly} the stays-live one, and {@code rechecked} names the fields behind the
+     * latter so the moderator's work item can say what to look at.
      *
-     * <p>The foundation block is deliberately kept first and contiguous: every field in it is a
-     * search facet, and the only thing distinguishing it from the block below is the
-     * {@code foundationChanged = true}. Interleaving the two is how {@code furnishing} ended up in
-     * the wrong one.
+     * <p>Two flags rather than one enum because they are answers to two independent questions, and
+     * a single PATCH can trip both — see {@link #update} for which wins.
+     */
+    private record EditImpact(boolean remoderationRequired, boolean recheckOnly,
+            List<String> rechecked) {
+    }
+
+    /**
+     * Apply a PATCH body to a listing and report what re-review it earned. The caller decides what
+     * to do about it — {@link #update} acts, {@link #updateAsModerator} deliberately does not.
+     *
+     * <p><strong>This method is the one place either foundation set is written down.</strong> There
+     * is no constant to fall out of step with it: which set a field belongs to <em>is</em> which
+     * flag its block sets, so a field cannot be in both and cannot be silently in neither. The two
+     * blocks are kept first, contiguous and in that order; {@code ListingFoundationTest} asserts
+     * both sets behaviourally through the real endpoint, and
+     * {@code frontend/scripts/check-listing-foundation.mjs} parses them straight back out of this
+     * source and fails if a field has moved between them.
+     *
+     * <p>The only thing distinguishing a foundation block from an ordinary one is the flag it sets,
+     * so interleaving them is how {@code furnishing} ended up in the wrong set the first time.
      *
      * <p>Only non-null fields are applied, so absent and "set to null" are the same request. That is
      * the documented PATCH semantic for this contract; a client that needs to clear a field sends
      * the empty value the field's type allows.
      */
-    private boolean apply(Property p, ListingUpdate in) {
-        boolean foundationChanged = false;
+    private EditImpact apply(Property p, ListingUpdate in) {
+        boolean remoderationRequired = false;
+        boolean recheckOnly = false;
+        List<String> rechecked = new ArrayList<>();
         boolean localityChanged = false;
-        if (in.price() != null && !in.price().equals(p.getPrice())) {
-            p.setPrice(in.price());
-            foundationChanged = true;
-        }
+
+        // ── Foundation, OFF SEARCH ────────────────────────────────────────────────────────────
+        // These change what the listing fundamentally *is*, so a stale index entry is a wrong
+        // answer rather than a late one: a 2BHK under 3BHK, or a rental under sale.
         if (in.bhk() != null && !numericEquals(in.bhk(), p.getBhk())) {
             p.setBhk(in.bhk());
-            foundationChanged = true;
+            remoderationRequired = true;
         }
         if (in.propertyType() != null && !in.propertyType().equals(p.getPropertyType())) {
             p.setPropertyType(in.propertyType());
-            foundationChanged = true;
+            remoderationRequired = true;
         }
         if (in.locality() != null && !in.locality().equals(p.getLocality())) {
             p.setLocality(in.locality());
-            foundationChanged = true;
+            remoderationRequired = true;
             localityChanged = true;
         }
         if (in.deal() != null && !in.deal().equals(p.getDeal())) {
             p.setDeal(in.deal());
             // A deal flip changes the meaning of price — keep priceUnit consistent.
             p.setPriceUnit(DealIntent.priceUnitFor(in.deal()));
-            foundationChanged = true;
+            remoderationRequired = true;
+        }
+
+        // ── Foundation, STAYS LIVE ────────────────────────────────────────────────────────────
+        // Still re-checked, still searchable: these change an attribute of a listing that is still
+        // the same property, so the worst case is a briefly out-of-date value on a listing that is
+        // genuinely what it claims to be (Q14).
+        if (in.price() != null && !in.price().equals(p.getPrice())) {
+            p.setPrice(in.price());
+            recheckOnly = true;
+            rechecked.add("price");
         }
         if (in.furnishing() != null && !in.furnishing().equals(p.getFurnishing())) {
             p.setFurnishing(in.furnishing());
-            foundationChanged = true;
+            recheckOnly = true;
+            rechecked.add("furnishing");
         }
         if (in.possession() != null && !in.possession().equals(p.getPossession())) {
             p.setPossession(in.possession());
-            foundationChanged = true;
+            recheckOnly = true;
+            rechecked.add("possession");
         }
 
         // Non-foundation fields: applied without triggering re-moderation.
@@ -250,7 +313,7 @@ public class ListingService {
             p.setLocalitySlug(localities.resolve(p.getLocality(), p.getLat(), p.getLng()));
         }
 
-        return foundationChanged;
+        return new EditImpact(remoderationRequired, recheckOnly && !remoderationRequired, rechecked);
     }
 
     /**

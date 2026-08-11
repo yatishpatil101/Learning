@@ -78,3 +78,23 @@ export async function respondDocRequest(mobile, reqId, decision, note) {
   const reqs = await listDocRequests(mobile);
   return reqs.find((r) => r.id === reqId) || null;
 }
+
+/**
+ * Read a granted share by token — the one operation here with no session behind it.
+ *
+ * `auth: false` because the recipient may have no account, and because attaching a stale bearer
+ * would drag in the 401-refresh recovery: a 401 from this endpoint means *the share token* is bad,
+ * and retrying it after a token refresh would be answering the wrong question.
+ *
+ * The token goes on `X-Share-Token`, never in the query string (D42). A URL is copied into browser
+ * history, written to every proxy and CDN access log on the way, and forwarded verbatim when the
+ * recipient pastes the link; a request header is none of those things. The caller reads it from
+ * `location.hash`, which browsers do not transmit at all.
+ */
+export async function listSharedDocuments(token) {
+  const res = await get('/documents/shared', undefined, {
+    auth: false,
+    headers: { 'X-Share-Token': token },
+  });
+  return toDocList(Array.isArray(res) ? res : (res?.content ?? []));
+}

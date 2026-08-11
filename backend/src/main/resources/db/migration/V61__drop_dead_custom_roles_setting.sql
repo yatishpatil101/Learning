@@ -1,0 +1,42 @@
+-- D67/D13: delete `settings.customRoles` and stop pretending it is configuration.
+--
+-- WHAT IT WAS. A list of named module bundles -- `{id, name, modules[], teams[]}` -- meant to be
+-- attached to a scoped back-office account through a per-user `roleId`. The admin console builds
+-- them, `/admin/settings` stored them, the contract advertised them, and no line of server code has
+-- ever read them. Not "read them weakly": `grep -r customRoles backend/src/main/java` returns one
+-- hit, and it is a Javadoc paragraph in security/PermissionMap saying it does not read them.
+--
+-- WHY DELETING BEATS WIRING. Wiring needs three things this platform does not have, and two of them
+-- are product decisions rather than an afternoon:
+--
+--   1. A key to resolve the bundle against. `customRoles` is addressed by `roleId`, and there is no
+--      `users.role_id` column, no field on the entity, no claim in the JWT and no team-member
+--      management endpoint at all -- the Team & Access console writes to browser storage. There is
+--      nothing on the signature-verified principal that could select a bundle, and a bundle selected
+--      by anything the client sends is an allow-list the client opts out of.
+--   2. A server-side vocabulary for what a bundle grants. The entries hold frontend module keys
+--      (`enquiries`, `content`, `properties:verify`, ...) drawn from `lib/adminModules.js`. The
+--      server's authorisation vocabulary is security/Capabilities -- four names, three enforced --
+--      and nothing maps one onto the other. Inventing that mapping is writing policy nobody agreed.
+--   3. Compatible direction. `settings.permissions` may only ever NARROW a role guard (D67): every
+--      capability check is `and`-ed onto the `@PreAuthorize` that was already there. The custom-role
+--      model is the opposite -- the console computes `BASE union role-bundle union moduleAccess`, a
+--      widening union. Honouring a widening document server-side is precisely the privilege
+--      escalation the narrow-only rule exists to make impossible.
+--
+-- WHY THE ROW IS DELETED RATHER THAN LEFT ALONE. This is the half that is a security problem rather
+-- than an untidiness. Whatever an operator wrote into this key sat in the access-control document
+-- granting nothing -- and the day someone implements (1) and (2) above, it stops being inert and
+-- starts granting whatever had accumulated in it, authored by people who were told at the time that
+-- it did nothing. Leaving a loaded allow-list in the database for a future commit to discover is a
+-- worse outcome than either enforcing it or clearing it. So it is cleared, and the endpoint now
+-- refuses to accept it again (AdminSettingsService.UNSUPPORTED_KEYS -> 422), which is what stops
+-- this file from being undone by the next save.
+--
+-- Not seeded anywhere server-side -- R__seed_reference_data.sql seeds `fees`/`flags`/`site` and
+-- R__seed_permission_map.sql seeds `permissions` -- so on a deployment nobody hand-wrote this into,
+-- the statement deletes zero rows and is a no-op. That is the expected case, not a reason to skip it.
+--
+-- Reversible by re-inserting the row, but only after the endpoint stops rejecting the key; the two
+-- halves are deliberately one change.
+DELETE FROM settings WHERE key = 'customRoles';

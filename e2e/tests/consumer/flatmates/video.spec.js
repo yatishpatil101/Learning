@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Video-recorded reproduction of the EXACT manual steps a real user takes:
    sign in as a NORMAL user (role 'user', no pre-existing listings), post a
@@ -24,8 +25,7 @@ async function seedNormalUser(page) {
 }
 
 test('VIDEO: normal user posts a flatmate and sees it in My Listings', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await seedNormalUser(page);
 

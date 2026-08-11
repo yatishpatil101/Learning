@@ -205,6 +205,55 @@ export function toViewModelList(rows) {
 }
 
 /**
+ * A `PageResponse<ServiceRequest>` → the `{ items, total, page, size }` shape the paged reads
+ * across the seam already use (reports, the support queue).
+ *
+ * The rows keep the server's order rather than being re-sorted into `updatedAt` order the way
+ * `toViewModelList` does: this is a *window*, and re-sorting twenty rows would quietly turn
+ * "newest first" into "newest on this page first".
+ */
+export function toViewModelPage(res, fallback = {}) {
+  const rows = Array.isArray(res?.content) ? res.content : [];
+  return {
+    items: rows.map(toViewModel).filter(Boolean),
+    total: res?.totalElements ?? rows.length,
+    page: res?.page ?? res?.number ?? fallback.page ?? 0,
+    size: res?.size ?? fallback.size ?? rows.length,
+  };
+}
+
+/**
+ * One wire `ServiceRequestIdentity` → the row the drafting desk reads from (D151/D173).
+ *
+ * Returned unmasked, because a masked PAN cannot be typed into a Leave & License. What makes that
+ * safe is the route, not this shape — assignee-only, audited on both outcomes, purged when the
+ * matter closes — so there is nothing to redact here and pretending otherwise would only make the
+ * numbers useless to the one person allowed to see them.
+ *
+ * **`purged` is the field that stops a lie.** A null `pan` means two different things: with no
+ * `purgedAt` the customer left that field empty, and with one the matter is closed and the number
+ * has been discarded. Without the distinction a completed request looks exactly like a customer who
+ * never filled the form, and the desk re-asks for something it was given.
+ */
+export function toIdentity(row) {
+  if (!row) return null;
+  return {
+    partyRole: row.partyRole || 'tenant',
+    partyIndex: Number.isFinite(row.partyIndex) ? row.partyIndex : 0,
+    partyName: row.partyName || '',
+    pan: row.pan || '',
+    aadhaar: row.aadhaar || '',
+    purged: !!row.purgedAt,
+    purgedAt: epoch(row.purgedAt),
+  };
+}
+
+/** The wire array → identity rows, owner first, in the order the server sent them. */
+export function toIdentityList(rows) {
+  return (Array.isArray(rows) ? rows : []).map(toIdentity).filter(Boolean);
+}
+
+/**
  * The create form → `ServiceRequestCreate`.
  *
  * `details` is a structured object the server stores as-is and echoes back (D119), so it is passed

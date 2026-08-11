@@ -93,8 +93,8 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                     <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') smartSearch(); }} placeholder={f.deal === 'rent' ? t('listings.smartPlaceholderRent') : t('listings.smartPlaceholderBuy')} className="w-full pl-9 pr-[84px] sm:pr-3 h-11 sm:h-10 rounded-xl glass border border-white/10 text-sm text-white placeholder-gray-500 focus:border-teal-400/50 outline-none bg-white/5" />
                     {/* Mobile: inline save + submit icons keep smart search to a single row */}
                     <div className="sm:hidden absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
-                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-9 h-9 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+                      <button type="button" onClick={saveSearch} aria-label={t('listings.saveSearch')} className="w-11 h-11 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-300 hover:bg-white/5 t-all"><Icon name="bell-plus" className="w-4 h-4" /></button>
+                      <button type="button" onClick={smartSearch} aria-label={t('listings.smartSearch')} className="w-11 h-11 sm:w-9 sm:h-9 rounded-lg btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
                     </div>
                   </div>
                   <div className="hidden sm:flex gap-2">
@@ -183,9 +183,15 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                         </p>
                       </div>
                     )}
-                    <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
-                      <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
-                    </Suspense>
+                    {/* `data-no-ptr` opts the map out of the page's pull-to-refresh. The map is
+                        not an overflow scroller, so "is this scrolled to the top?" answers yes for
+                        it and a downward pan across the tiles would otherwise arm the pull —
+                        cancelling the pan and refetching the catalogue nobody asked to refetch. */}
+                    <div data-no-ptr>
+                      <Suspense fallback={<div className="flex items-center justify-center h-96"><div className="w-8 h-8 border-2 border-teal-400/30 border-t-teal-400 rounded-full animate-spin" /></div>}>
+                        <PropertyMap properties={results} locName={locNameBySlug} focus={mapFocus} activeId={activeId} onSelect={onSelectProperty} />
+                      </Suspense>
+                    </div>
                     {activeProperty ? (
                       <Suspense fallback={null}>
                         <MapDetailPanel

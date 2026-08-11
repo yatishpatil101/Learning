@@ -115,8 +115,14 @@ export const deleteTransaction = (propId, txnId) => provider().deleteTransaction
 export const getBasis = (propId) => provider().getBasis(propId);
 export const setBasis = (propId, basis) => provider().setBasis(propId, basis);
 
-/** Server-computed income/expense/net/occupancy — not a reduction over the page the client holds. */
-export const financeSummary = (propId) => provider().financeSummary(propId);
+/**
+ * Server-computed income/expense/net/occupancy — not a reduction over the page the client holds.
+ *
+ * `period` is one of `all` | `month` | `quarter` | `year` and is **the same vocabulary the period
+ * selector uses**, so the KPI strip and the transaction table below it answer the same question
+ * (D178). Omitting it used to mean the card silently reported all-time next to a filtered table.
+ */
+export const financeSummary = (propId, period) => provider().financeSummary(propId, period);
 /** The monthly series the chart draws. */
 export const cashflow = (propId) => provider().cashflow(propId);
 /** What is coming, with a server-computed `daysUntil` that cannot drift by timezone. */

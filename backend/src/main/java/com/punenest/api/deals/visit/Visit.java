@@ -1,6 +1,6 @@
 package com.punenest.api.deals.visit;
 
-import com.punenest.api.common.persistence.AuditedEntity;
+import com.punenest.api.common.persistence.VersionedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
@@ -29,7 +29,7 @@ import lombok.Setter;
 @Entity
 @Table(name = "visits")
 @Getter
-public class Visit extends AuditedEntity {
+public class Visit extends VersionedEntity {
 
     @Column(name = "property_id", nullable = false, updatable = false)
     private UUID propertyId;

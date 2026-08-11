@@ -87,12 +87,17 @@ export default function AdminReports() {
    * no such column — the moderator's words go to the audit log, attributable to whoever typed them,
    * so that "a triage note can never be mistaken for something the reporter said". It is passed as
    * the note and kept locally for the table.
+   *
+   * `enforcement` is the separate, machine-readable verb the server executes. It is deliberately not
+   * inferred from `actionTaken`: that string is a human label which will be reworded or translated
+   * one day, and the moment it is, an inferred enforcement silently becomes `none` and the queue
+   * starts closing reports without touching the thing reported.
    */
-  const act = async (id, status, actionTaken) => {
+  const act = async (id, status, actionTaken, enforcement) => {
     const note = window.prompt('Internal note (optional):');
     let updated;
     try {
-      updated = await triageReport(id, { status, note: note || actionTaken, actionTaken });
+      updated = await triageReport(id, { status, note: note || actionTaken, actionTaken, enforcement });
     } catch {
       toast('That decision could not be saved. Please reload the queue.', 'error');
       return;
@@ -203,8 +208,8 @@ export default function AdminReports() {
       {canTriage(r) ? (
         <>
           {tab === 'listings'
-            ? <button onClick={() => act(r.id, 'actioned', 'Listing taken down')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
-            : <button onClick={() => act(r.id, 'actioned', 'User suspended')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
+            ? <button onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
+            : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
           <button onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal" title="Resolve"><CheckCircle2 className="mr-0.5 inline h-3 w-3" />Resolve</button>
           <button onClick={() => act(r.id, 'dismissed')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Dismiss"><XCircle className="mr-0.5 inline h-3 w-3" />Dismiss</button>
         </>
@@ -460,8 +465,8 @@ export default function AdminReports() {
               {canTriage(detail) ? (
                 <>
                   {detail.kind === 'listing'
-                    ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
-                    : <button onClick={() => act(detail.id, 'actioned', 'User suspended')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Suspend</button>}
+                    ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down', 'hide_content')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
+                    : <button onClick={() => act(detail.id, 'actioned', 'User suspended', 'suspend_account')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Suspend</button>}
                   <button onClick={() => act(detail.id, 'resolved', 'Reviewed, content kept')} className="pn-btn pn-btn-ghost"><CheckCircle2 className="h-4 w-4" />Resolve</button>
                   <button onClick={() => act(detail.id, 'dismissed')} className="pn-btn pn-btn-ghost text-gray-300"><XCircle className="h-4 w-4" />Dismiss</button>
                 </>

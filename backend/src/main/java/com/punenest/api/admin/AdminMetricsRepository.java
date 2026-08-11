@@ -1,9 +1,9 @@
 package com.punenest.api.admin;
 
+import com.punenest.api.common.PlatformTime;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
-import java.time.LocalDate;
-import java.util.List;
+import java.time.LocalDate;import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Repository;
 
@@ -36,8 +36,16 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class AdminMetricsRepository {
 
-    /** The zone every calendar bucket is cut in. See the class Javadoc. */
-    private static final String IST = "Asia/Kolkata";
+    /**
+     * The zone every calendar bucket is cut in. See the class Javadoc.
+     *
+     * <p>Spelled as a string because it is interpolated into SQL, where a Java constant cannot be
+     * named — but <em>derived</em> from {@link PlatformTime#IST} rather than written out again, so
+     * this is a projection of the shared constant and not a fourth copy of it (tech debt D179). If
+     * the platform's reckoning zone ever moves, this moves with it instead of silently disagreeing
+     * with {@link AdminMetricsService}, which cuts the window edges these buckets sit inside.
+     */
+    private static final String IST = PlatformTime.IST.getId();
 
     /**
      * Revenue, per source, over an optional date window.
@@ -53,9 +61,9 @@ public class AdminMetricsRepository {
      *       order was opened) that left {@code pending} (only the webhook does that). A row later
      *       {@code cancelled} because it was superseded by an upgrade still counts, correctly: it
      *       was paid for.
-     *   <li><strong>boosts</strong> — {@code starts_at} is set by {@code activate} and by nothing
-     *       else, so it is a truthful "was paid" marker where the status is not:
-     *       {@code expired} means both "window closed" and "payment failed".
+     *   <li><strong>boosts</strong> — {@code paid_at} is set by {@code activate} only when a
+     *       payment webhook confirms receipt of funds (D64). Free packs and any future comp/grant
+     *       activations leave it null, so they are correctly excluded from revenue.
      * </ul>
      *
      * <p><strong>Service orders are deliberately absent.</strong> {@code service_orders.amount} is
@@ -82,11 +90,11 @@ public class AdminMetricsRepository {
             select 'boosts', coalesce(sum(bp.price), 0)
               from boosts b
               join boost_packs bp on bp.id = b.pack_id
-             where b.starts_at is not null
+             where b.paid_at is not null
                and (cast(:from as date) is null
-                    or (b.starts_at at time zone '%1$s') >= cast(:from as date))
+                    or (b.paid_at at time zone '%1$s') >= cast(:from as date))
                and (cast(:to   as date) is null
-                    or (b.starts_at at time zone '%1$s') <  cast(:to   as date))
+                    or (b.paid_at at time zone '%1$s') <  cast(:to   as date))
             """.formatted(IST);
 
     /**
@@ -116,12 +124,12 @@ public class AdminMetricsRepository {
                    and (s.started_at at time zone '%1$s') >= cast(:from as date)
                    and (s.started_at at time zone '%1$s') <  cast(:to   as date)
                 union all
-                select date_trunc(:interval, b.starts_at at time zone '%1$s'), bp.price
+                select date_trunc(:interval, b.paid_at at time zone '%1$s'), bp.price
                   from boosts b
                   join boost_packs bp on bp.id = b.pack_id
-                 where b.starts_at is not null
-                   and (b.starts_at at time zone '%1$s') >= cast(:from as date)
-                   and (b.starts_at at time zone '%1$s') <  cast(:to   as date)
+                 where b.paid_at is not null
+                   and (b.paid_at at time zone '%1$s') >= cast(:from as date)
+                   and (b.paid_at at time zone '%1$s') <  cast(:to   as date)
             ) parts
             group by bucket
             order by bucket

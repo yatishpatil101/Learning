@@ -22,11 +22,12 @@
  * Every figure is whole rupees, mirroring the contract's `Fees` schema (`Money` is `int64`) — never
  * a float, never a formatted string.
  *
- * **A `null` figure means "not published", not "zero".** The server's columns are all `NOT NULL`, so
- * a null can only ever come from the mock provider, which has no statutory schedule to publish. A
- * consumer that meets one has to decide what to do about it out loud — see the `computed` list the
- * rent-agreement cost estimate carries — rather than silently rendering ₹0 as though the government
- * had waived the duty.
+ * **A `null` figure means "not published", not "zero".** `buy.stamp_duty` is null in the live
+ * schedule precisely because Maharashtra's duty is a slab on the agreement value, not a flat figure
+ * the platform can quote up front; `registration` is a real number because the 1% cap is published.
+ * A consumer that meets a null has to decide what to do about it out loud — see the `computed` list
+ * the rent-agreement cost estimate carries — rather than silently rendering ₹0 as though the
+ * government had waived the duty.
  */
 import { createProvider } from './config.js';
 

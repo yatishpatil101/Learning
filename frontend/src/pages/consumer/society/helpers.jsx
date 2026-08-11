@@ -98,14 +98,33 @@ function buildAbout(soc, locName, t) {
   return sentences.join(' ');
 }
 
-// Back-compat: a `?s=` slug not in the dataset still renders a sensible page.
+/**
+ * Back-compat placeholder: a slug that is not in the catalogue still renders a page rather than a
+ * 404, because `/society/:slug` is reachable from a shared link, a `?s=` deep link and a listing
+ * whose society was minted and later merged away.
+ *
+ * It is a placeholder and **not a society**, so every field it does not know is absent.
+ *
+ * It used to be a plausible one instead: builder "Independent", 3 towers, 160 units, built 2016,
+ * 88% occupancy, `registration: true`, `conveyance: true`. Because those were all present and
+ * truthy, the hub took the fully-specified branch — an unknown slug rendered a stats grid of
+ * invented specifications, a **"Society Verified"** badge and a community-estimate star rating, for
+ * a building nobody has ever confirmed exists. There is no reading of that page that is not a lie,
+ * and it was indistinguishable from a real one to a human and to every unit test.
+ *
+ * With the specs absent, `_thin` is true, which is the honest state the hub already knows how to
+ * render: "Details not confirmed yet", no verified badge (`registration && conveyance` is now
+ * falsy), no estimated rating (`showEstimate` is false, so the hero says "Not rated yet"), and the
+ * "Help verify" call to action. Both stat lists already null-filter, so they simply come out empty.
+ *
+ * `lat`/`lng` stay absent too — the Location tab is already hidden on `_generic`, and inventing
+ * coordinates for an unknown building is the same class of claim as inventing its lift count.
+ */
 function genericSociety(slug, name, locName) {
   return {
-    id: 'G:' + slug, slug, name: name || titleCase(slug), builder: 'Independent', localitySlug: slug,
-    lat: 18.5204, lng: 73.8567, year: 2016, towers: 3, units: 160, occupancy: 88, maintenancePerSqft: 3,
-    water: 'Corporation', power: 'Full DG backup', parkingRatio: 1.2, lifts: 6, security: '24x7 Security + CCTV',
-    petPolicy: 'Allowed', vegPolicy: 'Mixed', rera: '', registration: true, conveyance: true,
-    amenities: ['security', 'garden', 'gym', 'clubhouse'], _generic: true, _locName: locName,
+    id: 'G:' + slug, slug, name: name || titleCase(slug), localitySlug: slug,
+    registration: false, conveyance: false, amenities: [],
+    _generic: true, _thin: true, _locName: locName,
   };
 }
 

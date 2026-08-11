@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { featuredProperties } from '../../../services/propertyService.js';
 import { priceLabel } from '../../../lib/format.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
@@ -27,6 +28,7 @@ function FeaturedCard({ p, priority = false }) {
   const { isIn } = useAuth();
   const savedList = useSaved();
   const saved = savedList.has(p.id);
+  const image = p.image || p.img || '';
 
   const handleSave = (e) => {
     e.preventDefault();
@@ -38,7 +40,7 @@ function FeaturedCard({ p, priority = false }) {
   return (
     <Link to={`/property/${p.id}`} className="property-card list-reveal glass rounded-2xl overflow-hidden group cursor-pointer flex flex-col">
       <div className="card-img-wrap relative overflow-hidden" style={{ aspectRatio: '16/10' }}>
-        <img src={p.image || p.img} srcSet={srcSetFor(p.image || p.img)} sizes={CARD_SIZES} alt={p.title} width={600} height={400} className="w-full h-full object-cover" loading={priority ? 'eager' : 'lazy'} fetchPriority={priority ? 'high' : undefined} />
+        <PropertyImage src={image} srcSet={image ? srcSetFor(image) : undefined} sizes={CARD_SIZES} alt={p.title} width={600} height={400} className="w-full h-full object-cover" loading={priority ? 'eager' : 'lazy'} fetchPriority={priority ? 'high' : undefined} />
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
         <div className="absolute top-3 left-3 flex gap-1.5">
           {(p.ownerVerified || p.ownershipVerified) && (

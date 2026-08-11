@@ -2,10 +2,13 @@
    Replicates the HTML dev-seed.html: seeds a demo owner + sample listings
    into localStorage so devs can try the Under Offer flow end to end. */
 
-import { loginUser } from '../auth.js';
+import { loginUser, writeUser } from '../auth.js';
 import { addListing, markUnderOffer, addUnderOfferParty, closeDeal, getListings, getDeals } from '../store.js';
 
-export const OWNER = { name: 'Demo Owner', mobile: '9000012345', role: 'owner' };
+/* A fixed `id` so the seeded deals land under a bucket that is the same on every run and does not
+   move if the demo owner's number is edited. Without one the id would be minted on first sight,
+   which is fine for a real account but makes `clearDemo` unable to name the bucket it just wrote. */
+export const OWNER = { id: 'U-demo-owner', name: 'Demo Owner', mobile: '9000012345', role: 'owner' };
 
 const IMG = [
   'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=600&q=80',
@@ -72,23 +75,20 @@ const SEED = [
   }
 ];
 
-function digits(mobile) {
-  return String(mobile || '').replace(/\D/g, '');
-}
-
 export function clearDemo() {
-  const mob = digits(OWNER.mobile);
   localStorage.removeItem('puneNestListings:' + OWNER.mobile);
-  localStorage.removeItem('puneNestDeals:' + mob);
-  localStorage.removeItem('puneNestDealReq:' + mob);
+  localStorage.removeItem('puneNestDeals:' + OWNER.id);
+  localStorage.removeItem('puneNestDealReq:' + OWNER.id);
 }
 
 export function seedNow() {
-  // Login as demo owner
-  loginUser(OWNER);
+  // Login as demo owner. `loginUser` builds the session from name/mobile/role only, so the id is
+  // written back explicitly — without it the seeded deals would be filed under an id minted for
+  // this browser and the demo would come up empty.
+  writeUser({ ...loginUser(OWNER), id: OWNER.id });
   clearDemo();
 
-  const mob = digits(OWNER.mobile);
+  const owner = OWNER.id;
 
   // Add listings in reverse so the first SEED entry ends up on top (addListing unshifts)
   SEED.slice()
@@ -118,12 +118,12 @@ export function seedNow() {
   SEED.forEach((s) => {
     const kind = s.deal === 'rent' ? 'rent' : 'buy';
     if (s.state === 'reserved') {
-      markUnderOffer(mob, s.id, kind);
+      markUnderOffer(owner, s.id, kind);
       (s.parties || []).forEach((p) => {
-        addUnderOfferParty(mob, s.id, p);
+        addUnderOfferParty(owner, s.id, p);
       });
     } else if (s.state === 'closed') {
-      closeDeal(mob, s.id, kind);
+      closeDeal(owner, s.id, kind);
     }
   });
 
@@ -131,9 +131,8 @@ export function seedNow() {
 }
 
 export function getInventory() {
-  const mob = digits(OWNER.mobile);
   const listings = getListings();
-  const deals = getDeals(mob);
+  const deals = getDeals(OWNER.id);
 
   return listings.map((l) => {
     const deal = deals[l.id];

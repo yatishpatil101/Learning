@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../Icon.jsx';
+import PropertyImage from '../ui/PropertyImage.jsx';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { FURN_LBL } from '../../pages/consumer/listings/constants.js';
 import { POSSESSION, AMEN_ICON, amenLabel } from './tileMeta.js';
@@ -119,7 +120,7 @@ export default function MapDetailPanel({ property: p, list, locName, activeIndex
 
         <div className="pn-mdp-scroll">
           <div className="pn-mdp-media">
-            <img src={gallery[shot]} alt={p.title} />
+            <PropertyImage src={gallery[shot]} alt={p.title} />
             <span className={'pn-mdp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'For Rent' : 'For Sale'}</span>
             <button type="button" className={'pn-mdp-heart' + (saved ? ' is-on' : '')} onClick={toggleSave} aria-label={saved ? 'Saved' : 'Save property'}><Icon name="heart" weight={saved ? 'fill' : 'regular'} /></button>
             {gallery.length > 1 ? (

@@ -413,12 +413,19 @@ export function useRentAgreement() {
     const years = Math.ceil(months / 12);
     const taxable = rent * months + nr + 0.1 * dep * years;
     /*
-       `stampDuty` and `registration` arrive as `null` only from the mock provider, which publishes
-       no statutory schedule; the server's columns are NOT NULL and always send a figure. So this
-       fallback is the mock's world, never the live one — and every figure it produces is recorded
-       in `computed` so the sidebar can label it an estimate instead of passing it off as the price.
+       `stampDuty` and `registration` arrive as `null` from the **live** provider too, and this
+       block is the path that then runs. V52 dropped NOT NULL from both columns for the `rent` row
+       precisely because neither is a flat figure: Art. 36A duty is 0.25% of a consideration built
+       from the rent, the term and the deposit, and registration is Rs 1000 municipal / Rs 500 rural.
+       One column cannot say either, so it says nothing and the arithmetic happens per agreement.
 
-       Nothing in this block derives the platform fee any more. That number is the server's alone.
+       (This comment used to assert the opposite — "the columns are NOT NULL and always send a
+       figure" — which had been false since V52 and made this branch look like mock-only scaffolding
+       that a future edit could safely delete. Deleting it would have quoted every customer zero.)
+
+       Every figure produced here is recorded in `computed` so the sidebar labels it an estimate
+       rather than passing it off as the price. Nothing in this block derives the platform fee any
+       more; that number is the server's alone.
     */
     const computed = [];
     let stamp = feeRow.stampDuty;

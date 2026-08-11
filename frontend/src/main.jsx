@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { APIProvider } from '@vis.gl/react-google-maps';
 import App from './App.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { CityProvider } from './context/CityContext.jsx';
 import { CompareProvider } from './context/CompareContext.jsx';
@@ -15,6 +16,7 @@ import { ConversationProvider } from './context/ConversationContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
+import { ensureMockDb } from './lib/mockApi.js';
 import './i18n';
 // Ahead of index.css so the @font-face declarations land before anything sets
 // font-family. A JS import rather than a CSS `@import`, per the repo convention:
@@ -63,8 +65,16 @@ if ('scrollRestoration' in history) {
   if (navEntry?.type === 'reload') history.scrollRestoration = 'manual';
 }
 
-createRoot(document.getElementById('root')).render(
+const app = (
   <StrictMode>
+    {/* The backstop, and only the backstop. The boundary that matters day to day is the one inside
+        each layout, around the route outlet — it keeps the navbar and the bottom nav alive so a
+        broken page is an inconvenience rather than a dead end. This one exists for the cases that
+        boundary cannot see: a provider that throws while initialising, or the chrome itself. There
+        is nothing left to preserve at that point, so its fallback offers a reload and a link home
+        rather than pretending a re-render will help. No `resetKey`: outside the router there is no
+        navigation to reset on. */}
+    <ErrorBoundary scope="app">
     <BrowserRouter>
       <AuthProvider>
         <CityProvider>
@@ -98,5 +108,42 @@ createRoot(document.getElementById('root')).render(
         </CityProvider>
       </AuthProvider>
     </BrowserRouter>
-  </StrictMode>,
+    </ErrorBoundary>
+  </StrictMode>
 );
+
+/* D129 — the one await between the module graph and the first render.
+   `db.json` is now a lazy chunk (see lib/mockApi/core.js), so the mock store may not
+   exist yet on a first visit. Every mockApi reader stays synchronous — including
+   `AppFlagsContext`, which reads flags in a `useState` initialiser during render —
+   and they stay correct because this resolves first. Nothing in the app reads the
+   store at module scope, so the gate is exhaustive; a read that beat it anyway would
+   throw out of `rawLoad()` rather than quietly return an empty database.
+
+   It resolves without a fetch on every visit after the first, so this is not a
+   render-blocking round trip for a returning user.
+
+   A failure here is logged and rendered through: a first-time visitor gets a loud
+   console error naming the cause instead of a blank page with no explanation, and the
+   seed promise is not cached on rejection, so the next read retries the fetch. */
+ensureMockDb()
+  .catch((err) => { console.error('[boot] mock store failed to initialise', err); })
+  .finally(() => {
+    /* The app's readiness contract, for anything outside the page that needs to know the
+       store exists — end-to-end specs, most of all.
+
+       "The network went quiet" is not that signal and never was. Vite fetches the module
+       graph and only then evaluates it, so the last response lands roughly a second before
+       `main.jsx` runs: Playwright's `networkidle` resolves while the document is still
+       empty. That used to be survivable by accident — the store was written synchronously
+       during evaluation, so a command queued at idle could not execute until after the
+       write. Moving the seed behind an `import()` (D129) put the write one hop the other
+       side of that boundary, and the accident stopped holding: specs reading the store
+       straight after `goto` began seeing `null`. The ones spelling it `|| '{}'` then wrote
+       that empty object back over the real store.
+
+       Set before `render` rather than after: the store is what callers are waiting on, and
+       it is ready now. */
+    document.documentElement.dataset.pnBoot = 'ready';
+    createRoot(document.getElementById('root')).render(app);
+  });

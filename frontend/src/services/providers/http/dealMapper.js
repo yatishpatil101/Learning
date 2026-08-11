@@ -65,6 +65,11 @@ export function toOfferViewModel(row) {
     // Contact-gated server-side: arrives masked until the owner approves. Passed through as-is —
     // masking is the server's decision, and a client that "helpfully" unmasked would defeat it.
     buyerMobile: row?.from?.mobile || '',
+    // The Verified Tenant badge, stated by the server (D114). It has to be, because the only other
+    // thing the panel could key it on is `buyerMobile` above — which is masked for every viewer but
+    // the buyer themselves, and `98XXXXX210` matches no real number, so the badge was permanently
+    // absent in live. Read the flag; never re-derive it from the digits the mask destroyed.
+    buyerVerified: row?.from?.verified === true,
     history: history.map((h) => ({
       amount: Number(h?.amount) || 0,
       by: h?.by || 'buyer',
@@ -170,6 +175,9 @@ export function toFinalizationViewModel(row) {
     // buyer. `buyerName` keeps the name the existing markup reads.
     buyerName: row.initiator?.name || 'Buyer',
     buyerMobile: row.initiator?.mobile || '',
+    // As on an offer (D114): the initiator's number is masked at every finalization status, so the
+    // badge can only come from the server's own flag.
+    buyerVerified: row.initiator?.verified === true,
     counterpartyId: row.counterparty?.id || '',
     counterpartyName: row.counterparty?.name || '',
     createdAt: row.createdAt ? Date.parse(row.createdAt) : Date.now(),

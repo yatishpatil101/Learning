@@ -37,6 +37,18 @@ export const addCommunitySociety = (o = {}) => {
   const arr = getCommunitySocieties();
   const existing = arr.find((s) => s.slug === slug);
   if (existing) { registerCommunitySocieties([existing]); return existing; }
+  // Canonical-catalogue guard. Every caller is also expected to hide its own "Add
+  // '<name>'" affordance until the RERA chunk has landed (D129) — but that is a UI
+  // gate on four separate surfaces, and a mint that slips past any one of them is
+  // unrecoverable: it writes a permanent duplicate of an already-verified society
+  // that ops then has to find and merge by hand. So the store refuses it too, and
+  // hands back the canonical row instead of minting. Name-only comparison as well
+  // as slug, because `slugifySociety` folds the locality in: the same society
+  // typed without a locality yields a different slug from the RERA row's.
+  const canonical = allSocieties().find(
+    (s) => s.slug === slug || String(s.name || '').trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (canonical) return canonical;
   const rec = {
     id: 'SC' + Date.now().toString(36),
     slug, name, localitySlug,

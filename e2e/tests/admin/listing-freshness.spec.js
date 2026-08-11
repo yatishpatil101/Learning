@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { trackErrors } from '../../helpers/console.js';
 
 /* Admin anti-staleness: when a LIVE listing goes unconfirmed (freshness stale/dormant),
    ops can surface it under Properties → Needs Follow-up → "Unconfirmed (stale)" and send
@@ -56,8 +57,7 @@ test('Unconfirmed (stale) sub-filter lists unconfirmed live listings', async ({ 
 });
 
 test('admin can send a WhatsApp availability-confirmation reminder to the owner', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seedAndLogin(page);
   await openUnconfirmed(page);
 

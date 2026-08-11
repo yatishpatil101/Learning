@@ -66,6 +66,12 @@ public class PropertyModerationService {
         if (PropertyStatus.APPROVED.equals(status)) {
             property.setFlagReason(null);
         }
+        // A moderator has now looked at this listing, which is exactly what a pending stays-live
+        // re-check was asking for (Q14). Clearing it here rather than behind its own endpoint is
+        // deliberate: the re-check is a request for a decision, and this is where decisions are
+        // made. Re-approving an already-approved listing is therefore the "checked it, all fine"
+        // action, and needs no new route to express.
+        property.clearRecheck();
         audit.record(actor, "property.status", "property", id, "from", from, "to", status,
                 "reason", reason, "owner", String.valueOf(property.getOwner().getId()));
 
@@ -141,6 +147,7 @@ public class PropertyModerationService {
         String from = property.getStatus();
         property.setStatus(PropertyStatus.APPROVED);
         property.setFlagReason(null);
+        property.clearRecheck();
         audit.record(actor, "property.flag.clear", "property", id, "from", from,
                 "owner", String.valueOf(property.getOwner().getId()));
     }

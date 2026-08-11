@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import LoadError from '../../../components/LoadError.jsx';
-import { hasInterest as hasInterestDB, isPubliclyVisible } from '../../../lib/data/flatmates.js';
+import { isPubliclyVisible } from '../../../lib/data/flatmates.js';
 import { inr, isVerifiedPost } from './helpers.js';
 import { TAB_MOVE_IN } from './model.js';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
@@ -34,15 +34,21 @@ export default function Results({ tab, myPost, openPostModal, markFilled, delete
   /* Each tab is a MIXED feed by design — "Move in now" carries rooms alongside
      groups that already hold a flat, and "Team up" carries solo seekers alongside
      groups still hunting. So the card choice is a dispatch on the record kind
-     rather than something each tab owns. */
+     rather than something each tab owns.
+
+     `interested` is read from the `interests` map alone (D181). That map is seeded from what this
+     browser has already asked, so a done-state still survives a reload — but the page no longer
+     *decides* anything with it. It used to short-circuit the handler, which is exactly what made
+     the API's `already_interested` 409 unreachable. The provider is now always asked; on a second
+     device the button is simply back, and the repeat tap is answered rather than pre-empted. */
   const renderCard = (item, i) => {
     if (item.kind === 'room') {
-      return <RoomCard key={'r:' + item.id} anchorId={'r:' + item.id} r={item} i={i} saved={!!saved['r:' + item.id]} onSave={onSave} interested={!!interests['room-' + item.id] || hasInterestDB('room-' + item.id)} onInterest={onRoomInterest} onReport={onReport} myPost={myPost} owned={!!ownsRoom && ownsRoom(item)} onSeats={onRoomSeatsChange} onPeople={onRoomPeopleChange} onReissue={onReissueAgreement} reviewStatus={reviews[item.id]} />;
+      return <RoomCard key={'r:' + item.id} anchorId={'r:' + item.id} r={item} i={i} saved={!!saved['r:' + item.id]} onSave={onSave} interested={!!interests['room-' + item.id]} onInterest={onRoomInterest} onReport={onReport} myPost={myPost} owned={!!ownsRoom && ownsRoom(item)} onSeats={onRoomSeatsChange} onPeople={onRoomPeopleChange} onReissue={onReissueAgreement} reviewStatus={reviews[item.id]} />;
     }
     if (item.kind === 'group') {
-      return <GroupCard key={'g:' + item.id} anchorId={'g:' + item.id} g={item} i={i} saved={!!saved['g:' + item.id]} onSave={onSave} onJoin={onJoin} joined={!!interests['group-' + item.id] || hasInterestDB('group-' + item.id)} onReport={onReport} myPost={myPost} owned={!!ownsGroup && ownsGroup(item)} onDelete={onDeleteGroup} onSeats={onSeatsChange} reviewStatus={reviews[item.id]} />;
+      return <GroupCard key={'g:' + item.id} anchorId={'g:' + item.id} g={item} i={i} saved={!!saved['g:' + item.id]} onSave={onSave} onJoin={onJoin} joined={!!interests['group-' + item.id]} onReport={onReport} myPost={myPost} owned={!!ownsGroup && ownsGroup(item)} onDelete={onDeleteGroup} onSeats={onSeatsChange} reviewStatus={reviews[item.id]} />;
     }
-    return <SeekerCard key={'s:' + item.id} anchorId={'s:' + item.id} r={item} i={i} saved={!!saved['s:' + item.id]} onSave={onSave} interested={!!interests[item.id] || hasInterestDB(item.id)} onInterest={onInterest} onReport={onReport} myPost={myPost} />;
+    return <SeekerCard key={'s:' + item.id} anchorId={'s:' + item.id} r={item} i={i} saved={!!saved['s:' + item.id]} onSave={onSave} interested={!!interests[item.id]} onInterest={onInterest} onReport={onReport} myPost={myPost} />;
   };
 
   return (

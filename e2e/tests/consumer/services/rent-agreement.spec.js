@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 /*
  * Rent Agreement — the revenue-critical service. Covers the full owner submit,
@@ -26,7 +27,29 @@ async function login(page, user) {
 }
 
 const active = (page) => page.locator('.step-panel.active');
-const clickNext = (page) => page.getByRole('button', { name: 'Next' }).click();
+
+/* Click Next, and prove the wizard actually moved.
+ *
+ * A Next that does not advance — validation refused it, or a full page reload rewound the
+ * form to the last debounced autosave — leaves the wizard on the step it was already on.
+ * Nothing here notices, because the Property, Owner and Tenant panels share every
+ * placeholder (`As per PAN/Aadhaar`, `ABCDE1234F`, `10-digit mobile`, …): the next helper
+ * happily types tenant answers into the owner panel, and the run only falls over several
+ * steps later on `.pn-datefield`, a locator with nothing to do with the cause. That
+ * misdirection is how this spec's timeout came to be filed as a review-step scroll/animation
+ * bug against `submitFromReview`.
+ *
+ * `expectStep` is the 0-based index of the step we must land on. This is an assertion, not a
+ * retry or a wait-and-hope: a Next that genuinely refuses to advance is a product defect and
+ * still fails the test — it just fails here, saying so, instead of three helpers downstream. */
+const clickNext = async (page, expectStep) => {
+  await page.getByRole('button', { name: 'Next' }).click();
+  if (expectStep == null) return;
+  await expect(
+    page.locator('.step-dot').nth(expectStep),
+    `wizard did not advance to step ${expectStep + 1}`,
+  ).toHaveClass(/\bactive\b/);
+};
 
 async function fillProperty(page) {
   const p = active(page);
@@ -34,7 +57,7 @@ async function fillProperty(page) {
   await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
   await p.getByPlaceholder('e.g. Baner').fill('Baner');
   await p.getByPlaceholder('411045').fill('411045');
-  await clickNext(page);
+  await clickNext(page, 1);
 }
 
 async function fillOwner(page, { withDoc } = {}) {
@@ -48,7 +71,7 @@ async function fillOwner(page, { withDoc } = {}) {
     await p.locator('input[type="file"]').first().setInputFiles({ name: 'owner-pan.png', mimeType: 'image/png', buffer: PNG });
     await expect(p.getByText('owner-pan.png')).toBeVisible();
   }
-  await clickNext(page);
+  await clickNext(page, 2);
 }
 
 async function fillTenant(page) {
@@ -58,7 +81,7 @@ async function fillTenant(page) {
   await p.getByPlaceholder('12-digit Aadhaar').fill('999988887777');
   await p.getByPlaceholder('10-digit mobile').fill('9822334455');
   await p.getByPlaceholder('Full permanent address').fill('44, FC Road, Pune 411004');
-  await clickNext(page);
+  await clickNext(page, 3);
 }
 
 async function fillTerms(page) {
@@ -70,14 +93,23 @@ async function fillTerms(page) {
   await page.locator('.pn-cal').waitFor({ state: 'detached' });
   await p.getByPlaceholder('e.g. 25000').fill('30000');
   await p.getByPlaceholder('e.g. 100000').fill('150000');
-  await clickNext(page);
+  await clickNext(page, 4);
 }
 
+/* Submit from the review step, and prove the request was actually created.
+ *
+ * Same reasoning as `clickNext`: clicking Generate and returning means a submit that
+ * silently did not take — the click landed while the page was being torn down, say — is
+ * only noticed by whatever the caller happens to look at next. For the invited-tenant test
+ * that is the WhatsApp invite link ten seconds later, a locator with nothing to do with the
+ * cause. Asserting the submit's own success condition here fails at the submit instead. */
 async function submitFromReview(page) {
-  await clickNext(page); // witnesses -> review
+  await clickNext(page, 5); // witnesses -> review
   const review = active(page);
   await review.getByRole('checkbox').check();
   await review.getByRole('button', { name: /Generate Agreement & Proceed/ }).click();
+  // Either wording of the done panel — the owner filled the tenant step, or invited them to.
+  await expect(page.getByText(/Request submitted!|Request sent to the tenant!/)).toBeVisible();
 }
 
 test.describe('Rent Agreement — revenue flow', () => {
@@ -96,8 +128,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillTenant(page);
     await fillTerms(page);
     await submitFromReview(page);
-
-    await expect(page.getByText('Request submitted!')).toBeVisible();
 
     // Ops (admin) sees the request and the REAL uploaded document, not a placeholder.
     await login(page, ADMIN);
@@ -123,7 +153,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     // Step 3 — choose "Invite the tenant" and enter their mobile.
     await active(page).getByText('Invite the tenant', { exact: true }).click();
     await active(page).getByPlaceholder('10-digit mobile').fill('9822334455');
-    await clickNext(page);
+    await clickNext(page, 3);
 
     await fillTerms(page);
     await submitFromReview(page);
@@ -194,6 +224,7 @@ test.describe('Rent Agreement — revenue flow', () => {
 
   test('platform service fee is driven by the admin Fees panel, not hardcoded', async ({ page }) => {    await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    await appReady(page);
 
     // Admin edits "Rent Agreement Platform" in Settings → Fees (persisted to the admin DB).
     await page.evaluate(() => {
@@ -223,7 +254,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     await p.getByPlaceholder('e.g. Skyline Heights').fill('Skyline Heights');
     await p.getByPlaceholder('e.g. Baner').fill('Baner');
     await p.getByPlaceholder('411045').fill('411045');
-    await clickNext(page); // -> owner step
+    await clickNext(page, 1); // -> owner step
     const o = active(page);
     await expect(o.getByPlaceholder('As per PAN/Aadhaar')).toBeVisible();
     await o.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
@@ -317,7 +348,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(w.getByText(/physically present/)).toBeVisible();
 
     // Optional means the owner can reach Review & submit without entering witnesses.
-    await clickNext(page);
+    await clickNext(page, 5);
     await expect(active(page).getByRole('button', { name: /Generate Agreement & Proceed/ })).toBeVisible();
   });
 
@@ -331,7 +362,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillOwner(page);
     await active(page).getByText('Invite the tenant', { exact: true }).click();
     await active(page).getByPlaceholder('10-digit mobile').fill('9822334455');
-    await clickNext(page);
+    await clickNext(page, 3);
     await fillTerms(page);
     await submitFromReview(page);
 
@@ -360,8 +391,8 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
 
     // 4) The Tenant step is the one section they can edit.
-    await clickNext(page); // Property → Owner (still read-only)
-    await clickNext(page); // Owner → Tenant
+    await clickNext(page, 1); // Property → Owner (still read-only)
+    await clickNext(page, 2); // Owner → Tenant
     await expect(page.getByText('Your details — please complete this step')).toBeVisible();
     await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toBeEnabled();
   });
@@ -375,7 +406,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillTenant(page);
     await fillTerms(page);
     await submitFromReview(page);
-    await expect(page.getByText('Request submitted!')).toBeVisible();
 
     // Revisiting the page must not re-open the editable wizard for an active request.
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
@@ -441,7 +471,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillTenant(page);
     await fillTerms(page);
     await submitFromReview(page);
-    await expect(page.getByText('Request submitted!')).toBeVisible();
 
     // At submit the admin lead ticket exists and is linked to the flow request via `ref`.
     const created = await page.evaluate(() => {

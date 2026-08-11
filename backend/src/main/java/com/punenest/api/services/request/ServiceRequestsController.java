@@ -5,6 +5,7 @@ import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -67,6 +68,21 @@ public class ServiceRequestsController {
      */
     private static final String CANCEL = Routes.ServiceRequests.BY_ID + "/cancel";
 
+    /**
+     * The one guard on this controller that is a capability rather than a role (tech debt D67).
+     *
+     * <p>Read it as "if you are ops, you need {@code view_service_requests}" — the negated role test
+     * short-circuits for everybody else, so a customer's own list is reached on exactly the terms it
+     * always was. It has to be written that way round because {@link #list} is <em>one</em> route
+     * serving two audiences: the service picks the queue or the caller's own rows from the
+     * principal's role, so the capability is only meaningful on the branch the role test selects.
+     * Composed with {@code or} rather than {@code and} for that reason alone; it still cannot widen
+     * anything, because the only callers it can turn away are ones the ops branch would have served.
+     */
+    private static final String OPS_MAY_SEE_THE_QUEUE =
+            "!hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') or "
+                    + Capabilities.REQUIRE_VIEW_SERVICE_REQUESTS;
+
     public ServiceRequestsController(ServiceRequestService service,
             ServiceRequestIdentityService identities) {
         this.service = service;
@@ -79,8 +95,12 @@ public class ServiceRequestsController {
      * <p>Sort is stripped by {@link Pageables#unsorted(Pageable)}: newest-first is fixed server-side
      * and index-backed (V21), so an incoming {@code ?sort=} would otherwise be an unmapped-property
      * 500 that any caller could trigger with a guess.
+     *
+     * <p>The guard is {@link #OPS_MAY_SEE_THE_QUEUE}: no role is required to read your own requests,
+     * and the capability is required to read everybody's.
      */
     @GetMapping(Routes.ServiceRequests.BASE)
+    @PreAuthorize(OPS_MAY_SEE_THE_QUEUE)
     public PageResponse<ServiceRequestDto> list(@CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String status,

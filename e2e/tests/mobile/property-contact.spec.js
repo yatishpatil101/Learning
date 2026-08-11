@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../helpers/console.js';
+import { appReady } from '../../helpers/app.js';
 
 /* The lead-capture step on a phone — §G.2 `mobile-property-contact`.
 
@@ -31,9 +32,13 @@ async function signedIn(page) {
    configuration where the enquiry form — the thing this file is about — is the
    contact surface. Mirrors the helper in feature-flags.spec.js. */
 async function setAppFlag(page, key, value) {
+  // Callers reach this straight off a `goto`, which resolves before the seed is written
+  // (D129); the silent `return` below then left inAppMessaging ON and the enquiry sheet
+  // — the thing this file is about — never opened.
+  await appReady(page);
   await page.evaluate(({ key, value }) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    if (!db || !db.settings || !db.settings.flags) return;
+    if (!db || !db.settings || !db.settings.flags) throw new Error('mock store has no settings.flags after appReady()');
     db.settings.flags[key] = value;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     window.dispatchEvent(new CustomEvent('punenest-settings-change'));

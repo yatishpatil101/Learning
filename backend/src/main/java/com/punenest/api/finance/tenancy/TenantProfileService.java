@@ -3,6 +3,7 @@ package com.punenest.api.finance.tenancy;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.trust.VerifiedTenantLookup;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.identity.verification.IdentityVerificationRepository;
@@ -10,10 +11,12 @@ import com.punenest.api.identity.verification.VerificationStatuses;
 import com.punenest.api.leads.contact.ContactRequestRepository;
 import com.punenest.api.leads.contact.ContactRequestStatuses;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -30,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  * nothing accepts it from a client.
  */
 @Service
-public class TenantProfileService {
+public class TenantProfileService implements VerifiedTenantLookup {
 
     /**
      * The largest batch {@link #verifiedByMobile} will answer.
@@ -212,6 +215,48 @@ public class TenantProfileService {
             answer.add(new TenantVerifiedDto(raw, maySeeBadge(callerId, targetId, verified, relationships)));
         }
         return answer;
+    }
+
+    /**
+     * Which of these users carry the badge — the same question as {@link #verifiedByMobile}, asked
+     * by <strong>user id</strong> (tech-debt D114).
+     *
+     * <p><strong>Why an id-keyed twin exists.</strong> {@link #verifiedByMobile} is keyed by mobile
+     * because its caller has nothing else. A caller projecting an offer or a finalization request
+     * is in the opposite position: it holds the party's user id, and holds their mobile only in the
+     * <em>masked</em> form D5 requires ({@code 98XXXXX210}). Masking is deliberately lossy, so a
+     * masked number cannot be normalised back into the stored one — asking the mobile-keyed
+     * question there does not merely cost a round trip, it is guaranteed to answer {@code false}
+     * for every party. That is precisely the bug D114 records: a badge that worked against a mock
+     * holding real numbers and could never appear against the server.
+     *
+     * <p><strong>There is no relationship guard here, and that is not an oversight.</strong>
+     * {@link #verifiedByMobile} needs one because its caller <em>chooses the subject</em> — hand it
+     * a number and it reports on whoever owns that number, which is an enumeration primitive unless
+     * guarded. This method cannot be aimed: the ids come from rows the caller is already a
+     * participant on, so the server chose the subject and entitlement was settled upstream by
+     * whatever scoped that row to this caller. Adding a second guard here would not make anything
+     * safer; it would only blank the badge on the one screen it exists for.
+     *
+     * @param userIds the parties to ask about; nulls and repeats are ignored
+     * @return the subset that carries the badge — never null, empty when nothing was asked
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Set<UUID> verifiedAmong(Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Set.of();
+        }
+        List<UUID> distinct = userIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Set.of();
+        }
+        // One query for the whole page of parties. Callers are list projections, so a per-row
+        // lookup here would put an N+1 back on a render path the batch endpoint was built to remove.
+        return profiles.findAllById(distinct).stream()
+                .filter(TenantProfile::isVerified)
+                .map(TenantProfile::getUserId)
+                .collect(Collectors.toSet());
     }
 
     /**

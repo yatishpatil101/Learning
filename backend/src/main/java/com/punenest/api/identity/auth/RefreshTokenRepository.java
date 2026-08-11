@@ -1,6 +1,7 @@
 package com.punenest.api.identity.auth;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,4 +23,14 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     Optional<RefreshToken> findByTokenHash(String tokenHash);
 
     List<RefreshToken> findByUserId(UUID userId);
+
+    /**
+     * Delete refresh tokens that have already expired.
+     *
+     * <p>Expired rows cannot be used for rotation and only grow table size over time, so pruning is
+     * safe and keeps lookups/indexes bounded.
+     *
+     * @return number of deleted rows
+     */
+    long deleteByExpiresAtBefore(Instant cutoff);
 }

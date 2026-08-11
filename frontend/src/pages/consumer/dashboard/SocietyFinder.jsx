@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ShieldCheck, Plus, Bell, Check, Search } from 'lucide-react';
 import { searchSocieties, mintDemandSociety, toggleFollowSociety, isSocietyFollowed } from '../../../lib/store.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 
 /**
  * SocietyFinder — demand-side society capture for searchers.
@@ -18,9 +19,15 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   const [busy, setBusy] = useState('');
   const inputRef = useRef(null);
 
-  const results = useMemo(() => searchSocieties(query, ''), [query]);
+  // Searching the curated head only would offer "Add & alert me" for a society that
+  // already exists in the RERA rows, minting a duplicate (D129).
+  const catalogueReady = useSocietyCatalogue();
+  const results = useMemo(() => searchSocieties(query, ''), [query, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // Gated on `catalogueReady`, not just on `!exact`: until the RERA chunk lands every
+  // one of those 320 societies reads as missing, so this would offer to mint a
+  // duplicate of a society we already have verified (D129).
+  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
   const follow = (slug) => {
     if (!isSocietyFollowed(slug)) toggleFollowSociety(slug);
@@ -30,6 +37,7 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   };
 
   const createAndFollow = () => {
+    if (!catalogueReady) return;
     setBusy('create');
     const rec = mintDemandSociety({ name: query.trim() });
     setBusy('');

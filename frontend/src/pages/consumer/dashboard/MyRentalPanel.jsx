@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import { Card, SectionHead } from './components.jsx';
 import { fmtINR } from '../../../lib/format.js';
@@ -132,7 +133,7 @@ export default function MyRentalPanel({ user, toast }) {
       {/* Rented-home card */}
       <Card className="overflow-hidden">
         <div className="flex flex-col sm:flex-row">
-          <img src={t.image} alt={t.title} className="w-full sm:w-52 h-40 sm:h-auto object-cover" />
+          <PropertyImage src={t.image} alt={t.title} className="w-full sm:w-52 h-40 sm:h-auto object-cover" />
           <div className="flex-1 p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">

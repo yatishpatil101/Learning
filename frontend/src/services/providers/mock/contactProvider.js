@@ -24,6 +24,7 @@ import {
   setContactStatus as _setContactStatus,
   viewerIsVerified,
 } from '../../../lib/contact.js';
+import { isTenantVerifiedFor } from '../../../lib/store/rent.js';
 
 /** The server's page size default, mirrored so paging behaves identically on mocks. */
 const DEFAULT_SIZE = 20;
@@ -134,6 +135,7 @@ export async function pendingContactCount() {
  */
 function toRequestView(r) {
   const approved = r.status === 'approved';
+  const verified = isTenantVerifiedFor(r.buyerMobile);
   return {
     id: r.id,
     propertyId: r.propId || '',
@@ -143,6 +145,7 @@ function toRequestView(r) {
       name: r.buyerName || 'Buyer',
       mobile: maskMobile(r.buyerMobile),
       role: 'buyer',
+      verified,
     },
     ...(approved ? { contact: { name: r.buyerName || 'Buyer', mobile: digits(r.buyerMobile) } } : {}),
   };

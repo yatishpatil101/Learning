@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { trackErrors } from '../../../helpers/console.js';
+import { appReady } from '../../../helpers/app.js';
 
 /* The verify funnel's *payoff* — tech-debt D95.
  *
@@ -78,9 +79,15 @@ async function seedUnverifiedOwner(page) {
   }, [OWNER, OWNED, JSON.stringify(db)]);
 }
 
-const readCatalogue = (page) => page.evaluate(() =>
-  JSON.parse(localStorage.getItem('puneNestDB_v5') || '{"listings":[]}').listings
-    .filter((l) => String(l.id || '').startsWith('VB-')));
+/* `appReady` first: the control read runs straight off a `goto`, which resolves before the
+   store is written (D129). Read early and the fallback yields an empty catalogue, so the
+   `toHaveLength(3)` control fails as if the fixture were wrong. */
+const readCatalogue = async (page) => {
+  await appReady(page);
+  return page.evaluate(() =>
+    JSON.parse(localStorage.getItem('puneNestDB_v5') || '{"listings":[]}').listings
+      .filter((l) => String(l.id || '').startsWith('VB-')));
+};
 
 async function earnBadge(page) {
   /* Wait for the CTA rather than clicking straight after `networkidle`. The

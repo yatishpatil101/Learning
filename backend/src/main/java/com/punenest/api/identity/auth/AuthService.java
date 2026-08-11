@@ -28,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
+    // BCrypt hash for a dummy secret used only to equalize unknown-email work in staff login.
+    private static final String STAFF_LOGIN_DUMMY_BCRYPT =
+            "$2a$10$7EqJtq98hPqEX7fNZaFWoOeR6Y4u5M4YB9Gf4bm/FvGV8eK3oprm.";
+
     private final UserRepository users;
     private final UserService userService;
     private final UserMapper userMapper;
@@ -74,11 +78,16 @@ public class AuthService {
     /** Internal staff/admin email+password login (contract {@code POST /auth/staff-login}). */
     @Transactional
     public AuthResponse staffLogin(StaffLoginRequest request) {
-        User user = users.findByEmailAndArchivedFalse(request.email())
-                .orElseThrow(() -> new UnauthorizedException("Invalid credentials"));
-        // why: never reveal which half failed; a null hash (passwordless account) must also 401, not NPE.
-        if (user.getPasswordHash() == null
-                || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        User user = users.findByEmailAndArchivedFalse(request.email()).orElse(null);
+
+        // Keep the unknown-email path on equivalent bcrypt work so staff-email enumeration is harder.
+        String hash = user != null && user.getPasswordHash() != null
+            ? user.getPasswordHash()
+            : STAFF_LOGIN_DUMMY_BCRYPT;
+        boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
+
+        // why: never reveal which half failed; a null hash (passwordless account) must also 401.
+        if (user == null || user.getPasswordHash() == null || !passwordMatches) {
             throw new UnauthorizedException("Invalid credentials");
         }
         return issueFor(user);
@@ -88,8 +97,11 @@ public class AuthService {
     @Transactional
     public AuthResponse refresh(RefreshRequest request) {
         RefreshTokenService.Rotation rotation = refreshTokens.rotate(request.refreshToken());
-        User user = users.findById(rotation.userId())
-                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
+        User user = users.findByIdAndArchivedFalse(rotation.userId()).orElse(null);
+        if (user == null) {
+            refreshTokens.revokeAllForUser(rotation.userId());
+            throw new UnauthorizedException("Invalid refresh token");
+        }
         String access = jwtService.issueAccessToken(user);
         return AuthResponse.tokens(access, rotation.refreshToken(),
                 jwtService.accessTtl().toSeconds(), userMapper.toResponse(user));

@@ -31,6 +31,19 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
   });
 
   test('no bottom inset is reserved on desktop', async ({ page }) => {
+    /* The consent bar is fixed above the bottom edge at every width, and since D189 the
+       layout reserves its real height so the footer is not born underneath it. That band
+       is deliberately NOT mobile-only, so leaving it up here would make this guardrail
+       fail for the one reason it is not testing. Seed a choice and the only thing left in
+       the reservation is the mobile bottom-nav inset — which must be zero on desktop. */
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem(
+          'pn_cookie_consent_v1',
+          JSON.stringify({ necessary: 1, functional: 1, analytics: 1, marketing: 1, version: 1, ts: Date.now() }),
+        );
+      } catch { /* storage blocked — the bar stays up and the assertion below would catch it */ }
+    });
     await page.goto('/');
     const pad = await page.locator('.has-bottom-nav').evaluate((el) => getComputedStyle(el).paddingBottom);
     expect(pad).toBe('0px');

@@ -61,6 +61,28 @@ export const listTickets = () => provider().listTickets();
 export const getTicket = (id) => provider().getTicket(id);
 
 /**
+ * The platform-wide support queue, paged — **staff and admin only** (D51).
+ *
+ * `GET /admin/support-tickets`. The second operation in this domain with a different audience from
+ * the rest, following the reports queue: a consumer session gets a 403, which is the endpoint
+ * working rather than an error to handle, so this is never called from a consumer surface.
+ *
+ * Deliberately *not* `listTickets` with a wider scope. The two answers have different shapes for
+ * good reasons — the caller's own list is an unpaged bare array carrying every message inline, and
+ * "every support conversation on the platform" in that shape is a PII export by another name — so
+ * the contract made them different operations and so does the seam.
+ *
+ * Rows carry no thread, no mobile and no internal notes; `raiser` is a display name and may be
+ * blank. Paged for real: `total` is the whole queue, not the rows in hand.
+ *
+ * @param {{awaitingReply?: boolean, page?: number, size?: number}} [opts]
+ *   `awaitingReply` omitted means everything; `true` narrows to tickets whose newest message is
+ *   from the customer and nobody on the desk has read; `false` is the complement.
+ * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
+ */
+export const listSupportQueue = (opts) => provider().listSupportQueue(opts);
+
+/**
  * Raise a ticket. Resolves to the created ticket, including its server-assigned id.
  *
  * @param {{subject: string, category: string, message: string, priority?: string, images?: string[]}} ticket
@@ -70,5 +92,11 @@ export const createTicket = (ticket) => provider().createTicket(ticket);
 /** Reply to a ticket. Resolves to the created message. */
 export const replyToTicket = (id, text) => provider().replyToTicket(id, text);
 
-/** Clear the "support replied" flag. Idempotent on both providers. */
+/**
+ * Clear the "unread" flag on the caller's own side of the thread. Idempotent on both providers.
+ *
+ * Two-sided (D50): the raiser's call clears "support replied", a staff call clears the desk's own
+ * signal, and neither touches the other. Which side the caller is on is derived from the session,
+ * never passed in — a parameter here would let one side clear the other's flag.
+ */
 export const markTicketRead = (id) => provider().markTicketRead(id);

@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,30 +33,38 @@ public class DocumentsController {
     }
 
     /**
-     * {@code GET /documents/shared?token=…} (contract {@code getSharedDocuments}) — anonymous by
-     * contract.
+     * {@code GET /documents/shared} with {@code X-Share-Token} (contract {@code getSharedDocuments})
+     * — anonymous by contract.
      *
-     * <p>The token is the only credential, so it is deliberately <em>not</em> in the path: a path
-     * segment is the part of a URL that everything logs by default, whereas a query string can be
-     * excluded from a log pattern. That is a configuration fact rather than a property of the URL,
-     * so D42 tracks holding it true. Two things now do:
+     * <p><strong>The token is a header, not a query parameter (D42).</strong> It used to be
+     * {@code ?token=…}, which made every share link itself a 7-day bearer credential: copied into
+     * browser history and bookmarks, written to any proxy or CDN access log, and forwarded verbatim
+     * the moment the recipient pasted it into a chat. Redacting our own logs and sending
+     * {@code Referrer-Policy: no-referrer} closed the paths we control; none of them could close
+     * those. A header is not part of the URL, so none of them exist for it.
      *
-     * <ul>
-     *   <li>{@code server.tomcat.accesslog.pattern} is pinned to {@code %m %U %H} in
-     *       {@code application.properties}, so enabling the container access log cannot write the
-     *       token to disk. Application code that wants to log a URI must go through
-     *       {@link com.punenest.api.common.web.LogSafeUri#redact(String)}; nothing does today.</li>
-     *   <li>The chain sends {@code Referrer-Policy: no-referrer} (see {@code SecurityConfig}), so a
-     *       browser holding this URL cannot forward it in a {@code Referer} header.</li>
-     * </ul>
+     * <p>The query parameter is <strong>gone</strong>, not deprecated. Nothing had ever built a link
+     * carrying one — no share button ships yet — so there was no compatibility window to honour, and
+     * a still-live bearer-in-URL path is the vulnerability rather than a migration aid. A stale
+     * {@code ?token=…} URL now fails closed with the same opaque 401 as any other bad credential.
      *
-     * <p>What remains, and is <em>not</em> fixed by either: browser history, bookmarks, any proxy or
-     * CDN in front of this app, and the recipient pasting the link into a chat window. Those are
-     * only closed by taking the token out of the query string altogether — the migration D42 leaves
-     * open, because it changes every link ever issued.
+     * <p>The caller is the SPA's {@code /shared-documents} route, which reads the token from
+     * {@code location.hash}: a fragment is never sent to a server, so it is absent from access logs
+     * and from {@code Referer} by construction, and the token reaches us only through this header.
+     *
+     * <p>The defences that were already here still stand behind it — the container access-log
+     * pattern is pinned to {@code %m %U %H}, {@link com.punenest.api.common.web.LogSafeUri} redacts
+     * {@code token} for any future request logger, and the chain sends
+     * {@code Referrer-Policy: no-referrer}. Belt and braces: they now guard a URL that no longer
+     * carries a secret.
+     *
+     * <p>{@code required = false} rather than letting Spring reject a missing header with a 400:
+     * absent, blank and wrong must be indistinguishable, or the endpoint becomes an oracle. The
+     * service answers all three with the same 401.
      */
     @GetMapping(Routes.Documents.SHARED)
-    public List<DocumentDto> getSharedDocuments(@RequestParam("token") String token) {
+    public List<DocumentDto> getSharedDocuments(
+            @RequestHeader(name = ShareTokens.HEADER, required = false) String token) {
         return requestService.shared(token);
     }
 }

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
+import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
 import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
 import { logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
 import { ensureReview, getReview, markReviewRead, decideReview, findDuplicateClusters } from '../../lib/data/properties-admin.js';
@@ -24,8 +24,8 @@ import AdminPropertyCard from '../../components/admin/AdminPropertyCard.jsx';
 import PipelineTab from './properties/PipelineTab.jsx';
 import DuplicatesTab from './properties/DuplicatesTab.jsx';
 import PropertyReviewModal from './properties/PropertyReviewModal.jsx';
-import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyBulkRejectModal } from './properties/PropertyModals.jsx';
-import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, PIPELINE_STAGES, exportCsv } from './properties/constants.js';
+import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyBulkRejectModal, PropertyRecheckRejectModal } from './properties/PropertyModals.jsx';
+import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, PIPELINE_STAGES, fmtAgo, exportCsv } from './properties/constants.js';
 
 const PaginationHint = ({ total }) =>
   total > PAGE_LIMIT ? (
@@ -45,13 +45,25 @@ function KpiCard({ label, value, icon: Icon, tint, onClick }) {
   );
 }
 
+/* The stays-live re-check queue's fetch (Q14).
+   A failed fetch must not read as a drained queue: `[]` means "nothing waiting", `null` means "we
+   do not know yet", and the tab renders a loader for the second — so an outage is never mistaken
+   for an empty backlog. Module scope, with the reporter passed in, so the mount effect that calls
+   it needs no dependency on the component's `toast`. */
+const fetchRecheckQueue = (onError) => listForModeration({ recheck: true, archived: false }, 'newest')
+  .catch((err) => { onError(err); return []; });
+
 export default function AdminProperties() {
   const { toast } = useToast();
+  const reportRecheckLoadError = useCallback(
+    (err) => toast(`Could not load the re-check queue: ${err.message}`, 'error'),
+    [toast],
+  );
   const { optionEnabled, customRoles } = useAdminFlags();
   const { user } = useAuth();
   const [params] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'featured', 'duplicates'], 'all');
+  const [tab, setTab] = useTabParam(['all', 'pipeline', 'verify', 'followup', 'staff', 'flagged', 'recheck', 'featured', 'duplicates'], 'all');
 
   // Users scoped to Properties · Verify only see the module locked to the
   // Verification Queue (no curation, duplicates or listing management).
@@ -61,6 +73,7 @@ export default function AdminProperties() {
   const [qAll, setQAll] = useState('');
   const [qVerify, setQVerify] = useState('');
   const [qFlagged, setQFlagged] = useState('');
+  const [qRecheck, setQRecheck] = useState('');
   const [qFeatured, setQFeatured] = useState('');
   const [qStaff, setQStaff] = useState('');
   const [qFollowUp, setQFollowUp] = useState('');
@@ -82,14 +95,51 @@ export default function AdminProperties() {
   const [view, setView] = useState(null);
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkReason, setBulkReason] = useState('');
+  const [recheckRejectFor, setRecheckRejectFor] = useState(null);
+  const [recheckRejectReason, setRecheckRejectReason] = useState('');
   const [internalNote, setInternalNote] = useState('');
 
-  const refresh = () => listForModeration({}, 'newest').then(setAll);
+  /* The stays-live re-check queue (Q14) is fetched on its own axis rather than filtered out of
+     `all` like the other list tabs.
+
+     Every other tab narrows on something already in the page's single fetch (`status`, `featured`,
+     `archived`), but a queued re-check is by definition an *approved, un-archived* listing — that
+     is the whole outcome — so `all` cannot be narrowed to it without the recheck fields, and the
+     moderation endpoint pages at 20. Filtering client-side would therefore quietly show the
+     re-checks that happen to fall in the newest 20 listings and silently drop the rest, which for a
+     queue is worse than showing nothing: it looks drained. `?recheck=true` asks the server the
+     actual question, and the mock answers it identically.
+
+     `DuplicatesTab` already establishes a tab with its own data source.
+
+     `archived: false` is sent explicitly rather than left to the outcome's definition. Archiving
+     does not call `clearRecheck()`, and `adminSearch` adds no archived predicate when the filter is
+     null, so a listing archived while a re-check was outstanding still matches `recheck=true`
+     server-side. The mock drops archived rows unconditionally, so without this the two sides would
+     disagree — and the live queue would carry rows that no longer need reviewing. */
+  const [recheckAll, setRecheckAll] = useState(null);
+
+  const refresh = () => Promise.all([
+    listForModeration({}, 'newest').then(setAll),
+    fetchRecheckQueue(reportRecheckLoadError).then(setRecheckAll),
+  ]);
 
   useEffect(() => {
     let alive = true;
     listForModeration({}, 'newest').then((rows) => { if (alive) setAll(rows); });
+    fetchRecheckQueue(reportRecheckLoadError).then((rows) => { if (alive) setRecheckAll(rows); });
     return () => { alive = false; };
+    // `reportRecheckLoadError` is memoised on `toast`, which `ToastContext` memoises in turn, so
+    // this stays a mount-only fetch — and the `alive` guard covers it if that ever stops being true.
+  }, [reportRecheckLoadError]);
+
+  /* The queue's age is the screen's whole point, so it cannot be frozen at render time. Without a
+     tick, a console left open on this tab never escalates a row from 23h to 25h to overdue — the
+     one pressure to drain the queue would quietly stop applying to whoever is watching it. */
+  const [, setAgeTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setAgeTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
   }, []);
 
   // Deep-link handling — ?tab= is resolved by useTabParam; here we only open a review modal.
@@ -116,6 +166,11 @@ export default function AdminProperties() {
 
   // Number of distinct duplicate clusters awaiting an Ops merge decision.
   const dupCount = useMemo(() => findDuplicateClusters().length, [all]);
+
+  /* Surfaced in the tab label and as a KPI. A re-check that nobody is *told about* is the same as
+     no re-check at all, and this queue has no other way of announcing itself: the listings in it
+     are live, approved and un-archived, so they raise none of the existing counters. */
+  const recheckCount = (recheckAll || []).length;
 
   const rowsAll = useMemo(() => {
     const list = all || [];
@@ -149,6 +204,29 @@ export default function AdminProperties() {
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
     return list.filter((l) => l.status === 'flagged' && (!fDeal || l.deal === fDeal) && (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
   }, [all, qFlagged, dateRange, fDeal]);
+
+  /* Oldest first, always. Sorting is deliberately not offered: the queue's only ordering that
+     means anything is how long each listing has been live-but-unreviewed, and letting a moderator
+     re-sort it is letting them work the easy end. Server-side sorting is not an option either —
+     `sort` is clamped to the catalogue's shared whitelist, and widening it for `recheckRequestedAt`
+     would expose the column to the public search too (see the endpoint's spec note). */
+  const rowsRecheck = useMemo(() => {
+    const list = recheckAll || [];
+    const q = qRecheck.toLowerCase();
+    // The shared date pills mean "queued in the last N days" here, not "posted" — a listing posted
+    // two years ago and repriced this morning belongs at the top of this queue, and filtering it on
+    // `createdAt` like the other tabs would hide exactly the rows that matter.
+    const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
+    return list
+      .filter((l) => (!fDeal || l.deal === fDeal)
+        && (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q))
+        // A row with no timestamp survives every cutoff. `new Date('').getTime()` is NaN and every
+        // NaN comparison is false, so the naive form drops precisely the rows whose age is unknown
+        // — the ones the strip is prepared to render as "waiting — no timestamp", and the ones
+        // most likely to be the oldest.
+        && (!cutoff || !l.recheckRequestedAt || new Date(l.recheckRequestedAt).getTime() >= cutoff))
+      .sort((a, b) => new Date(a.recheckRequestedAt || 0) - new Date(b.recheckRequestedAt || 0));
+  }, [recheckAll, qRecheck, dateRange, fDeal]);
 
   const rowsFeatured = useMemo(() => {
     const list = all || [];
@@ -249,6 +327,49 @@ export default function AdminProperties() {
     toast('Flag cleared — listing published', 'success');
     refresh();
   };
+  /* ── Draining the stays-live re-check queue (Q14) ───────────────────────────────────────────
+     Both outcomes are ordinary status transitions, deliberately: `PropertyModerationService`
+     clears the re-check on *any* `setStatus`, which makes re-approving an already-approved listing
+     the "checked it, all fine" action and means this queue needs no endpoint of its own. */
+  const doRecheckPass = async (l) => {
+    if (!window.confirm(`Re-check "${l.title}" — confirm ${l.recheckReason || 'the edited fields'} look fine?`)) return;
+    try {
+      await setListingStatus(l.id, 'approved');
+    } catch (err) {
+      toast(`Could not clear the re-check: ${err.message}`, 'error');
+      return;
+    }
+    logAudit('Listing', `Re-check passed on "${l.title}" (${l.recheckReason || 'edited fields'})`);
+    toast('Re-check cleared — listing stays live', 'success');
+    refresh();
+  };
+  const openRecheckReject = (l) => { setRecheckRejectFor(l); setRecheckRejectReason(''); };
+  const submitRecheckReject = async () => {
+    const r = recheckRejectReason.trim();
+    if (!r) { toast('Add a reason before rejecting', 'error'); return; }
+    const target = recheckRejectFor;
+    /* The reason has to go through `decideReview`, not just into the audit log: that is what
+       writes the "⛔ Your property could not be approved. Reason: …" message into the owner's
+       review thread. `setListingStatus`'s third argument is dropped by the mock provider, so
+       without this the modal's promise to tell the owner why is silently unkept — and a takedown
+       an owner cannot see the reason for is a takedown they cannot fix or appeal. Same two lines
+       `submitBulkReject` and the review modal use. */
+    const l = findListing(target.id) || target;
+    ensureReview(l);
+    decideReview(target.id, 'rejected', r);
+    try {
+      await setListingStatus(target.id, 'rejected', r);
+    } catch (err) {
+      toast(`Could not reject: ${err.message}`, 'error');
+      return;
+    }
+    logAudit('Listing', `Re-check failed on "${target.title}" — rejected: ${r}`);
+    setRecheckRejectFor(null);
+    setRecheckRejectReason('');
+    toast('Listing rejected and removed from search', 'success');
+    refresh();
+  };
+
   const doArchive = (l) => { setArchiveFor(l); setArchiveReason(''); setInternalNote(''); };
   const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); logAudit('Listing', `Archived "${archiveFor.title}"${archiveReason.trim() ? ' — ' + archiveReason.trim() : ''}`); setArchiveFor(null); toast('Listing archived'); refresh(); };
   const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } logAudit('Listing', `Restored "${l.title}" from archive`); toast('Listing restored — moved to pending review', 'success'); refresh(); };
@@ -365,11 +486,16 @@ export default function AdminProperties() {
   const exportCurrentCsv = () => {
     if (activeTab === 'verify') exportCsv('punenest-verification-queue.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Submitted'], rowsVerify.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.createdAt]));
     else if (activeTab === 'flagged') exportCsv('punenest-flagged.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Reason'], rowsFlagged.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.flagReason || 'Flagged']));
+    else if (activeTab === 'recheck') exportCsv('punenest-recheck-queue.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Changed fields', 'Queued at', 'Waiting'], rowsRecheck.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.recheckReason || '', l.recheckRequestedAt || '', fmtAgo(l.recheckRequestedAt)]));
     else if (activeTab === 'featured') exportCsv('punenest-featured.csv', ['ID', 'Title', 'Locality', 'Price', 'Views', 'Enquiries'], rowsFeatured.map((l) => [l.id, l.title, l.locality, l.price, l.views, l.enquiries]));
     else exportCsv('punenest-listings.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Views', 'Enquiries', 'Deal', 'Status', 'Featured'], rowsAll.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.views, l.enquiries, l.deal, l.status, l.featured ? 'Yes' : 'No']));
   };
 
   if (!all) return <Loading />;
+  /* The two fetches are independent, so `all` can land first. On a deep link to `?tab=recheck`
+     that would render the banner over "No listings match your filters" with a count-less tab —
+     a queue confidently reporting itself drained while its own fetch is still in flight. */
+  if (activeTab === 'recheck' && !recheckAll) return <Loading />;
 
   const tabItems = [
     { key: 'all', label: 'All Listings' },
@@ -377,13 +503,14 @@ export default function AdminProperties() {
     { key: 'followup', label: 'Needs Follow-up' },
     { key: 'staff', label: 'Staff Posted' },
     { key: 'flagged', label: 'Flagged' },
+    { key: 'recheck', label: recheckCount ? `Re-check Queue (${recheckCount})` : 'Re-check Queue' },
     { key: 'featured', label: 'Featured' },
     { key: 'duplicates', label: dupCount ? `Duplicates (${dupCount})` : 'Duplicates' },
     { key: 'pipeline', label: 'Pipeline' },
   ];
   const visibleTabs = verifyOnly ? tabItems.filter((t) => t.key === 'verify') : tabItems;
 
-  const actions = { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onClearFlag: doClearFlag, onArchive: doArchive, onRestore: doRestore, onReview: openReview, onReminder: handleReminder };
+  const actions = { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onClearFlag: doClearFlag, onArchive: doArchive, onRestore: doRestore, onReview: openReview, onReminder: handleReminder, onRecheckPass: doRecheckPass, onRecheckFail: openRecheckReject };
 
   const renderListTab = (rows, query, setQuery, placeholder, countLabel, extraFilters, cardActions, selectable, selected, onSelect) => (
     <div>
@@ -418,6 +545,7 @@ export default function AdminProperties() {
         <KpiCard label="Active" value={counts.approved} icon={CheckCircle2} tint="emerald" onClick={() => jumpTo('all', 'approved')} />
         <KpiCard label="Pending" value={counts.pending} icon={Clock} tint="amber" onClick={() => jumpTo('verify', '')} />
         <KpiCard label="Flagged" value={counts.flagged} icon={Flag} tint="rose" onClick={() => jumpTo('flagged', '')} />
+        <KpiCard label="Re-check" value={recheckCount} icon={ClipboardCheck} tint="amber" onClick={() => setTab('recheck')} />
         <KpiCard label="Duplicate" value={dupCount} icon={Copy} tint="rose" onClick={() => setTab('duplicates')} />
         <KpiCard label="Featured" value={counts.featured} icon={Star} tint="teal" onClick={() => jumpTo('featured', '')} />
       </div>
@@ -463,6 +591,33 @@ export default function AdminProperties() {
       )}
 
       {activeTab === 'flagged' && renderListTab(rowsFlagged, qFlagged, setQFlagged, 'Search title, owner, locality\u2026', 'flagged', null, { onView: setView, onEdit: openEdit, onClearFlag: doClearFlag, onArchive: doArchive })}
+
+      {/* Stays-live re-check queue (Q14). These listings are live, searchable and earning while
+          they wait, so nothing about them looks wrong on any other tab — which is precisely why
+          this one has to exist and has to be drained. The banner states the trade out loud rather
+          than leaving it to be inferred from a tab name. */}
+      {activeTab === 'recheck' && (
+        <>
+          <div className="mb-4 rounded-xl border border-sky-400/30 bg-sky-500/10 p-3 text-sm text-sky-100" data-testid="recheck-banner">
+            <span className="font-semibold">These listings are still live.</span>{' '}
+            An owner changed a buyer-facing detail (price, furnishing or possession) after approval. The
+            listing stayed in search on the promise that someone re-checks it — oldest first.
+          </div>
+          {/* The provider asks for one page of 100 and the server's ceiling is the same, so a queue
+              past 100 is returned newest-first and then sorted here — meaning the rows silently
+              missing are the *oldest*, which are exactly the breached ones this tab exists to
+              surface. Say so rather than presenting a truncated queue as the whole queue. */}
+          {recheckCount >= 100 && (
+            <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-100" data-testid="recheck-truncated">
+              <span className="font-semibold">More than 100 re-checks are queued.</span>{' '}
+              Only the most recent 100 are shown, so the oldest — the ones most overdue — are not on
+              this page. Clear the backlog, or narrow with the filters above.
+            </div>
+          )}
+          {renderListTab(rowsRecheck, qRecheck, setQRecheck, 'Search title, owner, locality\u2026', 'awaiting re-check', null,
+            { onView: setView, onEdit: openEdit, onRecheckPass: doRecheckPass, onRecheckFail: openRecheckReject, onFlag: openFlag, onArchive: doArchive })}
+        </>
+      )}
       {activeTab === 'featured' && renderListTab(rowsFeatured, qFeatured, setQFeatured, 'Search title, locality\u2026', 'featured', null, { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onArchive: doArchive })}
       {activeTab === 'staff' && renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, staff name\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
 
@@ -507,6 +662,7 @@ export default function AdminProperties() {
       <PropertyArchiveModal archiveFor={archiveFor} setArchiveFor={setArchiveFor} archiveReason={archiveReason} setArchiveReason={setArchiveReason} internalNote={internalNote} setInternalNote={setInternalNote} onSubmit={submitArchive} />
       <PropertyViewModal view={view} setView={setView} />
       <PropertyBulkRejectModal open={bulkRejectOpen} onClose={() => setBulkRejectOpen(false)} count={selVerIds.length} bulkReason={bulkReason} setBulkReason={setBulkReason} onSubmit={submitBulkReject} />
+      <PropertyRecheckRejectModal target={recheckRejectFor} setTarget={setRecheckRejectFor} reason={recheckRejectReason} setReason={setRecheckRejectReason} onSubmit={submitRecheckReject} />
     </div>
   );
 }

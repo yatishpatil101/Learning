@@ -19,10 +19,16 @@
  * The mock keys tickets on a typed mobile; the server keys on the session. `createTicket` here still
  * writes the caller's own mobile so the existing store stays queryable, but the *service* signature
  * no longer carries identity — that asymmetry is the point of the seam.
+ *
+ * ## Which side of the thread the caller is on
+ *
+ * The same seam now serves the customer's page and the desk's queue (D51), so "who is replying" is
+ * a session fact here exactly as it is on the server, not a constant. See `mySide`.
  */
 import { readUser } from '../../../lib/auth.js';
 import { digits } from '../../../lib/contact.js';
 import {
+  allTickets as _all,
   ticketsForUser as _forUser,
   getTicket as _get,
   createTicket as _create,
@@ -33,8 +39,56 @@ import {
 /** The mobile the mock store keys on — the session's, normalised the way the page normalises it. */
 const myMobile = () => digits(readUser()?.mobile || '').replace(/^91/, '');
 
+/**
+ * Which side of the two-sided read model the session is on (D50).
+ *
+ * The server derives this from the principal on every write — a staff reply is a staff message and
+ * clears the desk's flag, a customer reply clears theirs — so the mock has to derive it too. It
+ * used to be hard-coded to `'customer'`, which was harmless while `Support.jsx` was the only
+ * caller and became a real divergence the moment a desk screen replied through the same seam: the
+ * mock would have written the operator's answer as if the customer had sent it.
+ */
+const mySide = () => (['staff', 'admin'].includes(readUser()?.role) ? 'staff' : 'customer');
+
 export async function listTickets() {
   return _forUser(myMobile());
+}
+
+/**
+ * The platform-wide support queue — the desk's list (D51).
+ *
+ * The mock store already holds both halves of the two-sided read model (`unreadStaff`,
+ * `unreadCustomer`), so `awaitingReply` and `unread` are read off it rather than invented. What the
+ * mock does *not* have is a server, so the filter and the window are applied here — over
+ * `allTickets()`, which is already sorted newest-activity-first — to produce the same
+ * `{ items, total, page, size }` the http provider returns from the envelope.
+ *
+ * The row deliberately drops `mobile`, `email` and `notes`, all of which the mock store carries and
+ * `AdminSupportTicket` does not. Emitting them here would make the demo screen show fields that
+ * vanish the day the domain goes live — the failure mode the seam exists to prevent.
+ */
+export async function listSupportQueue({ awaitingReply, page = 0, size = 20 } = {}) {
+  const all = _all().filter((t) => {
+    if (awaitingReply === true) return (t.unreadStaff || 0) > 0;
+    if (awaitingReply === false) return (t.unreadStaff || 0) === 0;
+    return true;
+  });
+  const from = Math.max(0, page) * size;
+  return {
+    items: all.slice(from, from + size).map((t) => ({
+      id: t.id,
+      subject: t.subject || '',
+      category: t.category || 'other',
+      status: t.status || 'open',
+      raiser: t.name || '',
+      awaitingReply: (t.unreadStaff || 0) > 0,
+      unread: (t.unreadCustomer || 0) > 0,
+      createdAt: t.createdAt || 0,
+    })),
+    total: all.length,
+    page,
+    size,
+  };
 }
 
 export async function getTicket(id) {
@@ -59,9 +113,10 @@ export async function createTicket(ticket) {
 
 export async function replyToTicket(id, text, images) {
   const u = readUser();
+  const side = mySide();
   const updated = _reply(id, {
-    role: 'customer',
-    name: u?.name || 'You',
+    role: side,
+    name: u?.name || (side === 'staff' ? 'Support' : 'You'),
     text: text || '',
     images: images || [],
   });
@@ -71,5 +126,5 @@ export async function replyToTicket(id, text, images) {
 }
 
 export async function markTicketRead(id) {
-  _markRead(id, 'customer');
+  _markRead(id, mySide());
 }

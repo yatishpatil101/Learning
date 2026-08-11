@@ -23,7 +23,11 @@ const ACTIVITY = [
 // Inject the activity log into the already-seeded mock DB, then open the desk.
 async function seedActivity(page) {
   await page.evaluate(({ key, rows }) => {
-    const db = JSON.parse(localStorage.getItem(key) || '{}');
+    // Read-modify-write — `|| '{}'` would write an empty DB back over the seeded catalogue,
+    // and the desk would then be empty for a reason that has nothing to do with activity.
+    const raw = localStorage.getItem(key);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     const now = Date.now();
     db.staffActivity = rows.map((r, i) => ({
       ...r,

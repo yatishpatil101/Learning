@@ -1,8 +1,12 @@
 package com.punenest.api.identity.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.punenest.api.identity.user.User;
@@ -61,5 +65,29 @@ class AuthServiceRaceTest {
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.user().mobile()).isEqualTo(mobile);
         assertThat(response.user().role()).isEqualTo("buyer");
+    }
+
+    @Test
+    void staffLoginUnknownEmailStillRunsPasswordMatchBefore401() {
+        UserRepository users = mock(UserRepository.class);
+        UserService userService = mock(UserService.class);
+        OtpService otpService = mock(OtpService.class);
+        JwtService jwtService = mock(JwtService.class);
+        RefreshTokenService refreshTokens = mock(RefreshTokenService.class);
+        PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        UserMapper userMapper = new UserMapperImpl();
+
+        when(users.findByEmailAndArchivedFalse("missing@punenest.in")).thenReturn(Optional.empty());
+        String dummyHash = (String) ReflectionTestUtils
+                .getField(AuthService.class, "STAFF_LOGIN_DUMMY_BCRYPT");
+        when(passwordEncoder.matches("any-pass", dummyHash)).thenReturn(false);
+
+        AuthService service = new AuthService(
+                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder);
+
+        assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@punenest.in", "any-pass")))
+                .isInstanceOf(com.punenest.api.common.error.UnauthorizedException.class);
+
+                verify(passwordEncoder, times(1)).matches("any-pass", dummyHash);
     }
 }

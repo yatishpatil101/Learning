@@ -62,4 +62,26 @@ public class EntityReviewController {
             @Valid @RequestBody ReviewCreateRequest body) {
         return reviewService.createForEntity(principal.userId(), entityType, entityId, body);
     }
+
+    /**
+     * {@code GET /reviews/{entityType}/{entityId}/summary} (contract
+     * {@code getEntityReviewSummary}) — public, and the counterpart of the property summary D79
+     * added, for the three targets it left out.
+     *
+     * <p>Additive in the same way — {@link #list} is untouched — but fixing a live defect rather
+     * than a latent one. That list is <em>already</em> paged, so the society hub, the owner profile
+     * and the locality reviews block have each been reducing a 20-row page into a star average and
+     * per-aspect bars, and calling the result the rating. The number a page-one average produces is
+     * wrong in the direction nobody notices: it looks exactly like the right one, and it moves when
+     * a review is added anywhere in the corpus.
+     *
+     * <p>One route for all three types rather than three, because {@link ReviewTargetKey} already
+     * reduces the difference between them to a pair of strings. See
+     * {@code Routes.Reviews.SUMMARY_FOR_ENTITY}.
+     */
+    @GetMapping(Routes.Reviews.SUMMARY_FOR_ENTITY)
+    public ReviewSummaryResponse summary(@PathVariable String entityType,
+            @PathVariable String entityId) {
+        return reviewService.summaryForEntity(entityType, entityId);
+    }
 }

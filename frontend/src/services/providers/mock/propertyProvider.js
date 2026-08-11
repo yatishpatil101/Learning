@@ -20,6 +20,7 @@ import {
   restoreListing as _restoreListing,
   digits,
 } from '../../../lib/data/properties-admin.js';
+import { myOwnerId, ownerIdOfProperty } from '../../../lib/data/ownerIdentity.js';
 
 // Already async (returns Promise)
 export const listProperties = _listProperties;
@@ -68,7 +69,7 @@ export const getPropertiesByIds = (ids = []) =>
  * owner's dashboard.
  */
 export const myListings = (user) => {
-  const mine = digits(user?.mobile).slice(-10);
+  const mine = myOwnerId() || ownerIdOfProperty(user);
   // No identified user means no listings. Without this the `!mine` short-circuit below matches every
   // row, so a transient null user (logout, or a session still restoring) would show one owner every
   // other owner's listings — and it would diverge from http, where ownership is the token's and an
@@ -77,7 +78,7 @@ export const myListings = (user) => {
   return _listProperties({ includeAllStatuses: true }, 'newest').then((props) =>
     props.filter((p) => {
       if (!p.real) return false;
-      const owner = digits(p.ownerMobile).slice(-10);
+      const owner = ownerIdOfProperty(p);
       return !owner || owner === mine;
     }));
 };

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from 'react';
-import { getSettings, updateSettings, logAudit } from '../lib/mockApi.js';
+import { getSettings, updateSettings, getCustomRoles, logAudit } from '../lib/mockApi.js';
 import { canAccessModule } from '../lib/permissions.js';
 
 const AdminFlagsContext = createContext(null);
@@ -29,7 +29,9 @@ export function AdminFlagsProvider({ children }) {
     const load = () => getSettings().then((s) => {
       if (!alive) return;
       if (s?.adminFlags) setAdminFlags((prev) => deepMerge(prev, s.adminFlags));
-      if (Array.isArray(s?.customRoles)) setCustomRoles(s.customRoles);
+      // Custom roles are NOT part of the settings document — the server refuses that key with 422
+      // (D67). They are a console-local collection, so they are read separately.
+      setCustomRoles(getCustomRoles());
       setLoading(false);
     });
     load();

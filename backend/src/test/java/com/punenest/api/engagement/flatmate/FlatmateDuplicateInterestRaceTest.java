@@ -148,8 +148,9 @@ class FlatmateDuplicateInterestRaceTest {
         assertThat(outcomes.stream()
                 .filter(ConflictException.class::isInstance)
                 .map(Throwable::getMessage))
-                .as("the refusal has to carry the code the contract declares")
-                .allMatch(message -> message.contains("already_interested"));
+                .as("the refusal has to carry the code the contract declares, in the position the "
+                        + "client's end-anchored parser reads it from (D182)")
+                .allMatch(message -> message.endsWith("(already_interested)"));
         assertThat(countInterests(kind, target))
                 .as("the index exists so that one press and two presses leave the same inbox")
                 .isEqualTo(1);

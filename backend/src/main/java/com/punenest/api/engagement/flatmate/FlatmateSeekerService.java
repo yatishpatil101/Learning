@@ -1,5 +1,6 @@
 package com.punenest.api.engagement.flatmate;
 
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
@@ -371,7 +372,7 @@ public class FlatmateSeekerService {
             return null;
         }
         return switch (value) {
-            case "15", "30", "60" -> LocalDate.now().plusDays(Long.parseLong(value));
+            case "15", "30", "60" -> LocalDate.now(PlatformTime.IST).plusDays(Long.parseLong(value));
             default -> {
                 try {
                     yield LocalDate.parse(value);
@@ -415,10 +416,14 @@ public class FlatmateSeekerService {
      *
      * <p>Says the earlier message survived, because the thing the requester actually wants to know
      * after a refused press is whether the host heard them the first time. They did.
+     *
+     * <p>Only the sentence is written here. {@link FlatmateConflicts} appends the marker the client
+     * routes on, so nothing can be added after it by accident — see that class for why the position
+     * matters (D182).
      */
     private static ConflictException alreadyInterested() {
-        return new ConflictException("You have already expressed interest in this post — your "
-                + "earlier message is with them. (already_interested)");
+        return FlatmateConflicts.alreadyInterested(
+                "You have already expressed interest in this post — your earlier message is with them.");
     }
 
     /**

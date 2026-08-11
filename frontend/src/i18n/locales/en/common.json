@@ -1,6 +1,16 @@
 {
   "common": {
-    "somethingWentWrong": "Something went wrong. Please try again."
+    "somethingWentWrong": "Something went wrong. Please try again.",
+    "retry": "Retry",
+    "errorBoundary": {
+      "title": "This page stopped working",
+      "bodyRoute": "Something on this page failed while it was drawing, so we stopped it here instead of showing you a half-broken screen. The rest of the site still works — use the menu to go elsewhere, or try again below.",
+      "bodyApp": "The app failed to start, so nothing could be drawn. Reloading usually fixes it. If it keeps happening, send us the reference below.",
+      "tryAgain": "Try again",
+      "reload": "Reload the page",
+      "goHome": "Go to home",
+      "reference": "Reference {{ref}}"
+    }
   },
   "connectivity": {
     "offlineTitle": "You're offline.",

@@ -4,6 +4,7 @@ import { useState, useRef, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import MobileField from '../../components/MobileField.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -116,7 +117,7 @@ export default function Contact() {
               <h2 className="text-lg font-bold text-white mb-5">{t('misc1.contactSendEnquiry')}</h2>
               {refListing ? (
                 <Link to={`/property/${refListing.id}`} className="flex items-center gap-3 mb-5 p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 hover:bg-teal-500/15 transition-colors">
-                  <img src={refListing.image} alt="" width={56} height={44} className="w-14 h-11 rounded-lg object-cover shrink-0" />
+                  <PropertyImage src={refListing.image} alt="" width={56} height={44} className="w-14 h-11 rounded-lg object-cover shrink-0" />
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-wider text-teal-300/80 font-semibold">{t('misc1.contactEnquiringAbout')}</p>
                     <p className="text-sm font-semibold text-white truncate">{refTitle}</p>

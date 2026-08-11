@@ -35,6 +35,13 @@ function displayDate(iso) {
   return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10);
 }
 
+/**
+ * The product's order for the per-aspect rows, which is *not* the order either provider emits.
+ * See `toSummaryViewModel`. Anything outside this set is dropped: it matches the server's closed
+ * key vocabulary, so a key the API would reject cannot reach the page from any other source.
+ */
+const CATEGORY_ORDER = ['locality', 'condition', 'value', 'owner', 'accuracy'];
+
 /** One wire `Review` → one view model. */
 export function toViewModel(r) {
   if (!r) return null;
@@ -54,6 +61,18 @@ export function toViewModel(r) {
   };
 }
 
+/**
+ * A bare `Review[]` → the same `{ items, total, page, size }` the paged route yields.
+ *
+ * `GET /properties/{propId}/reviews` is unpaged by ruling D8.6 and answers with an array, not an
+ * envelope. Reporting it as one whole page keeps `reviewService`'s single documented return shape
+ * true for both routes, so no caller has to know which of the two it asked.
+ */
+export function toViewModelListPage(rows) {
+  const items = (Array.isArray(rows) ? rows : []).map(toViewModel).filter(Boolean);
+  return { items, total: items.length, page: 0, size: items.length };
+}
+
 /** A `PageResponse<Review>` → the `{ items, total, page, size }` both providers return. */
 export function toViewModelPage(res, fallback = {}) {
   const rows = Array.isArray(res?.content) ? res.content : [];
@@ -63,6 +82,62 @@ export function toViewModelPage(res, fallback = {}) {
     page: res?.page ?? res?.number ?? fallback.page ?? 0,
     size: res?.size ?? fallback.size ?? rows.length,
   };
+}
+
+/**
+ * `ReviewSummary` (wire) → the aggregate the property page's rating block renders (D79).
+ *
+ * The page computed all four of these in the browser by reducing the whole review array, which is
+ * why `listReviews` was not allowed to be paged: three visible numbers were correct only for as
+ * long as the array stayed whole. They now come from SQL, and the shape below is deliberately the
+ * one the page already had — `count`, `avg`, `dist`, `catAvg` — so the swap is a data-source change
+ * rather than a rewrite of the markup that reads it.
+ *
+ * Two renames worth stating, because both have a wrong answer that renders without complaining:
+ *
+ *   distribution → dist   `{"1":n … "5":n}`, string keys, becomes a 0-based five-slot array,
+ *                         because the bars are drawn `[5,4,3,2,1].map(s => dist[s - 1])`. All five
+ *                         keys are always present on the wire, but they are defaulted anyway: an
+ *                         absent bar and a zero-height bar are different pictures and only one is
+ *                         true, and a contract note is not an enforcement.
+ *   avgRating    → avg    passed through **null**, never coerced to 0. A star strip showing 0.0
+ *                         states something false about a listing nobody has reviewed yet, and
+ *                         `|| 0` here is exactly how that gets shipped. The page reads it only
+ *                         inside its `count > 0` branch, which is what makes null safe.
+ *
+ * `categoryAverages` is sparse by contract — an aspect nobody rated is absent rather than 0,
+ * because averaging it over everyone would understate it — so it is copied key by key rather than
+ * expanded to a fixed set.
+ *
+ * There is no `recommend` field here and that is not an omission: "% would recommend" has no server
+ * aggregate, and the page still derives it from the list. See `ReviewsSection.jsx`.
+ */
+export function toSummaryViewModel(s) {
+  const dist = ['1', '2', '3', '4', '5'].map((star) => Number(s?.distribution?.[star]) || 0);
+  const catAvg = {};
+  /* Iterate a fixed order rather than the wire's. The page renders these rows with
+     `Object.keys(catAvg).map`, so insertion order *is* row order — and the two providers do not
+     agree on it: the server's aggregate ends `order by c.key`, which is alphabetical (Accuracy,
+     Condition, Locality, Owner, Value), while the mock inserts in the product's order. That made
+     the e2e suite and every screenshot prove a layout production does not render. Ordering here,
+     rather than at either edge, makes the row order provider-independent; only present keys are
+     copied, so the sparseness the server is careful about survives. */
+  CATEGORY_ORDER.forEach((k) => {
+    const n = Number(s?.categoryAverages?.[k]);
+    // Guarded because these are BigDecimals on the server: JSON gives us a number, but a
+    // serialiser configured to write decimals as strings would otherwise reach `.toFixed` as NaN.
+    if (Number.isFinite(n)) catAvg[k] = n;
+  });
+  const avg = s?.avgRating == null ? null : Number(s.avgRating);
+  /* `count` and `avg` are read off the payload independently, so the server's invariant that they
+     move together is not enforced by anything on this side. The page draws stars inside a
+     `count > 0` branch and dereferences `avg` there twice; a response carrying a count with no
+     usable average — a serialiser change, a proxy stripping a field — would render `NaN` or throw
+     mid-render and take the section down. Collapsing to "no reviews" is the honest reading: we
+     have no average to show. */
+  const rawCount = Number(s?.reviewCount) || 0;
+  const count = rawCount > 0 && !Number.isFinite(avg) ? 0 : rawCount;
+  return { count, avg: count === 0 ? null : avg, dist, catAvg };
 }
 
 /**

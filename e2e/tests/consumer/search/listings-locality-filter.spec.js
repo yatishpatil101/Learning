@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Listings → Localities filter (locality-only model).
    Verifies: (1) typing a STREET / sub-area (e.g. "Datta Mandir Road") surfaces a
@@ -74,8 +75,7 @@ async function openLocalityFilter(page) {
 }
 
 test('picking a street snaps the filter UP to its parent canonical locality (Wakad)', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/listings`);
   await page.locator('aside button[aria-label="Localities"]').waitFor({ timeout: 15000 });
@@ -98,8 +98,7 @@ test('picking a street snaps the filter UP to its parent canonical locality (Wak
 });
 
 test('with Google unavailable the filter falls back to the static canonical registry (no errors)', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/listings`);
   await page.locator('aside button[aria-label="Localities"]').waitFor({ timeout: 15000 });

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -11,8 +12,7 @@ async function loginAsAdmin(page) {
 // ─── Page load & header ───
 
 test('users page loads without JS errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/users`);
   await page.waitForTimeout(1000);
@@ -315,8 +315,7 @@ test('filter change clears selection', async ({ page }) => {
 // ─── No regressions ───
 
 test('users page: no console errors on load', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await loginAsAdmin(page);
   await page.goto(`${BASE}/admin/users`);
   await page.waitForTimeout(1000);

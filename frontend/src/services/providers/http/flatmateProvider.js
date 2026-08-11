@@ -21,6 +21,8 @@
 import { del, get, patch, post, unwrapPage, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
+  conflictSubCode,
+  CONFLICT_MARKER,
   toGroupViewModel,
   toRequestViewModel,
   toRoomViewModel,
@@ -30,6 +32,33 @@ import {
 
 const signedIn = () => !!readAccessToken();
 const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
+
+/**
+ * Run an interest/join call, moving a 409's reason from the message onto `code`.
+ *
+ * Every `ConflictException` in this domain arrives as `error: "conflict"`, so the envelope alone
+ * cannot distinguish "you already asked" (benign, informational) from "the last seat just went"
+ * (a real refusal). The reason is a marker the service appends to the message; lifting it onto
+ * `code` here is what lets a call site branch on it, and it is the same field the mock provider
+ * sets, so both modes present one shape.
+ *
+ * The marker is also stripped from the message once lifted. It is an internal routing token, and
+ * `conflictSubCode` matches *any* trailing `(word)` — so a marker this client does not yet know
+ * about falls through to the generic branch, which renders `err.message` verbatim. Without the
+ * strip the user reads "...no longer accepting interest (post_closed)."
+ */
+async function withConflictCode(run) {
+  try {
+    return await run();
+  } catch (err) {
+    const sub = conflictSubCode(err);
+    if (sub) {
+      err.code = sub;
+      err.message = String(err.message || '').replace(CONFLICT_MARKER, '');
+    }
+    throw err;
+  }
+}
 
 /** Drop `undefined` so an absent filter is not sent as the string "undefined". */
 const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== ''));
@@ -132,12 +161,14 @@ export async function setRoomOccupants(id, occupants) {
  * Creates a `pending` request in the host's inbox. `share` says whether the asker comes alone
  * (`solo`), brings someone (`bring`), or wants to be paired (`match`) — it is not a formality: a
  * two-person `bring` against a one-seat room is a different conversation.
+ *
+ * A second press is refused with `already_interested` rather than delivered twice (D175).
  */
 export async function roomInterest(id, { share = 'solo', message } = {}) {
-  await post(`/flatmates/rooms/${encodeURIComponent(id)}/interest`, clean({
+  await withConflictCode(() => post(`/flatmates/rooms/${encodeURIComponent(id)}/interest`, clean({
     share: vocab('share', share) || 'solo',
     message,
-  }));
+  })));
 }
 
 /** `POST /flatmates/rooms/{id}/agreement/reissue` — re-request the rental agreement evidence. */
@@ -200,12 +231,16 @@ export async function setGroupSeats(id, seatsOpen) {
  * immediately (`action: 'join'` → `status: 'accepted'`, `decidedAt` stamped); a restricted one
  * lands `pending` for the host. So the caller must read `status` rather than assume either — the
  * same "the call succeeded ≠ the thing happened" shape as the payment domains, without the money.
+ *
+ * **Two different 409s come out of this one door.** `group_full` means the last seat went while
+ * the board was on screen; `already_interested` means this is a repeat ask. They are normalised
+ * onto `code` because the envelope calls both of them `conflict`.
  */
 export async function joinGroup(id, { share = 'solo', message } = {}) {
-  return toRequestViewModel(await post(`/flatmates/groups/${encodeURIComponent(id)}/join`, clean({
+  return toRequestViewModel(await withConflictCode(() => post(`/flatmates/groups/${encodeURIComponent(id)}/join`, clean({
     share: vocab('share', share) || 'solo',
     message,
-  })));
+  }))));
 }
 
 /**
@@ -280,12 +315,12 @@ export async function deletePost(id) {
   await del(`/flatmates/posts/${encodeURIComponent(id)}`);
 }
 
-/** `POST /flatmates/posts/{id}/interest` — reach out to a seeker. */
+/** `POST /flatmates/posts/{id}/interest` — reach out to a seeker. Repeat asks 409. */
 export async function postInterest(id, { share = 'solo', message } = {}) {
-  await post(`/flatmates/posts/${encodeURIComponent(id)}/interest`, clean({
+  await withConflictCode(() => post(`/flatmates/posts/${encodeURIComponent(id)}/interest`, clean({
     share: vocab('share', share) || 'solo',
     message,
-  }));
+  })));
 }
 
 /* ─── Requests (the host's inbox) ───────────────────────────────────────────────────────────── */

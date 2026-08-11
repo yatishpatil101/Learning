@@ -2,21 +2,33 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import { getOwner } from '../../lib/mockApi.js';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone, fmtPhone, digits, isOwnerViewer } from '../../lib/contact.js';
-/* SEAM NOTE: owner reviews are deliberately still on the mock store.
+/* SEAM NOTE: the rating comes from the service; the review *cards* are still on the mock store.
 
-   Every other review surface moved to `services/reviewService.js` in the reviews slice. This one
-   cannot yet, because the *target* is not live: `getOwner()` reads `lib/mockApi/users.js`, whose
-   ids are mock user ids, while the server keys owner reviews on its own user UUIDs. Pointing this
-   at the service would produce a perfectly well-formed request for an owner the server has never
-   heard of, and the empty result would render as "no reviews yet" — a silent wrong answer, which is
-   worse than an honest mock. It moves when the owner profile does. */
+   The aggregate had to move. `owner.reviewCount` / the 5-star bars were reduced in the browser from
+   whatever rows were on hand — for the live surfaces that meant page one of a 20-row page, and here
+   it also meant three hard-coded demo reviews were being counted as real ratings. Both are numbers
+   that state something false. `getEntityReviewSummary('owner', id)` aggregates over every published
+   review, server-side, and is now the only source for the average, the count and the distribution.
+
+   The cards cannot follow yet: `getOwner()` reads `lib/mockApi/users.js`, whose ids are mock user
+   ids, while the server keys owner reviews on its own user UUIDs. That mismatch is survivable for
+   the summary precisely because it degrades honestly — an id the server does not recognise 404s and
+   the page says the rating is unavailable, rather than rendering an empty result as "no reviews
+   yet". It would not be survivable for the list, which has no such signal. Both move when the owner
+   profile does.
+
+   Consequence worth knowing: `SEED_REVIEWS` still render as cards but no longer feed the average, so
+   a brand-new owner shows "—" above three demo reviews. That is the demo data being visible for
+   what it is, not a regression. */
 import { getEntityReviews, addEntityReview } from '../../lib/store.js';
+import { getEntityReviewSummary } from '../../services/reviewService.js';
 import { messagesLinkForProp } from '../../lib/chat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
 import ReportModal, { OWNER_REPORT_REASONS } from '../../components/ReportModal.jsx';
@@ -67,6 +79,10 @@ export default function Owner() {
   const navigate = useNavigate();
   const [owner, setOwner] = useState(undefined);
   const [reviews, setReviews] = useState(SEED_REVIEWS);
+  // `null` until the summary read settles. `summaryFailed` is kept apart from `count === 0` so an
+  // unreadable rating never renders as an owner nobody has reviewed.
+  const [summary, setSummary] = useState(null);
+  const [summaryFailed, setSummaryFailed] = useState(false);
   const [picked, setPicked] = useState(0);
   const [hover, setHover] = useState(0);
   const [revText, setRevText] = useState('');
@@ -83,6 +99,16 @@ export default function Owner() {
 
   useEffect(() => {
     setReviews([...getEntityReviews('owner', id).map(mapStored), ...SEED_REVIEWS]);
+  }, [id]);
+
+  useEffect(() => {
+    let alive = true;
+    setSummary(null);
+    setSummaryFailed(false);
+    getEntityReviewSummary('owner', id)
+      .then((s) => { if (alive) setSummary(s); })
+      .catch(() => { if (alive) setSummaryFailed(true); });
+    return () => { alive = false; };
   }, [id]);
 
   const initials = useMemo(() => (owner ? (owner.name || 'A').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase() : ''), [owner]);
@@ -114,9 +140,18 @@ export default function Owner() {
 
   const latestListing = owner.listings?.length ? [...owner.listings].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] : null;
   const waText = t('owner.waIntro', { name: (owner.name || '').split(' ')[0] || t('owner.waFallbackName') });
-  const revCount = reviews.length;
-  const revAvg = revCount ? Math.round((reviews.reduce((s, v) => s + v.r, 0) / revCount) * 10) / 10 : 0;
-  const dist = [5, 4, 3, 2, 1].map((s) => reviews.filter((v) => v.r === s).length);
+  /**
+   * Every figure below comes from the summary read — none from `reviews`.
+   *
+   * `revAvg` is `null`, not 0, when nobody has reviewed: the server sends null for the same reason,
+   * and a five-star strip rendering 0.0 asserts that an owner was rated badly rather than not rated.
+   * `dist` arrives ascending (index 0 = one star) and the bars below read downwards, hence the
+   * reverse — getting that backwards silently mirrors the histogram, which still looks plausible.
+   */
+  const revLoading = !summary && !summaryFailed;
+  const revCount = summary ? summary.count : 0;
+  const revAvg = summary && Number.isFinite(summary.avg) ? summary.avg : null;
+  const dist = summary ? [...summary.dist].reverse() : [0, 0, 0, 0, 0];
   const maxDist = Math.max(1, ...dist);
 
   const postReview = () => {
@@ -126,6 +161,14 @@ export default function Owner() {
     const saved = addEntityReview('owner', id, { rating: picked, text: revText.trim() });
     if (saved === 'login') { navigate(`/signin?reason=contact&next=${encodeURIComponent(window.location.pathname)}`); return; }
     setReviews((r) => [{ id: saved.id, n: saved.user, a: avatarFor(saved.user), d: t('owner.today'), r: picked, t: revText.trim() }, ...r]);
+    /* Re-read rather than adjust the numbers locally: the aggregate is the server's to compute, and
+       incrementing a count in the browser is how the two drift. In mock mode this reflects the write
+       immediately because both sides read the same store; against a live server the write above is
+       still local (see the seam note), so the figures will not move until the owner profile itself
+       moves onto the seam. */
+    getEntityReviewSummary('owner', id)
+      .then(setSummary)
+      .catch(() => setSummaryFailed(true));
     setRevText('');
     setPicked(0);
     toast(t('owner.reviewPosted'), 'success');
@@ -170,7 +213,7 @@ export default function Owner() {
                 </div>
                 <p className="text-gray-400 text-sm mt-1">{t('owner.roleLine')}</p>
                 <div className="flex items-center gap-4 mt-2 text-sm">
-                  <span className="flex items-center gap-1 text-amber-400"><Icon name="star" className="w-4 h-4 fill-amber-400" /> {revCount ? revAvg.toFixed(1) : '—'} <span className="text-gray-500">{t('owner.reviewCount', { count: revCount })}</span></span>
+                  <span className="flex items-center gap-1 text-amber-400"><Icon name="star" className="w-4 h-4 fill-amber-400" /> {revLoading ? <span className="skeleton inline-block h-3.5 w-20 rounded" aria-hidden="true" /> : summaryFailed ? <span className="text-amber-300/80 text-xs">{t('owner.ratingUnavailable')}</span> : <>{revAvg == null ? '—' : revAvg.toFixed(1)} <span className="text-gray-500">{t('owner.reviewCount', { count: revCount })}</span></>}</span>
                   <span className="flex items-center gap-1 text-gray-400"><Icon name="map-pin" className="w-4 h-4 text-teal-400" /> {owner.city || 'Pune'}</span>
                 </div>
               </div>
@@ -221,7 +264,7 @@ export default function Owner() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {owner.listings.map((p) => (
                       <Link key={p.id} to={`/property/${p.id}`} className="prop-row rounded-xl overflow-hidden block group">
-                        <div className="h-32 overflow-hidden"><img src={p.image} className="w-full h-full object-cover" alt="" /></div>
+                        <div className="h-32 overflow-hidden"><PropertyImage src={p.image} className="w-full h-full object-cover" alt="" /></div>
                         <div className="p-3">
                           <p className="text-white font-bold text-sm">{p.deal === 'rent' ? '₹' + (p.price || 0).toLocaleString('en-IN') + t('owner.perMonth') : fmtINR(p.price)}</p>
                           <p className="text-gray-400 text-xs group-hover:text-teal-400 transition-colors">{p.bhkNum ? p.bhkNum + ' BHK ' : ''}{p.type}</p>
@@ -241,9 +284,20 @@ export default function Owner() {
                 <p className="text-gray-500 text-xs mb-5">{t('owner.reviewsSub')}</p>
                 <div className="flex flex-col sm:flex-row gap-6 mb-6">
                   <div className="text-center sm:border-r border-white/10 sm:pr-6">
-                    <p className="text-5xl font-extrabold gradient-text">{revCount ? revAvg.toFixed(1) : '—'}</p>
-                    <div className="flex justify-center gap-0.5 my-2"><Stars r={Math.round(revAvg)} cls="w-4 h-4" /></div>
-                    <p className="text-gray-500 text-xs">{revCount ? t('owner.reviewsSummary', { count: revCount }) : t('owner.noReviews')}</p>
+                    {revLoading ? (
+                      <div className="skeleton h-12 w-20 rounded mx-auto" data-testid="owner-rating-skeleton" />
+                    ) : (
+                      <p className="text-5xl font-extrabold gradient-text">{revAvg == null ? '—' : revAvg.toFixed(1)}</p>
+                    )}
+                    <div className="flex justify-center gap-0.5 my-2"><Stars r={Math.round(revAvg || 0)} cls="w-4 h-4" /></div>
+                    {/* Three outcomes. Folding the failure into `noReviews` would make an outage
+                        indistinguishable from an owner nobody has reviewed — and the second reads as
+                        a fact about the owner. */}
+                    <p className="text-gray-500 text-xs">
+                      {revLoading ? <span className="skeleton inline-block h-3 w-24 rounded" aria-hidden="true" />
+                        : summaryFailed ? <span className="text-amber-300/80" data-testid="owner-rating-unavailable">{t('owner.ratingUnavailable')}</span>
+                          : revCount ? t('owner.reviewsSummary', { count: revCount }) : t('owner.noReviews')}
+                    </p>
                   </div>
                   <div className="flex-1 space-y-1.5">
                     {[5, 4, 3, 2, 1].map((s, i) => (

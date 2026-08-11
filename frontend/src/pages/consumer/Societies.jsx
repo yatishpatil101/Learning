@@ -6,10 +6,12 @@ import Select from '../../components/ui/Select.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { listProperties } from '../../services/propertyService.js';
+import { listSocietyRatings } from '../../services/societyService.js';
 import { allSocieties, listingsInSociety } from '../../data/societies.js';
 import {
-  resolveSociety, entityRating,
+  resolveSociety,
   getFollowedSocieties, toggleFollowSociety, mintDemandSociety,
 } from '../../lib/store.js';
 import { Stars } from './property/Stars.jsx';
@@ -26,12 +28,26 @@ const SORTS = [
   { value: 'name', labelKey: 'societies.sortName' },
 ];
 
-function SocietyCard({ s, followed, onFollow, t }) {
+/**
+ * A society with no reviews and a society whose rating we could not read are different facts, and
+ * the card says so. Collapsing the second into the first prints "Not rated yet" — a confident claim
+ * about the building — for a society that may well be rated, which is the same shape of quiet lie
+ * the slug/id mix-up produced across this whole grid. The hub's ReviewsTab draws the same three-way
+ * distinction for the same reason.
+ */
+function SocietyCard({ s, followed, onFollow, t, ratingLoading, ratingFailed }) {
   return (
     <div className="glass rounded-2xl p-5 flex flex-col gap-3 hover:border-teal-400/30 transition-all reveal">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <Link to={`/society/${s.slug}`} className="font-bold text-white text-[15px] leading-snug hover:text-teal-300 transition-colors line-clamp-2">
+          {/* One line of a 15px title is ~21px tall and this one clamps to two, so
+              its height is set by the text, not by anything I can pad without
+              shifting the meta row and the rating line on all 24 cards. It stays
+              small on purpose. The exemption is the one WCAG grants explicitly:
+              "View hub" at the foot of this same card goes to the same
+              /society/:slug and clears 44px on touch, so the function is reachable
+              from a compliant control on the same screen. */}
+          <Link to={`/society/${s.slug}`} data-tap-exempt className="font-bold text-white text-[15px] leading-snug hover:text-teal-300 transition-colors line-clamp-2">
             {s.name}
           </Link>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
@@ -51,8 +67,12 @@ function SocietyCard({ s, followed, onFollow, t }) {
       </div>
 
       <div className="flex items-center gap-3 text-xs">
-        {s.rating.count ? (
-          <span className="inline-flex items-center gap-1.5"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
+        {ratingLoading ? (
+          <span className="skeleton inline-block h-4 w-20 rounded" data-testid="society-rating-skeleton" />
+        ) : ratingFailed ? (
+          <span className="text-amber-300/80 inline-flex items-center gap-1.5" data-testid="society-rating-unavailable"><Icon name="alert-triangle" className="w-3.5 h-3.5 flex-shrink-0" /> {t('society.ratingUnavailable')}</span>
+        ) : s.rating.count ? (
+          <span className="inline-flex items-center gap-1.5" data-testid="society-rating"><Stars value={s.rating.avg} size={13} /> <span className="font-semibold text-white">{s.rating.avg}</span> <span className="text-gray-500">({s.rating.count})</span></span>
         ) : (
           <span className="text-gray-500 inline-flex items-center gap-1"><Icon name="sparkles" className="w-3.5 h-3.5 text-teal-400" /> {t('societies.notRated')}</span>
         )}
@@ -66,11 +86,11 @@ function SocietyCard({ s, followed, onFollow, t }) {
           type="button"
           onClick={() => onFollow(s.slug)}
           aria-pressed={followed}
-          className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-9 flex-1 text-sm'}
+          className={(followed ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-9 flex-1 text-sm'}
         >
           <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4 mr-1.5" /> {followed ? t('societies.following') : t('societies.follow')}
         </button>
-        <Link to={`/society/${s.slug}`} className="btn-outline !h-9 px-3 text-sm inline-flex items-center">
+        <Link to={`/society/${s.slug}`} className="btn-outline !h-11 sm:!h-9 px-3 text-sm inline-flex items-center">
           {t('societies.viewHub')} <Icon name="arrow-right" className="w-4 h-4 ml-1.5" />
         </Link>
       </div>
@@ -91,13 +111,33 @@ export default function Societies() {
   const [sort, setSort] = useState('relevance');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [listings, setListings] = useState([]);
+  /* The rating for every card in one read. `{ index, loading, failed }` rather than a bare object
+     because "not read yet" and "could not be read" are not "no reviews" — see `SocietyCard`. */
+  const [ratings, setRatings] = useState({ index: {}, loading: true, failed: false });
   const [followed, setFollowed] = useState(() => new Set(getFollowedSocieties()));
   const [busy, setBusy] = useState(false);
   const [limit, setLimit] = useState(24);
+  // This page is the directory: it must show all 348 societies, not the 28 that
+  // are readable before the bulk chunk lands (D129).
+  const catalogueReady = useSocietyCatalogue();
 
   useEffect(() => {
     let alive = true;
     listProperties({}).then((all) => { if (alive) setListings(all); });
+    return () => { alive = false; };
+  }, []);
+
+  /* One request for the whole grid's ratings, not one per card. `GET /societies` carries
+     `avgRating`/`reviewCount` on every row precisely so this surface does not have to ask 348
+     times; see `services/societyService.js`. */
+  useEffect(() => {
+    let alive = true;
+    listSocietyRatings()
+      .then((index) => { if (alive) setRatings({ index, loading: false, failed: false }); })
+      .catch((err) => {
+        console.warn('[societies] rating index unavailable', err);
+        if (alive) setRatings({ index: {}, loading: false, failed: true });
+      });
     return () => { alive = false; };
   }, []);
 
@@ -118,12 +158,22 @@ export default function Societies() {
       id: soc.id, slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
       verified, community, managed: soc.claimStatus === 'claimed',
-      // SEAM NOTE: mock aggregate, keyed on the synthetic `soc.id`. Replaced by the row's own
-      // `avgRating`/`reviewCount` when societies join the seam — the fields already ship.
-      rating: entityRating('society', soc.id),
+      /* The row's own aggregate, from `GET /societies`, keyed on the **slug**.
+
+         This used to be `entityRating('society', soc.slug)` — a reduce over the `pnEntityReviews`
+         localStorage bucket. That bucket is only written by the mock provider, so against a live
+         server the read was dead: every card in the grid said "Not rated yet" no matter how many
+         reviews Postgres held for that society. (Before that it was keyed on `soc.id`, the
+         synthetic `S01` from `data/societies.js`, so it was a permanent zero in mock mode too.)
+
+         A slug the index does not carry is not "unrated" — it is "this reader knows nothing about
+         it", which for a community society minted in the browser is the truth. It renders as the
+         unrated branch because that is the honest thing to say about a building with no reviews
+         anywhere, and `count` stays 0 either way. */
+      rating: ratings.index[soc.slug] || { avg: null, count: 0 },
       homes: listingsInSociety(listings, soc.id).length,
     };
-  }), [listings]);
+  }), [listings, ratings.index, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
 
   const localities = useMemo(() => {
     const set = [...new Set(enriched.map((s) => s.localitySlug).filter(Boolean))].sort();
@@ -140,9 +190,12 @@ export default function Societies() {
       if (q && !(`${s.name} ${s.builder} ${titleCase(s.localitySlug)}`.toLowerCase().includes(q))) return false;
       return true;
     });
-    const rel = (s) => (Number(s.verified) * 4) + Math.min(s.homes, 3) + (s.rating.avg / 5);
+    /* `avg` is null for an unrated society, not 0 — arithmetic on it would coerce to 0 anyway, but
+       silently, and a null that reads as "worst possible rating" is worth spelling out. */
+    const avg = (s) => s.rating.avg ?? 0;
+    const rel = (s) => (Number(s.verified) * 4) + Math.min(s.homes, 3) + (avg(s) / 5);
     list = list.slice().sort((a, b) => {
-      if (sort === 'rating') return (b.rating.avg - a.rating.avg) || (b.rating.count - a.rating.count) || a.name.localeCompare(b.name);
+      if (sort === 'rating') return (avg(b) - avg(a)) || (b.rating.count - a.rating.count) || a.name.localeCompare(b.name);
       if (sort === 'homes') return (b.homes - a.homes) || (Number(b.verified) - Number(a.verified)) || a.name.localeCompare(b.name);
       if (sort === 'name') return a.name.localeCompare(b.name);
       return rel(b) - rel(a) || a.name.localeCompare(b.name);
@@ -153,7 +206,9 @@ export default function Societies() {
   useEffect(() => { setLimit(24); }, [query, loc, verifiedOnly, sort]);
 
   const exact = useMemo(() => results.find((s) => norm(s.name) === norm(query)), [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // Gated on `catalogueReady`: against the curated head alone every RERA society reads
+  // as absent, so this would offer to mint a duplicate of one (D129).
+  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
   const onFollow = (slug) => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
@@ -164,6 +219,7 @@ export default function Societies() {
 
   const addSociety = () => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
+    if (!catalogueReady) return;
     setBusy(true);
     const rec = mintDemandSociety({ name: query.trim(), localitySlug: loc || undefined });
     setBusy(false);
@@ -221,7 +277,7 @@ export default function Societies() {
               type="button"
               onClick={() => setVerifiedOnly((v) => !v)}
               aria-pressed={verifiedOnly}
-              className={(verifiedOnly ? 'btn-teal' : 'btn-outline') + ' !h-10 px-3.5 text-sm whitespace-nowrap'}
+              className={(verifiedOnly ? 'btn-teal' : 'btn-outline') + ' !h-11 sm:!h-10 px-3.5 text-sm whitespace-nowrap'}
             >
               <Icon name="badge-check" className="w-4 h-4 mr-1.5" /> {t('societies.verified')}
             </button>
@@ -256,7 +312,7 @@ export default function Societies() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (
-                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} t={t} />
+                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
               ))}
             </div>
             {results.length > limit ? (

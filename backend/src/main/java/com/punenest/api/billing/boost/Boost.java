@@ -57,6 +57,16 @@ public class Boost extends VersionedEntity {
     private String status;
 
     /**
+     * Stamped when a payment webhook confirms the money arrived (D64).
+     *
+     * <p>Distinct from {@code startsAt} because a future comp/manual-grant path will also open
+     * the window — but should not be counted as revenue. Finance queries must key on this column,
+     * not on {@code startsAt}.
+     */
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
+    /**
      * The gateway order id; null on a free pack. Unique in the DB (V23) — the webhook's key.
      *
      * <p><strong>Written after the insert, not in it</strong> (D148). See
@@ -97,10 +107,29 @@ public class Boost extends VersionedEntity {
     }
 
     /**
-     * Open the promotion window. Returns {@code false} on a boost that is not pending, because the
-     * caller is a payment webhook a provider may redeliver — see {@code Subscription.activate}.
+     * Open the promotion window from a confirmed payment. Stamps {@code paid_at} so revenue
+     * queries count this boost (D64). Returns {@code false} on a boost that is not pending, because
+     * the caller is a payment webhook a provider may redeliver — see {@code Subscription.activate}.
      */
     boolean activate(Instant from, Instant until) {
+        if (!BoostStatuses.PENDING.equals(status)) {
+            return false;
+        }
+        this.status = BoostStatuses.ACTIVE;
+        this.startsAt = from;
+        this.endsAt = until;
+        this.paidAt = from;
+        return true;
+    }
+
+    /**
+     * Open the promotion window for a complimentary (non-payment) activation.
+     *
+     * <p>{@code paid_at} is deliberately <strong>not</strong> set, so revenue queries do not count
+     * this boost (D64). Use this for free packs, staff grants, and any path that does not involve a
+     * confirmed gateway payment.
+     */
+    boolean activateComp(Instant from, Instant until) {
         if (!BoostStatuses.PENDING.equals(status)) {
             return false;
         }

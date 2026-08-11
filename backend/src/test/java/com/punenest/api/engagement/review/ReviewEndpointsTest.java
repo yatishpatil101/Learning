@@ -508,12 +508,106 @@ class ReviewEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the categories vocabulary is exactly the five keys the property page renders")
+    @DisplayName("the categories vocabulary is per target type, and is the one the UI renders")
     void categoryVocabularyMatchesTheUi() {
-        assertThat(ReviewCategories.KEYS)
+        assertThat(ReviewCategories.PROPERTY_KEYS)
                 .as("RV_CATS in ReviewsSection.jsx — adding a key here without adding it there "
                         + "ships a sub-rating nothing displays")
                 .containsExactlyInAnyOrder("locality", "condition", "value", "owner", "accuracy");
+
+        assertThat(ReviewCategories.SOCIETY_KEYS)
+                .as("REVIEW_CATS in pages/consumer/society/constants.js — these ids are what the "
+                        + "hub's aspect bars are keyed on, capitalisation included; constants.js "
+                        + "says renaming one orphans every stored rating")
+                .containsExactlyInAnyOrder(
+                        "Safety", "Maintenance", "Management", "Amenities", "Connectivity");
+
+        // The two vocabularies are disjoint, which is why a shared key set could never have served
+        // both: there is no aspect a listing and a housing society are both rated on.
+        assertThat(ReviewCategories.PROPERTY_KEYS)
+                .doesNotContainAnyElementsOf(ReviewCategories.SOCIETY_KEYS);
+
+        // locality and owner keep the property vocabulary. Neither surface renders per-aspect bars
+        // and nothing in the product names a vocabulary for them, so this is the status quo held
+        // in place deliberately rather than a choice — see ReviewCategories' class Javadoc.
+        assertThat(ReviewCategories.forTarget(ReviewTargetTypes.LOCALITY))
+                .isEqualTo(ReviewCategories.PROPERTY_KEYS);
+        assertThat(ReviewCategories.forTarget(ReviewTargetTypes.OWNER))
+                .isEqualTo(ReviewCategories.PROPERTY_KEYS);
+    }
+
+    @Test
+    @DisplayName("a society review carries the society aspects, and refuses the property ones")
+    void societyReviewsUseTheSocietyVocabulary() throws Exception {
+        User author = user("9820000030", "Rahul Joshi");
+        String slug = anySocietySlug();
+
+        mvc.perform(post("/reviews/society/" + slug)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":4,\"categories\":{\"Safety\":5,\"Connectivity\":3}}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.categories.Safety").value(5))
+                .andExpect(jsonPath("$.categories.Connectivity").value(3))
+                // Sparse: three aspects unanswered is a different review from five answered, and
+                // the response has to keep them distinguishable.
+                .andExpect(jsonPath("$.categories.Maintenance").doesNotExist())
+                .andExpect(jsonPath("$.categories.length()").value(2));
+
+        // `accuracy` is a perfectly good key — for a property. Refused here, not dropped: a 201
+        // with the aspect silently gone is a write the caller believes worked and a bar that
+        // stays empty forever.
+        User other = user("9820000031", "Meera Kulkarni");
+        mvc.perform(post("/reviews/society/" + slug)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":4,\"categories\":{\"accuracy\":5}}"))
+                .andExpect(status().isBadRequest());
+
+        // And the value range still applies to the new vocabulary — a second key set is a second
+        // place for the bound to go missing.
+        mvc.perform(post("/reviews/society/" + slug)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":4,\"categories\":{\"Safety\":9}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("a property review refuses the society aspects — the split cuts both ways")
+    void propertyReviewsRefuseTheSocietyVocabulary() throws Exception {
+        User owner = user("9810000032", "Asha Patil");
+        User visitor = user("9820000032", "Rahul Joshi");
+        Property p = listing(owner);
+        completedVisit(visitor, p);
+
+        // The mirror of the assertion above, and the reason both are needed: a `forTarget` that
+        // returned the union would pass the society test and this one would catch it.
+        mvc.perform(post("/properties/" + p.getId() + "/reviews")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":4,\"categories\":{\"Safety\":5}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("a locality review keeps the property vocabulary it has always accepted")
+    void localityReviewsKeepTheirVocabulary() throws Exception {
+        User author = user("9820000033", "Rahul Joshi");
+        // Its own locality rather than a seeded one: this asserts an exact stored value, and a
+        // fixture shared with the rest of the suite would make that depend on reference data the
+        // test does not own.
+        String slug = "vocab-fixture-baner";
+        jdbc.update("insert into localities (slug, name) values (?, ?)", slug, "Fixture Baner");
+
+        // Nothing in the product names a vocabulary for a locality, so nothing here changed. This
+        // is the regression guard on that non-decision.
+        mvc.perform(post("/reviews/locality/" + slug)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rating\":4,\"categories\":{\"locality\":5}}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.categories.locality").value(5));
     }
 
     // ----------------------------------------------------------------- helpers

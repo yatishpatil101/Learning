@@ -175,7 +175,8 @@
   background: #0b0a14;
 }
 
-.pn-mdp-media img {
+.pn-mdp-media img,
+.pn-mdp-media .img-empty {
   width: 100%;
   height: 100%;
   object-fit: cover;

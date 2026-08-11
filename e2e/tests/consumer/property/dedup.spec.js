@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -15,10 +16,16 @@ const BASE = 'http://localhost:5173';
 test.describe('Property duplicate prevention', () => {
   test('fingerprint + dedup decisions are correct', async ({ page }) => {
     await page.goto(`${BASE}/`);
+    // The seed is written a beat after `goto` resolves (D129). Without this the read below
+    // fell back to `{}` and wrote it straight back — an empty catalogue, so every dedup
+    // decision came back "clean" and the test failed on the wrong assertion.
+    await appReady(page);
 
     const r = await page.evaluate(async () => {
       const KEY = 'puneNestDB_v5';
-      const db = JSON.parse(localStorage.getItem(KEY) || '{}');
+      const raw = localStorage.getItem(KEY);
+      if (!raw) throw new Error('mock store missing after appReady()');
+      const db = JSON.parse(raw);
       db.listings = db.listings || [];
       // An existing, active listing owned by 9990001111 at a unique address+meter.
       db.listings.unshift({
@@ -89,10 +96,13 @@ test.describe('Property duplicate prevention', () => {
 
   test('image-hash hamming + photo-based flag-not-block', async ({ page }) => {
     await page.goto(`${BASE}/`);
+    await appReady(page); // see the note above — read-modify-write on the seeded store
 
     const r = await page.evaluate(async () => {
       const KEY = 'puneNestDB_v5';
-      const db = JSON.parse(localStorage.getItem(KEY) || '{}');
+      const raw = localStorage.getItem(KEY);
+      if (!raw) throw new Error('mock store missing after appReady()');
+      const db = JSON.parse(raw);
       db.listings = db.listings || [];
       // An existing listing by owner A carrying a photo hash, at a DIFFERENT typed
       // address than the new submission (so only the photos can link them).

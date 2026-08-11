@@ -15,6 +15,7 @@
  * | Second live offer on one listing | allowed, stacked | 409 |
  * | Party removal | by array index | by id |
  * | Closing a deal | no price, no counterparty | both required and validated |
+ * | Bucket identity | the owner's mobile number | the owner's account id (D30) |
  *
  * The owner-scoped reads resolve the owner from the **signed-in user** rather than a parameter,
  * which is exactly what the token does server-side.
@@ -22,8 +23,13 @@
 import { ApiError } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import { digits, myMobile } from '../../../lib/contact.js';
-import { rawDb } from '../../../lib/mockApi.js';
 import { getListings } from '../../../lib/store.js';
+import {
+  myOwnerId,
+  ownerIdOfProperty,
+  ownerIdOfListingId,
+  catalogueOwnerIds,
+} from '../../../lib/data/ownerIdentity.js';
 import {
   getDeals,
   getDeal as _storeGetDeal,
@@ -40,8 +46,22 @@ import {
   respondOffer as _storeRespond,
 } from '../../../lib/store/deals.js';
 
-/** The signed-in caller's mobile — the mock's stand-in for the bearer token's subject. */
-const me = () => digits(myMobile() || '');
+/**
+ * The signed-in caller's **account id** — the mock's stand-in for the bearer token's subject, and
+ * the name of every bucket below. Not their mobile: a mobile is mutable, maskable and not reliably
+ * unique, so it names a different bucket than the server would (D30).
+ */
+const me = () => myOwnerId();
+
+/**
+ * The caller's mobile, which is still how *rows* identify their buyer (`buyerMobile`).
+ *
+ * Only the bucket key moved to an id. The rows keep a mobile because the seam's view models expose
+ * `buyerId` as an unfilled field on both sides — closing that gap is a separate migration, and it
+ * is a weaker exposure: this is the caller identifying themselves with their own full number,
+ * never a third party naming someone else with a masked one.
+ */
+const meMobile = () => digits(myMobile() || '');
 
 /* `ApiError` takes an options **object** (`{ code, message, status, ... }`), not positional
    arguments. Constructing it positionally leaves `status` undefined, so every `err.status === 403`
@@ -53,25 +73,18 @@ const badRequest = (message) => new ApiError({ code: 'bad_request', status: 400,
 const unauthorized = () => new ApiError({ code: 'unauthorized', status: 401, message: 'Sign in to continue' });
 
 /**
- * The owner mobile recorded against a listing.
+ * The account id of whoever owns this listing.
  *
  * Resolved from the **catalogue**, not from `getListings()`. That store holds only the listings the
  * signed-in user created in this browser; a seeded property has no row in it, so an ownership test
  * built on it alone answers "not yours" for every listing the demo data ships — which silently
- * empties the owner's offer book. This is the mock's equivalent of `properties.owner_id`.
- *
- * `rawDb()` rather than `getProperty()`: the latter is async (it models network delay), and every
- * ownership check here is on a synchronous path.
+ * empties the owner's offer book. This is the mock's equivalent of `properties.owner_id`, and the
+ * seeded catalogue carries that column verbatim.
  */
 function ownerOf(propId) {
   const local = getListings().find((x) => String(x.id) === String(propId));
-  if (local) return digits(local.ownerMobile || local.owner?.mobile || me());
-  try {
-    const row = (rawDb()?.listings || []).find((p) => String(p.id) === String(propId));
-    return digits(row?.ownerMobile || row?.owner?.mobile || '');
-  } catch {
-    return '';
-  }
+  if (local) return ownerIdOfProperty(local) || me();
+  return ownerIdOfListingId(propId);
 }
 
 /** True when the caller owns this listing. The mock's equivalent of `findByIdAndOwner_Id`. */
@@ -129,10 +142,15 @@ export async function getDeal(propId) {
  * the client store — the mock stand-in for the wire's mirrored {@code dealStatus} field. A listing
  * with no stored deal resolves to {@code active}. Owner-keyed rather than caller-keyed because this
  * is public information about the listing, not the caller's own bucket.
+ *
+ * Reads the property's `ownerId` rather than its mobile precisely because this is the one caller
+ * who may hold a *masked* number: a buyer. `98XXXXX210` strips to `98210`, which named a bucket
+ * shared with every other owner matching that pattern, so the answer was somebody else's deal or
+ * (more often) a confident `active` on a listing that was already sold.
  */
 export async function dealStatusForBuyer(property) {
   if (!property) return 'active';
-  const owner = digits(property.ownerMobile || '');
+  const owner = ownerIdOfProperty(property);
   const propId = String(property.uuid || property.id || '');
   if (!owner || !propId) return 'active';
   return _storeGetDeal(owner, propId)?.status || 'active';
@@ -219,12 +237,12 @@ export async function removeParty(propId, partyId) {
 /* ─── Offers ────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * The listing's owner mobile, which is the bucket key every offer read/write needs.
+ * The listing owner's account id, which is the bucket key every offer read/write needs.
  *
  * Falls back to the caller only when the catalogue has no answer — a locally-created listing with
  * no recorded owner is the caller's own by construction.
  */
-const ownerMobileFor = (propId) => ownerOf(propId) || me();
+const ownerIdFor = (propId) => ownerOf(propId) || me();
 
 const offerVm = (o) => ({
   id: o.id,
@@ -253,8 +271,9 @@ export async function submitOffer(req = {}) {
   const u = readUser();
   if (!u) throw unauthorized();
   const propId = String(req.propId || req.propertyId || '');
-  const owner = ownerMobileFor(propId);
-  const mine = me();
+  const owner = ownerIdFor(propId);
+  if (!owner) throw notFound('Property');
+  const mine = meMobile();
   const live = getOffers(owner).find(
     (o) => String(o.propId) === propId && digits(o.buyerMobile) === mine
       && (o.status === 'pending' || o.status === 'countered'),
@@ -278,10 +297,10 @@ export async function submitOffer(req = {}) {
  * property page had an "Accept ₹X" button on the *buyer's* side, and against the mock it worked.
  */
 export async function respondOffer(id, action, counterAmount, opts = {}) {
-  const owner = opts.propId ? ownerMobileFor(opts.propId) : me();
+  const owner = opts.propId ? ownerIdFor(opts.propId) : me();
   const target = getOffers(owner).find((o) => o.id === id);
   if (!target) throw notFound('Offer');
-  const isOwner = opts.isOwner != null ? !!opts.isOwner : digits(owner) === me();
+  const isOwner = opts.isOwner != null ? !!opts.isOwner : (!!owner && owner === me());
   if (!isOwner && action !== 'counter') {
     throw forbidden(`Only the listing owner can ${action} an offer`);
   }
@@ -306,20 +325,15 @@ export async function respondOffer(id, action, counterAmount, opts = {}) {
 export async function myOffers() {
   const mine = me();
   if (!mine) return [];
-  const owners = new Set([mine]);
-  try {
-    (rawDb()?.listings || []).forEach((l) => {
-      const o = digits(l.ownerMobile || l.owner?.mobile || '');
-      if (o) owners.add(o);
-    });
-  } catch { /* an unreadable mock db just means fewer buckets to sweep */ }
+  const mineMobile = meMobile();
+  const owners = new Set([mine, ...catalogueOwnerIds()]);
   getListings().forEach((l) => {
-    const o = digits(l.ownerMobile || l.owner?.mobile || '');
+    const o = ownerIdOfProperty(l);
     if (o) owners.add(o);
   });
   const out = [];
   owners.forEach((owner) => {
-    getOffers(owner).forEach((o) => { if (digits(o.buyerMobile) === mine) out.push(offerVm(o)); });
+    getOffers(owner).forEach((o) => { if (digits(o.buyerMobile) === mineMobile) out.push(offerVm(o)); });
   });
   return out.sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -356,12 +370,17 @@ export async function requestFinalization(propId, { counterpartyMobile, agreedPr
   if (!(Number(agreedPrice) > 0)) {
     throw badRequest('agreedPrice must be positive');
   }
-  const owner = digits(counterpartyMobile || ownerMobileFor(propId));
-  if (owner.length !== 10) {
+  // `counterpartyMobile` is still validated as an input, because the server validates it — but it
+  // no longer decides *whose* bucket this lands in. Letting the caller name the bucket by phone
+  // number was the caller choosing whose data to write, and a masked number aimed it at whoever
+  // else happened to strip to the same digits.
+  if (digits(counterpartyMobile || '').length !== 10) {
     throw badRequest('counterpartyMobile must be a 10-digit mobile number');
   }
+  const owner = ownerIdFor(propId);
+  if (!owner) throw notFound('Property');
   const reqs = getDealReqs(owner);
-  const mine = me();
+  const mine = meMobile();
   const live = reqs.find((r) => String(r.propId) === String(propId) && digits(r.buyerMobile) === mine && r.status === 'pending');
   if (live) return finVm(live, propId);
   const rec = {
@@ -389,19 +408,20 @@ export async function requestFinalization(propId, { counterpartyMobile, agreedPr
 export async function finalizationStatus(propId) {
   const mine = me();
   if (!mine || !propId) return null;
-  const owner = ownerMobileFor(propId);
+  const mineMobile = meMobile();
+  const owner = ownerIdFor(propId);
   const row = getDealReqs(owner)
     .filter(
       (r) => String(r.propId) === String(propId)
-        && (digits(r.buyerMobile) === mine || digits(owner) === mine),
+        && (digits(r.buyerMobile) === mineMobile || owner === mine),
     )
     .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0];
   return row ? finVm(row, propId) : null;
 }
 
 export async function cancelFinalization(propId) {
-  const mine = me();
-  const owner = ownerMobileFor(propId);
+  const mine = meMobile();
+  const owner = ownerIdFor(propId);
   const kept = getDealReqs(owner).filter(
     (r) => !(String(r.propId) === String(propId) && digits(r.buyerMobile) === mine && r.status === 'pending'),
   );

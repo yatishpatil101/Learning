@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Homepage hero — unified multi-entity search.
    One box searches LOCALITIES / SOCIETIES / LANDMARKS (no cap). Suggestions are
@@ -16,8 +17,7 @@ const HERO = '.hero-search-wrap';
 const INPUT = 'input[aria-label="Search localities, societies or landmarks"]';
 
 async function gotoHome(page) {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`${BASE}/`);
   await page.locator(HERO).waitFor({ timeout: 15000 });

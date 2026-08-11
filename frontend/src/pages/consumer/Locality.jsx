@@ -3,9 +3,10 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { createEntityReview, listEntityReviews } from '../../services/reviewService.js';
+import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../services/reviewService.js';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { localityBySlug, localityByName } from '../../data/localities.js';
 import { allSocieties } from '../../data/societies.js';
@@ -60,6 +61,9 @@ export default function Locality() {
   const [pick, setPick] = useState(5);
   const [revText, setRevText] = useState('');
   const [reviews, setReviews] = useState({});
+  // Rating summaries by slug. A value is either the summary or the string 'error' — absent means
+  // "still reading", which is a third thing and must not render as "no reviews yet".
+  const [summaries, setSummaries] = useState({});
   const [props, setProps] = useState([]);
 
   const L = LOC[current];
@@ -111,10 +115,13 @@ export default function Locality() {
   }, [emerging, activeCoords]);
 
   // Societies in the active locality — a society-first discovery bridge into the
-  // Society Hub, drawn from the full catalogue (curated + RERA + community).
+  // Society Hub, drawn from the full catalogue (curated + RERA + community). The
+  // RERA half arrives asynchronously (D129), so gate the memo on it or a locality
+  // with no curated society shows an empty bridge forever.
+  const catalogueReady = useSocietyCatalogue();
   const localSocieties = useMemo(
     () => allSocieties().filter((s) => s.localitySlug === activeSlug).slice(0, 6),
-    [activeSlug],
+    [activeSlug, catalogueReady], // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
   );
 
   const load = (name) => {
@@ -178,18 +185,46 @@ export default function Locality() {
       .catch(() => { if (alive) setReviews((r) => ({ ...r, [activeSlug]: [] })); });
     return () => { alive = false; };
   }, [activeSlug, reviews]);
+  /**
+   * The headline rating, read separately from the cards above.
+   *
+   * It used to be `locReviews.reduce(...)` — the mean of whatever had been fetched. That is page one
+   * of a 20-row page, so any locality past twenty reviews has been publishing the average of its
+   * twenty most recent ones as *the* neighbourhood rating. This read aggregates over all of them,
+   * server-side.
+   *
+   * `'error'` is stored deliberately rather than an empty summary: a locality slug the server does
+   * not recognise 404s, and rendering that as "no reviews yet" would tell a visitor something false
+   * about the neighbourhood instead of admitting we could not load it.
+   */
+  useEffect(() => {
+    if (!activeSlug || summaries[activeSlug]) return undefined;
+    let alive = true;
+    getEntityReviewSummary('locality', activeSlug)
+      .then((s) => { if (alive) setSummaries((m) => ({ ...m, [activeSlug]: s })); })
+      .catch(() => { if (alive) setSummaries((m) => ({ ...m, [activeSlug]: 'error' })); });
+    return () => { alive = false; };
+  }, [activeSlug, summaries]);
   const locReviews = reviews[activeSlug] || [];
+  const locSummary = summaries[activeSlug] || null;
   const postReview = (e) => {
     e.preventDefault();
     if (!isIn) { toast(t('locality.signInReview'), 'error'); return; }
     createEntityReview('locality', activeSlug, { rating: pick, text: revText.trim() })
       .then((saved) => {
         if (saved === 'login') { toast(t('locality.signInReview'), 'error'); return null; }
-        return listEntityReviews('locality', activeSlug);
+        // Both, because the average is no longer derived from the list: re-reading only the cards
+        // would leave the headline stating the average from before the user's own review.
+        return Promise.all([
+          listEntityReviews('locality', activeSlug),
+          getEntityReviewSummary('locality', activeSlug),
+        ]);
       })
       .then((res) => {
         if (!res) return;
-        setReviews((r) => ({ ...r, [activeSlug]: res.items }));
+        const [list, sum] = res;
+        setReviews((r) => ({ ...r, [activeSlug]: list.items }));
+        setSummaries((m) => ({ ...m, [activeSlug]: sum }));
         setRevText(''); setPick(5); toast(t('locality.reviewThanks'));
       })
       .catch(() => toast(t('locality.signInReview'), 'error'));
@@ -210,7 +245,7 @@ export default function Locality() {
   const alertBtn = <AlertButton activeName={activeName} onClick={setLocalityAlert} />;
   const mapCard = <MapCard activeName={activeName} activeCoords={activeCoords} locProps={locProps} />;
   const societiesBlock = localSocieties.length ? <SocietiesBlock localSocieties={localSocieties} activeName={activeName} activeSlug={activeSlug} /> : null;
-  const reviewsBlock = <ReviewsBlock activeName={activeName} locReviews={locReviews} onSubmit={postReview} revText={revText} setRevText={setRevText} pick={pick} setPick={setPick} />;
+  const reviewsBlock = <ReviewsBlock activeName={activeName} locReviews={locReviews} summary={locSummary === 'error' ? null : locSummary} summaryFailed={locSummary === 'error'} onSubmit={postReview} revText={revText} setRevText={setRevText} pick={pick} setPick={setPick} />;
 
   if (emerging) {
     return (

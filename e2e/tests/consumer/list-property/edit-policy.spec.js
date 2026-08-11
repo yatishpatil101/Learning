@@ -63,7 +63,7 @@ test('P1 — editing a live listing shows the tiered edit banner (and no paywall
   // The edit-policy banner explains the two tiers …
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Publishes instantly')).toBeVisible();
-  await expect(page.getByText('Needs a quick re-check')).toBeVisible();
+  await expect(page.getByText('Needs a re-check')).toBeVisible();
 
   // … editing an existing listing is never paywalled, and the form is available.
   await expect(page.getByText(/used your free listing/i)).toHaveCount(0);
@@ -75,10 +75,47 @@ test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', asy
   await page.goto(`${BASE}/list-property?edit=L1`);
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
 
-  // Change BHK (a Tier-A / material field) from 2 → 3 on step 1.
+  // Change BHK from 2 → 3 on step 1. BHK is one of the four fields that set
+  // `remoderationRequired` in ListingService.apply, so the server takes the listing down.
   await page.locator('[data-err="bhk"]').getByText('3', { exact: true }).click();
 
-  // The live summary flags a re-check and the "stays live" timeline appears.
+  // The live summary flags a re-check …
   await expect(page.getByText(/need a re-check/i)).toBeVisible({ timeout: 8000 });
-  await expect(page.getByText('Update under review')).toBeVisible();
+
+  // … and, because this is a field buyers search on, says so: the listing comes OFF
+  // SEARCH rather than staying live. Asserting the plain "Update under review" chip here
+  // is what let the banner drift — it renders for both outcomes, so it cannot tell the
+  // owner-visible difference between an edit that keeps the listing earning and one that
+  // takes it down.
+  await expect(page.getByText(/comes off search while we re-check it/i)).toBeVisible();
+  await expect(page.getByText('Under review — off search')).toBeVisible();
+});
+
+test('P1 — a price edit is re-checked but the banner promises the listing stays live', async ({ page }) => {
+  await seedOwner(page, { listings: [LIVE_LISTING] });
+  await page.goto(`${BASE}/list-property?edit=L1`);
+  await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
+
+  // Price sets `recheckOnly` rather than `remoderationRequired` in ListingService.apply (Q14): a
+  // cheaper 2 BHK is still the same 2 BHK, so the listing keeps earning while staff confirm the
+  // number. This test is the complement of the one above and the pair is the point — the previous
+  // banner said "comes off search" for both, which is a broken promise in one direction and a
+  // deterrent against honest price cuts in the other.
+  //
+  // Price lives on step 2; the banner renders above the wizard on every step, so advancing does not
+  // change what is being asserted. Step 1 is already valid from the seeded listing.
+  await page.getByRole('button', { name: /Next Step/i }).click();
+  const price = page.locator('input[data-err="price"]');
+  await expect(price).toBeVisible({ timeout: 10000 });
+  await price.fill('4500000');
+  await price.blur();
+
+  // Still a re-check — a price edit is not free …
+  await expect(page.getByText(/need a re-check/i)).toBeVisible({ timeout: 8000 });
+
+  // … but the owner is told the listing keeps working, and the off-search copy must NOT appear.
+  await expect(page.getByText(/stays live and searchable while we re-check/i)).toBeVisible();
+  await expect(page.getByText('Live — being re-checked')).toBeVisible();
+  await expect(page.getByText(/comes off search while we re-check it/i)).toHaveCount(0);
+  await expect(page.getByText('Under review — off search')).toHaveCount(0);
 });

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Reverse-geocode auto-fill, forward society search, and pin-first ordering on
    List Property → Location & pricing. The Google Places library + Geocoder are
@@ -204,8 +205,7 @@ test('a search updates address fields restored from a saved draft (not just fres
 });
 
 test('a geocode failure leaves fields empty for manual entry (no crash)', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoStep2(page);
   await stubGeo(page, { fail: true });
   await searchArea(page, 'Baner');

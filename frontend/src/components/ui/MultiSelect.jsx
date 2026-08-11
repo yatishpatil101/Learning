@@ -6,6 +6,10 @@ import useSheetViewport from '../../lib/useSheetViewport.js';
 import useSwipeDismiss from '../../lib/useSwipeDismiss.js';
 import PoweredByGoogle from './PoweredByGoogle.jsx';
 
+/* Selection order is meaningful here (it drives the trigger summary), so an
+   order-sensitive compare is the right equality for "has the parent caught up". */
+const sameValues = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
 /**
  * Custom multi-select dropdown (themed, dark). Mirrors Select.jsx for visual and
  * keyboard parity, but holds an array of values and keeps the menu open while the
@@ -199,15 +203,32 @@ const MultiSelect = forwardRef(function MultiSelect({
     searchRef.current?.focus({ preventScroll: true });
   }, [open, isSearchable]);
 
+  /* Our last emission, and the `values` prop it was derived from.
+
+     A parent may apply `onChange` inside a React transition (the Listings filters do:
+     recomputing results is expensive, so the commit is deliberately low priority). Until
+     that transition commits, `values` is still the pre-click array — so deriving the next
+     toggle from the prop silently discards every pick but the last. Reproduced at 8x CPU
+     throttle: three consecutive picks in the Property Type filter left exactly one
+     selected, 3/3 runs. On a mid-range phone that is an ordinary tap speed.
+
+     So: while the prop still equals what we were handed when we emitted, keep building on
+     what we emitted. The moment it differs, the parent has spoken (it committed ours, or
+     changed the value itself) and the prop wins again. */
+  const pendingRef = useRef(null);
   const toggle = useCallback((opt) => {
     if (opt.disabled) return;
-    const has = selectedSet.has(opt.value);
-    onChange(has
-      ? values.filter((v) => v !== opt.value)
-      : [...values, opt.value]);
+    const pending = pendingRef.current;
+    const current = pending && sameValues(pending.from, values) ? pending.next : values;
+    const has = current.includes(opt.value);
+    const next = has
+      ? current.filter((v) => v !== opt.value)
+      : [...current, opt.value];
+    pendingRef.current = { from: values, next };
+    onChange(next);
     if (!has && onPick) onPick(opt);
     if (autoClose) close();
-  }, [onChange, selectedSet, values, autoClose, close, onPick]);
+  }, [onChange, values, autoClose, close, onPick]);
 
   /* Drag the sheet's grab handle down to dismiss. Mobile-only by construction. */
   const swipe = useSwipeDismiss(close);

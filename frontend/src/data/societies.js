@@ -5,7 +5,6 @@
 // "ownership-ready": `claimStatus`, `adminId` and `members` are reserved for Phase 2
 // (society claim + admin edit) and Phase 3 (Society OS SaaS) and are unused in Phase 1.
 import { fnvHash } from '../lib/hash.js';
-import { RERA_SOCIETIES } from './societies-rera.js';
 
 // water: 'Corporation' | '24x7 Corp + Borewell' | 'Tanker + Borewell'
 // power: backup coverage. petPolicy/vegPolicy: 'Allowed' | 'Not allowed' | 'Common areas only' | 'Mixed'
@@ -44,9 +43,76 @@ export const SOCIETIES = [
 // RERA rows are lookup-/search-visible immediately, but the hash-fallback pool
 // used for LEGACY unbound listings stays the curated set (see societyForListing)
 // so existing demo hubs keep their listing density.
-const CATALOGUE = SOCIETIES.concat(RERA_SOCIETIES);
-const BY_SLUG = Object.fromEntries(CATALOGUE.map((s) => [s.slug, s]));
-const BY_ID = Object.fromEntries(CATALOGUE.map((s) => [s.id, s]));
+//
+// D129: the bulk import is 182 KB of generated data and it used to be a static
+// import, which put it on the critical path of every route — including the ones
+// that never name a society. Code-splitting could not help, because the cost was
+// not the import graph's *shape*: `CATALOGUE` was computed at module scope, so
+// evaluating this module evaluated that one. So the work is now behind a memoised
+// accessor and the bulk rows behind `import()`.
+//
+// The consequence is that the catalogue is *eventually* complete rather than
+// complete on the first synchronous read. Every accessor below stays synchronous
+// and returns the curated rows immediately, kicking the fetch off on first touch;
+// a surface that renders the full directory must therefore wait for
+// `ensureSocietyCatalogue()` before it can claim to be showing everything, or it
+// will paint 28 societies and never correct itself. That is a real obligation and
+// it is why the function is exported rather than left as a private detail.
+//
+// React callers discharge it through `lib/useSocietyCatalogue.js`, which owns the
+// subscribe-and-re-render half; that hook's docblock lists which surfaces make the
+// claim and which deliberately do not. This module stays React-free.
+let RERA_SOCIETIES = [];
+let reraPromise = null;
+let CATALOGUE = null;
+let BY_SLUG = null;
+let BY_ID = null;
+
+const invalidateCatalogue = () => { CATALOGUE = null; BY_SLUG = null; BY_ID = null; };
+
+/** Load the MahaRERA rows once. Resolves when every lookup below is complete. */
+export function ensureSocietyCatalogue() {
+  if (!reraPromise) {
+    reraPromise = import('./societies-rera.js').then((m) => {
+      RERA_SOCIETIES = m.RERA_SOCIETIES;
+      invalidateCatalogue();
+    }).catch((err) => {
+      // A rejected promise is still truthy, so caching it would make `if (!reraPromise)`
+      // false forever: one failed chunk fetch (flaky network, a stale hashed filename
+      // after a deploy) would leave every accessor permanently answering with the 28
+      // curated rows, with no retry and no way to tell that from a complete catalogue.
+      // Clearing the cache makes the next caller retry; re-throwing keeps the failure
+      // visible to the render gate instead of resolving a lie.
+      reraPromise = null;
+      throw err;
+    });
+  }
+  return reraPromise;
+}
+
+/** True once the bulk rows are in memory — the initial state for a render gate. */
+export const societyCatalogueLoaded = () => RERA_SOCIETIES.length > 0;
+
+function catalogue() {
+  // Fire-and-forget kick-off: this is the synchronous path, so it answers with whatever
+  // is loaded now and lets the fetch complete in the background. The `.catch` is not
+  // optional — without a handler on THIS reference, a failed chunk becomes an unhandled
+  // rejection even when no React consumer is mounted. Callers that need to know about
+  // the failure hold their own reference via the render gate; here it is genuinely
+  // nothing to act on, and `ensureSocietyCatalogue` has already cleared its cache so
+  // the next call retries.
+  ensureSocietyCatalogue().catch(() => {});
+  if (!CATALOGUE) CATALOGUE = SOCIETIES.concat(RERA_SOCIETIES);
+  return CATALOGUE;
+}
+function bySlug() {
+  if (!BY_SLUG) BY_SLUG = Object.fromEntries(catalogue().map((s) => [s.slug, s]));
+  return BY_SLUG;
+}
+function byId() {
+  if (!BY_ID) BY_ID = Object.fromEntries(catalogue().map((s) => [s.id, s]));
+  return BY_ID;
+}
 
 // Merge map (ops dedup): a duplicate society's slug → its canonical slug. Kept
 // here (dependency-free) so every lookup transparently redirects a merged-away
@@ -92,19 +158,19 @@ export const slugifySociety = (name, locality) =>
 
 export const societyBySlug = (slug) => {
   const s = resolveMergedSlug(slug);
-  return BY_SLUG[s] || COMMUNITY_BY_SLUG[s] || null;
+  return bySlug()[s] || COMMUNITY_BY_SLUG[s] || null;
 };
 export const societyById = (id) => {
-  const rec = BY_ID[id] || COMMUNITY_BY_ID[id];
+  const rec = byId()[id] || COMMUNITY_BY_ID[id];
   if (!rec) return null;
   const merged = resolveMergedSlug(rec.slug);
-  return merged === rec.slug ? rec : (BY_SLUG[merged] || COMMUNITY_BY_SLUG[merged] || rec);
+  return merged === rec.slug ? rec : (bySlug()[merged] || COMMUNITY_BY_SLUG[merged] || rec);
 };
 export const societiesInLocality = (localitySlug) => SOCIETIES.filter((s) => s.localitySlug === localitySlug);
 // Full catalogue (curated + RERA + community), minus societies merged away by ops
 // — used by the society search/typeahead so duplicates disappear after a merge.
 export const allSocieties = () =>
-  CATALOGUE.concat(COMMUNITY).filter((s) => !MERGES_BY_SLUG[s.slug]);
+  catalogue().concat(COMMUNITY).filter((s) => !MERGES_BY_SLUG[s.slug]);
 
 // Deterministically map a listing to a society. Prefers an explicit `societyId`
 // binding (curated or community) so the assignment is honest; only when a listing

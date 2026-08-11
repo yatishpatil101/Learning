@@ -330,6 +330,75 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.action").value("request"));
         }
 
+        /**
+         * The OTP joiner who has no name (D118).
+         *
+         * <p>{@code users.name} is nullable — an OTP sign-in gives a verified mobile and nothing
+         * else — and {@code flatmate_group_members.name} was {@code NOT NULL}, so this join used to
+         * 500 for exactly the people who had just signed up. It was patched by storing the literal
+         * {@code "Member"}, which stopped the error and replaced it with a fabricated name that is
+         * indistinguishable from a real one and is shown to other people as <em>theirs</em>.
+         *
+         * <p>V55 made the column nullable, so what is asserted here is that the row carries no name
+         * at all rather than a made-up one: {@code doesNotExist} on both {@code name} and
+         * {@code initials}, because initials derived from "Member" ("M") would move the same
+         * invention into the avatar. The seat is still taken — being nameless is not being absent.
+         */
+        @Test
+        @DisplayName("a joiner who has never given a name joins with no name, not with \"Member\"")
+        void namelessJoinerStoresNoName() throws Exception {
+            User host = user("9820000035", "OpenHost2");
+            User joiner = user("9820000036", null);
+
+            String json = mvc.perform(post(Routes.Flatmates.GROUPS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"title":"Nameless welcome","locality":"Kothrud","policy":"any",
+                                     "rent":30000,"seats":3,"seatsOpen":2,"name":"OpenHost2"}
+                                    """))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            String id = publish("flatmate_groups",
+                    json.replaceAll(".*?\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"share\":\"solo\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("accepted"));
+
+            assertThat(jdbc.queryForObject(
+                    "select count(*) from flatmate_group_members "
+                            + "where group_id = ?::uuid and user_id = ?::uuid "
+                            + "and name is null and initials is null",
+                    Integer.class, id, joiner.getId().toString()))
+                    .as("the nameless joiner's row stores no name and no derived initials")
+                    .isEqualTo(1);
+
+            // Re-publish for the harness reason `secondOpenJoinTakesNothing` spells out: the join
+            // flushes the group entity this suite's persistence context still holds, which writes
+            // the pre-publish `pending` back over the JDBC update above and hides it from the feed.
+            publish("flatmate_groups", id);
+
+            mvc.perform(get(Routes.Flatmates.GROUPS).param("locality", "Kothrud"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].members.length()").value(2))
+                    // Collected across both members rather than indexed: the feed fetch-joins the
+                    // collection under its own `order by`, so member order is not guaranteed and an
+                    // index would pin the wrong thing. What matters is the pair of claims — one of
+                    // the two has no name at all, and neither is called "Member".
+                    .andExpect(jsonPath("$.content[0].members[*].name",
+                            Matchers.hasItem(Matchers.nullValue())))
+                    .andExpect(jsonPath("$.content[0].members[*].name",
+                            Matchers.hasItem("OpenHost2")))
+                    .andExpect(jsonPath("$.content[0].members[*].name",
+                            Matchers.not(Matchers.hasItem("Member"))))
+                    .andExpect(jsonPath("$.content[0].members[*].initials",
+                            Matchers.hasItem(Matchers.nullValue())));
+        }
+
         @Test
         @DisplayName("per-head rent is derived from the whole-flat rent, so it cannot drift")
         void perHeadIsDerived() throws Exception {
@@ -340,6 +409,63 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].rent").value(40000))
                     .andExpect(jsonPath("$.content[0].perHead").value(40000 / 3));
+        }
+
+        /**
+         * The other 409 on this door, and the one nothing pinned until D182.
+         *
+         * <p>{@code group_full} is not a duplicate — it is the last seat going while the board that
+         * offered the button was still on screen, which is why the client's seat pre-check was
+         * removed and this became reachable. The client gives it the opposite treatment to
+         * {@code already_interested}: a red refusal, plus a refresh of the stale board it came
+         * from. It can only tell the two apart by the trailing marker, and the marker only reaches
+         * it if nothing follows it — so what is asserted here is the position, not the presence.
+         *
+         * <p>The seats are closed through the host's own endpoint rather than a raw JDBC update,
+         * deliberately: this suite shares one persistence context with the service, so a row edited
+         * behind that context's back is not what {@code join()} would read.
+         */
+        @Test
+        @DisplayName("joining a group whose last seat has gone is group_full, not already_interested")
+        void fullGroupRefusesWithItsOwnSubCode() throws Exception {
+            User host = user("9820000056", "FullHost");
+            User joiner = user("9820000057", "TooLate");
+            String id = createGroup(host, "One seat in Kothrud", "Kothrud");
+
+            mvc.perform(patch(Routes.Flatmates.GROUP_SEATS, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"seatsOpen\":0}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.seatsOpen").value(0));
+
+            // Re-publish, for the harness reason spelled out in `secondOpenJoinTakesNothing` rather
+            // than to paper over anything: this suite approves a listing with a raw JDBC update,
+            // which the persistence context it shares with the service never sees, so the seats
+            // save above writes the entity's stale `pending` back over the row. A real approval
+            // goes through the moderation API and leaves entity and row agreeing. Without this the
+            // join answers 404 and stops saying anything about which 409 it would have been.
+            publish("flatmate_groups", id);
+
+            mvc.perform(post(Routes.Flatmates.GROUP_JOIN, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(joiner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", Matchers.endsWith("(group_full)")))
+                    // Both refusals travel as `error: "conflict"`, so the sub-code is the only
+                    // thing separating a red refusal from a benign notice. Asserting the absence of
+                    // the other one is what stops a copy-paste in the service turning this into a
+                    // duplicate notice that leaves the board still offering the seat.
+                    .andExpect(jsonPath("$.message",
+                            Matchers.not(Matchers.containsString("already_interested"))));
+
+            // Refused, not queued: a pending request against a full group would have the host
+            // deciding on a seat that does not exist.
+            Integer rows = jdbc.queryForObject(
+                    "select count(*) from flatmate_requests where kind = 'group' and target_id = ?::uuid",
+                    Integer.class, id);
+            assertThat(rows).isZero();
         }
     }
 
@@ -374,7 +500,9 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"share\":\"solo\",\"message\":\"Second ask.\"}"))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+                    // Ends with, not contains — see FlatmateConflicts for why the position is the
+                    // contract and not just the presence (D182).
+                    .andExpect(jsonPath("$.message", Matchers.endsWith("(already_interested)")));
 
             Integer rows = jdbc.queryForObject(
                     "select count(*) from flatmate_requests where kind = 'room' and target_id = ?::uuid",
@@ -407,7 +535,7 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+                    .andExpect(jsonPath("$.message", Matchers.endsWith("(already_interested)")));
 
             Integer rows = jdbc.queryForObject(
                     "select count(*) from flatmate_requests where kind = 'group' and target_id = ?::uuid",
@@ -454,7 +582,7 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"share\":\"solo\"}"))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+                    .andExpect(jsonPath("$.message", Matchers.endsWith("(already_interested)")));
 
             // The seat and the member card are what made this door worse than the other two: the
             // old pre-check returned the existing row as a success, and join() then ran its

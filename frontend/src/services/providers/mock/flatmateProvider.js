@@ -33,6 +33,7 @@ import {
   saveFlatmateGroup,
   deleteFlatmateGroup as _storeDeleteGroup,
   addInterest,
+  hasInterest,
   getFlatmateRequests,
   addFlatmateRequest,
   decideFlatmateRequest,
@@ -44,7 +45,16 @@ import {
   roomsForProperty,
   setRoomOccupants as _storeSetOccupants,
 } from '../../../lib/data/flatSplit.js';
-import { MOD_PENDING, VOCAB, initialsOf, isPubliclyVisible, perHeadOf, seatsLeftOf } from '../http/flatmateMapper.js';
+import {
+  CONFLICT_ALREADY_INTERESTED,
+  CONFLICT_GROUP_FULL,
+  MOD_PENDING,
+  VOCAB,
+  initialsOf,
+  isPubliclyVisible,
+  perHeadOf,
+  seatsLeftOf,
+} from '../http/flatmateMapper.js';
 import { SEEKERS, SEED_ROOMS, SEED_GROUPS } from '../../../pages/consumer/flatmates/constants.js';
 
 /* The demo seed lives here rather than in the page.
@@ -62,7 +72,20 @@ const me = () => digits(myMobile() || '');
 const badRequest = (message) => new ApiError({ code: 'bad_request', status: 400, message });
 const notFound = (what) => new ApiError({ code: 'not_found', status: 404, message: `${what} not found` });
 const unauthorized = () => new ApiError({ code: 'unauthorized', status: 401, message: 'Sign in to continue' });
+const forbidden = (message) => new ApiError({ code: 'forbidden', status: 403, message });
 const requireUser = () => { const u = readUser(); if (!u) throw unauthorized(); return u; };
+
+/**
+ * A 409 with its sub-code on `code`.
+ *
+ * The server puts `error: "conflict"` on the wire for both of these and distinguishes them only
+ * by a marker in the message; the http provider parses that marker back out onto `code`, so the
+ * mock has to produce the same shape or the call site's two branches would be reachable in only
+ * one of the two modes. The message carries the marker too, for the same reason.
+ */
+const conflict = (code, message) => new ApiError({ code, status: 409, message: `${message} (${code})` });
+const alreadyInterested = () => conflict(CONFLICT_ALREADY_INTERESTED,
+  'You have already sent this host a request — your earlier message is with them.');
 
 /**
  * Reject a value outside the server's closed set, with the same message shape.
@@ -210,12 +233,24 @@ export async function setRoomOccupants(id, occupants) {
   return roomVm(row);
 }
 
+/**
+ * `POST /flatmates/rooms/{id}/interest`.
+ *
+ * Searches the seed as well as the store: the board is mostly seed rows, so a lookup that only
+ * consulted `getRooms()` would 404 on almost every card a tester can actually click.
+ */
 export async function roomInterest(id, { share = 'solo', message } = {}) {
   const u = requireUser();
   requireVocab('share', share, 'share');
-  const row = getRooms().find((r) => String(r.id) === String(id));
+  const row = [...getRooms(), ...SEED_ROOMS].find((r) => String(r.id) === String(id));
   if (!row) throw notFound('Room');
-  addInterest(id);
+  if (digits(row.ownerMobile) && digits(row.ownerMobile) === me()) {
+    throw forbidden('You cannot enquire about your own room.');
+  }
+  // The mock's stand-in for V27's unique index. Ahead of the write, as on the server, so a repeat
+  // press is refused rather than quietly rewriting the first message.
+  if (hasInterest(me(), 'room', id)) throw alreadyInterested();
+  addInterest(me(), 'room', id);
   addFlatmateRequest(digits(row.ownerMobile), {
     kind: 'room', targetId: id, targetTitle: row.society || row.locality || 'Room',
     locality: row.locality, requesterName: u.name || 'Seeker', requesterMobile: me(),
@@ -318,8 +353,18 @@ export async function setGroupSeats(id, seatsOpen) {
 export async function joinGroup(id, { share = 'solo', message } = {}) {
   const u = requireUser();
   requireVocab('share', share, 'share');
-  const g = getFlatmateGroups().find((x) => String(x.id) === String(id));
+  const g = [...getFlatmateGroups(), ...SEED_GROUPS].find((x) => String(x.id) === String(id));
   if (!g) throw notFound('Group');
+  if (digits(g.ownerMobile) && digits(g.ownerMobile) === me()) {
+    throw forbidden('You cannot ask to join your own group.');
+  }
+  /* Seats first, exactly as `FlatmateSupplyService.join` orders it — and it is the order that
+     carries the meaning. Someone who asked yesterday and comes back to a group that filled in the
+     meantime should be told the group is full, not that they already asked: the second is true but
+     useless, because it implies a seat is still waiting on the host. */
+  if (seatsLeftOf(g) <= 0) throw conflict(CONFLICT_GROUP_FULL, 'This group is full.');
+  if (hasInterest(me(), 'group', id)) throw alreadyInterested();
+  addInterest(me(), 'group', id);
   const open = (g.policy || 'any') === 'any';
   const rec = addFlatmateRequest(digits(g.ownerMobile), {
     kind: 'group', targetId: id, targetTitle: g.title, locality: g.locality,
@@ -426,9 +471,13 @@ export async function deletePost(id) {
 export async function postInterest(id, { share = 'solo', message } = {}) {
   const u = requireUser();
   requireVocab('share', share, 'share');
-  const p = getFlatmatePosts().find((x) => String(x.id) === String(id));
+  const p = [...getFlatmatePosts(), ...SEEKERS].find((x) => String(x.id) === String(id));
   if (!p) throw notFound('Post');
-  addInterest(id);
+  if (digits(p.mobile) && digits(p.mobile) === me()) {
+    throw forbidden('You cannot express interest in your own post.');
+  }
+  if (hasInterest(me(), 'flatmate', id)) throw alreadyInterested();
+  addInterest(me(), 'flatmate', id);
   addFlatmateRequest(digits(p.mobile), {
     kind: 'post', targetId: id, targetTitle: p.name, locality: (p.localities || [])[0] || '',
     requesterName: u.name || 'Seeker', requesterMobile: me(),
@@ -439,6 +488,10 @@ export async function postInterest(id, { share = 'solo', message } = {}) {
 /* ─── Requests ──────────────────────────────────────────────────────────────────────────────── */
 
 const requestVm = (r) => {
+  /* `addFlatmateRequest` overloads its return: a record, or the strings `'anon'` (no host mobile to
+     file under) / `'duplicate'`. Mapped naively every `r?.x` yields undefined and this returns a
+     shape-valid but empty view model — an ask that looks filed and is not. Say null instead. */
+  if (!r || typeof r === 'string') return null;
   const status = r?.status || 'pending';
   return {
     id: r?.id || '',
@@ -462,7 +515,7 @@ const requestVm = (r) => {
 export async function myRequests(status) {
   const mine = me();
   if (!mine) return [];
-  let rows = (getFlatmateRequests(mine) || []).map(requestVm);
+  let rows = (getFlatmateRequests(mine) || []).map(requestVm).filter(Boolean);
   if (status) rows = rows.filter((r) => r.status === status);
   return rows;
 }

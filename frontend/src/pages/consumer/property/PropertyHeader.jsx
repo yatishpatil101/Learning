@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import Tip from '../../../components/ui/Tip.jsx';
 import QualityScoreBadge from '../../../components/ui/QualityScoreBadge.jsx';
+import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { fmtINR, fmtNum, timeAgo } from '../../../lib/format.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
@@ -101,15 +102,26 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
 
               {/* Flatmate-split card — any multi-BHK residential rental is shareable
                   (flats, apartments, row houses, penthouses, villas), not just a
-                  hardcoded few. A studio / 1-BHK isn't practical to split, so gate on 2+ BHK. */}
+                  hardcoded few. A studio / 1-BHK isn't practical to split, so gate on 2+ BHK.
+
+                  Collapsed on phones (D141): this is a cross-sell into a *different*
+                  product — it answers "could I afford this with someone else", which is
+                  a question after the four this page exists to answer. The per-head rent
+                  is the summary, so the number that decides whether to open it is still
+                  on screen. Desktop is unaffected (MobileCollapse is lg:block). */}
               {isRent && kind === 'residential' && (p.bhkNum || 0) >= 2 && p.price > 0 ? (
-                <div className="mt-5 glass-strong rounded-2xl p-5">
-                  <div className="flex items-start justify-between mb-3.5">
+                <MobileCollapse
+                  className="mt-5 glass-strong rounded-2xl p-5"
+                  headerClassName="mb-3.5"
+                  label={tr('property.sharingFlatTitle')}
+                  summary={'₹' + (p.price / 2 / 1000).toFixed(0) + 'k'}
+                  header={(
                     <div>
                       <h3 className="font-semibold text-white flex items-center gap-2"><Icon name="users" className="w-4 h-4 text-brand-teal-2" /> {tr('property.sharingFlatTitle')}</h3>
                       <p className="text-xs text-slate-400 mt-1">{tr('property.sharingFlatSub')}</p>
                     </div>
-                  </div>
+                  )}
+                >
                   <div className="grid grid-cols-3 gap-3">
                     <div className="glass-strong rounded-xl p-3 text-center">
                       <p className="text-xs text-slate-400 mb-1">{tr('property.shareAlone')}</p>
@@ -125,22 +137,37 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                     </div>
                   </div>
                   <Link to={`/flatmates?startGroup=1&title=${encodeURIComponent(title)}&rent=${p.price}&loc=${encodeURIComponent(p.locality)}`} className="mt-3.5 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl border border-brand-teal-2/30 bg-brand-teal-1/10 text-brand-teal-3 text-sm font-medium hover:bg-brand-teal-1/20 transition-smooth"><Icon name="users-round" className="w-4 h-4" /> {tr('property.findFlatmates')}</Link>
-                </div>
+                </MobileCollapse>
               ) : null}
 
-              {/* PuneNest Assured */}
+              {/* PuneNest Assured — collapsed on phones (D141).
+
+                  Every claim in here is a *platform* promise and is byte-for-byte
+                  identical on every listing, so it carries no information that helps a
+                  buyer choose between two homes. The per-listing trust signals it
+                  duplicates (verified owner / ownership / RERA) already sit in the tag
+                  strip at the very top, which is why this can be demoted without
+                  weakening the trust answer. The heading and the "Trusted listing"
+                  chip stay visible, so the control says what it opens. */}
               <div className="mt-5 rounded-2xl border border-emerald-500/20 p-4" style={{ background: 'linear-gradient(135deg,rgba(16,185,129,.08),rgba(20,184,166,.06))' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon name="shield-check" className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-white font-bold text-sm">{tr('property.assuredTitle')}</h3>
-                  <span className="text-[10px] text-emerald-300 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 font-semibold uppercase tracking-wide">{tr('property.trustedListing')}</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="user-check" className="w-4 h-4 text-emerald-400" /> {tr('property.assuredVerified')}</span>
-                  <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="hand-coins" className="w-4 h-4 text-brand-teal-3" /> {tr('property.zeroBrokerageDirect')}</span>
-                  <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="phone-off" className="w-4 h-4 text-gray-400" /> {tr('property.numberProtected')}</span>
-                  <button type="button" onClick={() => setReportOpen(true)} className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10 hover:border-amber-400/30 transition-smooth"><Icon name="flag" className="w-4 h-4 text-amber-400" /> {tr('property.reportReverify')}</button>
-                </div>
+                <MobileCollapse
+                  headerClassName="mb-3"
+                  label={tr('property.assuredTitle')}
+                  header={(
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Icon name="shield-check" className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                      <h3 className="text-white font-bold text-sm">{tr('property.assuredTitle')}</h3>
+                      <span className="text-[10px] text-emerald-300 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 font-semibold uppercase tracking-wide">{tr('property.trustedListing')}</span>
+                    </div>
+                  )}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="user-check" className="w-4 h-4 text-emerald-400" /> {tr('property.assuredVerified')}</span>
+                    <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="hand-coins" className="w-4 h-4 text-brand-teal-3" /> {tr('property.zeroBrokerageDirect')}</span>
+                    <span className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2"><Icon name="phone-off" className="w-4 h-4 text-gray-400" /> {tr('property.numberProtected')}</span>
+                    <button type="button" onClick={() => setReportOpen(true)} className="inline-flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10 hover:border-amber-400/30 transition-smooth"><Icon name="flag" className="w-4 h-4 text-amber-400" /> {tr('property.reportReverify')}</button>
+                  </div>
+                </MobileCollapse>
               </div>
             </div>
 
@@ -162,7 +189,12 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
 
               <DealPanel p={p} isIn={isIn} toast={toast} contactApproved={contactApproved} />
 
-              {flagEnabled('emiCalculator') && !isLand && !isRent && <Link to="/emi-calculator" className="flex items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
+              {/* min-h here, not tap-extend: this link is full-width in a stacked
+                  CTA column, so the 44px box lands on empty column space rather
+                  than overhanging a neighbour. Only reachable when the
+                  emiCalculator flag is on, which is why the sweep has not been
+                  catching it. */}
+              {flagEnabled('emiCalculator') && !isLand && !isRent && <Link to="/emi-calculator" className="flex min-h-[44px] items-center justify-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth"><Icon name="calculator" className="w-4 h-4" /> {tr('property.calculateEmi')}</Link>}
               {flagEnabled('compareProperties') && <CompareToggleBar p={p} />}
             </div>
           </section>

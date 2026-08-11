@@ -1,5 +1,6 @@
 import { test, expect } from '../../../fixtures/base.js';
 import { USERS } from '../../../helpers/seed.js';
+import { appReady } from '../../../helpers/app.js';
 
 /* /pay-rent — the payment path itself.
  *
@@ -43,8 +44,13 @@ async function openPayRent(page, { tenancies = 1 } = {}) {
   }, { user: TENANT, rows: tenancyRows(tenancies) });
 
   await page.goto('/');
+  // The seed lands one microtask past the point `goto` resolves (D129), so without this the
+  // parse below hits `null` and the whole file fails on a TypeError instead of the flag.
+  await appReady(page);
   await page.evaluate(() => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    const raw = localStorage.getItem('puneNestDB_v5');
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
     db.settings.flags.onlineRentPayment = true;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
   });

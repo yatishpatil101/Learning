@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* Listing Freshness / anti-staleness system.
    - Owner: aging/stale listings show a "Confirm available" CTA; dormant ones show
@@ -56,8 +57,7 @@ async function seed(page) {
 }
 
 test('owner sees freshness pills + confirm/reactivate/WhatsApp actions, and "Confirm all" clears them', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await seed(page);
   await page.goto(`${BASE}/dashboard#listings`);

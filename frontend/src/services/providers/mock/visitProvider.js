@@ -18,11 +18,23 @@
  * The old `listVisits` returned the *entire* collection, unfiltered — on a real dataset the
  * consumer dashboard would show strangers' visits. Both reads here are scoped to the signed-in
  * user, matching the server's caller-scoped endpoints.
+ *
+ * Buckets are named by the owner's **account id**, as `visits.owner_id` is. They used to be named
+ * by the owner's mobile, which a visitor often holds only in its masked form (`98XXXXX210`,
+ * stripping to `98210`) — so several owners shared one bucket, and an owner who changed their
+ * number lost sight of every visit already booked with them (D30).
  */
 import { rawDb, saveDb, scheduleVisit as _collectionVisit } from '../../../lib/mockApi.js';
 import { ApiError } from '../../http.js';
 import { digits, myMobile } from '../../../lib/contact.js';
 import { readUser } from '../../../lib/auth.js';
+import {
+  myOwnerId,
+  mobileForOwnerId,
+  ownerIdOfProperty,
+  ownerIdOfListingId,
+  catalogueOwnerIds,
+} from '../../../lib/data/ownerIdentity.js';
 import {
   addVisitRequest,
   getListings,
@@ -34,23 +46,17 @@ import { slotFromParts, slotFromWhen, whenFromSlot } from '../../../lib/visitWhe
 /**
  * The owner buckets the mock can see.
  *
- * The store is keyed by owner mobile, so there is no way to ask "every visit involving me" without
+ * The store is keyed per owner, so there is no way to ask "every visit involving me" without
  * knowing which owners to look under. The listings catalogue supplies that set — which is exactly
  * the kind of client-side reassembly the server's caller-scoped endpoints exist to remove.
  *
  * The signed-in user is always included: they own their own bucket whether or not they appear in
  * the seeded catalogue, and leaving them out makes their own visits unfindable by id.
  */
-function ownerMobiles() {
-  const set = new Set();
-  const mine = myMobile();
+function ownerIds() {
+  const set = new Set(catalogueOwnerIds());
+  const mine = myOwnerId();
   if (mine) set.add(mine);
-  try {
-    (rawDb().listings || []).forEach((p) => {
-      const d = digits(p.ownerMobile);
-      if (d) set.add(d);
-    });
-  } catch { /* seeded catalogue unavailable */ }
   return [...set];
 }
 
@@ -59,11 +65,11 @@ function ownerMobiles() {
  * and the per-user `puneNestListings:<mobile>` store that the post-a-property flow writes to.
  */
 function myListingIds() {
-  const mine = myMobile();
+  const mine = myOwnerId();
   if (!mine) return new Set();
   const ids = new Set();
   try {
-    (rawDb().listings || []).forEach((p) => { if (digits(p.ownerMobile) === mine) ids.add(p.id); });
+    (rawDb().listings || []).forEach((p) => { if (ownerIdOfProperty(p) === mine) ids.add(p.id); });
   } catch { /* seeded catalogue unavailable */ }
   try {
     getListings().forEach((l) => { if (l?.id) ids.add(l.id); });
@@ -72,7 +78,7 @@ function myListingIds() {
 }
 
 /** Stored row → the seam's shape. */
-function toViewModel(rec, ownerMobile) {
+function toViewModel(rec, ownerId) {
   const when = rec.when || (rec.date && rec.time ? `${rec.date}, ${rec.time}${rec.mode ? ` (${rec.mode})` : ''}` : '');
   return {
     id: rec.id,
@@ -87,7 +93,10 @@ function toViewModel(rec, ownerMobile) {
     status: rec.status || 'scheduled',
     visitorName: rec.visitorName || 'Visitor',
     visitorMobile: rec.visitorMobile || '',
-    ownerMobile,
+    ownerId: ownerId || '',
+    // Still a phone number, because the dashboard turns it into a wa.me link. Only the *key* moved
+    // to an id; a number nobody can dial would be a worse view model, not a safer one.
+    ownerMobile: mobileForOwnerId(ownerId),
     note: rec.note || '',
     createdAt: rec.createdAt || Date.now(),
   };
@@ -113,6 +122,7 @@ function collectionToViewModel(rec, ownerMobile) {
     status: rec.status || 'scheduled',
     visitorName: rec.customer || 'Visitor',
     visitorMobile: digits(rec.mobile || ''),
+    ownerId: ownerIdOfListingId(rec.listingId) || '',
     ownerMobile,
     note: rec.note || '',
     createdAt: rec.createdAt || 0,
@@ -139,7 +149,7 @@ function fromCollection(match) {
 export async function listVisits() {
   const mine = myMobile();
   if (!mine) return [];
-  const fromBuckets = ownerMobiles().flatMap((owner) =>
+  const fromBuckets = ownerIds().flatMap((owner) =>
     getVisitReqs(owner).filter((r) => r.visitorMobile === mine).map((r) => toViewModel(r, owner)));
   const seeded = fromCollection((v) => digits(v.mobile) === mine).map((v) => collectionToViewModel(v, ''));
   return dedupe([...fromBuckets, ...seeded]).sort(newestFirst);
@@ -147,11 +157,11 @@ export async function listVisits() {
 
 /** Visits booked against the signed-in user's own listings. */
 export async function myVisitRequests() {
-  const mine = myMobile();
+  const mine = myOwnerId();
   if (!mine) return [];
   const fromBucket = getVisitReqs(mine).map((r) => toViewModel(r, mine));
   const owned = myListingIds();
-  const seeded = fromCollection((v) => owned.has(v.listingId)).map((v) => collectionToViewModel(v, mine));
+  const seeded = fromCollection((v) => owned.has(v.listingId)).map((v) => collectionToViewModel(v, myMobile()));
   return dedupe([...fromBucket, ...seeded]).sort(newestFirst);
 }
 
@@ -168,7 +178,11 @@ export async function scheduleVisit(req = {}) {
     throw new ApiError({ code: 'unauthorized', status: 401, message: 'Sign in to book a visit' });
   }
   const propertyId = req.propertyId || '';
-  const owner = digits(req.ownerMobile || ownerOf(propertyId));
+  // The listing decides whose bucket this lands in. `req.ownerMobile` is still accepted as a
+  // fallback for a listing the catalogue has never seen, but it is resolved to an id rather than
+  // used as one: a caller passing a masked number would otherwise file the visit under a bucket
+  // several owners share, and the owner it belongs to would never see it.
+  const owner = ownerOf(propertyId) || ownerIdOfProperty({ ownerMobile: req.ownerMobile });
   if (!owner) {
     throw new ApiError({ code: 'not_found', status: 404, message: 'Listing not found' });
   }
@@ -252,11 +266,7 @@ export async function rescheduleVisit(id, when) {
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────
 
 function ownerOf(propertyId) {
-  try {
-    return (rawDb().listings || []).find((p) => p.id === propertyId)?.ownerMobile || '';
-  } catch {
-    return '';
-  }
+  return ownerIdOfListingId(propertyId) || '';
 }
 
 /** Persist a mutated seeded-collection row. `saveDb` is the public primitive; `rawSave` is
@@ -278,7 +288,7 @@ function splitWhen(when) {
  * store it came from. Buckets are searched first: a visit that exists in both is richer there.
  */
 function findAnywhere(id) {
-  for (const owner of ownerMobiles()) {
+  for (const owner of ownerIds()) {
     const bucket = getVisitReqs(owner);
     const rec = bucket.find((r) => r.id === id);
     if (rec) return { kind: 'bucket', bucket, owner, rec };

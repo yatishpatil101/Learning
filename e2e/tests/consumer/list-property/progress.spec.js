@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876543210';
@@ -30,8 +31,7 @@ async function pickType(page, label) {
 }
 
 test('loads the gamified flow without JS errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoForm(page);
   await expect(page.locator('.lp-meter')).toBeVisible();
   expect(errors).toHaveLength(0);

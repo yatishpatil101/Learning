@@ -9,19 +9,32 @@ export default function ReviewsTab({ ctx }) {
     qText, setQText, submitQuestion, inp, qa,
     answerFor, aText, setAText, submitAnswer, setAnswerFor,
   } = ctx;
+  /**
+   * Three outcomes, not two.
+   *
+   * `rating` now comes from the summary endpoint, so "we could not read it" is a state that exists.
+   * Collapsing it into the unrated branch would render the baseline estimate — a confident number —
+   * for a society whose real rating simply failed to load, which is exactly the shape that let a
+   * total review outage read as "no reviews yet" on every property page for weeks.
+   */
+  const showAggregate = !rating.loading && !rating.failed && (showEstimate || rating.count > 0);
   return (
             <>
             {/* Resident ratings breakdown + reviews */}
             <section className="reveal">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-bold flex items-center gap-2"><Icon name="star" className="w-5 h-5 text-amber-400" /> {t('society.residentRatings')}</h2>
-                {(showEstimate || rating.count) ? <span className="text-sm"><span className="text-white font-bold">{overall}</span><span className="text-gray-500">/5</span></span> : null}
+                {rating.loading ? <span className="skeleton inline-block h-4 w-12 rounded" data-testid="society-rating-skeleton" /> : null}
+                {showAggregate ? <span className="text-sm"><span className="text-white font-bold">{overall}</span><span className="text-gray-500">/5</span></span> : null}
               </div>
-              {(showEstimate || rating.count) ? (
+              {rating.failed ? (
+                <p className="text-amber-300/80 text-sm mb-4 flex items-center gap-1.5" data-testid="society-rating-unavailable"><Icon name="alert-triangle" className="w-4 h-4 flex-shrink-0" /> {t('society.ratingUnavailable')}</p>
+              ) : null}
+              {showAggregate ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mb-4">
                   {bars.map((b) => (
                     <div key={b.id} className="rd-cell">
-                      <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-medium text-slate-300">{t(b.labelKey)}</span><span className="text-xs font-bold text-white">{b.value}</span></div>
+                      <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-medium text-slate-300">{t(b.labelKey)}</span><span className="text-xs font-bold text-white" data-testid={`society-bar-${b.id}`}>{b.value}</span></div>
                       <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full bg-brand-teal-2" style={{ width: `${(b.value / 5) * 100}%` }} /></div>
                     </div>
                   ))}

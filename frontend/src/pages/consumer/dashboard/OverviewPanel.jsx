@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import HScroll from '../../../components/ui/HScroll.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../../lib/format.js';
@@ -233,7 +234,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
       {isOwner ? (
         <>
           <Card className="p-5 sm:p-6">
-            <SectionHead title="Recent Enquiries" action={<button onClick={() => go('enquiries')} className="text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
+            <SectionHead title="Recent Enquiries" action={<button onClick={() => go('enquiries')} className="tap-target inline-flex items-center justify-end text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
             <div className="space-y-3">
               {enquiries.slice(0, 3).map((e) => (
                 <div key={e.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.04] transition-colors">
@@ -271,8 +272,12 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 font-semibold whitespace-nowrap">Declined</span>
                   ) : (
                     <div className="flex gap-2 flex-shrink-0">
-                      <button onClick={() => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
-                      <button onClick={() => { setStatus(a.id, 'declined'); toast('Group application declined'); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
+                      {/* Accept and Decline are irreversible from this row and sit
+                          8px apart, which is the worst combination to get wrong.
+                          min-h-[44px] on touch only; the 11px label and the padding
+                          stay put, so the row keeps its density from sm up. */}
+                      <button onClick={() => { setStatus(a.id, 'accepted'); toast('Group application accepted', 'success'); }} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Accept</button>
+                      <button onClick={() => { setStatus(a.id, 'declined'); toast('Group application declined'); }} className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 font-semibold">Decline</button>
                     </div>
                   )}
                 </div>
@@ -283,7 +288,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
       ) : (
         <>
           <Card className="p-5 sm:p-6">
-            <SectionHead title={feedTitle} action={<button onClick={() => go('recent')} className="text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
+            <SectionHead title={feedTitle} action={<button onClick={() => go('recent')} className="tap-target inline-flex items-center justify-end text-teal-400 text-sm font-medium hover:text-teal-300">View all</button>} />
             {feed.length ? (
               /* One DOM list, two layouts: a swipeable rail on phones (3 homes = one
                  screen, not three stacked blocks) that becomes a 3-up grid from sm+.
@@ -291,7 +296,7 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
               <HScroll wrapClassName="-mx-1" className="flex gap-3 px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible">
                 {feed.slice(0, 3).map((p) => (
                   <Link key={p.id} to={`/property/${p.id}`} className="w-40 flex-shrink-0 rounded-xl overflow-hidden bg-white/[0.03] transition-colors hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50 sm:w-auto">
-                    <img src={p.image} alt={p.title} className="h-24 w-full object-cover sm:h-28" />
+                    <PropertyImage src={p.image} alt={p.title} className="h-24 w-full object-cover sm:h-28" />
                     <div className="p-3">
                       <p className="text-white text-sm font-semibold truncate">{p.title}</p>
                       <p className="text-teal-400 text-sm font-bold mt-0.5">{fmtINR(p.price)}{p.deal === 'rent' ? '/mo' : ''}</p>
@@ -357,8 +362,8 @@ export default function OverviewPanel({ isOwner, listings, enquiries, visits, go
               <p className="text-gray-500 text-xs">Rent {fmtINR(rental.monthlyRent)}/mo · due {rental.dueDay || 5}th</p>
             </div>
             {payEnabled
-              ? <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Pay rent</Link>
-              : <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 font-semibold">Soon</Link>}
+              ? <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center rounded-lg bg-teal-500/90 hover:bg-teal-500 text-white font-semibold">Pay rent</Link>
+              : <Link to="/pay-rent" className="text-[11px] px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 font-semibold">Soon</Link>}
           </div>
         </Card>
       )}

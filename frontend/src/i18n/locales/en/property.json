@@ -577,6 +577,8 @@
     "reportListing": "Report listing",
     "rateProperty": "Rate this property",
     "noReviewsYet": "No reviews yet — be the first to rate this property after a visit.",
+    "reviewsUnavailable": "Reviews couldn't be loaded right now — this doesn't mean there are none.",
+    "ratingUnavailable": "Rating unavailable right now",
     "reviews_one": "{{count}} review",
     "reviews_other": "{{count}} reviews",
     "recommendPct": "{{pct}}% recommend",

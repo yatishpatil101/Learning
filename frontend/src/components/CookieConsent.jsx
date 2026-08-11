@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from './Icon.jsx';
 import Switch from './ui/Switch.jsx';
@@ -29,6 +29,7 @@ const CATEGORIES = [
 export default function CookieConsent() {
   const [mode, setMode] = useState('hidden'); // hidden | banner | customize
   const [prefs, setPrefs] = useState({ functional: false, analytics: false, marketing: false });
+  const panelRef = useRef(null);
 
   useEffect(() => {
     if (!getCookieConsent()) setMode('banner');
@@ -47,6 +48,29 @@ export default function CookieConsent() {
     window.dispatchEvent(new CustomEvent('pn:cookie-banner', { detail: { visible: mode !== 'hidden' } }));
   }, [mode]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (mode === 'hidden' || !panelRef.current) {
+      root.style.setProperty('--pn-cookie-banner-h', '0px');
+      return undefined;
+    }
+
+    const syncHeight = () => {
+      const box = panelRef.current?.getBoundingClientRect();
+      root.style.setProperty('--pn-cookie-banner-h', `${Math.ceil(box?.height || 0)}px`);
+    };
+
+    syncHeight();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(syncHeight) : null;
+    observer?.observe(panelRef.current);
+    window.addEventListener('resize', syncHeight);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncHeight);
+      root.style.setProperty('--pn-cookie-banner-h', '0px');
+    };
+  }, [mode]);
+
   const persist = (value) => {
     try {
       localStorage.setItem(KEY, JSON.stringify({ necessary: true, ...value, version: VERSION, ts: Date.now() }));
@@ -63,6 +87,7 @@ export default function CookieConsent() {
   return (
     <div className="pn-safe-x fixed inset-x-0 bottom-[var(--pn-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="false"
         aria-label="Cookie preferences"

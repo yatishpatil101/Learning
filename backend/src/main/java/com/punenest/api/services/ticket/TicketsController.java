@@ -4,6 +4,7 @@ import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -34,9 +35,20 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Team scoping is enforced in {@link TicketService}, not here — {@code @PreAuthorize} can express
  * "is staff" but not "is on the desk that owns row X", and splitting one rule across two places is
  * how half of it gets forgotten.
+ *
+ * <p><strong>The two write routes additionally require the {@code update_ticket} capability</strong>
+ * (tech debt D67), composed onto the role guard rather than replacing it, so the map can only take
+ * the two writes away from a desk and never hand them to someone the role check refused. Reading the
+ * board is left alone on purpose: a desk that may no longer act on a ticket can still need to see
+ * that it exists in order to hand it on, and the rows it sees are already narrowed by the team
+ * scoping above.
  */
 @RestController
 public class TicketsController {
+
+    private static final String OPS = "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+    private static final String OPS_MAY_WORK_TICKETS =
+            OPS + " and " + Capabilities.REQUIRE_UPDATE_TICKET;
 
     private final TicketService service;
 
@@ -52,7 +64,7 @@ public class TicketsController {
      * 500.
      */
     @GetMapping(Routes.Tickets.BASE)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(OPS)
     public PageResponse<TicketDto> list(@CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String team,
             @RequestParam(required = false) String status,
@@ -80,7 +92,7 @@ public class TicketsController {
      * {@code x-roles: [staff, admin]}).
      */
     @PatchMapping(Routes.Tickets.BY_ID)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(OPS_MAY_WORK_TICKETS)
     public TicketDto update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody TicketUpdate body) {
         return service.update(principal, id, body);
@@ -95,7 +107,7 @@ public class TicketsController {
      * than implied, as on the verification thread.
      */
     @PostMapping(Routes.Tickets.NOTES)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(OPS_MAY_WORK_TICKETS)
     @ResponseStatus(HttpStatus.CREATED)
     public TicketDto.Note addNote(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody NoteRequest body) {

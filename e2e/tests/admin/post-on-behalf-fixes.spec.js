@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../helpers/app.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -151,8 +152,14 @@ test.describe('Post on Behalf — fixes & enhancements', () => {
 
   test('duplicate-owner soft warning appears for a mobile with a pending listing', async ({ page }) => {
     // Seed a pending listing for a mobile
+    // `beforeEach` ends on a bare `page.reload()`, which resolves before the store is
+    // rewritten (D129) — and this is a read-modify-write, so `|| '{}'` would put an empty
+    // catalogue back and the duplicate warning could never fire.
+    await appReady(page);
     await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+      const raw = localStorage.getItem('puneNestDB_v5');
+      if (!raw) throw new Error('mock store missing after appReady()');
+      const db = JSON.parse(raw);
       db.listings = db.listings || [];
       db.listings.unshift({ id: 'PRDUP1', owner: 'Dup Owner', ownerMobile: '9911223344', status: 'pending', title: 'Dup', deal: 'rent', price: 1, area: 1, type: 'Flat' });
       localStorage.setItem('puneNestDB_v5', JSON.stringify(db));

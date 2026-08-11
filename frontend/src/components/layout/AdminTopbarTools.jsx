@@ -239,7 +239,7 @@ export default function AdminTopbarTools() {
           />
           <kbd className="hidden lg:inline-flex items-center rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">Ctrl+K</kbd>
         </div>
-        <button onClick={() => setSearchOpen((o) => !o)} className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white sm:hidden" aria-label="Search">
+          <button onClick={() => setSearchOpen((o) => !o)} className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white sm:hidden" aria-label="Search">
           <Search className="h-4 w-4" />
         </button>
 
@@ -353,7 +353,11 @@ export default function AdminTopbarTools() {
 
       {/* Notifications */}
       <div className="relative" ref={notifRef}>
-        <button onClick={() => setNotifOpen((o) => !o)} className="relative grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white" aria-label="Notifications">
+        {/* tap-extend rather than a bigger square: this is a 36px bordered chip in a
+            topbar whose height is set by the search field next to it, and painting it
+            44px would make it the loudest thing in the bar. `relative` is already
+            here for the unread badge, so the pseudo has its context. */}
+        <button onClick={() => setNotifOpen((o) => !o)} className="tap-extend relative grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white" aria-label="Notifications">
           <Bell className="h-4 w-4" />
           {notif.total > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400" />}
         </button>

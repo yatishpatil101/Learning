@@ -399,19 +399,22 @@
     "editPolicy": {
       "editingLiveTitle": "You're editing a live listing",
       "editingTitle": "You're editing your listing",
-      "liveBody": "Most updates publish instantly. Changes to core details need a quick re-check by our team — and your listing stays live the whole time.",
+      "liveBody": "Most updates publish instantly. Changing what buyers search on always gets a quick review — and if you change what the property fundamentally is (property type, locality, BHK, or buy vs rent) it comes off search until we approve it again. Price, furnishing and possession stay in search while we re-check them.",
       "reviewBody": "Your listing is still under review, so your edits will be checked along with it.",
       "publishInstantly": "Publishes instantly",
-      "publishInstantlyDesc": "Price, description, amenities, availability, furnishing & new photos.",
-      "needsRecheck": "Needs a quick re-check",
-      "needsRecheckDesc": "Property type, locality, address, BHK, area, floor & removing verified photos.",
+      "publishInstantlyDesc": "Description, amenities, availability, deposit, address details & new photos.",
+      "needsRecheck": "Needs a re-check",
+      "needsRecheckDesc": "Price, furnishing & possession \u2014 re-checked while your listing stays live. Property type, locality, BHK, buy vs rent & removing verified photos come off search until approved.",
       "updatesGoLive_one": "{{count}} update go live now",
       "updatesGoLive_other": "{{count}} updates go live now",
       "changesRecheck_one": "{{count}} change need a re-check",
       "changesRecheck_other": "{{count}} changes need a re-check",
       "rechecking": "Re-checking:",
+      "offSearchNote": "These change what the property fundamentally is, so your listing comes off search while we re-check it \u2014 usually within 24 hours.",
+      "staysLiveNote": "Your listing stays live and searchable while we re-check these \u2014 buyers can still find it and contact you.",
       "live": "Live",
-      "updateUnderReview": "Update under review"
+      "underReviewStaysLive": "Live \u2014 being re-checked",
+      "underReviewOffSearch": "Under review \u2014 off search"
     },
     "paywall": {
       "title": "You've used your free listing",
@@ -439,6 +442,7 @@
       "updatedTitle": "Listing Updated!",
       "postedTitle": "Property Listed Successfully!",
       "editApprovedBody": "Your updates are saved and your listing stays live. Our team is re-checking the core details you changed and will confirm shortly.",
+      "editRemoderationBody": "Your updates are saved. Because you changed what the property fundamentally is, your listing goes back for a quick review and is off search until we approve it — usually within 24 hours.",
       "editBody": "Your changes are saved and live. Everything you updated is now visible to buyers and tenants.",
       "newBody": "Our team will verify and publish your listing within 24 hours. You'll receive a notification once it's live.",
       "goToListings": "Go to My Listings"

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
 import { loadSharedDocuments } from '../../lib/data/viewDocuments.js';
+import { listSharedDocuments } from '../../services/documentService.js';
 import '../../styles/routes/view-documents.css';
 
 function drawWatermark(ctx, w, h, label) {
@@ -40,6 +41,11 @@ function DownloadFallback({ doc }) {
 const isPdfDoc = (doc) => /pdf/i.test(doc.mime || '') || /\.pdf$/i.test(doc.name || '');
 const isImageDoc = (doc) => /image/i.test(doc.mime || '');
 const docTypeIcon = (doc) => (isImageDoc(doc) ? 'image' : isPdfDoc(doc) ? 'file-text' : 'file-lock-2');
+
+// Where a document's bytes are. The mock stores them inline as a base64 `dataUrl`; the http
+// provider returns a signed `url` and leaves `dataUrl` null (D120: the signed url does not resolve
+// in dev). Reading both is what lets one viewer serve the localStorage flow and the live share.
+const docSource = (doc) => doc.dataUrl || doc.url || null;
 
 // Decode a base64 data URL to bytes for pdf.js (it wants a typed array, not a URL).
 function dataUrlToBytes(dataUrl) {
@@ -100,7 +106,7 @@ function ImageViewer({ doc }) {
       drawWatermark(ctx, canvas.width, canvas.height, t('viewDocs.watermark'));
     };
     img.onerror = () => { if (!cancelled) setError(true); };
-    img.src = doc.dataUrl;
+    img.src = docSource(doc);
     return () => { cancelled = true; };
   }, [doc, t]);
 
@@ -137,9 +143,11 @@ function PdfViewer({ doc }) {
         if (!pdfjs.GlobalWorkerOptions.workerSrc) {
           pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
         }
-        const bytes = dataUrlToBytes(doc.dataUrl);
-        if (!bytes) throw new Error('Unreadable PDF data');
-        const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+        // Inline bytes when the mock stored them; otherwise let pdf.js fetch the signed url itself.
+        const bytes = doc.dataUrl ? dataUrlToBytes(doc.dataUrl) : null;
+        const source = bytes ? { data: bytes } : { url: doc.url };
+        if (!bytes && !doc.url) throw new Error('Unreadable PDF data');
+        const pdf = await pdfjs.getDocument(source).promise;
         if (cancelled) return;
         if (host) host.replaceChildren();
         const containerW = scrollRef.current?.clientWidth || 760;
@@ -188,7 +196,7 @@ function PdfViewer({ doc }) {
 }
 
 function DocumentViewer({ doc }) {
-  if (!doc.dataUrl) return <DownloadFallback doc={doc} />;
+  if (!docSource(doc)) return <DownloadFallback doc={doc} />;
   if (isImageDoc(doc)) return <ImageViewer doc={doc} />;
   if (isPdfDoc(doc)) return <PdfViewer doc={doc} />;
   return <DownloadFallback doc={doc} />;
@@ -265,7 +273,85 @@ function DocNav({ active, total, onSelect }) {
   );
 }
 
-export default function ViewDocuments() {
+const ERR_REVOKED = {
+  titleKey: 'viewDocs.errRevokedTitle',
+  textKey: 'viewDocs.errRevokedText',
+  subKey: 'viewDocs.errRevokedSub',
+};
+const ERR_INVALID = {
+  titleKey: 'viewDocs.errInvalidTitle',
+  textKey: 'viewDocs.errInvalidText',
+  subKey: 'viewDocs.errInvalidSub',
+};
+const ERR_LOAD = {
+  titleKey: 'viewDocs.errLoadTitle',
+  textKey: 'viewDocs.errLoadText',
+  subKey: 'viewDocs.errLoadSub',
+};
+
+/**
+ * The share-token half of this page (D42) — `/shared-documents#<token>`.
+ *
+ * **Why the fragment.** The token is a bearer credential: whoever holds the string reads the
+ * owner's title deeds until the grant expires. It used to travel as `?token=…`, which put it in
+ * every place a URL goes — the server's own access log, every proxy and CDN in between, and the
+ * `Referer` of the next request out. A fragment is never transmitted to any server, so none of
+ * those exist for it; the token reaches the API only on the `X-Share-Token` header, which no
+ * ordinary log records.
+ *
+ * What a fragment does *not* fix, and nothing can: this URL is the credential, so browser history,
+ * a bookmark, and the recipient pasting it into a chat still carry it. That is inherent in sharing
+ * by link at all, and the 7-day expiry is what bounds it.
+ *
+ * The fragment is deliberately left in the address bar rather than scrubbed with `replaceState`:
+ * removing it buys nothing server-side (it was never sent) and costs the recipient a working
+ * refresh, which for a link forwarded to a lawyer is the difference between usable and not.
+ */
+function useSharedByToken(enabled) {
+  const { hash } = useLocation();
+  const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    // `decodeURIComponent` because a chat client may percent-encode the fragment on the way through;
+    // the token itself is URL-safe base64 and survives either form.
+    let token = '';
+    try {
+      token = decodeURIComponent((hash || '').replace(/^#/, '')).trim();
+    } catch {
+      token = (hash || '').replace(/^#/, '').trim();
+    }
+    if (!token) {
+      setState({ shared: [], sub: null, errorState: ERR_INVALID, loading: false });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
+    listSharedDocuments(token)
+      .then((docs) => {
+        if (cancelled) return;
+        setState({
+          shared: docs,
+          sub: docs.length ? { key: 'viewDocs.sharedCount', args: { count: docs.length } } : null,
+          errorState: null,
+          loading: false,
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // 401 is every credential failure the server distinguishes between and refuses to tell us
+        // apart — unknown, declined, expired — so the copy says "no longer active", not "expired".
+        const errorState = err?.status === 401 ? ERR_REVOKED : ERR_LOAD;
+        setState({ shared: [], sub: null, errorState, loading: false });
+      });
+    return () => { cancelled = true; };
+  }, [enabled, hash]);
+
+  return state;
+}
+
+export default function ViewDocuments({ shared: byToken = false }) {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const owner = params.get('o') || 'anon';
@@ -273,7 +359,11 @@ export default function ViewDocuments() {
   const propId = params.get('p');
   const docId = params.get('d');
 
-  const { shared, sub, errorState } = loadSharedDocuments(owner, reqId, propId, docId);
+  const fromToken = useSharedByToken(byToken);
+  const fromStore = byToken
+    ? { shared: [], sub: null, errorState: null }
+    : loadSharedDocuments(owner, reqId, propId, docId);
+  const { shared, sub, errorState } = byToken ? fromToken : fromStore;
   const [active, setActive] = useState(0);
 
   // View-only protections (match original: block right-click, drag, Ctrl/Cmd+S/P).
@@ -294,10 +384,19 @@ export default function ViewDocuments() {
     };
   }, []);
 
-  const showEmpty = errorState || shared.length === 0;
+  // In token mode the first paint has no documents *yet*, which is not the same as none: showing
+  // "No documents available" while the request is still in flight tells the recipient their link is
+  // broken, and they close the tab before it resolves.
+  const loading = byToken && fromToken.loading;
+  const showEmpty = !loading && (errorState || shared.length === 0);
   const emptyTitle = errorState ? t(errorState.titleKey) : t('viewDocs.emptyTitle');
   const emptyText = errorState ? t(errorState.textKey) : t('viewDocs.emptyText');
-  const subtitle = errorState ? t(errorState.subKey) : (sub ? t(sub.key, sub.args) : t('viewDocs.loading'));
+  const subtitle = errorState ? t(errorState.subKey)
+    : (!loading && sub ? t(sub.key, sub.args) : t('viewDocs.loading'));
+
+  // The recipient of a share link may have no PuneNest account at all — that is the whole point of
+  // the token — so "back to dashboard" would send them to a sign-in wall. Home is the honest exit.
+  const exitTo = byToken ? '/' : '/dashboard';
 
   const total = shared.length;
   const idx = Math.min(active, Math.max(0, total - 1)); // clamp if the share shrinks
@@ -321,7 +420,7 @@ export default function ViewDocuments() {
           </Link>
           <span className="flex items-center gap-2">
             <Link
-              to="/dashboard"
+              to={exitTo}
               aria-label={t('viewDocs.closeAria')}
               className="inline-flex items-center gap-1.5 h-10 px-3 rounded-full bg-white/5 border border-white/10 text-gray-200 text-xs font-medium hover:bg-white/10"
             >
@@ -354,7 +453,11 @@ export default function ViewDocuments() {
           </p>
         </div>
 
-        {showEmpty ? (
+        {loading ? (
+          <div className="glass-card rounded-2xl p-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> {t('viewDocs.loading')}
+          </div>
+        ) : showEmpty ? (
           <div className="glass-card rounded-2xl p-10 text-center">
             <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
               <Icon name="file-lock-2" className="w-8 h-8 text-gray-500" />
@@ -362,7 +465,7 @@ export default function ViewDocuments() {
             <p className="text-white font-semibold">{emptyTitle}</p>
             <p className="text-gray-500 text-sm mt-1">{emptyText}</p>
             <Link
-              to="/dashboard"
+              to={exitTo}
               className="btn btn-primary mt-5"
             >
               <Icon name="arrow-left" className="w-4 h-4" /> {t('viewDocs.backToDashboard')}

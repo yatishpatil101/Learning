@@ -1,4 +1,5 @@
 import { test, expect } from '../../../fixtures/base.js';
+import { appReady } from '../../../helpers/app.js';
 
 /* /services — the hub itself.
  *
@@ -38,8 +39,12 @@ async function packSection(page) {
    then navigate (the order feature-flags.spec.js uses). */
 async function openHub(page, packEnabled) {
   await page.goto('/');
+  // `goto` resolves before the seed is written (D129) — without this the parse below is `null`.
+  await appReady(page);
   await page.evaluate((on) => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    const raw = localStorage.getItem('puneNestDB_v5');
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
     db.settings.movePack = {
       enabled: on,
       items: { movers: 8000, clean: 2500, agreement: 1500, paint: 6000, verify: 999, internet: 500 },

@@ -16,6 +16,13 @@ import { createServiceRequest as createFlowRequest } from '../services/serviceRe
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
 import { useFormDraft, useFieldErrors } from '../lib/hooks.js';
+import { srcSetFor } from '../lib/imgSrcSet.js';
+
+/* The hero is full-bleed, so it needs a wider candidate ladder than imgSrcSet's
+   card default (which tops out at 960w) — the largest entry matches the 1600px
+   source every caller passes, so desktop quality is unchanged while a phone
+   fetches ~640w instead of the full 1.26 MB asset. */
+const HERO_WIDTHS = [640, 960, 1280, 1600];
 
 /* Shared shell for the service landing pages (packers, legal, home-loans, interior, valuation).
    Faithful to the prototype's per-service pages: hero + quick-quote form, stats, services grid,
@@ -96,7 +103,17 @@ export default function ServiceLanding({
       <div>
         {/* Hero + quote */}
         <section className="relative overflow-hidden" style={{ background: heroGradient }}>
-          {heroImage && <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${heroImage}')` }} />}
+          {/* A real <img> rather than a background div so srcSetFor actually applies (a srcset has
+              no effect on a CSS background). absolute inset-0 + object-cover/center reproduces the
+              previous `bg-cover bg-center` exactly, and keeps the hero out of layout flow so it
+              cannot shift anything. Decorative — the headline below carries the meaning. */}
+          {heroImage && (
+            <img
+              src={heroImage} srcSet={srcSetFor(heroImage, HERO_WIDTHS)} sizes="100vw"
+              alt="" width={1600} height={900} fetchPriority="high" decoding="async"
+              className="absolute inset-0 w-full h-full object-cover object-center"
+            />
+          )}
           {heroImage && <div className="absolute inset-0" style={{ background: heroOverlay }} />}
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgba(255,255,255,.3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgba(20,184,166,.5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">

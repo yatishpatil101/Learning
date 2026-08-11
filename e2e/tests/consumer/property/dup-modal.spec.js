@@ -43,8 +43,11 @@ function seed(page) {
 function seedExistingListing(page) {
   return page.evaluate(({ mobile, society, flat, pin }) => {
     const KEY = 'puneNestDB_v5';
-    let db = {};
-    try { db = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { db = {}; }
+    // Read-modify-write: neither `|| '{}'` nor `catch { db = {} }` is a safe fallback — both
+    // write an empty DB back over the catalogue and white-screen the wizard.
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     db.listings = db.listings || [];
     if (db.listings.some((l) => l.id === 'GUARD-EXISTING-1')) return; // idempotent
     db.listings.unshift({

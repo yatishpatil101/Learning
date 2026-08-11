@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../helpers/app.js';
 
 /* City selection must propagate across the app. Pune has inventory + a locality registry;
    other cities can be toggled live in admin but have no data yet, so they must show an
@@ -8,10 +9,18 @@ import { test, expect } from '@playwright/test';
 const BASE = 'http://localhost:5173';
 
 // Force the active city and mark it live in the mock DB, then reload so CityContext picks it up.
+// `appReady` first: every caller reaches this straight off a `goto`, and the store is written
+// one microtask past the point any navigation wait resolves (D129).
 async function selectCity(page, city) {
+  await appReady(page);
   await page.evaluate((c) => {
     localStorage.setItem('puneNestCity', c);
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+    // No `|| '{}'`. This is a read-modify-write: an empty fallback is written straight back,
+    // wiping every listing, society and setting, and the damage only surfaces later as a
+    // blank page nobody connects to this line.
+    const raw = localStorage.getItem('puneNestDB_v5');
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
     db.settings = db.settings || {};
     db.settings.geo = db.settings.geo || {};
     db.settings.geo.cities = db.settings.geo.cities || {};
@@ -69,7 +78,9 @@ test('admin taking the viewed city offline reverts the shopper to Pune (no manua
   // Simulate the admin toggling Mumbai off in the shared geo store, exactly like
   // updateSettings/syncGeoFromDisk do: flip live -> false, then fire the in-tab event.
   await page.evaluate(() => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+    const raw = localStorage.getItem('puneNestDB_v5');
+    if (!raw) throw new Error('mock store missing'); // read-modify-write: never fall back to {}
+    const db = JSON.parse(raw);
     db.settings.geo.cities.Mumbai = { ...(db.settings.geo.cities.Mumbai || {}), live: false };
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     window.dispatchEvent(new CustomEvent('punenest-settings-change'));

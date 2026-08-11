@@ -55,7 +55,12 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
           <Icon name="video" className="w-4 h-4 text-brand-teal-3" /> {t('property.virtualTour')}
         </button>
         )}
-        <button type="button" onClick={() => setLightbox(true)} className="absolute top-4 right-4 flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
+        {/* The label is `hidden sm:inline`, so on a phone this collapses to a bare
+            16px icon and the padding alone left it 46x34 — the control that opens the
+            full-screen gallery, sitting over a photo where a near-miss scrolls the
+            carousel instead. Squared off with min-* on touch only; from `sm` up the
+            label is back and sizes the button on its own. */}
+        <button type="button" onClick={() => setLightbox(true)} className="absolute top-4 right-4 flex items-center justify-center gap-2 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-3.5 py-2 rounded-full glass-strong text-white text-sm font-semibold hover:bg-white/15 transition-smooth">
           <Icon name="expand" className="w-4 h-4" /> <span className="hidden sm:inline">{t('property.fullscreen')}</span>
         </button>
         <div className="absolute bottom-4 right-4 flex items-center gap-2 px-4 py-2 rounded-full glass-strong text-white text-sm font-semibold">
@@ -136,7 +141,18 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
                rail is documented to meet — while the *active* dot is `w-5` and
                measures 36px. Padding cannot fix both at once because the dot width
                changes with state. A min-width pins the floor for every state and
-               leaves the active pill alone. */
+               leaves the active pill alone.
+
+               data-tap-exempt because 24px is the deliberate figure here, not an
+               oversight, and the mobile sweep otherwise holds this app to 44. The
+               2.5.8 spacing exception is what carries it: neighbouring dots are
+               24px wide and flush, so adjacent centres are 24px apart and the 24px
+               circle centred on each target touches no other. Swiping the photo
+               itself is the primary way through the gallery; the rail is an
+               indicator that happens to be tappable. Widening it to 44 would push
+               adjacent centres to 44px and the row would stop reading as one
+               indicator — a look-and-feel call, not a mechanical fix. */
+            data-tap-exempt
             className="shrink-0 inline-flex min-w-[24px] items-center justify-center h-11 px-2"
           >
             <span className={'block rounded-full transition-all ' + (!ask && i === active ? 'w-5 h-1.5 bg-brand-teal-3' : 'w-1.5 h-1.5 bg-white/25')} />
@@ -148,6 +164,8 @@ export function Gallery({ gallery, active, setActive, title, p, flagEnabled, set
           aria-selected={ask}
           aria-label={t('property.requestMorePhotos')}
           onClick={() => setAsk(true)}
+          /* Same rail, same 24px spacing argument as the photo dots above. */
+          data-tap-exempt
           className="shrink-0 inline-flex min-w-[24px] items-center justify-center h-11 px-2"
         >
           <span className={'block w-2.5 h-2.5 rounded-full border-2 transition-all ' + (ask ? 'border-brand-teal-3 bg-brand-teal-3' : 'border-white/30')} />

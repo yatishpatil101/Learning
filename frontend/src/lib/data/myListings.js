@@ -7,6 +7,7 @@ import { isHttpDomain } from '../../services/config.js';
 import { getRooms, roomToListing, hasListings } from '../store.js';
 import { getFlatmatePosts, getFlatmateGroups } from './flatmates.js';
 import { digits } from '../contact.js';
+import { myOwnerId, ownerIdForMobile } from './ownerIdentity.js';
 
 const SHARE_REQ_IMG = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
@@ -38,11 +39,11 @@ export function flatmatePostToListing(r) {
 /* The current user's flatmate requests, matched tolerantly by the last 10
    mobile digits, falling back to name for legacy posts without a mobile. */
 export function getMyFlatmatePosts(user) {
-  const mine = digits(user?.mobile).slice(-10);
+  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
   const nm = (user?.name || '').trim().toLowerCase();
   return getFlatmatePosts()
     .filter((r) => {
-      const owner = digits(r.mobile).slice(-10);
+      const owner = ownerIdForMobile(r.mobile);
       if (owner && mine) return owner === mine;
       return nm && r.name && r.name.trim().toLowerCase() === nm;
     })
@@ -75,11 +76,11 @@ export function flatmateGroupToListing(g) {
 
 /* The current user's flatmate groups, matched the same tolerant way as requests. */
 export function getMyFlatmateGroups(user) {
-  const mine = digits(user?.mobile).slice(-10);
+  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
   const nm = (user?.name || '').trim().toLowerCase();
   return getFlatmateGroups()
     .filter((g) => {
-      const owner = digits(g.ownerMobile).slice(-10);
+      const owner = ownerIdForMobile(g.ownerMobile);
       if (owner && mine) return owner === mine;
       return nm && g.ownerName && g.ownerName.trim().toLowerCase() === nm;
     })
@@ -91,10 +92,10 @@ export function getMyFlatmateGroups(user) {
    the last 10 digits) and legacy rooms without an ownerMobile are treated as the
    current user's, so a freshly-posted room always surfaces for its owner. */
 export function getMyRooms(user) {
-  const mine = digits(user?.mobile).slice(-10);
+  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
   return getRooms()
     .filter((r) => {
-      const owner = digits(r.ownerMobile).slice(-10);
+      const owner = ownerIdForMobile(r.ownerMobile);
       return !owner || !mine || owner === mine;
     })
     .map(roomToListing);

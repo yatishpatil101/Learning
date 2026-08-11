@@ -29,14 +29,19 @@ public record ContactRequestResponse(
         Instant createdAt) {
 
     /**
-     * A counterparty on the request (contract {@code Party}). Nested rather than shared because the
-     * only other current use is the deals context, which does not exist yet — hoisting it into
-     * {@code common} before there is a second caller would be speculative.
+     * A counterparty on the request (contract {@code Party}). Still nested rather than shared with
+     * the deals context's identically-named schema: that one carries offer/finalization fields this
+     * one has no meaning for, so merging them would produce a type whose validity depends on where
+     * it came from.
      *
-     * @param mobile <strong>always masked</strong> ({@code 98XXXXX210})
-     * @param role   {@code buyer} — the requester side of a contact request is always the buyer
+     * @param mobile   <strong>always masked</strong> ({@code 98XXXXX210})
+     * @param role     {@code buyer} — the requester side of a contact request is always the buyer
+     * @param verified whether this party holds a verified tenant profile. Carried on the party
+     *                 rather than looked up by the consumer because {@code mobile} is masked, and a
+     *                 masked number can never match a real one — the caller has the key to the
+     *                 answer but not a key that works. {@code false} when unknown, never null.
      */
-    public record Party(String name, String mobile, String role) {
+    public record Party(String name, String mobile, String role, boolean verified) {
     }
 
     /**

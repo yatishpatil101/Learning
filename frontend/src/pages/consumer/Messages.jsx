@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import '../../styles/routes/messages.css';
 import { MessageBubble, TypingDots } from '../../components/chat/ChatPrimitives.jsx';
 import SharedReportModal, { OWNER_REPORT_REASONS } from '../../components/ReportModal.jsx';
@@ -9,6 +10,7 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { digits, fmtPhone } from '../../lib/contact.js';
 import { dayLabel, relTime, canRevealParty, lastAt } from '../../lib/chat.js';
+import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import {
   listConversations,
   getConversation,
@@ -81,6 +83,11 @@ export default function Messages() {
     refreshChatBadge();
     return list;
   }, [refreshChatBadge]);
+
+  /* Pull down from the top of the conversation list to re-read the inbox. Bound to the list
+     pane rather than to the page: the thread beside it scrolls on its own axis and a pull
+     there means "older messages", which is not this gesture. */
+  const ptr = usePullToRefresh(reload);
 
   /**
    * Pull one thread's transcript in.
@@ -283,7 +290,20 @@ export default function Messages() {
       <div className="pc-shell max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div ref={wrapRef} className={wrapCls} style={{ height: 'calc(100dvh - 108px)' }}>
           {/* List */}
-          <aside className="pc-list">
+          <aside className="pc-list relative">
+            {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
+              <div
+                aria-hidden="true"
+                className="glass-strong pointer-events-none absolute left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
+                style={{ top: `${8 + Math.round(ptr.pullDistance)}px`, opacity: 0.4 + ptr.progress * 0.6 }}
+              >
+                <Icon
+                  name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
+                  className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
+                  style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
+                />
+              </div>
+            )}
             <div className="pc-list-head">
               <h2>{tr('misc.msgMessages')}</h2>
               <div className="pc-tabs" role="tablist" aria-label={tr('misc.msgFilters')}>
@@ -292,13 +312,13 @@ export default function Messages() {
               </div>
               <div className="pc-search"><Icon name="search" className="w-4 h-4" /><input value={search} onChange={(e) => setSearch(e.target.value)} type="text" enterKeyHint="search" placeholder={tr('misc.msgSearchPlaceholder')} aria-label={tr('misc.msgSearchAria')} /></div>
             </div>
-            <div className="pc-convs">
+            <div ref={ptr.ref} className="pc-convs">
               {items.length ? items.map((c) => {
                 const last = c.messages[c.messages.length - 1];
                 const lastText = last ? (last.type === 'card' ? '📎 ' + last.text : (last.from === 'me' ? tr('misc.msgYouPrefix') : '') + last.text) : '';
                 return (
                   <button key={c.id} className={'pc-conv' + (c.id === activeId ? ' active' : '')} onClick={() => openConv(c.id)}>
-                    <div className="pc-conv-av"><img src={c.property.img} alt="" /><span className="pc-conv-badge">{c.party.avatar}</span></div>
+                    <div className="pc-conv-av"><PropertyImage src={c.property.img} alt="" /><span className="pc-conv-badge">{c.party.avatar}</span></div>
                     <div className="pc-conv-main">
                       <div className="pc-conv-top"><span className="pc-conv-name">{c.party.name}</span><span className="pc-conv-time">{relTime(lastAt(c), c.time)}</span></div>
                       <div className="pc-conv-prop">{c.property.title} · {c.property.price}</div>
@@ -323,7 +343,7 @@ export default function Messages() {
                 <div>
                   <div className="pc-head">
                     <button className="pc-back" onClick={() => { setShowThread(false); if (window.history.state?.pcThread) window.history.back(); }} aria-label={tr('misc.msgBackAria')}><Icon name="arrow-left" className="w-5 h-5" /></button>
-                    <div className="pc-head-av"><img src={active.property.img} alt="" /><span className={'pc-online' + (active.party.online ? '' : ' off')} /></div>
+                    <div className="pc-head-av"><PropertyImage src={active.property.img} alt="" /><span className={'pc-online' + (active.party.online ? '' : ' off')} /></div>
                     <div className="pc-head-info">
                       <p className="pc-head-name">{active.party.name} <span>· {active.party.role}</span></p>
                       <p className={'pc-head-sub' + (active.party.online ? '' : ' off')}>{active.party.online ? tr('misc.msgOnlineNow') : tr('misc.msgLastSeen')}</p>
@@ -341,7 +361,7 @@ export default function Messages() {
                     </div>
                   </div>
                   <div className="pc-propchip">
-                    <img src={active.property.img} alt="" />
+                    <PropertyImage src={active.property.img} alt="" />
                     <div className="t"><p>{active.property.title} · {active.property.price}</p><p><Icon name="map-pin" className="w-3 h-3" style={{ display: 'inline' }} /> {active.property.loc}</p></div>
                     <Link to={`/property/${active.propertyId}`}>{tr('misc.msgViewListing')}</Link>
                   </div>

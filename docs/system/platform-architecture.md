@@ -161,7 +161,7 @@ non-zero cost. Only two needs have no free production tier anywhere: SMS OTP and
 | CI/CD | GitHub Actions | 2,000 min/mo | build minutes |
 | Background jobs | Cloud Scheduler | 3 jobs free | > 3 scheduled jobs |
 | Cache (Tier 2) | Upstash Redis | pay-per-request free tier | volume |
-| Payments | Razorpay (₹0 fixed + free sandbox) | no free usage tier; pay-per-successful-txn ~2% | first real payment (UPI fee applies despite 0% MDR) |
+| Payments | Cashfree PG (₹0 fixed + free sandbox) (ADR-017) | no free usage tier; pay-per-successful-txn ~2% | first real payment (UPI fee applies despite 0% MDR) |
 | SMS OTP | none free in prod | dev mock only (seam) | first real OTP |
 | Aadhaar KYC | Cashfree Secure ID (DigiLocker) | sandbox free in dev (real Aadhaar) | first real verification (prod) |
 
@@ -234,7 +234,7 @@ graph TB
         KYC[Aadhaar KYC - Cashfree DigiLocker]
         WA[WhatsApp Cloud API]
         MAIL[Email - Brevo/Resend]
-        PAY[Razorpay - hosted checkout]
+        PAY[Cashfree PG - hosted checkout]
         MAPS[Google Maps/Places/Routes]
     end
 
@@ -299,7 +299,7 @@ graph TB
     end
 
     DB[(PostgreSQL<br/>Supabase Mumbai)]
-    EXT[External providers<br/>MSG91 / aggregator / Razorpay / Meta / R2 / Google]
+    EXT[External providers<br/>MSG91 / Cashfree / Meta / R2 / Google]
 
     HTTP -->|HTTPS /api| SEC --> CSRF --> GATE --> FEAT
     FEAT --> ERR
@@ -367,7 +367,7 @@ flowchart LR
     subgraph Ext[External seams -- minimum data out]
         SMS[OtpClient -> SMS: mobile + code]
         KYC[KycClient -> Cashfree DigiLocker: consent<br/>returns masked uid, name, DOB, mobile]
-        PAY[PaymentClient -> Razorpay: order amount<br/>no card data on us]
+        PAY[PaymentClient -> Cashfree PG: order amount<br/>no card data on us]
         NOT[NotifierClient -> WhatsApp/email: templated msg]
         MAP[RoutesClient -> Google: coords]
     end
@@ -560,6 +560,11 @@ graph LR
 - **Recommendation.** Cloud Run (asia-south1 Mumbai) running the Spring Boot container, with a
   managed Postgres free tier. Portable container + standard Postgres keep lock-in low (escape hatch
   to any container host).
+- **Container contract.** Cloud Run injects `PORT` and routes traffic only to a container listening
+  on it, so the app binds `server.port=${PORT:8080}` rather than a fixed port. Getting this wrong
+  fails the health check while the process itself looks healthy, so the revision never receives
+  traffic and the logs show nothing wrong. The `8080` default keeps local `spring-boot:run` and the
+  Vite proxy working unchanged. Pinned by `ProdProfileContractTest`.
 - **Security.** Managed TLS, no SSH surface, per-service IAM, secrets injected from a secret store,
   private egress to the database.
 - **Performance.** Autoscale 0->N; watch cold starts (raise min-instances to 1 once traffic

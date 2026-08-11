@@ -10,10 +10,12 @@ import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.deals.deal.DealRepository;
+import com.punenest.api.finance.tenancy.TenantProfileService;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -51,16 +53,19 @@ public class OfferService {
     private final UserRepository users;
     private final DealRepository deals;
     private final Notifier notifier;
+    private final TenantProfileService tenantProfiles;
 
     public OfferService(OfferRepository offers, OfferHistoryRepository history,
                         PropertyRepository properties, UserRepository users,
-                        DealRepository deals, Notifier notifier) {
+                        DealRepository deals, Notifier notifier,
+                        TenantProfileService tenantProfiles) {
         this.offers = offers;
         this.history = history;
         this.properties = properties;
         this.users = users;
         this.deals = deals;
         this.notifier = notifier;
+        this.tenantProfiles = tenantProfiles;
     }
 
     /**
@@ -142,7 +147,12 @@ public class OfferService {
         // is the buyer, so it is their own number -- but a second, hand-picked visibility at this
         // callsite is how the two drift apart the moment the rule changes.
         ContactVisibility visibility = buyerMobileVisibility(callerId, callerId);
-        return OfferMapper.toDto(offer, buyer, List.of(entry), visibility);
+        // Same reason the badge is resolved by user id everywhere else (D114): the caller's own
+        // number is revealed on this one response, so a mobile lookup would happen to work here and
+        // fail on every list read. Asking the identity question of the identity keeps the two paths
+        // answering the same way.
+        boolean verified = tenantProfiles.verifiedAmong(List.of(callerId)).contains(callerId);
+        return OfferMapper.toDto(offer, buyer, List.of(entry), visibility, verified);
     }
 
     /**
@@ -294,11 +304,19 @@ public class OfferService {
         Map<UUID, List<OfferHistory>> historyMap = history.findByOfferIdInOrderByAtAsc(offerIds)
                 .stream().collect(Collectors.groupingBy(OfferHistory::getOfferId));
 
+        // Batch load: which of those buyers carry the Verified Tenant badge (D114). Asked by user
+        // id, not by mobile -- the mobile on the way out is masked for every viewer but the buyer
+        // themselves, and a mask cannot be turned back into the number the badge is stored against.
+        // Deriving the badge from what the projection emits would answer "unverified" for the whole
+        // page, which is exactly the live bug this replaces.
+        Set<UUID> verifiedBuyers = tenantProfiles.verifiedAmong(buyerMap.keySet());
+
         return rows.stream().map(offer -> {
             User buyer = buyerMap.get(offer.getFromUserId());
             List<OfferHistory> trail = historyMap.getOrDefault(offer.getId(), List.of());
             ContactVisibility visibility = buyerMobileVisibility(viewerId, offer.getFromUserId());
-            return OfferMapper.toDto(offer, buyer, trail, visibility);
+            return OfferMapper.toDto(offer, buyer, trail, visibility,
+                    verifiedBuyers.contains(offer.getFromUserId()));
         }).toList();
     }
 

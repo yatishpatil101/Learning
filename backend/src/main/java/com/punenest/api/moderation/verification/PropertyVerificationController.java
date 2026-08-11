@@ -8,6 +8,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +42,13 @@ public class PropertyVerificationController {
     @GetMapping(Routes.Moderation.PROPERTY_VERIFICATION)
     public PropertyReviewResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.get(principal, id);
+    }
+
+    /** {@code GET /admin/property-reviews} — paged queue of verification case files (D91). */
+    @GetMapping(Routes.Moderation.ADMIN_PROPERTY_REVIEWS)
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    public Page<PropertyVerificationService.PropertyReviewSummary> listCases(Pageable pageable) {
+        return service.listCases(pageable);
     }
 
     /** {@code POST /properties/{id}/verification} (contract {@code initPropertyVerification}) — 201. */

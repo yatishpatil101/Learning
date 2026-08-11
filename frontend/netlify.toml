@@ -25,7 +25,13 @@
   [headers.values]
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
+    # `no-referrer`, matching the API chain (SecurityConfig) rather than the usual
+    # `strict-origin-when-cross-origin`. That policy still sends the *full* URL — path, query and
+    # all — on same-origin requests, and this app serves `/shared-documents`, whose URL fragment is
+    # a live bearer credential for someone's title deeds (D42). A fragment is never put in a
+    # `Referer`, so the query half is what mattered; sending no referrer at all costs this site
+    # nothing (analytics is first-party) and removes the whole class.
+    Referrer-Policy = "no-referrer"
     Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
     Cross-Origin-Opener-Policy = "same-origin"

@@ -56,7 +56,13 @@ function GroupCard({ g, i, saved, onSave, onJoin, joined, onReport, anchorId, my
       <div className="flex items-center gap-1 mb-4">
         {g.members.slice(0, 4).map((mm, k) => (
           <div key={k} className={'relative ' + (k > 0 ? '-ml-2' : '')}>
-            <div className={'w-9 h-9 rounded-full bg-gradient-to-br ' + policyAvatar(g.policy) + ' flex items-center justify-center text-white text-[11px] font-bold ring-2 ring-[#0f0d1a]'}>{mm.initials}</div>
+            {/* A member who joined via OTP may have no name yet, so there are no initials to draw
+                (D118). The server used to store the literal "Member" to keep its NOT NULL happy and
+                this circle then showed "M" — a letter of a name nobody has. The fallback belongs
+                here instead, where it is plainly a placeholder: a neutral person glyph claims
+                nothing about who they are, and it turns back into real initials by itself the
+                moment they fill in their profile. */}
+            <div className={'w-9 h-9 rounded-full bg-gradient-to-br ' + policyAvatar(g.policy) + ' flex items-center justify-center text-white text-[11px] font-bold ring-2 ring-[#0f0d1a]'}>{mm.initials ? mm.initials : <Icon name="user" className="w-4 h-4 opacity-80" />}</div>
             {mm.verified && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-[#0f0d1a] flex items-center justify-center"><Icon name="check" className="w-2 h-2 text-white" /></span>}
           </div>
         ))}

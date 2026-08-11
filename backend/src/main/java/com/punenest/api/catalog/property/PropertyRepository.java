@@ -1,5 +1,7 @@
 package com.punenest.api.catalog.property;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,6 +35,19 @@ public interface PropertyRepository
     /** By-slug with the owner attached — the contract path param accepts a slug or id. */
     @EntityGraph(attributePaths = "owner")
     Optional<Property> findBySlug(String slug);
+
+    /**
+     * Does a direct link to this listing resolve for an anonymous caller? The existence-check form of
+     * {@link Property#isDirectlyReachable()}, for public reads that only need 404-or-not.
+     *
+     * <p>Pass {@link PropertyStatus#DIRECTLY_REACHABLE}. Deliberately not {@code existsById}: that
+     * answers "is there a row", which is a different and more generous question. A public endpoint
+     * asking it becomes an existence oracle — someone holding a UUID from a cached page or an old
+     * sitemap gets a 404 from the detail route and a 200 here, which tells them a listing moderation
+     * rejected, or an owner archived, is still on file. No {@link EntityGraph}, no hydration: this is
+     * an index probe, so applying the floor costs nothing over the check it replaces.
+     */
+    boolean existsByIdAndArchivedFalseAndStatusIn(UUID id, Collection<String> statuses);
 
     /** Owner-scoped single fetch by id (returns empty for another owner's row → 404, never a leak). */
     @EntityGraph(attributePaths = "owner")
@@ -123,4 +138,30 @@ public interface PropertyRepository
 
     /** Live-listing count for a single society. See {@link #countByLocalitySlugAndStatusAndArchivedFalse}. */
     long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
+
+    /**
+     * Count live listings created after a baseline, filtered by optional deal/locality/bhk facets.
+     *
+     * <p>Used by D7 sweep to avoid loading full listing rows into memory for each alert.
+     */
+    @Query("""
+            select count(p)
+            from Property p
+            where p.status = :status
+              and p.archived = false
+              and p.createdAt is not null
+              and p.createdAt > :baseline
+              and (:deal is null or lower(p.deal) = :deal)
+              and (:localitiesEmpty = true
+                   or lower(coalesce(p.localitySlug, p.locality)) in :localities)
+              and (:bhkEmpty = true or cast(p.bhk as integer) in :bhkValues)
+            """)
+    long countVisibleCreatedAfterWithFilters(
+            @Param("status") String status,
+            @Param("baseline") Instant baseline,
+            @Param("deal") String deal,
+            @Param("localitiesEmpty") boolean localitiesEmpty,
+            @Param("localities") List<String> localities,
+            @Param("bhkEmpty") boolean bhkEmpty,
+            @Param("bhkValues") List<Integer> bhkValues);
 }

@@ -35,6 +35,10 @@ test-results/
 playwright-report/
 playwright/.cache/
 
+# Lighthouse writes its JSON/HTML reports here (.github/lighthouse/run-lighthouse.mjs).
+# CI uploads them as an artifact; they are per-run measurements, not source.
+.lighthouse/
+
 # Eclipse/IDE compiled output — backend/bin is a full duplicate of backend/src
 # plus .class files, produced by the IDE. Never commit it.
 backend/bin/

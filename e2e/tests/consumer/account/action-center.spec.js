@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -78,9 +79,15 @@ test.describe('Dashboard Action Center', () => {
     // Seed the store first, then clear the shared visits collection so this
     // seeker genuinely has zero pending items.
     await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
+    await appReady(page);
     await page.evaluate(() => {
       const KEY = 'puneNestDB_v5';
-      const db = JSON.parse(localStorage.getItem(KEY) || '{}');
+      const raw = localStorage.getItem(KEY);
+      // No `|| '{}'`. This is a read-modify-write, so an empty fallback does not degrade
+      // gracefully — it writes the empty object back and wipes the store, which then shows
+      // up several assertions later as a mystery about visits.
+      if (!raw) throw new Error('mock store missing after appReady()');
+      const db = JSON.parse(raw);
       db.visits = [];
       localStorage.setItem(KEY, JSON.stringify(db));
     });

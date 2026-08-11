@@ -34,7 +34,7 @@ import SocietySkeleton from './pages/consumer/society/SocietySkeleton.jsx';
    critical path). Routes with no namespace listed use only the eager shell set;
    `npm run check:i18n` proves that from the import graph, so a route that starts
    using a new namespace fails the build rather than rendering raw keys. */
-const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'dashboard', 'listings', 'owner', 'property', 'verify');
+const Listings = lazyPage(() => import('./pages/consumer/Listings.jsx'), 'listings', 'owner', 'property', 'verify');
 const Property = lazyPage(() => import('./pages/consumer/Property.jsx'), 'listings', 'owner', 'property', 'verify');
 const Owner = lazyPage(() => import('./pages/consumer/Owner.jsx'), 'owner');
 const Compare = lazyPage(() => import('./pages/consumer/Compare.jsx'), 'compare-saved');
@@ -64,7 +64,7 @@ const Saved = lazyPage(() => import('./pages/consumer/Saved.jsx'), 'compare-save
 const PayRent = lazyPage(() => import('./pages/consumer/PayRent.jsx'), 'misc2');
 const ViewDocuments = lazyPage(() => import('./pages/consumer/ViewDocuments.jsx'), 'reels-docs');
 const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'misc2');
-const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'dashboard', 'flatmates', 'property', 'verify');
+const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'flatmates', 'property', 'verify');
 const Locality = lazyPage(() => import('./pages/consumer/Locality.jsx'), 'locality');
 const Support = lazyPage(() => import('./pages/consumer/Support.jsx'), 'misc2');
 const HelpHome = lazy(() => import('./pages/consumer/help/HelpHome.jsx'));
@@ -107,6 +107,11 @@ const OpsPackers = lazy(() => import('./pages/ops/OpsPackers.jsx'));
 const OpsValuation = lazy(() => import('./pages/ops/OpsValuation.jsx'));
 const OpsReferrals = lazy(() => import('./pages/ops/OpsReferrals.jsx'));
 const OpsFlatmateReview = lazy(() => import('./pages/ops/OpsFlatmateReview.jsx'));
+/* Both read the live seam rather than `lib/serviceFlow.js`, and both sit here rather than under
+   /admin because their endpoints are staff+admin: the admin group is admin+manager, which would
+   lock out the audience the server admits and admit one it refuses (D51, D173). */
+const OpsSupportQueue = lazy(() => import('./pages/ops/OpsSupportQueue.jsx'));
+const OpsDraftingDesk = lazy(() => import('./pages/ops/OpsDraftingDesk.jsx'));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -156,6 +161,11 @@ export default function App() {
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
         <Route path="/view-documents" element={<ProtectedRoute><ViewDocuments /></ProtectedRoute>} />
+        {/* The share-link side of the same viewer (D42). Public by design: the token in the URL
+            fragment IS the credential, and the recipient is a lawyer or a banker with no account,
+            so a sign-in wall here would make the whole share unusable. The fragment never reaches
+            any server — the token travels to the API on an `X-Share-Token` header instead. */}
+        <Route path="/shared-documents" element={<ViewDocuments shared />} />
         {/* Consumer */}
         <Route element={<ConsumerLayout />}>
           <Route path="/" element={<Home />} />
@@ -314,6 +324,8 @@ export default function App() {
         >
           <Route path="/ops" element={<OpsDashboard />} />
           <Route path="/ops/requests" element={<OpsRequests />} />
+          <Route path="/ops/support" element={<OpsSupportQueue />} />
+          <Route path="/ops/drafting-desk" element={<OpsDraftingDesk />} />
           <Route path="/ops/rent-agreement" element={<TeamRoute team="rental"><OpsRentAgreement /></TeamRoute>} />
           <Route path="/ops/legal" element={<TeamRoute team="legal"><OpsLegal /></TeamRoute>} />
           <Route path="/ops/interior" element={<TeamRoute team="interior"><OpsInterior /></TeamRoute>} />

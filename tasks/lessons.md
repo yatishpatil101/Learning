@@ -2,6 +2,174 @@
 
 ## Parallel-agent tech-debt waves (this session)
 
+- **A test that asserts on a float measurement is asserting on the renderer's rounding too.**
+  The one hard failure in a 1668-pass suite was `boundingBox().height` returning
+  `43.99993896484375` against a `>= 44` floor — for a control whose CSS is literally
+  `min-height: 44px`. The tell that it was noise and not a regression was not the magnitude
+  (2⁻¹⁴ is easy to hand-wave either way) but the **inconsistency**: the retry named a
+  *different* button. A real layout break is deterministic about which control it breaks;
+  a measurement artifact wanders. Confirmed with `--repeat-each=3` before touching anything.
+  Two things this makes routine. First, when a threshold assertion fails just barely,
+  **check whether the codebase already decided this** — `phase3.spec.js` had carried
+  `MIN_TAP - 0.5` for exactly this reason, so the fix was adopting an existing convention,
+  not inventing a tolerance. Second, loosening a bound is only safe if you **prove the loosened
+  bound still fails on the real defect**: stripping `tap-target` off the button still failed,
+  so the half-pixel buys nothing back for the 26px icons the file exists to catch. A tolerance
+  added without that check is indistinguishable from switching the test off.
+
+- **Fixing a pattern in the copy leaves the original wrong, and now the repo argues with itself.**
+  The per-target vocabulary work built the society review composer properly: every star carries
+  `aria-label="{n} star for {aspect}"` and its spec asserts an exhaustive `ASPECTS.length * 5`.
+  The property composer it was modelled on — `StarInput.jsx`, six instances in one modal — labels
+  **nothing**: thirty buttons whose accessible name computes to empty, a plain WCAG 4.1.2 failure
+  that predates the change. The change did not cause it, but it did make it *load-bearing*: the
+  next person reading the two directories now sees the right pattern and the wrong pattern shipping
+  side by side, with nothing saying which is intentional. Generalisation: after building a good
+  version of an existing thing, **go read the existing thing**. If it does not match, either bring
+  it along or write down why not — a repo that demonstrates both answers to the same question has
+  no answer. (Recorded as D198 rather than fixed: the assertion collision is real — `getByRole`
+  matches names by substring — so it needs its own pass, not a drive-by.)
+- **A guard that keeps a test re-runnable can quietly switch the test off forever.** The live society
+  spec posted its own fixture, correctly guarded on `reviewCount === 0` so a second run would not
+  wedge on `AlreadyReviewedException`. But the per-aspect assertions were gated on `if (seeded)` —
+  and once the first run rated the hardcoded society, every later run found `reviewCount > 0`,
+  skipped the write, left `seeded` false, and **silently disabled the entire block the spec was
+  written for**. Green, fast, and testing nothing. It was caught only by noticing the run took 4.8s
+  where a write path should take ~14s, then querying the API and finding `categoryAverages: {}`. The
+  fix was to resolve the target **at runtime** — pick any still-unrated row from 348 — so the write
+  path stays reachable indefinitely and the aggregate asserted was produced by *this* run rather than
+  inherited. Generalisation: whenever a test skips work to stay idempotent, ask **what the skip
+  disables**, and make the skipped branch either impossible or self-announcing. A conditional
+  assertion is only as good as the frequency of its condition — and a condition that goes false
+  permanently after the first run is a test that deletes itself.
+- **A green test against an empty fixture proves nothing, and a healthy-looking 200 is how you get
+  fooled into writing one.** Lane B added live-API coverage for property reviews. Probing the running
+  backend first showed the seeded DB had **zero** property reviews across all 16 listings — and both
+  reads answered **200**, the list with `[]` and the summary with `reviewCount: 0`. So a spec that
+  asserted "the page loaded and nothing errored" would have been green against a database that could
+  not tell success from silence. That is precisely how the original bug shipped: `listPropertyReviews`
+  pointed at `/reviews/property/{id}`, which is not a route, 404'd on every live read, and the page's
+  `catch` rendered a friendly "no reviews yet". A total outage looked like an empty state, and every
+  mock test passed. Generalisation: **query the API directly before writing the assertion**, confirm
+  the fixture exists, and assert on content only the server could have produced — a specific review's
+  text, a specific average — never on the absence of an error. If you cannot state what the test would
+  print when the backend is dead, it is not testing the backend.
+- **Marketing copy is a promise the code has to keep, and nothing checks it.** `home.json` states in
+  all three locales that ownership is verified "through the Index II document (Ownership Verified)".
+  The backing field `Property.ownershipVerified` is written by **exactly one thing in the repository:
+  the dev demo seed**. No setter, no service, no admin action. So the badge renders in demos and is
+  unearnable in production — the most confident claim on the home page is the one with the least code
+  behind it. Found by grepping the *field*, not the feature, while scoping unrelated product work.
+  Generalisation: when a decision names a user-visible guarantee, grep for the field that backs it and
+  check **who writes it**, not whether it exists. A column, a DTO field and a rendered badge can all
+  be present and still be joined to nothing. `git grep 'setFoo\|foo ='` returning only the declaration
+  is the tell.
+- **Ask what a feature would need, then look — half of it is often already built and unwired.** Scoping
+  the document gate turned up per-deal checklists (`RENT_CHECKLIST`, `BUY_CHECKLIST`), a
+  `ReviewChecklistItem` entity with per-item state, and a wizard that already collects the right
+  document per property type (7/12 Extract for land, Index II elsewhere). The work was mostly
+  *connecting* those to the flag, not building them. Estimating before reading would have been wrong
+  by a large multiple, in the expensive direction.
+
+- **`networkidle` is not an app-readiness signal, and on a Vite app it is not even close.** Vite
+  fetches the whole module graph and only *then* evaluates it, so the network goes quiet long before
+  any application code runs. Measured on a real page load: last module fetched `+251ms`,
+  `waitUntil: 'networkidle'` resolved `+839ms` **with the document still empty**, `main.jsx` executed
+  `+1181ms`, first paint `+1702ms`. Roughly 900ms of "the page has settled" during which the page had
+  done nothing at all.
+- **A test suite can depend on a coincidence for years and call it a contract.** Those specs were
+  never correct — they passed because the mock store was written *synchronously* during module
+  evaluation, so a `page.evaluate` queued at idle could not execute until the main thread was free,
+  which happened to be after the write. Moving the seed behind a dynamic `import()` put the write one
+  hop the other side of that boundary. Nothing about the tests changed; the accident they rested on
+  did. **When a change "inexplicably" breaks unrelated tests, look for the invariant they were
+  relying on without stating.**
+- **`JSON.parse(localStorage.getItem(KEY) || '{}')` in a read-modify-write is destructive, not
+  defensive.** The empty fallback gets written straight back, replacing the entire seeded database
+  with `{}` plus whatever field the caller set. It then fails several assertions later as something
+  that reads like a product bug, with nothing pointing at the helper. 16 sites had this shape. A
+  fallback is only safe on a **pure read**; the moment the parsed value flows back into `setItem`, it
+  must throw instead. The same applies to `if (!db) return;` — it leaves a flag at its default and
+  fails the test for the wrong reason, which is a worse debugging experience than a wipe.
+- **Fix a timing bug with an explicit signal, not with waits sprinkled at the call sites.** The
+  durable fix was one line of production code — `main.jsx` sets `data-pn-boot="ready"` once the seed
+  *and* the one-shot migrations are done — plus one exported `appReady(page)` helper. The tempting
+  cheap probe, `!!localStorage.getItem('puneNestDB_v5')`, was wrong for a reason worth remembering:
+  the dev-only disk hydration writes that key **before** the migrations run, so it is true while the
+  data is still stale. A readiness probe must test the thing you actually depend on, not the nearest
+  observable proxy.
+- **Re-running the full suite is what finds this class of bug; targeted runs never will.** Both this
+  and the catalogue paging defect surfaced only because the whole suite was re-run rather than
+  trusted. A green targeted run proves the thing you were looking at, and nothing else.
+- **A lane that is told not to run the suite will not discover what it broke.** The edit-policy specs
+  failed because a lane rewrote exactly the copy they assert, and had no way to notice. Copy is API
+  to a test suite: changing a user-visible string is a breaking change, and the specs asserting it
+  have to move in the same commit.
+- **A stale dev server makes Playwright test the *previous* build, and the failures are
+  indistinguishable from real defects.** `e2e/playwright.config.js` sets `reuseExistingServer: !CI`,
+  so Playwright silently adopts whatever is already listening on 5173 — regardless of its age or the
+  config it booted with. After a wave that added a PostCSS plugin, a four-hour-old Vite process
+  served the pre-wave CSS and 14 specs failed. They were *confident* failures, screenshot-backed,
+  naming real classes and real pixel values (`text-[10px]` on "Ops portal", `text-[11px]` on "Demo
+  quick access") — every one an artifact. Killing the process took the run to 4 failed. **Pre-flight
+  the port before every Playwright run** and kill anything older than the newest source edit:
+  `Get-NetTCPConnection -LocalPort 5173 -State Listen | %{ Get-Process -Id $_.OwningProcess }`.
+  `postcss.config.js`, `vite.config.js` and plugin modules are read **once at boot**; HMR never
+  picks them up, so "I saved the file" is not evidence the server knows about it.
+- **The lesson existing in memory did not stop it happening.** This exact hazard was already written
+  down — as a tip in the middle of a long notes file — and it still cost two full suite runs. A rule
+  that must fire *before an action* has to be at the top of the file, stated as a pre-flight step,
+  not filed among explanations. Placement is part of the content.
+- **A rate-limited or failed subagent may still have mutated the tree.** A lane that reports failure
+  has not necessarily left nothing behind; it may have written half its files before stopping. Grep
+  for the artefacts it was told to produce **before** retrying it, or the retry lands on top of a
+  partial edit.
+- **A test that fails because its readiness probe does not apply is a spec defect, but proving that
+  requires proving the page actually renders.** `openListings()` waited for `a[href^="/property/"]`
+  and was handed a `view=map` URL, where the page renders markers and mints no property anchors.
+  Making the probe view-aware is the right fix — but only after confirming the map genuinely renders
+  (the `mapSearch` flag is on, and `loc` parses to a non-empty locality set, or `mapGated` swaps in
+  `MapGate` instead). Otherwise the "fix" is an assertion that can no longer go red.
+- **A sweep that measures something the user cannot see has found a bug, not a false positive.** The
+  extended tap-target sweep failed on a 275×40 "Log out" — apparently just an undersized control on
+  `/dashboard`. The real defect was why it was reachable at all: the account drawer keeps its header
+  and footer mounted so the panel holds its shape mid-transition, leaving live buttons focusable
+  inside an `aria-hidden` subtree while it was closed. `pointer-events-none` stops a mouse, not the
+  Tab key. The fix was `inert`, and the size was the symptom. **Ask why the element was in the
+  sweep's reach before deciding the sweep is over-eager.**
+- **State outlives the effect that set it, so effect cleanup must reset state, not just locals.**
+  `usePullToRefresh` cleared `alive` and its timer on re-bind, and the in-flight `settle` correctly
+  declined to touch a torn-down instance — which left `isRefreshing` true forever if `enabled` or
+  `threshold` changed between `touchend` and `settle`. Closure locals die with the effect; `useState`
+  does not. Anything the effect turned on, its cleanup has to be able to turn off.
+
+- **Parallel lanes poison each other's mock e2e, and the failure looks like a product bug.** Vite's
+  HMR channel broadcasts a full `page reload` to *every* connected browser page whenever a changed
+  module cannot be hot-swapped — any `src/i18n/locales/**/*.json`, most `src/context/*.jsx`. Another
+  lane saving a file mid-suite therefore remounts the page under a running test. In the rent-agreement
+  wizard that meant `useFormDraft` replayed its last 400 ms-debounced autosave, the step just typed
+  came back blank, `Next` silently refused, and the run fell over ten seconds later on a date field
+  four helpers away — which is how it got filed in the register as a scroll/animation bug on the
+  review checkbox. **Never run mock e2e while another lane edits `frontend/src/**`.**
+- **`webServer.stdout: 'ignore'` throws away the log that names the cause.** Vite was announcing
+  `page reload src/i18n/locales/hi/dashboard.json` with a timestamp the whole time; Playwright
+  discarded it. To attribute a suspected reload: start Vite yourself with the log captured, set
+  `BASE_URL` so Playwright reuses it (`reuseExistingServer`), then grep the log across the run window.
+- **A restored-draft banner appearing mid-test is a remount, and a mount-only effect proves it.**
+  `useFormDraft`'s restore effect has deps `[key]`, so *"We saved your progress"* cannot appear
+  without a fresh mount. One glance at the failure screenshot settled a cause that static analysis of
+  the wizard, the CSS and the Playwright config had not.
+- **"Do not harden a test around a product defect" is right, and still requires proving it is one.**
+  The register was emphatic that this was a product bug. It passed 15/15 in isolation, repeatedly —
+  which is the first thing to try and the fastest thing that could have contradicted the row. What
+  shipped is the opposite of hardening: assertions at the transitions (`clickNext` proves the step
+  advanced, `submitFromReview` proves the request was created) with no retry, no re-fill and no
+  loosened selector, so a genuine defect still fails — just at its own line instead of three helpers
+  downstream. Both were mutation-tested; an assertion nobody has seen go red is decoration.
+- **Helpers that share placeholders need postconditions.** The wizard's Property, Owner and Tenant
+  panels all use `As per PAN/Aadhaar`, `ABCDE1234F`, `10-digit mobile`, so a step that failed to
+  advance was invisible: the next helper simply typed tenant answers into the owner panel. Any
+  navigation helper across near-identical screens should assert where it landed.
 - **An untracked file plus an unexplained build break is not proof of scope creep — read `git log`
   before you delete anything.** Four agents ran in parallel on unrelated items; afterwards the pom
   had an AWS SDK block nobody's report mentioned and `provider/storage/` held two untracked classes.
@@ -24,6 +192,64 @@
   — inventing a third state that matched neither the commit nor my own change. If a removal turns
   out to be wrong, `git checkout <sha> -- <paths>` is the whole fix; hand-reconciling is only needed
   where two real changes genuinely overlap.
+- **A repeatable migration that replaces a versioned one leaves an orphan history row that blocks
+  every lower slot.** Flyway records `R__x.sql` by description; once applied, re-adding the `V__`
+  form it replaced fails validation on an already-migrated database rather than simply running.
+- **`cmd /c "… & echo EXIT=%errorlevel%"` always prints `0`.** `cmd` expands `%errorlevel%` while
+  parsing the whole line, before the first command has run. Parse the tool's own log for its verdict.
+- **A test-scope `application.properties` with the same filename *shadows* main — it does not merge
+  with it.** So a production setting that is not repeated in `src/test/resources` is a setting the
+  suite never exercises. I turned `spring.jpa.open-in-view` off in main, ran the suite, saw failures,
+  flipped it back to `true` as a control, and got *identical* failures. The obvious reading was "not
+  my change" and it was right — but for the wrong reason: neither run had the setting at all. The
+  control experiment was sound and the conclusion was luck. **When a control shows no difference,
+  first confirm the variable was actually applied**, or you have proved nothing and think you have
+  proved something. The file even says this in its own header comment about page sizes; I read that
+  comment and still did not generalise it.
+- **A cache added for performance is a behaviour change, and read-after-write is the assertion it
+  breaks.** D69's 30s analytics cache was landed with a focused unit test and green targeted runs;
+  the full suite was not re-run, and it had in fact broken two `AdminMetricsEndpointsTest` cases that
+  insert a row and re-read the chart. The trap on discovery is to weaken those assertions — but they
+  exist to guard IST bucketing and the Monday-bucket bug, not cache timing, so weakening them would
+  trade a real guarantee for a green tick. Right answer: make the TTL configurable and set it to `0`
+  for the suite, keeping the caching itself proven by the unit test that builds the service directly.
+- **"Targeted tests pass" is not "the suite passes", and the gap is exactly where cross-cutting
+  changes hide.** Caches, transaction scope, filters and properties are global by nature; the tests
+  they break are, by definition, the ones nobody thought were related. Any change to shared state
+  earns a full-suite run before it is called done.
+- **An in-process cache keyed by caller-supplied input is an unbounded map unless you cap it.**
+  `seriesCache`'s key contained the request's date range, and expired entries were only evicted when
+  that exact key was looked up again — which a caller walking `from` never does. Expiry is not
+  eviction. Any staff account could have grown it for the life of the process.
+
+## Playwright locators — four ways to assert nothing (debt wave 9)
+
+Each of these produced a *passing-looking* or intermittently-failing spec that was not testing what
+it claimed. All four were found in one afternoon on two new ops specs.
+
+- **`getByText('X')` is a case-insensitive *substring* match.** `getByText('PAN')` matched the
+  seeded owner **"Rahul Desh*pan*de"**, so an assertion about the identity panel was being decided
+  by a name in a summary field. Use `{ exact: true }` for a label; it is case-sensitive and
+  whole-string. (`getByRole('term', { name })` is *not* the alternative — `term` takes its
+  accessible name from the author, not from its `<dt>` content, so it matches nothing at all.)
+- **An unanchored regex finds its pattern inside an id.** `/[6-9]\d{9}/` for "a mobile leaked"
+  matches inside `SR178634283919842`. A leak assertion that fires on every id gets loosened until it
+  protects nothing — anchor it: `/(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)/`.
+- **`page.addInitScript` re-runs on *every* navigation for the life of the page.** `helpers/seed.js`
+  uses it, so a spec that signs in as a consumer and later as staff has the consumer session
+  silently written back over the staff one on the next `goto`, landing on `/staff-login`. To seed a
+  session once, `page.evaluate` after load and `reload()`.
+- **`page.goto` resolving does not mean a `lazy()` route's mount effect has run.** The drafting desk
+  read an empty queue because the seeding effect lives on a *different* lazy page whose chunk had
+  not arrived. Wait on the observable side effect (`waitForFunction` on the storage key), never on a
+  paint.
+- **`components/ui/Table.jsx` renders its empty message twice** (mobile card + desktop `<td>`), so an
+  unscoped empty-state assertion always violates strict mode. Scope it: `getByRole('table').getByText(…)`.
+- **A console-error guard is worth more than the assertion it sits under.** The one genuine defect
+  this session — `serviceFlow.create` minting ids as `Date.now() + random(0..99)`, which collide
+  whenever two requests are created in the same millisecond — was invisible to every DOM assertion
+  and surfaced only as React's duplicate-key warning. Duplicate keys mean a row can be dropped or
+  updated in the wrong place, on a queue holding identity documents.
 
 ## Paid rent-agreement security pass (this session)
 
@@ -1669,3 +1895,129 @@ pm run check:i18n" + ) resolves every static
   connection-refused explains all of them. When a run has been cancelled, start the dev server in
   its own terminal so the next run reuses a server nothing else owns.
 
+## Debt wave 10 lessons
+
+- **An upward dependency between bounded contexts is a build failure, not a code smell.**
+  `ArchitectureBoundaryTest.featureDependenciesPointDownward` ranks every context (`identity` 0 …
+  `catalog` 1 … `leads` 2 … `finance` 4 … `admin` 7) and refuses any import that does not point
+  strictly down. Wiring the verified-tenant badge into the contact inbox by injecting the concrete
+  `finance.tenancy.TenantProfileService` into `leads.contact.ContactService` failed on the first
+  run. The fix is the one the assertion message names: declare a port in `common.trust`
+  (`VerifiedTenantLookup`), have the *lower* layer depend on the interface, and have the higher
+  layer `implements` it. `Notifier` and `RatingLookup` are the existing precedents. **Reach for the
+  port first** — the direct import always compiles, so the test is the only thing that stops it.
+- **A port that answers "which of these are verified" should return the positive set, not a map.**
+  A `Map<UUID, Boolean>` has two representations of "not verified" (absent, and present-and-false),
+  so a caller that forgets one renders the wrong badge. A `Set<UUID>` has one, and the answer a
+  forgetful caller gets is the safe one.
+- **Server-stated beats client-derived whenever the input is masked.** The badge could not be
+  derived on the client because the mobile it keyed on is masked, and a masked number can never
+  match a real one — so the check silently answered `false` forever. Anything downstream of a
+  redaction has to be told the answer, not asked to work it out.
+- **A backend guard with no widget on the form is not shipped.** Turnstile validated
+  `CF-Turnstile-Response` on three unauthenticated writes for a whole wave while no page rendered a
+  widget, so the header was always absent. Wire the last mile in the same change, and send the token
+  as a **header** rather than a DTO field: it stays out of the request schema, the OpenAPI contract
+  and every log that prints a body.
+- **Do not gate the submit button on the captcha token.** The server decides. A client-side gate
+  bricks sign-in on any environment where the widget is configured but the server flag is not — a
+  failure mode strictly worse than the abuse it prevents.
+- **A comment that asserts the opposite of the schema is more dangerous than no comment.**
+  `useRentAgreement.js` said "the server's columns are NOT NULL and always send a figure" — false
+  since **V52** — which made the live null-handling branch look like mock-only scaffolding a future
+  edit could delete. Deleting it would have quoted every customer ₹0 stamp duty. When a migration
+  retires a premise, grep the prose for it; the code was already correct and only the narration
+  lied, which is exactly the shape nothing tests.
+- **Never filter a text file through `Get-Content` → `Set-Content`.** PowerShell 5.1 reads a
+  BOM-less UTF-8 file as cp1252 and writes UTF-8 *with* a BOM, so one row deletion mangled 211
+  em-dashes across `tech-debt.md` and would have tripped `SourceTreeHygieneTest.noMojibakeOrBom`.
+  It is losslessly reversible (`UTF8.GetString(cp1252.GetBytes(text))`), but the right move is to
+  use the editor tool. The tell is the diff doubling in size for a one-line change.
+- **Re-derive counts, never edit them.** The register's header has been wrong for months because
+  each pass edited the prose and not the arithmetic. It is now recomputed from the table by script
+  on every change, and the invariant `open + 1 closed row + gaps = highest id ever issued` is
+  written down next to it so a wrong number cannot look right.
+- **A wave that ships four user-visible frontend changes and zero e2e has a gap, and the honest
+  place to say so is `COVERAGE.md`.** Backend tests and build gates covered every wave-10 change;
+  none of them opens a browser, which is where a collapse that fails *shut* or a captcha widget that
+  blocks a form would actually be wrong.
+
+## Debt wave 11 lessons
+
+- **A shared image guard only helps the surfaces that actually use it.** `PropertyImage` already
+  avoided `<img src="">`, but the home featured rail and recently-viewed rail still rendered raw
+  `<img>` tags, so a seeded photoless listing tripped `search-property-types.spec.js` before the
+  results grid was even the interesting part. Grep the route that failed, not the component you
+  expect to be guilty.
+- **The cheapest browser proof is often already in the suite.** `platform/help/i18n-urls.spec.js`
+  looked like a language-prefix test and turned out to be the exact mobile footer regression: the
+  cookie banner and bottom nav were covering the footer. When an existing spec names the user
+  action that is broken, use it before inventing a new check.
+- **A trust bit that rides on the wire is not done until the UI stops re-deriving it.** The backend
+  had `requester.verified`, but the owner inbox still asked `rentService.tenantsVerified()` to infer
+  the badge from a mobile that could still be masked, which structurally answered "no badge" for the
+  pending rows that matter most. Carry the field through the seam and put the browser assertion at
+  that last hop.
+- **Owner-scoped mock stores have one safe key: the account id.** The last-10-digits shortcut in
+  `myListings` and the mobile-keyed flatmate inbox both taught the suite an ownership model the
+  backend does not have. The fix is not a smarter mobile normaliser; it is to route every owner
+  read and write through `ownerIdentity.js` and accept that old mobile-keyed local data is
+  disposable.
+- **Do not grep a captured Playwright log for `✘`; read the summary block.** PowerShell renders the
+  reporter's markers as mojibake (`✔`→`Γ£ô`, `✘`→`Γ£ÿ`, `║`→`ΓÇ║`), and `-Encoding UTF8` does not fix
+  it, so a `Select-String '✘'` returns **0 matches while five tests are failing**. That reported a
+  green suite three times in a row. Trust the final `N failed / N flaky / N passed` block and the
+  process exit code; if you must scan per-test lines, group the marker column with
+  `$_ -match '^\s*\S+\s+\d+ \['` rather than matching the glyph.
+- **An accessibility fix can ship a worse accessibility bug.** The D134 build-time floor took
+  `font-size: 0.6875rem`, resolved it to 11px, saw it under the 12px floor and wrote back the
+  literal `12px` — converting a rem to a px and freezing the bottom-nav labels against the user's
+  OS font-size setting. That is exactly the dynamic-type failure the rule's own comment existed to
+  prevent, and only `landscape.spec.js` measuring at a raised root size caught it. A transform that
+  normalises a value must preserve its unit; floor a rem *as a rem*.
+- **Gating a read in the UI does not close a data-integrity hole.** The society catalogue fix
+  gated four components' memos, but `canCreate` still only tested `!exact`, so during the load
+  window every one of the 320 RERA names still offered "Add …" and minted a duplicate. A guard
+  spread across four surfaces only has to be forgotten once, and a mint is unrecoverable. The
+  gate that counts is the one in the store: `addCommunitySociety` now returns the canonical row
+  instead of minting, and the UI gates are the second layer, not the first.
+- **"Deliberately left ungated, with proof" deserves the same review as a bug.** Two of the three
+  such notes on the catalogue work were factually wrong — `catalogue()` calls
+  `ensureSocietyCatalogue()` on every read, so the "gating Home would put 182 KB back on the entry
+  route" claim was impossible, and the "RERA rows do not compete in that strip" claim was refuted
+  by a row carrying `tier: 'verified'` with both trust flags true. Worse, the false note had been
+  written into the hook's docblock and was being cited to justify leaving real bugs unfixed. Read
+  the call chain before recording a justification; a wrong comment outlives the code it excuses.
+
+
+### A config test that asserts values cannot see a misspelled key
+
+`application-prod.properties` is read for the first time by the first production deploy. A typo in a
+*key* there does not fail — Spring binds nothing and the base file's value silently stands, and the
+base file holds the permissive defaults (local Postgres, the demo seed, a loosened OTP throttle,
+`trusted-proxies=none`). So the typo ships developer settings to prod and looks healthy.
+
+`ProdProfileContractTest` first asserted only on *values* — the `${ENV}` placeholders and their
+absence of defaults. Renaming `punenest.security.trusted-proxies` to `...trusted-proxys` passed all
+eight tests: the placeholder was still declared, still had no default, still resolved. Proven by
+mutation, not argued. **A properties test must name the keys** (`containsKeys(...)`), which catches
+deletion at the same time. Value assertions describe the right-hand side of a line that may not be
+wired to anything.
+
+### `new StandardEnvironment()` inherits the real OS environment, so it cannot prove absence
+
+`StandardEnvironment.customizePropertySources()` installs `systemProperties` and `systemEnvironment`
+underneath anything you `addFirst`. A test that omits a variable to prove the boot fails without it
+will therefore *pass silently* whenever the developer's shell exports that name — and `run-local.ps1`
+exports exactly these names into the calling shell, so `mvnw test` in the same terminal that ran the
+backend flips the result. The test then reports on the terminal, not on the file.
+
+Use `org.springframework.mock.env.MockEnvironment` (spring-test): it extends `AbstractEnvironment`,
+whose `customizePropertySources` is a no-op, so the supplied map is the entire universe. Same trap
+applies to any `@Value`/placeholder-resolution test.
+
+### Before writing a "lesson", grep `lessons.md` — this file is long enough to forget
+
+The test-resources-shadow-main-resources trap cost a failed test run to rediscover, and it was
+already recorded in this file **twice** (lines ~626 and ~1230). Reading it at session start is in
+`AGENTS.md` for a reason; the cost of skipping it is paid in re-derivation, not in nothing.

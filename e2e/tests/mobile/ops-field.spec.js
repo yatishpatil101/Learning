@@ -13,6 +13,13 @@ import { test, expect } from '../../fixtures/base.js';
 
 const MIN_TAP = 44;
 
+/* boundingBox() returns a float, and under full-suite load Chromium has handed back
+   43.99993896484375 (= 44 - 2^-14) for a control whose CSS floor is exactly 44px --
+   a measurement artifact, not a layout regression. The same half-pixel slack is
+   already used in phase3.spec.js. It cannot mask the regression this file guards,
+   which is 26px icon buttons. */
+const TAP_EPSILON = 0.5;
+
 /* seedDemo() bails once any request key exists, so injecting our own row makes it
    the only one and keeps the assertions deterministic. Mirrors the helper in
    ops-rent-agreement.spec.js. */
@@ -54,7 +61,7 @@ test.describe('Rent Agreement ops in the field', () => {
     const open = page.getByRole('button', { name: /^Open$/ }).first();
     await expect(open).toBeVisible();
     const box = await open.boundingBox();
-    expect(box.height).toBeGreaterThanOrEqual(MIN_TAP);
+    expect(box.height).toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
   });
 
   test('every document action is a real target, not a 26px icon', async ({ page, login }) => {
@@ -72,8 +79,8 @@ test.describe('Rent Agreement ops in the field', () => {
       const btn = page.getByRole('button', { name });
       const box = await btn.boundingBox();
       expect(box, `${name} is laid out`).not.toBeNull();
-      expect(box.height, `${name} height`).toBeGreaterThanOrEqual(MIN_TAP);
-      expect(box.width, `${name} width`).toBeGreaterThanOrEqual(MIN_TAP);
+      expect(box.height, `${name} height`).toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
+      expect(box.width, `${name} width`).toBeGreaterThanOrEqual(MIN_TAP - TAP_EPSILON);
     }
   });
 

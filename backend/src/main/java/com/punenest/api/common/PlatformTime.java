@@ -14,11 +14,26 @@ import java.time.ZoneId;
  * are still yesterday to the JVM, which is enough to push the last day of a month into the previous
  * month's rollup and to mis-bucket 1 April, the boundary of the Indian financial year.
  *
- * <p><strong>Scope of this class today.</strong> It is the shared home for the zone, but it is not
- * yet the only one: {@code SubscriptionService} and {@code PaymentWebhookController} each carry
- * their own private {@code IST} constant, and {@code AdminMetricsRepository} spells the same zone
- * as a SQL string. Pointing those at this constant is a separate change — this class exists so the
- * next one has somewhere to land rather than adding a fourth copy.
+ * <p><strong>Scope of this class today.</strong> It is now the only spelling of the zone in the
+ * application (tech debt D179 closed the three copies that used to sit in
+ * {@code SubscriptionService}, {@code PaymentWebhookController} and {@code AdminMetricsRepository}).
+ * Two of those keep a locally named alias — {@code TERM_ZONE} and {@code SETTLEMENT_ZONE} — so the
+ * paragraph explaining <em>why that particular code needs a fixed zone</em> stays next to the code;
+ * both are assignments from this constant, not second definitions of it. The third is
+ * {@code AdminMetricsRepository}, which needs the zone as a SQL string and derives it with
+ * {@link ZoneId#getId()} rather than writing the region out again.
+ *
+ * <p><strong>How to read the current date.</strong> Two shapes are correct, and both apply the zone
+ * at the use site rather than to a stored field:
+ * <ul>
+ *   <li>{@code LocalDate.now(PlatformTime.IST)} — everywhere the date is simply read;</li>
+ *   <li>{@code LocalDate.now(clock.withZone(PlatformTime.IST))} — where a test needs to pin the
+ *       instant, over a zone-agnostic {@code Clock} field the test can replace. See
+ *       {@code FinanceService} and {@code RentService}. The second form is the first with the
+ *       instant source made explicit; it is not a rival idiom, and it is worth the extra field only
+ *       where a fixed-instant test actually exists.</li>
+ * </ul>
+ * A bare {@code LocalDate.now()} is always a bug in this codebase.
  *
  * <p><strong>This is a display/reckoning zone, not a storage zone.</strong> Instants are still
  * stored and compared in UTC. What belongs here is the question "which calendar day is it for the

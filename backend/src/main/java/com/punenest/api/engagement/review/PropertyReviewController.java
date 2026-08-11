@@ -53,4 +53,20 @@ public class PropertyReviewController {
             @Valid @RequestBody ReviewCreateRequest body) {
         return reviewService.createForProperty(principal.userId(), propId, body);
     }
+
+    /**
+     * {@code GET /properties/{propId}/reviews/summary} (contract {@code getReviewSummary}) —
+     * public, and the same three numbers the property page has always drawn, now computed by the
+     * database (D79).
+     *
+     * <p>Purely additive. {@link #list} is untouched: still a bare array, still unpaged, still
+     * everything. What this removes is the <em>dependency</em> between those two facts — the star
+     * average, the 1–5 distribution and the per-aspect averages were correct only because the array
+     * was complete, so paging the list at any point in the future would have left three visible
+     * numbers describing page one while looking exactly as authoritative as before.
+     */
+    @GetMapping(Routes.Reviews.SUMMARY_FOR_PROPERTY)
+    public ReviewSummaryResponse summary(@PathVariable UUID propId) {
+        return reviewService.summaryForProperty(propId);
+    }
 }

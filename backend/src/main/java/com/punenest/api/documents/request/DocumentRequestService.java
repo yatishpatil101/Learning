@@ -204,11 +204,26 @@ public class DocumentRequestService {
      * should — and {@code expired} on the wire is derived for the owner's benefit rather than being
      * the thing security depends on.
      *
+     * <p><strong>A missing token is one of those failures, not a different kind of request.</strong>
+     * Since D42 moved the credential out of the query string and into the {@code X-Share-Token}
+     * header, "no header at all" is the shape a stale {@code ?token=…} link now takes — and it must
+     * be answered exactly like a wrong one. Letting Spring reject the absent header with its own 400
+     * would have separated "you sent nothing" from "you sent something wrong", which is the first
+     * bit of the oracle this endpoint refuses to be.
+     *
      * <p>An empty {@code categories} list means the whole vault: the buyer asked for "the
      * documents" without itemising, and the owner granted that ask as it was shown to them.
      */
     @Transactional(readOnly = true)
     public List<DocumentDto> shared(String token) {
+        // Belt and braces, and honestly labelled as such: `findByShareToken` on a null or blank
+        // string finds nothing and would reach the same 401 on its own, so no test can distinguish
+        // this branch (removing it leaves the suite green -- verified). It is here to spare an
+        // anonymous, unauthenticated endpoint a database round trip per malformed request, and to
+        // say in code that "absent" is a credential failure rather than a different kind of call.
+        if (token == null || token.isBlank()) {
+            throw new UnauthorizedException("This share link is not valid");
+        }
         DocumentRequest grant = requests.findByShareToken(token)
                 .filter(r -> DocumentRequestStatuses.GRANTED.equals(r.getStatus()))
                 .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))

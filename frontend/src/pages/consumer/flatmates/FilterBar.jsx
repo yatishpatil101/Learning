@@ -63,7 +63,7 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab }) {
   return (
     <>
       <Field label={t('flatmates.fBudget')}>
-        <div className="h-10 w-full lg:w-3/4 flex items-center gap-2 px-4 rounded-full bg-white/5 border border-white/10">
+        <div className="h-11 sm:h-10 w-full lg:w-3/4 flex items-center gap-2 px-4 rounded-full bg-white/5 border border-white/10">
           {editBudget ? (
             <input
               type="number" min="0" max="40000" step="1000" autoFocus
@@ -76,11 +76,24 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab }) {
               className="w-20 text-xs bg-white/10 border border-teal-400/50 rounded px-1.5 py-0.5 text-teal-200 font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400"
             />
           ) : (
+            /* Tapping the budget figure swaps it for a number input, so this reads as
+                a value and behaves as a control. The listings page solves the same
+                problem with a transparent 44px ::before, but that trade needs empty
+                space around the label to spend and this one has none: the slider
+                starts one 8px gap to the right, and an extension wide enough to
+                matter would sit over the track and swallow grabs at the low end.
+                So the box grows instead. self-stretch takes the row's full height and
+                min-w-[44px] pads the "Any" out sideways into the row's own padding;
+                the slider is flex-1 and gives up the ~20px without noticing.
+                min-h-[44px] is not redundant with self-stretch: the row is h-11 but
+                carries a 1px border, so its content box is 42px and stretching alone
+                lands two pixels short. The extra pixel each side falls on the
+                border, which nothing else is trying to hit. */
             <button
               type="button"
               onClick={() => { setDraftBudget(filters.budget >= 40000 ? '' : String(filters.budget)); setEditBudget(true); }}
               title={t('flatmates.titleClickValue')}
-              className="text-xs text-teal-300 font-semibold whitespace-nowrap underline decoration-dotted decoration-teal-400/40 underline-offset-2 hover:decoration-teal-300 focus:outline-none cursor-text"
+              className="self-stretch min-w-[44px] min-h-[44px] sm:min-h-0 inline-flex items-center justify-center text-xs text-teal-300 font-semibold whitespace-nowrap underline decoration-dotted decoration-teal-400/40 underline-offset-2 hover:decoration-teal-300 focus:outline-none cursor-text"
             >{budgetLbl}</button>
           )}
           <input type="range" min="0" max="40000" step="1000" value={filters.budget} onChange={(e) => setF({ budget: +e.target.value })} className="flex-1 accent-teal-400 cursor-pointer" />
@@ -105,7 +118,7 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab }) {
               value={isDateVal(filters.moveIn) ? filters.moveIn : ''}
               min={todayIso()}
               onChange={(iso) => setF({ moveIn: iso })}
-              className="field rounded-full px-4 h-10 text-sm flex-1 min-w-0"
+              className="field rounded-full px-4 h-11 sm:h-10 text-sm flex-1 min-w-0"
               ariaLabel={t('flatmates.ariaMoveInDate')}
               placeholder={t('flatmates.byDate')}
             />
@@ -195,14 +208,14 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
               <Icon name="sparkles" className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input value={filters.q} onChange={(e) => setF({ q: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') smartSearchFlat(); }} type="text" enterKeyHint="search" className="field w-full rounded-full pl-9 pr-11 lg:pr-4 py-[9px] text-sm" placeholder={t('flatmates.searchPlaceholder')} />
               {/* Mobile: icon-only submit sits inside the field (matches the listings search) */}
-              <button type="button" onClick={smartSearchFlat} aria-label={t('flatmates.smartSearch')} className="lg:hidden absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
+              <button type="button" onClick={smartSearchFlat} aria-label={t('flatmates.smartSearch')} className="lg:hidden absolute right-1.5 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-8 sm:h-8 rounded-full btn-primary flex items-center justify-center"><Icon name="search" className="w-4 h-4" /></button>
             </div>
             <div className="hidden lg:flex shrink-0">
               <button type="button" onClick={smartSearchFlat} className="btn-teal gap-2 whitespace-nowrap"><Icon name="search" className="w-4 h-4" /> {t('flatmates.smartSearch')}</button>
             </div>
           </div>
           <div className="flex items-center gap-2 lg:contents">
-            <button type="button" onClick={() => setDrawer(true)} className="lg:hidden inline-flex items-center gap-1.5 px-3 h-10 rounded-xl border border-teal-400/40 bg-teal-500/15 text-teal-100 text-sm font-semibold hover:bg-teal-500/25 hover:border-teal-400/60 t-all shrink-0" aria-label={t('flatmates.ariaOpenFilters')}>
+            <button type="button" onClick={() => setDrawer(true)} className="lg:hidden inline-flex items-center gap-1.5 px-3 h-11 sm:h-10 rounded-xl border border-teal-400/40 bg-teal-500/15 text-teal-100 text-sm font-semibold hover:bg-teal-500/25 hover:border-teal-400/60 t-all shrink-0" aria-label={t('flatmates.ariaOpenFilters')}>
               <Icon name="sliders-horizontal" className="w-4 h-4" /> {t('flatmates.filters')}{activeCount > 0 && <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-teal-400 text-gray-900 text-[10px] font-bold leading-none">{activeCount}</span>}
             </button>
             <div className="sf-seg ml-auto">
@@ -239,7 +252,7 @@ export default function FilterBar({ filters, setF, viewMode, setViewMode, seg, b
       <div className={'filter-panel lg:hidden p-6 ' + (drawer ? 'open' : '')} role="dialog" aria-label={t('flatmates.filters')} aria-modal="true">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-bold text-white">{t('flatmates.filters')}{activeCount > 0 && <span className="ml-2 text-sm font-medium text-teal-300">· {t('flatmates.nActive', { count: activeCount })}</span>}</h3>
-          <button onClick={() => setDrawer(false)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 t-all" aria-label={t('flatmates.ariaCloseFilters')}>
+          <button onClick={() => setDrawer(false)} className="w-11 h-11 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center hover:bg-white/10 t-all" aria-label={t('flatmates.ariaCloseFilters')}>
             <Icon name="x" className="w-5 h-5 text-gray-400" />
           </button>
         </div>

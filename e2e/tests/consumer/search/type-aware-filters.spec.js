@@ -79,21 +79,44 @@ test('Residential type keeps BHK and shows no Land Use filter', async ({ page })
   await expect(trigger(page, 'Land use')).toHaveCount(0);
 });
 
+/* Identity of every rendered card, in DOM order. Used instead of a bare count()
+   so the filtered grid can be checked as a whole set (subset of the unfiltered
+   grid), not just as a smaller number. */
+const cardHrefs = (page) => cards(page).evaluateAll((els) => els.map((el) => el.getAttribute('href')));
+
 test('Land Use filter narrows results and renders a removable chip', async ({ page }) => {
   await page.goto(`${BASE}/listings?type=plot`);
   await cards(page).first().waitFor({ timeout: 10000 });
-  const total = await cards(page).count();
-  expect(total).toBeGreaterThan(1);
+  const before = await cardHrefs(page);
+  expect(before.length).toBeGreaterThan(1);
 
   // Pick the "Commercial" zone (seed data guarantees exactly one commercial-zone plot).
   await trigger(page, 'Land use').click();
   await page.getByRole('option', { name: 'Commercial', exact: true }).click();
 
   await expect(page.getByRole('button', { name: /Remove filter Commercial/i })).toBeVisible();
-  await cards(page).first().waitFor({ timeout: 10000 });
-  const filtered = await cards(page).count();
-  expect(filtered).toBeGreaterThan(0);
-  expect(filtered).toBeLessThan(total);
+
+  /* The chip renders from `f` but the grid renders from `useDeferredValue(f)`
+     (see Listings.jsx), so the chip can be on screen while the pre-filter list is
+     still painted. A one-shot `count()` here reads whatever happens to be on
+     screen at that instant and passes only by luck.
+
+     `commercial-type-filter.spec.js` solves this with a whole-set assertion on
+     renderable text (`cards.filter({ hasNotText: label })` -> 0). That is not
+     available for Land Use: the zone is derived, not printed. `landUseOf()` in
+     listings/matchers.js falls back to `LANDUSE_ZONES[hashId(p.id) % 4]` and
+     Card.jsx never renders the zone anywhere on the card, so no text predicate
+     can identify a commercial-zone plot. The whole-set property that *is*
+     expressible is set containment: the filtered grid must be a strict subset of
+     the unfiltered grid. Every assertion below re-reads the live DOM, so the
+     stale paint retries instead of passing or failing on a snapshot. */
+  await expect.poll(async () => (await cardHrefs(page)).length, { timeout: 10000 })
+    .toBeLessThan(before.length);
+
+  const after = await cardHrefs(page);
+  expect(after.length).toBeGreaterThan(0);
+  // Strict subset: filtering may only remove cards, never introduce new ones.
+  expect(after.filter((href) => !before.includes(href))).toEqual([]);
 });
 
 test('Filter dropdown auto-closes after a value is selected', async ({ page }) => {

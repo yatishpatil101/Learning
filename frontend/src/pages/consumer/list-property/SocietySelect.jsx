@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useId } from 'react';
 import { Check, ShieldCheck, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { searchSocieties, addCommunitySociety } from '../../../lib/store.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { cleanText } from './sanitize.js';
 import { fld } from './styles.js';
 
@@ -45,9 +46,16 @@ export default function SocietySelect({
     if (!focusedRef.current) setQuery(name || '');
   }, [name]);
 
-  const results = useMemo(() => searchSocieties(query, localityLabel), [query, localityLabel]);
+  // The dedup this control exists to perform is only as good as the catalogue it
+  // searches: against the curated head alone, "Add '<name>'" would offer to mint a
+  // society that is already one of the 320 RERA rows (D129).
+  const catalogueReady = useSocietyCatalogue();
+  const results = useMemo(() => searchSocieties(query, localityLabel), [query, localityLabel, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
   const exact = useMemo(() => results.find((r) => norm(r.name) === norm(query)) || null, [results, query]);
-  const canCreate = query.trim().length >= 2 && !exact;
+  // `!exact` is only trustworthy once the catalogue is complete: against the curated
+  // head every one of the 320 RERA names looks unknown, so this row would offer — and
+  // a fast typist would accept — a mint of a society that already exists.
+  const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
   // Flat item list = societies + optional create row, for shared keyboard nav.
   const items = useMemo(
     () => (canCreate ? [...results, { create: true, name: query.trim() }] : results),
@@ -76,10 +84,16 @@ export default function SocietySelect({
   };
 
   const createSociety = () => {
+    // Belt and braces with `canCreate`: keyboard Enter commits `items[active]`, and a
+    // list that shrinks as the catalogue lands can leave `active` pointing at the row
+    // that used to be the create row.
+    if (!catalogueReady) return;
     const rec = addCommunitySociety({ name: query.trim(), localityLabel, lat, lng, pincode });
     if (!rec) return;
     setQuery(rec.name);
-    setMeta({ verified: false, community: true });
+    // addCommunitySociety hands back the canonical row when the name already exists,
+    // so trust the record rather than assuming what we asked for was minted.
+    setMeta({ verified: !!(rec.registration && rec.conveyance), community: rec.tier === 'community' });
     onChange({ id: rec.id, name: rec.name });
     setOpen(false);
   };
@@ -93,9 +107,27 @@ export default function SocietySelect({
     setActive(0);
     // Auto-bind on an exact name match; otherwise keep the name but drop the id
     // so we never claim a listing belongs to a society the user didn't pick.
-    const hit = searchSocieties(v, localityLabel).find((r) => norm(r.name) === norm(v));
+    // Read the gated `results` rather than calling searchSocieties() again: a second,
+    // ungated read here would answer "no match" for every RERA society during the load
+    // window, and the effect below is what repairs it if the user out-types the chunk.
+    const hit = results.find((r) => norm(r.name) === norm(v));
     onChange({ id: hit ? hit.id : '', name: v });
   };
+
+  /* Re-attempt the bind once the catalogue completes.
+     Typing (or pasting, or autofilling) an exact RERA society name before the chunk
+     lands leaves `value` empty, and nothing else re-derives it — `results` recomputing
+     only refreshes the badge. The listing then persists with no societyId and
+     `societyForListing` hands it to a *different* society via the locality hash pool,
+     while the correct name still displays. Silent, and wrong on someone else's page. */
+  useEffect(() => {
+    if (!catalogueReady || value || !query.trim()) return;
+    const hit = results.find((r) => norm(r.name) === norm(query));
+    if (hit) onChange({ id: hit.id, name: hit.name });
+    // onChange is the parent's setter and is not memoised; including it would re-run
+    // this on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogueReady, results, query, value]);
 
   const onKeyDown = (e) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }

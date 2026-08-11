@@ -63,13 +63,32 @@ class BoostRankingTest extends AbstractApiTest {
     private static final Instant LIVE = Instant.now().plus(7, ChronoUnit.DAYS);
     private static final Instant ELAPSED = Instant.now().minus(1, ChronoUnit.DAYS);
 
+    /**
+     * Backdate a listing's {@code created_at} so "older" is a fact rather than a hope.
+     *
+     * <p>{@code created_at} is {@code @CreationTimestamp} with no setter, and its resolution is the
+     * platform clock's — on Windows that is coarse enough that two rows inserted back to back share
+     * an instant. A test that saves A then B and expects to observe B first is then asserting on a
+     * tie, and a tie under {@code ORDER BY} is decided by the planner, not by insertion order. That
+     * is what made {@link #elapsedWindowNeitherRanksNorDiscloses} intermittent.
+     *
+     * <p>Writing the column directly is the narrow fix. Adding a setter would open a
+     * production-writable creation time to make a test convenient, and sleeping between inserts
+     * would buy the same determinism with wall-clock time and still be a guess about granularity.
+     */
+    private void backdate(Property p, long minutes) {
+        jdbc.update(
+                "update properties set created_at = now() - (? * interval '1 minute') where id = ?",
+                minutes, p.getId());
+    }
+
     @Test
     @DisplayName("on the default order a boosted listing outranks a newer unboosted one")
     void boostedOutranksNewerUnboostedByDefault() throws Exception {
         User o = owner("9820000001");
-        // Saved first, so it is the *older* row: without the boost, newest-first would bury it.
-        listing(o, "Promoted", 5_000_000, LIVE);
-        listing(o, "Newer plain", 5_000_000, null);
+        // Explicitly the *older* row: without the boost, newest-first would bury it.
+        backdate(listing(o, "Promoted", 5_000_000, LIVE), 60);
+        backdate(listing(o, "Newer plain", 5_000_000, null), 1);
 
         mvc.perform(get("/properties"))
                 .andExpect(status().isOk())
@@ -103,8 +122,10 @@ class BoostRankingTest extends AbstractApiTest {
     @DisplayName("an elapsed window neither ranks nor discloses, with no sweeper involved")
     void elapsedWindowNeitherRanksNorDiscloses() throws Exception {
         User o = owner("9820000003");
-        listing(o, "Expired promo", 5_000_000, ELAPSED);
-        listing(o, "Newer plain", 5_000_000, null);
+        // Both rank equally once the window has elapsed, so age is the only thing left to order
+        // them by — which is exactly why it has to be set rather than assumed.
+        backdate(listing(o, "Expired promo", 5_000_000, ELAPSED), 60);
+        backdate(listing(o, "Newer plain", 5_000_000, null), 1);
 
         // The column is deliberately left populated after the window closes, so this also proves
         // the read compares against now() rather than testing the column for null.

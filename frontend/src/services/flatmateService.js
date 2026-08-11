@@ -42,6 +42,15 @@ import { createProvider } from './config.js';
 
 const provider = createProvider('flatmate');
 
+/**
+ * The two reasons an interest/join door answers 409.
+ *
+ * Both arrive as `error: "conflict"` on the wire, so both providers lift the real reason onto
+ * `ApiError.code` and a call site branches on these. They are not interchangeable:
+ * `already_interested` is informational (the host has the message), `group_full` is a refusal.
+ */
+export { CONFLICT_ALREADY_INTERESTED, CONFLICT_GROUP_FULL } from './providers/http/flatmateMapper.js';
+
 /* ─── Rooms ─────────────────────────────────────────────────────────────────────────────────── */
 
 /** Rooms going in someone's flat. **Public.** Paged: `{ items, page, size, total, totalPages }`. */

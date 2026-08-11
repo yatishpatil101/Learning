@@ -283,7 +283,11 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"message\":\"Better pitch.\"}"))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message", Matchers.containsString("already")));
+                    // Ends with, not contains: the client routes on a marker anchored to the end of
+                    // the message, so a full stop or a trace hint appended after it is a silent
+                    // break (D182). FlatmateConflictsTest pins the same rule at the source.
+                    .andExpect(jsonPath("$.message",
+                            Matchers.endsWith("(already_interested)")));
 
             Integer requests = jdbc.queryForObject(
                     "select count(*) from flatmate_requests where target_id = ?::uuid", Integer.class, id);

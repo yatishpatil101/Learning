@@ -7,7 +7,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
-import { getMyRequest, hasInterest as hasInterestDB, addInterest as addInterestDB, getFlatmateReviewStatusMap, addFlatmateRequest, pushNotification, pushPendingRequest } from '../../../lib/data/flatmates.js';
+import { getMyRequest, getFlatmateReviewStatusMap, pushNotification, pushPendingRequest, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
@@ -27,6 +27,10 @@ const SHARE_OPENER = {
   bring: "Hi! I'm interested in this room and I'd be taking it with someone I know — so two of us in total. Is it still available?",
   match: "Hi! I'm interested in this room and I'd like to split it with another flatmate. Is it still available, and are you open to two people sharing it?",
 };
+
+/* The opener sent with a seeker-post interest. Rooms have three (above) because the share intent
+   changes what the host is being asked; a seeker post has one. */
+const SEEKER_OPENER = "Hi! I'm interested in sharing a flat. Let's connect.";
 
 /* The three public collections.
 
@@ -93,7 +97,15 @@ export function useFlatmates() {
       return Object.fromEntries(Object.keys(s).map((k) => [k, true]));
     } catch { return {}; }
   });
-  const [interests, setInterests] = useState({});
+  /* Seeded from what THIS user has already asked from this browser, so the done-state survives a
+     reload. It is memory of our own taps, never a substitute for the provider's answer (D181) — the
+     handlers below read it for nothing, they only add to it once a call has come back.
+
+     Re-seeded when the signed-in identity changes, because the cards gate their CTA on this map:
+     left holding the previous user's asks, the next person to sign in on a shared browser would
+     see someone else's activity and have no button to press. */
+  const [interests, setInterests] = useState(() => getAskedInterests(user?.mobile));
+  useEffect(() => { setInterests(getAskedInterests(user?.mobile)); }, [user?.mobile]);
   const [reportTarget, setReportTarget] = useState(null);
 
   // Single source of truth for reloading the shared collections after a mutation — supply-side
@@ -138,7 +150,7 @@ export function useFlatmates() {
   // enqueues a review, and an Ops decision (read on reload) flips the status.
   const reviewMap = useMemo(() => getFlatmateReviewStatusMap(), [groups, rooms]);
 
-  const supply = useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, interests, setInterests, ownsGroup, ownsRoom, myPost });
+  const supply = useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navigate, setInterests, ownsGroup, ownsRoom, myPost });
   const { groupOpen, isVerified, setVerifyOpen, openPostModal, listRoom, createGroup } = supply;
 
   // The signed-in user's own Ops-verified property listings — offered as an
@@ -169,22 +181,57 @@ export function useFlatmates() {
       localStorage.setItem('puneNestFlatmateSaved', JSON.stringify(s));
     } catch (e) { console.warn('[flatmates] saved-posts write failed', e); }
   };
-  const onInterest = (r) => {
-    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
-    if (hasInterestDB(r.id)) { toast(t('flatmates.alreadyInterested', { name: r.name })); return; }
-    if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
-    addInterestDB(r.id);
-    setInterests((m) => ({ ...m, [r.id]: true }));
+  /* The two demand-side doors. Both go through the seam (D181).
 
-    // Record a host-facing request so the flatmate seeker (post owner) sees it
-    // in Dashboard → Requests → Flatmate.
-    addFlatmateRequest(r.mobile, { kind: 'flatmate', action: 'request', targetId: r.id, targetTitle: 'Flatmate with ' + r.name, locality: (r.localities || [])[0] || '', requesterName: user.name || 'Someone', requesterMobile: user.mobile || '' });
+     They used to short-circuit on a per-device localStorage flag and then write the host's inbox
+     row, the notification and the chat thread themselves — so nothing ever reached the API, an
+     interest expressed on one phone was invisible on the other, and the server's `already_interested`
+     409 was correct and unreachable. The provider now owns the inbox row; this hook owns the button
+     state and the toast.
+
+     The optimistic flip is what stops a second tap racing the first: the card re-renders into its
+     "Interest sent" state before the request settles, and the flip is rolled back on any failure
+     except the benign duplicate — where it is *right*, because the host really does have the
+     message. That duplicate is deliberately an informational toast: routing it to
+     `common.somethingWentWrong` would turn a repeat tap into a red error for something that has
+     already worked.
+
+     `rememberAsk` runs only once the provider has answered, on both of those outcomes — the flip
+     is optimistic, the persisted record is not. */
+  const onInterest = async (r) => {
+    if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
+    if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
+    setInterests((m) => ({ ...m, [r.id]: true }));
+    try {
+      await flatmateService.postInterest(r.id, { share: 'solo', message: SEEKER_OPENER });
+    } catch (err) {
+      if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
+        rememberAsk(user.mobile, r.id);
+        /* The done state is the server's truth and stays. The wording deliberately does not send
+           anyone to Messages, and does not claim they sent a message they could go and read: the
+           thread and the notification are written a few lines down, on the success path only, and
+           they live in this browser's localStorage. So a seeker who first tapped on their phone and
+           is now on a laptop gets this 409 with an empty Messages page — the old copy ("you have
+           already reached out") pointed at a conversation that was never on this device. What is
+           true everywhere is that the host holds the interest, so that is all we say. Conditioning
+           the sentence on a local lookup was the alternative and is worse: the same server fact
+           would read differently per device, which is the confusion itself. This can go back to
+           promising the thread once Messages reads a server-side inbox instead of localStorage
+           (D183). */
+        toast(t('flatmates.interestAlreadyRecorded', { name: r.name }));
+        return;
+      }
+      setInterests((m) => { const n = { ...m }; delete n[r.id]; return n; });
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    rememberAsk(user.mobile, r.id);
 
     // Push notification (mirrors HTML flatmates.html behavior)
     pushNotification({ type: 'share', title: 'Flatmate interest from ' + (user.name || 'Someone'), desc: (user.name || 'A seeker') + ' is interested in sharing with ' + r.name + '.', time: 'Just now', link: '/messages', unread: true });
 
     // Push pending chat request so Messages page picks it up
-    pushPendingRequest({ propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: "Hi! I'm interested in sharing a flat. Let's connect." });
+    pushPendingRequest({ propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER });
 
     toast(t('flatmates.interestSentToast', { name: r.name }));
   };
@@ -194,18 +241,29 @@ export function useFlatmates() {
   // `share` carries how the seeker intends to take the room ('solo' | 'bring' |
   // 'match') — the owner needs to know whether one person or two are moving in,
   // and 'match' means we still owe them a room-sharer.
-  const onRoomInterest = (room, share = 'solo') => {
+  const onRoomInterest = async (room, share = 'solo') => {
     if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     const key = 'room-' + room.id;
-    if (interests[key] || hasInterestDB(key)) { toast(t('flatmates.alreadyMessagedOwner', { society: room.society })); return; }
-    addInterestDB(key);
+    const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
     setInterests((m) => ({ ...m, [key]: true }));
-
-    addFlatmateRequest(room.ownerMobile, { kind: 'room', action: 'request', share, targetId: key, targetTitle: 'Room in ' + room.society, locality: (room.localities || [])[0] || '', requesterName: user.name || 'Someone', requesterMobile: user.mobile || '' });
+    try {
+      await flatmateService.roomInterest(room.id, { share, message: opener });
+    } catch (err) {
+      if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
+        rememberAsk(user.mobile, key);
+        // Says only what the server knows, for the reason spelled out on the seeker branch above.
+        toast(t('flatmates.enquiryAlreadyRecorded', { society: room.society }));
+        return;
+      }
+      setInterests((m) => { const n = { ...m }; delete n[key]; return n; });
+      toast(err?.message || t('common.somethingWentWrong'), 'error');
+      return;
+    }
+    rememberAsk(user.mobile, key);
 
     pushNotification({ type: 'share', title: 'Room enquiry sent', desc: (user.name || 'A seeker') + ' messaged the owner about a room in ' + room.society + '.', time: 'Just now', link: '/messages', unread: true });
 
-    pushPendingRequest({ propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: SHARE_OPENER[share] || SHARE_OPENER.solo });
+    pushPendingRequest({ propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener });
 
     toast(t('flatmates.messageSentOwner', { society: room.society }));
   };
@@ -218,11 +276,15 @@ export function useFlatmates() {
   // Whether the current user has already reached out — mirrors Results.jsx so the
   // map popup's action state matches the list card exactly. Reads the record's own
   // `kind` tag, because a map cluster now mixes rooms, groups and seekers.
+  //
+  // Device-scoped by design (D181): the seam has no "have I already asked" read, so this knows
+  // only about asks made from this browser. On a second device the button comes back, and the
+  // repeat tap is answered by the provider's benign 409 rather than pre-empted here.
   const interestedFor = (item) => {
     if (!item) return false;
-    if (item.kind === 'room') return !!interests['room-' + item.id] || hasInterestDB('room-' + item.id);
-    if (item.kind === 'group') return !!interests['group-' + item.id] || hasInterestDB('group-' + item.id);
-    return !!interests[item.id] || hasInterestDB(item.id);
+    if (item.kind === 'room') return !!interests['room-' + item.id];
+    if (item.kind === 'group') return !!interests['group-' + item.id];
+    return !!interests[item.id];
   };
 
   // No dedicated detail route exists for flatmates posts — every post lives on the

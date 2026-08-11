@@ -22,6 +22,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import { pickDate } from '../helpers/datePicker.helper.js';
+import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -111,8 +112,25 @@ async function signedInAs(page, mobile) {
   })));
 }
 
-/** Console errors that say nothing about this app — TLS interception on image CDNs, dev noise. */
-const IGNORE = /favicon|leaflet|CDN|net::ERR|Download the React DevTools|ERR_CERT/i;
+/**
+ * Console errors that say nothing about this app.
+ *
+ * The bulk of it is the shared list (`helpers/console.js`) so this file cannot drift away from it —
+ * a hand-maintained copy is the failure mode tech-debt D96 is about: the shared filter gains an
+ * exemption, the copy does not, and this spec keeps failing on noise nothing else fails on.
+ *
+ * The three terms added on top are live-run-only and deliberately NOT pushed into the shared list:
+ * this is the one spec that talks to a real backend through the corporate network, so it is the only
+ * one that sees TLS interception (`ERR_CERT`) on third-party image hosts. Bare `CDN` and `net::ERR`
+ * are short enough to appear inside a genuine application error — the shared filter dropped exactly
+ * those two forms in D28 for that reason — so widening it would blind all ~200 mock specs to real
+ * failures in order to quieten one spec that is excluded from the default run.
+ *
+ * The listeners themselves stay local too: this file needs the raw `String(e)` text and pairs it
+ * with response-level attribution (`watchApiFailures`) rather than the shared helper's origin
+ * heuristic, for the reason spelled out on `watchApiFailures` below.
+ */
+const IGNORE = new RegExp(`${SHARED_IGNORE.source}|CDN|net::ERR|ERR_CERT`, 'i');
 
 /**
  * Record every failed API response with its URL and status.
@@ -605,9 +623,170 @@ test.describe('LIVE: conversations against the real API', () => {
 });
 
 /**
+ * The property review the two `/property/:id` tests below read back.
+ *
+ * The seeded database contains **no property reviews at all** — verified by walking every listing
+ * from `GET /properties?size=100` and reading each one's review list — so these tests mint their
+ * own fixture rather than trusting one, for the same reason the locality test does (D100).
+ *
+ * The body text is a fixed string and not `Date.now()`-suffixed on purpose. `ReviewService` allows
+ * one review per author per target and answers `409` forever after, so the row written on the first
+ * run against a given database is the row every later run reads back — a unique body would be
+ * unassertable from the second run onwards. Nothing keys on this constant at read time either (the
+ * assertions compare the DOM against the *list response*, not against this object); it is here so a
+ * fresh database gets a review with a distinctive sentence and a deliberately sparse category map.
+ *
+ * `value` and `owner` are omitted from `categories` deliberately: `categoryAverages` is sparse by
+ * contract, and an aspect nobody rated must stay absent rather than appear at 0.0, so the fixture
+ * has to leave some aspects unrated for that to be observable at all.
+ */
+const PROPERTY_REVIEW = {
+  rating: 4,
+  body: 'Row house was exactly as listed; the society gate is manned round the clock.',
+  categories: { locality: 5, condition: 4, accuracy: 4 },
+  recommend: true,
+};
+
+/**
+ * The bearer token behind a cached session, so a fixture can act as somebody the page is not.
+ *
+ * Minting a reviewable standing needs two identities in one test — the visitor books the visit and
+ * only the **owner** may mark it completed — and `signedInAs` can only put one of them in the page
+ * at a time. Reading the token out of the session `signedInAs` already cached costs no extra login,
+ * which matters: `OtpService` rate-limits sends per mobile, and the whole reason `signedInAs` exists
+ * is that this file logs in more times than that budget allows.
+ *
+ * Calling this leaves `page` signed in as `mobile`, exactly as `signedInAs` would.
+ */
+async function tokenFor(page, mobile) {
+  await signedInAs(page, mobile);
+  const { local, session } = sessions.get(mobile);
+  const raw = new Map([...local, ...session]).get('puneNestTokens');
+  const token = JSON.parse(raw || 'null')?.accessToken;
+  expect(token, `no access token cached for ${mobile}`).toBeTruthy();
+  return token;
+}
+
+/**
+ * Give `CHATTER` a published review on `OWNER_LISTING`, creating whatever it takes to be allowed one.
+ *
+ * **This is the fixture the file previously said it could not mint.** Writing a property review
+ * needs `ReviewerStanding` — a completed visit or a tenancy — and the note on the locality test used
+ * to conclude the badge half of the contract was therefore untestable here. It is not: a tenancy
+ * only opens by closing a rent deal, but a *completed visit* is three ordinary API calls, and the
+ * server derives `context: 'visit'` from it. That is what makes the property page's badge assertable
+ * against a real backend for the first time.
+ *
+ * The visit lifecycle runs over the API rather than the UI on purpose. It is plumbing, not the
+ * subject: `updateVisitStatus` is the owner's control and driving it through the owner dashboard
+ * would put three unrelated screens between this fixture and the thing it exists to enable. The
+ * review write is over the API for the harder reason — it can only ever succeed *once* per database,
+ * so a UI write would give a success path that is unreachable from the second run onwards. What the
+ * tests actually cover is the **read**, which is where both `❌` rows in COVERAGE.md were.
+ *
+ * Idempotent in all three steps, because every run after the first meets its own leftovers:
+ *   - a live visit already exists → reuse it rather than take the `409` `schedule` throws;
+ *   - it is already `completed` → skip the transitions, which `canTransition` would reject as a
+ *     move out of a terminal state, and prefer it over a live one so that repeat runs take no
+ *     other test's reschedulable visit away;
+ *   - the review already exists → `409`, tolerated exactly as the locality test tolerates it.
+ *
+ * Returns the listing's slug, asserted to be something other than its UUID — see the navigation
+ * comment in the first test for why the difference is the point.
+ */
+async function seedPropertyReview(page, request) {
+  const owner = await tokenFor(page, OWNER.mobile);
+  // Second, so the page is left as CHATTER — the identity both tests browse as.
+  const chatter = await tokenFor(page, CHATTER.mobile);
+  const as = (t) => ({ Authorization: `Bearer ${t}` });
+
+  const listing = await (await request.get(`/api/properties/${OWNER_LISTING}`)).json();
+  expect(listing.slug, 'the fixture listing needs a slug distinct from its UUID').toBeTruthy();
+  expect(listing.slug).not.toBe(OWNER_LISTING);
+
+  // ── 1. a visit on the listing ────────────────────────────────────────────────────────────────
+  const mine = await (await request.get('/api/visits?size=50', { headers: as(chatter) })).json();
+  // `cancelled` and `no-show` are terminal and evidence nothing, so a run that finds only those has
+  // to book again rather than try to transition one of them.
+  const usable = (mine.content ?? []).filter(
+    (v) => v.propertyId === OWNER_LISTING && !['cancelled', 'no-show'].includes(v.status),
+  );
+  /* An already-completed visit is preferred over a live one, so that on every run after the first
+     this fixture consumes nothing: `scheduled`/`confirmed` visits belong to whoever else is testing
+     the visit lifecycle, and completing one would take away their Reschedule control. It cannot be
+     avoided altogether — `VisitService.schedule` answers 409 to a second live visit *on the same
+     property*, so when the only candidate is live there is nothing to do but use it. */
+  let visit = usable.find((v) => v.status === 'completed') ?? usable[0];
+  if (!visit) {
+    const res = await request.post('/api/visits', {
+      headers: as(chatter),
+      data: {
+        propertyId: OWNER_LISTING,
+        slot: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+        mode: 'in-person',
+      },
+    });
+    expect(res.status(), `POST /visits: ${await res.text()}`).toBe(201);
+    visit = await res.json();
+  }
+
+  // ── 2. the owner marks it completed ──────────────────────────────────────────────────────────
+  // Two hops, not one: `scheduled → completed` is not a legal transition. And it must be the owner
+  // who makes them — `VisitService` returns 403 to a visitor asking for anything but `cancelled`,
+  // precisely so a reviewer cannot manufacture their own evidence.
+  for (const next of ['confirmed', 'completed']) {
+    if (visit.status === 'completed') break;
+    const res = await request.patch(`/api/visit-requests/${visit.id}/status`, {
+      headers: as(owner),
+      data: { status: next },
+    });
+    expect(res.status(), `PATCH visit status → ${next}: ${await res.text()}`).toBe(200);
+    visit = { ...visit, status: next };
+  }
+
+  // ── 3. the review ────────────────────────────────────────────────────────────────────────────
+  const res = await request.post(`/api/properties/${OWNER_LISTING}/reviews`, {
+    headers: as(chatter),
+    data: PROPERTY_REVIEW,
+  });
+  expect([201, 409], `POST review: ${res.status()} ${await res.text()}`).toContain(res.status());
+  if (res.status() === 201) {
+    // The badge, derived server-side from the visit above and never from the request body — which
+    // did not mention it. This is the half of the contract the locality route cannot exercise,
+    // because a locality has no visit to evidence.
+    expect((await res.json()).context).toBe('visit');
+  }
+  return listing.slug;
+}
+
+/**
+ * The mounted, visible "Ratings & Reviews" section of a property page.
+ *
+ * Two things stand between a `goto` and being able to assert on this block, and both fail as an
+ * element that is present but never visible rather than as anything that names itself:
+ *
+ *   - the section sits behind a `.fade-in`, held at `opacity: 0` until an IntersectionObserver adds
+ *     `.visible`. `scrollIntoViewIfNeeded` deadlocks on that, so force the class the observer would
+ *     have added — the same workaround `consumer/property/reviews-summary.spec.js` uses;
+ *   - on phone widths `MobileCollapse` hides the panel behind a header row. This project runs
+ *     `Desktop Chrome`, where that toggle is `lg:hidden` and the panel is `lg:block`, so nothing is
+ *     needed here — but it is the first thing to check if these tests are ever run at a mobile size.
+ */
+async function openReviewsSection(page) {
+  await page.getByRole('tab').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in')
+    .forEach((el) => el.classList.add('visible')));
+  const section = page.locator('section')
+    .filter({ has: page.getByRole('heading', { name: /ratings/i }) })
+    .first();
+  await expect(section).toBeVisible({ timeout: 15_000 });
+  return section;
+}
+
+/**
  * LIVE: reviews.
  *
- * Two things are worth driving through a real browser here, and neither is visible to the parity
+ * Four things are worth driving through a real browser here, and none is visible to the parity
  * harness — which compares provider *output* and cannot see what the page does with it.
  *
  * 1. **The badge must not be invented.** `context` is the "Verified resident" / "Visited" chip and
@@ -619,6 +798,20 @@ test.describe('LIVE: conversations against the real API', () => {
  *    while the rest of the page used the slug. For a one-word locality the two agree, which is how
  *    it survived; a write followed by a read proves the page and the server settled on one key,
  *    because a mismatch means the review posts and then does not come back.
+ * 3. **`/property/:id` is a different controller, and was 404ing.** `listPropertyReviews` shipped
+ *    pointing at `/reviews/property/{id}`, which is not a route — that URI matches
+ *    `/reviews/{entityType}/{entityId}` and `entityType` is `society|locality|owner`, so the server
+ *    rejected `property` on every single live read. `ReviewsSection` catches a failed review read,
+ *    so a total outage rendered as "No reviews yet" on every listing on the platform, and the entire
+ *    mock-mode suite stayed green because in mock mode neither read is a request at all.
+ * 4. **A summary read that fails while the list succeeds.** The aggregate grid needs the summary;
+ *    the cards need only the list. Losing one read must show cards without stars rather than claim
+ *    the listing is unreviewed — and that branch is *unreachable* on mocks, where both providers
+ *    read the same `localStorage` rows and `page.route(...).abort()` intercepts nothing.
+ *
+ * The two property tests below therefore assert on values taken **off the wire** — the body text in
+ * the list response, the numbers in the summary response — rather than on the absence of an error
+ * message. An assertion that a 404 and an empty database both satisfy is what let (3) ship.
  *
  * **This writes its own fixture rather than trusting one.** The first version asserted on seeded
  * locality reviews — and there are none: the four rows that made it pass were written by
@@ -720,13 +913,200 @@ test.describe('LIVE: reviews against the real API', () => {
      * all. It passes whatever the mapper does — verified by mutating the mapper to
      * `context: r.context ?? 'visit'` and watching this test stay green.
      *
-     * The badge lives on `property/ReviewsSection.jsx`, and writing a property review needs a
-     * completed visit or a tenancy, which is a fixture this suite cannot mint. So the two halves
-     * are guarded where they can actually fail:
+     * The badge lives on `property/ReviewsSection.jsx`. This note used to end by saying the fixture
+     * for it — a completed visit or a tenancy — was one this suite could not mint; `seedPropertyReview`
+     * above mints it, and the property test below asserts the chip against a badge the server
+     * actually granted. What stays true is that the assertion does not belong *here*, on a page with
+     * no badge in it. The two halves are guarded where they can each fail:
      *   - **the mapper** must not default a null badge → `npm run parity:review` (caught the
      *     mutation above, twice);
      *   - **the server** must not evidence a locality → the wire assertion two lines up.
      * A green assertion that cannot go red is worse than no assertion: it reads like coverage. */
+  });
+
+  /**
+   * The read that was 404ing for weeks while every listing page said "No reviews yet".
+   *
+   * Every assertion below is anchored to something the server sent in *this* run: the review body
+   * comes out of the list response, the average and the five bar counts come out of the summary
+   * response. That is the point. The bug this replaces produced a page that looked entirely correct
+   * — friendly empty state, no error, no console noise — so any assertion an empty answer can also
+   * satisfy is worthless here, and "the page did not show an error" is the emptiest of them.
+   */
+  test('the property review list and its summary are both served by the live API', async ({ page, request }) => {
+    const slug = await seedPropertyReview(page, request);
+
+    /* Both reads, matched on the exact pathname and the method but **not** on the status.
+     *
+     * Matching `r.status() === 200` inside the predicate is the trap: `waitForResponse` silently
+     * discards anything the predicate rejects, so a 404 — the actual historical failure — would
+     * arrive, be dropped, and surface as a bare timeout indistinguishable from a request that was
+     * never made. Catching the timeout into `null` and asserting on the status separately keeps
+     * "the server said no" and "the page never asked" as two different failures with two different
+     * messages, and `calls` names what the page did ask for either way. */
+    const calls = [];
+    watchApiCalls(page, calls);
+    const path = `/api/properties/${OWNER_LISTING}/reviews`;
+    const arrival = (want) => page.waitForResponse(
+      (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === want,
+      { timeout: 25_000 },
+    ).catch(() => null);
+    const listArrived = arrival(path);
+    const summaryArrived = arrival(`${path}/summary`);
+
+    /* Navigate by the **slug**, and note that the paths above are the **UUID**.
+     *
+     * `/property/:id` takes the slug because the seam's `p.id` is one, while the review routes bind
+     * `@PathVariable UUID propId` and need `p.uuid`. A page that reused its own URL token for the
+     * review read would 404 on every slugged listing — which is every curated listing on the
+     * platform — so navigating by UUID here would hide exactly the class of bug this test exists
+     * for. `?tab=amenities` because `PropertyTabs` only mounts the reviews block on that tab. */
+    await page.goto(`/property/${slug}?tab=amenities`);
+
+    const listRes = await listArrived;
+    expect(listRes, `no GET ${path} — the page asked for: ${calls.join(' | ') || 'nothing'}`).not.toBeNull();
+    expect(listRes.status(), `GET ${path}`).toBe(200);
+
+    const summaryRes = await summaryArrived;
+    expect(
+      summaryRes,
+      `no GET ${path}/summary — the page asked for: ${calls.join(' | ') || 'nothing'}`,
+    ).not.toBeNull();
+    expect(summaryRes.status(), `GET ${path}/summary`).toBe(200);
+
+    /* A bare array by ruling D8.6, not the `PageEnvelope` the entity route answers with — the two
+       review routes genuinely differ in shape, and `toViewModelListPage` is what hides that from
+       the page. A silent switch to an envelope would render zero cards and raise nothing. */
+    const rows = await listRes.json();
+    expect(Array.isArray(rows), `expected a bare array, got ${JSON.stringify(rows).slice(0, 200)}`).toBe(true);
+    const mine = rows.find((r) => r.author === CHATTER.name);
+    expect(mine, `no review by ${CHATTER.name} in ${JSON.stringify(rows).slice(0, 400)}`).toBeTruthy();
+    expect(mine.targetType).toBe('property');
+    expect(mine.targetId).toBe(OWNER_LISTING);
+
+    const section = await openReviewsSection(page);
+
+    /* The text is read off the response rather than compared to `PROPERTY_REVIEW.body`, because the
+       write happens at most once per database and a later run reads back whatever the first one
+       wrote. Wire-derived is also the stronger assertion: it says the DOM rendered *this* payload,
+       not that the DOM contains a string the test already knew. */
+    await expect(section.getByText(mine.body, { exact: false }).first()).toBeVisible();
+    await expect(section.getByText(CHATTER.name, { exact: false }).first()).toBeVisible();
+
+    /* The badge, on the page that has one. `context` was derived from the completed visit the
+       fixture minted; the request body never mentioned it. This is the property-side half of the
+       "no fabricated badge" contract the locality test above cannot reach.
+
+       `exact: true` matters: the filter chip above the cards is labelled "Visited (1)", so a
+       substring match would pass on the filter row alone and prove nothing about the card. */
+    expect(mine.context).toBe('visit');
+    await expect(section.getByText('Visited', { exact: true }).first()).toBeVisible();
+
+    // ── the aggregate is the summary payload, not a tally of the cards ─────────────────────────
+    const sum = await summaryRes.json();
+    expect(sum.reviewCount, 'the fixture should have left at least one published review').toBeGreaterThan(0);
+
+    const aggregate = section.getByTestId('reviews-aggregate');
+    await expect(aggregate).toBeVisible();
+    await expect(section.getByTestId('reviews-average')).toHaveText(Number(sum.avgRating).toFixed(1));
+    await expect(aggregate).toContainText(`${sum.reviewCount} review${sum.reviewCount === 1 ? '' : 's'}`);
+
+    /* Bucket alignment by position. `distribution` arrives with string keys `"1"…"5"` and is drawn
+       from a 0-based array, so an off-by-one lands the 5★ count on the 4★ bar and still renders a
+       perfectly plausible chart — there is no way to see it except one bar at a time. */
+    for (const star of [5, 4, 3, 2, 1]) {
+      await expect(section.getByTestId(`reviews-bar-${star}`))
+        .toHaveText(String(sum.distribution[String(star)] ?? 0));
+    }
+
+    /* Sparse by contract, both ways. An aspect somebody rated must appear; an aspect nobody rated
+       must stay absent rather than show 0.0, which would be a claim no reviewer made. Scoped to the
+       aspect card, because every review card prints its own category chips and a section-wide text
+       scrape passes even when this card is missing entirely. */
+    const cats = section.getByTestId('reviews-cat-averages');
+    const rated = Object.keys(sum.categoryAverages ?? {});
+    expect(rated.length, 'the fixture rates some aspects and leaves others unrated').toBeGreaterThan(0);
+    for (const key of ['locality', 'condition', 'value', 'owner', 'accuracy']) {
+      /* A plain substring, no `\b` on either side. The card renders each label glued to its average
+         with no separator — "Locality5.0Condition4.0" — so both boundaries sit between two word
+         characters and never match. Substring is precise enough because no aspect label contains
+         another, and this locator is scoped to the aspect card, which holds nothing but the five
+         labels and their numbers — no review prose that could coincidentally contain "value". */
+      const label = new RegExp(key, 'i');
+      if (rated.includes(key)) await expect(cats).toContainText(label);
+      else await expect(cats).not.toContainText(label);
+    }
+    for (const key of rated) await expect(cats).toContainText(Number(sum.categoryAverages[key]).toFixed(1));
+
+    // The empty state is a claim about the listing, and this listing has a review on it.
+    await expect(section).not.toContainText(/no reviews yet/i);
+    await expect(section.getByTestId('property-reviews-unavailable')).toHaveCount(0);
+  });
+
+  /**
+   * A summary read that fails while the list succeeds — `e2e/COVERAGE.md` line 91.
+   *
+   * `ReviewsSection` splits "are there reviews to show" from "is there an aggregate to draw" so
+   * that losing one of the two reads shows cards without stars, and says the rating is unavailable,
+   * instead of announcing that the listing has no reviews. Before that split, `!summary.count` alone
+   * chose the empty panel and every card lived in the other branch: a listing with a screenful of
+   * reviews told the visitor it had none.
+   *
+   * This can only be written against a live config. In mock mode both providers read the same
+   * `localStorage` rows, so neither read is a request, `page.route(...).abort()` intercepts nothing,
+   * and a test written there would pass without ever entering the branch — which is worse than not
+   * having one. See the closing note in `consumer/property/reviews-summary.spec.js`.
+   */
+  test('a failed summary read leaves the reviews rendered and says the rating is unavailable', async ({ page, request }) => {
+    const slug = await seedPropertyReview(page, request);
+
+    const path = `/api/properties/${OWNER_LISTING}/reviews`;
+    // Exact pathname, so the list read one segment up is untouched — the whole point is that only
+    // one of the two fails. `abort` rather than a 500 body: a dropped connection is the failure the
+    // page has the least warning about, and it exercises the same `.catch` a status error would.
+    await page.route(
+      (u) => u.pathname === `${path}/summary`,
+      (route) => route.abort('failed'),
+    );
+
+    const listArrived = page.waitForResponse(
+      (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === path,
+      { timeout: 25_000 },
+    ).catch(() => null);
+    await page.goto(`/property/${slug}?tab=amenities`);
+
+    /* The list must genuinely have succeeded, with rows in it. Skip this and the test passes on a
+       page where *both* reads failed — which is a different branch rendering a different sentence,
+       and asserting the aggregate is absent would be satisfied by it. */
+    const listRes = await listArrived;
+    expect(listRes, `no GET ${path} arrived`).not.toBeNull();
+    expect(listRes.status()).toBe(200);
+    const rows = await listRes.json();
+    const mine = rows.find((r) => r.author === CHATTER.name);
+    expect(mine, 'the fixture review should still be readable — only the summary was aborted').toBeTruthy();
+
+    const section = await openReviewsSection(page);
+    // Settled, not still in flight: every assertion below is about a state the skeleton has left.
+    await expect(section.getByTestId('reviews-summary-skeleton')).toHaveCount(0);
+
+    // The cards are there, drawn from the read that worked.
+    await expect(section.getByText(mine.body, { exact: false }).first()).toBeVisible();
+
+    // The aggregate is not, and is not faked from the cards either — `ReviewsSection` deliberately
+    // keeps no client-side reduce as a fallback, because that reduce is the thing D79 replaced and
+    // a copy of it would mean a broken summary endpoint never surfaces.
+    await expect(section.getByTestId('reviews-aggregate')).toHaveCount(0);
+    await expect(section.getByTestId('reviews-average')).toHaveCount(0);
+
+    // Named in place of the missing average, rather than silently dropped: a listing with reviews
+    // and no rating is not a state the server can produce, so the page has to say what happened.
+    await expect(section.getByTestId('property-rating-unavailable')).toBeVisible();
+
+    /* The two sentences that must NOT appear. "No reviews yet" is the regression this whole row
+       exists for — it is a claim about the listing, and one failed read is no basis for it. The
+       whole-section failure notice is wrong too: the list arrived, so there is something to show. */
+    await expect(section).not.toContainText(/no reviews yet/i);
+    await expect(section.getByTestId('property-reviews-unavailable')).toHaveCount(0);
   });
 });
 

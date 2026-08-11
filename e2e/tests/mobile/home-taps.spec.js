@@ -21,7 +21,13 @@ test.describe('Home tap targets and touch affordances', () => {
         return height;
       })
     );
-    expect(h).toEqual([44, 36, 48]);
+    /* Was [44, 36, 48]. The 36 was the one rung of the ramp that did not clear the
+       floor this test is named after, and .btn-sm is not a decorative variant —
+       "Request number" on the property page, the button the whole contact funnel
+       narrows to, carries it. index.css now lifts --btn-h-sm to 44px below 639px
+       (desktop keeps 32px, which is where the density this variant exists for
+       actually lives), so the assertion moves up with it rather than down. */
+    expect(h).toEqual([44, 44, 48]);
   });
 
   test('Buy / Rent mode switching clears 44px', async ({ page }) => {

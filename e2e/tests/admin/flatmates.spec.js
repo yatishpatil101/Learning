@@ -97,7 +97,10 @@ test('shows empty states for every queue when there is nothing to moderate', asy
   // their empty states. seedFlatmatesDemo() will not re-seed (its run-once flag is
   // already set from the first boot).
   await page.evaluate((key) => {
-    const db = JSON.parse(localStorage.getItem(key) || '{}');
+    // Read-modify-write — `|| '{}'` would write an empty DB back and blank the whole admin.
+    const raw = localStorage.getItem(key);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     db.flatmateSeekers = [];
     db.flatmateGroups = [];
     db.groupApplications = [];

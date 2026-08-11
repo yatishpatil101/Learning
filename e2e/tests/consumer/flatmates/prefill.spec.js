@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { postAsGroup } from '../../../helpers/app.js';
+import { trackErrors } from '../../../helpers/console.js';
 
 /* One-tap replacement posting for existing customers: attaching a property/tenancy
    PuneNest already holds prefills the group form so an owner/tenant seeking a
@@ -26,8 +27,7 @@ async function openGroupModal(page) {
 }
 
 test('owner: attaching a verified rent listing prefills title, locality and rent', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seed(page, { listings: [{ id: 'p777', title: 'My 2BHK, Baner', locality: 'Baner', status: 'verified', deal: 'rent', price: 38000, bhk: '2 BHK' }] });
   await openGroupModal(page);
   await page.getByRole('button', { name: /Flat owner/i }).click();
@@ -51,8 +51,7 @@ test('owner: a sale listing prefills title but not rent (a sale price is not a m
 });
 
 test('tenant: prefill from a PuneNest tenancy fills the form and enables owner consent', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seed(page, { tenancies: [{ id: 'tn1', propId: 'p900', title: '2 BHK Flat in Wakad', address: 'Wakad, Pune', rent: 32000, ownerMobile: '9800011122', ownerName: 'Landlord', deal: 'rent', status: 'active' }] });
   await openGroupModal(page);
   // Default role is "Current tenant" → the tenancy picker is present.

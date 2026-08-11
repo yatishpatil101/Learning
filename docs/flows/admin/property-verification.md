@@ -125,10 +125,56 @@ exact spot a server transaction must own atomically.
   (`src/lib/mockApi/properties.js`).
 
 ### 5.5 Anti bait-and-switch (owner edits after approval)
-- **Foundation fields** (`LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js`):
-  `deal, title, locality, localitySlug, bhk, bhkNum, area, type, facing, floor, age, construction`.
-- If an owner edits any foundation field on an approved listing, `listingFoundationChanged` is true
-  and `revertListingForReview` sets `status: 'pending'` - the listing re-enters this queue.
+- **Foundation fields** are the searchable facets a buyer can filter on, which is the shape a
+  bait-and-switch takes: `price, bhk, propertyType, locality, deal, furnishing, possession`. Since
+  Q14 (2026-08-11) they split into **two outcomes**, and the line is what the edit does to the
+  *claim* rather than how much the value moved:
+  - **Off search** — `locality, propertyType, bhk, deal` change *what the listing fundamentally is*,
+    so a stale index entry is a wrong answer: a 2BHK appearing under 3BHK, or a rental under sale.
+    These still revert to `pending` until a moderator re-approves.
+  - **Stays live, re-checked** — `price, furnishing, possession` change *an attribute of a listing
+    that is still the same property*, so the worst case is a briefly out-of-date number on a listing
+    that is genuinely what it claims to be. The listing stays `approved` and searchable and a
+    re-check is queued instead. Fraud risk is handled by the re-check either way; the difference is
+    only whether the listing earns while it waits.
+- The rule lives server-side in `ListingService.apply`, which returns an `EditImpact` record
+  (`remoderationRequired` / `recheckOnly` / the field names re-checked), and `ListingService.update`,
+  which calls `Property.revertToPending()` for the first and `Property.requestRecheck(fields)` for
+  the second. Re-moderation supersedes a re-check when one PATCH trips both.
+  `ListingFoundationTest` pins both sets to `PropertyController.search`'s facets. A **moderator** edit
+  (`updateAsModerator`) deliberately does *neither* - the moderator is the change, and must not file
+  themselves a ticket to check their own correction.
+- **The re-check queue.** `properties.recheck_requested_at` + `recheck_reason` (V62, deliberately
+  shaped like the existing `flag_reason` beside `status`) hold the work item; `flagged` could not be
+  reused because it also removes the listing from search. The timestamp is set once and not refreshed
+  by later edits, so queue age stays honest, while the reason string accumulates field names.
+  `GET /admin/properties?recheck=true|false` is the tri-state filter (same shape as `archived`), and
+  `PropertyResponse` carries `recheckPending` / `recheckReason` / `recheckRequestedAt`. Clearing it is
+  `PATCH /properties/{id}/status` with `approved` on an already-approved listing — "checked it, all
+  fine" — which is why there is no separate endpoint.
+- **The Re-check Queue tab** (`/admin/properties?tab=recheck`) is where it gets drained, the third
+  queue alongside Verification and Flagged. It fetches `?recheck=true` on its own rather than
+  narrowing the page's shared listing fetch: the endpoint pages at 20 and a queued re-check is by
+  definition an *approved, un-archived* listing, so a client-side narrowing would show only the
+  re-checks that happened to fall in the newest 20 and present the rest as drained — for a queue,
+  worse than showing nothing. Rows carry the changed fields and the waiting time, escalate
+  sky→amber→rose at 24h/72h, and are ordered oldest-first with no re-sort offered, because letting a
+  moderator re-order the queue is letting them work the easy end. The waiting age is also why the
+  count rides in the tab label and a KPI card — a queue nobody is *told about* is a queue nobody
+  drains. Sorting server-side is not available: `sort` is clamped to the catalogue's shared
+  whitelist, and widening it for `recheckRequestedAt` would expose the column to the public search.
+  Two moderator outcomes, both existing transitions: **Looks fine** (`approved`, listing stays live,
+  re-check cleared) and **Reject** (`rejected` with a mandatory reason — a takedown with no recorded
+  cause is unappealable). The same strip renders on every other tab too, because on `All Listings`
+  an un-reviewed price change is otherwise indistinguishable from a verified one.
+  Covered by `e2e/tests/admin/property-recheck-queue.spec.js`.
+- The client carries two mirrors of that set, both pinned to the Java by
+  `frontend/scripts/check-listing-foundation.mjs` (`npm run check:listing`):
+  `LISTING_FOUNDATION_FIELDS` in `src/lib/store/listings.js` (store vocabulary, the union, no live
+  consumer today) and `FOUNDATION_OFF_SEARCH_KEYS` / `FOUNDATION_STAYS_LIVE_KEYS` in
+  `src/pages/consumer/list-property/editPolicy.js` (wizard vocabulary), which is what the
+  owner-facing edit banner reads. The gate asserts the two server sets are disjoint and compares each
+  half separately, because a field moving *between* them is the drift that costs something.
 - Non-foundation edits keep the listing live but set `reReview` / `materialEditFlag`, surfacing a
   diff in the review modal that the reviewer clears with `approveEdits` (no takedown).
 

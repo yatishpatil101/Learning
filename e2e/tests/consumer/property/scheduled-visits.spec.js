@@ -3,10 +3,13 @@ import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
-const OWNER = { name: 'Owner Test', mobile: '9800000001', email: '', role: 'owner', joinedAt: Date.now() };
+/* `id` is the account id the visit store keys its buckets on (src/lib/store/visits.js, D30). A
+   session seeded straight into localStorage carries whatever id the fixture gives it, so stating
+   one here is what lets the bucket below be named deterministically. */
+const OWNER = { id: 'U-TEST-OWNER', name: 'Owner Test', mobile: '9800000001', email: '', role: 'owner', joinedAt: Date.now() };
 const LISTING = {
   id: 'L-TEST-1', title: 'Test 2 BHK, Baner', locality: 'Baner', deal: 'rent',
-  price: 25000, status: 'approved', real: true, ownerMobile: '9800000001', views: 7,
+  price: 25000, status: 'approved', real: true, ownerId: 'U-TEST-OWNER', ownerMobile: '9800000001', views: 7,
 };
 
 /* Visits against the owner's OWN listing.
@@ -40,7 +43,7 @@ async function loginOwner(page) {
     localStorage.setItem('puneNestUsers', JSON.stringify([u]));
     localStorage.setItem('puneNestListings:' + u.mobile, JSON.stringify(l));
     // The owner's own visit-request bucket — where a real booking against their listing lands.
-    localStorage.setItem('puneNestPropVisitReqs:' + u.mobile, JSON.stringify(v));
+    localStorage.setItem('puneNestPropVisitReqs:' + u.id, JSON.stringify(v));
   }, { u: OWNER, l: [LISTING], v: VISITS });
 }
 
@@ -157,8 +160,8 @@ test.describe('Scheduled Visits', () => {
      guard: the mock's buyer-side read carries the owner's raw mobile on the row, so the protection
      lives entirely in VisitsTab suppressing the handoff for a non-owner viewer. */
   test('a buyer viewing their booked visit gets no WhatsApp handoff to the owner (D5)', async ({ page }) => {
-    const BUYER = { name: 'Buyer Test', mobile: '9833333333', email: '', role: 'seeker', joinedAt: Date.now() };
-    // A visit the buyer booked. Stored in the buyer's own request bucket keyed by their mobile —
+    const BUYER = { id: 'U-TEST-BUYER', name: 'Buyer Test', mobile: '9833333333', email: '', role: 'seeker', joinedAt: Date.now() };
+    // A visit the buyer booked. Stored in the buyer's own request bucket keyed by their account id —
     // where the mock's `listVisits` finds "visits I booked" without needing the owner catalogue.
     const booked = [{
       id: 'V-BUYER-1', propId: 'L-TEST-1', propTitle: 'Test 2 BHK, Baner',
@@ -169,7 +172,7 @@ test.describe('Scheduled Visits', () => {
     await page.addInitScript(({ u, v }) => {
       localStorage.setItem('puneNestUser', JSON.stringify(u));
       localStorage.setItem('puneNestUsers', JSON.stringify([u]));
-      localStorage.setItem('puneNestPropVisitReqs:' + u.mobile, JSON.stringify(v));
+      localStorage.setItem('puneNestPropVisitReqs:' + u.id, JSON.stringify(v));
     }, { u: BUYER, v: booked });
 
     await page.goto(`${BASE}/dashboard#visits`, { waitUntil: 'networkidle' });

@@ -1,5 +1,6 @@
 package com.punenest.api.finance.tenancy;
 
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.time.LocalDate;
@@ -29,6 +30,13 @@ import org.springframework.transaction.annotation.Transactional;
  * tenancies the caller holds as tenant; {@code GET /tenancies} returns tenancies on the caller's
  * listings. Neither can name a row the caller is not a party to, so there is no id-based read to
  * guard.
+ *
+ * <p><strong>Both lease dates are stamped in {@link PlatformTime#IST}</strong> (tech debt D179).
+ * These are not display values: {@code start_date} and {@code end_date} are written to the row that
+ * rent payments hang off, and they are what a tenant and an owner would read off a printed
+ * agreement. On a UTC host the JVM is still on yesterday for the first 5.5 hours of every Indian
+ * day, so a deal closed at 01:00 IST on the 1st would record a lease that began — or ended — in the
+ * previous month, and no later read could tell that the date was wrong.
  */
 @Service
 public class TenancyService {
@@ -93,7 +101,7 @@ public class TenancyService {
         // The lease starts the day the deal closed. The end date is left null: the parties agree a
         // term off-platform and nothing here knows it, and guessing eleven months would put a date
         // in front of a tenant that neither party ever agreed to.
-        tenancy.setStartDate(LocalDate.now());
+        tenancy.setStartDate(LocalDate.now(PlatformTime.IST));
         tenancy.setStatus(TenancyStatuses.ACTIVE);
         return Optional.of(tenancies.save(tenancy));
     }
@@ -110,7 +118,7 @@ public class TenancyService {
     public void endActiveTenancy(UUID propertyId) {
         tenancies.findActiveByPropertyId(propertyId).ifPresent(tenancy -> {
             tenancy.setStatus(TenancyStatuses.ENDED);
-            tenancy.setEndDate(LocalDate.now());
+            tenancy.setEndDate(LocalDate.now(PlatformTime.IST));
             tenancies.save(tenancy);
         });
     }

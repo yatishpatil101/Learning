@@ -67,7 +67,7 @@ export default function HelpLayout({ children, wide = false, title }) {
             onClick={() => setDrawerOpen(true)}
             aria-expanded={drawerOpen}
             aria-controls="help-drawer"
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-gray-300 hover:text-white lg:hidden"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 min-h-[44px] text-xs font-semibold text-gray-300 hover:text-white lg:hidden"
           >
             <Icon name="menu" className="w-4 h-4" /> {t('help.topics')}
           </button>

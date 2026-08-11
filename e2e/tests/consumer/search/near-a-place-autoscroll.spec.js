@@ -62,10 +62,19 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
     if (!s) return { panel: null, winY: window.scrollY };
     return { panel: Math.round(s.scrollTop), winY: window.scrollY };
   });
-  const before = await scrollState();
 
   await page.locator('.pn-dropdown__menu--portal input').fill('Hinj');
-  await page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: 'Hinjawadi IT Park' }).first().click();
+  const option = page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
+  /* Bring the option into view BEFORE the baseline, then take it, then click.
+     `click()` scrolls its target into view first, and the menu is a portal anchored below a
+     trigger that can sit near the bottom of a 620px viewport — so on the runs where the option
+     lands below the fold, Playwright scrolls the *window* itself and the guard below then blames
+     the app for a jump the harness performed. Doing the scroll explicitly first makes the baseline
+     measure only what the app does in response to the pick, which is the thing under test. */
+  await option.scrollIntoViewIfNeeded();
+  const before = await scrollState();
+
+  await option.click();
   await expect(group.locator('input[type="range"]')).toBeVisible();
   await page.waitForTimeout(500); // allow the smooth in-container scroll to settle
 

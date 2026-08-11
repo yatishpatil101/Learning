@@ -13,6 +13,24 @@ import {
   staffLoginUser as _staffLoginUser,
   writeUser as _writeUser,
 } from '../../../lib/auth.js';
+import { withOwnerId } from '../../../lib/data/ownerIdentity.js';
+
+/**
+ * Attach the account id the rest of the mock keys its owner-scoped data on.
+ *
+ * The real API issues this id and hands it back with the session; here it is resolved once, at
+ * sign-in, and then carried on the session object exactly as the token's subject would be. Doing it
+ * at sign-in rather than at every read is what makes the id an *identity* rather than a derived
+ * value: change the account's mobile afterwards and the deals, offers and visits stay findable.
+ *
+ * `remember` is threaded through so re-persisting the stamped user cannot silently promote a
+ * tab-scoped session into a remembered one.
+ */
+function stamp(user, remember = true) {
+  const stamped = withOwnerId(user);
+  if (stamped !== user) _writeUser(stamped, remember);
+  return stamped;
+}
 
 /**
  * No-op OTP dispatch. The delay is intentional: it preserves the "Sending…" affordance that the
@@ -21,15 +39,15 @@ import {
  */
 export const sendOtp = () => new Promise((resolve) => setTimeout(() => resolve({ otpSent: true }), 700));
 
-export const login = (data) => Promise.resolve(_loginUser(data));
+export const login = (data) => Promise.resolve(stamp(_loginUser(data), data?.remember !== false));
 
 /** Records the account in the local registry, then opens a session. `otp` is ignored here. */
 export const register = (data) => {
   _registerUser(data);
-  return Promise.resolve(_loginUser(data));
+  return Promise.resolve(stamp(_loginUser(data), data?.remember !== false));
 };
 
-export const staffLogin = (data) => Promise.resolve(_staffLoginUser(data));
+export const staffLogin = (data) => Promise.resolve(stamp(_staffLoginUser(data)));
 
 export const logout = () => Promise.resolve(_logoutUser());
 

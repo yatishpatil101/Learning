@@ -1,6 +1,6 @@
 name: CI
 
-# Two jobs, deliberately split.
+# Three jobs, deliberately split.
 #
 # `checks` is the fast gate: lint, i18n/help content checks, build, and the bundle
 # budget. It finishes in a couple of minutes and catches most breakage, so it is
@@ -10,6 +10,9 @@ name: CI
 # server (playwright.config.js does that itself via `webServer` whenever BASE_URL
 # is unset), so it is kept separate rather than bolted onto `checks` — a lint
 # error should not wait behind a browser install to be reported.
+#
+# `lighthouse` is not a gate at all. It records mobile performance numbers against a
+# production build and always passes; the reasoning is on the job itself.
 
 on:
   push:
@@ -136,3 +139,93 @@ jobs:
             e2e/playwright-report/
             e2e/test-results/
           retention-days: 7
+
+  lighthouse:
+    name: Lighthouse (mobile, record-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # THIS JOB HAS NO BUDGETS, AND THAT IS ON PURPOSE — DELIBERATE, NOT FORGOTTEN.
+    #
+    # The stated mobile performance targets were, until this job existed, verified by
+    # nothing: `check:size` counts the bytes on the critical path, which is a good
+    # proxy and a real gate, but it cannot see a slow font swap, a layout shift, or
+    # main-thread work after the bytes land. This measures the outcome those bytes are
+    # a proxy for.
+    #
+    # It measures and it never fails. A single Lighthouse run on a shared runner
+    # carries several points of score movement on byte-identical code — the runner's
+    # CPU is not ours and its speed varies between machines and neighbours. A
+    # threshold tight enough to catch a genuine 200 ms LCP regression is therefore
+    # also loose enough to redden an innocent PR, and a gate that people learn to
+    # re-run until it goes green is worse than no gate: it costs minutes, teaches the
+    # team that CI lies, and stops anyone reading the number it was protecting.
+    #
+    # So the first job of this job is to earn the right to have a budget. Every run
+    # appends its numbers to the step summary along with the Lighthouse version,
+    # Chrome version and the runner's CPU benchmark index, so that after a few dozen
+    # runs the *spread* is known rather than guessed. Turning this into a gate means:
+    # (1) read the recorded spread on main, (2) set a threshold outside it — a p75
+    # over several runs, not a single reading, (3) add the assertion step, and
+    # (4) mark it required. Doing (3) before (1) is how the flaky-gate story starts.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # A production build, not the dev server. The dev server ships unminified
+      # modules over hundreds of requests and no service worker, so measuring it would
+      # produce numbers that describe a machine no user has.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # `vite preview` serves dist/ and, because appType defaults to 'spa', falls back
+      # to index.html for extensionless paths — which is what makes the deep link to
+      # /property/P5000 resolve instead of 404ing.
+      #
+      # --strictPort matters: without it Vite silently moves to 4174 when 4173 is
+      # taken, and the readiness poll below would then spend its full minute failing
+      # against an empty port with no hint as to why. --host 127.0.0.1 pins the
+      # interface so the poll and Lighthouse cannot disagree over localhost/::1.
+      #
+      # The trailing `&` outlives the step: GitHub does not reap background processes
+      # between steps in the same job, and the runner tears the whole VM down at the
+      # end, so no explicit shutdown step is needed. Output is redirected to a file
+      # rather than inherited — a backgrounded process holding the step's stdout pipe
+      # open is the classic way an Actions step finishes its work and then hangs.
+      - name: Serve production build
+        working-directory: frontend
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 --strictPort > /tmp/preview.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sfo /dev/null http://127.0.0.1:4173/; then
+              echo "preview server up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "preview server did not come up on 127.0.0.1:4173" >&2
+          cat /tmp/preview.log >&2
+          exit 1
+
+      # Pinned Lighthouse version, mobile emulation, three routes. Writes the metric
+      # table to $GITHUB_STEP_SUMMARY so the result is readable from the run page
+      # without downloading the artifact below.
+      - name: Measure
+        run: node .github/lighthouse/run-lighthouse.mjs
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: .lighthouse/
+          retention-days: 30

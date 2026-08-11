@@ -33,7 +33,16 @@ public class User extends SoftDeleteEntity implements TokenSubject {
     @Setter
     private String name;
 
-    @Column(name = "mobile", nullable = false, unique = true, updatable = false)
+    /**
+     * The natural key, and the one column erasure cannot blank.
+     *
+     * <p>{@code updatable = false} was here to stop a profile edit from moving somebody's identity
+     * out from under every {@code user_id} on the platform, and that reason still holds — there is
+     * still no setter. It had to be relaxed for exactly one write, {@link #erasePersonalData}, which
+     * replaces the number with a pseudonym; the guarantee is now carried by the absence of a setter
+     * rather than by the mapping, which is a weaker fence in the same place.
+     */
+    @Column(name = "mobile", nullable = false, unique = true)
     private String mobile;
 
     @Column(name = "email")
@@ -120,4 +129,46 @@ public class User extends SoftDeleteEntity implements TokenSubject {
         this.role = role;
     }
 
+    /**
+     * Irreversibly de-identify this account — the {@code users} half of a DPDP erasure
+     * ({@code identity.user.erasure.ErasureService}, tech debt D177).
+     *
+     * <p>One method rather than a handful of setters because these fields have to stop being true
+     * <em>together</em>. An erasure that cleared the name and left the email is not a partial
+     * erasure, it is a failed one, and the failure would be invisible: the account would look erased
+     * on every screen that renders a name.
+     *
+     * <p><strong>The row survives.</strong> Fifty-five tables carry a foreign key into this one and
+     * are retained for reasons set out in {@code ErasureRetention} — deleting the row would either
+     * cascade through all of them or violate every one of those constraints. What is removed is the
+     * ability to identify a person from it, which is what the statute asks for; the row becomes an
+     * anchor with nobody behind it.
+     *
+     * <p>{@code role} and {@code listingsCount} are left alone deliberately: neither identifies
+     * anybody, and blanking the role would move an erased owner's retained listings into a state the
+     * platform has no notion of.
+     *
+     * @param pseudonymMobile a stand-in satisfying the column's NOT NULL, UNIQUE and format CHECK;
+     *                        derived from the row id, never from the number it replaces
+     */
+    public void erasePersonalData(String pseudonymMobile) {
+        this.mobile = pseudonymMobile;
+        this.name = null;
+        this.email = null;
+        this.avatar = null;
+        this.city = null;
+        // Credentials, not merely personal data: an erased account must not be able to authenticate.
+        // Passwordless sign-in keys off `mobile`, which has just been replaced, and the password
+        // path keys off this hash. Both are now dead.
+        this.passwordHash = null;
+        this.mobileVerified = false;
+        this.verified = false;
+        this.aadhaarVerified = false;
+        this.lastActive = null;
+        // 'archived' is the strongest of the three CHECKed states and the one every read path
+        // already excludes. There is no 'erased' status and adding one would need a CHECK change
+        // that every deployed database would have to take before this code could run at all.
+        this.status = "archived";
+        archive("Erased on the account holder's request (DPDP s.12(3))");
+    }
 }

@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
+import { appReady } from '../../helpers/app.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -17,9 +19,14 @@ async function loginAsAdmin(page) {
  * This is faster and more reliable than navigating the admin UI for each toggle.
  */
 async function setAppFlag(page, key, value) {
+  // Callers reach this straight off a `goto`, which resolves ~a second before the store is
+  // written (D129) — without this the evaluate found no DB and returned silently, leaving the
+  // flag at its default and the assertion below failing for the wrong reason.
+  await appReady(page);
   await page.evaluate(({ key, value }) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    if (!db || !db.settings || !db.settings.flags) return;
+    // Loud, not a silent `return`: a no-op here means the test asserts the default flag.
+    if (!db || !db.settings || !db.settings.flags) throw new Error('mock store has no settings.flags after appReady()');
     db.settings.flags[key] = value;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     window.dispatchEvent(new CustomEvent('punenest-settings-change'));
@@ -278,8 +285,7 @@ test.describe('onlineRentPayment flag', () => {
 // ─────────────── NO JS ERRORS ───────────────
 
 test('no page errors on listings page with all flags disabled', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await page.goto(`${BASE}/listings?deal=buy`);
 
@@ -299,8 +305,7 @@ test('no page errors on listings page with all flags disabled', async ({ page })
 });
 
 test('no page errors on property page with all flags disabled', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   await page.goto(`${BASE}/listings?deal=buy`);
   await page.locator('a[href^="/property/"]').first().click();

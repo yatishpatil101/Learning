@@ -1,4 +1,5 @@
 import { digits as digitsOf, norm } from './identityNorm.js';
+import { ownerIdForMobile } from './ownerIdentity.js';
 
 const STORE_KEY = 'puneNestFlatmatePosts';
 const GROUPS_KEY = 'puneNestFlatmateGroups';
@@ -285,14 +286,63 @@ export const getMyRequest = (userMobile, userName) => {
   });
 };
 
-export const hasInterest = (id) => {
-  const map = get(INTERESTS_KEY, {});
-  return !!map[id];
+/* =========================================================================
+   Two stores, because there are two different facts (D181).
+
+   1. `puneNestFlatmateInterests` — **what this browser asked**, per signed-in requester. Page-owned,
+      and the reason a done-state survives a reload. It is memory, not truth: it can only ever know
+      about asks made from this device, so it is written from the outcome of a call and is NEVER
+      consulted to decide whether to make one. Doing that is what made the server's 409 unreachable
+      in the first place.
+
+   2. `pnMockFlatmateInterests` — the **mock provider's** stand-in for V27's
+      unique index: one request per (requester, kind, target), a second ask
+      refused with the same 409 the real API answers. Provider-owned; the page
+      must not read it, because in http mode it does not exist.
+
+   The split is the whole fix. One store doing both jobs is a lie in one of them:
+   as truth it is wrong on the second device, and as memory it silently pre-empts
+   the only thing that actually knows.
+   ========================================================================= */
+const MOCK_LEDGER_KEY = 'pnMockFlatmateInterests';
+
+/* ── 1. The page's memory of its own asks ─────────────────────────────────── */
+
+/* Scoped by requester, like every other identity-bearing store here. A bare global map would be
+   read by whoever signs in next on the same browser: they would see the previous person's asks
+   rendered as "Interest sent", which discloses that activity AND leaves them with no button to
+   press — so the provider would never be asked, which is the very failure this item removed.
+
+   No mobile, no bucket. Falling back to a shared `'anon'` key would recreate exactly that leak for
+   any two identities that lack one; forgetting instead costs a redundant call the server answers
+   correctly anyway, which is the whole point of the split. */
+
+/** The asks `mobile` has made from this browser, as the `interests` map the page keys on. */
+export const getAskedInterests = (mobile) => (digitsOf(mobile) ? get(INTERESTS_KEY, {})[digitsOf(mobile)] || {} : {});
+/** Remember an ask that the provider confirmed — either accepted, or 409'd as a duplicate. */
+export const rememberAsk = (mobile, key) => {
+  const who = digitsOf(mobile);
+  if (!who) return;
+  const all = get(INTERESTS_KEY, {});
+  all[who] = { ...(all[who] || {}), [key]: true };
+  set(INTERESTS_KEY, all);
 };
-export const addInterest = (id) => {
-  const map = get(INTERESTS_KEY, {});
-  map[id] = Date.now();
-  set(INTERESTS_KEY, map);
+
+/* ── 2. The mock provider's ledger ────────────────────────────────────────── */
+
+const ledgerId = (requesterMobile, kind, targetId) =>
+  (digitsOf(requesterMobile) || 'anon') + '|' + kind + '|' + targetId;
+
+/** Has this requester already reached out to this room / group / post? Provider-only. */
+export const hasInterest = (requesterMobile, kind, targetId) => {
+  const map = get(MOCK_LEDGER_KEY, {});
+  return !!map[ledgerId(requesterMobile, kind, targetId)];
+};
+/** Record the ask. Keyed by REQUESTER, because the rule it stands in for is. Provider-only. */
+export const addInterest = (requesterMobile, kind, targetId) => {
+  const map = get(MOCK_LEDGER_KEY, {});
+  map[ledgerId(requesterMobile, kind, targetId)] = Date.now();
+  set(MOCK_LEDGER_KEY, map);
 };
 
 /* =========================================================================
@@ -303,18 +353,24 @@ export const addInterest = (id) => {
    photoRequests.js / contact.js) so the host sees it in Dashboard → Requests.
    Maps cleanly onto a future API: one host inbox endpoint.
    ========================================================================= */
-const flatmateReqKey = (ownerMobile) => 'puneNestFlatmateReq:' + (digitsOf(ownerMobile) || 'anon');
+const flatmateReqKey = (ownerMobile) => {
+  const ownerId = ownerIdForMobile(ownerMobile);
+  return ownerId ? 'puneNestFlatmateReq:' + ownerId : null;
+};
 
-export const getFlatmateRequests = (ownerMobile) => get(flatmateReqKey(ownerMobile), []);
+export const getFlatmateRequests = (ownerMobile) => {
+  const key = flatmateReqKey(ownerMobile);
+  return key ? get(key, []) : [];
+};
 
 /* kind: 'flatmate' | 'room' | 'group'. action: 'request' (needs host approval)
    or 'join' (open-policy group, already joined → informational). Deduped by
    requester + target so a repeat tap is a no-op. Returns 'anon' | 'duplicate' |
    the new record. */
 export const addFlatmateRequest = (ownerMobile, req = {}) => {
-  const host = digitsOf(ownerMobile);
-  if (!host) return 'anon'; // can't route to a host — leave the notification/chat as-is
-  const arr = getFlatmateRequests(ownerMobile);
+  const key = flatmateReqKey(ownerMobile);
+  if (!key) return 'anon'; // can't route to a host — leave the notification/chat as-is
+  const arr = get(key, []);
   const reqMob = digitsOf(req.requesterMobile);
   if (arr.some((r) => r.targetId === req.targetId && digitsOf(r.requesterMobile) === reqMob && reqMob)) {
     return 'duplicate';
@@ -339,15 +395,17 @@ export const addFlatmateRequest = (ownerMobile, req = {}) => {
     requestedAt: Date.now(),
   };
   arr.unshift(rec);
-  set(flatmateReqKey(ownerMobile), arr);
+  set(key, arr);
   return rec;
 };
 
 export const decideFlatmateRequest = (ownerMobile, id, decision) => {
-  const arr = getFlatmateRequests(ownerMobile);
+  const key = flatmateReqKey(ownerMobile);
+  if (!key) return null;
+  const arr = get(key, []);
   const idx = arr.findIndex((r) => r.id === id);
   if (idx < 0) return null;
   arr[idx] = { ...arr[idx], status: decision, decidedAt: Date.now() };
-  set(flatmateReqKey(ownerMobile), arr);
+  set(key, arr);
   return arr[idx];
 };

@@ -1,6 +1,7 @@
 package com.punenest.api.finance.rent;
 
 import com.punenest.api.billing.BillingPayments;
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.provider.cashfree.WebhookSignature;
 import com.punenest.api.services.request.ServiceRequestService;
@@ -62,8 +63,11 @@ public class PaymentWebhookController {
      * server's default zone is an accident of deployment. A 23:30 IST callback with no
      * {@code payment_time} stamps yesterday on a UTC host, and that is a rent row filed against
      * the wrong day.
+     *
+     * <p>An alias for {@link PlatformTime#IST}, kept only so the paragraph above stays next to the
+     * use sites; the zone itself lives in one place (tech debt D179).
      */
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final ZoneId SETTLEMENT_ZONE = PlatformTime.IST;
 
     /** Provider status meaning the money moved. */
     private static final String PROVIDER_SUCCESS = "SUCCESS";
@@ -190,13 +194,13 @@ public class PaymentWebhookController {
      */
     private static LocalDate settlementDate(String paymentTime) {
         if (paymentTime == null || paymentTime.isBlank()) {
-            return LocalDate.now(IST);
+            return LocalDate.now(SETTLEMENT_ZONE);
         }
         try {
             return OffsetDateTime.parse(paymentTime).toLocalDate();
         } catch (DateTimeParseException unparseable) {
             log.warn("Unparseable payment_time '{}'; stamping today", paymentTime);
-            return LocalDate.now(IST);
+            return LocalDate.now(SETTLEMENT_ZONE);
         }
     }
 

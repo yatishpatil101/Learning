@@ -24,19 +24,24 @@ public final class FinalizationMapper {
      * @param initiator  the user who initiated (resolved in batch)
      * @param counterparty the user who must accept (resolved in batch)
      * @param viewerId   the current caller's id (to determine own-number reveal)
+     * @param verifiedUserIds the participants who carry the Verified Tenant badge, resolved by the
+     *                        service from <em>user ids</em> — see {@link FinalizationRequestDto.Party}
      */
     public static FinalizationRequestDto toDto(FinalizationRequest request,
                                                 User initiator,
                                                 User counterparty,
-                                                java.util.UUID viewerId) {
+                                                java.util.UUID viewerId,
+                                                java.util.Set<java.util.UUID> verifiedUserIds) {
         ContactVisibility initiatorVis = mobileVisibility(viewerId, request.getInitiatorId());
         ContactVisibility counterpartyVis = mobileVisibility(viewerId, request.getCounterpartyId());
 
         return new FinalizationRequestDto(
                 request.getId().toString(),
                 request.getPropertyId().toString(),
-                toParty(initiator, initiatorVis, "buyer"),
-                toParty(counterparty, counterpartyVis, "owner"),
+                toParty(initiator, initiatorVis, "buyer",
+                        verifiedUserIds.contains(request.getInitiatorId())),
+                toParty(counterparty, counterpartyVis, "owner",
+                        verifiedUserIds.contains(request.getCounterpartyId())),
                 request.getAgreedPrice(),
                 request.getStatus(),
                 request.getCreatedAt());
@@ -55,8 +60,13 @@ public final class FinalizationMapper {
                 ? ContactVisibility.REVEALED : ContactVisibility.MASKED;
     }
 
+    /**
+     * Build one party. {@code verified} is supplied by the caller and is never derived from the
+     * value {@link #maskMobile} produces — the mask is lossy by design, so a badge reconstructed
+     * from it would be wrong for every masked party, which is all of them.
+     */
     private static FinalizationRequestDto.Party toParty(User user, ContactVisibility visibility,
-                                                         String role) {
+                                                         String role, boolean verified) {
         if (user == null) {
             return null;
         }
@@ -64,7 +74,8 @@ public final class FinalizationMapper {
                 user.getId().toString(),
                 user.getName(),
                 maskMobile(user.getMobile(), visibility),
-                role);
+                role,
+                verified);
     }
 
     /**

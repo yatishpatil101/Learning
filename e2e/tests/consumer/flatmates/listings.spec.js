@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876543210';
@@ -24,8 +25,7 @@ async function seedOwnerWithRoom(page) {
 }
 
 test('Flatmates page opens without runtime errors', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await page.goto(`${BASE}/flatmates`);
   /* The two view tabs render once the page mounts successfully.
      Matched on their aria-label, which is the count-bearing string ("Move in now — N homes with a
@@ -38,8 +38,7 @@ test('Flatmates page opens without runtime errors', async ({ page }) => {
 });
 
 test('posted flatmate room appears in dashboard My Listings', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await seedOwnerWithRoom(page);
   await page.goto(`${BASE}/dashboard#listings`);
 

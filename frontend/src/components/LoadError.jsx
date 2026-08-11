@@ -17,9 +17,12 @@ import { isReachabilityFailure } from '../hooks/useConnectivity.js';
  * classification is `isReachabilityFailure`, the same rule the app-wide banner uses, so the strip
  * at the top of the screen and this card can never contradict each other.
  *
- * `dash.retry` is reused rather than duplicated: every locale file merges into one flat namespace
- * (see `i18n/index.js`), so the key's namespace of origin is not a coupling \u2014 one retry label for
- * the whole app is.
+ * The retry label comes from `common`, one of the eager shell namespaces. That is not a cosmetic
+ * choice: locale files are no longer one flat bundle (see `i18n/namespaces.js`), so reading a key
+ * across a namespace boundary makes every route this component appears on declare — and therefore
+ * fetch — that whole namespace. This card used to borrow the dashboard namespace's retry label,
+ * which is why /listings and /flatmates each pulled 5 KB of dashboard copy they never rendered.
+ * One retry label for the whole app is still right; it just has to live somewhere every route has.
  *
  * @param {string}  message   copy for a server-answered failure
  * @param {unknown} error     the rejection value, used only to pick between the two sentences
@@ -33,7 +36,7 @@ export default function LoadError({ message, error, onRetry, className = 'glass-
       <Icon name="alert-triangle" className="w-8 h-8 text-amber-400" />
       <p className="text-gray-300 text-sm">{isReachabilityFailure(error) ? t('connectivity.listUnreachable') : message}</p>
       <button onClick={onRetry} className="pn-control pn-control--action px-4 gap-1.5">
-        <Icon name="refresh-cw" className="w-4 h-4" /> {t('dash.retry')}
+        <Icon name="refresh-cw" className="w-4 h-4" /> {t('common.retry')}
       </button>
     </div>
   );

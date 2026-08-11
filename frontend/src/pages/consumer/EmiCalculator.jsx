@@ -109,7 +109,16 @@ export default function EmiCalculator() {
             <div className="glass-card rounded-2xl p-5 sm:p-8 reveal">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-sm font-semibold text-gray-200">{t('misc1.emiAdjust')}</h2>
-                <button type="button" onClick={reset} className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-teal-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/40 rounded-md px-1.5 py-1">
+                {/* Reset sits at the right end of a justify-between header row, so
+                    growing it to 44px would push the "Adjust" heading and every
+                    slider under it down by 20px on the smallest screens. The drawn
+                    size is doing work here — it is a quiet secondary action next to
+                    a heading — so this takes the .tap-extend route the codebase
+                    already uses for exactly this case: a transparent 44px region
+                    centred on the button, overhanging into the card's own padding
+                    and the row's mb-6, while the label stays 12px. `relative` gives
+                    the pseudo its positioning context. */}
+                <button type="button" onClick={reset} className="tap-extend relative inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-teal-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/40 rounded-md px-1.5 py-1">
                   <Icon name="rotate-ccw" className="w-3.5 h-3.5" /> {t('misc1.emiReset')}
                 </button>
               </div>

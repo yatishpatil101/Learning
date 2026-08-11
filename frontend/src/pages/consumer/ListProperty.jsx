@@ -43,9 +43,11 @@ const ListProperty = () => {
           </h2>
           <p className="text-gray-400 text-sm leading-relaxed mb-8">
             {editId
-              ? (editApproved && editChanges?.tierA.length
-                  ? t('listProperty.success.editApprovedBody')
-                  : t('listProperty.success.editBody'))
+              ? (editApproved && editChanges?.remoderation?.length
+                  ? t('listProperty.success.editRemoderationBody')
+                  : editApproved && editChanges?.recheck?.length
+                    ? t('listProperty.success.editApprovedBody')
+                    : t('listProperty.success.editBody'))
               : t('listProperty.success.newBody')}
           </p>
           <button onClick={() => navigate('/dashboard')} className="btn-teal inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-white font-semibold text-sm">

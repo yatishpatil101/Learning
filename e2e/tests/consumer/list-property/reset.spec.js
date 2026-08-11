@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876543210';
@@ -40,8 +41,7 @@ test('Start over asks for confirmation and can be cancelled without losing data'
 });
 
 test('Confirming Start over clears the form and the saved draft', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoFlow(page);
 
   await page.locator('input[data-err="carpetArea"]').fill('1050');

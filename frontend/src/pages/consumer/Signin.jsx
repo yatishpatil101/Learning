@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Send, ShieldCheck, Smartphone, Star, Users } from 'lucide-react';
@@ -12,6 +12,7 @@ import { useOtpFlow } from '../../components/auth/useOtpFlow.js';
 import OtpBoxes from '../../components/auth/OtpBoxes.jsx';
 import AuthShell from '../../components/auth/AuthShell.jsx';
 import MobileAuthIntro from '../../components/auth/MobileAuthIntro.jsx';
+import TurnstileWidget from '../../components/security/TurnstileWidget.jsx';
 import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
@@ -105,7 +106,11 @@ export default function Signin() {
   const [remember, setRemember] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [done, setDone] = useState(false);
-  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m }));
+  // Held in a ref, not state: the token changes when Turnstile solves or expires a challenge, and
+  // re-rendering the whole sign-in form on that is both pointless and risky — a re-render can
+  // discard a solved challenge and make the user sit through another.
+  const turnstileRef = useRef(null);
+  const otp = useOtpFlow((m) => sendOtpSvc({ mobile: m, turnstileToken: turnstileRef.current }));
   const [verifyError, setVerifyError] = useState(null);
 
   const sendOtp = () => {
@@ -186,6 +191,11 @@ export default function Signin() {
 
           {!otp.otpSent ? (
             <>
+              {/* Renders nothing unless VITE_TURNSTILE_SITE_KEY is set, so an unconfigured dev or
+                  mock run is untouched. The send button is deliberately NOT gated on a token: the
+                  server decides whether the challenge is required, and gating here would block
+                  sign-in on every deployment that has the widget but not the server flag. */}
+              <TurnstileWidget onToken={(tok) => { turnstileRef.current = tok; }} className="flex justify-center" />
               <button type="button" onClick={sendOtp} disabled={otp.sending} className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2">
                 <Send className="w-4 h-4" /> {otp.sending ? t('auth.sending') : t('auth.sendOtp')}
               </button>

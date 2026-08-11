@@ -60,6 +60,7 @@
   },
   "saved": {
     "badge": "तुमचे आवडते",
+    "categoryLabel": "श्रेणी",
     "title": "जतन केलेल्या मालमत्ता",
     "summaryPrefix": "तुमच्याकडे",
     "summaryCount_one": "जतन केलेली वस्तू आहे",

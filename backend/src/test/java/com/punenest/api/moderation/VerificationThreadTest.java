@@ -42,6 +42,8 @@ import org.springframework.http.MediaType;
 @DisplayName("Verification thread — participant-or-staff, and both halves of a decision")
 class VerificationThreadTest extends AbstractApiTest {
 
+        private static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
+
     @Autowired
     UserRepository users;
     @Autowired
@@ -152,6 +154,28 @@ class VerificationThreadTest extends AbstractApiTest {
         mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, ownerToken))
                 .andExpect(jsonPath("$.messages[0].read").value(false))
                 .andExpect(jsonPath("$.messages[1].read").value(true));
+    }
+
+    @Test
+    @DisplayName("staff can list verification case files; owner cannot")
+    void verificationQueueIsStaffScopedAndPaged() throws Exception {
+        User owner = user("9820000510", Roles.Wire.OWNER);
+        User staff = user("9820000511", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get(ADMIN_PROPERTY_REVIEWS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(listing.getId().toString()))
+                .andExpect(jsonPath("$.content[0].status").value("pending"));
+
+        mvc.perform(get(ADMIN_PROPERTY_REVIEWS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

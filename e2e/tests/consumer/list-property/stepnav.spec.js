@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 const MOBILE = '9876543210';
@@ -40,8 +41,7 @@ test('StepNav shows the three labelled phases', async ({ page }) => {
 });
 
 test('completed steps are clickable and navigate back', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
   await gotoFlow(page);
   await advanceToStep2(page);
 

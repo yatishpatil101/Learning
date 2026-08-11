@@ -96,6 +96,7 @@
     "reviewsCount_one": "{{count}} समीक्षा",
     "reviewsCount_other": "{{count}} समीक्षाएँ",
     "reviewsNone": "अभी कोई समीक्षा नहीं",
+    "reviewsUnavailable": "रेटिंग अभी उपलब्ध नहीं",
     "reviewPrompt": "यहाँ रहते हैं या रह चुके हैं? <1>{{name}}</1> को रेटिंग दें",
     "reviewPlaceholder": "कनेक्टिविटी, सुरक्षा, पानी, पैसे की क़ीमत…",
     "reviewPost": "समीक्षा पोस्ट करें",

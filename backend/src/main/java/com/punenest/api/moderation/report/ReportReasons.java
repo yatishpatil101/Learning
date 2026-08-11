@@ -1,6 +1,8 @@
 package com.punenest.api.moderation.report;
 
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * The report-reason vocabulary — <strong>three</strong> vocabularies, one per target type.
@@ -70,4 +72,23 @@ public final class ReportReasons {
     public static boolean isValid(String targetType, String reason) {
         return forTarget(targetType).contains(reason);
     }
+
+    /**
+     * True if {@code reason} is a recognised complaint about <em>anything</em>.
+     *
+     * <p>Exists for the queue's reason filter, which is the one place the pair rule cannot be
+     * applied: a moderator may filter by reason without also filtering by target type, and at that
+     * point there is no second column to validate against. The union is the strongest statement
+     * still available, and it is worth making — without it a mistyped {@code ?reason=} returns an
+     * empty page that is indistinguishable from a clean queue, which is exactly the reading a
+     * moderator must not be given.
+     */
+    public static boolean isKnown(String reason) {
+        return ANY.contains(reason);
+    }
+
+    /** Every reason code the platform recognises, across all four target types. */
+    private static final Set<String> ANY = Stream.of(FOR_PROPERTY, FOR_USER, FOR_POST, FOR_REVIEW)
+            .flatMap(Set::stream)
+            .collect(Collectors.toUnmodifiableSet());
 }

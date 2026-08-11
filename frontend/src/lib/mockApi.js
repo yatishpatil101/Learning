@@ -8,6 +8,7 @@
 // Core: only the PUBLIC primitives are re-exported (rawLoad/rawSave/delay/KEY/
 // currentStaffInfo stay internal to the mockApi/ tree).
 export {
+  ensureMockDb,
   resetDb,
   rawDb,
   saveDb,

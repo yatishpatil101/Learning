@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { trackErrors } from '../../../helpers/console.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -22,16 +23,40 @@ const BUY_TYPES = [
   ['Farm Land', 'farmland'],
 ];
 
-function trackErrors(page) {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  return errors;
-}
-
 async function openHomeType(page) {
   await page.goto(`${BASE}/`);
   await page.getByRole('button', { name: 'Buy', exact: true }).click();
   await page.getByRole('button', { name: 'Type', exact: true }).click();
+}
+
+/* A listing shaped exactly as the "Post a property" flow persists it. Note
+   `img: ''` / `image: ''` / `gallery: []` — a seller can publish before the
+   photos are uploaded, so a photoless row is ordinary stock, not a broken one. */
+const postedListing = (over) => ({
+  bhk: '', bhkNum: 0, bath: 0, locality: 'Baner', localitySlug: 'baner',
+  loc: 'Baner, Pune', society: '', deal: 'buy', owner: 'Seed Owner', ownerMobile: '9000000000',
+  status: 'approved', statusClass: 'pill-approved', real: true, featured: false, views: 0,
+  enquiries: 0, photoCount: 0, furnishing: 'unfurnished', facing: '', floor: 0, age: '',
+  construction: 'ready', amenities: [], img: '', image: '', gallery: [], desc: '',
+  deposit: 0, pets: false, food: 'any', rera: '', lockin: '0', notice: '1', available: '',
+  tenants: '', createdAt: Date.now(), ...over,
+});
+
+/* Build a complete DB (the app's real seed + the given rows) and inject it into
+   localStorage BEFORE any app JS runs. Because the store is already populated,
+   the mock API's hydration path returns early and never runs the async
+   /api/__persist fetch that could otherwise race and wipe our seed. Fully
+   deterministic: one navigation, no reload. */
+async function seedListings(page, rows) {
+  const db = { ...SEED_DB, listings: [...rows, ...(SEED_DB.listings || [])] };
+  await page.addInitScript(
+    ([key, value]) => {
+      localStorage.setItem(key, value);
+      // Skip the concierge demo seeder so it can't mutate/persist our store.
+      localStorage.setItem('puneNest_conciergeSeeded_v1', '1');
+    },
+    ['puneNestDB_v5', JSON.stringify(db)],
+  );
 }
 
 test('home Buy search offers all six posted property types', async ({ page }) => {
@@ -93,39 +118,13 @@ test('listings filter renders the full canonical type set for Buy and Rent', asy
 test('posted properties (Independent House / Open Plot / Farm Land) are searchable', async ({ page }) => {
   const errors = trackErrors(page);
 
-  // Build a complete DB (the app's real seed + three approved listings shaped
-  // exactly as the "Post a property" flow persists them) and inject it into
-  // localStorage BEFORE any app JS runs. Because the store is already populated,
-  // the mock API's hydration path returns early and never runs the async
-  // /api/__persist fetch that could otherwise race and wipe our seed. Fully
-  // deterministic: one navigation, no reload.
-  const base = (over) => ({
-    bhk: '', bhkNum: 0, bath: 0, locality: 'Baner', localitySlug: 'baner',
-    loc: 'Baner, Pune', society: '', deal: 'buy', owner: 'Seed Owner', ownerMobile: '9000000000',
-    status: 'approved', statusClass: 'pill-approved', real: true, featured: false, views: 0,
-    enquiries: 0, photoCount: 0, furnishing: 'unfurnished', facing: '', floor: 0, age: '',
-    construction: 'ready', amenities: [], img: '', image: '', gallery: [], desc: '',
-    deposit: 0, pets: false, food: 'any', rera: '', lockin: '0', notice: '1', available: '',
-    tenants: '', createdAt: Date.now(), ...over,
-  });
-  const db = { ...SEED_DB };
   // featured:true only pins these to page 1 under the real relevance sort (it has no
   // visual effect on tiles) so the type-filter assertions are deterministic.
-  db.listings = [
-    base({ id: 'SEED-house', title: '3 BHK Independent House in Baner', type: 'Independent House', bhk: '3 BHK', bhkNum: 3, bath: 2, area: 1500, price: 8000000, priceStr: '₹80 Lacs', viewUrl: '/property/SEED-house', featured: true }),
-    base({ id: 'SEED-plot', title: 'Open Plot in Baner', type: 'Open Plot', area: 2400, price: 4500000, priceStr: '₹45 Lacs', viewUrl: '/property/SEED-plot', featured: true }),
-    base({ id: 'SEED-farm', title: 'Farm Land in Baner', type: 'Farm Land', area: 5000, price: 3000000, priceStr: '₹30 Lacs', viewUrl: '/property/SEED-farm', featured: true }),
-    ...(SEED_DB.listings || []),
-  ];
-
-  await page.addInitScript(
-    ([key, value]) => {
-      localStorage.setItem(key, value);
-      // Skip the concierge demo seeder so it can't mutate/persist our store.
-      localStorage.setItem('puneNest_conciergeSeeded_v1', '1');
-    },
-    ['puneNestDB_v5', JSON.stringify(db)],
-  );
+  await seedListings(page, [
+    postedListing({ id: 'SEED-house', title: '3 BHK Independent House in Baner', type: 'Independent House', bhk: '3 BHK', bhkNum: 3, bath: 2, area: 1500, price: 8000000, priceStr: '₹80 Lacs', viewUrl: '/property/SEED-house', featured: true }),
+    postedListing({ id: 'SEED-plot', title: 'Open Plot in Baner', type: 'Open Plot', area: 2400, price: 4500000, priceStr: '₹45 Lacs', viewUrl: '/property/SEED-plot', featured: true }),
+    postedListing({ id: 'SEED-farm', title: 'Farm Land in Baner', type: 'Farm Land', area: 5000, price: 3000000, priceStr: '₹30 Lacs', viewUrl: '/property/SEED-farm', featured: true }),
+  ]);
 
   await page.goto(`${BASE}/listings?deal=buy`);
   const filters = page.locator('aside:has(h3:has-text("Filters"))');
@@ -140,6 +139,29 @@ test('posted properties (Independent House / Open Plot / Farm Land) are searchab
   await expect(page.locator('a[href="/property/SEED-house"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('a[href="/property/SEED-plot"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('a[href="/property/SEED-farm"]')).toBeVisible({ timeout: 15000 });
+  expect(errors).toHaveLength(0);
+});
+
+/* D188. `<img src="">` is not an image-less image: the browser resolves the empty
+   string against the document URL and re-downloads the whole HTML page as a photo,
+   once per card. The console assertion above catches React's warning; this one
+   catches the DOM that causes it, so the fix can't regress into a silent one
+   (e.g. someone suppressing the warning while leaving the request in place). */
+test('a photoless listing renders no img at all, not an empty src', async ({ page }) => {
+  const errors = trackErrors(page);
+  await seedListings(page, [
+    postedListing({ id: 'SEED-nophoto', title: 'Photoless Flat in Baner', type: 'Flat', bhk: '2 BHK', bhkNum: 2, bath: 2, area: 900, price: 6500000, priceStr: '₹65 Lacs', viewUrl: '/property/SEED-nophoto', featured: true }),
+  ]);
+
+  await page.goto(`${BASE}/listings?deal=buy`);
+  const card = page.locator('a[href="/property/SEED-nophoto"]');
+  await expect(card).toBeVisible({ timeout: 15000 });
+
+  // The photoless tile keeps its image box, but as a plain element with no source.
+  await expect(card.locator('.img-empty')).toBeVisible();
+  await expect(card.locator('img')).toHaveCount(0);
+  // Nothing anywhere on the results page asks the browser for "".
+  await expect(page.locator('img[src=""]')).toHaveCount(0);
   expect(errors).toHaveLength(0);
 });
 

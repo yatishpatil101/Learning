@@ -79,9 +79,11 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
     }
 
     /**
-     * The ruling of this endpoint. A price is a foundation field: the same edit through
-     * {@code /me/listings} would revert the listing to {@code pending}. Through this one it must not,
-     * or a moderator fixing a listing takes it off the site.
+     * The ruling of this endpoint. {@code price} and {@code bhk} are both foundation fields: the same
+     * edit through {@code /me/listings} costs the owner a re-review — {@code bhk} takes the listing
+     * off search, {@code price} queues a stays-live re-check (Q14). Through this one it must cost
+     * neither, or a moderator fixing a listing takes it off the site, or files themselves a ticket
+     * to re-check the correction they just made.
      */
     @Test
     @DisplayName("a moderator's edit does NOT push an approved listing back into the queue")
@@ -93,16 +95,22 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
         mvc.perform(patch(Routes.Moderation.PROPERTY_ADMIN_UPDATE, listing.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"price\":26000,\"title\":\"2 BHK in Baner (corrected)\"}"))
+                        .content("{\"price\":26000,\"bhk\":3,"
+                                + "\"title\":\"2 BHK in Baner (corrected)\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.price").value(26000))
                 .andExpect(jsonPath("$.title").value("2 BHK in Baner (corrected)"))
-                .andExpect(jsonPath("$.status").value(PropertyStatus.APPROVED));
+                .andExpect(jsonPath("$.status").value(PropertyStatus.APPROVED))
+                .andExpect(jsonPath("$.recheckPending").value(false));
     }
 
-    /** The contrast, proved rather than asserted in prose: the owner's own path still reverts. */
+    /**
+     * The contrast, proved rather than asserted in prose: the owner's own path still charges for the
+     * identical body. {@code bhk} is what it fundamentally is, so that half goes off search — and
+     * because the revert supersedes the re-check, the price change rides along with it.
+     */
     @Test
-    @DisplayName("the owner's own edit of the same field still reverts to pending")
+    @DisplayName("the owner's own edit of the same fields still costs a re-review")
     void ownerEditStillReverts() throws Exception {
         User owner = user("9871110003", Roles.Wire.OWNER, "Owner");
         Property listing = approvedListing(owner);
@@ -110,7 +118,7 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
         mvc.perform(patch(Routes.MeListings.BY_ID, listing.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"price\":26000}"))
+                        .content("{\"price\":26000,\"bhk\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PropertyStatus.PENDING));
     }

@@ -33,13 +33,22 @@
  * route family each. So the critical path grows with every feature *regardless* of
  * how well the feature is split, and this gate will keep going red on work that did
  * nothing wrong. That is the thing to fix — not the number below.
+ *
+ * Lowered 595 → 540 after debt wave 10 measured 536.3 KB. The gap it was carrying was
+ * slack from a raise that anticipated growth which then did not arrive, and slack is
+ * how a ratchet quietly stops ratcheting: a 59 KB cushion is eleven percent of the
+ * critical path, enough to absorb an entire eager namespace without ever going red.
+ * The headroom is now ~4 KB, which is deliberately uncomfortable — the next eager
+ * import is *supposed* to have to argue for itself. If this fails on work that did
+ * nothing wrong, the fix is to make a namespace lazy (D129), not to raise the number
+ * again; raising it is only honest when the app genuinely needs to be bigger.
  */
 import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Current ceiling (KB gzip). TARGET is where §2 of the mobile review takes us. */
-const BUDGET_KB = 595;
+const BUDGET_KB = 540;
 const TARGET_KB = 180;
 
 const DIST = join(process.cwd(), 'dist');

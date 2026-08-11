@@ -35,6 +35,7 @@
     "reviewsTitle": "Reviews & Ratings",
     "reviewsSub": "From buyers & tenants who dealt with this owner directly.",
     "noReviews": "No reviews yet",
+    "ratingUnavailable": "Rating unavailable right now",
     "reviewsSummary_one": "{{count}} review",
     "reviewsSummary_other": "{{count}} reviews",
     "rateExperience": "Rate your experience with this owner",

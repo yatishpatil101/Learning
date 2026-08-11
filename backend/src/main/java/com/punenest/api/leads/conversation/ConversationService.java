@@ -5,6 +5,7 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
@@ -17,11 +18,18 @@ import com.punenest.api.security.Roles;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.LongAdder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * In-app messaging between two people.
@@ -50,8 +58,25 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ConversationService {
 
+    private static final Logger log = LoggerFactory.getLogger(ConversationService.class);
+
     /** Notification body cap. Two rendered lines in the inbox; anything more is thread content. */
     private static final int PREVIEW_CHARS = 140;
+
+    /**
+     * The two V22 partial unique indexes that make a second thread for one relationship
+     * unrepresentable — one for listing-scoped threads, one for general ones.
+     *
+     * <p>Named here so their violation can be told apart from a foreign key on {@code property_id},
+     * a not-null, or the {@code conversations_pair_ordered} CHECK. Only these two mean "somebody
+     * else opened this exact thread a moment ago", which is the one case {@link #start} can answer
+     * by handing over the winner's row; everything else is a defect and goes up untouched (D170).
+     */
+    private static final String PAIR_PROPERTY_INDEX = "uq_conversations_pair_property";
+    private static final String PAIR_GENERAL_INDEX = "uq_conversations_pair_general";
+
+    /** Counts D54 retries so a test can tell one from an accidental serialisation. */
+    private final LongAdder racesRetried = new LongAdder();
 
     private final ConversationRepository conversations;
     private final ConversationMessageRepository messages;
@@ -62,11 +87,29 @@ public class ConversationService {
     private final Notifier notifier;
     private final AuditService audit;
 
+    /**
+     * Runs the attempt and, when it loses the race, the re-read — see {@link #start} for why those
+     * cannot be one transaction.
+     *
+     * <p>Built here rather than injected, and used rather than a second {@code @Transactional}
+     * method on this bean, for the reason spelled out on {@code SubscriptionService}: a self-call
+     * bypasses the proxy and quietly collapses the two boundaries back into one — which is exactly
+     * the bug, made invisible.
+     *
+     * <p>Propagation stays {@code REQUIRED}. In production nothing is in flight when the endpoint is
+     * entered, so each block is genuinely its own transaction; under {@code AbstractApiTest}'s
+     * class-level {@code @Transactional} it joins the test's transaction instead, which keeps
+     * per-test rollback working. Joining costs that harness nothing, because a rolling-back harness
+     * cannot stage a commit-time race in the first place — the race is covered by
+     * {@code ConversationStartRaceTest}, which commits for real.
+     */
+    private final TransactionTemplate transactions;
+
     public ConversationService(ConversationRepository conversations,
             ConversationMessageRepository messages, ConversationMapper mapper,
             UserRepository users, PropertyRepository properties,
             ContactRequestRepository contactRequests, Notifier notifier,
-            AuditService audit) {
+            AuditService audit, PlatformTransactionManager transactionManager) {
         this.conversations = conversations;
         this.messages = messages;
         this.mapper = mapper;
@@ -75,6 +118,7 @@ public class ConversationService {
         this.contactRequests = contactRequests;
         this.notifier = notifier;
         this.audit = audit;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -109,9 +153,99 @@ public class ConversationService {
      * <p>Duplicate prevention is ultimately the database's job, not this method's: the V22 unique
      * indexes make the second row unrepresentable, so two concurrent first-messages produce one
      * thread and one constraint violation rather than two threads.
+     *
+     * <p><strong>The loser of that race is handed the winner's thread, not an error</strong> (D54).
+     * Both callers looked, both saw nothing, both inserted; only one commits. "Find-or-create"
+     * promised the second one a thread, and it exists — refusing at that point would be the API
+     * failing on a request it had already decided was legal, for a reason the client cannot act on
+     * beyond retrying the identical call.
+     *
+     * <p><strong>Why the re-read is a second transaction and not a catch block.</strong> The obvious
+     * fix — wrap {@code saveAndFlush}, catch the violation, look the row up again — does not work in
+     * JPA. A constraint violation at flush leaves the persistence context in an undefined state and
+     * marks the transaction rollback-only, so every subsequent read on it is either stale, refused,
+     * or fails again at commit with an {@code UnexpectedRollbackException}: the caller would get a
+     * 500 in place of the 409, which is worse than what was there before. The failed attempt has to
+     * <em>end</em> — roll back, discard its persistence context, release its row locks — before
+     * anything can see the winner's committed row. That is what the two
+     * {@link TransactionTemplate#execute} calls below buy, and the only reason this method is not
+     * itself {@code @Transactional}: an ambient transaction here would swallow the first one's
+     * rollback and put us straight back in the doomed context.
+     *
+     * <p>The retry is the same call again rather than a bespoke read path. Second time round the
+     * probe finds the winner's row and takes the existing-thread branch, which is precisely the
+     * answer a client one millisecond slower would have got — including {@code created=false}, so
+     * the loser is told 200 rather than 201 and nothing has to reason about "created, sort of". It
+     * runs once: if the insert loses again the violation propagates and
+     * {@code GlobalExceptionHandler} answers the truthful 409 this used to answer always.
+     *
+     * <p><strong>The guard on {@code isActualTransactionActive} is what keeps that reasoning
+     * true.</strong> The template propagates {@code REQUIRED}, so if a caller ever wraps this in
+     * its own transaction both {@code execute} calls <em>join</em> that one instead of opening
+     * their own — the first attempt's failure then only marks the outer transaction rollback-only,
+     * nothing is discarded, and the retry re-enters the very persistence context the paragraph
+     * above explains cannot be reused. The result would be an {@code UnexpectedRollbackException}
+     * at the outer commit: a 500 in place of the 409, which is strictly worse than the bug this
+     * closes. There is no such caller today ({@code ConversationsController} is not transactional),
+     * and the guard is here so that adding one degrades to the old truthful 409 rather than to a
+     * 500 nobody would connect back to this method.
      */
-    @Transactional
     public Started start(AuthPrincipal caller, ConversationCreate body) {
+        try {
+            return transactions.execute(tx -> openOrResume(caller, body));
+        } catch (DataIntegrityViolationException raced) {
+            if (!isPairRace(raced) || TransactionSynchronizationManager.isActualTransactionActive()) {
+                // Not our collision, or we are inside somebody else's transaction and a retry
+                // cannot work. Either way the honest answer is the one the client already had.
+                throw raced;
+            }
+            log.info("Concurrent first message lost the conversation find-or-create race for {};"
+                    + " handing over the thread the winner created", caller.userId());
+            racesRetried.increment();
+            return transactions.execute(tx -> openOrResume(caller, body));
+        }
+    }
+
+    /**
+     * How many times the D54 retry has actually run.
+     *
+     * <p>Exists because the race test cannot otherwise tell a retry from an accidental
+     * serialisation — if the winner happens to commit before the loser's probe, the loser takes the
+     * existing-thread branch and the observable result is byte-identical to a successful retry. A
+     * test that cannot tell those apart silently stops testing this method the first time the
+     * timing shifts.
+     */
+    long racesRetried() {
+        return racesRetried.sum();
+    }
+
+    /**
+     * Whether the write collided with one of {@link #PAIR_PROPERTY_INDEX} or
+     * {@link #PAIR_GENERAL_INDEX} — the only violations a re-read can answer.
+     *
+     * <p>Anything else (a foreign key, a not-null, the ordering CHECK) is a bug in this method, and
+     * retrying it would only produce the identical failure twice while presenting the second one as
+     * a normal result. Same argument as {@code RentService}: mistaking someone else's constraint for
+     * ours hides a defect behind a reassuring answer.
+     */
+    private static boolean isPairRace(DataIntegrityViolationException violation) {
+        return ConstraintViolations.isOn(violation, PAIR_PROPERTY_INDEX)
+                || ConstraintViolations.isOn(violation, PAIR_GENERAL_INDEX);
+    }
+
+    /**
+     * One attempt at find-or-create, inside one transaction.
+     *
+     * <p>Called twice at most, and safe to be — but the invariant that makes it safe is narrower
+     * than "it rolls back". The conversation insert must stay the <strong>first</strong> write in
+     * this method. It is what collides, so a losing attempt never reaches {@code send()} or the
+     * audit record, and the retry therefore sends exactly one message and writes exactly one audit
+     * row. Rollback alone would not be enough to say that: {@code AuditService.record} is
+     * {@code REQUIRES_NEW}, so an audit row written <em>before</em> the collision would commit and
+     * survive, leaving two rows for one thread and one of them naming a conversation id that never
+     * existed. Reorder the writes and that becomes real.
+     */
+    private Started openOrResume(AuthPrincipal caller, ConversationCreate body) {
         User counterparty = users.findByMobileAndArchivedFalse(
                         MobileMask.normalise(body.counterpartyMobile()))
                 .filter(u -> !u.getId().equals(caller.userId()))

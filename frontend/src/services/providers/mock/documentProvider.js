@@ -85,3 +85,17 @@ export async function listDocRequests(mobile) {
 export async function respondDocRequest(mobile, reqId, decision) {
   return toRequestVm(respondRequest(mobile, reqId, decision));
 }
+
+/**
+ * Read a granted share by token — present so the seam's two providers expose the same operations,
+ * and empty because the mock has no server to mint a token.
+ *
+ * `lib/data/documents.js` shares by owner-mobile + request id (`/view-documents?o=&r=`), which is a
+ * cross-user `localStorage` construct with no token in it; the share token only exists once a real
+ * backend grants a request. So offline this resolves to no documents and the page falls to its
+ * "nothing has been shared with you" empty state — the truthful answer for a token this store
+ * cannot know anything about.
+ */
+export async function listSharedDocuments() {
+  return [];
+}

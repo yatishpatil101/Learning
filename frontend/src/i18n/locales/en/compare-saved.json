@@ -60,6 +60,7 @@
   },
   "saved": {
     "badge": "Your favourites",
+    "categoryLabel": "Category",
     "title": "Saved properties",
     "summaryPrefix": "You have",
     "summaryCount_one": "saved item",

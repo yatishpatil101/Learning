@@ -103,7 +103,7 @@ export default function Navbar() {
 
   // Shared account-menu building blocks, reused by the desktop dropdown (lg+) and
   // the mobile drawer (below lg) so both surfaces stay in sync.
-  const rowCls = 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-200 hover:bg-white/5 transition-all';
+  const rowCls = 'flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl text-sm text-gray-200 hover:bg-white/5 transition-all';
   const acctIdentity = (
     <div className="flex items-center gap-3 px-1 min-w-0">
       <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-sm font-bold text-white shrink-0">{initial(user)}</span>
@@ -147,7 +147,7 @@ export default function Navbar() {
     </Link>
   );
   const acctLogout = (close) => (
-    <button onClick={() => { close(); logout(); }} className="flex w-full items-center gap-3 text-left px-3 py-2.5 rounded-xl text-sm text-rose-300 hover:bg-white/5"><Icon name="log-out" className="w-4 h-4" /> Log out</button>
+    <button onClick={() => { close(); logout(); }} className="flex w-full items-center gap-3 min-h-[44px] text-left px-3 py-2.5 rounded-xl text-sm text-rose-300 hover:bg-white/5"><Icon name="log-out" className="w-4 h-4" /> Log out</button>
   );
 
   useEffect(() => {
@@ -398,6 +398,16 @@ export default function Navbar() {
         ref={acctDrawerRef}
         className={'lg:hidden fixed inset-0 z-[80] transition-opacity duration-300 ' + (acctOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')}
         aria-hidden={!acctOpen}
+        /* The drawer's header (identity + close) and footer (log out) mount
+           unconditionally so the panel keeps its shape through the slide-out
+           transition — only the scrolling body is gated on `acctOpen`. That left
+           real buttons focusable inside an `aria-hidden` subtree while the drawer
+           was shut: `pointer-events-none` stops the mouse but not the Tab key, so
+           a keyboard user landed on an invisible "Log out". `inert` removes the
+           whole subtree from the tab order and the a11y tree without unmounting
+           it. Surfaced by the /dashboard tap-target sweep, which could measure a
+           control that should not have been reachable at all. */
+        inert={!acctOpen}
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setAcctOpen(false)} />
         <aside

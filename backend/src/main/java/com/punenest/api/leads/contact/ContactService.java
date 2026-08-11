@@ -7,11 +7,13 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.error.VerificationRequiredException;
 import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.Notifier;
+import com.punenest.api.common.trust.VerifiedTenantLookup;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -52,14 +54,17 @@ public class ContactService {
     private final UserRepository users;
     private final ContactMapper contactMapper;
     private final Notifier notifier;
+    private final VerifiedTenantLookup verifiedTenants;
 
     public ContactService(ContactRequestRepository contactRequests, PropertyRepository properties,
-            UserRepository users, ContactMapper contactMapper, Notifier notifier) {
+            UserRepository users, ContactMapper contactMapper, Notifier notifier,
+            VerifiedTenantLookup verifiedTenants) {
         this.contactRequests = contactRequests;
         this.properties = properties;
         this.users = users;
         this.contactMapper = contactMapper;
         this.notifier = notifier;
+        this.verifiedTenants = verifiedTenants;
     }
 
     /**
@@ -148,8 +153,14 @@ public class ContactService {
                 .stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
+        // One extra query for the whole page, not one per row — same batching discipline as the
+        // requester fetch above. The badge has to be carried on the party because the mobile the
+        // owner receives is masked, so the client holds the key to this answer but not one that
+        // works (D114/D185).
+        Set<UUID> verifiedIds = verifiedTenants.verifiedAmong(requesters.keySet());
+
         return rows.map(row -> contactMapper.toResponse(row, requesters.get(row.getRequesterId()),
-                visibilityOf(row.getStatus())));
+                visibilityOf(row.getStatus()), verifiedIds));
     }
 
     /**

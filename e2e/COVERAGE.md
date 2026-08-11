@@ -7,16 +7,19 @@ Playwright specs in `tests/`. Status legend:
 - 🟡 **Partial** — touched incidentally or only one surface; needs a dedicated/deeper spec.
 - ❌ **Missing** — no spec; **coverage gap to close**.
 
-Suite size: **190 spec files**, grouped audience → feature area under `tests/`:
+Suite size: **205 spec files**, grouped audience → feature area under `tests/`:
 
 | Folder | Specs | | Folder | Specs |
 |---|---:|---|---|---:|
-| `consumer/flatmates` | 28 | | `consumer/property` | 14 |
-| `mobile` | 24 | | `consumer/services` | 12 |
-| `admin` | 21 | | `ops` | 8 |
-| `consumer/account` | 19 | | `consumer/society` | 7 |
-| `consumer/search` | 18 | | `consumer/home` | 6 |
-| `consumer/list-property` | 17 | | `platform` (+`auth`, `help`) | 17 |
+| `consumer/flatmates` | 30 | | `consumer/property` | 14 |
+| `mobile` | 25 | | `consumer/services` | 12 |
+| `admin` | 22 | | `ops` | 10 |
+| `consumer/account` | 21 | | `consumer/society` | 7 |
+| `consumer/search` | 19 | | `consumer/home` | 6 |
+| `platform` (+`auth`, `help`) | 19 | | `consumer/list-property` | 17 |
+
+The three loose specs at `tests/` and `tests/consumer/` are cross-cutting and belong to no
+one area. Counts are re-derived from the tree, not maintained by hand.
 
 Spec citations below are paths under `tests/`, minus the `.spec.js`.
 `scripts/check-coverage-citations.mjs` fails if one of them stops existing — a stale
@@ -59,9 +62,18 @@ cross-viewport spec:**
 - *Unpainted tap targets.* Controls carrying `.tap-extend` are drawn smaller than 44px
   on purpose and restore the touch floor with a transparent 44px `::before`
   (`index.css`). `boundingBox()` measures the painted box, so asserting on it demands a
-  44px *pill* and fails a compliant control. `mobile/tap-targets.spec.js` exempts
-  `.tap-extend` from its sweep for exactly this reason; measure the pseudo-element
-  instead (see `mobile/home-taps.spec.js`).
+  44px *pill* and fails a compliant control. `mobile/tap-targets.spec.js` used to
+  exempt `.tap-extend` wholesale; it now **unions the element box with its
+  `::before`/`::after` geometry** instead, which is strictly stronger — deleting the
+  pseudo-element from `index.css` fails the sweep, where the class name alone used to
+  buy a pass. A single-element spec can still take the cheap route (see
+  `mobile/home-taps.spec.js`), but never assert on `boundingBox()` alone.
+- *Sweeps that measure a blank page.* Until D19x, `tap-targets.spec.js` swept at
+  `networkidle`, which on this app fires ~350ms **before** React paints — six of seven
+  routes were being measured with `innerText.length === 0` and passing vacuously. The
+  sweep now gates on `appReady()` plus a `MIN_CANDIDATES` floor that is asserted again
+  at measurement time. Any new sweep-style spec must do the same: a sweep that can
+  silently measure an empty document is worse than no sweep.
 
 ---
 
@@ -71,8 +83,12 @@ cross-viewport spec:**
 |---|---|---|---|
 | `/` Home (search, featured, popular, property-types, flatmates rail) | search-listings | consumer/home/entity-search, consumer/home/featured, consumer/home/popular-places, consumer/home/property-types, consumer/home/search-combobox, consumer/home/flatmates-rail | ✅ |
 | `/help` help centre (+ `/hi/help`, `/mr/help`, `/docs`, `/help-center`) | — | platform/help/centre, platform/help/i18n-urls, platform/help/article-feedback | ✅ |
+| Footer help links on a phone stay tappable and keep the `/hi`/`/mr` language prefix even with the cookie banner showing; the page reserves the banner's height instead of letting fixed bottom chrome cover the footer (D189) | — | platform/help/i18n-urls | ✅ |
 | `/listings` search + filters + map | search-listings | consumer/search/listings-locality-filter(-registry), consumer/search/type-aware-filters, consumer/search/search-property-types, consumer/search/commercial-type-filter, consumer/search/filter-slider-manual-entry, `consumer/search/near-a-place-*`, consumer/search/location-recovery, consumer/search/qa-location-search, consumer/search/map-popup, consumer/search/map-panel-contact, consumer/search/listings-responsive-controls | ✅ |
+| Photoless property cards hit during the seeded search-property-types journey render **no `<img src="">` at all**, so `image: ''` rows stay visible without the browser re-requesting the whole page or logging React warnings (D188) | search-listings | consumer/search/search-property-types | ✅ |
 | `/property/:id` detail | consumer/property/detail | consumer/property/detail, consumer/property/detail-improvements, consumer/property/detail-sale, consumer/property/infotips, consumer/property/chat-owner, consumer/property/dedup, consumer/property/dup-modal | ✅ |
+| The rating block's average, review count, star distribution and per-aspect averages come from the seam's `getPropertyReviewSummary` (`GET /properties/{propId}/reviews/summary`, D79) rather than a `reduce` over the rendered list; `categoryAverages` stays sparse, per-aspect row order is the mapper's (the server sorts `order by c.key`, the mock inserts in product order), and "% would recommend" — which has no server aggregate — is still derived from the list | consumer/property/detail | consumer/property/reviews-summary | 🟡 |
+| A failed summary read leaves the reviews themselves rendered — the section draws the aggregate grid only when the summary arrived, so losing one of the two reads shows cards without stars, and names the missing rating, instead of claiming the listing has no reviews. **Unreachable in mock mode**: both providers read the same localStorage rows, so neither read is a request and `page.route(...).abort()` intercepts nothing — so this is asserted live, aborting only `/reviews/summary` and checking the list read still returned 200 with rows in it before asserting the cards rendered, `reviews-aggregate` is absent, and `property-rating-unavailable` is shown | consumer/property/detail | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | Contact reveal + badge-not-gate | contact-gate-leads | contact-owner-gate, contact-badge-not-gate | ✅ |
 | Owner number is never revealed to a buyer — the gate hides it regardless of the owner's `hide_number` pref; approval unlocks in-app chat, not digits (D5, global policy) | contact-gate-leads | contact-identity-masking ("hides the owner number for a buyer regardless of the owner pref") | ✅ |
 | Contact grant is per listing, not per owner | contact-gate-leads | owner-profile ("routes contact through a listing") | ✅ |
@@ -102,23 +118,44 @@ cross-viewport spec:**
 | The owner *does* get the handoff the policy keeps: the visitor's name renders and the `wa.me` link carries their number — the tab reads the seam's `visitorName`/`visitorMobile`, not the never-populated `v.customer`/`v.mobile` | consumer/property/detail | consumer/property/scheduled-visits ("the owner sees the visitor by name and can WhatsApp them") | ✅ |
 | Flatmate seeker post can be taken down ("Mark filled"/"Delete") to relieve the live-post cap, soft-archived via `DELETE /flatmates/posts/{id}` (D71) | flatmates | consumer/flatmates/guardrails | ✅ |
 | Flatmate posts, rooms and groups start at `mod_status = pending` and are invisible to everyone but their author until a moderator approves; the author's banner says "in review" instead of "live", and public feeds filter on a whitelist so a new state fails closed (D72) | flatmates | consumer/flatmates/moderate-before-public | ✅ |
+| All three interest doors (seeker post, room, group) go through the seam rather than a local flag, so the ask reaches the provider and is visible to the host (D181) | flatmates | consumer/flatmates/interest-api ("a first room enquiry reaches the provider and the card flips to sent") | ✅ |
+| A repeat ask is the API's benign `already_interested` 409 and reads as information, never a red "something went wrong" — asserted on the toast's own variant class, because the words are what a future edit changes (D175, D181) | flatmates | consumer/flatmates/interest-api ("the same seeker on a second device is told the owner already holds the enquiry, not that a thread is waiting") | ✅ |
+| `group_full` is a *different* 409 on the same door and gets its own refusal message + error tone; the client no longer pre-checks seats, so a group that fills while the board is on screen is answered rather than mis-labelled (D181) | flatmates | consumer/flatmates/interest-api ("a group that fills while the board is on screen answers group_full, not already-asked") | ✅ |
+| That refusal also *corrects* the stale board it came from, so the card returns as Full rather than re-offering a Join button that can only be refused again (D181) | flatmates | consumer/flatmates/interest-api ("a group that fills while the board is on screen answers group_full, not already-asked") | ✅ |
+| When both conflicts are true at once, seats are answered before duplicates — "you already asked" would imply a seat is still waiting on the host (D181) | flatmates | consumer/flatmates/interest-api ("a seeker who already asked is told the group is full, not that they already asked") | ✅ |
+| An ordinary (non-409) failure rolls the optimistic flip back, so the card never claims a done-state for an ask that did not happen (D181) | flatmates | consumer/flatmates/interest-api ("an ordinary failure rolls the card back instead of leaving it claiming success") | ✅ |
+| The done-state still survives a reload — the page remembers its own asks — but that memory never short-circuits the call, which is what made the 409s unreachable before (D181) | flatmates | consumer/flatmates/prefreeze ("the group done-state survives a reload (dedupe is persisted)"), consumer/flatmates/interest-api | ✅ |
+| That memory is per-signed-in-user, so the next person on a shared browser neither sees the previous one's asks nor is left with no button to press (D181) | flatmates | consumer/flatmates/interest-api ("the next person to sign in on a shared browser does not inherit the first one's asks") | ✅ |
 | `/plans` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/checkout` | plans-billing-refer | plans-billing-checkout | ✅ |
 | `/refer` | plans-billing-refer | refer, referral-rewards | ✅ |
 | `/tenant-profile` | rent-tenancy | tenant-profile | ✅ |
 | `/pay-rent` + tenancy | rent-tenancy | pay-rent, my-rental, consumer/account/tenant-finances | ✅ |
 | `/schedule-visit` | schedule-visit | scheduled-visits | ✅ |
-| `/societies` `/society/:slug` | societies | consumer/society/community(-v2), consumer/society/location, consumer/society/tabs, consumer/society/select, consumer/society/onboarding-p2, community-locality | ✅ |
+| `/societies` `/society/:slug` | societies | consumer/society/community(-v2), consumer/society/location, consumer/society/tabs, consumer/society/select, consumer/society/onboarding-p2, consumer/society/rera-catalogue, community-locality | ✅ |
+| A `/society/:slug` in the RERA catalogue renders *that row's* real name, locality and specifications — the assertion that catches a silently-empty catalogue, because a fabricated page produces plausible values but never the right ones (D129) | societies | consumer/society/rera-catalogue ("a RERA society hub renders that row's real name, locality and specifications") | ✅ |
+| A slug that is **not** in the catalogue renders an honest placeholder — no invented specs, no "Society Verified" badge, no community-estimate rating | societies | consumer/society/rera-catalogue ("an unknown slug renders an honest placeholder, not a confident society") | ✅ |
+| Society reviews are keyed on the **slug** everywhere, so the directory card, the property-page society block and the hub agree on the same review bucket | societies | consumer/society/rera-catalogue ("the societies directory card reports reviews written against the society", "the property page society block reports reviews written against that society", "a review posted on the hub shows up on that society's directory card") | ✅ |
+| A society with **no** reviews says so on its directory card and invents no number to say it with — no zero, no placeholder average, no parenthesised count. The guard against the D101 class of defect, where a fabricated value renders as a confident claim about a building nobody rated | societies | consumer/society/rera-catalogue ("a society with no reviews says so, and invents no number to say it with") | ✅ |
+| The societies directory rating **against the live API** — the card reports the `avgRating`/`reviewCount` the server aggregated in grouped SQL on `GET /societies`, not a reduction of the browser's own store (which a live session never writes, so the old path rendered every society unrated). The fixture is minted by the spec through the review composer, but only when the server's count is still 0, because `ReviewService` allows one review per author per target; the assertion is on the server's re-read, so a green tick cannot mean "the catalogue was empty and the card correctly said nothing" | societies | live-society-rating (`--config=playwright.live.config.js`) | ✅ |
+| When the live rating read **fails**, the directory card says the rating is unavailable rather than claiming the society is unrated — a failed request and a building nobody reviewed are different facts and must not render as the same one | societies | live-society-rating (`--config=playwright.live.config.js`) | ✅ |
+| The society review composer collects the **five aspects the hub draws bars for** — Safety, Maintenance, Management, Amenities, Connectivity — and none of the property vocabulary. The ids are stored keys shared by the composer, the bars and the server's `ReviewCategories.SOCIETY_KEYS`; a rename in any one of them orphans every rating written under the old id | societies | consumer/society/review-aspects ("the society composer offers the five aspects the hub draws bars for, and no others") | ✅ |
+| Rating two aspects moves **exactly** those two bars, in the directions rated, and leaves the other three at the baseline to the decimal. Presence is what the defect already satisfied — every bar rendered a plausible number that was the baseline alone, because the composer sent no categories and the server's vocabulary was the property one for every target — so the assertion is on movement, and the three unmoved bars are what catches an unrated aspect being folded in as a 0 | societies | consumer/society/review-aspects ("rating two aspects moves exactly those two bars, in the directions rated") | ✅ |
+| A review with **no** aspects rated leaves every bar where it was: aspects are optional, the review still counts toward the headline, and an aggregate it contributed nothing to must not move. "Average over everyone" and "average over everyone who answered *this*" look identical until somebody skips a row | societies | consumer/society/review-aspects ("a review with no aspects rated leaves every bar where it was") | ✅ |
+| Per-aspect society ratings **against the live API** — `categoryAverages` comes back keyed on the society vocabulary only (a property key surviving into a society's aggregate is the defect this replaced), and, when the spec wrote the fixture itself, the two rated aspects carry their values while the three skipped ones are **absent rather than 0** | societies | live-society-rating (`--config=playwright.live.config.js`) | ✅ |
 | `/locality/:slug` | societies | consumer/search/locality-intel, consumer/search/locality-select, community-locality | ✅ |
 | `/reels` | (consumer/property/detail) | reels | ✅ |
 | City switcher: propagation, coming-soon waitlist, cancel = no-op, admin offline revert | — | platform/city-propagation | ✅ |
 | `/messages` | contact-gate-leads | messages-inbox, mobile/inbox-saved | ✅ |
-| `/flatmates` | flatmates | `consumer/flatmates/**` (28 specs), consumer/home/flatmates-rail | ✅ |
+| `/flatmates` | flatmates | `consumer/flatmates/**` (30 specs), consumer/home/flatmates-rail | ✅ |
 | Legal pages (privacy/terms/refund/disclaimer) | — | platform/legal-pages, platform/verification-disclaimer | ✅ |
 | `/list-property` wizard | list-property-wizard | `consumer/list-property/**` (17 specs), mobile/wizard-sticky | ✅ |
+| Editing a live listing tells the owner **which** of the two re-review outcomes they are buying: a BHK edit says "comes off search", a price edit says "stays live and searchable" and must not show the off-search copy. The pair is the assertion — the banner previously said "off search" for both, which is a broken promise when the listing quietly went dark and a deterrent against honest price cuts when it did not (Q14, D76). The classification itself is pinned separately, without a browser, by `frontend/scripts/check-listing-foundation.mjs` | list-property-wizard | consumer/list-property/edit-policy (`a Tier-A edit surfaces the re-check summary + status timeline`, `a price edit is re-checked but the banner promises the listing stays live`) | ✅ |
 | `/dashboard` hub | consumer/account/owner-hub | dashboard, consumer/account/action-center, consumer/account/doc-info, consumer/account/owner-finances, mobile/dashboard-hub | ✅ |
 | `/dashboard#documents` vault **through the `document` seam** — owner upload / list / delete round-trip on the mock provider, asserting the async flip did not break the demo surface (D124) | consumer/account/owner-hub | consumer/account/documents-vault | ✅ |
 | `/dashboard#enquiries` document-request inbox **through the `document` seam** — owner sees a buyer's pending request and grants it from the Leads inbox; the read and the grant route through `documentService` (not localStorage), so the dashboard shares the Documents tab's source of truth and a grant reaches the server in http mode (D125 item 2) | consumer/account/owner-hub | consumer/account/doc-requests-grant | ✅ |
+| `/dashboard#enquiries` shows **Serious Buyer** on a pending owner contact request from the row's own `requester.verified` bit, before approval and without asking rentService to infer it from a masked mobile (D185) | consumer/account/owner-hub | consumer/account/contact-request-verified-badge | ✅ |
+| `/dashboard#enquiries` flatmate host inbox reads the `ownerId` bucket, not a mobile-derived one, so a request filed for the signed-in host is visible even when the old mobile-keyed store would have split it (D186) | consumer/account/owner-hub | consumer/flatmates/owner-id-inbox | ✅ |
 | `/dashboard?tab=profile` verify funnel — the modal → DigiLocker mock → **rendered "ID verified" pill** on the Profile & Settings tab, from both entry points (the "Get verified" badge CTA and the identity-header "ID not verified" chip), with the earned badge surviving a reload; the sibling `kyc-growth-levers`/`verify-payoff` specs assert the CTA disappearing and what the badge *buys*, but not the pill actually painting (D21) | trust-and-verification | platform/auth/verify-funnel | ✅ |
 | `/owner-hub` + `/owner-hub/property/:id` passport | consumer/account/owner-hub | owner-hub, consumer/property/passport | ✅ |
 | `/view-documents` secure viewer | consumer/account/owner-hub | view-documents-flow, doc-viewer-scheme | ✅ |
@@ -142,6 +179,11 @@ table rather than a column in the route matrix above.
 | Chrome policy per route (`lib/chrome.js`) — footer/bottom-nav/assistant | mobile/bottom-nav, mobile/inbox-saved, platform/feature-flags | ✅ |
 | **No mobile chrome leaks onto desktop** | platform/desktop-noleak-guardrails | ✅ |
 | 44px tap-target sweep across consumer routes | mobile/tap-targets | ✅ |
+| 44px sweep behind a session (`/dashboard`, `/messages`) and on staff surfaces (`/admin`, `/ops`) | mobile/tap-targets | ✅ |
+| The sweep cannot pass vacuously: it waits on `appReady()` rather than `networkidle`, refuses to report a pass on fewer than `MIN_CANDIDATES` interactive elements, follows the client-side navigation with `waitForURL` before measuring the property page, skips `pointer-events: none` subtrees (closed off-canvas drawers) and measures `::before`/`::after` hit areas rather than trusting the `.tap-extend` class name | mobile/tap-targets | ✅ |
+| 12px computed-font-size floor across 14 routes, signed-out, signed-in and admin | mobile/text-legibility | ✅ |
+| Pull-to-refresh: coarse-pointer gate, past/short-of threshold, sideways-drag carve-out, `data-no-ptr` opt-out, scrolled-away-from-top | mobile/pull-to-refresh | ✅ |
+| Service-landing hero is a responsive `<img>` with `srcset`/`sizes`/`fetchpriority` (3 landings) | consumer/services/hero-image | ✅ |
 | Sliders, carousel dots, admin header icons (the controls the sweep missed) | mobile/touch-targets-p3 | ✅ |
 | Property gallery dot rail ≥ 24px (shipped at 22 despite its own comment) | mobile/touch-targets-p3 | ✅ |
 | Native share: cancelling the OS sheet is not an error | mobile/native-affordances | ✅ |
@@ -187,10 +229,12 @@ stylesheet bug below survived a 178-file suite.
 |---|---|---|---|
 | `/admin` dashboard + RBAC nav | (all) | admin/consolidation, admin/rbac | ✅ |
 | `/admin/properties` verification queue | property-verification | admin/properties, admin/duplicates | ✅ |
+| `/admin/properties` **re-check queue** — the stays-live half of Q14: which fields changed, how long the listing has been live-but-unreviewed, and the pass/reject actions that drain it | property-verification | admin/property-recheck-queue | ✅ |
 | `/admin/properties` **against the live API** — the moderation queue and its decisions | property-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/notifications` **against the live API** — inbox read, seed suppression, mark-all-read, dismiss (`DELETE /notifications/{id}` round-trip, D93) | saved-alerts | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/messages` **against the live API** — inbox read, seed suppression, thread hydration on open, author attribution, reply round trip | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/locality/:slug` reviews **against the live API** — slug-keyed read, no fabricated standing badge | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
+| `/property/:id` reviews **against the live API** — a different controller from the locality one, and the reason `listPropertyReviews` shipped pointing at `/reviews/property/{id}` (not a route; `entityType` is `society\|locality\|owner`) and 404'd on every live read while the page's catch rendered "no reviews yet". Both reads are asserted to arrive at `GET /properties/{uuid}/reviews` and `.../reviews/summary` with a 200, navigating by the **slug** so a page reusing its URL token would 404; the rendered average, review count, five star buckets and sparse per-aspect rows are compared against the *summary* payload rather than a tally of the cards, and the card text against the *list* payload. The fixture — a completed visit, so the server grants `context: 'visit'` — is minted by the spec, since the seeded database has no property reviews at all | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | `/support` **against the live API** — list, raise, reply, and the absence of the priority/attachment controls | cross-cutting | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **Abuse reports against the live API** — file from a property page, duplicate refused, report reaches the staff-only ops queue, no Reopen on a decided report | trust-and-verification | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
 | **The contact gate against the live API** — a signed-out visitor on a public listing queries it not at all | contact-gate-leads | live-property-integration (`--config=playwright.live.config.js`) | ✅ |
@@ -232,6 +276,8 @@ stylesheet bug below survived a 178-file suite.
 | `/ops/packers` | service-queues | ops/packers | ✅ |
 | `/ops/valuation` | service-queues | ops/valuation | ✅ |
 | `/ops/referrals` fraud queue | referrals-fraud | ops/referrals | ✅ |
+| `/ops/support` — the admin support queue, the first caller `GET /admin/support-tickets` has ever had (D51). Covers awaiting/answered filtering, replying, marking read, and that an admin works the same queue as staff | service-queues | ops/support-queue | ✅ |
+| `/ops/drafting-desk` — the desk half of the identity-disclosure design (D151/D173) over `GET /service-requests/{id}/identities`. Covers: the queue itself carries no identity number or mobile; an unassigned request is refused the reveal in the server's own words; taking it unlocks the reveal and Hide puts it away; a disclosure does not survive closing the matter and never reaches the URL; the summary shows named fields only, never the raw `details` object | service-queues | ops/drafting-desk | ✅ |
 
 ---
 
@@ -283,9 +329,23 @@ failure mode `scripts/check-coverage-citations.mjs` now guards against.
 
 ## Gap backlog
 
-The Phase-2 gaps and the seven items that followed them are closed. There is no
-open backlog; the table below records what closing the last batch found, because
-each one is a trap the next spec author can fall into again.
+Debt wave 10 shipped four user-visible frontend changes and **no e2e**, which is the
+only open backlog. Each is covered by a backend test or a build-time gate — the gap is
+specifically that nothing drives them through a browser, which is where each one would
+actually be wrong.
+
+| Open gap | Why it is a gap, not a nicety |
+|---|---|
+| **Progressive disclosure on `/property/:id`** (D141) — four sections now start collapsed on mobile | `mobile/property-contact` scrolls to a fixed y-offset on this page and passes because the sticky bar is fixed, not because the content below it is right. A collapse that fails open costs nothing; one that fails **shut** silently hides amenities, and no assertion would notice. Needs a spec that expands each of the four and asserts the content arrives. |
+| **The Turnstile widget on `/signin` and `/signup`** (D130) | The widget renders only when a site key is configured, so in mock mode it renders nothing and every existing auth spec passes either way. The failure worth catching is the opposite one: a misconfigured key rendering a *blocking* widget on a form whose button is deliberately not gated. |
+| **Report triage enforcement** (D68) — `actioned` + `hide_content` must take the listing down | Covered by `ReportService` tests server-side. What no test covers is the admin screen's half: that the enforcement control is *present*, that it is refused on a non-`actioned` decision, and that the dashboard's `openReports` tile agrees with the queue it links to. |
+| **`buy.stamp_duty` renders as absent, not as ₹0** (D118 / V55) | `check:finance` proves the client's window matches the server's; it says nothing about what a null renders as. The whole point of the change was that a wrong number looked like a right one. |
+
+### Closed, with what closing them found
+
+The Phase-2 gaps and the seven items that followed them are closed. The table below
+records what closing the last batch found, because each one is a trap the next spec
+author can fall into again.
 
 | Closed item | What the new spec found |
 |---|---|

@@ -1,10 +1,66 @@
 import { Fragment } from 'react';
-import { Archive, Bell, CheckCircle, ClipboardCheck, Eye, Flag, MapPin, Pencil, RotateCcw, Star } from 'lucide-react';
-import { fmtINR, fmtNum, classNames } from '../../lib/format.js';
+import { Archive, Bell, CheckCircle, ClipboardCheck, Clock, Eye, Flag, MapPin, Pencil, RotateCcw, Star, XCircle } from 'lucide-react';
+import { fmtINR, fmtNum, fmtAgo, classNames } from '../../lib/format.js';
 import Badge from '../ui/Badge.jsx';
 import QualityScoreBadge from '../ui/QualityScoreBadge.jsx';
 
 const iconBtn = 'grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-gray-400 transition hover:bg-white/5 hover:text-white';
+
+/* How long a stays-live re-check may sit before the row escalates (Q14). A listing in this queue is
+   still live and still earning, so the only pressure to drain it is visual — there is no outage to
+   notice. The colour is the SLA. */
+const RECHECK_WARN_H = 24;
+const RECHECK_BREACH_H = 72;
+
+const recheckAgeHours = (at) => {
+  const t = new Date(at).getTime();
+  return Number.isNaN(t) ? 0 : (Date.now() - t) / 3600000;
+};
+
+/** "waiting 3d" — the elapsed span, never blank, and never silently zero-length. */
+const recheckWaited = (at) => {
+  const ago = at ? fmtAgo(at).replace(/ ago$/, '') : '';
+  return ago ? `waiting ${ago}` : 'waiting — no timestamp';
+};
+
+/* The re-check strip: which fields changed, and how long the queue has held them. Both halves are
+   load-bearing — the fields are what the moderator has to go and look at, and the age is the only
+   thing distinguishing a queue being worked from one nobody has opened. */
+function RecheckStrip({ listing: l }) {
+  const hours = recheckAgeHours(l.recheckRequestedAt);
+  const breached = hours >= RECHECK_BREACH_H;
+  const warn = !breached && hours >= RECHECK_WARN_H;
+  return (
+    <div
+      data-testid="recheck-strip"
+      className={classNames(
+        'mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2.5 py-1.5 text-[11px]',
+        breached
+          ? 'border-rose-400/40 bg-rose-500/10 text-rose-200'
+          : warn
+          ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+          : 'border-sky-400/30 bg-sky-500/10 text-sky-200',
+      )}
+    >
+      <Clock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+      <span className="font-semibold">Re-check:</span>
+      <span data-testid="recheck-fields">{l.recheckReason || 'unspecified fields'}</span>
+      <span className="text-gray-500" aria-hidden="true">·</span>
+      <span data-testid="recheck-age" className={classNames('font-semibold', breached && 'uppercase tracking-wide')}>
+        {/* "waiting 3d", not "waiting 3d ago" — the elapsed span is the sentence, and fmtAgo's
+            trailing "ago" turns it into a point in time. fmtAgo returns '' for an unparseable
+            timestamp, which would render a bare "waiting "; fall through to the same honest
+            no-timestamp wording instead. */}
+        {recheckWaited(l.recheckRequestedAt)}
+      </span>
+      {/* The escalation must not be carried by colour alone (WCAG 1.4.1): "overdue" already gives
+          the breached tier a text token, so the warn tier needs one too or it does not exist for a
+          colour-blind moderator — and it is the tier where acting still prevents the breach. */}
+      {warn ? <span className="font-semibold">· due soon</span> : null}
+      {breached ? <span className="font-semibold">· overdue</span> : null}
+    </div>
+  );
+}
 
 const FURN_LABEL = { furnished: 'Furnished', semi: 'Semi-furnished', unfurnished: 'Unfurnished' };
 
@@ -86,7 +142,7 @@ function ProgressRow({ listing: l }) {
  *
  * @param {object} props
  * @param {object} props.listing - Full listing object
- * @param {object} [props.actions] - { onView, onEdit, onFeature, onFlag, onArchive, onRestore, onReview }
+ * @param {object} [props.actions] - { onView, onEdit, onFeature, onFlag, onArchive, onRestore, onReview, onRecheckPass, onRecheckFail }
  * @param {boolean} [props.selectable] - show checkbox
  * @param {boolean} [props.selected] - checkbox state
  * @param {(id: string) => void} [props.onSelect] - toggle selection
@@ -172,6 +228,12 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
               {l.createdAt ? <span>Posted {l.createdAt}</span> : null}
             </div>
 
+            {/* Stays-live re-check (Q14). Rendered wherever the listing appears, not just on the
+                queue tab: this listing is `approved` and looks completely ordinary otherwise, so
+                without the strip a moderator on the All Listings tab has no way to tell that a
+                buyer-facing facet changed since anyone last looked at it. */}
+            {l.recheckPending ? <RecheckStrip listing={l} /> : null}
+
             {/* Progress tracker (staff-posted & owner-posted pending) */}
             {(l.status === 'pending' || l.status === 'flagged' || l.status === 'Under Review') ? (
               <div className="mt-2.5">
@@ -224,6 +286,16 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
               {actions.onReminder && (actions.reminderAlways || (l.postedByAdmin && l.status === 'pending')) ? (
                 <button onClick={() => actions.onReminder(l)} className="pn-btn pn-btn-ghost pn-btn-sm" title="Send WhatsApp reminder to owner">
                   <Bell className="h-3.5 w-3.5" /> Remind
+                </button>
+              ) : null}
+              {l.recheckPending && actions.onRecheckPass ? (
+                <button onClick={() => actions.onRecheckPass(l)} className="pn-btn pn-btn-primary pn-btn-sm" data-testid="recheck-pass">
+                  <CheckCircle className="h-3.5 w-3.5" /> Looks fine
+                </button>
+              ) : null}
+              {l.recheckPending && actions.onRecheckFail ? (
+                <button onClick={() => actions.onRecheckFail(l)} aria-label="Re-check failed — take the listing down" title="Re-check failed — take the listing down" className={classNames(iconBtn, 'hover:border-rose-400/40 hover:bg-rose-500/15 hover:text-rose-300')} data-testid="recheck-fail">
+                  <XCircle className="h-4 w-4" />
                 </button>
               ) : null}
               {(l.status === 'pending' || l.status === 'Under Review') && actions.onReview ? (

@@ -2,6 +2,7 @@ package com.punenest.api.engagement.review;
 
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.error.AlreadyReviewedException;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
@@ -10,7 +11,10 @@ import com.punenest.api.common.trust.PropertyExperience;
 import com.punenest.api.common.trust.ReviewerStanding;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +61,9 @@ public class ReviewService {
     /** Writer for the {@code categories} column; symmetric with the mapper's reader. */
     private static final ObjectMapper CATEGORIES_JSON = JsonMapper.builder().build();
 
+    /** One decimal place, matching how the UI renders a rating ("4.3") and {@code Society}. */
+    private static final int RATING_SCALE = 1;
+
     private final ReviewRepository reviews;
     private final ReviewMapper mapper;
     private final ReviewTargetKey targetKey;
@@ -84,8 +91,37 @@ public class ReviewService {
      */
     @Transactional(readOnly = true)
     public List<ReviewResponse> listForProperty(UUID propertyId) {
-        requireProperty(propertyId);
+        requireReachableProperty(propertyId);
         return withAuthors(reviews.findPublished(ReviewTargetTypes.PROPERTY, propertyId.toString()));
+    }
+
+    /**
+     * The rating summary for one listing: average, count, star distribution, per-aspect averages.
+     *
+     * <p><strong>Additive on purpose (D79).</strong> {@link #listForProperty} keeps returning every
+     * published review, unpaged, exactly as before — nothing calling it has to change, and no page
+     * boundary appears anywhere near the numbers this returns. What changes is that the three
+     * figures the property page renders next to its stars no longer <em>depend</em> on the list
+     * being whole: they come from four aggregate expressions and one grouped average, all evaluated
+     * by Postgres. Should the list ever be paged, this is the piece that stops the summary quietly
+     * becoming a summary of page one.
+     *
+     * <p>Two aggregate queries rather than one, because the two halves group differently: the star
+     * buckets roll up over rows, the aspect averages over the entries of a JSONB document. Neither
+     * loads a review. Three statements in total, counting the existence check the 404 needs.
+     */
+    @Transactional(readOnly = true)
+    public ReviewSummaryResponse summaryForProperty(UUID propertyId) {
+        requireReachableProperty(propertyId);
+        String targetId = propertyId.toString();
+        ReviewRatingTally tally = reviews.tallyFor(ReviewTargetTypes.PROPERTY, targetId);
+        long total = nonNull(tally.reviewCount());
+        return new ReviewSummaryResponse(
+                // Null, not 0.0, when nobody has reviewed it — see ReviewSummaryResponse.
+                total == 0 ? null : rounded(tally.avgRating()),
+                total,
+                distributionOf(tally),
+                categoryAveragesFor(ReviewTargetTypes.PROPERTY, targetId));
     }
 
     /**
@@ -108,7 +144,7 @@ public class ReviewService {
         Page<Review> page = reviews.findForModeration(
                 status == null || status.isBlank() ? null : status.strip(), pageable);
         Map<UUID, String> names = authorNames(page.getContent());
-        return page.map(r -> mapper.toResponse(r, names.get(r.getAuthorId())));
+        return page.map(r -> mapper.toResponse(r, nameOf(names, r)));
     }
 
     /** Published reviews of a society, locality or owner — paged, newest first (spec fix S27). */
@@ -118,7 +154,42 @@ public class ReviewService {
         String key = targetKey.resolve(entityType, entityId);
         Page<Review> page = reviews.findPublished(entityType, key, pageable);
         Map<UUID, String> names = authorNames(page.getContent());
-        return page.map(r -> mapper.toResponse(r, names.get(r.getAuthorId())));
+        return page.map(r -> mapper.toResponse(r, nameOf(names, r)));
+    }
+
+    /**
+     * The rating summary for a society, locality or owner — the same four figures as
+     * {@link #summaryForProperty}, over a different kind of target.
+     *
+     * <p><strong>Why this is the more urgent half of D79.</strong> The property list it was written
+     * for is at least whole: {@link #listForProperty} is unpaged, so reducing it in the browser gave
+     * the right answer. {@link #listForEntity} is <em>already</em> paged — 20 by default — so the
+     * society hub, the owner profile and the locality reviews block have been averaging page one and
+     * calling it the rating. The failure the property endpoint was built to prevent has already
+     * happened here; this is not insurance, it is a fix.
+     *
+     * <p>One method for all three types because there is nothing type-specific left to write.
+     * {@link ReviewTargetKey#resolve} is what makes that true: it validates the type, converts the
+     * public identifier the client holds into the canonical {@code target_id} the table stores, and
+     * 404s a target that does not exist — so by the time the aggregates run, a society and a
+     * locality differ only in two strings. Splitting this into three would be three copies of one
+     * query kept in step by hand.
+     *
+     * <p>Resolution is also the existence check, which is why there is no separate probe as there is
+     * on the property path: a locality slug that matches nothing 404s instead of returning a
+     * confident zero-review summary of a neighbourhood that does not exist.
+     */
+    @Transactional(readOnly = true)
+    public ReviewSummaryResponse summaryForEntity(String entityType, String entityId) {
+        String key = targetKey.resolve(entityType, entityId);
+        ReviewRatingTally tally = reviews.tallyFor(entityType, key);
+        long total = nonNull(tally.reviewCount());
+        return new ReviewSummaryResponse(
+                // Null, not 0.0, when nobody has reviewed it — see ReviewSummaryResponse.
+                total == 0 ? null : rounded(tally.avgRating()),
+                total,
+                distributionOf(tally),
+                categoryAveragesFor(entityType, key));
     }
 
     // ----------------------------------------------------------------- writes
@@ -182,7 +253,11 @@ public class ReviewService {
 
         Map<String, Integer> categories;
         try {
-            categories = ReviewCategories.validated(body.categories());
+            // Per target type: `accuracy` is a listing aspect and `Safety` a society one, and a
+            // key that belongs to the other vocabulary is refused rather than dropped. Dropping it
+            // would return 201 for a review whose aspect bar then renders empty — the write looks
+            // like it worked, the reader sees nothing, and nobody learns the key was wrong.
+            categories = ReviewCategories.validated(targetType, body.categories());
         } catch (IllegalArgumentException rejected) {
             throw new BadRequestException(rejected.getMessage());
         }
@@ -203,9 +278,47 @@ public class ReviewService {
                 .orElseThrow(() -> NotFoundException.of("Property"));
     }
 
+    /**
+     * The 404 gate for the two <em>anonymous</em> property-review reads.
+     *
+     * <p>Separate from {@link #requireProperty} because the two callers want different questions
+     * answered. A public read must apply the same visibility floor the public detail route applies
+     * ({@link Property#isDirectlyReachable()}): without it, a caller holding a UUID gets a 404 from
+     * {@code GET /properties/{id}} and a 200 from {@code /reviews} and {@code /reviews/summary},
+     * which confirms that a listing moderation rejected — or an owner archived — is still on file,
+     * and in the list case hands over its reviewers' names and review bodies. The write path keeps
+     * the unfiltered lookup on purpose: an owner may legitimately still be reviewed on a listing
+     * that has since gone terminal or been pulled, and flooring that would silently delete the
+     * eligibility of anyone who actually dealt with them.
+     *
+     * <p>An existence probe, not a fetch — neither caller needs a column of the row.
+     */
+    private void requireReachableProperty(UUID propertyId) {
+        if (!properties.existsByIdAndArchivedFalseAndStatusIn(
+                propertyId, PropertyStatus.DIRECTLY_REACHABLE)) {
+            throw NotFoundException.of("Property");
+        }
+    }
+
+    /**
+     * The author id is nullable, so the lookup is guarded rather than passed straight through:
+     * when no row has an author {@link #authorNames} returns {@code Map.of()}, and an immutable
+     * map rejects a null key with an NPE instead of answering "absent".
+     *
+     * <p>Lives in one place because it was originally written out at each of the three call sites
+     * and fixed at only one of them. The two that were missed are both reachable: a locality whose
+     * reviews are all seeded is public and anonymous, and an all-seeded moderation page is routine,
+     * so each was a 500 waiting on data rather than on code.
+     */
+    private String nameOf(Map<UUID, String> names, Review row) {
+        return row.getAuthorId() == null ? null : names.get(row.getAuthorId());
+    }
+
     private List<ReviewResponse> withAuthors(List<Review> rows) {
         Map<UUID, String> names = authorNames(rows);
-        return rows.stream().map(r -> mapper.toResponse(r, names.get(r.getAuthorId()))).toList();
+        return rows.stream()
+                .map(r -> mapper.toResponse(r, nameOf(names, r)))
+                .toList();
     }
 
     /**
@@ -231,5 +344,54 @@ public class ReviewService {
 
     private String displayName(UUID userId) {
         return users.findById(userId).map(User::getName).orElse(null);
+    }
+
+    // ------------------------------------------------------- summary helpers
+
+    /**
+     * The five buckets as a wire map, always all five and zero-filled.
+     *
+     * <p>Absent-means-zero is the shape a {@code group by rating} would hand back, and it pushes the
+     * zero-fill onto every client instead of doing it once here. A bar chart with a missing bar and
+     * a bar chart with a zero-height bar are not the same picture.
+     */
+    private static Map<String, Long> distributionOf(ReviewRatingTally tally) {
+        Map<String, Long> stars = new LinkedHashMap<>();
+        stars.put("1", nonNull(tally.star1()));
+        stars.put("2", nonNull(tally.star2()));
+        stars.put("3", nonNull(tally.star3()));
+        stars.put("4", nonNull(tally.star4()));
+        stars.put("5", nonNull(tally.star5()));
+        return stars;
+    }
+
+    /**
+     * Per-aspect means, over the vocabulary that <em>this</em> kind of target uses.
+     *
+     * <p>The key list is the same one {@link #persist} validates against, from the same method. A
+     * read pinned to the property vocabulary is exactly why the society hub's bars were empty: the
+     * aggregate's {@code c.key in (:keys)} filter silently discarded any society aspect before it
+     * could be averaged, so the fix has to land on both sides of the column or on neither.
+     */
+    private Map<String, BigDecimal> categoryAveragesFor(String targetType, String targetId) {
+        Map<String, BigDecimal> averages = new LinkedHashMap<>();
+        for (ReviewCategoryAverage row : reviews.categoryAveragesFor(
+                targetType, targetId, ReviewCategories.forTarget(targetType))) {
+            if (row.getAverage() != null) {
+                averages.put(row.getCategory(),
+                        row.getAverage().setScale(RATING_SCALE, RoundingMode.HALF_UP));
+            }
+        }
+        return averages;
+    }
+
+    private static BigDecimal rounded(Double average) {
+        return average == null ? null
+                : BigDecimal.valueOf(average).setScale(RATING_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /** {@code count()} cannot be null, but a constructor expression cannot select a primitive. */
+    private static long nonNull(Long count) {
+        return count == null ? 0L : count;
     }
 }

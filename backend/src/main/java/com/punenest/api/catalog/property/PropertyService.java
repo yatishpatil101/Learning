@@ -74,9 +74,9 @@ public class PropertyService {
      */
     @Transactional(readOnly = true)
     public Page<Property> searchForModeration(PropertySearchQuery filters, Boolean archived,
-            Pageable pageable) {
-        return properties.findAll(
-                PropertySpecs.adminSearch(filters, archived), PropertySort.sanitize(pageable));
+            Boolean recheck, Pageable pageable) {
+        return properties.findAll(PropertySpecs.adminSearch(filters, archived, recheck),
+                PropertySort.sanitize(pageable));
     }
 
     /** Featured-first live listings for the homepage (contract {@code featuredProperties}). */

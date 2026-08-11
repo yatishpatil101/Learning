@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appReady } from '../helpers/app.js';
 
 /* Regression: masked owner numbers must never be used as a storage identity.
  *
@@ -206,6 +207,10 @@ test('owner privacy prefs round-trip on a full number and are isolated per owner
  * precise way to pin that the pref no longer drives the signal. */
 test('the contact gate hides the owner number for a buyer regardless of the owner pref (D5)', async ({ page }) => {
   await page.goto('/');
+  /* Wait for the app's own seed to land before overwriting it. Write first and the boot
+     seed lands afterwards (D129), replacing the two-field listing below with the real
+     catalogue — `P-D5-1` then does not resolve and the gate answers about nothing. */
+  await appReady(page);
   const gate = await page.evaluate(async () => {
     const OWNER = '9530047855';
     const PROP = 'P-D5-1';

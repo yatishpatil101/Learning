@@ -7160,38 +7160,38 @@
       "admin": [
         "*"
       ]
-    },
-    "customRoles": [
-      {
-        "id": "CR_requests",
-        "name": "Requests Desk",
-        "modules": [
-          "enquiries",
-          "services",
-          "postOnBehalf"
-        ],
-        "teams": []
-      },
-      {
-        "id": "CR_verify",
-        "name": "Verifications Officer",
-        "modules": [
-          "properties:verify"
-        ],
-        "teams": []
-      },
-      {
-        "id": "CR_content",
-        "name": "Content Manager",
-        "modules": [
-          "content",
-          "localities",
-          "societies"
-        ],
-        "teams": []
-      }
-    ]
+    }
   },
+  "customRoles": [
+    {
+      "id": "CR_requests",
+      "name": "Requests Desk",
+      "modules": [
+        "enquiries",
+        "services",
+        "postOnBehalf"
+      ],
+      "teams": []
+    },
+    {
+      "id": "CR_verify",
+      "name": "Verifications Officer",
+      "modules": [
+        "properties:verify"
+      ],
+      "teams": []
+    },
+    {
+      "id": "CR_content",
+      "name": "Content Manager",
+      "modules": [
+        "content",
+        "localities",
+        "societies"
+      ],
+      "teams": []
+    }
+  ],
   "team": [
     {
       "id": "TM_admin",

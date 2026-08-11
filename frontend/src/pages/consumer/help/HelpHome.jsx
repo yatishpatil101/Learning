@@ -41,19 +41,23 @@ export default function HelpHome() {
         <div className="mx-auto mt-6 max-w-xl">
           <HelpSearch variant="hero" />
         </div>
-        <p className="mt-3 text-xs text-gray-600">
-          {t('help.popular')}{' '}
+        {/* "Popular:" reads like a sentence but behaves like a nav row — every item is
+            a destination, not prose — so WCAG 2.5.8's inline-text exemption should not
+            be doing the work here. Laid out as a wrapped flex row of real targets
+            instead of inline links in a <p>, which is what made them 186x15. */}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-1 gap-y-1 text-xs text-gray-600">
+          <span>{t('help.popular')}</span>
           {POPULAR.map((slug, i) => {
             const a = articles.find((x) => x.slug === slug);
             if (!a) return null;
             return (
-              <span key={slug}>
-                {i > 0 && <span className="text-gray-700"> · </span>}
-                <Link to={hp(`/help/a/${slug}`)} className="text-gray-500 hover:text-teal-400">{a.title}</Link>
+              <span key={slug} className="inline-flex items-center gap-1">
+                {i > 0 && <span className="text-gray-700" aria-hidden="true">·</span>}
+                <Link to={hp(`/help/a/${slug}`)} className="tap-target inline-flex items-center px-1 text-gray-500 hover:text-teal-400">{a.title}</Link>
               </span>
             );
           })}
-        </p>
+        </div>
       </section>
 
       {/* Recently viewed — only once there is history worth showing */}
@@ -121,15 +125,19 @@ export default function HelpHome() {
             <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-gray-400">{t('help.needAPersonBody')}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            {/* min-h-[44px] rather than py-3: these two sit side by side and py-2.5
+                already leaves them 42px, so two pixels of padding would do it — but
+                a min-height says what the rule actually is and survives someone
+                changing the font size later. */}
             <Link
               to="/support"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-400"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2.5 min-h-[44px] text-sm font-semibold text-white transition-colors hover:bg-teal-400"
             >
               <Icon name="life-buoy" className="w-4 h-4" /> {t('help.raiseATicket')}
             </Link>
             <Link
               to="/contact"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-gray-300 transition-colors hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2.5 min-h-[44px] text-sm font-semibold text-gray-300 transition-colors hover:text-white"
             >
               <Icon name="phone" className="w-4 h-4" /> {t('help.contactUs')}
             </Link>

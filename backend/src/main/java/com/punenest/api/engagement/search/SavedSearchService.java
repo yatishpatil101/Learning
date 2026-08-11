@@ -3,8 +3,15 @@ package com.punenest.api.engagement.search;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.catalog.property.PropertyStatus;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -24,13 +31,17 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class SavedSearchService {
 
+    private static final int SWEEP_BATCH_SIZE = 200;
+
     private final SavedSearchRepository repo;
+    private final PropertyRepository properties;
     private final SavedSearchMapper mapper;
     private final ObjectMapper objectMapper;
 
-    public SavedSearchService(SavedSearchRepository repo, SavedSearchMapper mapper,
-            ObjectMapper objectMapper) {
+    public SavedSearchService(SavedSearchRepository repo, PropertyRepository properties,
+            SavedSearchMapper mapper, ObjectMapper objectMapper) {
         this.repo = repo;
+        this.properties = properties;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
     }
@@ -164,5 +175,120 @@ public class SavedSearchService {
                     "filters is too large (max " + MAX_FILTERS_CHARS + " characters)");
         }
         return json;
+    }
+
+    /**
+     * D7: periodic recomputation of saved-search {@code new_count}.
+     *
+     * <p>Counts only properties that satisfy each alert's core filters and were created since the
+     * alert row's previous update timestamp. This keeps the count incremental without adding schema
+     * (no {@code last_viewed_at} yet) and is deterministic under one scheduler tick.
+     */
+    @Transactional
+    public long recomputeNewCounts(Instant now) {
+        long updated = 0L;
+        int page = 0;
+        while (true) {
+            List<SavedSearch> chunk = repo.findAllByOrderByIdAsc(PageRequest.of(page, SWEEP_BATCH_SIZE));
+            if (chunk.isEmpty()) {
+                return updated;
+            }
+            List<SavedSearch> changed = new ArrayList<>();
+            for (SavedSearch search : chunk) {
+                Instant baseline = search.getUpdatedAt() == null ? search.getCreatedAt() : search.getUpdatedAt();
+                int count = countMatchingSince(search, baseline);
+                if (search.getNewCount() != count) {
+                    search.setNewCount(count);
+                    changed.add(search);
+                    updated++;
+                }
+            }
+            if (!changed.isEmpty()) {
+                repo.saveAll(changed);
+            }
+            page++;
+        }
+    }
+
+    private int countMatchingSince(SavedSearch search, Instant baseline) {
+        if (!"listings".equals(search.getKind())) {
+            return 0;
+        }
+        String deal = textOrNull(filterText(search, "deal"));
+        if (deal == null || baseline == null) {
+            return 0;
+        }
+        List<String> localities = lowerList(search, "localities");
+        List<Integer> bhk = intList(search, "bhk");
+
+        List<String> localitiesParam = localities.isEmpty() ? List.of("__none__") : localities;
+        List<Integer> bhkParam = bhk.isEmpty() ? List.of(Integer.MIN_VALUE) : bhk;
+
+        long count = properties.countVisibleCreatedAfterWithFilters(
+                PropertyStatus.APPROVED,
+                baseline,
+                deal.toLowerCase(Locale.ROOT),
+                localities.isEmpty(),
+                localitiesParam,
+                bhk.isEmpty(),
+                bhkParam);
+        return (int) count;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String filterText(SavedSearch search, String key) {
+        Object parsed = mapper.jsonStringToObject(search.getFilters());
+        if (!(parsed instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Object raw = map.get(key);
+        return raw == null ? null : String.valueOf(raw);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> lowerList(SavedSearch search, String key) {
+        Object parsed = mapper.jsonStringToObject(search.getFilters());
+        if (!(parsed instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        Object raw = map.get(key);
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(String::valueOf)
+                .map(v -> v.toLowerCase(Locale.ROOT))
+                .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Integer> intList(SavedSearch search, String key) {
+        Object parsed = mapper.jsonStringToObject(search.getFilters());
+        if (!(parsed instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        Object raw = map.get(key);
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(this::toInt)
+                .filter(v -> v != null)
+                .toList();
+    }
+
+    private Integer toInt(Object value) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (RuntimeException bad) {
+            return null;
+        }
+    }
+
+    private static String textOrNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

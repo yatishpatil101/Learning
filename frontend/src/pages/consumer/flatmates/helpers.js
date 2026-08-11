@@ -62,7 +62,10 @@ const hostVerifiedFor = (item, reviewStatus) => {
   return false;
 };
 const matchText = (r, q) => [r.name, r.occupation, r.society, r.note, (r.localities || []).join(' '), (r.tags || []).join(' '), genderLabel(r.gender)].join(' ').toLowerCase().includes(q.toLowerCase());
-const matchTextGroup = (g, q) => [g.title, g.locality, g.note, (g.tags || []).join(' '), g.members.map((m) => m.name).join(' ')].join(' ').toLowerCase().includes(q.toLowerCase());
+// `m.name` is nullable since D118 (a member who signed in by OTP has not given one), and an unnamed
+// member has to contribute nothing rather than the string "null" — which would make every group
+// with one match a search for "null".
+const matchTextGroup = (g, q) => [g.title, g.locality, g.note, (g.tags || []).join(' '), g.members.map((m) => m.name || '').join(' ')].join(' ').toLowerCase().includes(q.toLowerCase());
 
 // Approximate age of a post in minutes. Uses an exact createdAt when available,
 // otherwise parses the human "time" label ("Just now", "2 hours ago", "1 day ago").

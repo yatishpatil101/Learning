@@ -94,6 +94,59 @@ export function toViewModelList(rows) {
 }
 
 /**
+ * One wire `AdminSupportTicket` → one row of the ops queue (D51).
+ *
+ * A different schema from `SupportTicket`, and the difference is the point: this one carries **no
+ * thread**, because the list is the whole platform's support traffic rather than one person's own
+ * history, and an unbounded response is what `GET /support/tickets` was narrowed to avoid. It also
+ * carries **no mobile** — the detail read reveals it to the same callers, and a list is the shape
+ * that gets exported.
+ *
+ * `raiser` is a display name and the contract declares it nullable — a ticket raised by an account
+ * that has since been removed has nobody to name. The fallback is owed by the UI and lives here
+ * rather than in the page, so every consumer of the queue gets the same one instead of rendering
+ * `null` as an empty cell that reads like a bug.
+ *
+ * Two booleans, two different meanings, and they are not opposites:
+ *   - `awaitingReply` — a customer message nobody on the desk has read. This is the working queue.
+ *   - `unread` — a staff reply the *customer* has not opened. "We answered and they have not
+ *     looked" is not the same fact as "we have not answered", and a queue that collapses them
+ *     tells the desk to chase people it has already answered.
+ */
+export function toQueueRow(t) {
+  if (!t) return null;
+  return {
+    id: t.id,
+    subject: t.subject || '',
+    // Nullable on the wire; the page groups and labels on it, so give it the same 'other' bucket
+    // the customer-side mapper uses rather than an empty string that sorts oddly.
+    category: t.category || 'other',
+    status: t.status || 'open',
+    raiser: t.raiser || '',
+    awaitingReply: !!t.awaitingReply,
+    unread: !!t.unread,
+    createdAt: epoch(t.createdAt),
+  };
+}
+
+/**
+ * A `PageResponse<AdminSupportTicket>` → the `{ items, total, page, size }` both providers return.
+ *
+ * The order is **not** re-sorted here. The server fixes it (`created_at desc`, backed by the V53
+ * index) and the page is a window onto that order: re-sorting the 20 rows in hand would silently
+ * make "newest first" mean "newest on this page first", which looks correct until page 2.
+ */
+export function toQueuePage(res, fallback = {}) {
+  const rows = Array.isArray(res?.content) ? res.content : [];
+  return {
+    items: rows.map(toQueueRow).filter(Boolean),
+    total: res?.totalElements ?? rows.length,
+    page: res?.page ?? res?.number ?? fallback.page ?? 0,
+    size: res?.size ?? fallback.size ?? rows.length,
+  };
+}
+
+/**
  * The form → `SupportTicketCreate`.
  *
  * Note what is absent: `mobile`, `name`, `email`, `priority`, `images`, `status`. The first three

@@ -56,6 +56,14 @@
         -->
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
         <!--
+          Spotless owns Java layout (tech-debt D36). Pinned rather than left to a range because the
+          formatter's exact version IS the format: a bump can rewrite files that were already
+          "formatted", so it must move as a deliberate, reviewed change. Both artifacts are cached
+          locally so `mvn -o spotless:apply` works offline. See the plugin block below.
+        -->
+        <spotless.version>3.9.0</spotless.version>
+        <palantir-java-format.version>2.97.0</palantir-java-format.version>
+        <!--
           Build output directory, overridable from the CLI.
 
           Why: the VS Code Java language server (redhat.java / m2e) continuously compiles this
@@ -301,6 +309,48 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!--
+              Spotless: the formatter that replaced Checkstyle (tech-debt D36).
+
+              Deliberately declared with NO <executions> - nothing binds to a lifecycle phase, so
+              `mvn verify` is unaffected. Run it by hand:
+                  mvn spotless:apply     rewrites sources
+                  mvn spotless:check     fails if any file is not formatted
+
+              Why Palantir and not google-java-format. Measured by formatting a scratch copy of the
+              whole tree (755 files / 83,219 lines) with each candidate and diffing against HEAD:
+                  palantirJavaFormat   (4-space, 120 col)  612 files,  12,411 lines
+                  googleJavaFormat AOSP(4-space, 100 col)  716 files,  37,859 lines
+                  googleJavaFormat     (2-space, 100 col)  753 files, 126,407 lines
+              The existing tree is 4-space-indented (the leading-whitespace histogram peaks at 4, 8,
+              12, 16, 20, 24 and there is not one tab) and already wraps near 110 - only 68 lines
+              exceed 110 columns and 20 exceed 120. Palantir is therefore the style this code is
+              already written in; the other two would rewrite it into a different one.
+
+              NOT YET APPLIED to the tree. The 612-file / 12,411-line reformat is a deliberate
+              standalone commit, not something to smuggle into a feature branch - see D68. When it
+              lands, add an execution binding `check` to `validate` in the SAME commit, so the tree
+              is formatted before the gate that requires it starts failing builds.
+
+              Offline note: this project builds with `mvn -o`. Spotless and Palantir are now cached
+              in the local repository, so `-o` works. Re-fetching them needs
+              MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT, because the corporate TLS
+              proxy's root CA lives in the Windows certificate store and not in the JDK truststore;
+              without it every download fails with a PKIX "unable to find valid certification path".
+            -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <palantirJavaFormat>
+                            <version>${palantir-java-format.version}</version>
+                            <style>PALANTIR</style>
+                        </palantirJavaFormat>
+                    </java>
+                </configuration>
             </plugin>
         </plugins>
     </build>

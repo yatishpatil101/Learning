@@ -138,7 +138,14 @@ function PlanCarousel({ plans, current }) {
                  24px is the WCAG 2.5.8 AA floor and, with the row's spacing, puts
                  adjacent centres 32px apart. Height is free, so it takes the full
                  44px. Swiping the rail remains the primary interaction; these are
-                 indicators that happen to be tappable. */
+                 indicators that happen to be tappable.
+
+                 data-tap-exempt records that as reviewed rather than missed: the
+                 mobile sweep holds the rest of the app to 44px, and without the
+                 marker this rail reads as an oversight every time someone runs it.
+                 The 2.5.8 spacing exception is what the pass rests on — 32px
+                 between adjacent centres clears the 24px offset it asks for. */
+              data-tap-exempt
               className="grid h-11 w-6 place-items-center"
             >
               <span
@@ -210,7 +217,7 @@ export default function Plans() {
                 role="radio"
                 aria-checked={on}
                 onClick={() => { if (!on) setPersona(o.key); }}
-                className={'deal-seg-btn flex-1 inline-flex items-center justify-center gap-1.5 h-10 px-3 rounded-full text-sm font-semibold t-all ' + (on ? 'is-active' : 'text-gray-400 hover:text-white')}
+                className={'deal-seg-btn flex-1 inline-flex items-center justify-center gap-1.5 h-11 sm:h-10 px-3 rounded-full text-sm font-semibold t-all ' + (on ? 'is-active' : 'text-gray-400 hover:text-white')}
               >
                 <Icon name={o.icon} className="w-4 h-4" /> {o.label}
               </button>
@@ -246,9 +253,15 @@ export default function Plans() {
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4 flex items-center gap-2"><Icon name="help-circle" className="w-4 h-4 text-teal-400" /> {t('misc1.plansFrequentlyAsked')}</h2>
         <div className="space-y-3">
           {FAQS.map(([q, a]) => (
-            <details key={q} className="glass rounded-xl px-5 py-4">
-              <summary className="flex items-center justify-between cursor-pointer font-medium text-sm">{q}<Icon name="chevron-down" className="faq-chevron w-4 h-4 text-gray-400 transition-transform flex-shrink-0" /></summary>
-              <p className="text-gray-400 text-sm mt-3 leading-relaxed">{a}</p>
+            /* The card held the vertical padding and the summary held none, so the
+               question was a 20px-tall target sitting in the middle of a 52px row
+               with 16px of dead card above and below it — the padding looked like
+               part of the control and wasn't. Moving py-4 onto the summary hands
+               that space to the thing you actually tap; the card measures the same
+               open or closed, so nothing moves on the page. */
+            <details key={q} className="glass rounded-xl px-5">
+              <summary className="flex items-center justify-between cursor-pointer font-medium text-sm py-4 min-h-[44px]">{q}<Icon name="chevron-down" className="faq-chevron w-4 h-4 text-gray-400 transition-transform flex-shrink-0" /></summary>
+              <p className="text-gray-400 text-sm mt-3 pb-4 leading-relaxed">{a}</p>
             </details>
           ))}
         </div>

@@ -18,11 +18,15 @@
  *     request to its requester, so there is no counterparty view to fetch.
  *   - **read receipts** (`markServiceRequestRead`) have no endpoint; unread badges are a mock-only
  *     affordance.
- *   - **staff transitions** (assign, share draft, upload final) are the ops surface, not the
- *     customer tracker, and remain on `lib/serviceFlow.js`.
+ *   - **staff transitions** (share draft, upload final) are the ops surface, not the customer
+ *     tracker, and remain on `lib/serviceFlow.js`. The three operations the *drafting desk* needs —
+ *     the queue read, taking a request, and the identity read — are live here (D173); everything
+ *     else about working a matter is not.
  */
-import { get, post, put } from '../../http.js';
-import { toViewModel, toViewModelList, toCreate, toWireType } from './serviceRequestMapper.js';
+import { get, patch, post, put } from '../../http.js';
+import {
+  toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
+} from './serviceRequestMapper.js';
 
 export async function listServiceRequests(typeFilter) {
   // `?type=` filters on the stored wire type, so the frontend's `rental` has to become
@@ -32,6 +36,56 @@ export async function listServiceRequests(typeFilter) {
   const res = await get(`/service-requests${qs}`);
   // Paged envelope in the general case; tolerate a bare array in case the endpoint is unpaged.
   return toViewModelList(res?.content ?? (Array.isArray(res) ? res : []));
+}
+
+/**
+ * The desk's view of the same endpoint — staff/admin see the whole queue (D173).
+ *
+ * `GET /service-requests` has no `/admin` twin: scope is **role-derived**, so this is the identical
+ * path with a different answer depending on who asks. That is worth stating out loud, because it
+ * means the only thing separating "my requests" from "everyone's" is the session — which is why
+ * this operation is named for the audience rather than being a flag on `listServiceRequests`, and
+ * why nothing on a consumer surface may call it.
+ *
+ * Genuinely paged, and the totals come from the envelope. The consumer read above collapses the
+ * page to an array because one customer's own requests fit on a page; the platform's queue does
+ * not, and a desk that silently saw only the first twenty would work a queue it believed was
+ * finished.
+ */
+export async function listServiceRequestQueue({ type, status, page = 0, size = 20 } = {}) {
+  const query = { page, size };
+  if (type) query.type = toWireType(type);
+  if (status) query.status = status;
+  return toViewModelPage(await get('/service-requests', query), { page, size });
+}
+
+/**
+ * Take a request — `PATCH /service-requests/{id}/status` with `assigned` (D151).
+ *
+ * There is no "assign to somebody else" here and that is the contract's decision, not an omission:
+ * moving to `assigned` takes the request for the **calling** staff member, because assignment and
+ * acknowledgement are the same act and a queue you can push work into is a queue people push work
+ * into. It is also the only way to become the one caller `readServiceRequestIdentities` will answer,
+ * which is what makes that refusal an accountability control rather than a prohibition — the move
+ * writes a timeline entry the customer can read and an audit row naming whoever made it.
+ */
+export async function takeServiceRequest(id) {
+  return toViewModel(
+    await patch(`/service-requests/${encodeURIComponent(id)}/status`, { status: 'assigned' }),
+  );
+}
+
+/**
+ * Read the parties' identity numbers — the assigned operator's, and nobody else's (D151/D173).
+ *
+ * Errors are **not** swallowed here, unlike every other read in this file. A 403 is the endpoint
+ * working: it means this matter belongs to somebody else, or to nobody, and the server's own
+ * sentence says which. Collapsing it to `null` or `[]` the way `getServiceRequest` collapses a 404
+ * would render "no identity numbers were recorded" over a refusal — telling the desk the customer
+ * never supplied what it is being denied. The caller shows `err.message`.
+ */
+export async function readServiceRequestIdentities(id) {
+  return toIdentityList(await get(`/service-requests/${encodeURIComponent(id)}/identities`));
 }
 
 export async function getServiceRequest(id) {

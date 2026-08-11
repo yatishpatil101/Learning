@@ -11,8 +11,22 @@
 import { get, patch, persistTokens, post } from '../../http.js';
 import { logoutUser, writeUser } from '../../../lib/auth.js';
 
-/** Step 1: ask the server to dispatch a login code. Resolves to `{ otpSent: true }`. */
-export const sendOtp = ({ mobile }) => post('/auth/login', { mobile }, { auth: false });
+/**
+ * Step 1: ask the server to dispatch a login code. Resolves to `{ otpSent: true }`.
+ *
+ * `turnstileToken` rides as a header rather than a body field, which is what keeps the
+ * `/auth/login` request schema — and therefore the OpenAPI contract — unchanged (tech-debt D130).
+ * Undefined when the challenge is switched off, in which case the header is omitted entirely and
+ * the server passes the request through.
+ *
+ * This is the step worth protecting: it is the one that spends an SMS, so a script hammering it
+ * costs real money whether or not it ever guesses a code.
+ */
+export const sendOtp = ({ mobile, turnstileToken }) => post(
+  '/auth/login',
+  { mobile },
+  { auth: false, headers: turnstileToken ? { 'CF-Turnstile-Response': turnstileToken } : undefined },
+);
 
 /**
  * Step 2: verify the code and open a session. First-time mobiles are provisioned server-side as

@@ -106,8 +106,9 @@ societiesInLocality(localitySlug)` (or all curated if empty), pick `pool[fnvHash
 pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound society id matches.
 
 ### 5.3 Societies index (`Societies.jsx`)
-- Enriches every society with `{ verified, community, managed, rating: entityRating('society', id),
-  homes: listingsInSociety(listings, id).length }`.
+- Enriches every society with `{ verified, community, managed, rating: entityRating('society', slug),
+  homes: listingsInSociety(listings, id).length }`. The rating is keyed on the **slug**, which is what
+  the hub writes reviews under; the synthetic `S01`-style `id` is only ever a listings-join key.
 - **Filters:** locality (`loc`), verified-only toggle, free-text `q` over `name + builder +
   localityTitle`. Locality + query mirror into the URL (shareable/deep-linkable).
 - **Sorts:**
@@ -121,7 +122,7 @@ pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound
 - **Paging:** client-side `limit` starts 24, "Show more" adds 24; resets on any filter change.
 
 ### 5.4 Society Hub ratings & stats (`useSocietyHub.js`)
-- **`entityRating('society', id)`** gives real resident-review `{ avg, count }`.
+- **`entityRating('society', slug)`** gives real resident-review `{ avg, count }`.
 - **Estimate blending is only honest for real specs:** `showEstimate = !_thin && !_community`.
   - Per-category bars: for estimate-eligible societies, `bar[k] = count ? avg(catAvg[k], base[k]) :
     base[k]` where `base = baselineBars(soc)` (a deterministic baseline from specs). Non-eligible
@@ -236,7 +237,11 @@ WhatsApp / location: (none) --propose--> pending --ops--> approved(live) | (stay
 
 ## 8. Edge cases, validation & error states
 - **Unknown slug:** `resolveSociety` misses -> `genericSociety(slug, name, loc)`; hub hides homes &
-  location tabs and shows a thin/add-details state.
+  location tabs and shows a thin/add-details state. The placeholder carries **no** specs, no
+  `registration`/`conveyance` and no coordinates, so it takes the `_thin` branch: it never claims a
+  builder, a unit count, a "Society Verified" badge or an estimated rating for a building nobody has
+  confirmed exists. (It used to carry a full set of invented defaults and therefore rendered as a
+  verified, rated society.)
 - **Thin / community society:** never fabricate specs; show "Details not confirmed yet" (unverified)
   or "Full details coming soon" (verified-but-sparse); a pending suggestion shows "Details submitted
   - pending review".

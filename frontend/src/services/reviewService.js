@@ -5,8 +5,10 @@
  *
  * The server serves reviews from two endpoints, not one:
  *
- *   GET|POST /reviews/property/{propertyId}      → `listPropertyReviews` / `createPropertyReview`
+ *   GET|POST /properties/{propId}/reviews        → `listPropertyReviews` / `createPropertyReview`
+ *   GET      /properties/{propId}/reviews/summary → `getPropertyReviewSummary`
  *   GET|POST /reviews/{entityType}/{entityId}    → `listEntityReviews`   / `createEntityReview`
+ *   GET      /reviews/{entityType}/{entityId}/summary → `getEntityReviewSummary`
  *                                                  entityType ∈ society | locality | owner
  *
  * They share a table but not a rule, which is why this module mirrors the split rather than
@@ -52,11 +54,12 @@
  *                  `soc.id` is a synthetic `S01`. Callers must key on `soc.slug`, which is what the
  *                  rest of the hub already does; reviews were the one place still keyed on `id`.
  *   - `owner`    — no agreement at all. `getOwner()` still reads `lib/mockApi/users.js`, whose ids
- *                  are mock user ids, and the server keys on its own user UUIDs. `Owner.jsx` is
- *                  therefore deliberately still on the mock store: pointing it at this service
- *                  would make it issue a well-formed request for an owner the server has never
- *                  heard of and render the empty result as "no reviews yet", which is worse than
- *                  not migrating it. It moves when the owner profile does.
+ *                  are mock user ids, and the server keys on its own user UUIDs. `Owner.jsx`
+ *                  therefore still reads its review *cards* from the mock store; only the rating
+ *                  aggregate goes through `getEntityReviewSummary`, and it is safe there precisely
+ *                  because an id the server does not recognise 404s and the page renders "rating
+ *                  unavailable" rather than a confident "no reviews yet". The list moves when the
+ *                  owner profile does.
  */
 import { createProvider } from './config.js';
 
@@ -71,6 +74,29 @@ const provider = createProvider('review');
  */
 export const listPropertyReviews = (propertyId, opts) =>
   provider().listPropertyReviews(propertyId, opts);
+
+/**
+ * The rating aggregate for one listing: `{ count, avg, dist, catAvg }`.
+ *
+ * A separate read from `listPropertyReviews`, not a field on it, and that separation is the whole
+ * point (D79). The property page used to reduce the full review array to get these four values,
+ * which made "never page that endpoint" a correctness constraint rather than a preference — page it
+ * and the stars would go on rendering, now silently describing page one. It also meant downloading
+ * every review of a listing to draw one number.
+ *
+ * `avg` is **null**, not 0, on an unreviewed listing: no rating is not a rating of zero. `dist` is a
+ * 0-based five-slot array (`dist[0]` is the one-star count) and is always five entries long.
+ * `catAvg` is sparse — an aspect nobody rated is absent.
+ *
+ * There is no "% would recommend" here. It has no server aggregate, so the page still derives it
+ * from the list it is already showing.
+ *
+ * @param {string} propertyId the listing's **UUID** — the route binds a UUID, and the seam's `p.id`
+ *                            is the slug. Callers pass `p.uuid || p.id`.
+ * @returns {Promise<{count: number, avg: number|null, dist: number[], catAvg: object}>}
+ */
+export const getPropertyReviewSummary = (propertyId) =>
+  provider().getPropertyReviewSummary(propertyId);
 
 /**
  * Rate a property.
@@ -92,6 +118,33 @@ export const createPropertyReview = (propertyId, review) =>
  */
 export const listEntityReviews = (entityType, entityId, opts) =>
   provider().listEntityReviews(entityType, entityId, opts);
+
+/**
+ * The rating aggregate for one society, locality or owner: `{ count, avg, dist, catAvg }`.
+ *
+ * The same shape `getPropertyReviewSummary` returns, and the urgent half of D79 rather than the
+ * insurance half. `listEntityReviews` has been **paged at 20 since S27**, so the society hub, the
+ * owner profile and the locality reviews block were not averaging their reviews — they were
+ * averaging page one and printing it as the rating. Any target past twenty reviews has been showing
+ * a wrong number, today, on a live page. The property equivalent prevented a defect; this one fixes
+ * one.
+ *
+ * `avg` is **null**, not 0, when `count` is 0 — no rating is not a rating of zero. `dist` is a
+ * 0-based five-slot array and is always five entries long. `catAvg` is sparse: an aspect nobody
+ * rated is absent, and each present aspect is averaged over the reviews that answered *it*.
+ *
+ * **A rejected promise here means "we do not know the rating", never "there are no reviews".** The
+ * distinction is the whole reason this is a separate read: an entity id the server does not
+ * recognise 404s, and a caller that catches that into a zero-shaped summary re-creates the outage
+ * that hid behind "no reviews yet" on every property page for weeks. Callers must render a
+ * failed read as unavailable, not as unreviewed.
+ *
+ * @param {'society'|'locality'|'owner'} entityType
+ * @param {string} entityId slug or id for society, slug for locality, user id for owner
+ * @returns {Promise<{count: number, avg: number|null, dist: number[], catAvg: object}>}
+ */
+export const getEntityReviewSummary = (entityType, entityId) =>
+  provider().getEntityReviewSummary(entityType, entityId);
 
 /** Rate a society, locality or owner. Resolves to the created review. */
 export const createEntityReview = (entityType, entityId, review) =>

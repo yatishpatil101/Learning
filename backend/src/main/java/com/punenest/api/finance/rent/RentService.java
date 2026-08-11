@@ -1,5 +1,6 @@
 package com.punenest.api.finance.rent;
 
+import com.punenest.api.common.PlatformTime;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
@@ -9,6 +10,7 @@ import com.punenest.api.common.web.Ids;
 import com.punenest.api.finance.tenancy.Tenancy;
 import com.punenest.api.finance.tenancy.TenancyRepository;
 import com.punenest.api.provider.PaymentGateway;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -41,6 +43,16 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p><strong>Scoping is by participation, and a stranger's row is a 404, never a 403.</strong> A
  * tenant sees payments on tenancies they hold; an owner sees payments on tenancies they let.
  * Answering 403 would confirm that a given tenancy id exists and belongs to someone else.
+ *
+ * <p><strong>The rent month is reckoned in {@link PlatformTime#IST}, never in the JVM default</strong>
+ * (tech debt D179, the same class of bug as D174 in {@code FinanceService}). {@link #open} anchors a
+ * payment on the 1st of the current month, and on a UTC host the JVM is still on yesterday's date
+ * for the first 5.5 hours of every Indian day. Between 00:00 and 05:29 IST on the 1st that answers
+ * the previous month, so a tenant paying early on the 1st would settle the month they had already
+ * paid — colliding with V14's {@code uq_rent_payments_live_per_due_date} and being told their rent
+ * was "already paid or in progress" — while the month actually falling due stayed open. The zone is
+ * applied at the use site rather than baked into {@link #clock}, so pinning the clock in a test
+ * proves this service chooses IST rather than proving the test did.
  */
 @Service
 public class RentService implements AbandonedCheckouts {
@@ -104,6 +116,20 @@ public class RentService implements AbandonedCheckouts {
      * {@code REQUIRED}. */
     private final TransactionTemplate transactions;
 
+    /**
+     * The instant the rent month is derived from — a seam, not a configuration knob.
+     *
+     * <p>Deliberately <em>zone-agnostic</em>, mirroring {@code FinanceService#clock}: it answers
+     * "what instant is it", and {@link #todayIst()} decides which calendar that instant falls on. A
+     * test therefore pins it to a UTC-zoned {@link Clock#fixed} — the host configuration that causes
+     * the bug — and the IST answer it gets back is this service's doing.
+     *
+     * <p>Not constructor-injected because there is no {@code Clock} bean in this application and
+     * adding one to satisfy a single test would put a new global in everyone's context. Not final
+     * only so {@link #useClock} can reach it; nothing in production ever calls that.
+     */
+    private Clock clock = Clock.systemUTC();
+
     public RentService(RentPaymentRepository payments, RentMandateRepository mandates,
             PayoutAccountRepository payoutAccounts, TenancyRepository tenancies,
             RentFeeCalculator fees, PaymentGateway gateway, RentMapper mapper,
@@ -116,6 +142,26 @@ public class RentService implements AbandonedCheckouts {
         this.gateway = gateway;
         this.mapper = mapper;
         this.transactions = new TransactionTemplate(transactionManager);
+    }
+
+    /**
+     * Pin the instant this service believes it is. <strong>Tests only</strong> — package-private so
+     * nothing outside {@code finance.rent} can reach it, and so a caller that finds it has to be
+     * sitting next to the javadoc saying not to.
+     *
+     * <p>This bean is proxied for {@code @Transactional}, so a test must unwrap the target with
+     * {@code AopTestUtils.getTargetObject} before calling this, and must restore the system clock
+     * afterwards — the bean outlives the test that borrowed it.
+     *
+     * @param pinned the clock to read instants from, or {@code null} to restore the system clock
+     */
+    void useClock(Clock pinned) {
+        this.clock = pinned == null ? Clock.systemUTC() : pinned;
+    }
+
+    /** Today's date <em>in India</em>, whatever timezone this process was started in. */
+    private LocalDate todayIst() {
+        return LocalDate.now(clock.withZone(PlatformTime.IST));
     }
 
     /** Contract {@code myRentPayments} — what the caller has paid or owes, as tenant. */
@@ -217,7 +263,7 @@ public class RentService implements AbandonedCheckouts {
         }
 
         String method = requirePayableMethod(body.method());
-        LocalDate dueDate = LocalDate.now().withDayOfMonth(1);
+        LocalDate dueDate = todayIst().withDayOfMonth(1);
         if (payments.existsLiveForDueDate(tenancy.getId(), dueDate)) {
             throw new ConflictException("Rent for this month is already paid or in progress");
         }

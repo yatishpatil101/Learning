@@ -43,6 +43,50 @@ export const MOD_PENDING = 'pending';
 export const isPubliclyVisible = (modStatus) => MOD_PUBLIC.includes(modStatus || 'live');
 
 /**
+ * ## 2b. The three interest doors answer 409 for two different reasons
+ *
+ * `ConflictException` fixes `ErrorCodes.CONFLICT`, so **every** 409 in this domain arrives with
+ * `error: "conflict"` on the wire. The reason lives in the message, as a trailing marker the
+ * services write by hand — `(already_interested)`, `(group_full)`. Reading the envelope's `error`
+ * therefore cannot tell the two apart, and they need opposite treatment:
+ *
+ *   `already_interested` — benign. The host already has the message. Informational.
+ *   `group_full`         — the last seat went while the board was on screen. A real refusal.
+ *
+ * Both providers normalise that marker onto `ApiError.code` so a call site can branch on it
+ * without parsing prose. The mock throws the sub-code directly.
+ */
+export const CONFLICT_ALREADY_INTERESTED = 'already_interested';
+export const CONFLICT_GROUP_FULL = 'group_full';
+
+/**
+ * The trailing `(marker)` itself. Exported so the providers can strip it from the message after
+ * lifting it onto `code` — one pattern, so the matcher and the eraser cannot drift apart.
+ */
+export const CONFLICT_MARKER = /\s*\(([a-z_]+)\)\s*$/;
+
+/**
+ * The sub-code a 409 carries, or `null` for anything else.
+ *
+ * Matched on the trailing `(marker)` the services append, not on the message body — the prose
+ * either side of it is copy and will be rewritten.
+ *
+ * The other half of this contract is `FlatmateConflicts` in
+ * `backend/src/main/java/com/punenest/api/engagement/flatmate/`: it owns the two spellings above
+ * and does the appending itself, precisely so no service can put a full stop or a hint after the
+ * marker and silently blind this regex — which is end-anchored on purpose, because a message that
+ * merely *contains* `already_interested` is not the same claim. `FlatmateConflictsTest` reproduces
+ * this pattern character for character against the real exceptions, so a change on either side
+ * that breaks the other fails a test rather than a user's toast. If you edit the pattern here,
+ * edit it there in the same commit (D182).
+ */
+export function conflictSubCode(err) {
+  if (err?.status !== 409) return null;
+  const hit = CONFLICT_MARKER.exec(err.message || '');
+  return hit ? hit[1] : null;
+}
+
+/**
  * ## 3. Seats are the one number that must never be inferred
  *
  * A room and a group both carry `seatsTotal` and `seatsOpen`. It is tempting to derive one from

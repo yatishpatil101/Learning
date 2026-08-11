@@ -19,7 +19,8 @@ import lombok.Getter;
  * contract does not describe — and charging a customer a "from" price is the wrong thing to do
  * regardless.
  *
- * <p>{@code amount} is therefore null on creation and filled in by ops once the job is quoted.
+ * <p>{@code amount} is therefore null on creation and filled in by ops once the job is quoted —
+ * through {@link #quote(long)} and the {@code quoted} transition alone (D58).
  */
 @Entity
 @Table(name = "service_orders")
@@ -69,5 +70,29 @@ public class ServiceOrder extends AuditedEntity {
         this.scheduledFor = preferredSlot;
         this.notes = notes;
         this.idempotencyKey = idempotencyKey;
+    }
+
+    /**
+     * Attach the surveyed price and move to {@code quoted} (D58).
+     *
+     * <p><strong>The only writer of {@code amount} in the codebase</strong>, and it cannot be
+     * called without also setting the status — which is what makes "the price is set when the job
+     * is quoted, and never again" a property of the class rather than a rule the service is trusted
+     * to remember. {@link #moveTo} deliberately takes no amount for the same reason.
+     */
+    void quote(long quotedAmount) {
+        this.status = ServiceOrderStatuses.QUOTED;
+        this.amount = quotedAmount;
+    }
+
+    /**
+     * Move to {@code status}, leaving the money alone (D58).
+     *
+     * <p>Package-private and unvalidated: legality is {@link ServiceOrderStatuses}'s job and the
+     * service checks it before calling. The entity's contribution is narrower and structural —
+     * there is no setter that can change a status and a price in one step.
+     */
+    void moveTo(String next) {
+        this.status = next;
     }
 }

@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { trackErrors } from '../../helpers/console.js';
 
 /**
  * Ops "Duplicates" merge UI (end-to-end).
@@ -22,8 +23,12 @@ async function loginAsAdmin(page) {
 async function seedCluster(page) {
   await page.evaluate((society) => {
     const KEY = 'puneNestDB_v5';
-    let db = {};
-    try { db = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { db = {}; }
+    // No `|| '{}'` and no `catch { db = {} }`. This is a read-modify-write, so an empty
+    // fallback is written back over the seeded catalogue and the Duplicates tab then has
+    // nothing to cluster — which reads as a merge-UI bug rather than a missing store.
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     db.listings = db.listings || [];
     if ((db.listings || []).some((l) => l.id === 'MERGE-A')) return; // idempotent
     const base = {
@@ -39,8 +44,7 @@ async function seedCluster(page) {
 }
 
 test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const errors = trackErrors(page);
 
   // Log in first so the app boots and seeds the FULL default DB into puneNestDB_v5,
   // then merge our two listings into it. Seeding before boot would write a partial

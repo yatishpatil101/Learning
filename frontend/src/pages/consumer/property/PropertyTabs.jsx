@@ -68,7 +68,12 @@ export default function PropertyTabs({ ctx }) {
                   {ovOpen ? (
                     <p>{overviewMore}</p>
                   ) : null}
-                  <button type="button" onClick={() => setOvOpen((v) => !v)} className="text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth inline-flex items-center gap-1">
+                  {/* tap-extend rather than min-h: this is the last child of a
+                      space-y-4 stack, so a taller box would open a visible gap
+                      between the description and the card's own p-6 floor. The
+                      transparent 44px region uses that padding instead — there is
+                      16px above and 24px below and nothing interactive in either. */}
+                  <button type="button" onClick={() => setOvOpen((v) => !v)} className="tap-extend relative text-sm font-semibold text-brand-teal-3 hover:text-brand-teal-2 transition-smooth inline-flex items-center gap-1">
                     {ovOpen ? tr('property.readLess') : tr('property.readMore')} <Icon name="chevron-down" className="w-4 h-4" style={{ transform: ovOpen ? 'rotate(180deg)' : '' }} />
                   </button>
                 </div>

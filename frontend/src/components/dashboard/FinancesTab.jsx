@@ -6,7 +6,7 @@ import { fmtINR } from '../../lib/format.js';
 import { PALETTE } from '../charts/index.jsx';
 import TenantFinancesTab from './TenantFinancesTab.jsx';
 import {
-  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, expenseBreakdown,
+  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, expenseBreakdown, filterByPeriod,
   exportTransactionsCSV, exportStatementPDF,
 } from '../../lib/data/finances.js';
 import {
@@ -68,16 +68,17 @@ function OwnerFinances({ user, listings, toast }) {
 
   const mob = user?.mobile || '';
 
-  /* Everything this tab renders for the selected property, in one pass.
+  /* The period-independent half of what this tab renders, in one pass.
 
      `summary`, `cashflow` and `dues` used to be client-side reductions over the transaction list.
      They are endpoints now — not for tidiness, but because the ledger is **paged**, so reducing
      over what the client happened to hold produced a summary of page one wearing the label of a
-     summary. The server counts the whole book.
+     summary. The server counts the whole book. (`summary` has since moved to its own effect below,
+     because it is the one read the period selector moves.)
 
      Keyed on `finProp` and a `tick` the mutations bump, so a save re-reads rather than patching
-     four derived values by hand and hoping they stay consistent with each other. */
-  const EMPTY = { basis: null, txs: [], duesRaw: [], summary: { income: 0, expense: 0, net: 0 }, cf: [] };
+     derived values by hand and hoping they stay consistent with each other. */
+  const EMPTY = { basis: null, txs: [], duesRaw: [], cf: [] };
   const [fin, setFin] = useState(EMPTY);
   useEffect(() => {
     if (!finProp) { setFin(EMPTY); return undefined; }
@@ -86,15 +87,13 @@ function OwnerFinances({ user, listings, toast }) {
       getBasis(finProp).catch(() => null),
       listTransactions(finProp).catch(() => ({ items: [] })),
       duesApi(finProp).catch(() => []),
-      financeSummary(finProp).catch(() => ({ income: 0, expense: 0, net: 0 })),
       cashflowApi(finProp).catch(() => []),
-    ]).then(([basisRow, txPage, duesRows, summaryRow, cfRows]) => {
+    ]).then(([basisRow, txPage, duesRows, cfRows]) => {
       if (!alive) return;
       setFin({
         basis: basisRow,
         txs: txPage?.items || [],
         duesRaw: duesRows || [],
-        summary: summaryRow || { income: 0, expense: 0, net: 0 },
         cf: cfRows || [],
       });
     });
@@ -102,7 +101,26 @@ function OwnerFinances({ user, listings, toast }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finProp, tick]);
 
-  const { basis, txs, duesRaw, summary } = fin;
+  /* The summary is its own read because it is the only one of the five that is **scoped to the
+     period selector**. It used to be fetched with no period at all, so the KPI strip answered
+     all-time while the table below it answered the selected window — and the two disagreed even
+     about where "year" starts, because the table pivoted on 1 January and the server pivots on
+     1 April (D178). Asking the server for the selected window is what makes the card and the table
+     two views of one answer; the ledger, dues and cashflow do not move when the period does, so
+     they stay in the effect above rather than being re-pulled on every toggle. */
+  const EMPTY_SUMMARY = { income: 0, expense: 0, net: 0 };
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  useEffect(() => {
+    if (!finProp) { setSummary(EMPTY_SUMMARY); return undefined; }
+    let alive = true;
+    financeSummary(finProp, finPeriod)
+      .catch(() => EMPTY_SUMMARY)
+      .then((row) => { if (alive) setSummary(row || EMPTY_SUMMARY); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finProp, finPeriod, tick]);
+
+  const { basis, txs, duesRaw } = fin;
   const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
   const expBreak = useMemo(() => { const raw = expenseBreakdown(mob, finProp, finPeriod) || {}; return Object.entries(raw).map(([category, amount]) => ({ category, amount })); }, [mob, finProp, finPeriod, tick]);
   /* The chart wants three parallel arrays; the wire sends a list of points. Reshaped here rather
@@ -175,18 +193,13 @@ function OwnerFinances({ user, listings, toast }) {
     ? (INCOME_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }))
     : (EXPENSE_CATS || []).map((c) => ({ value: c, label: t(CAT_KEYS[c] || c, { defaultValue: c }) }));
 
+  /* The window is `filterByPeriod`'s, not this component's. That function is the frontend's only
+     copy of the arithmetic and mirrors the server's `SummaryPeriods.startOf`, so the rows listed
+     here are the rows the KPI strip above already counted — including `year` meaning 1 April, which
+     the hand-rolled version here got wrong from January to March (D178). */
   const filteredTxs = useMemo(() => {
-    let list = [...txs];
-    if (finType !== 'all') list = list.filter((t) => t.type === finType);
-    if (finPeriod !== 'all') {
-      const now = new Date();
-      let start;
-      if (finPeriod === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1);
-      else if (finPeriod === 'quarter') start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      else start = new Date(now.getFullYear(), 0, 1);
-      list = list.filter((t) => new Date(t.date) >= start);
-    }
-    return list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const typed = finType === 'all' ? txs : txs.filter((t) => t.type === finType);
+    return filterByPeriod(typed, finPeriod).sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [txs, finType, finPeriod]);
 
   const submitTx = async () => {

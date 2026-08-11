@@ -14,8 +14,18 @@ import { COMMERCIAL_SUBTYPES, PG_SHARING, isResidentialType, isPgType, isCommerc
 import { matchLocalityToCanonical, slugifyLocality } from '../../../data/localities.js';
 import {
   classifyChanges, displayValue, recentMaterialEdits,
+  FOUNDATION_STAYS_LIVE_KEYS,
   PRICE_REDUCED_PCT, PRICE_JUMP_FLAG_PCT, MATERIAL_EDIT_CAP,
 } from './editPolicy.js';
+import { requestRecheckFields, clearedRecheckFields } from '../../../lib/mockApi/properties.js';
+
+/* Wizard form key → the server's wire field name, inverted from the map the gate already pins.
+   `price` and `monthlyRent` both fold onto `price`, because the wizard splits sale price from
+   monthly rent while the entity has one column — and the moderator must be told "price", which is
+   the field they will actually look at. */
+const STAYS_LIVE_FORM_TO_WIRE = Object.fromEntries(
+  Object.entries(FOUNDATION_STAYS_LIVE_KEYS).flatMap(([wire, formKeys]) => formKeys.map((k) => [k, wire])),
+);
 
 /* ---------- listing persistence ---------- */
 export const persistListing = ({ form, user, editId, documents, photos, photoHashes }) => {
@@ -222,7 +232,10 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
       if (editId) {
         const oldListing = getListing(editId) || {};
         const oldForm = oldListing.form || oldListing;
-        const wasApproved = isListingApproved(editId);
+        /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. `isListingApproved`
+           only matches the status half, and an archived listing is not in search — raising a
+           re-check on one would queue a moderator to look at a listing nobody can see. */
+        const wasApproved = isListingApproved(editId) && !oldListing.archived;
         const oldPhotoUrls = (oldListing.images || oldListing.gallery || []).filter(Boolean);
         const newPhotoUrls = photos.map((p) => p.url).filter(Boolean);
         const cls = classifyChanges(oldForm, form, oldPhotoUrls, newPhotoUrls);
@@ -269,6 +282,36 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
           record.priceReduced = isDown;
           record.prevPrice = isDown ? cls.priceSwing.from : 0;
           if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
+        }
+
+        /* The server's stays-live re-check (Q14), mirrored into the mock store so the moderation
+           queue exists in both modes. `ListingService.update` calls `Property.requestRecheck` for a
+           price/furnishing/possession edit on a publicly visible listing: the listing keeps
+           `approved` and stays in search, and a work item is filed for a moderator.
+
+           Three conditions are copied rather than approximated, because each one is a way for the
+           mock to be *more permissive* than the server and so to pass a test the API would fail:
+             - only when the listing was already approved (`isPubliclyVisible`) — a pending listing
+               is in front of a moderator already and a second work item is queue noise;
+             - never alongside an off-search change, because re-moderation supersedes a re-check
+               (`recheckOnly && !remoderationRequired`) and looks at the whole listing anyway;
+             - the timestamp is preserved across edits by `requestRecheckFields`, so age is honest. */
+        const staysLiveWireFields = wasApproved && !cls.remoderation.length
+          ? [...new Set(cls.staysLive.map((c) => STAYS_LIVE_FORM_TO_WIRE[c.key]).filter(Boolean))]
+          : [];
+        if (staysLiveWireFields.length) {
+          Object.assign(record, requestRecheckFields(oldListing, staysLiveWireFields));
+        } else if (cls.remoderation.length) {
+          /* Re-moderation supersedes: the server's `ListingService.update` calls
+             `Property.revertToPending()` on this path, and that calls `clearRecheck()`. Carrying
+             the old re-check forward instead would leave a listing sitting in *both* queues, and
+             the moderator who is about to re-approve the whole thing would then still owe someone
+             a re-check of a field they had already looked at. */
+          Object.assign(record, clearedRecheckFields());
+        } else {
+          record.recheckPending = !!oldListing.recheckPending;
+          record.recheckReason = oldListing.recheckReason || '';
+          record.recheckRequestedAt = oldListing.recheckRequestedAt || '';
         }
 
         // Material change on a LIVE listing → re-check while it stays live.

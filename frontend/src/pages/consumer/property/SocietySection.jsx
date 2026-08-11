@@ -12,15 +12,23 @@ export function SocietySection({ p }) {
   const socName = soc ? soc.name : t('property.societyBuilding');
   const verified = soc ? (soc.registration && soc.conveyance) : !!p.ownershipVerified;
   const claimed = soc && soc.claimStatus === 'claimed';
-  /* SEAM NOTE: still the mock aggregate, on purpose.
+  /* SEAM NOTE: still the mock aggregate, on purpose — but keyed on the **slug**, not `soc.id`.
 
      The society itself comes from `data/societies.js`, so `soc.id` is a synthetic `S01` the server
-     has never seen — asking the reviews API about it would return nothing and render "Not rated"
-     for a society that may well be rated. The right source is `avgRating` / `reviewCount`, which
-     `GET /societies` now carries for exactly this reason; this switches to `soc.avgRating` when
-     societies become a seam domain. Reviews of a society *are* live on the hub, which keys on the
-     slug. */
-  const rating = soc ? entityRating('society', soc.id) : { avg: 0, count: 0 };
+     has never seen. The reviews the hub writes are keyed on `soc.slug`, so keying this read on the
+     id addressed a bucket nothing ever writes and this block rendered the builder name and a 4.2
+     placeholder for a society that may well be rated.
+
+     `services/societyService.js` now indexes `avgRating`/`reviewCount` from `GET /societies` for the
+     directory. This call site has **not** moved, and it needs more than a wiring change to: it wants
+     *one* society's rating, and the seam's only operation reads the whole index — four requests to
+     draw one star on a property page. The right shape is `reviewService.getEntityReviewSummary`,
+     which is a single request, already live, and already what the society hub uses.
+
+     Whichever it becomes, the `4.2` below has to go with it: it is an invented rating rendered for a
+     society nobody has reviewed, which is the same class of defect as the fabricated `registration:
+     true` that put "Society Verified" on unconfirmed buildings. */
+  const rating = soc ? entityRating('society', soc.slug) : { avg: 0, count: 0 };
 
   const quick = soc ? [
     ['home', t('property.homesCount', { count: soc.units })],

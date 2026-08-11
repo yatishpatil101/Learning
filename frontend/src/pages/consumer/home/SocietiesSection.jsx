@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { listProperties } from '../../../services/propertyService.js';
 import { allSocieties, listingsInSociety } from '../../../data/societies.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { resolveSociety, entityRating } from '../../../lib/store.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -30,6 +31,14 @@ export default function SocietiesSection() {
     return () => { alive = false; };
   }, []);
 
+  /* Gated even though this strip only shows 8 rows. RERA societies are not second-class
+     — many carry `tier: 'verified'` with both `registration` and `conveyance` true, so
+     they do compete on the first sort key. Ungated, which rows this memo ranked depended
+     on whether listProperties() or the catalogue chunk resolved first, so mock and live
+     could legitimately paint different strips. Costs nothing: `allSocieties()` below
+     already starts the fetch, so this adds one re-render and zero bytes. */
+  const catalogueReady = useSocietyCatalogue();
+
   const top = useMemo(() => allSocieties()
     .map((raw) => {
       const soc = resolveSociety(raw.slug) || raw;
@@ -37,14 +46,22 @@ export default function SocietiesSection() {
       const verified = !community && !!(soc.registration && soc.conveyance);
       return {
         id: soc.id, slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-        // SEAM NOTE: mock aggregate. `soc.id` is a synthetic `S01` from `data/societies.js`, not an
-        // id the server knows. `GET /societies` now returns `avgRating`/`reviewCount` per row for
-        // this call site; it switches over when societies join the seam. See SocietySection.jsx.
-        verified, rating: entityRating('society', soc.id), homes: listingsInSociety(listings, soc.id).length,
+        /* SEAM NOTE: still the mock aggregate, keyed on the **slug** — the key the society hub writes
+           under. `soc.id` is a synthetic `S01` from `data/societies.js`, not an id the server or the
+           review store ever sees, so keying on it made this aggregate a constant zero.
+
+           The seam now exists — `services/societyService.js` indexes `avgRating`/`reviewCount` from
+           `GET /societies` and `Societies.jsx` reads it — and this call site has **deliberately not**
+           moved. Nothing here renders a rating: the card shows locality + homes, and the aggregate is
+           only the third sort key. Reading the seam would cost this strip a four-page walk of the
+           348-row society directory on the home page to break ties among eight cards, which is a
+           worse trade than the tie going unbroken. The real question is whether the tie-break earns
+           its place at all — that is a product call, not a wiring one. See `Societies.jsx`. */
+        verified, rating: entityRating('society', soc.slug), homes: listingsInSociety(listings, soc.id).length,
       };
     })
     .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || (b.rating.avg - a.rating.avg) || a.name.localeCompare(b.name))
-    .slice(0, 8), [listings]);
+    .slice(0, 8), [listings, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
 
   // Reflect the strip's scroll position in the arrow enabled-state and the edge
   // fades — identical mechanics to the property-type strip so both rows behave

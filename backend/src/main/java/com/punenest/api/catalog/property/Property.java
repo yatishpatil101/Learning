@@ -11,6 +11,8 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 import lombok.Getter;
@@ -35,9 +37,11 @@ import org.hibernate.type.SqlTypes;
  * ({@code amenities}/{@code images}) map through {@link SqlTypes#JSON}.
  *
  * <p>Invariants this entity helps enforce (server-side, not just in the UI): new listings start
- * {@code pending} with a server-set owner; editing a <em>foundation</em> field (price/bhk/type/
- * locality/deal) reverts {@code status} to {@code pending}; restore-from-archive also resets to
- * {@code pending}; soft-delete only (the {@code archived} triplet from {@link SoftDeleteEntity}).
+ * {@code pending} with a server-set owner; editing a foundation field that changes <em>what the
+ * listing is</em> (bhk/propertyType/locality/deal) reverts {@code status} to {@code pending}, while
+ * editing one that changes only an attribute of it (price/furnishing/possession) raises a re-check
+ * and leaves the listing searchable (Q14); restore-from-archive also resets to {@code pending};
+ * soft-delete only (the {@code archived} triplet from {@link SoftDeleteEntity}).
  */
 @Entity
 @Table(name = "properties")
@@ -261,6 +265,25 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String flagReason;
 
+    /**
+     * The stays-live moderation work item (Q14, V62). Set when an owner edits a foundation field
+     * that does not change what the listing fundamentally is — {@code price}, {@code furnishing},
+     * {@code possession} — so the edit is queued for a moderator <em>without</em> the listing
+     * leaving search.
+     *
+     * <p>Deliberately shaped like {@link #flagReason} beside {@link #status}: a nullable timestamp
+     * that is the queue entry (its age is the SLA a "live but flagged" control needs to be worth
+     * anything) plus a reason the moderator reads. What it is <em>not</em> is a status value —
+     * every status other than {@code approved} is off search, which is precisely the cost this
+     * exists to avoid paying.
+     */
+    @Column(name = "recheck_requested_at")
+    private Instant recheckRequestedAt;
+
+    /** Which fields raised the pending re-check, accumulated across edits (Q14). */
+    @Column(name = "recheck_reason")
+    private String recheckReason;
+
     @Column(name = "verified", nullable = false)
     @Setter
     private boolean verified = false;
@@ -329,9 +352,55 @@ public class Property extends SoftDeleteEntity {
                 || PropertyStatus.SOLD.equals(status) || PropertyStatus.RENTED.equals(status));
     }
 
-    /** Re-moderation trigger: a foundation-field edit (or a restore) sends the listing back to review. */
+    /**
+     * Re-moderation trigger: an identity-changing foundation edit (or a restore) sends the listing
+     * back to review. Any pending re-check is dropped — a full re-moderation looks at the whole
+     * listing, so leaving one queued would put the same edit in front of a moderator twice.
+     */
     public void revertToPending() {
         this.status = PropertyStatus.PENDING;
+        clearRecheck();
+    }
+
+    /**
+     * Raise the stays-live moderation work item (Q14): the listing keeps its {@code approved} status
+     * and stays in search while a moderator re-checks the named fields.
+     *
+     * <p>Only raised on a publicly visible listing, because that is the only case where "stays live"
+     * means anything. A pending or flagged listing is already in front of a moderator and a second
+     * work item for the same row would just be queue noise; an archived one is not visible to
+     * anybody, and restoring it reverts to {@code pending} anyway.
+     *
+     * <p>The timestamp is kept at the <em>first</em> unreviewed edit rather than refreshed on each
+     * one, so a queue sorted by age tells the truth: an owner editing their price daily must not be
+     * able to keep resetting their own place in the queue to the back.
+     *
+     * @param fields the fields that earned the re-check, in the wire vocabulary
+     */
+    public void requestRecheck(List<String> fields) {
+        if (fields == null || fields.isEmpty() || !isPubliclyVisible()) {
+            return;
+        }
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (recheckReason != null && !recheckReason.isBlank()) {
+            Collections.addAll(merged, recheckReason.split(",\\s*"));
+        }
+        merged.addAll(fields);
+        this.recheckReason = String.join(", ", merged);
+        if (recheckRequestedAt == null) {
+            this.recheckRequestedAt = Instant.now();
+        }
+    }
+
+    /** A moderator has looked: drop the work item. Idempotent. */
+    public void clearRecheck() {
+        this.recheckRequestedAt = null;
+        this.recheckReason = null;
+    }
+
+    /** Is a stays-live re-check queued on this listing? (Q14) */
+    public boolean isRecheckPending() {
+        return recheckRequestedAt != null;
     }
 
 }

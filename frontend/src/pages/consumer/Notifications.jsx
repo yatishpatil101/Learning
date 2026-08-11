@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
+import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { listProperties } from '../../services/propertyService.js';
 import { countMatches } from './listings/alertCriteria.js';
 import { useSaved } from '../../context/SavedContext.jsx';
@@ -91,20 +92,34 @@ export default function Notifications() {
   const [derived, setDerived] = useState([]);
 
   /**
-   * Load the inbox: server rows (or localStorage on mocks) merged with whatever has been derived.
+   * Read the inbox: server rows (or localStorage on mocks) merged with whatever has been derived.
    *
+   * One function for two callers — the effect below and the pull-to-refresh gesture — so a pull
+   * lands the same merge the page loaded with rather than a second, subtly different read. The
+   * `alive` box is the effect's; the gesture passes nothing and always applies its result.
+   */
+  const loadInbox = useCallback((alive = { current: true }) => listNotifications(derived)
+    .then((list) => { if (alive.current) setNotifs(list); })
+    // An unreachable inbox renders empty rather than throwing the page away. The bell already
+    // shows nothing in that case, so the two agree.
+    .catch(() => { if (alive.current) setNotifs([]); }), [derived]);
+
+  /**
    * Re-runs whenever `derived` changes, which is how the two halves converge — the first pass shows
    * the stored inbox, and the alert pass adds to it once the saved searches and shortlist land.
    */
   useEffect(() => {
-    let alive = true;
-    listNotifications(derived)
-      .then((list) => { if (alive) setNotifs(list); })
-      // An unreachable inbox renders empty rather than throwing the page away. The bell already
-      // shows nothing in that case, so the two agree.
-      .catch(() => { if (alive) setNotifs([]); });
-    return () => { alive = false; };
-  }, [derived]);
+    const alive = { current: true };
+    loadInbox(alive);
+    return () => { alive.current = false; };
+  }, [loadInbox]);
+
+  /* Pull down from the top of the inbox to re-read it. The bell is refreshed alongside, so the
+     count in the navbar can never disagree with the list the pull just produced. */
+  const ptr = usePullToRefresh(useCallback(
+    () => loadInbox().then(refreshBadge),
+    [loadInbox, refreshBadge],
+  ));
 
   // Merge in real-data notifications derived from the user's own saved searches
   // (new matches) and saved properties (availability). Deduped by stable id, so
@@ -233,8 +248,21 @@ export default function Notifications() {
   let delayIdx = 0;
 
   return (
-    <div ref={rootRef} className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div ref={ptr.ref} className="pt-5 sm:pt-8 lg:pt-10 pb-20 min-h-[100dvh]">
+      {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
+        <div
+          aria-hidden="true"
+          className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
+          style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+        >
+          <Icon
+            name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
+            className={'w-4 h-4 text-teal-400' + (ptr.isRefreshing ? ' animate-spin' : '')}
+            style={ptr.isRefreshing ? undefined : { transform: `rotate(${ptr.progress * 180}deg)` }}
+          />
+        </div>
+      )}
+      <div ref={rootRef} className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-5 sm:mb-6 reveal">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white">{t('notifications.title')}</h1>

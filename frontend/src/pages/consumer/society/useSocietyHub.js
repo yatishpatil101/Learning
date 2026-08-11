@@ -4,12 +4,13 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
+import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 import { fmtNum } from '../../../lib/format.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { fnvHash } from '../../../lib/hash.js';
 import { listingsInSociety } from '../../../data/societies.js';
 import { commuteInfo, connectivityFor } from '../property/locationIntel.js';
-import { createEntityReview, listEntityReviews } from '../../../services/reviewService.js';
+import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '../../../services/reviewService.js';
 import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
 import {
   digits,
@@ -49,6 +50,10 @@ export function useSocietyHub() {
   const slug = (routeSlug || params.get('s') || 'skyline-heights-baner').toLowerCase();
   const fallbackName = params.get('name');
   const fallbackLoc = params.get('loc') || 'Pune';
+  // 320 of the 348 slugs this route serves live in the bulk chunk (D129), and
+  // `resolveSociety` answers null until it lands. Without this gate every one of
+  // them renders `genericSociety` — a fabricated row — and never corrects itself.
+  const catalogueReady = useSocietyCatalogue();
   const soc = useMemo(() => {
     const resolved = resolveSociety(slug);
     if (!resolved) return genericSociety(slug, fallbackName, fallbackLoc);
@@ -58,15 +63,28 @@ export function useSocietyHub() {
     const thin = resolved.units == null && !resolved.builder;
     const community = resolved.tier === 'community';
     return { ...resolved, _thin: thin, _community: community };
-  }, [slug, tick, fallbackName, fallbackLoc]);
+  }, [slug, tick, fallbackName, fallbackLoc, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- `tick` and `catalogueReady` are invalidation signals for the module-level society store, which the rule cannot see. See `lib/useSocietyCatalogue.js`.
   const locName = soc._locName || titleCase(soc.localitySlug);
 
   const [listings, setListings] = useState([]);
   const [reviews, setReviews] = useState([]);
+  // `null` until the summary read settles; `summaryFailed` keeps "could not read" distinguishable
+  // from "count is 0", which is the difference between an outage and an unreviewed society.
+  const [summary, setSummary] = useState(null);
+  const [summaryFailed, setSummaryFailed] = useState(false);
   const [qa, setQa] = useState([]);
   const [followed, setFollowed] = useState(false);
   const [rateOpen, setRateOpen] = useState(false);
   const [pick, setPick] = useState(5);
+  /**
+   * Per-aspect sub-ratings, keyed by `REVIEW_CATS` id.
+   *
+   * Starts empty and only gains a key when the reviewer actually taps that row, so "did not rate
+   * Connectivity" stays distinguishable from "rated it 1" all the way to the column. The property
+   * modal does the same, and the server treats the map as optional and sparse.
+   */
+  const [cats, setCats] = useState({});
+  const setCat = (k, v) => setCats((c) => ({ ...c, [k]: v }));
   const [revText, setRevText] = useState('');
   const [qText, setQText] = useState('');
   const [answerFor, setAnswerFor] = useState(null);
@@ -119,9 +137,23 @@ export function useSocietyHub() {
    */
   useEffect(() => {
     let alive = true;
+    setSummary(null);
+    setSummaryFailed(false);
     listEntityReviews('society', soc.slug)
       .then((res) => { if (alive) setReviews(res.items); })
       .catch(() => { if (alive) setReviews([]); });
+    /**
+     * A second, independent read — not derived from the list above.
+     *
+     * The list is a page (20 server-side); the summary is the whole corpus. Reading them separately
+     * is also what keeps one failing without the other: a summary that 404s must not blank the
+     * cards, and cards that fail to load must not be mistaken for a rating of zero. Hence a distinct
+     * `summaryFailed` rather than falling back to a zero-shaped summary — an unreadable rating and a
+     * society nobody has rated are different facts, and only one of them is the page's fault.
+     */
+    getEntityReviewSummary('society', soc.slug)
+      .then((s) => { if (alive) setSummary(s); })
+      .catch(() => { if (alive) setSummaryFailed(true); });
     return () => { alive = false; };
   }, [soc.slug]);
 
@@ -151,34 +183,57 @@ export function useSocietyHub() {
   }, [claim, resOpen, boardOpen, waOpen, reportFor]);
 
   /**
-   * Computed from the reviews already loaded rather than from a second store read.
+   * The rating comes from `GET /reviews/society/{slug}/summary`, never from the list on screen.
    *
-   * `entityRating()` re-read localStorage and reduced over it, which cannot work once the reviews
-   * come from a request. The provider fetches up to 100 in one page and warns when there are more,
-   * so for any real society this is the whole corpus — and the server's own aggregate for a society
-   * (`avgRating` / `reviewCount` on the Society contract) is the authority once societies join the
-   * seam. Until then, one source: the list on screen.
+   * This used to reduce `reviews` in the browser. That is wrong for a reason that has nothing to do
+   * with performance: `listEntityReviews` is **paged at 20 server-side**, so any society past twenty
+   * reviews was showing the mean of its twenty most recent ones and calling it the society's rating.
+   *
+   * `Society.avgRating` / `reviewCount` — which an earlier note here named as the eventual authority
+   * — is not it. `SocietyDetailResponse` does carry that pair, and it is a fine headline figure, but
+   * it carries **no distribution and no per-aspect averages**, so it cannot feed the bars below. The
+   * summary endpoint is the authority for all four numbers, and taking the average from one source
+   * and the breakdown from another is how a page ends up disagreeing with itself.
+   *
+   * Three states, not two. `avg` is `null` rather than 0 when nobody has reviewed — no rating is not
+   * a rating of zero — and `failed` is kept separate from `count === 0` so the tab can say the
+   * rating is unavailable instead of quietly claiming the society is unreviewed.
    */
-  const rating = useMemo(() => {
-    if (!reviews.length) return { avg: 0, count: 0 };
-    const sum = reviews.reduce((a, r) => a + (+r.rating || 0), 0);
-    return { avg: Math.round((sum / reviews.length) * 10) / 10, count: reviews.length };
-  }, [reviews]);
+  const rating = useMemo(() => ({
+    avg: summary ? summary.avg : null,
+    count: summary ? summary.count : 0,
+    loading: !summary && !summaryFailed,
+    failed: summaryFailed,
+  }), [summary, summaryFailed]);
   // Estimated (baseline-blended) ratings are only honest for societies with real,
   // confirmed specs — i.e. NOT thin and NOT community-sourced. Everyone else shows
   // real resident reviews only (or "Not rated yet").
   const showEstimate = !soc._thin && !soc._community;
+  /**
+   * Per-aspect means from the summary's `catAvg`, blended with the baseline estimate.
+   *
+   * Also no longer a browser reduce over page one. `catAvg` is sparse — an aspect nobody rated is
+   * absent, not 0 — and each present aspect is averaged over the reviews that answered *it*, so the
+   * `Number.isFinite` guard is the whole presence test.
+   *
+   * These ids (`Safety`, `Maintenance`, …) are now the server's vocabulary for a society target —
+   * `ReviewCategories.SOCIETY_KEYS` — so a bar with a real number behind it is a real resident
+   * average. Before that split the server only knew the *property* aspects, every key here was
+   * filtered out of the aggregate, and every bar was the baseline alone. The fix had to be a second
+   * vocabulary rather than a mapping: reading `condition` as "Maintenance" would put a number under
+   * a label it does not mean.
+   */
   const bars = useMemo(() => {
-    const acc = {}; const cnt = {};
-    reviews.forEach((r) => Object.entries(r.categories || {}).forEach(([k, v]) => { acc[k] = (acc[k] || 0) + v; cnt[k] = (cnt[k] || 0) + 1; }));
-    if (!showEstimate) return REVIEW_CATS.filter((k) => cnt[k]).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: +(acc[k] / cnt[k]).toFixed(1) }));
+    const catAvg = summary?.catAvg || {};
+    if (!showEstimate) return REVIEW_CATS.filter((k) => Number.isFinite(catAvg[k])).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: catAvg[k] }));
     const base = baselineBars(soc);
-    return REVIEW_CATS.map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: cnt[k] ? +(((acc[k] / cnt[k]) + base[k]) / 2).toFixed(1) : base[k] }));
-  }, [soc, reviews, showEstimate]);
+    return REVIEW_CATS.map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: Number.isFinite(catAvg[k]) ? +((catAvg[k] + base[k]) / 2).toFixed(1) : base[k] }));
+  }, [soc, summary, showEstimate]);
   const overall = useMemo(() => {
-    if (!showEstimate) return rating.count ? +rating.avg.toFixed(1) : 0;
+    const rated = rating.count > 0 && Number.isFinite(rating.avg);
+    if (!showEstimate) return rated ? +rating.avg.toFixed(1) : 0;
     const b = bars.reduce((s, x) => s + x.value, 0) / (bars.length || 1);
-    return rating.count ? +(((rating.avg + b) / 2)).toFixed(1) : +b.toFixed(1);
+    return rated ? +(((rating.avg + b) / 2)).toFixed(1) : +b.toFixed(1);
   }, [bars, rating, showEstimate]);
 
   const priceStats = useMemo(() => {
@@ -234,12 +289,26 @@ export function useSocietyHub() {
      * itself and its `ReviewCreate` has no such field, so the flag was believed on mocks and
      * discarded live. A badge that a browser can assert about itself is not evidence, and evidence
      * is the only thing that makes a stranger's rating worth reading.
+     *
+     * `categories` **is** sent, and only the aspects the reviewer touched. The keys are the hub's
+     * own `REVIEW_CATS` ids, which the server now accepts for a society target and refuses for a
+     * property one — so a typo here is a 400 rather than a bar that silently stays at the baseline
+     * forever, which is how this went unnoticed in the first place.
      */
-    createEntityReview('society', soc.slug, { rating: pick, text: revText.trim() })
-      .then((saved) => (saved === 'login' ? null : listEntityReviews('society', soc.slug)))
+    createEntityReview('society', soc.slug, { rating: pick, text: revText.trim(), categories: cats })
+      .then((saved) => (saved === 'login'
+        ? null
+        // Both, because the rating is no longer derived from the list — re-reading only the cards
+        // would leave the headline showing the average from before the user's own review.
+        : Promise.all([
+          listEntityReviews('society', soc.slug),
+          getEntityReviewSummary('society', soc.slug),
+        ])))
       .then((res) => {
         if (!res) return;
-        setReviews(res.items); setRevText(''); setPick(5); setRateOpen(false);
+        const [list, sum] = res;
+        setReviews(list.items); setSummary(sum); setSummaryFailed(false);
+        setRevText(''); setPick(5); setCats({}); setRateOpen(false);
         toast('Thanks for reviewing this society!', 'success');
       })
       .catch(() => toast('Your review could not be posted. Please try again.', 'error'));
@@ -503,7 +572,7 @@ export function useSocietyHub() {
 
   return {
     ...ctx,
-    rootRef, hero, verified, rateOpen, pick, setPick, revText, setRevText,
+    rootRef, hero, verified, rateOpen, pick, setPick, revText, setRevText, cats, setCat,
     submitReview, sugRec, openSuggest, stats, tabs, current, selectTab,
   };
 }

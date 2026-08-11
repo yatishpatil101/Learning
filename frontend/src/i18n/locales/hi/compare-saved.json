@@ -60,6 +60,7 @@
   },
   "saved": {
     "badge": "आपके पसंदीदा",
+    "categoryLabel": "श्रेणी",
     "title": "सहेजी गई संपत्तियाँ",
     "summaryPrefix": "आपके पास",
     "summaryCount_one": "सहेजी गई वस्तु है",

@@ -89,3 +89,18 @@ export const listDocRequests = (mobile) => provider().listDocRequests(mobile);
  */
 export const respondDocRequest = (mobile, reqId, decision, note) =>
   provider().respondDocRequest(mobile, reqId, decision, note);
+
+/**
+ * Read the documents one grant unlocked, by share token — the buyer/recipient side of the flow.
+ *
+ * The only operation in this service with no session behind it: the token *is* the authorisation,
+ * because the person opening the link may be a lawyer or a bank officer with no PuneNest account.
+ * The http provider sends it on an `X-Share-Token` header and never in the URL (D42), so it stays
+ * out of access logs, `Referer`, and anything else that records a URL.
+ *
+ * @param {string} token the share token, read by `/shared-documents` from `location.hash`
+ * @returns {Promise<object[]>} the shared documents, in the same view model the vault uses
+ * @throws {ApiError} 401 for every credential failure the server refuses to distinguish — unknown,
+ *         declined, expired — so a caller must not try to tell them apart either
+ */
+export const listSharedDocuments = (token) => provider().listSharedDocuments(token);

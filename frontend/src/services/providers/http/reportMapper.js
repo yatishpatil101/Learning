@@ -198,11 +198,18 @@ export function toReportCreate(report) {
  * `resolved` is the queue's word for "reviewed, no action needed", which is what the server calls
  * `dismissed`. Translated here rather than displayed, so the queue never shows a state the server
  * did not record.
+ *
+ * `enforcement` is the verb the server actually executes — `hide_content` takes the listing down,
+ * `suspend_account` archives the user. Omitting it is not a neutral default: the report closes as
+ * `actioned` while the reported thing stays up, which is the worst of both outcomes, because the
+ * queue then *reads* as handled. Absent means `none` on the server, so it is only ever sent when
+ * the moderator picked an action.
  */
 export function toReportTriage(decision) {
   const status = decision?.status === 'resolved' ? 'dismissed' : decision?.status;
   const out = { status };
   const note = String(decision?.note || '').trim();
   if (note) out.note = note;
+  if (decision?.enforcement) out.enforcement = decision.enforcement;
   return out;
 }

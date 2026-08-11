@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../helpers/app.js';
 
 const BASE = 'http://localhost:5173';
 
@@ -236,9 +237,13 @@ test.describe('Admin Post on Behalf', () => {
   test('staff activity page — disabled module shows fallback', async ({ page }) => {
     // Disable staffActivity.enabled via the mock DB settings
     await page.goto(`${BASE}/admin/staff-activity`);
+    await appReady(page);
     await page.evaluate(() => {
+      // Read-modify-write: `{}` is not a safe fallback here, it is written straight back and
+      // wipes every listing and setting for the rest of the file.
       const raw = localStorage.getItem('puneNestDB_v5');
-      const db = raw ? JSON.parse(raw) : {};
+      if (!raw) throw new Error('mock store missing after appReady()');
+      const db = JSON.parse(raw);
       if (!db.settings) db.settings = {};
       if (!db.settings.adminFlags) db.settings.adminFlags = {};
       if (!db.settings.adminFlags.staffActivity) db.settings.adminFlags.staffActivity = {};
@@ -251,8 +256,11 @@ test.describe('Admin Post on Behalf', () => {
 
     // Re-enable for other tests
     await page.evaluate(() => {
+      // Read-modify-write — an empty fallback would both throw on the deep write below and,
+      // worse, be a live hazard if the shape ever changed. Fail loudly instead.
       const raw = localStorage.getItem('puneNestDB_v5');
-      const db = raw ? JSON.parse(raw) : {};
+      if (!raw) throw new Error('mock store missing');
+      const db = JSON.parse(raw);
       db.settings.adminFlags.staffActivity.enabled = true;
       localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     });

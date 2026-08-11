@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Building2, ExternalLink, LayoutDashboard, LogOut, Menu, MessageSquare,
   FileText, ShieldCheck, Wrench, X, IndianRupee, UserPlus, BedDouble, Gift,
-  BookOpen,
+  BookOpen, LifeBuoy, PenLine,
 } from 'lucide-react';
 import LogoMark from '../brand/LogoMark.jsx';
 import ConnectivityBanner from '../ConnectivityBanner.jsx';
+import ErrorBoundary from '../ErrorBoundary.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
 import { ADMIN_MODULES } from '../../lib/adminModules.js';
@@ -18,6 +19,10 @@ import AdminTopbarTools from './AdminTopbarTools.jsx';
 const OPS_NAV = [
   ['/ops', 'Dashboard', LayoutDashboard, true],
   ['/ops/requests', 'Requests', MessageSquare],
+  // The two live-seam screens. Kept next to the demo queues rather than in a section of their own:
+  // an operator navigates by the work, not by which store answers.
+  ['/ops/support', 'Support queue', LifeBuoy],
+  ['/ops/drafting-desk', 'Drafting desk', PenLine],
   ['/ops/rent-agreement', 'Rent Agreement', FileText],
   ['/ops/legal', 'Property & Legal', ShieldCheck],
   ['/ops/interior', 'Interior', Wrench],
@@ -51,6 +56,7 @@ function AdminLayoutInner({ variant = 'admin' }) {
         .map((m) => [m.path, m.label, m.icon, m.end]);
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   const doLogout = () => {
     logout();
@@ -70,7 +76,10 @@ function AdminLayoutInner({ variant = 'admin' }) {
         }
       >
         <div className="flex items-center justify-between px-5 py-4">
-          <Link to={variant === 'ops' ? '/ops' : '/admin'} className="flex items-center gap-2">
+          {/* min-h on touch only: the drawer is 280px wide with nothing beside the
+              wordmark, so a taller row costs nothing there, while the desktop rail
+              keeps its 56px header. */}
+          <Link to={variant === 'ops' ? '/ops' : '/admin'} className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
             <LogoMark className="h-8 w-8 shrink-0 text-brand-teal" />
             <span className="font-extrabold">
               PuneNest
@@ -92,7 +101,11 @@ function AdminLayoutInner({ variant = 'admin' }) {
               end={!!end}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ' +
+                /* py-3 below sm, py-2.5 from there: 16 nav rows at 40px each are a
+                   long thumb-drag through a drawer, and a miss lands on the
+                   neighbouring section rather than nothing. The 4px it adds per row
+                   is inside a scrolling drawer, so nothing else moves. */
+                'flex items-center gap-3 rounded-xl px-3 py-3 sm:py-2.5 text-sm transition-all ' +
                 (isActive ? 'bg-brand-teal/15 text-brand-teal' : 'text-gray-300 hover:bg-white/5 hover:text-white')
               }
             >
@@ -136,7 +149,7 @@ function AdminLayoutInner({ variant = 'admin' }) {
               target="_blank"
               rel="noopener noreferrer"
               title={t('help.runbooks')}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/10 hover:text-white"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-white/10 hover:text-white sm:min-h-0 sm:min-w-0"
             >
               <BookOpen className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{t('help.runbooks')}</span>
@@ -170,7 +183,12 @@ function AdminLayoutInner({ variant = 'admin' }) {
             reaching for. `env()` resolves to 0px on desktop and in a browser tab, so
             this is inert everywhere except an installed app on a notched device. */}
         <main className="flex-1 p-4 pb-[calc(1rem+var(--pn-safe-b))] sm:p-6 sm:pb-[calc(1.5rem+var(--pn-safe-b))]">
-          <Outlet />
+          {/* Same placement rationale as the consumer shell: a module that throws must not take
+              the sidebar down with it, or a moderator loses the navigation they would use to get
+              out of the broken queue. */}
+          <ErrorBoundary scope="admin-route" resetKey={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

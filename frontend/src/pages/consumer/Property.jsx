@@ -37,7 +37,7 @@ export default function Property() {
   const {
     rootRef, goBackToSearch, backToMap, returnTo, isRent, p, title, gallery, active, setActive,
     flagEnabled, setLightbox, setTourOpen, requestPhotos, tabs, current, selectTab,
-    contactApproved, ownerMob, handleContact,
+    contactApproved, ownerMob, handleContact, canChat,
   } = ctx;
 
   return (
@@ -71,9 +71,19 @@ export default function Property() {
           {/* HEADER */}
           <PropertyHeader ctx={ctx} priceOnHero={priceOnHero} />
 
-          {/* SECTION TABS — collapse the long scroll into grouped tabs */}
-          <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 section-mb">
-            <HScroll role="tablist" aria-label={tr('property.tablistAria')} className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
+          {/* SECTION TABS — collapse the long scroll into grouped tabs.
+
+              The row also carries the *desktop* contact CTA on its right. The tab bar
+              is the only element on this page that is already sticky for the whole
+              document (its containing block wraps every section), so docking the CTA
+              here buys desktop a permanently reachable "contact" without introducing a
+              second fixed element: the bottom-right corner already belongs to the
+              assistant FAB, and a full-width desktop bar would sit on top of it (see
+              AssistantWidget's `detailBar` offset, which deliberately stops at lg).
+              Mobile keeps the bottom bar (`.pn-sticky-cta`, lg:hidden) — the two are
+              exact complements and never render together. */}
+          <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 section-mb flex items-stretch">
+            <HScroll role="tablist" aria-label={tr('property.tablistAria')} wrapClassName="flex-1 min-w-0" className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -87,6 +97,22 @@ export default function Property() {
                 </button>
               ))}
             </HScroll>
+            {/* Outside the tablist, not inside it — a CTA is not a tab, and HScroll's
+                row would scroll it out of reach with the tabs. */}
+            <div className="hidden lg:flex items-center pl-3 border-b border-white/10 bg-ink/80 backdrop-blur-md">
+              {contactApproved && canChat ? (
+                <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex items-center gap-1.5 text-sm font-semibold py-2 px-4 shadow-none">
+                  <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
+                </Link>
+              ) : (
+                /* Deliberately no wa.me deep link and no number on this surface: it
+                   routes through the same gate every other contact entry point uses,
+                   so a new always-visible CTA cannot become a way around D5. */
+                <button type="button" onClick={handleContact} className="btn-teal flex items-center gap-1.5 text-sm font-semibold py-2 px-4 shadow-none">
+                  <Icon name="message-circle" className="w-4 h-4" /> {tr('property.contactOwner')}
+                </button>
+              )}
+            </div>
           </div>
 
           <PropertyTabs ctx={ctx} />

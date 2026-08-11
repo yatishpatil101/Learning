@@ -80,10 +80,15 @@ public class PropertyModerationController {
      * {@code GET /me/listings} is scoped to the caller's own {@code owner_id}. A moderator could
      * approve a listing only if someone told them it existed.
      *
-     * <p>{@code status} and {@code archived} are the two axes the public search cannot express;
-     * {@code archived} is tri-state ({@code null} = both) because "everything" and "only the live
-     * ones" are different questions. The remaining facets are shared with the public search verbatim,
-     * so a moderator filtering by locality gets the same semantics a seeker does.
+     * <p>{@code status}, {@code archived} and {@code recheck} are the axes the public search cannot
+     * express; the latter two are tri-state ({@code null} = both) because "everything" and "only the
+     * live ones" are different questions. The remaining facets are shared with the public search
+     * verbatim, so a moderator filtering by locality gets the same semantics a seeker does.
+     *
+     * <p>{@code recheck=true} is the stays-live queue (Q14) and is a third axis rather than another
+     * {@code status} value for the reason that outcome exists at all: every status except
+     * {@code approved} is off search, so expressing "waiting for a moderator" as a status would
+     * re-impose the exact cost the split was introduced to avoid.
      *
      * <p>Rendered {@link ContactVisibility#MASKED}, matching {@link #adminUpdate} and for the same
      * reason: an ops screen has no need of owners' raw numbers, and a list would expose them in
@@ -104,10 +109,12 @@ public class PropertyModerationController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean archived,
+            @RequestParam(required = false) Boolean recheck,
             @PageableDefault(size = 20) Pageable pageable) {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status);
-        return PageResponse.of(propertyService.searchForModeration(filters, archived, pageable),
+        return PageResponse.of(
+                propertyService.searchForModeration(filters, archived, recheck, pageable),
                 p -> propertyMapper.toResponse(p, ContactVisibility.MASKED));
     }
 

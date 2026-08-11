@@ -48,10 +48,10 @@ public class RefreshTokenService {
         if (current.isRevoked()) {
             // Reuse of an already-rotated token ⇒ likely theft. Burn the whole family.
             revokeAllForUser(current.getUserId());
-            throw new UnauthorizedException("Refresh token reuse detected");
+            throw new UnauthorizedException("Invalid refresh token");
         }
         if (current.isExpired()) {
-            throw new UnauthorizedException("Refresh token expired");
+            throw new UnauthorizedException("Invalid refresh token");
         }
 
         current.revoke();
@@ -68,6 +68,16 @@ public class RefreshTokenService {
     @Transactional
     public void revokeAllForUser(UUID userId) {
         repository.findByUserId(userId).forEach(RefreshToken::revoke);
+    }
+
+    /**
+     * Remove already-expired refresh tokens to keep the table bounded (D10).
+     *
+     * @return number of rows deleted
+     */
+    @Transactional
+    public long pruneExpired(Instant now) {
+        return repository.deleteByExpiresAtBefore(now);
     }
 
     /** The outcome of a rotation: whose session it is, and the new raw refresh token. */

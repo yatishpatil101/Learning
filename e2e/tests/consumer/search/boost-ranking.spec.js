@@ -29,7 +29,11 @@ async function idOf(card) {
 /** Open a promotion window on one listing, by id, and reload so the page reads it back. */
 async function promote(page, id) {
   await page.evaluate(([key, target]) => {
-    const db = JSON.parse(localStorage.getItem(key) || 'null');
+    // Read-modify-write — no `|| 'null'` fallback: it only defers the failure to an opaque
+    // "cannot read listings of null" a line later.
+    const raw = localStorage.getItem(key);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
     const row = db.listings.find((l) => l.id === target);
     row.boostedUntil = new Date(Date.now() + 7 * 864e5).toISOString();
     localStorage.setItem(key, JSON.stringify(db));

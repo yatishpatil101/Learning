@@ -443,6 +443,20 @@
   color: #fff;
 }
 
+/* Pagination is a row of small squares, and on a phone every one of them is a
+   fingertip target sitting next to another fingertip target — the worst case for
+   mis-taps, since landing on "3" instead of "4" costs a full page load. 40px was
+   under the floor; 44px is the floor. The row is justify-center with a gap, so the
+   extra 4px per button spends horizontal room the layout has: six buttons grow the
+   row by 24px inside a 412px viewport. Desktop keeps 40px — a cursor is precise and
+   the denser row reads better beside the results count. */
+@media (pointer: coarse) {
+  .page-btn {
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
 .page-btn.active {
   background: var(--brand-gradient);
   color: #fff;

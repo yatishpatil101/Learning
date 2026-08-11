@@ -449,10 +449,16 @@ export async function setBasis(propId, basis = {}) {
   return getBasis(propId);
 }
 
-export async function financeSummary(propId) {
+/**
+ * Mirrors `GET /me/finances/{propId}/summary?period=`. The window vocabulary and its arithmetic are
+ * the server's (`SummaryPeriods`) — `_finSummary` reaches the one shared `periodStart` for them, so
+ * a `year` here is the Indian FY exactly as it is live. A mock that answered all-time to a `year`
+ * request would pass a test the real thing fails (D178).
+ */
+export async function financeSummary(propId, period) {
   const mine = me();
   if (!mine || !propId) return { income: 0, expense: 0, net: 0, occupancyRate: null };
-  const s = _finSummary(mine, propId) || {};
+  const s = _finSummary(mine, propId, period || 'all') || {};
   return {
     income: Number(s.income) || 0,
     expense: Number(s.expense) || 0,

@@ -297,10 +297,18 @@ export async function setBasis(propId, basis = {}) {
  * Server-computed, and that is the point. The client's version reduced over the transaction list it
  * happened to have downloaded, and that list is paged — so it was a summary of page one, wearing
  * the label of a summary.
+ *
+ * `period` is forwarded rather than defaulted here: the server's `SummaryPeriods` owns what each
+ * window means (its `year` is the Indian FY, 1 April), and re-deciding that on this side is exactly
+ * how the card and the table came to disagree (D178). A null/`all` period is dropped from the query
+ * string and the server applies its own `all`.
  */
-export async function financeSummary(propId) {
+export async function financeSummary(propId, period) {
   if (!signedIn() || !propId) return toSummaryViewModel(null);
-  return toSummaryViewModel(await get(`/me/finances/${encodeURIComponent(propId)}/summary`));
+  return toSummaryViewModel(await get(
+    `/me/finances/${encodeURIComponent(propId)}/summary`,
+    { period: period && period !== 'all' ? period : undefined },
+  ));
 }
 
 /** `GET /me/finances/{propId}/cashflow` — the monthly series the chart draws. */

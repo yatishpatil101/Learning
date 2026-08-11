@@ -89,19 +89,28 @@ class AdminSettingsEndpointsTest extends AbstractApiTest {
     }
 
     /**
-     * An array replaces rather than merges. {@code customRoles} is an ordered list, and merging two
-     * lists positionally would produce a role nobody wrote.
+     * An array replaces rather than merges, and it does so <em>inside</em> a merged object, which is
+     * the only place the distinction can be observed: a top-level array key would be replaced by any
+     * implementation, including one with no merge at all. {@code geo.blacklist} is an ordered list
+     * of localities the admin console excludes from Places search, and merging two lists positionally
+     * would re-admit a locality nobody re-admitted.
+     *
+     * <p>Was written against {@code customRoles} until that key was refused outright (D67/D13,
+     * {@code V61}); the property under test is the merge, not the key it was demonstrated on.
      */
     @Test
     void arraysAreReplacedWholesale() throws Exception {
         String token = bearer("9877710004", Roles.Wire.ADMIN);
-        save(token, "{\"customRoles\":[{\"name\":\"a\"},{\"name\":\"b\"}]}");
-        save(token, "{\"customRoles\":[{\"name\":\"c\"}]}");
+        save(token, "{\"geo\":{\"city\":\"Pune\",\"blacklist\":[\"a\",\"b\"]}}");
+        save(token, "{\"geo\":{\"blacklist\":[\"c\"]}}");
 
         mvc.perform(get(Routes.Admin.SETTINGS).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customRoles.length()").value(1))
-                .andExpect(jsonPath("$.customRoles[0].name").value("c"));
+                .andExpect(jsonPath("$.geo.blacklist.length()").value(1))
+                .andExpect(jsonPath("$.geo.blacklist[0]").value("c"))
+                // the sibling scalar survives, so this is a merge that replaced an array rather
+                // than a replace that happened to look right.
+                .andExpect(jsonPath("$.geo.city").value("Pune"));
     }
 
     @Test

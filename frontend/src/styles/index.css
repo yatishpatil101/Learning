@@ -136,6 +136,7 @@
      two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
   --pn-bottom-nav-offset: max(var(--pn-bottom-nav-gap), var(--pn-safe-b));
   --pn-bottom-inset: var(--pn-safe-b);
+  --pn-cookie-banner-h: 0px;
 
   /* Top chrome, mirroring the bottom system. --pn-top-inset is where a sticky
      sub-header (property/society tabs, listings controls) must dock. It equals the
@@ -237,8 +238,14 @@
   /* Reserving the inset on the layout wrapper keeps the last card / footer of every
      consumer page clear of the bar. One rule; no per-page padding, and no lg reset
      needed because the variable itself already collapses above lg. */
-  padding-bottom: var(--pn-bottom-inset);
+  padding-bottom: calc(var(--pn-bottom-inset) + var(--pn-cookie-banner-h));
 }
+
+/* The cookie banner is fixed above the bottom chrome. Reserving its real rendered height on the
+   layout wrapper lets the footer scroll above it instead of becoming the covered last screenful. */
+.consumer-layout { padding-bottom: var(--pn-cookie-banner-h); }
+
+.consumer-layout.has-bottom-nav { padding-bottom: calc(var(--pn-bottom-inset) + var(--pn-cookie-banner-h)); }
 
 @media (min-width: 1024px) {
   .has-bottom-nav { --pn-bottom-inset: var(--pn-safe-b); }
@@ -248,7 +255,7 @@
    but not the reservation: the tab bar is a capsule floating over the media, so the media
    is supposed to pass under it. Reserving the strip here drew a dead band across the
    bottom of every reel and made the bar look like a wall rather than a floating control. */
-.has-bottom-nav.route-fullbleed { padding-bottom: 0; }
+.consumer-layout.has-bottom-nav.route-fullbleed { padding-bottom: 0; }
 
 /* Floating "liquid glass" tab bar.
 
@@ -364,13 +371,15 @@
   .pn-bottom-nav__tab:active { transform: none; }
 }
 
-/* 11px, in rem so the label honours the browser/OS font-size setting instead of being
+/* 12px, in rem so the label honours the browser/OS font-size setting instead of being
    frozen — a px label is immune to dynamic type, which reads as "safe" but is actually
-   the accessibility failure. 10px was below the floor where a glass background still
-   leaves the text comfortably legible. The overflow guard is what makes scaling safe:
-   at large type the label ellipsises instead of wrapping and bursting the fixed bar. */
+   the accessibility failure. This was 0.6875rem (11px) and is now written at the D134
+   floor explicitly: `styles/min-font-size.js` would raise it anyway, and a rule whose
+   declared value is not the value that ships is a trap for the next reader. The
+   overflow guard is what makes scaling safe: at large type the label ellipsises
+   instead of wrapping and bursting the fixed bar. */
 .pn-bottom-nav__label {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.01em;
   /* Not leading-none: line-height 1 is shorter than the font's own ascent+descent, so
      the box clips glyph extents. Invisible at 11px, measurable once the label scales:
@@ -532,7 +541,13 @@
 @media (max-width: 639px) {
   :root {
     --btn-h: 44px;
-    --btn-h-sm: 36px;
+    /* This ramp used to stop at 36px, which is a strange place to stop: the whole
+       point of the block is the 44px floor, and .btn-sm still sat 8px under it. It
+       is not a rare variant either — "Request number" on the property page, the one
+       button the entire contact funnel narrows to, is a .btn-sm. Compact on a phone
+       has to mean narrower or quieter, not shorter than a fingertip; desktop still
+       gets 32px, which is where the density this variant exists for actually lives. */
+    --btn-h-sm: 44px;
     --btn-h-lg: 48px;
 
     /* The same argument for every non-button control. --control-h drives the
@@ -2932,6 +2947,21 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   color: #5eead4;
 }
 
+/* .seg already stands 44px tall on a phone because --control-h ramps up there, but
+   nothing was holding its width: the icon-only variants (save, report, share on the
+   flatmate and room cards) sized to a 16px glyph plus padding and came out 34px wide
+   — tall enough, too narrow, and stacked in a column at the card's corner where a
+   miss lands on the neighbouring action rather than on nothing. Squaring them off
+   against the same token costs 10px of overlay width over the card photo and keeps
+   the three buttons on the one rhythm. Text-bearing .seg controls are already wider
+   than this, so the floor never touches them. */
+@media (pointer: coarse) {
+  .seg {
+    min-width: var(--control-h);
+    justify-content: center;
+  }
+}
+
 /* Rent/Buy intent switch on the listings page — brand-gradient active pill,
    concentric inner buttons (matches the List|Map .sf-seg pattern). */
 .deal-seg-btn { transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
@@ -3467,6 +3497,19 @@ html.pn-reduce-motion .list-reveal {
 .pn-back-search:hover {
   background: rgba(13, 148, 136, 0.2);
   transform: translateX(-2px);
+}
+
+/* 8px of vertical padding around 13px text lands this at 38px. It is the escape
+   hatch from a property page back to the results a visitor spent time filtering, so
+   a missed tap is expensive in a way its quiet styling does not advertise. Padding
+   rather than a fixed height, so the pill keeps hugging its label; min-height is the
+   backstop in case the label ever wraps shorter. Desktop keeps the tighter pill —
+   it sits directly above the gallery and 6 extra pixels there push the fold. */
+@media (pointer: coarse) {
+  .pn-back-search {
+    padding: 11px 16px;
+    min-height: 44px;
+  }
 }
 
 .pn-back-search svg {
