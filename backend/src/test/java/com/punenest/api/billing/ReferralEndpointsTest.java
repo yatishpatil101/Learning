@@ -61,10 +61,23 @@ class ReferralEndpointsTest extends AbstractApiTest {
         return body.substring(i, body.indexOf('"', i));
     }
 
-    /** The caller's own code, as the share screen would read it. */
+    /**
+     * The caller's own code, as the share screen would read it.
+     *
+     * <p>Minted from a fixed, non-loopback address because V64 stamps the referrer's D55 correlation
+     * digests here. MockMvc gives every request the same remote address, so without this the whole
+     * fixture would model referrer and referee sitting on one network — and every referral in this
+     * class would come back flagged for correlation. The ordinary referral is between two people in
+     * two places, and that is what these tests are about; the correlated case is proved on purpose
+     * in {@code ReferralQualificationTest}.
+     */
     private String codeOf(User u) throws Exception {
         return jsonField(mvc.perform(get(Routes.Referrals.MINE)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u))
+                        .with(request -> {
+                            request.setRemoteAddr("198.51.100.9");
+                            return request;
+                        }))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(), "code");
     }
@@ -187,7 +200,9 @@ class ReferralEndpointsTest extends AbstractApiTest {
                         Matchers.not(Matchers.containsString(referrer.getMobile()))))
                 .andExpect(jsonPath("$.content[0].referredMobile",
                         Matchers.not(Matchers.containsString(referred.getMobile()))))
-                // Not computable today; false rather than guessed. See Referral's Javadoc.
+                // Computed since V64 (D55), and false here because the fixture redeems from a
+                // different address than the code was minted from -- see codeOf. False means "no
+                // correlation found", which is what the desk should see for an ordinary referral.
                 .andExpect(jsonPath("$.content[0].sameDevice").value(false))
                 .andExpect(jsonPath("$.content[0].sameIp").value(false));
     }

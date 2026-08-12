@@ -109,6 +109,7 @@ export async function getEntityReviewSummary(entityType, entityId) {
     await get(
       `/reviews/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/summary`,
     ),
+    entityType,
   );
 }
 

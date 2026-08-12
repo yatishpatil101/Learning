@@ -139,25 +139,68 @@ class FlatSplitAndConsentEndpointsTest extends AbstractApiTest {
          *
          * <p>Anonymity is asserted rather than assumed. This is an unauthenticated read on a route
          * whose sibling POST is owner-only, so the interesting question is not whether it returns
-         * rooms but whether it returns the host's phone number with them.
+         * rooms but what it returns with them.
+         *
+         * <p><strong>The result is narrower than it was (D210).</strong> It used to return every
+         * non-archived room of the flat, moderated or not — this endpoint was the one public room
+         * read that skipped the queue, and it carried {@code modStatus} so a stranger could read
+         * the verdict too. The two tests below pin the new behaviour from both sides: an
+         * un-cleared room is absent, and a cleared one is present without the verdict. They are a
+         * pair on purpose — either alone passes trivially if the filter is wrong in the other
+         * direction.
          */
         @Test
-        @DisplayName("the rooms a flat was split into are publicly readable, without host contact")
-        void splitRoomsAreReadableAnonymously() throws Exception {
+        @DisplayName("a room Ops has not cleared is absent from the public list")
+        void unclearedRoomsAreNotPublished() throws Exception {
             User owner = user("9830000009", "Splitter");
             Property flat = listing(owner, PropertyStatus.APPROVED, 2);
 
+            // Splitting an already-approved flat still produces rooms that are themselves pending:
+            // the parent's approval says the flat exists, not that these two rooms are advertised
+            // honestly. They are visible to their host and to Ops, and to nobody else.
             mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(splitBody(4, "master", "bedroom")))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.rooms.length()").value(2));
 
             mvc.perform(get(Routes.Properties.ROOMS, flat.getId()))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$.length()").value(0));
+        }
+
+        @Test
+        @DisplayName("a cleared room is published, without host contact or the moderation verdict")
+        void clearedRoomsAreReadableAnonymously() throws Exception {
+            User owner = user("9830000011", "Splitter2");
+            User admin = user("9830000012", "Moderator", Roles.Wire.ADMIN);
+            Property flat = listing(owner, PropertyStatus.APPROVED, 2);
+
+            String split = mvc.perform(post(Routes.Properties.SPLIT, flat.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(splitBody(4, "master", "bedroom")))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            String firstRoom = com.jayway.jsonpath.JsonPath.read(split, "$.rooms[0].id");
+
+            mvc.perform(patch(Routes.Moderation.FLATMATE_MODERATION.replace("{id}", firstRoom))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(admin))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"modStatus\":\"approved\"}"))
+                    .andExpect(status().isOk());
+
+            // Exactly the one Ops cleared — the sibling is still pending and still absent.
+            mvc.perform(get(Routes.Properties.ROOMS, flat.getId()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andExpect(jsonPath("$[0].id").value(firstRoom))
                     .andExpect(jsonPath("$[0].hostMobile").doesNotExist())
-                    .andExpect(jsonPath("$[1].hostMobile").doesNotExist());
+                    // D210 — the card no longer tells a stranger what Ops decided. It could only
+                    // ever say "approved" now that the list is filtered, which is either no
+                    // information or, the day a producer stops filtering, a leaked verdict.
+                    .andExpect(jsonPath("$[0].modStatus").doesNotExist());
         }
 
         /** An unsplit flat has no rooms — an empty list, not a 404. The listing still exists. */

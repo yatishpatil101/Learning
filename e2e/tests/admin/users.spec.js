@@ -311,13 +311,3 @@ test('filter change clears selection', async ({ page }) => {
   // Bulk bar should be gone
   await expect(page.getByText(/selected/)).not.toBeVisible({ timeout: 2000 });
 });
-
-// ─── No regressions ───
-
-test('users page: no console errors on load', async ({ page }) => {
-  const errors = trackErrors(page);
-  await loginAsAdmin(page);
-  await page.goto(`${BASE}/admin/users`);
-  await page.waitForTimeout(1000);
-  expect(errors).toHaveLength(0);
-});

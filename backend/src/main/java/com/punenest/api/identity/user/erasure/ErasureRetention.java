@@ -118,8 +118,12 @@ public final class ErasureRetention {
 
         reasons.put("listings_and_property_records",
                 "Commercial records with a live counterparty interest -- enquiries, visits and "
-                        + "deals reference them. They carry no contact data of their own; the "
-                        + "owner reference de-identifies with the users row.");
+                        + "deals reference them. The owner reference de-identifies with the users "
+                        + "row. One record here does carry a name of its own: the ownership "
+                        + "evidence behind a listing's verified badge stores the name on the "
+                        + "identity document our staff sighted, because a badge a buyer relied on "
+                        + "must remain checkable after the fact. Erasing it while the badge stands "
+                        + "would leave the claim with nothing behind it.");
 
         return reasons;
     }
@@ -151,7 +155,15 @@ public final class ErasureRetention {
                         + " settled are retained under the books-of-account duty; the settlement"
                         + " instrument is not, and should be blanked.",
                 "referrals — referrer_mobile and referred_mobile are stored numbers, not references,"
-                        + " so they survive pseudonymisation of the users row.",
+                        + " so they survive pseudonymisation of the users row. The same rows also"
+                        + " hold two salted digests of the address and browser the referral was"
+                        + " redeemed from, used only to detect referral fraud; those are cleared"
+                        + " automatically ninety days after the referral, whether or not erasure is"
+                        + " ever requested.",
+                "referral_codes — the referrer's half of the same two salted fraud digests, captured"
+                        + " when their code was minted. Cleared automatically ninety days after"
+                        + " capture. The code itself stays: it is not personal data, and it is what"
+                        + " every link already shared points at.",
                 "flatmate_group_members.name — a NOT NULL denormalised copy of users.name, written"
                         + " at join time.",
                 "society_leads / tickets / service_requests — contact_name and mobile captured at"

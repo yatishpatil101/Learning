@@ -42,10 +42,10 @@ const provider = createProvider('saved');
  * @param {{page?: number, size?: number}} [opts]
  * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
  */
-export const listSaved = (opts) => provider().listSaved(opts);
+export const listSaved = async (opts) => (await provider()).listSaved(opts);
 
 /** Add to the shortlist. Idempotent. */
-export const saveProperty = (propertyId) => provider().saveProperty(propertyId);
+export const saveProperty = async (propertyId) => (await provider()).saveProperty(propertyId);
 
 /** Remove from the shortlist. Idempotent. */
-export const unsaveProperty = (propertyId) => provider().unsaveProperty(propertyId);
+export const unsaveProperty = async (propertyId) => (await provider()).unsaveProperty(propertyId);

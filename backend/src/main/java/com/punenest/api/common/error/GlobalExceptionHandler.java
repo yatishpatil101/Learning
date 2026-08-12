@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * The single translation point from exceptions to the OpenAPI error envelope. Every controller in
@@ -157,6 +158,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
                 .body(new ApiError(ErrorCodes.UNSUPPORTED_MEDIA_TYPE,
                         ErrorCodes.Messages.UNSUPPORTED_CONTENT_TYPE, 415, traceId()));
+    }
+
+    /**
+     * No route matched the path at all → 404, for the same reason the 405 and 415 above exist: the
+     * {@code @ExceptionHandler(Exception.class)} catch-all is broader than Spring's own resolution
+     * of this exception and wins, so an unmapped path was answered with 500 {@code internal} and a
+     * logged stack trace.
+     *
+     * <p>It hid in ordinary use because an unauthenticated request is refused by the security chain
+     * first and never reaches the dispatcher; you only see it once you are holding a token, which is
+     * exactly when someone is exploring the surface. The cost is twofold — it inflates error-rate
+     * alerting with requests nothing went wrong on, and it tells the caller "we broke" when the
+     * truth is "that route does not exist", sending them to debug the wrong system.
+     *
+     * <p>Logged at {@code debug}: a mistyped URL is not an operational event.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoRoute(NoResourceFoundException ex) {
+        log.debug("No route for [traceId={}]: {} {}", traceId(), ex.getHttpMethod(), ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError(ErrorCodes.NOT_FOUND, "That route does not exist", 404, traceId()));
     }
 
     // Defensive backstop only: Spring Security's ExceptionTranslationFilter normally intercepts

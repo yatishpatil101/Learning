@@ -32,6 +32,7 @@ import {
   toRentPaymentViewModel,
   toSummaryViewModel,
   toTenancyViewModel,
+  toTenancyDeclarationViewModel,
   toTenantProfileViewModel,
   toTransactionViewModel,
 } from './rentMapper.js';
@@ -65,6 +66,52 @@ export async function myTenancies() {
 export async function ownerTenancies() {
   if (!signedIn()) return [];
   return toList(await get('/tenancies'), toTenancyViewModel);
+}
+
+/* ─── Tenancy declarations (D194) ───────────────────────────────────────────────────────────── */
+
+/**
+ * `GET /properties/{propId}/tenancy-declarations` — stays claimed on one listing.
+ *
+ * The server decides what comes back: every claim if the caller owns the listing, their own
+ * otherwise. The client does not filter, and must not — a client-side filter over a list the server
+ * was willing to hand out is not a rule, it is a rendering preference.
+ *
+ * `propId` must be the listing's **UUID**, exactly as the review routes require: this path binds
+ * `@PathVariable UUID propId` and the seam's `p.id` is the slug. Callers resolve that with
+ * `p.uuid || p.id` — see `ReviewsSection.jsx`.
+ *
+ * The route is paged server-side (an owner's inbox is written by strangers, one row each), but this
+ * returns a bare array to match the mock and to keep the caller — a listing page that renders every
+ * claim it is given — from having to know. A claimant's own view is a single row on page 0; an
+ * owner with more claims than one page holds is the case that needs a UI, and does not have one
+ * yet, so the first page is what the section shows.
+ */
+export async function listTenancyDeclarations(propId) {
+  if (!signedIn()) return [];
+  return unwrapMapped(await get(`/properties/${encodeURIComponent(propId)}/tenancy-declarations`),
+    toTenancyDeclarationViewModel).items;
+}
+
+/** `POST /properties/{propId}/tenancy-declarations` — claim a past stay. 201, starts `pending`. */
+export async function declareTenancy(propId, body = {}) {
+  return toTenancyDeclarationViewModel(
+    await post(`/properties/${encodeURIComponent(propId)}/tenancy-declarations`, {
+      livedFrom: body.livedFrom || null,
+      livedTo: body.livedTo || null,
+    }));
+}
+
+/** `POST /tenancy-declarations/{id}/confirm` — the owner agrees the stay happened. */
+export async function confirmTenancyDeclaration(id) {
+  return toTenancyDeclarationViewModel(
+    await post(`/tenancy-declarations/${encodeURIComponent(id)}/confirm`, {}));
+}
+
+/** `POST /tenancy-declarations/{id}/revoke` — the owner disagrees, or takes a confirmation back. */
+export async function revokeTenancyDeclaration(id) {
+  return toTenancyDeclarationViewModel(
+    await post(`/tenancy-declarations/${encodeURIComponent(id)}/revoke`, {}));
 }
 
 /** `GET /me/tenant-profile` — the caller's own renting CV. `null` when they have never filled it in. */

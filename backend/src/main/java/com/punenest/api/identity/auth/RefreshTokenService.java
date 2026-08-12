@@ -2,6 +2,7 @@ package com.punenest.api.identity.auth;
 
 import com.punenest.api.common.error.UnauthorizedException;
 import com.punenest.api.security.JwtProperties;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefreshTokenService {
 
     private final RefreshTokenRepository repository;
-    private final java.time.Duration ttl;
+    private final Duration ttl;
 
     public RefreshTokenService(RefreshTokenRepository repository, JwtProperties jwtProperties) {
         this.repository = repository;
@@ -39,14 +40,29 @@ public class RefreshTokenService {
     /**
      * Rotate a presented refresh token. Returns the owning user id + a fresh raw token, or throws
      * {@link UnauthorizedException} on invalid/expired/reused tokens.
+     *
+     * <p><strong>{@code noRollbackFor} the 401, or the reuse tripwire below does nothing at all.</strong>
+     * The theft path revokes the whole family and <em>then</em> throws. Without this rule that
+     * revocation is discarded on the way out: this advice participates in {@code AuthService.refresh}'s
+     * transaction rather than owning one, so the throw marks the shared transaction rollback-only and
+     * every {@code revoke()} above is dirty state that never reaches the database. The caller still
+     * sees 401 — which is exactly why it looked correct — but the sibling tokens stay live for the
+     * full refresh TTL, and burning them is the entire point of detecting reuse.
+     *
+     * <p>The rule is needed <em>here as well as</em> on {@code refresh} for the reason spelled out on
+     * {@link OtpService#sendLoginCode} (D90): a participating advice that marks the transaction
+     * rollback-only cannot be overruled from outside, and the outer commit would fail with
+     * {@code UnexpectedRollbackException} rendered as a 500. Both ends have to agree.
+     *
+     * <p>Nothing needs protecting on the other two 401s — the not-found and expired paths write
+     * nothing before they throw.
      */
-    @Transactional
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public Rotation rotate(String rawToken) {
         RefreshToken current = repository.findByTokenHash(Tokens.sha256Hex(rawToken))
                 .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
 
         if (current.isRevoked()) {
-            // Reuse of an already-rotated token ⇒ likely theft. Burn the whole family.
             revokeAllForUser(current.getUserId());
             throw new UnauthorizedException("Invalid refresh token");
         }

@@ -12,6 +12,9 @@ import java.time.Instant;
  *     so the contract declared a field the wire never carried (found by {@code SpecSchemaParityTest}).
  * @param author     display name; {@code null} for a message whose author has since been removed
  * @param authorRole {@code buyer|owner|staff|admin}, captured at write time
+ * @param readAt     when the other side of the thread first opened it, or {@code null} if they have
+ *     not (D121). Before this the unread badge was computed in {@code localStorage}, so it cleared
+ *     on one browser and stayed lit on the rest — and the sender learnt nothing either way.
  */
 public record MessageDto(
         String id,
@@ -19,5 +22,6 @@ public record MessageDto(
         String author,
         String authorRole,
         String body,
-        Instant createdAt) {
+        Instant createdAt,
+        Instant readAt) {
 }

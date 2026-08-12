@@ -9,8 +9,7 @@ import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.error.VerificationRequiredException;
 import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.persistence.RateLimitLock;
-import com.punenest.api.engagement.notification.Notification;
-import com.punenest.api.engagement.notification.NotificationRepository;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
@@ -81,19 +80,19 @@ public class FlatmateSeekerService {
     private final FlatmateRequestRepository requests;
     private final FlatmateMapper mapper;
     private final UserRepository users;
-    private final NotificationRepository notifications;
+    private final Notifier notifier;
     private final AuditService audit;
     /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
     private final RateLimitLock locks;
 
     public FlatmateSeekerService(FlatmateSeekerPostRepository posts,
             FlatmateRequestRepository requests, FlatmateMapper mapper, UserRepository users,
-            NotificationRepository notifications, AuditService audit, RateLimitLock locks) {
+            Notifier notifier, AuditService audit, RateLimitLock locks) {
         this.posts = posts;
         this.requests = requests;
         this.mapper = mapper;
         this.users = users;
-        this.notifications = notifications;
+        this.notifier = notifier;
         this.audit = audit;
         this.locks = locks;
     }
@@ -303,6 +302,46 @@ public class FlatmateSeekerService {
     }
 
     /**
+     * {@code GET /flatmates/posts/{id}/interests} — who answered this ad (D70).
+     *
+     * <p>Until this existed the poster's only record of a reply was the notification it sent, and a
+     * notification is a delivery rather than a record: dismiss it and the lead is gone while the row
+     * is still sitting in {@code flatmate_requests}. {@link #inbox} does not close that gap on its
+     * own — it is every reply to every ad, and a poster looking at one post cannot tell from it
+     * which of those were about this post without reading {@code targetId} off each row.
+     *
+     * <p><strong>The authorisation is the feature.</strong> This payload carries a stranger's name
+     * and phone number, so ownership of the ad is re-established server-side on every call and the
+     * caller's own id is what the query is narrowed by — an id in the path grants nothing. 403 and
+     * not 404, matching {@link #express} and {@link #update}: the post is on the public feed, so
+     * pretending it does not exist would only confuse somebody who can already see it.
+     *
+     * <p>Deliberately {@code findById} and not {@code findVisible}. An ad that has been filled or
+     * taken down is archived, and the people who answered it while it was live are exactly the leads
+     * the poster still wants — hiding them the moment the post comes down would reinstate the defect
+     * one step later.
+     *
+     * <p>The contact is <em>raw</em>, and that is the same decision {@link FlatmateRequestDto}
+     * already documents rather than a new one: the requester volunteered their own number by
+     * pressing "I'm interested" on this named post, and {@link #inbox} hands this identical row,
+     * with the identical number, to this identical caller. Masking here and not there would leak
+     * nothing less while implying the two reads mean different things.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateRequestDto> interests(AuthPrincipal caller, UUID postId, Pageable pageable) {
+        FlatmateSeekerPost post = posts.findById(postId)
+                .orElseThrow(() -> NotFoundException.of("Flatmate post"));
+        if (!post.getUserId().equals(caller.userId())) {
+            throw new ForbiddenException("You can only see the replies to your own flatmate post.");
+        }
+        Page<FlatmateRequest> rows = requests.findByKindAndTargetIdAndHostIdOrderByRequestedAtDesc(
+                "flatmate", post.getId(), caller.userId(), pageable);
+        // Batched exactly as the inbox is, and for the same reason: a popular ad renders a page of
+        // thirty, and a per-row lookup would be sixty queries for one screen.
+        return new PageImpl<>(hydrate(rows.getContent()), pageable, rows.getTotalElements());
+    }
+
+    /**
      * {@code PATCH /me/flatmate-requests/{id}} — accept or decline.
      *
      * <p>Host-scoped by the finder rather than by a check afterwards, so deciding somebody else's
@@ -431,28 +470,28 @@ public class FlatmateSeekerService {
      * the notification has to carry everything they need to act: a name, a number and what was said.
      */
     private void notify(UUID hostId, FlatmateSeekerPost post, User requester, String message) {
-        Notification note = new Notification(
+        // Through the Notifier port rather than the repository, so the host's quiet hours and
+        // preferences apply here as they do to every other server-written notification (D94).
+        // Still flushed inside the caller's transaction — the port does that — because this row IS
+        // the delivery and the endpoint is pointless without it.
+        notifier.notify(
                 hostId,
                 "flatmate.interest",
                 requester.getName() + " is interested in teaming up",
-                message + "\n\nReach them on " + requester.getMobile() + ".");
-        note.setLink("/flatmates");
-        // Flushed rather than left to the commit: this row IS the delivery, and the endpoint is
-        // pointless without it. Failing here attributes the failure to the interest that caused it.
-        notifications.saveAndFlush(note);
+                message + "\n\nReach them on " + requester.getMobile() + ".",
+                "/flatmates");
     }
 
     private void notifyDecision(FlatmateRequest request, String verdict) {
         boolean accepted = "accepted".equals(verdict);
-        Notification note = new Notification(
+        notifier.notify(
                 request.getRequesterId(),
                 "flatmate.request." + verdict,
                 accepted ? "Your flatmate request was accepted" : "Your flatmate request was declined",
                 accepted
                         ? "Good news — the host accepted your request. They have your number."
-                        : "The host has declined this one. Plenty of other people are looking.");
-        note.setLink("/flatmates");
-        notifications.saveAndFlush(note);
+                        : "The host has declined this one. Plenty of other people are looking.",
+                "/flatmates");
     }
 
     /**

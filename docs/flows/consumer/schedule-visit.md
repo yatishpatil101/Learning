@@ -103,6 +103,22 @@ There are **two parallel visit stores** (a known duplication - see section 8):
 - This is why the second store exists: it records that the owner **confirmed the visit actually
   happened**, gating fake reviews.
 
+### Revoking a confirmed stay is forward-only (D204) - do not "fix" this
+- The other half of the same gate is the owner-confirmed tenancy declaration (D194): the owner agrees
+  a person lived there, and that agreement authorises a `tenant` review. The owner can take the
+  confirmation back afterwards.
+- **Revocation does not retract the review it authorised.** A review already written stays published,
+  keeps its `tenant` badge, and keeps counting towards the listing's rating. Revoking only stops the
+  standing from authorising a **new** review from that point on.
+- This looks like a gap and is a decision. Retraction would give the owner of the reviewed listing a
+  one-tap silencer for criticism: confirm the stay, wait for the review, revoke on reading it. The
+  declaration exists to evidence that the reviewer was really there - a fact about the past that
+  revoking cannot change. Abuse of confirm -> review -> revoke is answered by the audit trail
+  `TenancyDeclarationService.decide` writes and by review moderation, both held by someone other than
+  the accused.
+- Pinned by `TenancyRevocationIsForwardOnlyTest` (both halves: the old review survives byte-for-byte,
+  the next one is refused 422) and restated at the revocation site in `TenancyDeclarationService`.
+
 ### `when` counts / badges
 - `pendingVisitCount(owner)` = number of `requested` rows -> powers the owner's "waiting on you"
   badge. `hasCompletedVisit` / `myVisitStatus` drive the review gate above.

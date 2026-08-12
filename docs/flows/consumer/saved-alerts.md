@@ -134,6 +134,16 @@ display but not applied to the count.
   `NOTIF_PREF_DEFAULTS = { email:true, sms:false, whatsapp:true, matchAlerts:true, quietHours:{
   enabled:false, start:'22:00', end:'07:00' }, language:'en' }`. `inQuietHours` handles windows that
   wrap past midnight.
+- **The server now has the same preferences, and honours them (D94/D15, 2026-08-12).**
+  `GET/PUT /me/notification-preferences` stores this exact document, field for field, in
+  `notification_preferences`. `NotificationPublisher` — the single `Notifier` port every server-side
+  writer goes through — applies two of them: `matchAlerts:false` drops proactive `match.*`/`price.*`
+  notifications, and quiet hours **defer** rather than suppress (the row is written with its real
+  timestamp and `notifications.deliver_after` holds it out of the inbox read until the window
+  closes). So a server-written notification no longer arrives at 3am. **The client is not wired to
+  the endpoint yet** — `ProfileTab.jsx` and this page still read and write localStorage, so the two
+  copies can diverge until that lands. An absent server row resolves to the defaults above, never to
+  silence.
 - Notifications are per-user, seed-once (`seedNotifsIfEmpty`), with unread badge counts, mark-read,
   dismiss, and a safe-link guard (`SAFE_LINK_RE`) since merged items can be externally shaped.
 

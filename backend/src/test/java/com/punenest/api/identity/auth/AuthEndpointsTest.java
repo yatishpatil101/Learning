@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,8 +23,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.datasource.ConnectionHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Contract + behavior proof for the four auth endpoints through the real filter chain. Uses a
@@ -245,6 +248,23 @@ class AuthEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * The read path matches the write path's case rule.
+     *
+     * <p>{@code V70__users_live_email_unique.sql} indexes {@code lower(email)} and the uniqueness
+     * checks on {@code addStaff}/{@code update} use {@code IgnoreCase}, so nobody else can ever hold
+     * a case variant of this address — it can only be the same colleague. Resolving the login
+     * case-sensitively therefore authenticated nobody and locked out the one person entitled to it.
+     */
+    @Test
+    void staffLoginIsCaseInsensitiveBecauseUniquenessIs() throws Exception {
+        seedStaff("9876500303", "A.Sharma@punenest.in", "s3cret-pass", "legal");
+        mvc.perform(post("/auth/staff-login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"a.sharma@punenest.in\",\"password\":\"s3cret-pass\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
     // ---- refresh: rotation + reuse-detection --------------------------------
 
     @Test
@@ -257,17 +277,45 @@ class AuthEndpointsTest extends AbstractApiTest {
         String refresh1 = login.get("refreshToken").asText();
 
         // first rotation succeeds
-        mvc.perform(post("/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+        JsonNode rotated = json.readTree(mvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + refresh1 + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty());
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn().getResponse().getContentAsString());
+        String refresh2 = rotated.get("refreshToken").asText();
+        assertThat(refresh2).isNotEqualTo(refresh1);
 
         // replaying the now-rotated token is treated as theft ⇒ 401
         mvc.perform(post("/auth/refresh").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + refresh1 + "\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("unauthorized"));
+
+        // ...and the family goes with it. What differs between the fixed and unfixed code is not
+        // anything the caller can see — both answer the same 401 — but whether `rotate`'s advice
+        // marked the shared transaction rollback-only on its way out. Without `noRollbackFor` it
+        // does, and every `revoke()` above is discarded at commit while the response is unchanged,
+        // which is why the bug survived from ADR-008 until 2026-08-11 (D207).
+        //
+        // Three nearer-looking probes are all useless here, and each was written, run, and believed
+        // for a moment before being tested against the reintroduced bug:
+        // • re-presenting `refresh2` and expecting 401 — this test runs inside one transaction, so
+        //   the revoked entities stay managed and answer "revoked" from the persistence context
+        //   whether or not the write would ever have reached the database. Passes either way;
+        // • `TestTransaction.isFlaggedForRollback()` — reports the test's end-of-run rollback
+        //   preference, which is `true` unconditionally;
+        // • `TransactionAspectSupport.currentTransactionStatus()` — the test transaction is managed
+        //   by the TestContext framework, not the transaction aspect, so nothing is in scope.
+        // The bound `EntityManagerHolder` is not marked either; the `ConnectionHolder` is. Settled
+        // by reverting the annotation and reading both, which gave `false/true`.
+        ConnectionHolder connection = (ConnectionHolder) TransactionSynchronizationManager
+                .getResource(jdbc.getDataSource());
+        assertThat(connection.isRollbackOnly())
+                .as("reuse detection revoked the token family, and that write must survive the 401 "
+                        + "it is thrown alongside — see tech-debt D207 and D90")
+                .isFalse();
     }
 
     // ---- logout -------------------------------------------------------------

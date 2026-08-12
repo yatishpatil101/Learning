@@ -113,12 +113,27 @@ export default function Navbar() {
       </span>
     </div>
   );
-  const acctItems = (close) => (
+  const acctItems = (close, { mobile = false } = {}) => (
     <>
       {/* Saved / Notifications / Messages used to be duplicated here for phones,
          where the standalone icons were hidden. They now sit inline in the bar at
          every width, so repeating them would put the same three destinations on
          screen twice — and give `a[href="/messages"]` two matches. */}
+      {/* Compare is the exception, and only on the drawer's side of the breakpoint.
+         Signed in on /listings the bar carried seven targets across 360px with the
+         account pill landing exactly on the edge (D98b); Compare is the one of the
+         seven whose destination has somewhere else to live, so below lg it moves
+         here instead of staying inline. At lg+ it is still in the bar, which is why
+         this row is mobile-only — otherwise `a[href="/compare"]` would match twice. */}
+      {mobile && flagEnabled('compareProperties') ? (
+        <Link to="/compare" onClick={close} className={rowCls}>
+          <Icon name="git-compare" className="w-4 h-4 text-gray-400" />
+          <span className="flex-1">Compare properties</span>
+          {compareCount > 0 ? (
+            <span className="min-w-5 h-5 px-1 grid place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-[10px] font-bold text-white">{compareCount}</span>
+          ) : null}
+        </Link>
+      ) : null}
       {user?.role === 'admin' ? <Link to="/admin" onClick={close} className={rowCls}><Icon name="shield-check" className="w-4 h-4 text-gray-400" /> Admin Panel</Link> : null}
       {user?.role === 'staff' ? <Link to="/ops" onClick={close} className={rowCls}><Icon name="headset" className="w-4 h-4 text-gray-400" /> Ops Console</Link> : null}
       <Link to="/dashboard" onClick={close} className={rowCls}><Icon name="layout-grid" className="w-4 h-4 text-gray-400" /> Dashboard</Link>
@@ -317,7 +332,10 @@ export default function Navbar() {
               {t('nav.postProperty')}
             </Link>
             {flagEnabled('compareProperties') && (showCompare || compareCount > 0) ? (
-              <Link to="/compare" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Compare Properties" aria-label="Compare properties">
+              /* Signed in, this is the target that leaves the phone bar — see the drawer
+                 row in `acctItems`. Signed out there is no drawer to move it to, and the
+                 same row is only four targets wide, so it stays inline there. */
+              <Link to="/compare" className={'pn-topbar__action tap-target tap-extend relative items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group ' + (isIn ? 'hidden lg:inline-flex' : 'inline-flex')} title="Compare Properties" aria-label="Compare properties">
                 <Icon name="git-compare" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                 {compareCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{compareCount}</span>}
               </Link>
@@ -431,7 +449,7 @@ export default function Navbar() {
               <>
                 {acctRefer(() => setAcctOpen(false), { card: true })}
                 <div className="border-t border-white/10 my-2" />
-                {acctItems(() => setAcctOpen(false))}
+                {acctItems(() => setAcctOpen(false), { mobile: true })}
               </>
             ) : null}
           </nav>

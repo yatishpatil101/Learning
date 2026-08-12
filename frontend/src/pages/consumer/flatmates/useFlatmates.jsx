@@ -7,7 +7,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { getListings, isListingApproved, getTenancies } from '../../../lib/store.js';
 import { digits } from '../../../lib/contact.js';
-import { getMyRequest, getFlatmateReviewStatusMap, pushNotification, pushPendingRequest, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
+import { getMyRequest, getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
@@ -201,23 +201,29 @@ export function useFlatmates() {
   const onInterest = async (r) => {
     if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     if (r.verifiedContactOnly && !isVerified) { toast(t('flatmates.acceptsVerifiedOnlyToast', { name: r.name }), 'error'); setVerifyOpen(true); return; }
+    /* Built before the call so the accepted and the duplicate-409 paths write the SAME record
+       (D183) — the device that gets the 409 is often not the one that made the original ask, and it
+       has to end up holding the same bell entry and Messages thread. */
+    const ask = {
+      notification: { type: 'share', title: 'Flatmate interest from ' + (user.name || 'Someone'), desc: (user.name || 'A seeker') + ' is interested in sharing with ' + r.name + '.', time: 'Just now', link: '/messages', unread: true },
+      request: { propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER },
+    };
     setInterests((m) => ({ ...m, [r.id]: true }));
     try {
       await flatmateService.postInterest(r.id, { share: 'solo', message: SEEKER_OPENER });
     } catch (err) {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, r.id);
-        /* The done state is the server's truth and stays. The wording deliberately does not send
-           anyone to Messages, and does not claim they sent a message they could go and read: the
-           thread and the notification are written a few lines down, on the success path only, and
-           they live in this browser's localStorage. So a seeker who first tapped on their phone and
-           is now on a laptop gets this 409 with an empty Messages page — the old copy ("you have
-           already reached out") pointed at a conversation that was never on this device. What is
-           true everywhere is that the host holds the interest, so that is all we say. Conditioning
-           the sentence on a local lookup was the alternative and is worse: the same server fact
-           would read differently per device, which is the confusion itself. This can go back to
-           promising the thread once Messages reads a server-side inbox instead of localStorage
-           (D183). */
+        /* The done state is the server's truth and stays. `recordAskLocally` is what earns it: the
+           thread and the notification are otherwise written on the success path only, into this
+           browser's localStorage, so a seeker who first tapped on their phone used to land here on
+           a finished card with an empty Messages page. Writing them here makes the two devices
+           agree; the call is idempotent, so the phone that already holds the thread writes nothing.
+
+           The wording still does not send anyone to Messages and still claims nothing beyond what
+           the server knows — that stays true per device and must not be reopened until Messages
+           reads a server-side inbox rather than localStorage (D183). */
+        recordAskLocally(ask);
         toast(t('flatmates.interestAlreadyRecorded', { name: r.name }));
         return;
       }
@@ -227,11 +233,8 @@ export function useFlatmates() {
     }
     rememberAsk(user.mobile, r.id);
 
-    // Push notification (mirrors HTML flatmates.html behavior)
-    pushNotification({ type: 'share', title: 'Flatmate interest from ' + (user.name || 'Someone'), desc: (user.name || 'A seeker') + ' is interested in sharing with ' + r.name + '.', time: 'Just now', link: '/messages', unread: true });
-
-    // Push pending chat request so Messages page picks it up
-    pushPendingRequest({ propertyId: r.id, property: { title: 'Flatmate: ' + r.name, price: r.budget ? '₹' + r.budget + '/mo' : '', loc: (r.localities || [])[0] || 'Pune', img: FLATMATE_IMG }, party: { name: r.name, avatar: (r.name || 'U').slice(0, 2).toUpperCase() }, firstMessage: SEEKER_OPENER });
+    // The bell notification and the Messages hand-off (mirrors HTML flatmates.html behavior).
+    recordAskLocally(ask);
 
     toast(t('flatmates.interestSentToast', { name: r.name }));
   };
@@ -245,13 +248,20 @@ export function useFlatmates() {
     if (!user) { navigate('/signin?reason=contact&next=' + encodeURIComponent(window.location.pathname)); return; }
     const key = 'room-' + room.id;
     const opener = SHARE_OPENER[share] || SHARE_OPENER.solo;
+    // Same reason as `onInterest` above: one record, written by whichever path answers (D183).
+    const ask = {
+      notification: { type: 'share', title: 'Room enquiry sent', desc: (user.name || 'A seeker') + ' messaged the owner about a room in ' + room.society + '.', time: 'Just now', link: '/messages', unread: true },
+      request: { propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener },
+    };
     setInterests((m) => ({ ...m, [key]: true }));
     try {
       await flatmateService.roomInterest(room.id, { share, message: opener });
     } catch (err) {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, key);
-        // Says only what the server knows, for the reason spelled out on the seeker branch above.
+        // Says only what the server knows, and leaves this device holding the same thread the
+        // success path writes — for the reason spelled out on the seeker branch above.
+        recordAskLocally(ask);
         toast(t('flatmates.enquiryAlreadyRecorded', { society: room.society }));
         return;
       }
@@ -261,9 +271,7 @@ export function useFlatmates() {
     }
     rememberAsk(user.mobile, key);
 
-    pushNotification({ type: 'share', title: 'Room enquiry sent', desc: (user.name || 'A seeker') + ' messaged the owner about a room in ' + room.society + '.', time: 'Just now', link: '/messages', unread: true });
-
-    pushPendingRequest({ propertyId: key, property: { title: 'Room in ' + room.society, price: room.budget ? '₹' + room.budget + '/mo' : '', loc: (room.localities || [])[0] || 'Pune', img: room.img }, party: { name: room.society, avatar: (room.society || 'RM').slice(0, 2).toUpperCase() }, firstMessage: opener });
+    recordAskLocally(ask);
 
     toast(t('flatmates.messageSentOwner', { society: room.society }));
   };

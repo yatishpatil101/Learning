@@ -10,12 +10,10 @@ import java.time.Instant;
  * visibility: always revealed to the owner (they entered it themselves).
  *
  * @param id           opaque deal id (null for synthesized active deals)
- * @param propertyId   the listing
  * @param deal         {@code buy} or {@code rent}
  * @param counterparty the other side of the deal, if closed
  * @param agreedPrice  whole INR, set on close
  * @param status       one of {@link DealStatuses}
- * @param closedAt     when the deal was closed
  */
 public record DealDto(
         String id,

@@ -5,7 +5,6 @@ import java.util.UUID;
 /**
  * The contract's {@code Reel}.
  *
- * @param id        the reel's identifier
  * @param listingId the property it was filmed at, or {@code null} if that listing is gone
  * @param title     caption as published
  * @param locality  locality as captioned on the reel — a display label ("Hinjawadi"), not a slug,
@@ -14,8 +13,6 @@ import java.util.UUID;
  * @param deal      {@code buy} or {@code rent}
  * @param poster    thumbnail image url
  * @param video     video url
- * @param likes     like count
- * @param views     view count
  * @param tag       editorial tag, e.g. {@code Trending}
  */
 public record ReelResponse(

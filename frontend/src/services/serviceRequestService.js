@@ -30,6 +30,13 @@
  * same domain — a `serviceRequestOps` service would have needed its own provider pair over the
  * identical endpoints, which is how two sources of truth start.
  *
+ * **Those three are the one part of this seam with no mock behind them (D184).** The desk filters on
+ * `?status=` in the server's vocabulary; the mock's rows carry the stepper's, so its queue read
+ * answered most filters with an empty page — a work queue that lies about being idle. A translation
+ * table between the two was rejected as a second vocabulary to keep in sync, so the mock provider
+ * simply does not implement them and the desk gates itself on `isHttpDomain('serviceRequest')`.
+ * Everything above them still runs on either provider.
+ *
  * ## Mock-only, and why (see `serviceRequestMapper.js` for the full table)
  *
  * | Frontend capability | Why it stays on mocks |
@@ -38,9 +45,9 @@
  * | per-request document checklist | no read representation on `ServiceRequestDto` |
  * | co-fill party requests | no endpoint — the server scopes every request to its requester |
  * | unread badges / read receipts | no read-receipt endpoint |
- * | `changes_requested` as a distinct state | the server collapses a rejection back to `in-progress` |
+ * | the customer's rejection *note* | the note goes into the message thread, not onto the request, so `draftDecision.note` is empty on a live read. The rejection itself survives: the server's `changes-requested` maps to the tracker's `changes_requested` step |
  * | staff transitions (share draft, upload final) | no desk surface for them yet — the drafting desk covers the queue read, taking a matter, and the identity read, and stops there |
- * | identity numbers (`recordServiceRequestIdentities`) | mock storage is `localStorage`; writing a PAN and an Aadhaar there is the threat the wizard's redaction closed, so the mock provider drops them on purpose — and the mock's read returns the parties with empty numbers for the same reason |
+ * | identity numbers (`recordServiceRequestIdentities`) | mock storage is `localStorage`; writing a PAN and an Aadhaar there is the threat the wizard's redaction closed, so the mock provider drops them on purpose. There is no mock *read* any more — that was the desk's, and the desk is live-only |
  * | "preview a sample draft" | a demo affordance the tracker hides when this domain is live |
  *
  * ## Presentation stays on `serviceFlow.js`
@@ -69,10 +76,10 @@ const provider = createProvider('serviceRequest');
  * @param {string} [typeFilter] one of `rental|legal|interior|packers|valuation`
  * @returns {Promise<object[]>}
  */
-export const listServiceRequests = (typeFilter) => provider().listServiceRequests(typeFilter);
+export const listServiceRequests = async (typeFilter) => (await provider()).listServiceRequests(typeFilter);
 
 /** One request with its thread and documents, or null if it is not the caller's. */
-export const getServiceRequest = (id) => provider().getServiceRequest(id);
+export const getServiceRequest = async (id) => (await provider()).getServiceRequest(id);
 
 /**
  * The whole queue, paged — **staff and admin only** (D173).
@@ -86,7 +93,7 @@ export const getServiceRequest = (id) => provider().getServiceRequest(id);
  * @param {{type?: string, status?: string, page?: number, size?: number}} [opts]
  * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
  */
-export const listServiceRequestQueue = (opts) => provider().listServiceRequestQueue(opts);
+export const listServiceRequestQueue = async (opts) => (await provider()).listServiceRequestQueue(opts);
 
 /**
  * Take a request for the calling operator — `PATCH /{id}/status` to `assigned`. Staff/admin.
@@ -96,7 +103,7 @@ export const listServiceRequestQueue = (opts) => provider().listServiceRequestQu
  * assignee — so taking a matter somebody else holds costs two visible moves and leaves a timeline
  * entry and an audit row behind. Accountability, not prohibition.
  */
-export const takeServiceRequest = (id) => provider().takeServiceRequest(id);
+export const takeServiceRequest = async (id) => (await provider()).takeServiceRequest(id);
 
 /**
  * Read the parties' PAN and Aadhaar — the assigned operator's read (D151/D173).
@@ -119,10 +126,10 @@ export const takeServiceRequest = (id) => provider().takeServiceRequest(id);
  *   purged:boolean,purgedAt:number}[]>} owner first. A blank number with `purged:false` means the
  *   customer left it empty; with `purged:true` the matter is closed and it has been discarded.
  */
-export const readServiceRequestIdentities = (id) => provider().readServiceRequestIdentities(id);
+export const readServiceRequestIdentities = async (id) => (await provider()).readServiceRequestIdentities(id);
 
 /** Create a request from a service form. Structured `details` round-trip to the server (D119). */
-export const createServiceRequest = (data) => provider().createServiceRequest(data);
+export const createServiceRequest = async (data) => (await provider()).createServiceRequest(data);
 
 /**
  * Hand the parties' PAN and Aadhaar to the drafting desk (D151).
@@ -143,12 +150,12 @@ export const createServiceRequest = (data) => provider().createServiceRequest(da
  *   the complete set — this replaces whatever was recorded before, it does not append
  * @returns {Promise<void>}
  */
-export const recordServiceRequestIdentities = (id, parties) =>
-  provider().recordServiceRequestIdentities(id, parties);
+export const recordServiceRequestIdentities = async (id, parties) =>
+  (await provider()).recordServiceRequestIdentities(id, parties);
 
 /** Post a customer message onto a request's thread. Resolves to the updated request. */
-export const addServiceRequestMessage = (id, text) =>
-  provider().addServiceRequestMessage(id, text);
+export const addServiceRequestMessage = async (id, text) =>
+  (await provider()).addServiceRequestMessage(id, text);
 
 /**
  * Approve or reject a shared draft — the customer is the checker.
@@ -157,15 +164,15 @@ export const addServiceRequestMessage = (id, text) =>
  * @param {'accepted'|'changes'} decision the tracker's vocabulary; mapped to `approve`/`reject`
  * @param {string} [note] required by the UI for a rejection; carried onto the timeline
  */
-export const decideServiceRequestDraft = (id, decision, note) =>
-  provider().decideServiceRequestDraft(id, decision, note);
+export const decideServiceRequestDraft = async (id, decision, note) =>
+  (await provider()).decideServiceRequestDraft(id, decision, note);
 
 /**
  * Co-fill counterparty requests (mock-only — empty against the API). The tracker merges these with
  * the caller's own so both parties to a shared rent agreement see it.
  */
-export const listPartyServiceRequests = (typeFilter) =>
-  provider().listPartyServiceRequests(typeFilter);
+export const listPartyServiceRequests = async (typeFilter) =>
+  (await provider()).listPartyServiceRequests(typeFilter);
 
 /** Mark a request's staff messages as read (mock-only no-op against the API). */
-export const markServiceRequestRead = (id) => provider().markServiceRequestRead(id);
+export const markServiceRequestRead = async (id) => (await provider()).markServiceRequestRead(id);

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.punenest.api.common.access.StaffAccountApprovalRepository;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserMapper;
 import com.punenest.api.identity.user.UserMapperImpl;
@@ -57,8 +58,13 @@ class AuthServiceRaceTest {
         when(jwtService.accessTtl()).thenReturn(Duration.ofMinutes(15));
         when(refreshTokens.issue(any())).thenReturn("refresh-token");
 
+        // Buyer login never consults the staff-approval gate (V67) nor the activation gate (V71, a
+        // back-office concern), so unstubbed mocks are the honest stand-in: if this path ever starts
+        // reading either, the mock returns false and the assertions below would have to change to
+        // say so.
         AuthService service = new AuthService(
-                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder);
+                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder,
+                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
         AuthResponse response = service.login(new LoginRequest(mobile, "123456", null));
 
@@ -77,13 +83,18 @@ class AuthServiceRaceTest {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         UserMapper userMapper = new UserMapperImpl();
 
-        when(users.findByEmailAndArchivedFalse("missing@punenest.in")).thenReturn(Optional.empty());
+        when(users.findByEmailIgnoreCaseAndArchivedFalse("missing@punenest.in")).thenReturn(Optional.empty());
         String dummyHash = (String) ReflectionTestUtils
                 .getField(AuthService.class, "STAFF_LOGIN_DUMMY_BCRYPT");
         when(passwordEncoder.matches("any-pass", dummyHash)).thenReturn(false);
 
+        // The approval and activation gates are only reached once a staff row is found; the lookup
+        // above is empty, so these mocks must stay unstubbed. Stubbing either would hide a
+        // regression that moved a gate ahead of the dummy-hash compare and reopened the
+        // account-enumeration timing leak this test exists to pin.
         AuthService service = new AuthService(
-                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder);
+                users, userService, userMapper, otpService, jwtService, refreshTokens, passwordEncoder,
+                mock(StaffAccountApprovalRepository.class), mock(StaffInviteRepository.class));
 
         assertThatThrownBy(() -> service.staffLogin(new StaffLoginRequest("missing@punenest.in", "any-pass")))
                 .isInstanceOf(com.punenest.api.common.error.UnauthorizedException.class);

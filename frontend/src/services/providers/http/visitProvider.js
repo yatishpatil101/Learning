@@ -7,7 +7,9 @@
  * `mode`, while the dashboard reads one human `when` string through `parseWhen`. Both directions
  * live in `lib/visitWhen.js`, beside the parser they have to stay mutually readable with.
  */
-import { get, patch, post, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
+import { get, patch, post, unwrapFullPage } from '../../http.js';
+// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { slotFromParts, slotFromWhen, whenFromSlot } from '../../../lib/visitWhen.js';
 
 /**
@@ -46,16 +48,20 @@ function toViewModel(row) {
  * and {@link unwrapFullPage} warns the day somebody's visit history outgrows it — which matters
  * more here than elsewhere, because a missing row reads as "that viewing was cancelled".
  */
-const paged = { size: MAX_PAGE_SIZE };
+/* A function, not a constant — see the note on `paged` in `dealProvider.js`. `MAX_PAGE_SIZE` now
+   comes from the import-free `apiLimits.js` (D208) so this read would be safe either way, but the
+   eager provider glob in `config.js` still evaluates this file inside `http.js`'s own evaluation,
+   and call-time reads stay out of that window whatever `http.js` grows next. */
+const paged = () => ({ size: MAX_PAGE_SIZE });
 
 /** `GET /visits` — visits the caller booked. Caller-scoped by the token. Paged (D77). */
 export async function listVisits() {
-  return unwrapFullPage(await get('/visits', paged), 'visit').map(toViewModel);
+  return unwrapFullPage(await get('/visits', paged()), 'visit').map(toViewModel);
 }
 
 /** `GET /me/visit-requests` — visits on the caller's own listings. Paged (D77). */
 export async function myVisitRequests() {
-  return unwrapFullPage(await get('/me/visit-requests', paged), 'visit').map(toViewModel);
+  return unwrapFullPage(await get('/me/visit-requests', paged()), 'visit').map(toViewModel);
 }
 
 /**

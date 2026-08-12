@@ -72,6 +72,36 @@ function SwipeCard({ onRemove, className, children }) {
   );
 }
 
+/* The placeholder a removed card leaves behind for `UNDO_WINDOW_MS`.
+
+   `role="status"` announces the removal, and focus moves onto Undo because the
+   control that caused it — the card's own trash button, or the card itself under a
+   swipe — unmounts with the card. Without the move, focus falls to `<body>` and a
+   keyboard or screen-reader user would have to tab from the top of the document to
+   reach an escape hatch that expires in five seconds. The button carries the card's
+   title in its accessible name for the same reason: on arrival "Undo" alone does
+   not say what is being undone. */
+function UndoRow({ label, undoLabel, undoAria, onUndo }) {
+  const btn = useRef(null);
+  useEffect(() => { btn.current?.focus(); }, []);
+  return (
+    <div role="status" className="property-card rounded-2xl overflow-hidden flex items-center justify-between gap-3 p-4">
+      <span className="flex items-center gap-2 min-w-0 text-sm text-gray-300">
+        <Icon name="trash-2" className="w-4 h-4 flex-shrink-0 text-gray-500" />
+        <span className="truncate">{label}</span>
+      </span>
+      <button
+        ref={btn}
+        onClick={onUndo}
+        aria-label={undoAria}
+        className="shrink-0 min-h-[44px] px-4 rounded-xl border border-white/10 text-teal-300 text-sm font-semibold hover:border-teal-400/40 hover:bg-white/5 transition-colors"
+      >
+        {undoLabel}
+      </button>
+    </div>
+  );
+}
+
 export default function Saved() {
   const { t: tr } = useTranslation();
   const { toast } = useToast();
@@ -80,9 +110,12 @@ export default function Saved() {
   const [tab, setTab] = useState('buy');
   const [sort, setSort] = useState('newest');
   const [removing, setRemoving] = useState(() => new Set());
-  /* Ids swiped away but not yet committed — they render as an undo row instead of
-     a card. A swipe is easy to fire by accident on a list the user curated by
-     hand, so removal is always reversible for a few seconds. */
+  /* Ids removed but not yet committed — they render as an undo row instead of a
+     card. A swipe is easy to fire by accident on a list the user curated by hand,
+     so removal is always reversible for a few seconds. Every removal path goes
+     through here, not just the gesture: a gesture-only undo would leave the people
+     who cannot swipe with the destructive half of the feature and none of the
+     safety net. */
   const [pendingRemoval, setPendingRemoval] = useState(() => new Set());
   const undoTimers = useRef(new Map());
 
@@ -159,8 +192,9 @@ export default function Saved() {
     }, 400);
   };
 
-  /* Swipe-left removal: stage the card as undoable, then commit on a timer. */
-  const swipeRemove = (id) => {
+  /* Stage the card as undoable, then commit on a timer. Shared by the swipe and by
+     the per-card remove buttons. */
+  const stageRemove = (id) => {
     if (pendingRemoval.has(id)) return;
     setPendingRemoval((s) => new Set(s).add(id));
     const timer = setTimeout(() => {
@@ -340,22 +374,17 @@ export default function Saved() {
                   </p>
                   <div key={tab} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
                   {items.map((c, i) => (pendingRemoval.has(c.id) ? (
-                    <div key={c.id} className="property-card rounded-2xl overflow-hidden flex items-center justify-between gap-3 p-4">
-                      <span className="flex items-center gap-2 min-w-0 text-sm text-gray-300">
-                        <Icon name="trash-2" className="w-4 h-4 flex-shrink-0 text-gray-500" />
-                        <span className="truncate">{tr('saved.removedTitle', { title: c.title })}</span>
-                      </span>
-                      <button
-                        onClick={() => undoRemove(c.id)}
-                        className="shrink-0 min-h-[44px] px-4 rounded-xl border border-white/10 text-teal-300 text-sm font-semibold hover:border-teal-400/40 hover:bg-white/5 transition-colors"
-                      >
-                        {tr('saved.undo')}
-                      </button>
-                    </div>
+                    <UndoRow
+                      key={c.id}
+                      label={tr('saved.removedTitle', { title: c.title })}
+                      undoLabel={tr('saved.undo')}
+                      undoAria={tr('saved.undoAria', { title: c.title })}
+                      onUndo={() => undoRemove(c.id)}
+                    />
                   ) : (
                     <SwipeCard
                       key={c.id}
-                      onRemove={() => swipeRemove(c.id)}
+                      onRemove={() => stageRemove(c.id)}
                       className={
                         'property-card rounded-2xl overflow-hidden fade-in' +
                         (mounted ? ' visible' : '') +
@@ -406,12 +435,12 @@ export default function Saved() {
                             <button onClick={() => createAlert(c)} title={tr('saved.createAlertAria')} aria-label={tr('saved.createAlertAria')} className="w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-300 hover:text-teal-300 hover:border-teal-400/40 flex items-center justify-center transition-colors">
                               <Icon name="bell-plus" className="w-4 h-4" />
                             </button>
-                            <button onClick={() => remove(c.id)} title={tr('saved.removeFromSaved')} aria-label={tr('saved.removeFromSaved')} className="remove-btn w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-400 flex items-center justify-center">
+                            <button onClick={() => stageRemove(c.id)} title={tr('saved.removeFromSaved')} aria-label={tr('saved.removeFromSaved')} className="remove-btn w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-400 flex items-center justify-center">
                               <Icon name="trash-2" className="w-4 h-4" />
                             </button>
                           </div>
                         ) : (
-                          <button onClick={() => remove(c.id)} className="remove-btn w-full min-h-[44px] py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium flex items-center justify-center gap-2"><Icon name="trash-2" className="w-4 h-4" /> {tr('saved.removeBtn')}</button>
+                          <button onClick={() => stageRemove(c.id)} className="remove-btn w-full min-h-[44px] py-2.5 rounded-xl border border-white/10 text-gray-400 text-sm font-medium flex items-center justify-center gap-2"><Icon name="trash-2" className="w-4 h-4" /> {tr('saved.removeBtn')}</button>
                         )}
                       </div>
                     </SwipeCard>

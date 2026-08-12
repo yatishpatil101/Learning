@@ -27,4 +27,4 @@ const provider = createProvider('photo');
  * @returns {Promise<{ url: string }>} the stored photo's URL — a `data:` URL in mock mode, a CDN URL
  *                        in http mode
  */
-export const uploadPhoto = (file) => provider().uploadPhoto(file);
+export const uploadPhoto = async (file) => (await provider()).uploadPhoto(file);

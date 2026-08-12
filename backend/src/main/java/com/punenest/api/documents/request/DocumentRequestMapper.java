@@ -29,6 +29,34 @@ public class DocumentRequestMapper {
                 row.getCreatedAt());
     }
 
+    /**
+     * The same row as {@link #toDto}, projected for the <em>requester</em>: identical but for the
+     * share token, which is always {@code null} here (D123).
+     *
+     * <p>{@code shareToken} is owner-facing by contract — the owner is shown it so they can forward
+     * the link deliberately. The buyer's own list is a status view: it says whether the ask was
+     * granted, not what the grant unlocks. Echoing the token onto a paged list would make one
+     * leaked response, or one shoulder-surfed screen, worth every vault the caller has ever been
+     * granted, for the full seven days of each grant — and it would buy the buyer nothing, because
+     * the link they are meant to use was already delivered to them when the grant was made.
+     *
+     * <p>A separate method rather than a boolean on {@link #toDto} so that the redaction cannot be
+     * switched off by a caller passing the wrong flag: the only way to get a token out of this
+     * mapper is to ask for the owner's projection by name.
+     */
+    public DocumentRequestDto toRequesterDto(DocumentRequest row, User requester) {
+        return new DocumentRequestDto(
+                row.getId().toString(),
+                row.getPropertyId().toString(),
+                toParty(requester),
+                row.getCategories(),
+                row.getStatus(),
+                null,
+                row.getExpiresAt(),
+                row.isAcknowledgedDisclaimer(),
+                row.getCreatedAt());
+    }
+
     private DocumentRequestDto.Party toParty(User requester) {
         if (requester == null) {
             return null;

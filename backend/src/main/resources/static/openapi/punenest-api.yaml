@@ -155,6 +155,39 @@ paths:
               schema: { $ref: '#/components/schemas/AuthResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/staff-invite/redeem:
+    post:
+      tags: [Identity & Access]
+      summary: Redeem a back-office invite and set your own password
+      security: []
+      operationId: redeemStaffInvite
+      # S28 (tech debt D206): necessarily unauthenticated. The caller is a new colleague who has no
+      # credential yet - the single-use token IS the credential, and it is verified server-side.
+      description: >
+        The one route on which a back-office password is chosen, and it is chosen by the person who
+        will use it. `addStaff` creates the account with **no usable password** and issues a
+        single-use, expiring invite to the colleague's own mobile; neither the administrator who
+        created the account nor the one who approved it is ever told that token. Until it is
+        redeemed the account cannot obtain a token on any login path, exactly as an unapproved
+        account cannot.
+
+
+        Redeeming is **not** a login: it returns no session and no account details. If the account
+        is also waiting for a second administrator, that gate still applies afterwards.
+
+
+        Every failure - unknown, wrong, expired, already redeemed, account since archived - answers
+        the same 401 with the same message. Distinguishing them would turn this route into an
+        oracle, and the legitimate holder's remedy is the same in every case.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffInviteRedeem' }
+      responses:
+        '204': { description: Password set. Sign in normally (subject to approval). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /auth/refresh:
     post:
       tags: [Identity & Access]
@@ -1052,7 +1085,7 @@ paths:
     get:
       tags: [Listings]
       summary: Rooms this flat is split into
-      description: Returns the per-room supply plus the flat's occupancy ledger.
+      description: Returns the per-room supply plus the flat's occupancy ledger. Anonymous read, so the card projection — no host number.
       operationId: listPropertyRooms
       responses:
         '200':
@@ -1061,7 +1094,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/FlatmateRoom' }
+                items: { $ref: '#/components/schemas/FlatmateRoomFeed' }
         '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/split:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
@@ -1200,6 +1233,15 @@ paths:
             schema: { $ref: '#/components/schemas/ReasonRequest' }
       responses:
         '200': { description: Archived }
+        '409':
+          description: >-
+            Refused by the last-administrator floor (D200): this account is the only one left that
+            can still manage back-office access, so archiving it would lock the platform out of its
+            own back office with no in-product recovery. Give another active administrator
+            `users:write` first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /users/{id}/restore:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -1210,6 +1252,73 @@ paths:
       x-roles: [admin]
       responses:
         '200': { description: Restored }
+  /users/{id}/permissions:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: Read one back-office account's permission document
+      operationId: getBackOfficePermissions
+      # S28 (tech debt D192/D13): reading who may do what is the same privilege as editing it.
+      # Returns BOTH what is stored and what it resolves to. They differ whenever the document
+      # names something the account's role can never hold, and a screen that echoed only the input
+      # is how an administrator ends up believing they granted something.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: The stored document and the access it actually resolves to
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackOfficeAccess' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Moderation]
+      summary: Replace one back-office account's permission document
+      operationId: replaceBackOfficePermissions
+      # S28 (tech debt D192/D13): PRIVILEGE. Guarded by `users:write`, the same atom as minting a
+      # colleague, because editing who may do what is the same power.
+      description: >
+        Replaces the document wholesale — a merge could not express "take this away", which is the
+        operation this endpoint exists for. **The document may only ever narrow.** What the account
+        can do afterwards is the *intersection* of this list with the compiled-in baseline for its
+        role, so a name the role cannot hold adds nothing; it is refused at write time (422) rather
+        than stored to look meaningful. An empty list is legal and deliberate: it means "this
+        account may reach no guarded back-office route", which is a different statement from having
+        no document at all. Deleting the document (restoring the role baseline) is not offered
+        here — see `back_office_permissions` in V65.
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackOfficePermissionsRequest' }
+      responses:
+        '200':
+          description: Stored. The body reports the outcome, not the request.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackOfficeAccess' }
+        '403':
+          description: >-
+            An administrator cannot edit their own permissions. Otherwise the one account that can
+            reach this endpoint could never be narrowed by anybody but itself.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Refused by the last-administrator floor (D200): the list omits `users:write` and this is
+            the only account left that can still manage back-office access. Nothing was written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: >-
+            The list names something this server does not enforce, or something the target's role
+            can never hold. Nothing was written — resend without it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /users/staff:
     post:
       tags: [Moderation]
@@ -1217,6 +1326,29 @@ paths:
       operationId: addStaff
       # S28: PRIVILEGE ESCALATION. Only an admin may mint a colleague an account.
       x-roles: [admin]
+      description: >
+        Creates a staff or admin account. **The account cannot authenticate yet**, for two
+        independent reasons.
+
+
+        *Maker-checker (D200).* The account is held behind a second signature: it appears in
+        `listPendingStaffApprovals` and every login path refuses it with 403 until an administrator
+        *other than its creator* calls `approveStaffAccount`. Without that, an administrator
+        narrowed to `users:write` could mint a fresh admin — which has no permission document and so
+        resolves to the full role baseline — and sign in as it to recover everything it had been
+        scoped out of. The one exception is the bootstrap case: when no other admin-role account
+        exists at all, no approval is required, because a rule nobody can satisfy is a lockout
+        rather than a control.
+
+
+        *Activation (D206).* The account is created with **no usable password**, and a single-use,
+        expiring invite is sent to the colleague's own mobile. They choose their own credential via
+        `redeemStaffInvite`; until then the account is refused on every login path, including the
+        OTP one — a passwordless account with a mobile number is not thereby unreachable. Neither
+        the creating administrator nor the approving one is ever told that token, and there is no
+        `password` field on this request. That is what makes the second signature attest to a
+        person: before D206 the maker chose the credential, so the checker was vouching for a row
+        while the maker walked away holding the session. This applies to the bootstrap case too.
       requestBody:
         required: true
         content:
@@ -1224,10 +1356,69 @@ paths:
             schema: { $ref: '#/components/schemas/StaffCreate' }
       responses:
         '201':
-          description: Created
+          description: Created, and unable to sign in until approved and activated (see above)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+  /users/pending-approvals:
+    get:
+      tags: [Moderation]
+      summary: List back-office accounts waiting for a second administrator
+      operationId: listPendingStaffApprovals
+      # S28 (tech debt D200): admin only, unlike the directory read, which staff may use. Who is
+      # waiting for a second key is the state of the platform's own trust decisions.
+      description: >
+        The accounts created through `addStaff` that no second administrator has approved yet, oldest
+        first. Unpaged — the list is bounded by the colleagues nobody has got round to approving.
+        Mobiles are masked, as they are in `listUsers`; revealing one is a separate, individually
+        audited act.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: Accounts still awaiting approval
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+  /users/{id}/approve:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Moderation]
+      summary: Approve a newly created back-office account
+      operationId: approveStaffAccount
+      # S28 (tech debt D200): the checker half of maker-checker, on the same `users:write` atom as
+      # minting a colleague — letting an account in is the same power as creating one.
+      description: >
+        Turns the second key, after which the account can sign in. **The approver may not be the
+        account's creator**; that is the whole content of maker-checker and it is enforced both here
+        and by a CHECK constraint in V67. Not idempotent: approving an already-approved account is a
+        conflict rather than a repeat, because the second caller would otherwise believe they
+        vouched for a decision somebody else made.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: >-
+            Approved. The account may now authenticate — once its holder has redeemed their invite
+            and set a password (D206); the two gates are independent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403':
+          description: >-
+            The caller created this account. An account must be approved by a different
+            administrator.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The account is not waiting for approval — either it was never subject to maker-checker,
+            or it has already been approved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /me/verification/aadhaar:
     get:
       tags: [Moderation]
@@ -1393,6 +1584,105 @@ paths:
             schema: { $ref: '#/components/schemas/DecisionRequest' }
       responses:
         '200': { description: Decided }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  # D190/Q15: the ownership gate. `properties.ownership_verified` shipped in V1 and no code path
+  # ever wrote it — the badge the home page sells the product on was decorative. These writes are
+  # how it is earned and withdrawn; the read is how an owner finds out what is missing. Every write
+  # additionally refuses the listing's own owner: roles are additive, so the staff role alone would
+  # otherwise let someone verify their own flat.
+  /properties/{id}/verification/ownership:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    get:
+      tags: [Moderation]
+      summary: Ownership evidence and gate status
+      operationId: getOwnershipVerification
+      description: >
+        The documentary case file behind the Ownership Verified badge, plus `missingKinds` — which
+        of the three required facts (ownership, owner identity, site presence) has no current
+        document. Deliberately NO `x-roles`: like the review thread this sits beside, the listing
+        owner is a participant, and an owner who cannot see which document is missing has no way to
+        send it. Guard is participant-or-staff, and a stranger gets 404 rather than 403.
+        A non-staff caller sees `kind`, `current` and the dates but NOT `docType` or `documentId`:
+        on an agent-posted listing the account reading this is not necessarily the person whose
+        identity document was sighted, and which government ID an individual holds is personal data
+        under the DPDP Act.
+      responses:
+        '200':
+          description: Gate status and recorded evidence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnershipVerification' }
+    post:
+      tags: [Moderation]
+      summary: Grant the Ownership Verified badge (staff)
+      operationId: verifyOwnership
+      description: >
+        Accept the recorded evidence and grant the badge. Fails with 400 naming the missing facts if
+        any of the three has no current document. The badge's expiry is derived from the evidence:
+        the earliest expiry among the documents relied on, or never when all of them are registry or
+        identity records. Re-running on an already-verified listing extends the expiry; running it
+        after a lapse is a fresh transition and announces again.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnershipVerification' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Moderation]
+      summary: Withdraw the Ownership Verified badge (staff)
+      operationId: revokeOwnershipVerification
+      description: >
+        Withdraw a badge that should not have been granted — forged evidence, or a document that
+        turned out to belong to a different flat. Distinct from a lapse, which needs no call at all.
+        The recorded evidence is left in place on purpose: it is the record of what was accepted and
+        by whom, which is exactly what an investigation into a wrongly granted badge needs to read.
+        Idempotent.
+      x-roles: [staff, admin]
+      parameters:
+        - name: reason
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          description: >
+            Why the badge was withdrawn, recorded on the audit entry. Required, as it is for every
+            other reversal in the product — stripping a public trust claim with no stated reason
+            leaves the next investigator nothing to go on. A query parameter rather than a body
+            because DELETE bodies are dropped by several proxies and clients, and a reason that
+            silently vanishes in transit is worse than one never sent.
+      responses:
+        '200':
+          description: Withdrawn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnershipVerification' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /properties/{id}/verification/ownership/evidence:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Record one ownership document (staff)
+      operationId: recordOwnershipEvidence
+      description: >
+        Record a document ops has sighted or received. Recording never grants the badge on its own —
+        the gate is a judgement about a set of documents taken together, and a system where
+        uploading the third file silently promotes a listing is one where nobody decided anything.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OwnershipEvidenceCreate' }
+      responses:
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnershipVerification' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
   # D91: GET /admin/property-reviews ADDED to the contract (D144-class defect — it shipped served
   # but undeclared, so no reviewer ever saw its `x-roles` line get written).
@@ -1607,6 +1897,39 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/Review' }
+  /admin/conversations/{id}:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Moderation]
+      summary: Read a private conversation as a moderator (audited)
+      operationId: getConversationForModeration
+      description: >
+        D53. A conversation was readable by its two participants and nobody else, so a reported chat
+        could not be read by the desk that had to rule on it. This is the exemption, and it is a
+        separate operation on purpose: the alternative -- letting staff through the participant
+        guard on `GET /messages/{id}` -- would have widened four existing operations at once and
+        left `mine` looking unchanged. **Every call writes an audit-log entry** naming the actor, the
+        conversation and the message count; an unaudited moderation read is the failure this row
+        exists to prevent.
+
+
+        Admin only in practice. The role gate is staff-or-admin like its neighbours, and the
+        `conversations:read` atom on top of it is admin-only in the permission catalogue, so a
+        staffer is refused with 403. There is deliberately no list operation: a moderator arrives
+        here with an id from a report.
+
+
+        Read-only in the strongest sense -- no unread flag is cleared and nothing about the thread
+        changes, so neither participant can tell from their own screen that it was read.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The thread, oldest message first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModeratedConversation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /reviews/{id}/status:
     parameters:
       - { $ref: '#/components/parameters/GenericId' }
@@ -2168,6 +2491,38 @@ paths:
         # Slice-12 spec fix S48: a conversation the caller is not a participant in is a 404, not a
         # 403 -- confirming that a thread exists is itself the disclosure.
         '404': { $ref: '#/components/responses/NotFound' }
+  /messages/{id}/attachments:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Leads & Contact]
+      summary: Upload an attachment for a conversation (multipart)
+      operationId: attachToConversation
+      description: >
+        Step one of sending a file (D49). Stores and validates the bytes, and returns an id the
+        caller then passes in `MessageCreate.attachments` on the reply. Two steps rather than one
+        multipart reply so that the message and its files are never half-sent: an upload that is
+        never referenced is an orphan nobody can read, whereas a message that referenced bytes that
+        failed to store would render as text with a broken paperclip. Guarded by the conversation's
+        own participant rule, so a non-participant gets 404 exactly as they do on the reply.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageAttachment' }
+        '400': { description: No file, or too many already pending on this thread }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: Payload too large (5 MB per file) }
+        '415': { description: Unsupported media type, or the bytes disagree with the declared type }
   /messages/{id}/read:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
@@ -2705,6 +3060,115 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/TenantVerified' }
         '400': { $ref: '#/components/responses/BadRequest' }
+  /properties/{propId}/tenancy-declarations:
+    parameters: [ { $ref: '#/components/parameters/PropId' } ]
+    # D194. Review eligibility is "completed a visit, or lived here", and only the visit half was
+    # ever real: the tenancy half was decided client-side from a localStorage bucket nothing on the
+    # live path writes, so against this API it was unconditionally false. The brokered half is fixed
+    # by simply asking /me/tenancies. This is the other half, and it exists because most Indian
+    # leases are signed off-platform -- the person best placed to review a flat is usually someone
+    # whose tenancy this API has never seen.
+    #
+    # A declaration is NOT a tenancy and is deliberately a different resource. `tenancies` permits
+    # one active row per property (a second would be a double-let, not a duplicate) and is the
+    # parent of every rent payment; declarations are many-per-property, are about stays that have
+    # usually ended, and must be revocable. Writing one into the other would both violate that index
+    # and make a typed claim indistinguishable from a signed agreement at every later read.
+    #
+    # Only `confirmed` counts. A pending row is a stranger asserting something about somebody else's
+    # flat; what turns it into evidence is the LISTING'S OWNER agreeing -- checked against the
+    # owner_id copied off the listing, not against "is an identity-verified user", because "someone
+    # real said yes" and "the landlord said yes" are different facts and only the second is about
+    # this property.
+    get:
+      tags: [Rentals & Payments]
+      summary: Stays claimed on this listing
+      description: >
+        Returns every declaration on the listing when the caller owns it -- the owner's inbox --
+        and only the caller's own declaration otherwise. One route rather than two because the two
+        sides read the same record and differ by a row filter, not by shape. Paged, because the
+        owner's side is inbound demand: each row is written by a different stranger. A caller who
+        does not own the listing has at most one row and always receives it on page 0.
+      operationId: listTenancyDeclarations
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Declarations visible to the caller
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/TenancyDeclaration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Rentals & Payments]
+      summary: Declare that you lived in this listing
+      description: >
+        Creates a `pending` claim for the caller. 409 when the caller owns the listing, when a
+        brokered tenancy already records the stay, or when the caller has already declared one --
+        a second claim is the same claim again, which is what makes a revocation mean anything.
+      operationId: declareTenancy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TenancyDeclarationCreate' }
+      responses:
+        '201':
+          description: Claim recorded, awaiting the owner
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenancyDeclaration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /tenancy-declarations/{id}/confirm:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Rentals & Payments]
+      summary: Confirm a claimed stay (listing owner)
+      description: >
+        The owner agrees the stay happened, which is the moment the claim becomes evidence and the
+        declarant becomes eligible to review the listing. Idempotent, and re-confirmable after a
+        revocation. 404 -- never 403 -- for any caller who does not own the listing, so a
+        declaration id is never confirmed to exist to a stranger.
+      operationId: confirmTenancyDeclaration
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenancyDeclaration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenancy-declarations/{id}/revoke:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Rentals & Payments]
+      summary: Reject or withdraw a claimed stay (listing owner)
+      # POST, not DELETE: the row survives. Eligibility stops either way, but "claimed, agreed,
+      # withdrawn" is the trail an abuse investigation needs and a deleted row says nothing at all.
+      # Keeping the row also holds the unique slot, so the claimant cannot simply declare again.
+      description: >
+        The owner disagrees with a claim, or takes back a confirmation they already gave. The
+        declaration is retained in `revoked` state rather than deleted. 404 for any caller who does
+        not own the listing.
+      operationId: revokeTenancyDeclaration
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenancyDeclaration' }
+        '404': { $ref: '#/components/responses/NotFound' }
   # ============================================================
   # 7. DOCUMENTS
   # ============================================================
@@ -2843,6 +3307,36 @@ paths:
         Newest first, owner-scoped, paged. Every row is written by a prospective *buyer* asking to
         see the paperwork, so the list grows with demand for the listing rather than with anything
         its owner did. No `sort` parameter: the order is fixed server-side.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged requests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/DocumentRequest' }
+  /me/document-requests:
+    get:
+      tags: [Documents]
+      summary: My document-access requests (requester)
+      operationId: myDocumentAsks
+      description: >
+        Newest first, requester-scoped, paged — the buyer's half of `/me/documents/requests`. A
+        sibling path rather than a member of `/me/documents`, because everything under that prefix
+        is scoped to listings the caller *owns* and this is scoped to rows the caller *wrote*.
+
+        `shareToken` is always `null` here, even on an approved request. The token is the grant, and
+        it is delivered to the requester out of band; echoing it on a list endpoint would mean one
+        leaked page of JSON unlocks every vault the buyer has ever been let into. Callers read
+        `status` and `expiresAt` and follow the token they were sent.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -3112,6 +3606,36 @@ paths:
       responses:
         '204': { description: Marked }
         '404': { $ref: '#/components/responses/NotFound' }  # Slice-12 spec fix S48
+  /support/tickets/{id}/attachments:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Upload an attachment for a support ticket (multipart)
+      operationId: attachToSupportTicket
+      description: >
+        Step one of sending a file on a ticket (D49); the returned id goes in
+        `MessageCreate.attachments` on the reply. Same two-step shape and the same limits as the
+        conversation surface. Guarded by the ticket's own rule -- the raiser or ops -- so an operator
+        can attach a screenshot back to the customer, and anyone else gets 404.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageAttachment' }
+        '400': { description: No file, or too many already pending on this ticket }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: Payload too large (5 MB per file) }
+        '415': { description: Unsupported media type, or the bytes disagree with the declared type }
   /admin/support-tickets:
     get:
       tags: [Services & Support]
@@ -3161,6 +3685,13 @@ paths:
       parameters:
         - { name: type, in: query, schema: { type: string }, description: Service type, e.g. rent-agreement }
         - { name: status, in: query, schema: { type: string } }
+        # D44. Ops only, and only an admin's choice reaches the query: a staff caller's desk is
+        # pinned to their own account, so naming another desk here is a 403 rather than a filter
+        # that quietly does something else. Ignored on a customer's own list.
+        - { name: team, in: query, schema: { $ref: '#/components/schemas/Team' } }
+        # D45. "Which request came off this board item" -- the direction of the ticket link that
+        # ServiceRequest.ticketId does not serve.
+        - { name: ticketId, in: query, schema: { type: string } }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -3251,7 +3782,7 @@ paths:
           description: Added
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Message' }
+              schema: { $ref: '#/components/schemas/ServiceRequestMessage' }
   /service-requests/{id}/docs:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
@@ -3276,6 +3807,33 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Document' }
+  /service-requests/{id}/checklist:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Services & Support]
+      summary: Document checklist for a request
+      operationId: getServiceRequestChecklist
+      description: >
+        The named paperwork this request needs and how much of it has arrived. Readable by the
+        requester or by the desk the request is on; anyone else gets `404`, because which service
+        requests exist is not a fact this API confirms to people who are not on them.
+
+        Derived at read time from the request's own documents — there is no checklist table and no
+        status a desk ticks by hand, so an item is "done" if and only if a file exists under its
+        `id` as the upload `category`. That is also how a client satisfies one: POST the file to
+        `/service-requests/{id}/docs` with `category` set to the item `id`. Documents filed under
+        anything else (the desk's `draft` and `final-document`, the `service-request` default) are
+        on the request but are not checklist items and are not counted.
+
+        Read-only, and deliberately carries no URLs: item completion is a fact about the request,
+        while the bytes stay behind `getServiceRequest`, where the vault's own read rules live.
+      responses:
+        '200':
+          description: Checklist
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequestChecklist' }
+        '404': { description: No such request, or not the caller's }
   /service-requests/{id}/identities:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     # D151. A Leave & License names each party by PAN and Aadhaar, so the drafting desk needs both.
@@ -3433,6 +3991,105 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Document' }
+  /service-requests/{id}/parties:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      # D121. A rent agreement is two people's paperwork, but every other route on this resource is
+      # scoped to one requester, so the tenant had no way to see the request they are named on. This
+      # is how the second side comes to exist. The mobile is resolved to an *account* and then
+      # discarded -- the row keys on the invited user, never on the digits -- so a counterparty who
+      # later changes their number does not silently lose access, and no contact detail is copied
+      # into a second table for the erasure job to chase.
+      summary: Invite the counterparty to co-fill (requester only)
+      operationId: inviteServiceRequestParty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequestPartyInvite' }
+      responses:
+        '201':
+          description: Invited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequestParty' }
+        '400':
+          description: Not a role this request has, or not a mobile number
+        '404':
+          description: No such request for this caller -- another requester's row is invisible, not forbidden
+        '409':
+          description: >
+            No account holds that mobile, or the role is already taken, or that person is already on
+            this request, or the request is finished. Deliberately not 404: the request exists and
+            the caller can see it, so the thing that is missing is the invitee's account.
+  /service-requests/{id}/read:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      # D121. `markServiceRequestRead` was a client-side no-op -- the unread badge lived in the
+      # browser, so it cleared on one device and stayed lit on the next, and ops could not tell a
+      # customer who had not read the draft note from one who was ignoring it.
+      #
+      # Receipts are taken by *side*, not by individual: reading as the customer clears the ops
+      # messages and nothing else. A co-fill counterparty must not be able to mark the requester's
+      # own messages as seen by the requester.
+      summary: Mark the other side's messages read
+      operationId: markServiceRequestRead
+      responses:
+        '204':
+          description: >
+            Recorded. No body: the caller already holds the thread, and returning it would make an
+            idempotent bookkeeping call look like a read of the conversation.
+        '404':
+          description: No such request for this caller
+  /me/service-request-invites:
+    get:
+      tags: [Services & Support]
+      # D121. Addressed to the invited account, never to a link. The prototype mailed an invite id
+      # over WhatsApp, which made a forwarded message enough to read a rent, a deposit and two sets
+      # of identity documents.
+      summary: My outstanding co-fill invitations
+      operationId: myServiceRequestInvites
+      responses:
+        '200':
+          description: >
+            Pending invitations only, newest first. Unpaged -- the list is bounded by how many
+            agreements one person is mid-way through arranging. Once accepted, the request itself
+            appears in GET /service-requests and the invitation stops being the interesting object.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ServiceRequestParty' }
+  /me/service-request-invites/{partyId}:
+    parameters:
+      - name: partyId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Services & Support]
+      summary: Accept or decline a co-fill invitation
+      operationId: decideServiceRequestInvite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteDecision' }
+      responses:
+        '200':
+          description: Answered. Accepting is what widens the caller's read scope to the request.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequestParty' }
+        '404':
+          description: >
+            No such invitation for this caller. Somebody else's is invisible, not forbidden --
+            including to an admin, since answering on another person's behalf is the one thing this
+            flow must not permit.
+        '409':
+          description: Already answered
   /me/rent-agreements:
     get:
       tags: [Services & Support]
@@ -3743,6 +4400,12 @@ paths:
               required: [code]
               properties:
                 code: { type: string }
+                # D60. How the link reached this person, as the client observed it. Optional, and
+                # unknown is the common case: a code dictated over a call carries no channel, and
+                # an older client sends none. An unrecognised value is stored as unknown rather
+                # than refused -- failing a real referral to protect an analytics field would be
+                # the wrong trade on the one screen that exists to buy liquidity.
+                shareChannel: { type: string, enum: [whatsapp, sms, email, copy, qr, other] }
       responses:
         '200': { description: Redeemed }
         '409': { description: Already redeemed / invalid }
@@ -4109,8 +4772,8 @@ paths:
                         items:
                           oneOf:
                             - $ref: '#/components/schemas/FlatmateSeekerPost'
-                            - $ref: '#/components/schemas/FlatmateRoom'
-                            - $ref: '#/components/schemas/FlatmateGroup'
+                            - $ref: '#/components/schemas/FlatmateRoomFeed'
+                            - $ref: '#/components/schemas/FlatmateGroupFeed'
   /flatmates/posts:
     get:
       tags: [Engagement]
@@ -4213,6 +4876,37 @@ paths:
         '201': { description: Sent }
         '403': { description: The target opted into verified-only contact (`verification_required`) }
         '409': { description: Interest already expressed (`already_interested`) }
+  /flatmates/posts/{id}/interests:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    get:
+      tags: [Engagement]
+      summary: Who answered my flatmate post
+      operationId: listFlatmatePostInterests
+      description: >
+        Newest first, paged, and readable only by the post's author. Each row carries the
+        requester's name and the number they volunteered when they pressed "I'm interested" on
+        this named post - the same row, and the same contact, that `listMyFlatmateRequests`
+        already hands this caller; this read simply scopes it to one ad. Ownership is checked
+        server-side on every call, so the id in the path grants nothing. Replies to an archived
+        post are still returned: filling or removing the ad does not retract the leads it drew.
+        No `sort` parameter - the order is fixed server-side.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged replies to this post
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /flatmates/rooms:
     get:
       tags: [Engagement]
@@ -4263,7 +4957,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateRoom' }
+                        items: { $ref: '#/components/schemas/FlatmateRoomFeed' }
     post:
       tags: [Engagement]
       summary: Post a spare room
@@ -4380,7 +5074,7 @@ paths:
                     properties:
                       content:
                         type: array
-                        items: { $ref: '#/components/schemas/FlatmateGroup' }
+                        items: { $ref: '#/components/schemas/FlatmateGroupFeed' }
     post:
       tags: [Engagement]
       summary: Create a flatmate group
@@ -4594,6 +5288,47 @@ paths:
       responses:
         '204': { description: Dismissed }
         '404': { $ref: '#/components/responses/NotFound' }
+  /me/notification-preferences:
+    # D94/D15. Every one of these settings used to live in one browser's localStorage, which meant
+    # the server enforced none of them -- most visibly, quiet hours suppressed the alerts the client
+    # derived and nothing else, so a notification the server wrote at 03:00 arrived at 03:00. The
+    # field names and the nesting are the browser's existing document verbatim, so moving off
+    # localStorage is a move rather than a transformation.
+    get:
+      tags: [Engagement]
+      summary: My notification & communication preferences
+      description: >
+        Always 200. A user who has never saved settings has preferences -- they are the defaults --
+        so this never 404s, and no client has to carry its own copy of those defaults to render the
+        settings screen.
+      operationId: getNotificationPreferences
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPreferences' }
+    put:
+      tags: [Engagement]
+      summary: Save notification & communication preferences
+      description: >
+        A whole-document write: the settings screen shows all six controls at once, so the client
+        sends what it is looking at and every field is required. An omitted field is a 422 naming
+        it, rather than a silent "keep" (which would make this a PATCH) or a silent "reset" (which
+        would switch a user's match alerts back on because a serialiser dropped a false).
+      operationId: updateNotificationPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPreferencesUpdate' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPreferences' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /announcements:
     get:
       tags: [Engagement]
@@ -4789,6 +5524,28 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /admin/permission-catalogue:
+    get:
+      tags: [Admin & Analytics]
+      summary: Every back-office permission the server enforces
+      operationId: getPermissionCatalogue
+      # S28 (tech debt D192/D13): guarded by `users:read`, the same atom as reading an account.
+      description: >
+        The vocabulary a Team & Access grid must render from, in the order it should be shown.
+        Served rather than hard-coded in the console so a screen cannot offer a permission the
+        server would ignore — that divergence is the whole of V61, where the client composed
+        bundles from its own module keys, the server spoke a different vocabulary, and the document
+        in between granted nothing while looking like policy. Every name here exists because a
+        route is annotated with it.
+      x-roles: [admin]
+      responses:
+        '200':
+          description: The catalogue, in render order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BackOfficePermission' }
   /admin/audit-log:
     get:
       tags: [Admin & Analytics]
@@ -5287,19 +6044,76 @@ components:
       properties:
         decision: { type: string, enum: [approve, reject] }
         note: { type: string }
+    ServiceRequestPartyInvite:
+      type: object
+      required: [role, mobile]
+      properties:
+        role:
+          type: string
+          enum: [owner, tenant]
+          description: Which side of the agreement the invitee is on. One of each, per request.
+        mobile:
+          type: string
+          description: >
+            The counterparty's registered mobile. Used once, to find their account, and then
+            discarded -- it is not stored on the invitation. An unregistered number is a 409, not an
+            invitation: there is nobody to authenticate as, and a token link addressed to a phone
+            number is exactly the exposure this design refuses.
+    InviteDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [accept, decline] }
+    ServiceRequestParty:
+      type: object
+      description: >
+        One side of a co-filled service request (D121). Keyed on the invited *account*, never on a
+        mobile number, and carries no contact detail of its own.
+      properties:
+        id: { type: string }
+        requestId: { type: string }
+        # Echoed so /me/service-request-invites can say what the invitation is *for* without the
+        # invitee having to fetch a request they cannot yet read.
+        requestType: { type: string, example: rent-agreement }
+        role: { type: string, enum: [owner, tenant] }
+        status: { type: string, enum: [invited, accepted, declined] }
+        party: { type: [string, 'null'], description: Display name of the invited account, absent if it has none }
+        invitedBy: { type: [string, 'null'], description: Display name of the requester who sent it }
+        createdAt: { type: string, format: date-time }
     MessageCreate:
       type: object
       required: [body]
       properties:
         body: { type: string, maxLength: 4000 }
-        # NOT IMPLEMENTED. Declared here since the contract was first written; the Java
-        # `MessageCreate` record carries `body` only, and there is no upload surface for chat.
-        # Kept rather than deleted because the client's share chips (contact / document / location /
-        # visit) are the eventual consumers - but they currently send plain text, and a reader of
-        # this schema must not assume otherwise.
+        # D49, implemented. Ids of attachments the caller already uploaded against *this* thread via
+        # POST /messages/{id}/attachments or POST /support/tickets/{id}/attachments, and has not yet
+        # sent. Ids, never URLs: a client-supplied location that the platform stores and re-serves is
+        # a request-forgery surface, and the two-step exists so the bytes are validated and stored
+        # before any message references them. An id that is not the caller's own, on this thread and
+        # unsent, is a 404 - including the same id twice in one request, since the first use consumes
+        # it. The cap is the same 5 the server enforces; the per-file size and type limits are on the
+        # upload operation.
         attachments:
           type: array
-          items: { type: string, format: uri }
+          maxItems: 5
+          items: { type: string, description: Attachment id from the upload operation }
+    MessageAttachment:
+      type: object
+      description: >
+        One file on a message. Only ever returned inside a message the reader is already entitled to
+        see, on either the chat or the support surface.
+      properties:
+        id: { type: string }
+        fileName: { type: string, description: Sanitised original name, safe to render }
+        contentType: { type: string, description: The *sniffed* type, which is what was stored }
+        sizeBytes: { type: integer, format: int64 }
+        url:
+          type: string
+          format: uri
+          description: >
+            Signed download link, **minted for this read and short-lived**. Not an identifier and not
+            a link to store - re-read the message to get a fresh one.
+        uploadedAt: { type: string, format: date-time }
     Message:
       type: object
       properties:
@@ -5314,6 +6128,81 @@ components:
         authorRole: { $ref: '#/components/schemas/Role' }
         body: { type: string }
         createdAt: { type: string, format: date-time }
+        # D49. Present on both handlers behind this schema - the conversation thread and the support
+        # thread - which is why it could be added here rather than splitting the schema the way
+        # ServiceRequestMessage below was split. Empty array when there are none, never absent.
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/MessageAttachment' }
+    # D121. The service-request thread only. Read receipts are a property of *that* desk — a
+    # conversation and a support ticket carry their own unread models (`Conversation.unread`,
+    # `SupportTicket.unread`), and all three surfaces map to different Java records, so widening
+    # the shared `Message` would promise a field two of those handlers do not return.
+    ServiceRequestMessage:
+      type: object
+      properties:
+        id: { type: string }
+        authorId:
+          type: string
+          description: >
+            Who wrote it. **Use this, not `author`, to decide whether a message is the reader's
+            own.** `author` is a display name, and attributing by name works until two users share
+            one - at which point a stranger's message renders on the reader's side of the thread.
+        author: { type: [string, 'null'], description: Display name, absent if the account has none }
+        authorRole: { $ref: '#/components/schemas/Role' }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        # When the other side read it, or null while it is still unread. Written by
+        # POST /service-requests/{id}/read, per side rather than per reader -- so on a co-filled
+        # request this means "somebody on the other side has seen it", not "everyone has".
+        readAt: { type: [string, 'null'], format: date-time }
+    # D53. The moderation view of a chat thread. Deliberately not `Conversation`: that shape is
+    # reader-relative -- `counterpartyName` means "the other one" and only makes sense to someone
+    # inside the thread -- and a moderator is in neither side of it. Naming both participants
+    # absolutely is the whole difference, and it is why this is a separate schema rather than a
+    # widened one.
+    ModeratedParticipant:
+      type: object
+      description: One side of a moderated thread. No mobile number - a moderator has not passed the
+        contact gate, and reading a reported chat is not a reason to hand over both parties' numbers.
+      properties:
+        id: { type: string, description: User id - correlate with the report and the message authors }
+        name: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/Role' }
+    ModeratedMessage:
+      type: object
+      description: >
+        One message as a moderator sees it. Shaped like `Message` but declared separately, so that
+        anything a moderation view later needs cannot leak onto the participant read by accident.
+      properties:
+        id: { type: string }
+        authorId: { type: string }
+        author: { type: [string, 'null'] }
+        authorRole: { $ref: '#/components/schemas/Role' }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        # A reported chat is very often reported *for* what was attached to it, so a moderation read
+        # that returned only the text would answer the wrong question.
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/MessageAttachment' }
+    ModeratedConversation:
+      type: object
+      properties:
+        id: { type: string }
+        participants:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: '#/components/schemas/ModeratedParticipant' }
+        propertyId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        # The whole thread, unpaged: a moderator needs the context around the reported line, and a
+        # message is capped at 4000 characters on write so a thread is bounded in practice.
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/ModeratedMessage' }
     Conversation:
       type: object
       description: In-app chat thread between two parties, optionally about a listing.
@@ -5359,6 +6248,21 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password }
+    StaffInviteRedeem:
+      # D206: the request that sets a back-office password. `password` is bounded at both ends and
+      # the ceiling is not cosmetic - BCrypt silently ignores bytes past 72, so a longer secret
+      # would not be the one the user typed, and a password that is quietly something else is worse
+      # than a refusal. The floor is NIST 800-63B's guidance for a human-chosen secret carrying no
+      # composition rules.
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: >
+            The single-use invite delivered out of band to the account's holder. Opaque; clients
+            must not parse it.
+        password: { type: string, format: password, minLength: 12, maxLength: 72 }
     RefreshRequest:
       type: object
       required: [refreshToken]
@@ -5813,9 +6717,15 @@ components:
       # NOT NULL UNIQUE with a format CHECK - it is the platform's natural identity for every user,
       # not a profile extra - so `addStaff` was literally unable to insert a row. Relaxing the column
       # instead was the alternative and the wrong one: it would have weakened the natural key for all
-      # ~40k user rows to accommodate a handful of colleagues. `password` stays optional because a
-      # staff member can also sign in through the ordinary OTP path on that same mobile; it is only
-      # required for the email+password StaffLoginRequest route.
+      # ~40k user rows to accommodate a handful of colleagues.
+      #
+      # D206: `password` REMOVED. It used to be an optional field here, which meant the administrator
+      # who minted an account also chose the credential it would sign in with - so the second
+      # administrator's co-signature attested to a RECORD ('an ops lead should exist') rather than to
+      # a PERSON, and the maker could sign in as the colleague they had just had approved. The
+      # account is now created with no usable password and its holder sets their own via
+      # `redeemStaffInvite`. `mobile` therefore does double duty: it is the natural key AND where the
+      # invite is delivered.
       type: object
       required: [name, mobile, email, role]
       properties:
@@ -5824,7 +6734,68 @@ components:
         email: { type: string, format: email }
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
-        password: { type: string, format: password }
+    BackOfficePermission:
+      # D192/D13: one entry of the catalogue served by GET /admin/permission-catalogue. Mirrors
+      # security/BackOfficePermissions.Permission.
+      type: object
+      description: >
+        One back-office permission atom. `name` is `module:action` and is the exact string stored
+        and checked — the module and action are the same value split for grouping, so a console can
+        render a grid without parsing.
+      required: [name, module, action, adminOnly]
+      properties:
+        name: { type: string, example: 'tickets:read' }
+        module: { type: string, example: tickets }
+        action: { type: string, enum: [read, write] }
+        adminOnly:
+          type: boolean
+          description: >-
+            Whether the route this atom guards is admin-only, so a staff account can never hold it
+            however its document is written. Advisory to the UI and authoritative on the server —
+            the same field, precisely so a screen cannot offer a checkbox the server would ignore.
+    BackOfficePermissionsRequest:
+      # D192/D13: a bare list rather than a richer shape. The catalogue is served separately, so a
+      # client has no reason to send back the module and action it was given, and a field the
+      # server ignores is a field a client will one day rely on.
+      type: object
+      required: [permissions]
+      properties:
+        permissions:
+          type: array
+          description: >-
+            The atoms to store, from `GET /admin/permission-catalogue`. Empty means "no guarded
+            back-office route".
+          items: { type: string, example: 'tickets:read' }
+    BackOfficeAccess:
+      # D192/D13: mirrors moderation/user/BackOfficeAccessResponse.
+      type: object
+      description: >
+        One back-office account's access. `permissions` and `effective` are both here on purpose:
+        the first is what is stored, the second is what the server will honour after intersecting
+        it with the account's role baseline.
+      required: [userId, role, scoped, permissions, effective]
+      properties:
+        userId: { type: string, format: uuid }
+        role:
+          $ref: '#/components/schemas/Role'
+        scoped:
+          type: boolean
+          description: >-
+            Whether a document exists at all. Distinct from an empty `permissions`: no document
+            means "unscoped — the role baseline applies", an empty one means "deliberately allowed
+            nothing".
+        permissions:
+          type: array
+          description: >-
+            Exactly what is stored, unfiltered. Empty if the row is unreadable, in which case
+            `effective` is empty too.
+          items: { type: string }
+        effective:
+          type: array
+          description: >-
+            What this account may actually do right now — the role baseline narrowed by the stored
+            document. Never larger than the baseline.
+          items: { type: string }
     KycStartRequest:
       type: object
       description: >
@@ -5948,6 +6919,81 @@ components:
           items: { $ref: '#/components/schemas/VerificationMessage' }
         notes: { type: string }
         decidedAt: { type: string, format: date-time }
+
+    OwnershipVerification:
+      # D190/Q15: the case file behind the Ownership Verified badge.
+      #
+      # `missingKinds` is the field that makes this worth returning rather than a bare boolean. Ops
+      # working a queue needs "waiting on identity", not "not verified", and an owner told only that
+      # their listing is unverified has no idea what to send.
+      #
+      # `verified` is DERIVED server-side from `verifiedUntil` against the clock, never stored as
+      # the badge. A listing verified on a property-tax receipt stops being verified ninety days
+      # after that receipt was issued, with no write to the row and therefore no window in which a
+      # sweep has not run yet.
+      type: object
+      description: Ownership gate status and the evidence behind it.
+      properties:
+        propertyId: { type: string }
+        verified: { type: boolean, description: 'The badge — an ops verdict that has not lapsed.' }
+        verifiedAt: { type: [string, 'null'], format: date-time, description: 'When ops last accepted a complete evidence set.' }
+        verifiedUntil:
+          type: [string, 'null']
+          format: date-time
+          description: >
+            The earliest expiry among the documents the badge rests on. Null in two very different
+            situations — never verified, and verified on documents that do not expire — so it is
+            read together with `verified` rather than alone.
+        missingKinds:
+          type: array
+          description: 'Required facts with no current document: ownership_proof, owner_identity, site_presence.'
+          items: { type: string, enum: [ownership_proof, owner_identity, site_presence] }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/OwnershipEvidence' }
+
+    OwnershipEvidence:
+      # D190: one recorded document. Expired rows stay in the list — the case file is a history of
+      # what the badge was granted on, not a snapshot of what is current, and a disputed listing is
+      # argued from the history.
+      type: object
+      properties:
+        id: { type: string }
+        docType: { type: string, enum: [index_ii, sale_deed, tax_receipt, electricity_bill, aadhaar, pan, site_photos] }
+        kind: { type: string, enum: [ownership_proof, owner_identity, site_presence], description: 'Which of the three required facts this establishes.' }
+        documentId: { type: [string, 'null'], description: 'The vault row, when the proof was uploaded rather than sighted in person.' }
+        subjectName:
+          type: [string, 'null']
+          description: >
+            Whose identity was sighted, as the document spells it. Present on the identity doc types
+            and null on the rest, and staff-only: on an agent-posted listing it is a third party's
+            name and the owner is not the person it belongs to.
+        issuedAt:
+          type: string
+          format: date-time
+          description: >
+            When the document was issued or the photographs taken — NOT when ops reviewed it. Every
+            expiry is measured from here, which is what stops a decade-old receipt minting a fresh
+            badge.
+        expiresAt: { type: [string, 'null'], format: date-time, description: 'Null for the registry and identity documents that do not go stale.' }
+        current: { type: boolean, description: 'Whether it still proves what it proves, as at the moment this was read.' }
+
+    OwnershipEvidenceCreate:
+      # D190: `issuedAt` is required rather than defaulted to now. A default would quietly turn
+      # every stale document into a fresh one, which is the exact failure the gate exists to stop.
+      type: object
+      required: [docType, issuedAt]
+      properties:
+        docType: { type: string, enum: [index_ii, sale_deed, tax_receipt, electricity_bill, aadhaar, pan, site_photos] }
+        documentId: { type: string, description: 'Optional — the documents-vault row this proof was uploaded to.' }
+        issuedAt: { type: string, format: date-time, description: "The document's own date, read off the document." }
+        subjectName:
+          type: string
+          maxLength: 120
+          description: >
+            Whose identity the document is. Required for `aadhaar` and `pan` and optional otherwise:
+            a row recording that an identity document was sighted, without recording whose, cannot
+            be contradicted by anything and so establishes nothing in a dispute.
 
     VerificationMessage:
       # S34: the wire shape of one message in the clarification thread. `from` is derived
@@ -6331,6 +7377,41 @@ components:
         startDate: { type: string, format: date }
         endDate: { type: string, format: date }
         status: { type: string, enum: [active, ended, terminated] }
+    TenancyDeclaration:
+      type: object
+      description: >
+        A person's claim that they lived in a listing, and the owner's answer (D194). Only
+        `confirmed` proves anything; `pending` is an unopposed assertion and `revoked` is one the
+        owner has taken back. Carries the claimant's name and deliberately no mobile -- a number
+        here would let anyone mint a contact reveal by simply asserting a relationship, which is
+        the gate the platform's contact rules exist to hold.
+      properties:
+        id: { type: string }
+        propertyId: { type: string }
+        declarantId: { type: string }
+        declarantName: { type: string }
+        livedFrom:
+          type: [string, 'null']
+          format: date
+          description: The claimant's own account of when the stay began. Not verified.
+        livedTo:
+          type: [string, 'null']
+          format: date
+        status: { type: string, enum: [pending, confirmed, revoked] }
+        decidedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the owner last answered; null while pending.
+    TenancyDeclarationCreate:
+      type: object
+      description: >
+        Both fields optional and neither trusted -- they are context so the owner can recognise a
+        former tenant, not evidence. The owner is read from the listing and is deliberately not a
+        field here: letting a claimant nominate their own confirmer is the same hole as having no
+        confirmation step at all.
+      properties:
+        livedFrom: { type: [string, 'null'], format: date }
+        livedTo: { type: [string, 'null'], format: date }
     # S21 (slice 5): TenantProfile described a profile the product does not collect. The UI form
     # (pages/consumer/TenantProfile.jsx) captures name, occupation, monthly income, WHO will live
     # there, move-in date, a prior-landlord reference and a free-text introduction. The schema
@@ -6655,13 +7736,50 @@ components:
         subject: { type: string }
         category: { type: string }
         body: { type: string }
+    ServiceRequestChecklist:
+      # D120. Derived on every read from the request's own documents; nothing here is stored, so
+      # there is no second source of truth that can drift from the vault. `ready`/`total` live on
+      # the envelope rather than being folded client-side, so the badge and the list cannot
+      # disagree.
+      type: object
+      required: [ready, total, items]
+      properties:
+        ready: { type: integer, description: Items with a document against them }
+        total: { type: integer, description: Items this request asks for }
+        items:
+          type: array
+          description: Every item, present or absent, in a fixed render order. The absent ones are the point.
+          items:
+            type: object
+            required: [id, name, done]
+            properties:
+              # Also the upload `category` that satisfies this item -- one vocabulary, read and
+              # written, rather than two kept in step by hand.
+              id: { type: string, example: owner-id }
+              name: { type: string, example: Owner Aadhaar + PAN }
+              done: { type: boolean }
+              # The newest document filed under this item. An id, never a URL: this endpoint mints
+              # no download credential, so the bytes stay behind getServiceRequest.
+              documentId: { type: [string, 'null'] }
     ServiceRequest:
       type: object
       properties:
         id: { type: string }
         type: { type: string, example: rent-agreement }
-        status: { type: string, enum: [awaiting-payment, new, assigned, in-progress, draft-shared, approved, completed, cancelled] }
+        # D44. The ops desk that works this request. Derived server-side from `type` by a map that
+        # is total over the type enum -- rent-agreement is worked by the *rental* team, the other
+        # four share their name with their desk -- and held to it by a database CHECK, so it can
+        # never disagree with the type. Read-only: there is no field for it on ServiceRequestCreate,
+        # because a client that could choose the desk could file a rent agreement onto the packers'
+        # queue.
+        team: { $ref: '#/components/schemas/Team' }
+        status: { type: string, enum: [awaiting-payment, new, assigned, in-progress, draft-shared, changes-requested, approved, completed, cancelled] }
         propertyId: { type: [string, 'null'] }
+        # D45. The ops board item this request mirrors, or null when it was filed straight from the
+        # customer's wizard. Present so an operator working the paperwork can reach the enquiry it
+        # came from instead of matching them up by name. The other direction is
+        # GET /service-requests?ticketId=.
+        ticketId: { type: [string, 'null'] }
         # D119: the structured fields the customer filled at create time, echoed back. Free-form
         # object (property, rent, deposit, scope, ...); null when the request carried none.
         details: { type: ['object', 'null'], additionalProperties: true }
@@ -6679,7 +7797,17 @@ components:
           items: { $ref: '#/components/schemas/Document' }
         messages:
           type: array
-          items: { $ref: '#/components/schemas/Message' }
+          items: { $ref: '#/components/schemas/ServiceRequestMessage' }
+        # D121. The co-fill counterparties of a two-sided matter, and whether they have accepted.
+        # Empty on the ordinary one-person request. This is what makes a rent agreement legible as
+        # an agreement between two people rather than as one person's form: it is how the requester
+        # sees that their tenant has not answered yet, and how the tenant sees which side they are
+        # on. There is deliberately no request-level `awaiting-party` status -- the party row's own
+        # status carries that, and a second copy of it in the workflow vocabulary would be a second
+        # thing to keep in step.
+        parties:
+          type: array
+          items: { $ref: '#/components/schemas/ServiceRequestParty' }
         createdAt: { type: string, format: date-time }
         # What the customer was charged, in whole rupees, for a priced desk (a rent agreement);
         # null for a free one (a legal opinion). Set once, at creation, from the published fee.
@@ -6705,6 +7833,11 @@ components:
         # verbatim to every staff read of the ops queue. Rejected with 400. Send them to
         # PUT /service-requests/{id}/identities instead (D151).
         details: { type: ['object', 'null'], additionalProperties: true }
+        # D45. Optional. The ticket this request comes off, which must be one of the caller's own --
+        # a request stapled to a stranger's enquiry would put two unrelated customers on one screen,
+        # so an unknown or somebody else's ticket is a 404. One ticket carries at most one request;
+        # a second is a 409.
+        ticketId: { type: string }
     # D151. The parties a Leave & License names, and the two numbers it prints for each.
     #
     # Deliberately not reachable from ServiceRequest, from any list, or from any query keyed on
@@ -6941,6 +8074,14 @@ components:
         referred: { type: string }
         referredMobile: { $ref: '#/components/schemas/Mobile' }
         channel: { type: string, enum: [seeker, owner] }
+        # D60. `channel` says which side of the marketplace the referred party joined on, which is
+        # not what its name promises and not a dimension anybody can build a sharing report on.
+        # Added beside it rather than by redefining it: `channel` is already stored, filtered on
+        # and behind a CHECK, and changing its meaning would silently rewrite every existing row.
+        # Null whenever the redemption carried no share context, which includes every code passed
+        # on by voice -- distinct from `other`, which is a channel the client named and we have no
+        # word for.
+        shareChannel: { type: [string, 'null'], enum: [whatsapp, sms, email, copy, qr, other, null] }
         reward: { type: string, description: "Human label, e.g. '+15 owner contacts'" }
         # Slice-13 spec fix S54. `reward` is prose and `ReferralSummary.rewardsEarned` is Money,
         # and nothing reconciled the two -- so a checker was asked to approve a payout without
@@ -6953,11 +8094,20 @@ components:
         risk: { type: string, enum: [low, medium, high] }
         aadhaarVerified: { type: boolean }
         aadhaarUnique: { type: boolean }
+        # D55. Computed since V64 by comparing salted digests of the two parties' address and
+        # User-Agent; before that they were hardcoded false on every row. False still means "no
+        # evidence" rather than "proved different": either side may have no digest -- a code minted
+        # before V64, a request without a User-Agent -- and a missing input never matches.
         sameDevice: { type: boolean }
         sameIp: { type: boolean }
         velocityHigh: { type: boolean }
         activated: { type: boolean }
         at: { type: string, format: date-time }
+        # D56/Q17. When the referred party's first listing passed ownership verification -- the one
+        # event that moves a referral to `qualified` without a human. Null until it happens, and it
+        # happens at most once per referral: a second verified listing does not mint a second
+        # credit.
+        qualifiedAt: { type: [string, 'null'], format: date-time }
         handledBy: { type: [string, 'null'] }
         handledAt: { type: [string, 'null'], format: date-time }
     # ---- Engagement ----
@@ -7297,12 +8447,74 @@ components:
         tags: { type: array, items: { type: string } }
         note: { type: string, maxLength: 600 }
         verifiedContactOnly: { type: boolean, default: false }
+    FlatmateRoomFeed:
+      type: object
+      description: >
+        The card-sized projection of a room — what every anonymous read returns (`GET
+        /flatmates/rooms`, `GET /flatmates/feed`, `GET /properties/{propId}/rooms`). It carries
+        exactly what a card, a filter, the map and the client-side flat ledger consume; the eight
+        fields `FlatmateRoom` adds on top are host-facing and no public reader touches them.
+        Notably absent is `ownerMobile`: an anonymous room read has no field to put a number in,
+        so the contact rule is structural rather than conventional.
+      properties:
+        id: { type: string, example: rm7 }
+        type: { type: string, enum: [flatmate] }
+        propertyId: { type: [string, 'null'], description: Parent rent listing when this room came from a flat split — the key that ties sibling rooms into one occupancy ledger and one joint agreement. }
+        roomKind: { $ref: '#/components/schemas/RoomKind' }
+        roomType: { type: string, enum: ['Private room', 'Shared room'] }
+        attachedBath: { type: string, enum: [attached, shared], description: Derived from `roomKind` on split rooms (master implies attached); asked explicitly on single-room posts. }
+        priceBasis: { $ref: '#/components/schemas/PriceBasis' }
+        budget: { $ref: '#/components/schemas/Money' }
+        deposit: { $ref: '#/components/schemas/Money' }
+        occupancy: { $ref: '#/components/schemas/Occupancy' }
+        occupants: { type: integer, minimum: 0, maximum: 3, description: People actually living in THIS room. Emergent — tenants decide, the owner only records it. }
+        maxOccupants: { type: integer, minimum: 1, default: 3, description: How many people may live in the whole FLAT (the society's rule) — the only ceiling the owner declares. }
+        flatCommitted: { type: integer, readOnly: true, description: Derived — people moved into this flat across every sibling room. }
+        flatMax: { type: [integer, 'null'], readOnly: true }
+        shareMax: { type: integer, readOnly: true, minimum: 1, maximum: 3, description: 'Derived — the most people who could still take this room: min(3 - occupants, flatMax - flatCommitted). Always 1 when priceBasis is `person`.' }
+        seatsTotal: { type: integer, minimum: 1, description: Seat model, used by single spare-room posts instead of the occupancy ledger. }
+        seatsOpen: { type: integer, minimum: 0 }
+        hostRole: { $ref: '#/components/schemas/HostRole' }
+        verificationTier: { $ref: '#/components/schemas/VerificationTier' }
+        verified: { type: boolean, description: The Verified pill — for split rooms it tracks the PARENT listing's Ops approval, so it can never appear on a flat nobody has checked. }
+        society: { type: string }
+        flatNumber: { type: string }
+        locality: { type: string }
+        localities: { type: array, items: { type: string } }
+        lat: { type: [number, 'null'], format: double }
+        lng: { type: [number, 'null'], format: double }
+        bhk: { type: string, enum: ['1', '2', '3', '4'], description: "'4' means 4+." }
+        flatType: { type: string, example: 3 BHK }
+        homeTypeLabel: { type: string, example: Flat }
+        gatedCommunity: { type: boolean }
+        furnishing: { type: string, enum: [unfurnished, semi, furnished] }
+        moveIn: { $ref: '#/components/schemas/FlatmateMoveIn' }
+        gender: { type: string, enum: [any, male, female] }
+        food: { type: string, enum: [any, veg, nonveg] }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+        owner: { type: string }
+        createdAt: { type: string, format: date-time }
     FlatmateRoom:
       type: object
       description: >
         A room offered inside a real flat — the `move-in` feed. Created either by the
         list-property flatmate flow (one spare room, seat-based) or by an owner splitting a
         whole rent listing room by room (occupancy-based, `POST /properties/{propId}/split`).
+
+
+        The host-facing shape: every property of `FlatmateRoomFeed` plus the eight only the host's
+        own view of a room needs — their number, the anti-broker forensics, and the fields no public
+        reader consumes. Returned by the write endpoints (`POST /flatmates/rooms`, the two PATCHes)
+        and by `POST /properties/{propId}/split`.
+
+
+        Stated in full rather than as `allOf: [FlatmateRoomFeed, …]`: `SpecSchemaParityTest` only
+        unwraps the paged `allOf`, and returns null for any other composition rather than guess. An
+        `allOf` here would therefore drop all four of those operations out of parity checking
+        silently — the schema would read better and be checked less. The two schemas cannot drift
+        apart regardless, because parity pins each one to its record in both directions and
+        `FlatmateRoomShapeTest` pins the records to each other.
       properties:
         id: { type: string, example: rm7 }
         type: { type: string, enum: [flatmate] }
@@ -7410,6 +8622,44 @@ components:
         note: { type: string, maxLength: 600 }
         ownerName: { type: string }
         ownerMobile: { $ref: '#/components/schemas/Mobile' }
+        createdAt: { type: string, format: date-time }
+    FlatmateGroupFeed:
+      type: object
+      description: >
+        The card projection of a group, and what every anonymous read returns. Written out in full
+        rather than as an `allOf` of FlatmateGroup for the same reason FlatmateRoomFeed is: a
+        subtractive relationship cannot be expressed in JSON Schema, so an `allOf` would claim the
+        card carries the host-only fields it exists to withhold. Absent here on purpose:
+        `ownerConsentMobile` (a third party's number), `addressFingerprint` and `flagForReview`
+        (anti-broker forensics the client only writes), `modStatus` (the moderation verdict — every
+        producer of this shape already filters to the cleared statuses, so it could only say "this
+        one passed") and `ownerMobile` (reached by expressing interest, never by browsing).
+        `ownerConsent` stays as the boolean the card actually renders.
+      properties:
+        id: { type: string, example: g1 }
+        title: { type: string }
+        locality: { type: string }
+        policy: { type: string, enum: [any, women, men], description: '`any` means open-join — a request is auto-accepted.' }
+        rent: { $ref: '#/components/schemas/Money', description: Whole-flat rent. }
+        perHead: { $ref: '#/components/schemas/Money', description: 'Server-computed rent / seatsTotal (falling back to whole rent when seatsTotal is 0, so a client never divides by zero).' }
+        seatsTotal: { type: integer, minimum: 1 }
+        seatsOpen: { type: integer, minimum: 0, description: Seats open right now — the honest count for a tenant backfilling one seat. Legacy groups omit it and fall back to seatsTotal minus members. }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string, description: 'Omitted when this member has not given a name — an OTP account has none until its profile is filled in. Render a placeholder; do not invent one, and do not treat the absence as an error.' }
+              initials: { type: string, maxLength: 2, description: Omitted with `name`, since there is nothing to take initials from. }
+              verified: { type: boolean }
+        propertyId: { type: [string, 'null'] }
+        hostRole: { $ref: '#/components/schemas/HostRole' }
+        verificationTier: { $ref: '#/components/schemas/VerificationTier' }
+        agreementDeclared: { type: boolean }
+        ownerConsent: { type: boolean, description: True once the flat's owner confirmed the replacement search via OTP — turning "trust me" into an auditable consent record. The fact is public; the number behind it is not. }
+        tags: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 600 }
+        ownerName: { type: string }
         createdAt: { type: string, format: date-time }
     FlatmateGroupCreate:
       type: object
@@ -7576,6 +8826,72 @@ components:
         read: { type: boolean }
         link: { type: string }
         createdAt: { type: string, format: date-time }
+    QuietHours:
+      type: object
+      description: |
+        A do-not-disturb window as two 24-hour `HH:mm` wall-clock labels -- exactly what
+        `<input type="time">` emits and what the browser has always stored.
+
+        The window MAY wrap past midnight; the default (22:00-07:00) does. `start == end` means
+        "never", not "always" -- zero minutes and 1,440 minutes are the same pair of labels, and
+        reading it the other way would mute a user permanently for dragging two sliders together.
+
+        **Timezone.** The labels are reckoned in Asia/Kolkata. This platform has no per-user
+        timezone -- `users` carries a city and nothing more -- so a user outside India would be
+        quieted at IST-equivalent local times. Recorded here as an assumption rather than left
+        implicit; a per-user zone is a new column and a new control, not a change to this schema.
+      properties:
+        enabled: { type: boolean }
+        start: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '22:00' }
+        end: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '07:00' }
+    NotificationPreferences:
+      type: object
+      description: |
+        How the platform is allowed to reach this user. Absent settings resolve to the values below,
+        which are the browser's long-standing defaults: an account that has never opened Settings
+        behaves exactly as it always has, and never as "everything muted".
+
+        What the server acts on TODAY:
+        * `quietHours` -- a notification written inside the window is **deferred**, never dropped.
+          It is stored with its real timestamp and becomes visible when the window closes. The inbox
+          is the only place a notification is ever read, so suppressing one would permanently lose an
+          event (an offer, a moderation verdict) the user never asked to lose.
+        * `matchAlerts` -- the master switch for proactive saved-search/price alerts, which ARE
+          dropped when it is off (there is no later moment at which the user wants one). It does not
+          silence events the user is a party to; an offer on your listing is not an alert you opted
+          into.
+
+        What is stored and returned but NOT yet acted on: `email`, `sms`, `whatsapp` and `language`.
+        Nothing on the server sends email, SMS or WhatsApp -- delivery today is the in-app inbox and
+        nothing else -- so there is no sender for these to gate. Gating the in-app row on a switch
+        labelled "Email" would be worse than not gating it. They are persisted so the first real
+        channel sender inherits an answer instead of a migration.
+      properties:
+        email: { type: boolean, default: true }
+        sms: { type: boolean, default: false }
+        whatsapp: { type: boolean, default: true }
+        matchAlerts: { type: boolean, default: true }
+        quietHours: { $ref: '#/components/schemas/QuietHours' }
+        language: { type: string, enum: [en, hi, mr], default: en }
+    NotificationPreferencesUpdate:
+      type: object
+      description: >
+        The whole document. Every field is required -- see the operation description for why an
+        omission is a 400 rather than a keep or a reset.
+      required: [email, sms, whatsapp, matchAlerts, quietHours, language]
+      properties:
+        email: { type: boolean }
+        sms: { type: boolean }
+        whatsapp: { type: boolean }
+        matchAlerts: { type: boolean }
+        quietHours:
+          type: object
+          required: [enabled, start, end]
+          properties:
+            enabled: { type: boolean }
+            start: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '22:00' }
+            end: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '07:00' }
+        language: { type: string, enum: [en, hi, mr] }
     Announcement:
       type: object
       properties:
@@ -7661,6 +8977,18 @@ components:
             properties:
               source: { type: string, example: subscriptions }
               amount: { $ref: '#/components/schemas/Money' }
+        # Disclosures, not money (D63/D65). A structural zero and a measured zero are the same
+        # number on screen, so these say which one the figure beside them is. Driven by
+        # `punenest.finance.*`, so the day a money path ships the flag flips without a release.
+        payoutsMeasured:
+          type: boolean
+          description: Whether `payoutsCompleted` counts anything. **False today** - no payout path exists.
+        refundsMeasured:
+          type: boolean
+          description: Whether `refunds` counts anything. **False today** - no refund path exists.
+        serviceOrdersCounted:
+          type: boolean
+          description: Whether `revenue` includes the services marketplace. **False today** - `service_orders.amount` is a quote, not a receipt.
     AdminSettings:
       type: object
       description: Platform configuration document (SSOT for fees, feature flags and RBAC).

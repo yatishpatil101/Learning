@@ -13,8 +13,16 @@ import java.time.Instant;
  *
  * @param reward       the human label the referrer was promised
  * @param rewardAmount what that label costs, whole rupees (spec fix S54)
- * @param sameDevice   always false — the platform captures no device fingerprint
- * @param sameIp       always false — the platform does not store the request IP
+ * @param channel      which side of the marketplace the referred party joined on — not how the link
+ *                     was shared, which is {@code shareChannel} (D60)
+ * @param shareChannel how the link reached the referee, or null when unknown; null is the common
+ *                     case, because a code passed on by voice carries nothing to report
+ * @param sameDevice   referrer and referee redeemed from matching User-Agent digests. False when
+ *                     either side has none — a code minted before V64, or a request without the
+ *                     header — so a false here means "no evidence", never "proved different"
+ * @param sameIp       as {@code sameDevice}, for the client address
+ * @param qualifiedAt  when the referee's first listing passed ownership verification (Q17), or null
+ *                     while it has not
  */
 public record ReferralDto(
         String id,
@@ -23,6 +31,7 @@ public record ReferralDto(
         String referred,
         String referredMobile,
         String channel,
+        String shareChannel,
         String reward,
         long rewardAmount,
         String status,
@@ -34,6 +43,7 @@ public record ReferralDto(
         boolean velocityHigh,
         boolean activated,
         Instant at,
+        Instant qualifiedAt,
         String handledBy,
         Instant handledAt) {
 }

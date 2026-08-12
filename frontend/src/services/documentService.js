@@ -57,7 +57,7 @@ const provider = createProvider('document');
  * @param {string} propId
  * @returns {Promise<object[]>}
  */
-export const listDocuments = (mobile, propId) => provider().listDocuments(mobile, propId);
+export const listDocuments = async (mobile, propId) => (await provider()).listDocuments(mobile, propId);
 
 /**
  * Upload one file under a category.
@@ -68,15 +68,15 @@ export const listDocuments = (mobile, propId) => provider().listDocuments(mobile
  *        `dataUrl`, the http provider posts it as `multipart/form-data`
  * @returns {Promise<object>} the created document
  */
-export const uploadDocument = (mobile, propId, upload) =>
-  provider().uploadDocument(mobile, propId, upload);
+export const uploadDocument = async (mobile, propId, upload) =>
+  (await provider()).uploadDocument(mobile, propId, upload);
 
 /** Delete one file; resolves to the property's remaining files. */
-export const deleteDocument = (mobile, propId, docId) =>
-  provider().deleteDocument(mobile, propId, docId);
+export const deleteDocument = async (mobile, propId, docId) =>
+  (await provider()).deleteDocument(mobile, propId, docId);
 
 /** The owner's inbox of buyer requests. */
-export const listDocRequests = (mobile) => provider().listDocRequests(mobile);
+export const listDocRequests = async (mobile) => (await provider()).listDocRequests(mobile);
 
 /**
  * Grant or decline a buyer request — the owner is the gatekeeper.
@@ -87,8 +87,8 @@ export const listDocRequests = (mobile) => provider().listDocRequests(mobile);
  * @param {string} [note] carried onto the server's audit note; ignored by the mock
  * @returns {Promise<object|null>} the updated request (carrying `shareToken` once granted, in http)
  */
-export const respondDocRequest = (mobile, reqId, decision, note) =>
-  provider().respondDocRequest(mobile, reqId, decision, note);
+export const respondDocRequest = async (mobile, reqId, decision, note) =>
+  (await provider()).respondDocRequest(mobile, reqId, decision, note);
 
 /**
  * Read the documents one grant unlocked, by share token — the buyer/recipient side of the flow.
@@ -103,4 +103,4 @@ export const respondDocRequest = (mobile, reqId, decision, note) =>
  * @throws {ApiError} 401 for every credential failure the server refuses to distinguish — unknown,
  *         declined, expired — so a caller must not try to tell them apart either
  */
-export const listSharedDocuments = (token) => provider().listSharedDocuments(token);
+export const listSharedDocuments = async (token) => (await provider()).listSharedDocuments(token);

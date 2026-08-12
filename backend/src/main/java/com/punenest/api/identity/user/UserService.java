@@ -1,5 +1,6 @@
 package com.punenest.api.identity.user;
 
+import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.UnauthorizedException;
 import com.punenest.api.security.Roles;
 import java.time.Instant;
@@ -32,6 +33,11 @@ public class UserService {
     /**
      * Apply a partial profile update (contract {@code UserUpdate}). Null fields are left untouched.
      * Server-owned identity/trust fields are not accepted, so this can't escalate.
+     *
+     * <p>An email change is refused when another live account already holds the address. Compared
+     * without regard to case, matching V70's {@code lower(email)} partial unique index: the write
+     * was going to fail either way, and the only question was whether the caller was told what
+     * happened or handed the constraint handler's generic conflict.
      */
     @Transactional
     public User updateMe(UUID userId, UserUpdate patch) {
@@ -40,6 +46,10 @@ public class UserService {
             user.setName(patch.name());
         }
         if (patch.email() != null) {
+            if (!patch.email().isBlank()
+                    && users.existsOtherLiveWithEmailIgnoreCase(patch.email(), userId)) {
+                throw new ConflictException("That email address is already in use");
+            }
             user.setEmail(patch.email());
         }
         if (patch.avatar() != null) {

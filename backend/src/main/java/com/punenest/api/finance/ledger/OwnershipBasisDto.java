@@ -13,7 +13,6 @@ import java.time.LocalDate;
  * <p>All fields nullable — an owner may know their purchase price but not their current valuation.
  *
  * @param purchasePrice   whole INR
- * @param purchaseDate    when the property was bought
  * @param loanOutstanding whole INR still owed
  * @param emi             the monthly instalment, whole INR
  * @param currentValue    the owner's estimate of today's value, whole INR

@@ -1,6 +1,6 @@
 /* Which English locale namespaces ship on the critical path (D129).
  *
- * `locales/en/*.json` is 253 KB raw across twenty files, and it used to be
+ * `locales/en/*.json` is 258 KB raw across twenty-one files, and it used to be
  * bundled whole because English is the fallback for every user. That made the
  * entry chunk grow with every feature that added a string, no matter how well
  * the feature itself was code-split — `services.json` alone is 61 KB and is read

@@ -16,7 +16,6 @@ import java.util.List;
  * @param from       the buyer as a {@link Party} (masked mobile until accepted)
  * @param amount     current (possibly countered) amount in whole INR
  * @param status     one of {@link OfferStatuses}
- * @param message    free-text note
  * @param createdAt  when the offer was first submitted
  * @param moveIn     the buyer's preferred possession date, or {@code null} if none was given (D112)
  * @param history    the negotiation trail — amount events only (submit + counters)

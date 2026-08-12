@@ -2,6 +2,7 @@ package com.punenest.api.services.request;
 
 import com.punenest.api.common.persistence.VersionedEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.util.Map;
@@ -21,8 +22,8 @@ import org.hibernate.type.SqlTypes;
  * agreement out of {@code draft}.
  *
  * <p><strong>Status is driven, never set.</strong> Every transition goes through
- * {@link ServiceRequestStatuses#canTransition}; there is no public setter that takes an arbitrary
- * string, because the four endpoints that move this workflow have four different authorities and a
+ * {@link ServiceRequestStatus#canTransitionTo}; there is no public setter that takes an arbitrary
+ * status, because the four endpoints that move this workflow have four different authorities and a
  * shared setter would let any of them make any move.
  */
 @Entity
@@ -38,9 +39,43 @@ public class ServiceRequest extends VersionedEntity {
     @Column(name = "type", nullable = false, updatable = false)
     private String type;
 
-    /** One of {@link ServiceRequestStatuses}; the V7 CHECK rejects anything else. */
+    /**
+     * The ops desk that works this request (D44). One of {@link com.punenest.api.security.Teams}.
+     *
+     * <p><strong>Stored, not inferred, and derived only once — here.</strong> Deriving it at read
+     * time is what the register objected to: a type nobody had mapped would resolve to no desk and
+     * the request would drop out of every queue silently. Written at construction from
+     * {@link ServiceRequestTypes#teamFor}, which throws on an unmapped type, and held to its type by
+     * the V72 {@code service_requests_type_team_check} pair constraint.
+     *
+     * <p>Not settable, because {@link #type} is not: a request cannot change desks without changing
+     * what it is, and re-teaming misfiled work is the ticket board's job, not this workflow's.
+     */
+    @Column(name = "team", nullable = false, updatable = false)
+    private String team;
+
+    /**
+     * The ops board item this request came off, or {@code null} (D45).
+     *
+     * <p>Null for the ordinary case — a customer filing straight from the wizard has no ticket.
+     * Present when the request was raised against a ticket the same customer had already raised, so
+     * the operator working the paperwork can reach the enquiry it came from instead of searching for
+     * it by name.
+     *
+     * <p>Unique where present ({@code uq_service_requests_ticket}, V72): one ticket mirrors at most
+     * one request. Not updatable — the link is a fact about where this request came from, and a
+     * mutable origin is not an origin.
+     */
+    @Column(name = "ticket_id", updatable = false)
+    private UUID ticketId;
+
+    /**
+     * The workflow state. Stored as its {@link ServiceRequestStatus#wire()} form — never
+     * {@code name()} — by {@link ServiceRequestStatus.Converter}, which is what the V7 CHECK accepts.
+     */
     @Column(name = "status", nullable = false)
-    private String status = ServiceRequestStatuses.NEW;
+    @Convert(converter = ServiceRequestStatus.Converter.class)
+    private ServiceRequestStatus status = ServiceRequestStatus.NEW;
 
     @Column(name = "property_id", updatable = false)
     private UUID propertyId;
@@ -80,24 +115,34 @@ public class ServiceRequest extends VersionedEntity {
         // JPA
     }
 
-    public ServiceRequest(UUID requesterId, String type, UUID propertyId, Map<String, Object> details) {
+    /**
+     * A request, optionally mirroring the ticket it came off (D45).
+     *
+     * <p>The desk is not a parameter: it is {@link ServiceRequestTypes#teamFor}(type), full stop. A
+     * caller that could pass one could file a rent agreement onto the packers' queue, and the whole
+     * point of D44 is that the routing is not somebody's opinion.
+     */
+    public ServiceRequest(UUID requesterId, String type, UUID propertyId,
+            Map<String, Object> details, UUID ticketId) {
         this.requesterId = requesterId;
         this.type = type;
+        this.team = ServiceRequestTypes.teamFor(type);
         this.propertyId = propertyId;
         this.details = details;
+        this.ticketId = ticketId;
     }
 
     /**
      * Hold this request behind a gateway order until it is paid for.
      *
-     * <p>Sets the initial state to {@link ServiceRequestStatuses#AWAITING_PAYMENT} — not a
+     * <p>Sets the initial state to {@link ServiceRequestStatus#AWAITING_PAYMENT} — not a
      * transition, the starting state of a priced request — and records what it costs. The order it
      * is waiting on lands separately in {@link #attachOrder}, because the row must be committed
      * before Cashfree is asked for one (D148). Package-private for the same reason {@link #moveTo}
      * is: only {@link ServiceRequestService} decides a request is priced.
      */
     void awaitPayment(long amount) {
-        this.status = ServiceRequestStatuses.AWAITING_PAYMENT;
+        this.status = ServiceRequestStatus.AWAITING_PAYMENT;
         this.amount = amount;
     }
 
@@ -112,7 +157,7 @@ public class ServiceRequest extends VersionedEntity {
      * @return whether the id was taken
      */
     boolean attachOrder(String orderId) {
-        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(status) || paymentRef != null) {
+        if (status != ServiceRequestStatus.AWAITING_PAYMENT || paymentRef != null) {
             return false;
         }
         this.paymentRef = orderId;
@@ -123,11 +168,11 @@ public class ServiceRequest extends VersionedEntity {
      * Move the workflow.
      *
      * <p>Package-private, and that is the point: only {@link ServiceRequestService} may call it,
-     * and it checks {@link ServiceRequestStatuses#canTransition} plus the caller's authority first.
+     * and it checks {@link ServiceRequestStatus#canTransitionTo} plus the caller's authority first.
      * Folding those checks in here would put authorization inside an entity, where the four callers
      * — each with a different authority — could not be told apart.
      */
-    void moveTo(String status) {
+    void moveTo(ServiceRequestStatus status) {
         this.status = status;
     }
 

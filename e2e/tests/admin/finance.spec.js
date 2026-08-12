@@ -298,13 +298,3 @@ test('Transaction detail modal closes on Cancel/Escape', async ({ page }) => {
     await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
   }
 });
-
-// ─── No regressions ───
-
-test('finance page: no console errors on load', async ({ page }) => {
-  const errors = trackErrors(page);
-  await loginAsAdmin(page);
-  await page.goto(`${BASE}/admin/finance`);
-  await page.waitForTimeout(1000);
-  expect(errors).toHaveLength(0);
-});

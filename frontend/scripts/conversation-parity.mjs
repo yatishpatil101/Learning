@@ -11,8 +11,11 @@
  *    of the thread, styled as theirs. Nothing throws; it just quietly lies about who said what.
  * 2. **`at` must be a number** — the page sorts on it, draws day dividers from it and computes
  *    `Date.now() - at`. An ISO string sorts *almost* right, so it survives casual testing.
- * 3. **The staging queue.** `pending` is the one state the seam mints itself, for a chat the server
- *    would refuse (no approved contact). It must never be mistaken for a server thread.
+ * 3. **The staging queue.** `staged` is the one distinction the seam mints itself, for a chat the
+ *    server would refuse (no approved contact). It must never be mistaken for a server thread.
+ *    It is also the *only* row-level condition either provider is allowed to model: the prototype's
+ *    `active`/`incoming`/`pending` `state` had no contract field and was retired in D52, so a
+ *    reappearing `state` here is drift, not a feature.
  *
  * Usage (backend must be running):
  *   node scripts/conversation-parity.mjs --otp-log <path-to-backend-console-log>
@@ -113,7 +116,7 @@ const mapped = toViewModel(WIRE_ROW, meId);
 
 // Every one of these is read unconditionally by Messages.jsx. An absent field is a blank row, a
 // crash on `.toLowerCase()`, or a `NaN` timestamp — not an error anyone would trace back to here.
-for (const f of ['id', 'party', 'property', 'youAre', 'state', 'at', 'unread', 'messages']) {
+for (const f of ['id', 'party', 'property', 'youAre', 'staged', 'at', 'unread', 'messages']) {
   if (mapped[f] === undefined) failures.push(`the mapped row is missing required field \`${f}\``);
 }
 for (const f of ['name', 'avatar', 'role', 'online', 'mobile']) {
@@ -163,10 +166,12 @@ if (mapped.youAre !== 'buyer') failures.push(`youAre should be "buyer" when the 
 if (toViewModel({ ...WIRE_ROW, counterpartyRole: 'buyer' }, meId).youAre !== 'owner') {
   failures.push('youAre should be "owner" when the counterparty is a buyer');
 }
-// A live thread is always active: it cannot exist before an approved contact request, so there is
-// no pending/incoming for it to be in. If this ever fails, the accept/decline buttons — which have
-// no server counterpart — would start rendering against real threads.
-if (mapped.state !== 'active') failures.push(`a live thread must be "active", got "${mapped.state}"`);
+// A live thread is never staged: it cannot exist before an approved contact request, so there is no
+// waiting condition for it to be in. If this ever fails, the inbox would file real threads under
+// Requests and hide the composer on a thread the user can actually reply into.
+if (mapped.staged !== false) failures.push(`a live thread must be \`staged: false\`, got ${JSON.stringify(mapped.staged)}`);
+// D52: the retired vocabulary must not come back on either provider.
+if ('state' in mapped) failures.push('the mapped row carries a `state` field — that vocabulary has no contract counterpart and was removed in D52');
 
 // ─── The staging queue ────────────────────────────────────────────────────────────────────────
 const staged = stagedToViewModel({
@@ -176,11 +181,11 @@ const staged = stagedToViewModel({
   party: { name: 'Owner', role: 'Owner' },
   firstMessage: 'Is this available?',
 });
-if (staged.state !== 'pending') failures.push('a staged chat must be `pending` — it is not on the server yet');
 if (!String(staged.id).startsWith('staged:')) {
   failures.push('a staged chat must carry a `staged:` id, so nothing can try to reply into it as if it were a thread');
 }
 if (!staged.staged) failures.push('a staged chat must be flagged `staged` so the page can tell it apart');
+if ('state' in staged) failures.push('a staged chat carries a `state` field — removed in D52; `staged` is the whole distinction');
 
 // Queue → drain, end to end. The queue must be idempotent per listing (pressing the button twice
 // is one request, not two) and `markConversationRead` must not try to POST for a staged id.
@@ -197,7 +202,7 @@ if (queued[0]?.party?.mobile) {
 await live.markConversationRead(staged.id); // must be a no-op, not a 404-ing POST
 
 const withStaged = await live.listConversations();
-if (!withStaged.some((c) => c.state === 'pending')) {
+if (!withStaged.some((c) => c.staged)) {
   failures.push('a staged chat did not appear in listConversations — it is composed but invisible');
 }
 

@@ -69,11 +69,11 @@ const VerifiedChip = ({ label }) => (
     <Icon name="badge-check" className="w-3 h-3" /> {label}
   </span>
 );
-const PendingChip = ({ label, onClick }) => {
+const PendingChip = ({ label, title, onClick }) => {
   const cls = 'inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/12 px-2 py-0.5 text-[11px] font-semibold text-amber-300';
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={cls + ' transition-colors hover:bg-amber-500/20 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40'} title="Get your Verified badge">
+      <button type="button" onClick={onClick} className={cls + ' transition-colors hover:bg-amber-500/20 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40'} title={title}>
         <Icon name="shield-alert" className="w-3 h-3" /> {label}
       </button>
     );
@@ -200,8 +200,10 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white/8 text-gray-300 border border-white/10">{roleLabel(user?.role)}</span>
             </div>
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-              <VerifiedChip label="Mobile verified" />
-              {aadhaarVerified ? <VerifiedChip label="ID verified" /> : <PendingChip label="ID not verified" onClick={() => setAadhaarOpen(true)} />}
+              <VerifiedChip label={t('verify.chipMobileVerified')} />
+              {aadhaarVerified
+                ? <VerifiedChip label={t('verify.chipIdVerified')} />
+                : <PendingChip label={t('verify.chipIdNotVerified')} title={t('verify.title')} onClick={() => setAadhaarOpen(true)} />}
             </div>
           </div>
         </div>

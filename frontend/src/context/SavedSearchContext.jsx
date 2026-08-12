@@ -3,7 +3,7 @@ import {
   createSavedSearch,
   deleteSavedSearch,
   listSavedSearches,
-  setAlertsEnabled,
+  setAlertFrequency,
 } from '../services/savedSearchService.js';
 import { useAuth } from './AuthContext.jsx';
 
@@ -65,17 +65,23 @@ export function SavedSearchProvider({ children }) {
     return created;
   }, []);
 
-  /** Optimistic, with rollback — same reasoning as the saved-property heart. */
-  const toggleAlerts = useCallback(async (id) => {
+  /**
+   * Change one search's alert cadence. Optimistic, with rollback — same reasoning as the
+   * saved-property heart.
+   *
+   * `alerts` is recomputed here rather than left to the next refresh so the "n active" count above
+   * the list moves with the picker; it is derived from the cadence, never the other way round
+   * (D84 — a boolean round trip is what used to flatten `instant` into `daily`).
+   */
+  const setFrequency = useCallback(async (id, frequency) => {
     let previous;
     setSearches((prev) => prev.map((s) => {
       if (s.id !== id) return s;
       previous = s;
-      const enabled = !s.alerts;
-      return { ...s, alerts: enabled, alertFrequency: enabled ? 'daily' : 'off' };
+      return { ...s, alertFrequency: frequency, alerts: frequency !== 'off' };
     }));
     try {
-      await setAlertsEnabled(id, !previous?.alerts);
+      await setAlertFrequency(id, frequency);
     } catch {
       setSearches((prev) => prev.map((s) => (s.id === id && previous ? previous : s)));
     }
@@ -94,8 +100,8 @@ export function SavedSearchProvider({ children }) {
   }, [searches]);
 
   const value = useMemo(
-    () => ({ searches, count: searches.length, loading, create, toggleAlerts, remove, refresh }),
-    [searches, loading, create, toggleAlerts, remove, refresh],
+    () => ({ searches, count: searches.length, loading, create, setFrequency, remove, refresh }),
+    [searches, loading, create, setFrequency, remove, refresh],
   );
   return <SavedSearchContext.Provider value={value}>{children}</SavedSearchContext.Provider>;
 }
@@ -110,7 +116,7 @@ const EMPTY = {
   count: 0,
   loading: false,
   create: async () => null,
-  toggleAlerts: async () => {},
+  setFrequency: async () => {},
   remove: async () => {},
   refresh: async () => [],
 };

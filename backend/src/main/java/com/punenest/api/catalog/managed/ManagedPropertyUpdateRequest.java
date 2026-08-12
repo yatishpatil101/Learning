@@ -15,19 +15,14 @@ import java.util.Map;
  * <p>The lifecycle fields ({@code visibility}/{@code status}/{@code publishedListingId}) are not
  * here — they move only through publish, never through a client patch.
  *
- * @param title       new headline, nullable
  * @param deal        buy|rent, nullable
- * @param propertyType type, nullable
  * @param bhk         bedrooms, nullable
  * @param price       amount in whole INR (≥ 0), nullable
  * @param locality    locality name, nullable
  * @param society     society/project name, nullable
  * @param area        built area value, nullable
- * @param areaUnit    area unit, nullable
- * @param furnishing  furnishing level, nullable
  * @param rented      currently rented, nullable
  * @param tenantName  current tenant, nullable
- * @param monthlyRent monthly rent, nullable
  * @param dueDay      rent due day of month, nullable
  * @param valuation   valuation snapshot, nullable
  */

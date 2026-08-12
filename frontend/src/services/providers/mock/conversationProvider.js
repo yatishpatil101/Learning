@@ -6,9 +6,11 @@
  * this adds is the provider *shape*: the same eight operations the http provider exposes, in the
  * same argument order, returning the same view models.
  *
- * The mock is the richer of the two — it has a `state` machine, presence and a nested property
- * object that the server does not model. Those fields are emitted here and simply absent (or
- * constant) on the http side; see `conversationService.js` for the table.
+ * The mock is the richer of the two — it has presence and a nested property object that the server
+ * does not model. Those fields are emitted here and simply absent (or constant) on the http side;
+ * see `conversationService.js` for the table. It no longer has a `state` machine: that vocabulary
+ * was the frontend's own invention and was retired in D52, leaving both providers speaking the one
+ * distinction the wire supports — `staged`.
  */
 import {
   loadConversations as _load,

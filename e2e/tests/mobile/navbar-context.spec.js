@@ -65,8 +65,30 @@ test.describe('Mobile navbar — context-aware left slot', () => {
     }
   });
 
-  test('Back button navigates to the previous in-app page', async ({ page }) => {
+  /* D98b: signed in on /listings the phone top bar carried seven targets across 360px,
+     with the account pill landing exactly on the right edge. Compare is the only one of
+     the seven whose destination has somewhere else to live, so below `lg` it moves into
+     the account drawer. The count is the point of the test — anything re-added inline
+     puts the pill back on the edge — and so is the reachability check under it: a route
+     must not lose its only mobile entry point to a density fix. */
+  test('the signed-in phone top bar sheds Compare to the account drawer', async ({ page }) => {
     await signedIn(page);
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.goto(`${BASE}/listings?deal=rent`);
+
+    const row = page.locator('.pn-topbar__row');
+    await expect(row.locator('a:visible, button:visible')).toHaveCount(6);
+    await expect(row.locator('a[href="/compare"]')).toBeHidden();
+
+    // Still reachable, one tap deeper.
+    await page.getByRole('button', { name: /Account menu/i }).click();
+    const drawerCompare = page.locator('a[href="/compare"]:visible');
+    await expect(drawerCompare).toHaveCount(1);
+    await drawerCompare.click();
+    await expect(page).toHaveURL(/\/compare/);
+  });
+
+  test('Back button navigates to the previous in-app page', async ({ page }) => {    await signedIn(page);
     await page.setViewportSize(MOBILE);
     await page.goto(`${BASE}/`);
     await page.goto(`${BASE}/services`);

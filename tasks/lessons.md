@@ -1,5 +1,160 @@
 # Lessons
 
+## A green static gate cannot tell you the app boots (2026-08-11, debt wave 3)
+
+- **`npm run check` + `npm run lint` + `npm run check:size` all passed while the application
+  rendered an empty `<body>` on every route.** A Vite build resolves an import cycle perfectly
+  happily; the temporal-dead-zone throw only exists at *execution* time, so no bundler, type-check
+  or linter can see it. **A frontend wave is not verified until one e2e spec has actually rendered
+  a page.** Add a cheap untouched-spec canary to the end of every wave.
+- **The fastest diagnosis for "everything is red" is a throwaway spec, not reading the failures.**
+  When *pre-existing* tests start failing alongside new ones, stop reading assertions — suspect the
+  app. A ten-line spec that hooks `page.on('pageerror')` and `console.log`s `body.innerText()`
+  named the exact error in one run, after two full suite runs had produced nothing but timeouts.
+  Playwright's own `error-context.md` was useless here: it dumped helper source.
+- **Reading a module-scope `const` from a module inside an eager-glob import cycle is a landmine
+  that an unrelated file can detonate.** `config.js` does `import.meta.glob(..., { eager: true })`
+  over every provider, and `http.js` imports `config.js`, so each provider can be evaluated *inside*
+  `http.js`'s own evaluation. Two providers read `MAX_PAGE_SIZE` at module scope and had worked for
+  months; adding a *third, unrelated* provider changed the glob's ordering and blew both up. The fix
+  is to defer the read — `const paged = () => ({ size: MAX_PAGE_SIZE })` — which costs nothing and
+  removes the file from the cycle's critical section. Three other providers are currently safe only
+  because they happen to read it inside function bodies. See D208.
+- **A register row can describe work that has already shipped.** D176 was picked up as open work;
+  all three prescribed corrections were already in the tree and live in both databases (confirmed
+  with `\d+`, not by reading the prose). Verify a row against the system before implementing it —
+  the register is a claim, not an observation.
+- **When a new test fails on an assertion beyond the fix's actual scope, the assertion is the
+  suspect.** Three D183 tests passed every hand-off assertion and then failed on "and it shows up in
+  Messages". The hand-off was correct; a fresh ask has `state: 'pending'`, which `Messages.inTab`
+  files under **Requests**, and the test was looking at Chats. The tell was that one of the three
+  failed on the plain *success* path, which the change had not touched at all. Do not delete the
+  assertion to go green — find out which of the two halves is lying.
+
+## Tooling traps that produce a confident wrong answer (2026-08-11)
+
+- **`Get-Content` on a UTF-8 file makes every closed row look open.** The tech-debt register marks a
+  closed item with `—` in the priority column, and its own documented recount snippet uses
+  `Get-Content` — which decodes the BOM-less UTF-8 file as cp1252, so that em-dash arrives as
+  `â€"` and never equals the `—` in the comparison. The recount therefore reported **63 open** when
+  53 were open and 10 were closed-but-kept, and it reported area clusters over a set that included
+  them. It looks right: the number is plausible, the script is the one the file tells you to run,
+  and nothing errors. Two fixes, both cheap — read with
+  `[IO.File]::ReadAllLines($p,[Text.Encoding]::UTF8)`, and compare against the `\p{Pd}` character
+  class rather than a literal dash you had to type. Generalisation: **a documented command is not a
+  verified command.** The snippet had been in the file for months, and the count it produced was
+  wrong in exactly the direction nobody checks — upward, which reads as diligence.
+
+- **Playwright's `-g` cannot survive a `cmd /c "…"` wrapper.** `-g \"invents no rating\"` inside the
+  double-quoted `cmd /c` string loses its closing quote, and Playwright receives `rating\` as the
+  pattern: `SyntaxError: Invalid regular expression: /rating\/gi`. It fails loudly here, which is
+  the good case — but the same escaping would silently *narrow* a pattern that happened to stay
+  valid, and a filtered run that matches fewer tests than intended reports green. Run the whole spec
+  file instead; it costs seconds and cannot lie about what it ran.
+
+- **A test that passes on its first attempt is the one most worth mutating.** The D198 accessibility
+  spec went green immediately, which was suspicious rather than reassuring: it depends on an
+  eligibility gate (`hasTenancy`) to open the dialog at all, so "passed" and "never opened the
+  dialog, asserted on nothing" are indistinguishable from the outcome alone. Blanking the
+  `aria-label` produced `Expected: 1, Received: 0` — proof the assertions were reached and are load-
+  bearing. The rule from earlier passes stands and is cheap: **a green test proves nothing until you
+  have watched the mutation go red.**
+
+## A subagent whose report is lost has still changed your tree (debt wave 13)
+
+Four lanes were launched in one message. Three came back as a transport error — an
+`invalid_request_error` about `thinking` blocks — with no report at all. The instinct was to treat
+them as no-ops and relaunch.
+
+**All three had run to near-completion.** Between them they had written four new migrations, twelve
+new production classes, six new test classes, and had changed two shared constructors. What was lost
+was the *narration*, not the work. Relaunching would have produced duplicate migrations against a
+schema that already had them.
+
+- **Reconstruct before you re-run.** `git status --porcelain` plus a count of each lane's
+  signature class names answered "how far did it get" in one command, for all three, in seconds.
+- **A failed return path is the most dangerous kind of failure**, because the tree is in a state
+  nobody described and no test can currently reach — the wave left it *non-compiling*, so every
+  lane's work was simultaneously present and unverifiable.
+- The transport error correlates with **several `runSubagent` calls sharing one assistant message**.
+  Launch them one at a time. The wall-clock saving from batching is not worth an unnarrated tree.
+
+## Mass `Errors:` with `Failures: 0` is an infrastructure fault, not 1200 bugs (debt wave 13)
+
+The first full run after recovery reported `Tests run: 1422, Failures: 1, Errors: 1207`. Nothing was
+wrong with 1207 tests. One lane had applied `V73` to the shared test database and then edited the
+file, so Flyway's `validate` failed on a checksum mismatch, which failed `flywayInitializer`, which
+failed `entityManagerFactory`, which failed **every `@SpringBootTest` context in the suite**.
+
+- **The shape is the diagnosis.** A real regression produces `Failures`. A number in `Errors` that
+  is close to the whole suite is always context startup, and context startup is almost always
+  Flyway, the datasource, or a bean that cannot be constructed. Grep the log for `checksum`,
+  `FlywayValidateException` and `Error creating bean` *before* opening a single test report.
+- After repairing it the count went 1207 → 4. The four were the actual regressions, and they were
+  legible in a minute.
+- The root cause was procedural: the lanes were each given their own database and **used the shared
+  one anyway**. An instruction that a lane can ignore silently is not an isolation mechanism. If
+  isolation matters, it has to come from something the lane cannot route around.
+
+## Splitting a service is not a line-count exercise (debt wave 13)
+
+`ServiceRequestService` grew 1087 → 1241 and tripped the size guard. The cheap fix is to move a
+hundred lines somewhere. The useful fix is to notice *why* it grew: two new rules had arrived that
+had nothing to do with what the class was for.
+
+It was split three ways, and each piece is justified by its dependencies rather than its size —
+`ServiceDeskAuthority` (static, no collaborators at all: a pure function of caller and target),
+`TicketMirror` (the flow's only reach into another aggregate, so the dependency is now visible in
+one constructor instead of hidden among a dozen), and `ServiceRequestQueryService` (the read side,
+which shares nothing with the payment state machine but the table). The write side kept none of
+them and lost six now-dead imports with them.
+
+- **Delete the delegating wrappers.** Leaving `private X foo(...) { return New.foo(...); }` behind
+  keeps the call sites unchanged and is tempting, but it keeps the reader in the old file and costs
+  ~20 lines. Point the call sites at the collaborator.
+- **Then RED-proof the extraction.** Moving code is exactly when a guard silently stops guarding.
+  Mutating `deskFilterFor`'s deskless branch turned two tests red; mutating `TicketMirror`'s
+  ownership check turned two more red, one of them a `404 → 201`. That is the only evidence that the
+  rule survived the move.
+
+## Closing a whole debt register in one wave
+
+- **A subagent whose report is lost has still edited the tree.** Two lanes died to
+  `net::ERR_NAME_NOT_RESOLVED` mid-run. The instinct is to treat a lost report as a lost lane and
+  re-run it — which would have re-applied one lane's migration and left a duplicate. The tree is the
+  record, not the report: reconcile with `git status --porcelain` **first**, read what is actually
+  there, and only then decide whether anything is missing. One of the two lanes had completed
+  entirely and left three regressions behind it that nobody would have been looking for; the other
+  had done nothing but drop two scratch files.
+
+- **A guard can stop guarding an endpoint without any test going red.**
+  `SpecSchemaParityTest.leafSchema` unwraps the *paged* `allOf` and returns `null` for every other
+  composition rather than guess. So expressing a detail schema as `allOf: [Feed, extras]` — which
+  reads better, and which a reviewer would wave through — silently removed three operations from
+  parity checking while the whole suite stayed green. **The dangerous refactor is not the one that
+  breaks a guard, it is the one that makes a guard skip you.** When a change makes a check *simpler*
+  or *quieter*, verify it still fires: mutate the thing it is supposed to catch.
+
+- **Measure on the artefact you ship.** A row claimed the dashboard fired duplicate requests. Under
+  `vite dev` it fires 13 — StrictMode double-invokes, dev only. Under a production build it is 6
+  requests to 6 distinct endpoints, zero duplicates. A second trap sat behind the first:
+  `page.route` reported **0** requests for a seeker, because it cannot see requests a service worker
+  serves. Two different instruments, two different wrong answers, in the same investigation.
+
+- **Register rows rot in more ways than being stale.** In one pass a row was filed against the wrong
+  component entirely (the account pill it wanted moved was already in the header, not the bar named);
+  a row described work already in `HEAD` (the gesture existed; only its a11y half was missing); a
+  row's blocking reason named a dependency that was in fact cached; and a row asserted "zero are
+  provably empty" about a population it had also miscounted by 174. **Re-derive before acting on any
+  row, including its problem statement — not just its status.**
+
+- **A hand-maintained count at the top of a document is the least trustworthy thing in it.** The
+  debt register's header was re-derived four times in one session and was wrong each time. The last
+  defect was invisible to a reader: a row struck through and closed had *kept its priority cell*, so
+  every script counting "rows with a priority" reported one more open item than existed. Derive the
+  header from the rows with a script committed next to it, and make the script assert its own
+  reconciliation (`open + closed + gaps == max id`) so a miscount is a failure rather than a number.
+
 ## Parallel-agent tech-debt waves (this session)
 
 - **A test that asserts on a float measurement is asserting on the renderer's rounding too.**
@@ -27,8 +182,11 @@
   side by side, with nothing saying which is intentional. Generalisation: after building a good
   version of an existing thing, **go read the existing thing**. If it does not match, either bring
   it along or write down why not — a repo that demonstrates both answers to the same question has
-  no answer. (Recorded as D198 rather than fixed: the assertion collision is real — `getByRole`
-  matches names by substring — so it needs its own pass, not a drive-by.)
+  no answer. (Recorded as D198, then **fixed 2026-08-11**: the assertion collision the deferral
+  worried about — `getByRole` matches names by substring — turned out to need one `exact: true` on
+  the overall-strip query and nothing else. Worth noting how the deferral aged: the cost was
+  estimated from the *shape* of the risk rather than by grepping for the collision, and the grep
+  would have taken a minute and closed it in the same pass.)
 - **A guard that keeps a test re-runnable can quietly switch the test off forever.** The live society
   spec posted its own fixture, correctly guarded on `reviewCount === 0` so a second run would not
   wedge on `AlreadyReviewedException`. But the per-aspect assertions were gated on `if (seeded)` —
@@ -646,7 +804,7 @@ it claimed. All four were found in one afternoon on two new ops specs.
 - **Local History can PREDATE your most recent edits.** The restored snapshot was behind by 3
   reviewed-and-shipped security fixes; `tasks/todo.md` (which recorded them as DONE) was the proof they
   had existed. Lesson: after any Local-History restore, diff the recovered code against todo.md-
-  documented "done" work and re-apply anything the snapshot missed � don't assume the newest backup is current.
+  documented "done" work and re-apply anything the snapshot missed - don't assume the newest backup is current.
 - **Version-skew from Local History** = restored files come from different save moments, so accessors/
   signatures disagree (e.g. a private `revokeFamily` vs a caller needing public `revokeAllForUser`; a
   static factory `otpSent()` colliding with a record accessor). Reconcile by compiling, not by eyeballing.
@@ -667,12 +825,12 @@ it claimed. All four were found in one afternoon on two new ops specs.
   converted to BigDecimal", "cannot access Long/UUID". A GREEN mvn test can flip to ALL-errors
   (context-load failures on every test) after a single-line edit triggers an incremental recompile.
   SUPERSEDED (slice 3) = the root cause was CLI Maven and the VS Code Java language server sharing one target\ directory and overwriting each other's class files. backend\.mvn\maven.config now sets -DbuildDirName=target-cli, so CLI artifacts land in target-cli and target belongs to the IDE. Do NOT reach for clean as a workaround; just use the configured layout. Original (now unnecessary) advice was: ALWAYS mvn clean test for a verifying run; deleting only
-  target\classes+target\test-classes is not always enough � use clean.
+  target\classes+target\test-classes is not always enough - use clean.
 - **All-tests-errored (not failed) + first error is a bean/context init** => it's an infra/compile
   corruption, not a logic bug. Read a surefire-reports\*.txt for the real Caused by (the console
   CONDITIONS EVALUATION REPORT buries it); "Unresolved compilation problems" there == stale target.
 - **JSONB List<String> via @JdbcTypeCode(SqlTypes.JSON) validates clean under ddl-auto=validate**
-  against a jsonb DEFAULT '[]' column (Hibernate 6 / Boot 4) � no hypersistence-utils needed.
+  against a jsonb DEFAULT '[]' column (Hibernate 6 / Boot 4) - no hypersistence-utils needed.
 - **Pageable in a controller just works** on Boot 4 (SpringDataWebAutoConfiguration resolver);
   first repo usage confirmed at runtime.
 
@@ -685,7 +843,7 @@ it claimed. All four were found in one afternoon on two new ops specs.
   execution override; `provided`-scope processor + `maven.compiler.proc=full` property (property beats
   per-execution `<proc>`, so processing ran on tests anyway); per-execution `proc=full`(main)/`none`(tests).
   Pattern proven by bisection: **whenever `target/classes` contains generated impls, the next
-  test-compile javac can no longer READ `target/classes`** � even main classes like `OtpService`.
+  test-compile javac can no longer READ `target/classes`** - even main classes like `OtpService`.
 - ROOT CAUSE (corrected after full bisection — the earlier `useIncrementalCompilation` theory was
   wrong; it merely masked the problem for one lucky build): the **VS Code Java language server**
   (redhat.java / m2e) continuously compiles this project into `target/classes` using its own bundled
@@ -2021,3 +2179,274 @@ applies to any `@Value`/placeholder-resolution test.
 The test-resources-shadow-main-resources trap cost a failed test run to rediscover, and it was
 already recorded in this file **twice** (lines ~626 and ~1230). Reading it at session start is in
 `AGENTS.md` for a reason; the cost of skipping it is paid in re-derivation, not in nothing.
+
+
+### A fabricated fallback hides the bug in the code that was supposed to replace it
+
+D197 blended a real per-aspect average 50/50 with a computed baseline. Deleting the baseline exposed
+a *second*, independent defect: the http mapper filtered `categoryAverages` through the property
+vocabulary for every entity type, so a society's five keys were dropped and `catAvg` was `{}` live —
+always had been. The baseline had been drawing five plausible bars over an empty map for as long as
+both existed. The fallback did not just make the number wrong; it made the wiring **untestable**,
+because there was no observable difference between "the real data arrived" and "none of it did".
+
+Generalise: any `real ?? plausible` in a render path removes the only signal that `real` is broken.
+Prefer an empty state. If a fallback must exist, something has to assert the real path *without* it.
+
+### An API-level e2e assertion cannot catch a client mapper, and reads like it can
+
+`live-society-rating.spec.js` asserted the society aggregate with `page.request.get` and passed
+throughout — the payload was correct; the page still rendered nothing, because the defect was between
+them. A live spec that never looks at the DOM is testing the server, not the integration, whatever its
+filename says. Pair every payload assertion with one rendered cell.
+
+### The mock provider being *more* correct than the http one keeps the suite green over a live bug
+
+`mock/reviewProvider.js` had `categoryKeysFor(entityType)`; the http mapper had one hardcoded list.
+Every mock test passed. Parity between providers is not only about response *shape* — a behavioural
+rule implemented on one side and not the other is invisible to a suite that runs against the mock.
+When adding a per-target rule to one provider, grep the other for the constant it should have shared.
+
+### Review agents earn their cost on the code you did *not* change
+
+The two D197 reviewers split cleanly: one approved, one blocked on a HIGH in a file the diff never
+touched, reachable only because the change removed what was masking it. Both were right. The lesson
+is that "the diff is small and green" is not evidence about the blast radius of a **deletion** —
+deleting a fallback promotes every latent defect underneath it to a visible one.
+
+### A test that writes through the API and reads with raw SQL needs `flush`, and the read needs `clear`
+
+Five D200 tests failed at once. Every assertion that went through the API passed; every assertion
+that touched `jdbc` failed. That pattern is worth more than any single stack trace — five logic bugs
+do not sort themselves by access path, so it was one cause wearing five costumes.
+
+The cause is that `AbstractApiTest` is `@Transactional` and the services under test join *that same*
+transaction. `repository.save()` therefore only stages the row in the persistence context. JPQL and
+derived queries auto-flush before they read; **raw SQL through `JdbcTemplate` does not**, so it
+queries a table the row has not reached yet.
+
+The half that cost the most was believing this explained everything. It did not:
+
+- **Writes invisible to SQL** → `em.flush()`. Fixed the two `SELECT count(*)` assertions.
+- **SQL writes invisible to the code under test** → `em.clear()`. The test rewrote `otp_codes.code_hash`
+  with `jdbc.update`, but the `OtpCode` it was overwriting was *still managed*. Hibernate resolves a
+  JPQL result row to the instance it already holds for that id and discards the freshly-read column,
+  so the verify compared against the stale in-memory hash and answered 401 — for two tests, one of
+  which expected 403, which made it look like a permissions bug in the feature under test.
+
+Two directions, same smell, different fix. Flush pushes your writes down; clear stops you reading a
+ghost back up.
+
+**The part to actually remember:** one of the repaired tests asserted a count of **zero**. Unflushed,
+it would have reported zero whether or not the escape it was policing had worked — passing, in
+green, for a reason with nothing to do with its subject. A negative assertion over an unflushed
+context is not a weak test, it is a decorative one, and it is invisible precisely because it never
+fails. Grep for `jdbc` in any test class that also calls `mvc.perform`.
+
+### A crashed subagent may have finished the work and died on the way to saying so
+
+One lane crashed at reporting. Nothing about it was known: no summary, no self-verification, no
+statement of what it had decided. The instinct is to re-run it. The tree said otherwise — migration,
+entity, repository, guard, two test classes and six modified files were all on disk and coherent.
+Re-running would have destroyed a day's work to recover a paragraph.
+
+Assess the artefacts before the agent. But invert it too: **what was lost was the reasoning, and
+that is the expensive half.** The code showed *what* the bootstrap escape does; nothing recorded why
+it is safe, and reconstructing that argument from the SQL took longer than writing it would have.
+Where a lane's output is a judgement call, the judgement needs to land in a file as it is made, not
+in a report at the end.
+
+### Per-lane green does not prove the lanes can coexist
+
+Four parallel lanes each self-verified green. Merged, the suite failed to compile — one lane had
+added a constructor parameter to `AuthService`, and another lane's test built that class by hand.
+Neither lane could have caught it; both were correct in isolation.
+
+The compile error was the lucky case. The dangerous shape is the one that still compiles: two lanes
+widening the same table, or agreeing on a column and disagreeing on what absence means. **Run the
+full suite after a parallel merge, always, before believing any lane's report** — and note that the
+per-lane build directory (`-DbuildDirName=…`) that makes the lanes runnable at once is exactly what
+guarantees none of them ever saw the others.
+
+### Closing a security item on the server does not mean the product has it
+
+D200 shipped maker-checker and a last-administrator floor: enforced, constrained in the database,
+tested, documented in the OpenAPI spec. It was ready to be marked done. Then `users/staff` turned
+out to appear nowhere in `frontend/src` — the console that administers back-office accounts imports
+straight from `mockApi.js` and writes to `localStorage`, so none of the control is reachable
+(recorded as D205).
+
+The register is what caught it, because closing a row forces the question "closed *where*". A
+security control with no caller is not half-shipped, it is worse than unshipped: the register says
+the gap is gone, the console shows the destructive gesture succeeding, and the two together are a
+confident wrong answer. **When closing a control, name the caller.** If you cannot, the row has not
+closed — it has moved.
+
+### Two tests that differ only by an argument are not redundant when a query filters on it
+
+D200's bootstrap escape — the rule letting a lone founder create their first colleague without a
+second approver — was implemented as `approvalIsPossible(creator)` counting `role = 'admin'`
+accounts other than the creator, called *after* the new user was flushed. So a lone founder creating
+an admin colleague counted **the colleague**, got `true`, and wrote an approval row that only the
+founder (refused as maker) or the held account (cannot obtain a token) could clear. There is no
+reject or cancel route: a permanent lockout, on precisely the path the escape exists to keep open.
+
+Sixteen tests covered D200 and all sixteen passed. The one that should have caught it,
+`theSoleAdministratorIsNotHeld`, created a **staff** account — which does not match the count's
+`role = 'admin'` predicate and therefore never self-counts. The bug was invisible to it for the same
+reason it existed. A security review found it by reading the ordering; no amount of re-running the
+suite would have.
+
+**When a query filters on a column, every value of that column is a separate path.** A test that
+exercises `role=staff` says nothing about `role=admin` if `role` is in the `WHERE` clause, however
+identical the two calls look at the call site. The tell is that the test name generalises ("the sole
+administrator is not held") while the body does not.
+
+The fix was one line moved. The confirmation was worth more than the fix: **reintroduce the bug and
+watch the new test fail.** Exactly one did, and it was the new one — which proves both that it
+catches the defect and that nothing else did. A regression test written from a review finding and
+never seen red is an assumption about a bug you no longer have in front of you. Same technique as
+the D203 budget check (492 fails / 497 passes); it costs one build.
+
+While fixing it, the interlock test `archivingThePeerDoesNotReopenTheEscape` turned out to be
+**vacuous for the same reason** — it used `role=admin`, so the count was 1 whether or not archived
+accounts were counted, and it would have passed with the `archived` filter it exists to forbid. Kept
+and paired with a `role=staff` twin that genuinely pins it. **A bug in the code under test can make
+a passing assertion decorative**; when fixing one, re-read the tests that were green *because* of it.
+
+### An applied migration's comment is corrected by a new migration, not by editing it
+
+V67's table COMMENT claimed a pending approval row "BLOCKS AUTHENTICATION on every login path". It
+did not: `POST /auth/refresh` mints an access token directly and never consulted the table. Editing
+the sentence in `V67__*.sql` took one minute and broke every test in the suite — `Migration checksum
+mismatch for migration version 67`, Flyway refusing to start, 33 tests erroring at 0.001s with an
+`ApplicationContext failure threshold exceeded` that names nothing relevant. **An applied migration
+is immutable even when the only thing wrong with it is prose.** The correction went out as V69.
+
+Two things worth keeping from it. First, the failure signature: *every* test in a class erroring in
+about a millisecond means context load, and the actual cause is buried far above the first stack
+trace — go to the surefire `.txt`, or grep the Maven log for `Caused by`, rather than reading the
+sixteen identical `IllegalStateException`s.
+
+Second, and more useful: the gap **was not exploitable**, because the only writer of an approval row
+creates it in the same transaction as the user, so no refresh token can predate the hold. That is
+true of today's write paths and nothing enforces it. This is the shape to watch for — a guarantee
+that holds by accident of ordering, documented as though it holds by construction. The comment was
+not describing the system; it was describing the intent, and the two had quietly diverged. The gate
+now runs on all three issuing paths, so the sentence is true rather than lucky.
+
+### A security review earns its cost on the findings that are not vulnerabilities
+The D200 review returned no CRITICAL and explicitly dismissed seven candidate attacks after
+verifying each (bootstrap escape engineerable — no, `role` has no setter anywhere in `src/main`;
+transitive self-approval — no, the intermediate account is itself held; OTP enumeration — no
+observable difference without possession). It would have been easy to read that as a clean bill.
+
+The value was elsewhere. It found a **permanent-lockout logic bug** the whole suite was green on, a
+**latent bypass** on the one auth path that skips the shared funnel, and **three comments asserting
+things that are false** — including one in the database itself. None of those are vulnerabilities.
+All of them are the codebase telling a future reader something untrue about its own guarantees,
+which is how the next real vulnerability gets built.
+
+**Ask a reviewer to verify the reasoning, not just hunt exploits.** The dismissed attacks were worth
+the tokens too: each one is now a written argument for why a defence holds, and that is what makes
+the next change to it reviewable.
+
+### A defence whose success and failure produce the same response is a defence nothing is checking
+Refresh-token reuse detection burned the whole token family and then threw a 401. Both methods on
+the path were plain `@Transactional`, and the revocations were dirty-checked entity mutations, so
+the throw rolled every one of them back. For months the tripwire did precisely nothing.
+
+What made it survive is the shape worth remembering. **The caller-visible behaviour is identical
+either way** — a replayed token is already revoked, so it answers 401 whether or not its siblings
+were burned with it. No black-box assertion can separate the two. And the test named for the
+behaviour, `refreshRotatesTokensAndOldTokenReuseRevokesFamily`, asserted only the 401 — so the
+suite reported the feature as covered by a test that could not have failed if the feature were
+deleted. That is the second time in one review that a test name has been the only place a
+behaviour existed; the first was `archivingThePeerDoesNotReopenTheEscape`.
+
+The fix is to assert on the part that differs — but in a `@Transactional` test harness that is
+harder than it sounds, and the first three attempts all produced green tests that proved nothing.
+Asserting the *successor* token is now rejected looks exactly right and fails to discriminate: the
+revoked entities stay managed in the test's persistence context and answer "revoked" whether or not
+the write would ever have reached the database. `TestTransaction.isFlaggedForRollback()` reports the
+test's end-of-run rollback preference, which is `true` unconditionally.
+`TransactionAspectSupport.currentTransactionStatus()` throws, because the test transaction is
+managed by the TestContext framework rather than the transaction aspect. The bound
+`EntityManagerHolder` is not marked. The `ConnectionHolder` is — and only reading both side by side
+under the reintroduced bug (`false/true`) established which.
+
+**Every one of those four was written, run, and believed for a moment.** Three passed with the bug
+deliberately restored. The only reason the fourth is trustworthy is that the third and fourth were
+run against the reintroduced bug and disagreed. **A probe you have not seen go red is a probe you
+have not tested** — and in a transactional harness, the plausible-looking probe is usually the one
+that measures the harness instead of the code.
+
+The Spring half is worth stating plainly because this codebase had already learned it and still
+walked into it. **`noRollbackFor` on the outer method is not enough.** An inner `@Transactional`
+that *participates* rather than owning applies its own rollback rules to the shared transaction and
+marks it rollback-only; the outer method then honours its own annotation, attempts the commit, and
+gets `UnexpectedRollbackException` rendered as a 500. Both ends need the rule. `OtpService` carries
+a long note explaining exactly this (tech-debt D90) — but the note lives on the method that needed
+it, and the next place that needed it was two files away and never saw it. **A lesson written only
+where it was learned does not travel.** This one is now in three places on purpose.
+
+### A register figure rots silently, and the rot is worst on the rows that sound safest
+D37 asked to agree a service-size rule "now while it is free and nobody is defending a specific
+file", and gave its evidence in one clause: *services top out at 405 lines*. That number was wrong
+by 2.7×. The real maximum was 1087, and **six** services were already past the 450-line threshold
+the row proposed — so the cheap window the row described had closed, probably months earlier, and
+the row went on describing it every time someone read the register.
+
+Nothing about the row looked stale. It had a reason, a trigger and a priority; it satisfied every
+rule this register enforces. The one thing it did not have was a **measurement that re-runs**, and
+a figure quoted in prose is a snapshot that keeps presenting itself as a fact. The fix was not to
+split the six services — that is real work nobody has scheduled — but to pin them in a `BASELINE`
+table at exact measured size, may shrink and never grow, so the number now lives in a test that
+fails when it drifts instead of in a sentence that cannot. The guard also fails if a pinned file
+drops below the threshold without its entry being deleted, which is what stops the baseline from
+quietly becoming the new permanent rule.
+
+**Before acting on a register row's evidence, re-measure it.** Especially when the row's whole
+argument is that acting is still cheap.
+
+### Removing an edge from an import cycle is not removing the cycle
+D208's blank-page bootstrap was caused by a module-scope read of an `http.js` export while
+`config.js`'s eager glob was mid-evaluation. Moving the constant into a leaf module with no imports
+removes *that* edge, and it is the right cheap fix — but `http.js` still imports `config.js`, and
+`config.js` still eagerly globs every provider. The cycle is untouched. Only making the glob lazy
+removes it, and that turns `createProvider` async and ripples through the entire data seam, which
+is why it stayed an architectural decision rather than a cleanup.
+
+The gate built alongside it is honest about the same limit, and enumerating what it *cannot* see
+was more useful than the gate itself: it parses provider modules, so it is blind to indirection
+through a non-provider module, to a new module joining the glob under a different path, to a side
+effect at `http.js`'s own scope, and to `apiLimits.js` one day acquiring an import — which only a
+comment defends. Writing that list down is what makes the next failure recognisable instead of
+mysterious.
+
+Two habits came out of it. **Prove a new gate red before trusting it green** — this one was proven
+twice, once with a read nested two objects deep and once aliased through the compatibility
+re-export, and a gate that has only ever been green is indistinguishable from a gate that is
+broken. And **a fix that narrows a failure mode should say so out loud**, because "D208 fixed" and
+"D208's most likely instance is now caught" invite very different amounts of care from the next
+person to add a provider.
+
+### A parallel wave makes some measurements impossible, so take them before you launch it
+Five lanes ran concurrently in one working tree. Four of them touched `frontend/src`, and the byte
+budget moved 492.9 → 495.2 KB of 497. **No lane could attribute its own share**, because a clean
+A/B needs a tree only one lane is editing, and by the time the number mattered there were 44
+modified and 7 untracked files under `frontend/src`. The lane that owned the smallest diff spent
+real effort establishing that its contribution was approximately zero and could still only argue it
+from first principles.
+
+The same shape bit the backend: two lanes independently reported that test compilation was broken
+by a third lane's uncommitted constructor change, and each worked around it — one by building in a
+scratch tree with the offending file excluded. Both workarounds were correct locally and neither
+could tell whether the tree as a whole was green. Only the serial full-suite run afterwards could,
+and it was the single question the wave could not answer from its own reports.
+
+So: **any measurement that is a property of the whole tree — bundle size, full-suite green, a
+broad e2e sweep — is a serial step, before and after, never a lane's own claim.** A lane can prove
+its tests pass. It cannot prove the wave did.
+
+

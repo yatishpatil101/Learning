@@ -122,13 +122,25 @@ pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound
 - **Paging:** client-side `limit` starts 24, "Show more" adds 24; resets on any filter change.
 
 ### 5.4 Society Hub ratings & stats (`useSocietyHub.js`)
-- **`entityRating('society', slug)`** gives real resident-review `{ avg, count }`.
-- **Estimate blending is only honest for real specs:** `showEstimate = !_thin && !_community`.
-  - Per-category bars: for estimate-eligible societies, `bar[k] = count ? avg(catAvg[k], base[k]) :
-    base[k]` where `base = baselineBars(soc)` (a deterministic baseline from specs). Non-eligible
-    societies show only categories residents actually rated.
-  - **Overall:** estimate-eligible -> `count ? avg(rating.avg, mean(bars)) : mean(bars)`; otherwise
-    `count ? rating.avg : 0` ("Not rated yet").
+- **`getEntityReviewSummary('society', slug)`** gives real resident-review `{ avg, count, catAvg }`.
+- **Residents only — there is no estimate.** Until D197 (2026-08-11) a deterministic `baselineBars(soc)`
+  was blended 50/50 into both the bars and the headline for any society that was neither `_thin` nor
+  `_community` — i.e. the whole curated directory — so an unrated society drew five confident scores
+  and a rated one had its residents' average diluted by fiction while labelled `(N)`. Both are gone.
+  - Per-category bars: `bar[k] = catAvg[k]` for the aspects present in `catAvg`, and nothing for the
+    rest. `catAvg` is sparse by contract (an aspect nobody rated is absent, not 0), so a partly
+    rated society draws a partial grid; each cell carries its own label, so three bars read as three
+    aspects rather than as a total.
+  - **Overall:** `count ? rating.avg : null`. `null` is a signal, not a defence — `Stars` does
+    `Math.round(Number(value) || 0)`, so `null` and `0` draw the same empty strip; what keeps either
+    off the page is that both call sites branch on `rating.count` first. `null` exists so a caller
+    that forgets the branch fails loudly rather than printing a confident "0/5".
+  - **Where "Not rated yet" appears:** the hero on `Society.jsx` only. The Reviews tab renders
+    *nothing* at the aggregate slot when `rating.count` is 0 and leaves the explaining to the
+    empty-list line (`society.noReviewsYet`), which is gated on `reviews.length` — a different read.
+    A spec looking for "Not rated yet" scoped to the Reviews tab will time out.
+  - **Loading and failure are their own branches** in both surfaces, above the unrated one, so a
+    summary that failed to load can never read as "nobody has rated it".
 - **Price stats from live listings in the society:** `psf = mean(price/area)` over `buy` listings
   with area; `rentAvg = mean(price)` over `rent` listings; plus `forSale` / `forRent` counts.
 - **Stats tiles:** total units, towers, `built = year + age`, occupancy - each rendered only if the

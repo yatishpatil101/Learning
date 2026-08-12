@@ -63,10 +63,10 @@ const warnings = [];
 
 // ─── The seam itself: both providers must expose the same operations ──────────────────────────
 //
-// `propertyService.js` forwards blindly — `provider().myListings(...)` is resolved at call time — so
-// a method added to one provider and forgotten on the other fails at runtime, on whichever page
-// happens to call it, in whichever mode nobody tested. Comparing the exported surfaces catches that
-// at build time instead. Checked before anything else because every assertion below assumes it.
+// `propertyService.js` forwards blindly — `(await provider()).myListings(...)` is resolved at call
+// time — so a method added to one provider and forgotten on the other fails at runtime, on whichever
+// page happens to call it, in whichever mode nobody tested. Comparing the exported surfaces catches
+// that at build time instead. Checked before anything else because every assertion below assumes it.
 const surfaceOf = (m) => Object.keys(m).filter((k) => typeof m[k] === 'function').sort();
 const mockSurface = surfaceOf(mock);
 const liveSurface = surfaceOf(live);

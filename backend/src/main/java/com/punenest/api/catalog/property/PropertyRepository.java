@@ -1,5 +1,6 @@
 package com.punenest.api.catalog.property;
 
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -10,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -56,6 +58,33 @@ public interface PropertyRepository
     /** Owner-scoped single fetch by slug. */
     @EntityGraph(attributePaths = "owner")
     Optional<Property> findBySlugAndOwner_Id(String slug, UUID ownerId);
+
+    /**
+     * Load a listing for an ops write against its verification state, holding a row lock until the
+     * transaction commits (D202).
+     *
+     * <p>Granting the ownership badge is check-then-act: read the evidence, decide whether the gate
+     * is clear, and write {@code ownership_verified*} — and the write is conditional on what the
+     * read saw, including whether the listing was <em>already</em> verified. Two ops users acting at
+     * the same moment both read "not yet verified", both grant, and both announce; the referral
+     * credit downstream is only saved from paying twice by a second lock of its own
+     * ({@code ReferralRepository#findPendingForQualification}), which is a guarantee this path
+     * should not be borrowing. The lock makes the read and the write one step, so the second caller
+     * sees the first one's decision.
+     *
+     * <p>No {@link EntityGraph} here on purpose: {@code select ... for update} and an outer join do
+     * not mix in PostgreSQL, and the owner is reachable lazily inside the same transaction.
+     *
+     * <p><strong>Lock order: {@code properties} then {@code referrals}, never the reverse.</strong>
+     * Granting the badge announces inside the same transaction, and the announcement takes a
+     * pessimistic lock on {@code referrals}. Nothing today locks a referral and then reaches a
+     * listing, so the order is acyclic — but it is a two-lock protocol now, and it is only visible
+     * by reading three files. An ops feature that decides a referral and then touches its property
+     * closes the cycle.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Property p where p.id = :id")
+    Optional<Property> findForVerificationDecision(@Param("id") UUID id);
 
     /** The caller's own listings (all statuses incl. archived), owner-scoped; hits idx_properties_owner. */
     @EntityGraph(attributePaths = "owner")

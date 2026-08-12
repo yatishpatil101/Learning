@@ -78,16 +78,43 @@ public class AdminMetricsService {
      */
     private static final int MAX_CACHE_ENTRIES = 64;
 
+    /**
+     * Whether the figures beside these flags are measured or structurally zero (tech debt D63, D65).
+     *
+     * <p>Configuration and not data, deliberately. Nothing in the schema distinguishes "no rent was
+     * refunded this month" from "this platform cannot refund", so no query can answer it; the
+     * answer is a fact about which slices have shipped, which is exactly what a property is for.
+     * Defaults are today's truth — no payout path, no refund path, service orders uncounted — and
+     * flipping one is an environment change rather than a release, which is the whole point.
+     *
+     * <p>They disclose; they do not enable. Setting one true does not create the money path behind
+     * it, it only stops {@code /admin/finance} from warning that the path is missing.
+     */
+    private static final String PAYOUTS_MEASURED_PROPERTY = "${punenest.finance.payouts-measured:false}";
+
+    private static final String REFUNDS_MEASURED_PROPERTY = "${punenest.finance.refunds-measured:false}";
+
+    private static final String SERVICE_ORDERS_COUNTED_PROPERTY = "${punenest.finance.service-orders-counted:false}";
+
     private final AdminMetricsRepository metrics;
     private final ReportService reports;
     private final long seriesCacheTtlMillis;
+    private final boolean payoutsMeasured;
+    private final boolean refundsMeasured;
+    private final boolean serviceOrdersCounted;
     private final Map<SeriesCacheKey, CachedSeries> seriesCache = new ConcurrentHashMap<>();
 
     public AdminMetricsService(AdminMetricsRepository metrics, ReportService reports,
-            @Value(CACHE_TTL_PROPERTY) long seriesCacheTtlMillis) {
+            @Value(CACHE_TTL_PROPERTY) long seriesCacheTtlMillis,
+            @Value(PAYOUTS_MEASURED_PROPERTY) boolean payoutsMeasured,
+            @Value(REFUNDS_MEASURED_PROPERTY) boolean refundsMeasured,
+            @Value(SERVICE_ORDERS_COUNTED_PROPERTY) boolean serviceOrdersCounted) {
         this.metrics = metrics;
         this.reports = reports;
         this.seriesCacheTtlMillis = seriesCacheTtlMillis;
+        this.payoutsMeasured = payoutsMeasured;
+        this.refundsMeasured = refundsMeasured;
+        this.serviceOrdersCounted = serviceOrdersCounted;
     }
 
     /**
@@ -124,6 +151,12 @@ public class AdminMetricsService {
      *
      * <p>All time, not a window: the question this screen answers is "where is the money", and a
      * liability does not stop being owed because it was collected last quarter.
+     *
+     * <p>{@code payoutsCompleted} and {@code refunds} are still the literal zeros they have always
+     * been, because nothing on the platform can move either number. What is new is that the
+     * response now says <em>why</em> (tech debt D63, D65): the three disclosure flags travel beside
+     * the figures so the screen can mark a structural zero as one, instead of presenting it as a
+     * month with no refunds in it.
      */
     @Transactional(readOnly = true)
     public AdminFinance finance() {
@@ -133,7 +166,8 @@ public class AdminMetricsService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> new AdminFinance.Line(e.getKey(), e.getValue()))
                 .toList();
-        return new AdminFinance(revenue, metrics.payoutsDue(), 0L, 0L, breakdown);
+        return new AdminFinance(revenue, metrics.payoutsDue(), 0L, 0L, breakdown,
+                payoutsMeasured, refundsMeasured, serviceOrdersCounted);
     }
 
     /**

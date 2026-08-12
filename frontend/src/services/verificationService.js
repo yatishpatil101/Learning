@@ -43,7 +43,7 @@ const provider = createProvider('verification');
 
 /** The caller's badge view model: `{ verified, status, source, maskedAadhaar, mobileMatch,
     verifiedAt, aadhaarMobile }`. Signed-out / never-attempted reads as the `none` tier. */
-export const getAadhaarStatus = () => provider().getAadhaarStatus();
+export const getAadhaarStatus = async () => (await provider()).getAadhaarStatus();
 
 /** Begin (or retry) DigiLocker verification. Mock → granted badge + perk; http → pending handle. */
-export const startAadhaar = (details) => provider().startAadhaar(details);
+export const startAadhaar = async (details) => (await provider()).startAadhaar(details);

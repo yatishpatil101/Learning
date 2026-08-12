@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 import { useVerification } from '../../../context/VerificationContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, pushNotification, pushPendingRequest, rememberAsk } from '../../../lib/data/flatmates.js';
+import { isSeekerVerified, setSeekerVerified, evaluateHostEligibility, enqueueFlatmateReview, pushNotification, recordAskLocally, rememberAsk } from '../../../lib/data/flatmates.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import { initials, seatsLeft, hasAgreementEvidence, inr, perHead, FLATMATE_GROUP_IMG, deriveLocality, replacementTitle } from './helpers.js';
 
@@ -401,6 +401,13 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     const opener = open
       ? "Hi! I'd love to join your flatmate group. When can I move in?"
       : "Hi! I'd like to request a spot in your flatmate group — is it still open?";
+    /* One record for both answers (D183). The device that receives the duplicate `409` is often not
+       the one that made the original request, and it has to end up holding the same bell entry and
+       Messages thread — otherwise the card reads "requested" next to an empty inbox. */
+    const ask = {
+      notification: { type: 'share', title: open ? 'You joined ' + g.title : 'Join request sent', desc: (user.name || 'A seeker') + (open ? ' joined the flatmate group ' : ' asked to join the flatmate group ') + g.title + '.', link: '/messages' },
+      request: { propertyId: key, property: { title: g.title, price: inr(perHead(g)) + '/mo', loc: (g.locality || 'Pune') + ', Pune', img: FLATMATE_GROUP_IMG }, party: { name: g.title, avatar: (g.title || 'GR').slice(0, 2).toUpperCase() }, firstMessage: opener },
+    };
     // Optimistic, and it doubles as the re-entrancy guard: the card re-renders into its joined
     // state before the request settles, so a second tap has no button to land on.
     setInterests((m) => ({ ...m, [key]: true }));
@@ -409,10 +416,13 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     } catch (err) {
       if (err?.code === flatmateService.CONFLICT_ALREADY_INTERESTED) {
         rememberAsk(user.mobile, key);
-        /* Names only what the host holds, never a thread to open: the Messages entry is written on
-           the success path into this browser's localStorage, so the device that receives this 409
-           may have nothing to show. Same reasoning as the seeker branch in useFlatmates.jsx;
-           revisit when Messages reads a server inbox (D183). */
+        /* Names only what the host holds, never a thread to open — the toast is unchanged. What is
+           new is that the thread is now actually here: the Messages entry used to be written on the
+           success path only, into this browser's localStorage, so the device that received this 409
+           had nothing to show behind its joined card. The call is idempotent on `propertyId`, so
+           the device that already holds the request writes nothing. Same reasoning as the seeker
+           branch in useFlatmates.jsx; the wording still waits on a server inbox (D183). */
+        recordAskLocally(ask);
         toast(t('flatmates.joinRequestAlreadyRecorded', { title: g.title }));
         return;
       }
@@ -432,9 +442,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     rememberAsk(user.mobile, key);
     await refresh();
 
-    pushNotification({ type: 'share', title: open ? 'You joined ' + g.title : 'Join request sent', desc: (user.name || 'A seeker') + (open ? ' joined the flatmate group ' : ' asked to join the flatmate group ') + g.title + '.', link: '/messages' });
-
-    pushPendingRequest({ propertyId: key, property: { title: g.title, price: inr(perHead(g)) + '/mo', loc: (g.locality || 'Pune') + ', Pune', img: FLATMATE_GROUP_IMG }, party: { name: g.title, avatar: (g.title || 'GR').slice(0, 2).toUpperCase() }, firstMessage: opener });
+    recordAskLocally(ask);
 
     toast(open ? t('flatmates.joinedToast', { title: g.title }) : t('flatmates.requestJoinToast', { title: g.title }));
   };

@@ -137,6 +137,90 @@ Work landed in `tech-debt.md` **D76**.
 
 ---
 
+### Q19 — When an owner withdraws a confirmed stay, what happens to the review it authorised? *(blocks D204)*
+
+Raised 2026-08-11 by the D194 security review. D194 made a self-declared tenancy into real evidence
+once the listing's owner confirms it, and gave that confirmation a revocation path — an owner who
+agreed by mistake, or who was deceived, has to be able to take it back. Eligibility reads the live
+status, so revoking closes the review composer at once. It does not reach backwards:
+`ReviewService.createForProperty` freezes the standing into the review's `context` badge at write
+time, so **confirm → publish a "Tenant" review → revoke** leaves a published review wearing a badge
+whose evidence has been withdrawn.
+
+Three answers, and the uncomfortable part is that the obvious one is the worst:
+
+1. **Retract the review on revoke.** Symmetrical and easy to explain. It also hands every owner a
+   delete button for criticism: confirm the stay, wait for a bad review, revoke. That is precisely
+   the outcome the eligibility rule and the contact gate exist to prevent, and it would make the
+   confirm step actively dangerous to the tenant who asked for it.
+2. **Leave the review exactly as it is.** Safe against retaliation, but the badge now asserts a
+   fact the platform no longer holds, and a reader has no way to tell.
+3. **Keep the review, drop its badge to `NONE`, and say so on the card.** The review survives, the
+   claim it makes about the author does not outlive its proof, and the change is visible rather
+   than silent. This is the likely answer, but it needs a decision about what the card should say —
+   "the owner withdrew confirmation of this stay" is honest and is also an accusation, and phrasing
+   it is a product call, not a copy tweak.
+
+There is a second half that no phrasing fixes. Nothing prevents an owner confirming an alt account
+they control — list, declare from a second number, confirm, publish one glowing tenant-badged review
+about yourself. The declaration row carries `owner_id`, `declarant_id` and `decided_at`, and every
+decision is written to the audit log, so ops can *find* this afterwards; nothing stops it happening,
+and stopping it needs an identity signal the platform does not currently collect. Whether that is
+acceptable at launch scale is part of the same ruling: option 3 is only worth building if the
+evidence it protects is worth something in the first place.
+
+Carried in `tech-debt.md` as **D204**.
+
+**Owner:** product. **Status:** OPEN.
+
+---
+
+### Q20 — Should the administrator who creates a back-office account be allowed to set its credentials? *(blocks D206)*
+
+Raised 2026-08-11 by the D200 security review. D200 stopped one administrator minting a colleague
+alone: an account created through `POST /users/staff` cannot obtain a token until a *second*
+administrator approves it. The review confirmed the rule holds — there is no way to get a usable
+administrator without a second human. The question is what that second human is actually signing.
+
+Today the maker supplies the new account's **mobile and password**, and the checker sees
+`masked(user)` — a name, an email, a role, and a mobile with most of its digits removed — with **no
+`createdBy` field on the response at all**. So a narrowed admin holding `users:write` can mint an
+admin account on a handset they control, ask any unrelated colleague to clear the queue, and sign
+in as an account with no grant row and therefore the full role baseline. That is D200's original
+attack, executed with a second signature attached, and the audit log reads as ordinary onboarding —
+because that is what it is, apart from who holds the phone. **The second key currently attests
+"this record may have access", not "this person may have access".**
+
+Three answers, and they are not exclusive:
+
+1. **Show the checker who is asking.** Add `createdBy` to the pending-approval response, and show
+   the mobile unmasked. Small, and it is the difference between a checker who *could* notice the
+   number belongs to the maker and one who structurally cannot. **The cost is real**:
+   `pendingApprovals` masks on purpose, and its own note explains why — a queue screen listing one
+   unmasked number per waiting colleague is "a small bulk-export surface wearing the clothes of a
+   to-do list". A middle option is to show `createdBy` (cheap, no new exposure) and reveal the
+   mobile only on the deliberate, individually-audited single-account view that already exists.
+2. **Take credentials away from the maker.** Create the account passwordless, and require the new
+   colleague to establish their own credentials from their own device at first sign-in. This is the
+   answer that makes the approval mean something about a *person*, and it closes the attack rather
+   than making it noticeable. It is also a product change — it needs an invite flow, an expiry on
+   the invite, and a story for what the queue shows before the invite is accepted.
+3. **Accept it and rely on detection.** `created_by` is recorded, immutable, and every approval is
+   audited, so this is discoverable after the fact. Defensible at founding-team scale, where every
+   administrator is known personally; it stops being defensible at exactly the point D200's row
+   said back-office administration would be handed to someone outside that team.
+
+**Timing is the reason this is a question now rather than later.** There is no approval screen yet
+(see D205 — the Team & Access console still writes to `localStorage`), so whichever way this goes,
+it can be built in rather than retrofitted. Deciding after the console exists means changing a
+screen people have started trusting.
+
+Carried in `tech-debt.md` as **D206**.
+
+**Owner:** founder / product, then backend. **Status:** OPEN.
+
+---
+
 ## Product / GTM questions (from the trust-model pivot)
 
 These predate the backend work and are recorded here so they stop living as an unticked checkbox
@@ -275,9 +359,26 @@ This is a real decision, not a deferral, and it has three immediate consequences
 3. **Contact reveals, subscriptions and boosted placement stay built but stay quiet.** They are not
    removed — they are the mix we return to once liquidity exists (see Q16a below).
 
-**Follow-on, still open (Q16a):** what liquidity level flips monetisation on? Q10's "50 hand-recruited
-owners" gate and Q11's flatmates gate are the two numbers already on record; this needs the
-equivalent for the rent business. **Owner:** founder. **Status:** OPEN.
+**Follow-on (Q16a) — the *threshold* is deferred, the *mechanism* is not.** What liquidity level flips
+monetisation on is a founder call that wants evidence we do not have yet, so pinning a number today
+would only mean changing it later under pressure. **Ruling 2026-08-11: build the gate as
+configuration, default off, and leave the number unset.** Nothing may hardcode a liquidity constant
+or a launch date; every monetisation switch reads its threshold from config so the decision is a
+deployment change rather than a code change.
+
+Two constraints on whoever sets it, recorded now while the reasoning is fresh:
+
+- **Depth, not total.** A platform-wide listing count is satisfiable by spreading thin, which is the
+  failure it is meant to prevent: 500 listings across the catalogue's ~155 localities is three per
+  locality — a searcher in Baner sees three results and leaves. The same 500 across ten localities is
+  a real market in ten places. The threshold must therefore be *per locality* (candidate: listings
+  per active locality, plus the count of localities clearing it), never a platform sum.
+- **Per-locality rollout, not a global switch.** The gate is evaluated per locality so paid features
+  can be on in Baner while Kothrud stays free. A switch that is city-wide is one you can only be
+  wrong about everywhere at once.
+
+Q10's "50 hand-recruited owners" and Q11's flatmates gate remain the two numbers already on record.
+**Owner:** founder. **Status:** mechanism decided; threshold OPEN, deliberately.
 
 ### Q17 — What counts as a genuine referral? *(closed 2026-08-11)*
 
@@ -298,8 +399,21 @@ That makes minting a credit require a genuine property with genuine ownership pr
 worth doing for a free listing slot. No new fraud machinery is needed; the document gate does the
 work twice.
 
-**Current state:** `pnReferralStats` counts `invited` / `joined` / `listed` and issues credits off
-those raw counters, with no distinctness check at all. Work tracked as **D191**.
+**Current state:** implemented server-side. `ReferralQualification` is the `billing` end of the
+`VerificationAnnouncer` port: when an owner's listing clears the document gate, the pending referral
+for that mobile moves to `qualified`, once, under a row lock — so first-ness and idempotency are the
+same guard and a second verified listing mints nothing. Alongside it, V64 records how the link was
+shared (D60) and salted digests of each party's address and browser so `sameDevice` / `sameIp` are
+computed instead of hardcoded `false` (D55, ninety-day retention), and a configurable cap
+(`settings.fees.referralQualifyPerMonth`, default 10/month) sends the overflow to the fraud desk
+rather than rejecting it — the flatmate case D61 protects still works.
+
+**Still open, and the remainder of D191:** the *client* half. `pnReferralStats` still counts
+`invited` / `joined` / `listed` in localStorage and still grants quota off those raw counters, and
+`Signup.jsx` / `useListProperty.js` still mint on join and on publish rather than on verification.
+Closing it needs a `referral` domain in the services seam **and** a product decision that does not
+exist yet: the server pays a ₹ credit and the client pays free listing slots and free contacts, and
+nobody has ruled on the exchange rate between them.
 
 ### Q18 — What should the ops console be allowed to see and act on? *(closed 2026-08-11)*
 

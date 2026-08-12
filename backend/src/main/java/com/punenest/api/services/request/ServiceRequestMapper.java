@@ -21,10 +21,10 @@ import org.springframework.stereotype.Component;
  * Entity→wire projection for a service request, including its three child collections.
  *
  * <p><strong>Batch-loaded, never per row.</strong> The contract's {@code ServiceRequest} carries its
- * timeline, documents and messages inline, and {@code GET /service-requests} returns a page of them.
- * Loading each request's children individually would make one staff page ~80 queries — the classic
- * N+1, arrived at honestly. Everything here therefore resolves for the whole page at once:
- * {@link #toDtos} issues four {@code IN} queries regardless of page size.
+ * timeline, documents, messages and co-fill parties inline, and {@code GET /service-requests}
+ * returns a page of them. Loading each request's children individually would make one staff page
+ * ~100 queries — the classic N+1, arrived at honestly. Everything here therefore resolves for the
+ * whole page at once: {@link #toDtos} issues five {@code IN} queries regardless of page size.
  *
  * <p>Display names are resolved the same way. A staff member's name lives in {@code identity}, not
  * on the request, because a rename must not have to rewrite history.
@@ -40,17 +40,20 @@ public class ServiceRequestMapper {
 
     private final ServiceRequestEventRepository events;
     private final ServiceRequestMessageRepository messages;
+    private final ServiceRequestPartyRepository parties;
     private final DocumentRepository documents;
     private final DocumentMapper documentMapper;
     private final UserRepository users;
 
     public ServiceRequestMapper(ServiceRequestEventRepository events,
             ServiceRequestMessageRepository messages,
+            ServiceRequestPartyRepository parties,
             DocumentRepository documents,
             DocumentMapper documentMapper,
             UserRepository users) {
         this.events = events;
         this.messages = messages;
+        this.parties = parties;
         this.documents = documents;
         this.documentMapper = documentMapper;
         this.users = users;
@@ -75,14 +78,19 @@ public class ServiceRequestMapper {
         Map<UUID, List<Document>> files =
                 documents.findByServiceRequestIdInOrderByUploadedAtDesc(ids).stream()
                         .collect(Collectors.groupingBy(Document::getServiceRequestId));
-        Map<UUID, String> names = names(requests, threads.values());
+        Map<UUID, List<ServiceRequestParty>> sides =
+                parties.findByRequestIdIn(ids).stream()
+                        .collect(Collectors.groupingBy(ServiceRequestParty::getRequestId));
+        Map<UUID, String> names = names(requests, threads.values(), sides.values());
 
         return requests.stream()
                 .map(r -> new ServiceRequestDto(
                         r.getId().toString(),
                         r.getType(),
+                        r.getTeam(),
                         r.getStatus(),
                         r.getPropertyId() == null ? null : r.getPropertyId().toString(),
+                        r.getTicketId() == null ? null : r.getTicketId().toString(),
                         visibleDetails(r.getDetails()),
                         names.get(r.getAssigneeId()),
                         timelines.getOrDefault(r.getId(), List.of()).stream()
@@ -94,6 +102,10 @@ public class ServiceRequestMapper {
                                 .toList(),
                         threads.getOrDefault(r.getId(), List.of()).stream()
                                 .map(m -> toMessageDto(m, names))
+                                .toList(),
+                        sides.getOrDefault(r.getId(), List.<ServiceRequestParty>of()).stream()
+                                .map(p -> CoFillParties.toDto(p, r.getType(),
+                                        names.get(p.getUserId()), names.get(p.getInvitedBy())))
                                 .toList(),
                         r.getCreatedAt(),
                         r.getAmount(),
@@ -135,7 +147,7 @@ public class ServiceRequestMapper {
 
     /** Projection for {@code POST /service-requests/{id}/messages}, which returns the one message. */
     public MessageDto toMessageDto(ServiceRequestMessage message) {
-        return toMessageDto(message, names(List.of(), List.of(List.of(message))));
+        return toMessageDto(message, names(List.of(), List.of(List.of(message)), List.of()));
     }
 
     private MessageDto toMessageDto(ServiceRequestMessage m, Map<UUID, String> names) {
@@ -145,7 +157,8 @@ public class ServiceRequestMapper {
                 names.get(m.getAuthorId()),
                 m.getAuthorRole(),
                 m.getBody(),
-                m.getCreatedAt());
+                m.getCreatedAt(),
+                m.getReadAt());
     }
 
     /**
@@ -155,13 +168,19 @@ public class ServiceRequestMapper {
      * calls {@code names.get(null)}, and {@code Map.of()} throws on a null key instead of missing.
      */
     private Map<UUID, String> names(List<ServiceRequest> requests,
-            Iterable<List<ServiceRequestMessage>> threads) {
+            Iterable<List<ServiceRequestMessage>> threads,
+            Iterable<List<ServiceRequestParty>> sides) {
         Set<UUID> ids = new HashSet<>();
         requests.stream().map(ServiceRequest::getAssigneeId).filter(Objects::nonNull).forEach(ids::add);
         threads.forEach(thread -> thread.stream()
                 .map(ServiceRequestMessage::getAuthorId)
                 .filter(Objects::nonNull)
                 .forEach(ids::add));
+        sides.forEach(side -> side.forEach(p -> {
+            ids.add(p.getUserId());
+            ids.add(p.getInvitedBy());
+        }));
+        ids.removeIf(Objects::isNull);
         Map<UUID, String> names = new HashMap<>();
         if (ids.isEmpty()) {
             return names;

@@ -28,7 +28,12 @@ class AdminMetricsServiceCacheTest {
         // Explicit TTL: the suite's application.properties sets it to 0 (cache off) so the HTTP
         // tests see read-after-write, so this test has to supply production's value itself or it
         // would assert caching against a service configured not to cache.
-        AdminMetricsService service = new AdminMetricsService(repo, reports, 30_000L);
+        //
+        // The three trailing flags are the D63/D65 finance disclosures. They touch nothing this
+        // test asserts, and are passed at their production defaults rather than parameterised so
+        // that is obvious at a glance.
+        AdminMetricsService service =
+                new AdminMetricsService(repo, reports, 30_000L, false, false, false);
 
         LocalDate today = LocalDate.now();
         LocalDate weekAgo = today.minusDays(6);
@@ -58,7 +63,8 @@ class AdminMetricsServiceCacheTest {
     void theCacheDoesNotGrowWithoutBound() {
         AdminMetricsRepository repo = mock(AdminMetricsRepository.class);
         ReportService reports = mock(ReportService.class);
-        AdminMetricsService service = new AdminMetricsService(repo, reports, 300_000L);
+        AdminMetricsService service =
+                new AdminMetricsService(repo, reports, 300_000L, false, false, false);
 
         LocalDate today = LocalDate.now();
         when(repo.countSeries(eq("users"), eq("joined_at"),

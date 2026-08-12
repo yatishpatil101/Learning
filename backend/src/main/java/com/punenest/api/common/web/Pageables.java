@@ -26,7 +26,6 @@ public final class Pageables {
      * <p>Endpoints that publish a sort must NOT use this; they validate against their own whitelist
      * so that an unknown value is a 400 naming the legal ones.
      *
-     * @param pageable the bound request pageable
      * @return the same page and size with no sort
      */
     public static Pageable unsorted(Pageable pageable) {

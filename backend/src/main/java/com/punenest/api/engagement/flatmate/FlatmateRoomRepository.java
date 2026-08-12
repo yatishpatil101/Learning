@@ -1,5 +1,6 @@
 package com.punenest.api.engagement.flatmate;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -87,6 +88,26 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
      * whole flat, so this sits on the hot path of both reading and writing a split room.
      */
     List<FlatmateRoom> findByPropertyIdAndArchivedFalse(UUID propertyId);
+
+    /**
+     * The same ledger, for many flats at once (D212) — {@code propertyId → people committed}.
+     *
+     * <p>A page of room cards can span twenty flats, and each card's {@code occupancy},
+     * {@code flatCommitted} and {@code shareMax} are derived from its flat's total. Asking
+     * {@link #findByPropertyIdAndArchivedFalse} per row is not merely N queries: each row would see
+     * a ledger built from a separate read, so two cards of the same flat could disagree.
+     *
+     * <p><strong>{@code archived} only, deliberately</strong> — the same width as the single-flat
+     * finder, and for the same reason. Occupancy is a physical fact: a room still awaiting
+     * moderation has people asleep in it, and leaving it out of the sum would report a full flat as
+     * half empty. Moderation decides what is <em>shown</em>, never what is counted.
+     */
+    @Query("""
+            select r.propertyId, sum(r.occupants) from FlatmateRoom r
+            where r.propertyId in :propertyIds and r.archived = false
+            group by r.propertyId
+            """)
+    List<Object[]> committedByFlat(@Param("propertyIds") Collection<UUID> propertyIds);
 
     /**
      * Live non-owner-tier rooms this host holds — half of the anti-broker cap.

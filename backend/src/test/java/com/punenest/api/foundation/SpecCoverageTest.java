@@ -81,13 +81,70 @@ class SpecCoverageTest {
      * existed, {@code ServiceOrder.status} and {@code amount} could only be changed by hand-written
      * SQL against production.
      *
-     * <p>The floor is 221 + 3, not the live count. At the time D58 landed the tree actually served
-     * 233 — nine operations from work in flight alongside it had not been ratcheted yet. Claiming
-     * their number here would make this file assert somebody else's change, and the ratchet would
-     * then fail on any branch that has D58 without them. Each slice raises the floor by what it
-     * added; the arithmetic catching up is the next author's to do.
+     * <p>D190 added four: the ownership gate — {@code recordOwnershipEvidence},
+     * {@code verifyOwnership} and {@code revokeOwnershipVerification} for the ops desk that accepts
+     * the documents and can take a badge back, and {@code getOwnershipVerification} for the owner
+     * who needs to know which of the three required facts their listing is still missing. Until
+     * these existed {@code properties.ownership_verified} was written by the demo seed and by
+     * nothing else, so the strongest trust claim on the platform could be asserted but never
+     * earned.
+     *
+     * <p>D192/D13 added three: per-account back-office permissions —
+     * {@code getPermissionCatalogue} for the console that must render the grid from what the server
+     * actually enforces, and {@code getBackOfficePermissions} /
+     * {@code replaceBackOfficePermissions} for the administrator who narrows one colleague's
+     * access. Until these existed, {@code V61}'s "no team-member management endpoint of any kind"
+     * was still true: the Team &amp; Access console wrote to browser storage.
+     *
+     * <p>D200 added two: staff-account approval — the maker-checker that closes the escalation D192
+     * created. A narrowed administrator holding {@code users:write} could mint a fresh
+     * administrator, which had no grant row and so resolved to the full role baseline, then sign in
+     * as it and recover everything it had lost. Every call in that sequence was individually
+     * authorised, which is why no audit rule would have caught it.
+     *
+     * <p>D194 added four: tenancy declarations — the proof half of review eligibility. The gate had
+     * read a browser bucket nothing on the live path writes, so against the real API it was always
+     * false and an ex-tenant who never booked a visit could not review the home they lived in.
+     *
+     * <p>D70 added one: {@code listFlatmatePostInterests} — who answered one flatmate ad. The
+     * poster's only per-ad record of a reply had been the notification it sent, so dismissing the
+     * notification lost the lead while the row stayed in the table.
+     *
+     * <p>D94/D15 added two: {@code GET}/{@code PUT /me/notification-preferences}. Channel switches,
+     * the master match-alert switch, quiet hours and language had no server surface of any kind —
+     * they lived in one browser's localStorage, so the quiet-hours window governed only the alerts
+     * the client derived for itself and a server-written notification arrived at 03:00 regardless.
+     *
+     * <p>D206 added one: {@code redeemStaffInvite}. D200's second signature was co-signing a record
+     * rather than a person, because {@code StaffCreate} let the <em>maker</em> choose the new
+     * account's password — so a maker could mint a colleague, have a peer approve it in good faith,
+     * and then sign in as that colleague. There was no route on which the person the account is for
+     * could set their own credential, and this is it.
+     *
+     * <p>D123 added one: {@code myDocumentAsks} — {@code GET /me/document-requests}. Only the
+     * property owner could see document-access requests; the buyer who wrote one had no route on
+     * which to find out what became of it, so an ask that was approved or expired looked identical
+     * to one nobody had read.
+     *
+     * <p>D120 added one: {@code getServiceRequestChecklist}. The named paperwork a service request
+     * needs existed only in the frontend mock, so the tracker's document column could show what had
+     * been uploaded but never what was still missing — which is the half a customer acts on.
+     *
+     * <p>D49 and D53 added three. D49 gave {@code MessageCreate.attachments} a behaviour instead of
+     * a wire field that parsed and vanished, which needs somewhere to put the bytes:
+     * {@code attachToConversation} and {@code attachToSupportTicket}. D53 added
+     * {@code getConversationForModeration} — a reported chat had no reader, because a conversation
+     * admitted its two participants and nobody else.
+     *
+     * <p>The floor is a running sum of what each slice added, not the live count. The paragraphs
+     * above are that sum's audit trail, and they are the thing to trust: an author who cannot say
+     * which operations their delta refers to has not earned the raise. At the time D58 landed the
+     * tree actually served 233 — nine operations from work in flight alongside it had not been
+     * ratcheted yet. Claiming their number here would make this file assert somebody else's change,
+     * and the ratchet would then fail on any branch that has D58 without them. Each slice raises the
+     * floor by what it added; the arithmetic catching up is the next author's to do.
      */
-    private static final int IMPLEMENTED_FLOOR = 224;
+    private static final int IMPLEMENTED_FLOOR = 246;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

@@ -42,13 +42,13 @@ const provider = createProvider('deal');
 /* ─── Deals (owner-scoped) ──────────────────────────────────────────────────────────────────── */
 
 /** Every deal on the caller's own listings. Empty for a signed-out caller. */
-export const myDeals = () => provider().myDeals();
+export const myDeals = async () => (await provider()).myDeals();
 
 /**
  * The deal on one of the caller's own listings — **owner-only**, 404 otherwise.
  * A listing with no deal row resolves to `active` rather than null.
  */
-export const getDeal = (propId) => provider().getDeal(propId);
+export const getDeal = async (propId) => (await provider()).getDeal(propId);
 
 /**
  * What a non-owner can learn about a listing's deal state, read from the listing itself (D110):
@@ -56,25 +56,25 @@ export const getDeal = (propId) => provider().getDeal(propId);
  * property view-model so each provider can resolve it without a second fetch — http off the wire
  * {@code dealStatus}, mock off its client deal store.
  */
-export const dealStatusForBuyer = (property) => provider().dealStatusForBuyer(property);
+export const dealStatusForBuyer = async (property) => (await provider()).dealStatusForBuyer(property);
 
 /** Mark the caller's listing under offer. 409 from a closed deal. */
-export const reserveDeal = (propId) => provider().reserveDeal(propId);
+export const reserveDeal = async (propId) => (await provider()).reserveDeal(propId);
 
 /**
  * Close the deal. **Requires** a positive `agreedPrice` and a real ten-digit `counterpartyMobile`;
  * a masked number is rejected rather than stored as somebody's identity.
  */
-export const closeDeal = (propId, body) => provider().closeDeal(propId, body);
+export const closeDeal = async (propId, body) => (await provider()).closeDeal(propId, body);
 
 /** Reopen a closed or reserved deal. */
-export const reopenDeal = (propId) => provider().reopenDeal(propId);
+export const reopenDeal = async (propId) => (await provider()).reopenDeal(propId);
 
 /** Off-platform interested parties on a reserved listing. */
-export const listParties = (propId) => provider().listParties(propId);
-export const addParty = (propId, party) => provider().addParty(propId, party);
+export const listParties = async (propId) => (await provider()).listParties(propId);
+export const addParty = async (propId, party) => (await provider()).addParty(propId, party);
 /** Remove by party **id** — not by array position, which is not an identity. */
-export const removeParty = (propId, partyId) => provider().removeParty(propId, partyId);
+export const removeParty = async (propId, partyId) => (await provider()).removeParty(propId, partyId);
 
 /* ─── Offers ────────────────────────────────────────────────────────────────────────────────── */
 
@@ -84,7 +84,7 @@ export const removeParty = (propId, partyId) => provider().removeParty(propId, p
  *
  * `moveIn` has no field on the wire; it is folded into `message` so the owner still reads it.
  */
-export const submitOffer = (req) => provider().submitOffer(req);
+export const submitOffer = async (req) => (await provider()).submitOffer(req);
 
 /**
  * Accept, decline or counter.
@@ -95,18 +95,18 @@ export const submitOffer = (req) => provider().submitOffer(req);
  * @param {{isOwner?: boolean, propId?: string, message?: string}} [opts]
  *   `isOwner` gates accept/decline. Both providers throw rather than spend a round trip earning 403.
  */
-export const respondOffer = (id, action, counterAmount, opts) =>
-  provider().respondOffer(id, action, counterAmount, opts);
+export const respondOffer = async (id, action, counterAmount, opts) =>
+  (await provider()).respondOffer(id, action, counterAmount, opts);
 
 /** Offers the caller made. */
-export const myOffers = () => provider().myOffers();
+export const myOffers = async () => (await provider()).myOffers();
 /** Offers on the caller's own listings. */
-export const offersOnMine = () => provider().offersOnMine();
+export const offersOnMine = async () => (await provider()).offersOnMine();
 
 /* ─── Finalization (maker/checker) ──────────────────────────────────────────────────────────── */
 
 /** Propose to close. Requires the counterparty's mobile and a positive agreed price. */
-export const requestFinalization = (propId, body) => provider().requestFinalization(propId, body);
+export const requestFinalization = async (propId, body) => (await provider()).requestFinalization(propId, body);
 
 /**
  * The caller's live request on a listing, or `null`.
@@ -115,14 +115,14 @@ export const requestFinalization = (propId, body) => provider().requestFinalizat
  * server's query filters on `status = 'pending'`. The panel's "the owner didn't confirm" branch is
  * therefore unreachable in both modes.
  */
-export const finalizationStatus = (propId) => provider().finalizationStatus(propId);
+export const finalizationStatus = async (propId) => (await provider()).finalizationStatus(propId);
 
 /** Withdraw the caller's own request. */
-export const cancelFinalization = (propId) => provider().cancelFinalization(propId);
+export const cancelFinalization = async (propId) => (await provider()).cancelFinalization(propId);
 
 /** Requests awaiting the caller's decision, across every property. Filter by `propId` client-side. */
-export const myFinalizationRequests = () => provider().myFinalizationRequests();
+export const myFinalizationRequests = async () => (await provider()).myFinalizationRequests();
 
 /** Accept: closes the deal and auto-declines every sibling on the same property. */
-export const acceptFinalization = (reqId) => provider().acceptFinalization(reqId);
-export const declineFinalization = (reqId) => provider().declineFinalization(reqId);
+export const acceptFinalization = async (reqId) => (await provider()).acceptFinalization(reqId);
+export const declineFinalization = async (reqId) => (await provider()).declineFinalization(reqId);

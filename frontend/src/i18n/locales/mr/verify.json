@@ -36,6 +36,9 @@
     "overviewCta": "Verified व्हा",
     "buyerNudgeTitle": "पडताळलेल्या खरेदीदारांना 2× जलद प्रतिसाद मिळतो",
     "buyerNudgeBody": "हा मालक पडताळलेला आहे — इतर चौकशांपेक्षा वेगळे दिसण्यासाठी तुमचा Verified बॅज जोडा.",
-    "buyerNudgeCta": "पडताळणी करा · ~1 मिनिट"
+    "buyerNudgeCta": "पडताळणी करा · ~1 मिनिट",
+    "chipMobileVerified": "मोबाइल पडताळलेला",
+    "chipIdVerified": "ओळख पडताळली",
+    "chipIdNotVerified": "ओळख पडताळलेली नाही"
   }
 }

@@ -174,6 +174,10 @@ export function toRoomViewModel(row) {
     // Where
     society: row?.society || '',
     societyId: row?.societyId || null,
+    // The flat's opaque identity, used only to group sibling rooms into one occupancy ledger
+    // (`flatKeyOf`). Passed through ahead of `flatNumber` so that when the server starts minting
+    // it, the door number can leave the anonymous read with no further frontend change (D213).
+    flatKey: row?.flatKey || null,
     flatNumber: row?.flatNumber || '',
     locality: row?.locality || '',
     localities: row?.localities || [],

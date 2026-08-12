@@ -10,10 +10,12 @@ import java.util.Set;
  * would lose the one distinction a fraud desk needs: a reward that was never paid versus one that
  * was paid and then recovered.
  *
- * <p>{@link #QUALIFIED} is declared by the contract and produced by no code path here. It is the
- * output of the activation tracking that would mark a referred party as having genuinely used the
- * platform, which no operation in this slice performs — so every referral sits {@code pending}
- * until a human decides. Recorded rather than quietly repurposed.
+ * <p>{@link #QUALIFIED} was declared by the contract and produced by no code path for as long as
+ * nothing tracked whether a referred party had genuinely used the platform (D56). Q17 settled what
+ * counts — the referee's first listing passing ownership verification — and
+ * {@link ReferralQualification} is the one thing that writes it. It still pays nothing on its own:
+ * a qualified referral is a referral a checker can approve without wondering, not one that has been
+ * approved.
  */
 public final class ReferralStatuses {
 
@@ -23,7 +25,10 @@ public final class ReferralStatuses {
     /** Redeemed, awaiting review. */
     public static final String PENDING = "pending";
 
-    /** The referred party has genuinely activated. Not yet produced — see the class Javadoc. */
+    /**
+     * The referred party's first listing has passed ownership verification (Q17). Written only by
+     * {@link ReferralQualification}; still awaiting a checker's approval before anything is paid.
+     */
     public static final String QUALIFIED = "qualified";
 
     /** Approved by a checker; the reward counts as earned. */

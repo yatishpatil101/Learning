@@ -144,6 +144,34 @@ public class DocumentRequestService {
     }
 
     /**
+     * Contract {@code myDocumentAsks} — every request the caller <em>wrote</em>, newest first,
+     * paged (D123).
+     *
+     * <p>The requester's half of {@link #myRequests}. Until this existed a buyer could ask for a
+     * listing's paperwork and then had nowhere to look: the ask left no trace on any surface they
+     * could reach, so "did the owner ever answer?" was answerable only by the notification, and
+     * dismissing the notification lost the question along with the answer.
+     *
+     * <p>Scoped by construction rather than by a filter: the only user id that reaches the query is
+     * the JWT's, so there is no argument a caller can supply that widens the result. The requester
+     * is looked up once and reused for every row — they are, by definition, the same person on all
+     * of them, which is what makes this cheaper than the owner's inbox rather than merely different.
+     *
+     * <p>Projected through {@link DocumentRequestMapper#toRequesterDto}, so {@code shareToken} is
+     * {@code null} on every row. See that method for why.
+     */
+    @Transactional(readOnly = true)
+    public Page<DocumentRequestDto> myAsks(UUID requesterId, Pageable pageable) {
+        Page<DocumentRequest> rows =
+                requests.findByRequesterIdOrderByCreatedAtDesc(requesterId, pageable);
+        if (rows.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        User requester = users.findById(requesterId).orElse(null);
+        return rows.map(row -> mapper.toRequesterDto(row, requester));
+    }
+
+    /**
      * Contract {@code respondDocumentRequest} — the owner grants or declines.
      *
      * <p>Owner-scoping is enforced by lookup, not by a check after the fact: the row is only

@@ -1,5 +1,8 @@
 package com.punenest.api.services.support;
 
+import com.punenest.api.common.attachment.MessageAttachmentDto;
+import com.punenest.api.common.attachment.MessageAttachments;
+import com.punenest.api.common.attachment.MessageSurfaces;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.common.web.Pageables;
@@ -12,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * The customer's support conversation with the platform.
@@ -45,14 +49,16 @@ public class SupportTicketService {
     private final SupportTicketMessageRepository messages;
     private final SupportTicketMapper mapper;
     private final UserRepository users;
+    private final MessageAttachments attachments;
 
     public SupportTicketService(SupportTicketRepository tickets,
             SupportTicketMessageRepository messages, SupportTicketMapper mapper,
-            UserRepository users) {
+            UserRepository users, MessageAttachments attachments) {
         this.tickets = tickets;
         this.messages = messages;
         this.mapper = mapper;
         this.users = users;
+        this.attachments = attachments;
     }
 
     /** {@code GET /support/tickets} — the caller's own, newest first. */
@@ -111,9 +117,13 @@ public class SupportTicketService {
      * <p>A reply marks the <em>other</em> side unread and never the writer's own: staff answering
      * raises the raiser's flag, the raiser answering raises the desk's. Answering your own ticket
      * gives you nothing new to read, in either direction.
+     *
+     * <p>{@code attachmentIds} are bound after {@link #readable} has answered and inside the same
+     * transaction as the message (D49), so a caller with no claim on the ticket never reaches an
+     * attachment row and a reply that names one it may not have leaves neither behind.
      */
     @Transactional
-    public MessageDto reply(AuthPrincipal caller, String id, String body) {
+    public MessageDto reply(AuthPrincipal caller, String id, String body, List<String> attachmentIds) {
         SupportTicket ticket = readable(caller, id);
         SupportTicketMessage sent = write(ticket, caller, body);
         if (ticket.getUserId().equals(caller.userId())) {
@@ -129,7 +139,21 @@ public class SupportTicketService {
                 author == null ? null : author.getName(),
                 sent.getAuthorRole(),
                 sent.getBody(),
-                sent.getCreatedAt());
+                sent.getCreatedAt(),
+                attachments.bind(ticket.getId(), caller.userId(), sent.getId(), attachmentIds));
+    }
+
+    /**
+     * {@code POST /support/tickets/{id}/attachments} — 201 with the stored attachment.
+     *
+     * <p>Guarded by {@link #readable} and nothing else: an upload on a ticket is exactly as private
+     * as the ticket, so the raiser-or-ops rule decides here too.
+     */
+    @Transactional
+    public MessageAttachmentDto attach(AuthPrincipal caller, String id, MultipartFile file) {
+        SupportTicket ticket = readable(caller, id);
+        return attachments.upload(MessageSurfaces.SUPPORT_TICKET, ticket.getId(),
+                caller.userId(), file);
     }
 
     /**

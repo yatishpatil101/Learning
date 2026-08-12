@@ -40,16 +40,40 @@ const provider = createProvider('rent');
 /* ─── Tenancies ─────────────────────────────────────────────────────────────────────────────── */
 
 /** Tenancies where the caller is the tenant. */
-export const myTenancies = () => provider().myTenancies();
+export const myTenancies = async () => (await provider()).myTenancies();
 /** Tenancies on the caller's own listings, where they are the owner. */
-export const ownerTenancies = () => provider().ownerTenancies();
+export const ownerTenancies = async () => (await provider()).ownerTenancies();
+
+/* ─── Tenancy declarations (D194) ───────────────────────────────────────────────────────────── */
+
+/**
+ * The other way a stay gets proved.
+ *
+ * A brokered tenancy only exists when a rent deal closed on this platform, which most Indian leases
+ * never do — they are signed off-platform and the flat is simply listed again afterwards. So the
+ * person best placed to review a listing is usually one this API has never seen a tenancy for. A
+ * declaration is that person saying so, and it is worth nothing until the **listing's owner** agrees:
+ * `status` is `pending` until then, and only `confirmed` opens the review door. Read `status`, never
+ * the row's existence.
+ *
+ * `propId` is the listing's UUID against the live API and its slug under the mock — resolve it as
+ * `p.uuid || p.id`, the same value the review routes take. Comparing the wrong one of those two is
+ * the bug this whole surface exists to close.
+ */
+export const listTenancyDeclarations = async (propId) => (await provider()).listTenancyDeclarations(propId);
+/** Claim a past stay. 409 if you own the listing, already have a tenancy on it, or already claimed. */
+export const declareTenancy = async (propId, body) => (await provider()).declareTenancy(propId, body);
+/** Owner only — agree the stay happened. This is the step that turns a claim into evidence. */
+export const confirmTenancyDeclaration = async (id) => (await provider()).confirmTenancyDeclaration(id);
+/** Owner only — disagree, or take back a confirmation. The row survives; the eligibility does not. */
+export const revokeTenancyDeclaration = async (id) => (await provider()).revokeTenancyDeclaration(id);
 
 /** The caller's own renting CV, or `null` if they have never written one. */
-export const myTenantProfile = () => provider().myTenantProfile();
+export const myTenantProfile = async () => (await provider()).myTenantProfile();
 /** Save it. `score` and `verified` are server-owned and ignored if sent. */
-export const saveTenantProfile = (profile) => provider().saveTenantProfile(profile);
+export const saveTenantProfile = async (profile) => (await provider()).saveTenantProfile(profile);
 /** Somebody else's profile, by mobile — the screening read. `null` when they have none. */
-export const tenantProfileFor = (mobile) => provider().tenantProfileFor(mobile);
+export const tenantProfileFor = async (mobile) => (await provider()).tenantProfileFor(mobile);
 
 /**
  * Which of these people carry the Verified Tenant badge — **one call for a whole list** (D114).
@@ -71,14 +95,14 @@ export const tenantProfileFor = (mobile) => provider().tenantProfileFor(mobile);
  * Only numbers the caller already holds ever cross the wire, and the server echoes each one back
  * unchanged, so this cannot be used to obtain a number — see the endpoint's own note.
  */
-export const tenantsVerified = (mobiles) => provider().tenantsVerified(mobiles);
+export const tenantsVerified = async (mobiles) => (await provider()).tenantsVerified(mobiles);
 
 /* ─── Rent ──────────────────────────────────────────────────────────────────────────────────── */
 
 /** What the caller has paid, as a tenant. Paged: `{ items, page, size, total, totalPages }`. */
-export const myRentPayments = (page, size) => provider().myRentPayments(page, size);
+export const myRentPayments = async (page, size) => (await provider()).myRentPayments(page, size);
 /** What the caller has been paid, as an owner. Same envelope. */
-export const rentLedger = (page, size) => provider().rentLedger(page, size);
+export const rentLedger = async (page, size) => (await provider()).rentLedger(page, size);
 
 /**
  * Pay this month's rent. **Returns a `due` payment** — check `settled` before saying it landed.
@@ -90,30 +114,30 @@ export const rentLedger = (page, size) => provider().rentLedger(page, size);
  * Idempotent per tenancy per month, so a double-tapped Pay returns the original rather than
  * charging twice.
  */
-export const payRent = (req) => provider().payRent(req);
+export const payRent = async (req) => (await provider()).payRent(req);
 
 /** The caller's auto-pay authority, or `null`. */
-export const getMandate = () => provider().getMandate();
+export const getMandate = async () => (await provider()).getMandate();
 /** Authorise auto-pay. `dayOfMonth` is 1–28: no month is shorter, so a later day would skip some. */
-export const setMandate = (req) => provider().setMandate(req);
+export const setMandate = async (req) => (await provider()).setMandate(req);
 
 /** Where the owner's rent lands. **Carries a mask, never the account number.** */
-export const getPayoutAccount = () => provider().getPayoutAccount();
+export const getPayoutAccount = async () => (await provider()).getPayoutAccount();
 /** Set it. Takes `accountNumber`; reads back `maskedAccount` — the server will not re-serve it. */
-export const savePayoutAccount = (acc) => provider().savePayoutAccount(acc);
+export const savePayoutAccount = async (acc) => (await provider()).savePayoutAccount(acc);
 
 /* ─── Property finances (owner, per property) ───────────────────────────────────────────────── */
 
 /** The property's ledger. Paged. */
-export const listTransactions = (propId, page, size) => provider().listTransactions(propId, page, size);
-export const addTransaction = (propId, txn) => provider().addTransaction(propId, txn);
+export const listTransactions = async (propId, page, size) => (await provider()).listTransactions(propId, page, size);
+export const addTransaction = async (propId, txn) => (await provider()).addTransaction(propId, txn);
 /** Partial by design — send only the fields that changed. */
-export const updateTransaction = (propId, txnId, patch) => provider().updateTransaction(propId, txnId, patch);
-export const deleteTransaction = (propId, txnId) => provider().deleteTransaction(propId, txnId);
+export const updateTransaction = async (propId, txnId, patch) => (await provider()).updateTransaction(propId, txnId, patch);
+export const deleteTransaction = async (propId, txnId) => (await provider()).deleteTransaction(propId, txnId);
 
 /** Purchase price, loan and current value. `null` when nothing has been recorded. */
-export const getBasis = (propId) => provider().getBasis(propId);
-export const setBasis = (propId, basis) => provider().setBasis(propId, basis);
+export const getBasis = async (propId) => (await provider()).getBasis(propId);
+export const setBasis = async (propId, basis) => (await provider()).setBasis(propId, basis);
 
 /**
  * Server-computed income/expense/net/occupancy — not a reduction over the page the client holds.
@@ -122,8 +146,8 @@ export const setBasis = (propId, basis) => provider().setBasis(propId, basis);
  * selector uses**, so the KPI strip and the transaction table below it answer the same question
  * (D178). Omitting it used to mean the card silently reported all-time next to a filtered table.
  */
-export const financeSummary = (propId, period) => provider().financeSummary(propId, period);
+export const financeSummary = async (propId, period) => (await provider()).financeSummary(propId, period);
 /** The monthly series the chart draws. */
-export const cashflow = (propId) => provider().cashflow(propId);
+export const cashflow = async (propId) => (await provider()).cashflow(propId);
 /** What is coming, with a server-computed `daysUntil` that cannot drift by timezone. */
-export const dues = (propId) => provider().dues(propId);
+export const dues = async (propId) => (await provider()).dues(propId);

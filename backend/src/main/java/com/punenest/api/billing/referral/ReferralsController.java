@@ -6,6 +6,7 @@ import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.data.domain.Pageable;
@@ -39,15 +40,16 @@ public class ReferralsController {
 
     /** {@code GET /me/referrals} (contract {@code getReferrals}). */
     @GetMapping(Routes.Referrals.MINE)
-    public ReferralSummaryDto mine(@CurrentUser AuthPrincipal principal) {
-        return service.summary(principal);
+    public ReferralSummaryDto mine(@CurrentUser AuthPrincipal principal,
+            HttpServletRequest request) {
+        return service.summary(principal, request);
     }
 
     /** {@code POST /referrals/redeem} (contract {@code redeemReferral}) — 200, or 409. */
     @PostMapping(Routes.Referrals.REDEEM)
     public void redeem(@CurrentUser AuthPrincipal principal,
-            @Valid @RequestBody RedeemRequest body) {
-        service.redeem(principal, body.code());
+            @Valid @RequestBody RedeemRequest body, HttpServletRequest request) {
+        service.redeem(principal, body.code(), body.shareChannel(), request);
     }
 
     /** {@code GET /referrals} (contract {@code listReferrals}) — the paged fraud-desk queue. */
@@ -82,8 +84,16 @@ public class ReferralsController {
         return service.clawback(principal, id, body == null ? null : body.reason());
     }
 
-    /** Body of {@code redeemReferral} (inline schema, {@code code} required). */
-    public record RedeemRequest(@NotBlank String code) {
+    /**
+     * Body of {@code redeemReferral} (inline schema, {@code code} required).
+     *
+     * <p>{@code shareChannel} is optional and unvalidated here on purpose (D60): it says how the
+     * link reached this person, and an older client that does not send it, or sends a value this
+     * build has no name for, must still be able to redeem. {@link ShareChannels#normalise} drops
+     * what it does not recognise rather than turning an advisory analytics field into a way to fail
+     * a real referral.
+     */
+    public record RedeemRequest(@NotBlank String code, String shareChannel) {
     }
 
     /**

@@ -55,13 +55,13 @@ const provider = createProvider('plan');
  *
  * @returns {Promise<{id, slug, name, audience, price, billingCycle, features}[]>}
  */
-export const listPlans = () => provider().listPlans();
+export const listPlans = async () => (await provider()).listPlans();
 
 /**
  * The caller's current plan. Resolves to the free tier for a signed-out caller rather than
  * throwing — the paywall and the pricing page both render for visitors.
  */
-export const getSubscription = () => provider().getSubscription();
+export const getSubscription = async () => (await provider()).getSubscription();
 
 /**
  * Buy a plan.
@@ -76,4 +76,4 @@ export const getSubscription = () => provider().getSubscription();
  * @param {string} slug `owner2` | `owner5` | `seeker-plus`
  * @param {string} [paymentMethod] `upi` | `card` | `netbanking`
  */
-export const subscribe = (slug, paymentMethod) => provider().subscribe(slug, paymentMethod);
+export const subscribe = async (slug, paymentMethod) => (await provider()).subscribe(slug, paymentMethod);

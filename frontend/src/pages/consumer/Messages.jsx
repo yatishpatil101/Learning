@@ -187,13 +187,19 @@ export default function Messages() {
     if (target) { setActiveId(target.id); setShowThread(true); hydrate(target.id); return; }
     const wide = (wrapRef.current?.clientWidth || window.innerWidth) >= 720;
     if (!wide) return;
-    const first = convs.find((c) => c.state === 'active');
+    const first = convs.find((c) => !c.staged);
     if (first) { setActiveId(first.id); setShowThread(true); hydrate(first.id); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convs]);
 
-  const incoming = convs.filter((c) => c.state === 'incoming').length;
-  const inTab = (c) => (tab === 'requests' ? c.state === 'incoming' || c.state === 'pending' : c.state === 'active');
+  /* Chats vs Requests is the `staged` flag and nothing else (D52).
+
+     A row is either one the server holds — which means a contact request was approved in one
+     direction or the other, because that is the only way a thread comes to exist — or one the seam
+     is still holding back until that happens. There is no third condition on the wire, and the
+     `incoming` one the prototype invented has been removed rather than given a contract field. */
+  const requests = convs.filter((c) => c.staged).length;
+  const inTab = (c) => (tab === 'requests' ? !!c.staged : !c.staged);
   const q = search.toLowerCase();
   const items = convs.filter(inTab).filter((c) => !q || c.party.name.toLowerCase().includes(q) || c.property.title.toLowerCase().includes(q));
 
@@ -258,17 +264,6 @@ export default function Messages() {
     persist(convs.map((c) => (c.id === activeId ? { ...c, at, messages: [...c.messages, { from: 'me', type: 'card', icon: card.icon, text, at, read: false }] } : c)));
     replyToConversation(activeId, text).then(refreshChatBadge).catch(() => reload());
   };
-  /**
-   * Accept / decline exist only on the mock.
-   *
-   * They act on `state === 'incoming'`, and no live thread is ever `incoming`: on the server a
-   * conversation cannot exist until an approved contact request already exists, so the accepting has
-   * happened one layer up, in the contact gate. The buttons that call these are rendered behind that
-   * same state check, so in http mode they never appear rather than needing to be disabled.
-   */
-  const accept = (id) => { persist(convs.map((c) => (c.id === id ? { ...c, state: 'active', at: Date.now(), messages: [...c.messages, { type: 'system', text: tr('misc.msgAcceptedSystem') }] } : c))); setTab('chats'); };
-  const decline = (id) => { persist(convs.filter((c) => c.id !== id)); setActiveId(null); setShowThread(false); };
-
   const wrapCls = 'pc-wrap' + (narrow ? ' is-narrow' : '') + (showThread ? ' show-thread' : '');
   // The reveal is a gate read, so it lands after render. It starts closed and only ever opens,
   // which is the safe direction: a thread briefly showing a masked number is a cosmetic delay,
@@ -283,7 +278,7 @@ export default function Messages() {
     return () => { alive = false; };
   }, [active]);
   const partyDigits = active ? digits(active.party?.mobile) : '';
-  const showQuick = active && active.state === 'active' && active.youAre === 'buyer' && active.messages.length > 0 && active.messages[active.messages.length - 1].from === 'them';
+  const showQuick = active && !active.staged && active.youAre === 'buyer' && active.messages.length > 0 && active.messages[active.messages.length - 1].from === 'them';
 
   return (
     <div className="messages-page pt-2 pb-6">
@@ -308,7 +303,7 @@ export default function Messages() {
               <h2>{tr('misc.msgMessages')}</h2>
               <div className="pc-tabs" role="tablist" aria-label={tr('misc.msgFilters')}>
                 <button role="tab" aria-selected={tab === 'chats'} className={'pc-tab' + (tab === 'chats' ? ' active' : '')} onClick={() => setTab('chats')}>{tr('misc.msgChats')}</button>
-                <button role="tab" aria-selected={tab === 'requests'} className={'pc-tab' + (tab === 'requests' ? ' active' : '')} onClick={() => setTab('requests')}>{tr('misc.msgRequests')} {incoming > 0 && <span className="pc-reqbadge">{incoming}</span>}</button>
+                <button role="tab" aria-selected={tab === 'requests'} className={'pc-tab' + (tab === 'requests' ? ' active' : '')} onClick={() => setTab('requests')}>{tr('misc.msgRequests')} {requests > 0 && <span className="pc-reqbadge">{requests}</span>}</button>
               </div>
               <div className="pc-search"><Icon name="search" className="w-4 h-4" /><input value={search} onChange={(e) => setSearch(e.target.value)} type="text" enterKeyHint="search" placeholder={tr('misc.msgSearchPlaceholder')} aria-label={tr('misc.msgSearchAria')} /></div>
             </div>
@@ -322,7 +317,7 @@ export default function Messages() {
                     <div className="pc-conv-main">
                       <div className="pc-conv-top"><span className="pc-conv-name">{c.party.name}</span><span className="pc-conv-time">{relTime(lastAt(c), c.time)}</span></div>
                       <div className="pc-conv-prop">{c.property.title} · {c.property.price}</div>
-                      <div className="pc-conv-bot"><span className="pc-conv-last">{lastText}</span>{c.unread ? <span className="pc-unread">{c.unread}</span> : c.state === 'incoming' ? <span className="pc-pill req">{tr('misc.msgPillRequest')}</span> : c.state === 'pending' ? <span className="pc-pill pend">{tr('misc.msgPillPending')}</span> : null}</div>
+                      <div className="pc-conv-bot"><span className="pc-conv-last">{lastText}</span>{c.unread ? <span className="pc-unread">{c.unread}</span> : c.staged ? <span className="pc-pill pend">{tr('misc.msgPillPending')}</span> : null}</div>
                     </div>
                   </button>
                 );
@@ -385,16 +380,7 @@ export default function Messages() {
                   {typing && <TypingDots />}
                 </div>
 
-                {active.state === 'incoming' ? (
-                  <div className="pc-actions">
-                    <p><b style={{ color: '#fff' }}>{active.party.name}</b>{tr('misc.msgWantsToChat')}</p>
-                    <p className="sub">{tr('misc.msgAcceptSub')}</p>
-                    <div className="btns">
-                      <button className="pc-btn" onClick={() => decline(active.id)}>{tr('misc.msgDecline')}</button>
-                      <button className="pc-btn primary" onClick={() => accept(active.id)}><Icon name="check" className="w-4 h-4" /> {tr('misc.msgAcceptChat')}</button>
-                    </div>
-                  </div>
-                ) : active.state === 'pending' ? (
+                {active.staged ? (
                   <div className="pc-wait"><Icon name="clock" className="w-4 h-4" /> {tr('misc.msgWaitingOwner')}</div>
                 ) : (
                   <>

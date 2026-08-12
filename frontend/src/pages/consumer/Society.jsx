@@ -21,7 +21,7 @@ export default function Society() {
   const hub = useSocietyHub();
   const {
     rootRef, soc, locName, hero, onFollow, followed, setRateOpen,
-    claimed, verified, iAmResident, showEstimate, rating, overall,
+    claimed, verified, iAmResident, rating, overall,
     rateOpen, pick, setPick, revText, setRevText, cats, setCat, inp, submitReview,
     sugRec, openSuggest, stats, tabs, current, selectTab,
   } = hub;
@@ -79,15 +79,15 @@ export default function Society() {
               <span className="flex items-center gap-1.5"><Icon name="map-pin" className="w-4 h-4 text-teal-400" /> {locName}, Pune</span>
               {/* Loading and failure are distinct from "nobody has rated it": the hero star strip is
                   the most quotable number on the page, so it stays blank until the summary read
-                  settles rather than briefly asserting an estimate it may be about to contradict. */}
+                  settles rather than briefly asserting a number it may be about to contradict. */}
               {rating.loading ? (
                 <span className="skeleton inline-block h-4 w-24 rounded" aria-hidden="true" />
               ) : rating.failed ? (
                 <span className="flex items-center gap-1.5 text-amber-300/80 text-sm"><Icon name="alert-triangle" className="w-4 h-4" /> {t('society.ratingUnavailable')}</span>
-              ) : !showEstimate && !rating.count ? (
+              ) : !rating.count ? (
                 <span className="flex items-center gap-1.5 text-gray-300 text-sm"><Icon name="sparkles" className="w-4 h-4 text-teal-400" /> {t('society.notRatedYet')}</span>
               ) : (
-                <span className="flex items-center gap-1.5"><Stars value={overall} size={14} /> <span className="font-semibold text-white">{overall}</span> <span className="text-gray-400 text-sm">{rating.count ? `(${rating.count})` : t('society.communityEstimate')}</span></span>
+                <span className="flex items-center gap-1.5"><Stars value={overall} size={14} /> <span className="font-semibold text-white">{overall}</span> <span className="text-gray-400 text-sm">{`(${rating.count})`}</span></span>
               )}
             </p>
           </div>

@@ -1,6 +1,7 @@
 package com.punenest.api.common.error;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,6 +67,25 @@ class ErrorEnvelopeWebTest extends AbstractApiTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.error").value(ErrorCodes.UNSUPPORTED_MEDIA_TYPE))
                 .andExpect(jsonPath("$.status").value(415));
+    }
+
+    /**
+     * Same family as the two above, and the one that hid the longest: an unmapped path reached the
+     * catch-all and was reported as 500 {@code internal}. It has to be authenticated for the same
+     * reason the 405 case does — an anonymous request is refused by the security chain and never
+     * reaches the dispatcher, which is precisely why nobody noticed until they were holding a token.
+     */
+    @Test
+    @DisplayName("an unmapped path is 404, not 500")
+    void unmappedPathIs404() throws Exception {
+        User u = new User("9876500002", "buyer");
+        u.setMobileVerified(true);
+        users.saveAndFlush(u);
+
+        mvc.perform(get("/me").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value(ErrorCodes.NOT_FOUND))
+                .andExpect(jsonPath("$.status").value(404));
     }
 
     /**

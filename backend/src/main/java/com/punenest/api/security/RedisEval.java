@@ -15,13 +15,23 @@ import java.util.List;
  *
  * <p>Second, this build resolves offline, and no Redis client can currently be added to it. The
  * Boot 4.1.0 BOM manages {@code spring-boot-starter-data-redis} at 4.1.0, which is not in the local
- * repository; pinning the cached 3.3.5 instead drags {@code lettuce-core}, and Lettuce drags
- * {@code io.netty:*:4.2.15.Final} and {@code reactor-core:3.8.6}, neither of which is cached either
- * — the same wall the AWS SDK's {@code netty-nio-client} exclusion in {@code pom.xml} already
- * documents. Adding the dependency would break {@code mvn -o} for everyone. So the transport is a
- * one-method interface with no implementation shipped yet, and the part that is genuinely hard to
- * get right — atomicity, key layout, TTL, the retry-after arithmetic and the failure policy — is
- * real, here, and tested.
+ * repository, and neither is anything it needs: Boot 4.1.0 manages {@code lettuce-core} at
+ * 7.5.2.RELEASE (cache has 6.3.2.RELEASE) and, via {@code reactor-bom} 2025.0.6,
+ * {@code reactor-core} at 3.8.6 (cache tops out at 3.8.1). {@code redis.clients:jedis} is absent
+ * altogether, so there is no second client to fall back on. Pinning the cached
+ * {@code spring-data-redis} 3.3.5 instead only moves the wall — the same one the AWS SDK's
+ * {@code netty-nio-client} exclusion in {@code pom.xml} already documents. Adding the dependency
+ * would break {@code mvn -o} for everyone. So the transport is a one-method interface with no
+ * implementation shipped yet, and the part that is genuinely hard to get right — atomicity, key
+ * layout, TTL, the retry-after arithmetic and the failure policy — is real, here, and tested.
+ *
+ * <p><strong>Re-check in one command rather than re-reading this paragraph</strong>, because a
+ * cache moves under you: {@code mvnw dependency:get -Dartifact=org.springframework.boot:
+ * spring-boot-starter-data-redis:4.1.0}. Verified 2026-08-12 — it fails offline with
+ * {@code (absent) ... in offline mode}, and online with a connect timeout to the configured
+ * mirror, so the "first time the build runs online" trigger has not fired yet. One detail there
+ * has already gone stale once: {@code io.netty:*:4.2.15.Final} was recorded as a blocker and is
+ * now cached, which is exactly why the command beats the prose.
  *
  * <p>An implementation is a few lines over {@code StringRedisTemplate}:
  * {@code template.execute(new DefaultRedisScript<>(script, List.class), keys, args)}. It belongs in

@@ -2,6 +2,7 @@ package com.punenest.api.documents.vault;
 
 import com.punenest.api.common.error.PayloadTooLargeException;
 import com.punenest.api.common.error.UnsupportedMediaTypeException;
+import com.punenest.api.common.validation.MediaSignatures;
 import java.util.Set;
 
 /**
@@ -40,26 +41,13 @@ public final class DocumentUploads {
     /** 10 MB. A scanned sale deed is ~2–4 MB; ten is generous without inviting video. */
     public static final long MAX_BYTES = 10L * 1024 * 1024;
 
-    static final String PDF = "application/pdf";
-    static final String JPEG = "image/jpeg";
-    static final String PNG = "image/png";
-    static final String HEIC = "image/heic";
-    static final String WEBP = "image/webp";
+    static final String PDF = MediaSignatures.PDF;
+    static final String JPEG = MediaSignatures.JPEG;
+    static final String PNG = MediaSignatures.PNG;
+    static final String HEIC = MediaSignatures.HEIC;
+    static final String WEBP = MediaSignatures.WEBP;
 
     private static final Set<String> ALLOWED = Set.of(PDF, JPEG, PNG, HEIC, WEBP);
-
-    /**
-     * ISO base-media brands that mean "this is HEIF-family image data". {@code mif1} and {@code
-     * msf1} are the generic image and image-sequence brands that iOS also emits, so a HEIC from a
-     * real iPhone does not always carry a {@code heic} brand.
-     */
-    private static final Set<String> HEIF_BRANDS = Set.of(
-            "heic", "heix", "heim", "heis", "hevc", "hevx", "hevm", "hevs", "mif1", "msf1");
-
-    /**
-     * Longest prefix any signature needs: {@code RIFF} + 4 size bytes + {@code WEBP}.
-     */
-    private static final int SNIFF_BYTES = 12;
 
     /**
      * Prove an upload is one of the five accepted document types and return that type.
@@ -106,65 +94,17 @@ public final class DocumentUploads {
     /**
      * The media type the leading bytes actually describe, or {@code null} for anything unrecognised.
      *
-     * <p>Unrecognised is the safe default and covers the case that matters: HTML, SVG and scripts
-     * have no fixed signature at all, so "no signature" and "not a document" are the same answer.
+     * <p>The table itself moved to {@link MediaSignatures} when message attachments (D49) needed the
+     * identical check from a package the layering forbids importing this one. This stays as the
+     * vault's own name for it — the tests that pin the five signatures were written against it, and
+     * the indirection costs nothing.
      */
     static String sniff(byte[] b) {
-        if (b == null || b.length < 4) {
-            return null;
-        }
-        if (starts(b, '%', 'P', 'D', 'F', '-')) {
-            return PDF;
-        }
-        // SOI marker plus the first byte of the next segment; two bytes alone collide too easily.
-        if (matches(b, 0xFF, 0xD8, 0xFF)) {
-            return JPEG;
-        }
-        if (matches(b, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)) {
-            return PNG;
-        }
-        if (b.length >= SNIFF_BYTES && starts(b, 'R', 'I', 'F', 'F') && ascii(b, 8, 4).equals("WEBP")) {
-            return WEBP;
-        }
-        // ISO base media: [4-byte box size][ftyp][4-byte brand]. The size prefix is why the brand
-        // sits at offset 8 rather than at the start of the file.
-        if (b.length >= SNIFF_BYTES && ascii(b, 4, 4).equals("ftyp")
-                && HEIF_BRANDS.contains(ascii(b, 8, 4))) {
-            return HEIC;
-        }
-        return null;
+        return MediaSignatures.sniff(b);
     }
 
     private static String normalise(String contentType) {
-        return contentType == null ? "" : contentType.split(";", 2)[0].trim().toLowerCase();
-    }
-
-    private static boolean starts(byte[] b, char... chars) {
-        if (b.length < chars.length) {
-            return false;
-        }
-        for (int i = 0; i < chars.length; i++) {
-            if (b[i] != (byte) chars[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean matches(byte[] b, int... unsigned) {
-        if (b.length < unsigned.length) {
-            return false;
-        }
-        for (int i = 0; i < unsigned.length; i++) {
-            if ((b[i] & 0xFF) != unsigned[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static String ascii(byte[] b, int from, int length) {
-        return new String(b, from, length, java.nio.charset.StandardCharsets.US_ASCII);
+        return MediaSignatures.normalise(contentType);
     }
 
     /**
@@ -173,12 +113,6 @@ public final class DocumentUploads {
      * {@code <script>} or a traversal string back into the owner's dashboard, not about path safety.
      */
     public static String safeFileName(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "document";
-        }
-        String base = raw.replace('\\', '/');
-        base = base.substring(base.lastIndexOf('/') + 1);
-        base = base.replaceAll("[^A-Za-z0-9._-]", "_");
-        return base.length() > 120 ? base.substring(base.length() - 120) : base;
+        return MediaSignatures.safeFileName(raw, "document");
     }
 }

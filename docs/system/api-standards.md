@@ -213,11 +213,20 @@ Rules:
   rule that must never disagree, or a rental would advertise a lakh-scale figure as monthly rent.
 - **Validation regexes are composed from the constants** (`DealIntent.PATTERN`), so the accepted input
   set and the domain vocabulary cannot drift.
-- **Constants, not Java `enum`s — for now, deliberately.** The columns, DTO records, and query filters
-  all carry `String`, matching the contract's string enums. Promoting these to real enums means
-  converters, DTO signature changes, and a migration story for any DB value the enum lacks. That is
-  worth doing when a value gains behaviour (e.g. a moderation state machine); today it buys nothing
-  beyond what a typo-proof constant already gives. Revisit per-vocabulary, not wholesale.
+- **Constants by default; an `enum` once the vocabulary grows behaviour.** The columns, DTO records,
+  and query filters carry `String`, matching the contract's string enums, and promoting one means a
+  converter, DTO signature changes, and a migration story for any DB value the enum lacks. That price
+  is worth paying exactly when a value gains behaviour — a state machine, a settable subset — because
+  the alternative is static helpers taking the `String` they should have been methods on, which the
+  compiler cannot police. `ServiceRequestStatus` is the one that has been converted (D11) and the
+  shape to copy: a `wire()` value that is the DB and JSON form, a nested `AttributeConverter` named
+  on the field (**never `@Enumerated`**, which writes `IN_PROGRESS` into a column whose `CHECK` wants
+  `in-progress`), `@JsonValue`/`@JsonCreator` at the wire, `toString()` returning `wire()` so
+  interpolated messages do not drift, and JPQL comparisons written as fully-qualified enum literals
+  rather than string literals. Delete the old constant holder in the same change — two vocabularies
+  for one concept is worse than either. **Revisit per-vocabulary, not wholesale**, and note that
+  `Roles` is not a candidate at any size: its upper-case authority form is interpolated into
+  `@PreAuthorize`, which requires a compile-time `String` constant.
 
 ## 8. DTOs, mapping & the entity↔wire boundary
 

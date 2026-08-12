@@ -54,14 +54,6 @@ function MonthCalendar({ month, onMonth, events, selected, onSelect }) {
   );
 }
 
-// Deterministic per-society baseline so a fresh society still shows a sensible
-// rating breakdown; blended with real user reviews as they arrive.
-function baselineBars(soc) {
-  const seed = (soc.occupancy || 85) + (soc.year || 2016);
-  const pick = (base, i) => Math.max(3.4, Math.min(4.9, +(base + ((seed + i * 7) % 9) / 10 - 0.4).toFixed(1)));
-  return { Safety: pick(4.2, 1), Maintenance: pick(3.9, 2), Management: pick(3.8, 3), Amenities: pick(4.1, 4), Connectivity: pick(4.3, 5) };
-}
-
 /* Society blurb.
  *
  * Takes `t` rather than importing it: this is called from render, and passing the
@@ -114,8 +106,10 @@ function buildAbout(soc, locName, t) {
  *
  * With the specs absent, `_thin` is true, which is the honest state the hub already knows how to
  * render: "Details not confirmed yet", no verified badge (`registration && conveyance` is now
- * falsy), no estimated rating (`showEstimate` is false, so the hero says "Not rated yet"), and the
- * "Help verify" call to action. Both stat lists already null-filter, so they simply come out empty.
+ * falsy), no *fabricated* rating — real resident reviews only, and the hero says "Not rated yet"
+ * until there are some. Note reviews are keyed on the slug, not on catalogue membership, so an
+ * unknown slug can accumulate genuine ratings and will show them. And the "Help verify" call to
+ * action. Both stat lists already null-filter, so they simply come out empty.
  *
  * `lat`/`lng` stay absent too — the Location tab is already hidden on `_generic`, and inventing
  * coordinates for an unknown building is the same class of claim as inventing its lift count.
@@ -128,4 +122,4 @@ function genericSociety(slug, name, locName) {
   };
 }
 
-export { MonthCalendar, baselineBars, buildAbout, genericSociety };
+export { MonthCalendar, buildAbout, genericSociety };

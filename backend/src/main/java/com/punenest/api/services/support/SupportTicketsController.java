@@ -1,5 +1,6 @@
 package com.punenest.api.services.support;
 
+import com.punenest.api.common.attachment.MessageAttachmentDto;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
@@ -8,12 +9,15 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * {@code /support/tickets} — the customer-facing half of support.
@@ -59,7 +63,22 @@ public class SupportTicketsController {
     @ResponseStatus(HttpStatus.CREATED)
     public MessageDto reply(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody MessageCreate body) {
-        return service.reply(principal, id, body.body());
+        return service.reply(principal, id, body.body(), body.attachments());
+    }
+
+    /**
+     * {@code POST /support/tickets/{id}/attachments} (contract {@code attachToSupportTicket}) — 201.
+     *
+     * <p>Multipart, with {@code consumes} pinned so a JSON body is refused with 415 by the routing
+     * table rather than by handler code. Guarded by the ticket's own rule — the raiser or ops — so
+     * an operator working a ticket can attach a screenshot back to the customer.
+     */
+    @PostMapping(value = Routes.SupportTickets.ATTACHMENTS,
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public MessageAttachmentDto attach(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @RequestParam("file") MultipartFile file) {
+        return service.attach(principal, id, file);
     }
 
     /** {@code POST /support/tickets/{id}/read} (contract {@code markSupportTicketRead}) — 204. */
@@ -72,10 +91,18 @@ public class SupportTicketsController {
     /**
      * Contract schema {@code MessageCreate}.
      *
-     * <p>{@code attachments} is absent for the same reason as on the service-request thread: there is
-     * no upload surface behind it, so the field is accepted and dropped rather than stored as a
-     * client-supplied URL nothing can render.
+     * <p>{@code attachments} names uploads the caller already made against this ticket via
+     * {@link #attach} (D49) — attachment ids, never URLs, because a client-supplied location stored
+     * and re-served by the platform is a request-forgery surface. The service refuses any id that is
+     * not the caller's own, on this ticket, and unsent.
+     *
+     * <p>Note this is the <em>support</em> {@code MessageCreate}; the service-request thread's
+     * {@code MessageRequest} is a different record and still has no attachments, which is why the
+     * contract gives that surface its own schema.
      */
-    public record MessageCreate(@NotBlank @Size(max = 4000) String body) {
+    public record MessageCreate(
+            @NotBlank @Size(max = 4000) String body,
+            @Size(max = 5, message = "A message can carry at most 5 attachments")
+            List<String> attachments) {
     }
 }

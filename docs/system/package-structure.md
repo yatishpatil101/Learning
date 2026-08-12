@@ -174,6 +174,43 @@ Constructor injection only (no field `@Autowired`). Package names are **singular
 suffixes** (`listing`, not `listings`/`listingcontext`) — except where the domain noun is naturally
 plural (`rentals`, `documents`, `services`).
 
+### 4.1 The service-split trigger — ~450 lines, split by use-case, never by layer
+
+The `<Aggregate>Service` row above asks for services that are "small & single-responsibility", which
+is a judgement call, and judgement calls are settled by whoever is holding the keyboard. The
+operational definition is **450 physical lines**: once a service crosses it the presumption flips,
+and the reviewer's default answer becomes "split this" rather than "it reads fine to me". Agreeing
+the number in the abstract is the entire point — it costs nothing while nobody is defending a
+particular file, and it is unwinnable once somebody is.
+
+When a service does cross the line, **it splits by use-case, never by layer**. `RentService` becomes
+`RentBillingService` and `RentPaymentService`: two names a product person would recognise, each
+owning its own transactions, each testable without the other. It must **never** become
+`RentServiceHelper`. A helper class named after its parent is a file split, not a design — the two
+files still have to be read together, the seam between them is arbitrary, the name says nothing
+about what the class does, and the original service keeps every one of its responsibilities while
+now also depending on a class that exists only because a line count got embarrassing. The same
+objection retires `RentServiceImpl2`, `RentServiceSupport` and `RentServiceUtils`. If the new half
+cannot be named after something the business actually does, it is not a split.
+
+**What a reviewer does when a service crosses the line.** Name the use-cases the service is serving
+today. If they are genuinely one — a long but linear workflow with a single reason to change — say
+so in the pull request and say why, because that is the case a line count is deliberately too blunt
+for. Otherwise take the smallest use-case that owns its own data and its own transaction, move it
+out together with its tests, and leave the caller talking to two services instead of one. Do not
+extract a mapper, a validator or a "helper" and call it done: those are layers, and slicing one
+aggregate by layer leaves both halves unable to make sense without the other.
+
+**Enforcement:** `ServiceSizeGuardTest` fails the build when a `*Service.java` under
+`src/main/java` exceeds 450 lines, and separately when a class appears whose name is an existing
+service plus a filler suffix (`…ServiceHelper`, `…ServiceUtils`, `…ServiceSupport`, `…Service2`).
+Six services were already over the line when the rule was written — `ServiceRequestService` at 1087
+lines is the worst — and **none of them was split to make the guard pass**; a large untested
+refactor performed to satisfy a lint is exactly the failure this rule is meant to prevent. They are
+instead pinned in the test at their exact current size, so they may shrink but never grow. Raising a
+pin means editing that table by hand, which is a deliberate and reviewable act rather than silent
+drift — the same device the layering table in §2 uses for adding a context.
+
 ---
 
 ## 5. Migration — what moved now vs. deferred

@@ -30,9 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +46,7 @@ import tools.jackson.databind.ObjectMapper;
  * way to reach {@code approved}, and only the requester may call it. Three things protect that:
  *
  * <ol>
- *   <li>{@link ServiceRequestStatuses#isStaffSettable} keeps {@code approved}, {@code draft-shared}
+ *   <li>{@link ServiceRequestStatus#isStaffSettable} keeps {@code approved}, {@code draft-shared}
  *       and {@code completed} out of reach of {@code PATCH /status} — a status endpoint that could
  *       set them would let a staff member mark a job approved and finished without ever producing
  *       a document;</li>
@@ -149,6 +146,14 @@ public class ServiceRequestService implements AbandonedCheckouts {
     private final ServiceRequestMapper mapper;
     private final DocumentService documents;
     /**
+     * The ticket link (D45), which owns the only reach this flow makes into the ops board.
+     *
+     * <p>The arrow points this way and only this way. {@code services.ticket} knows nothing about
+     * {@code services.request}, so the board keeps working if this workflow is never used, and the
+     * two sub-packages cannot form a cycle.
+     */
+    private final TicketMirror ticketMirror;
+    /**
      * The identity-number channel (D151) — held only so {@link #transition} can discard the numbers
      * when a matter closes. Nothing here ever reads them: this class's own DTO is what the ops queue
      * projects, and a getter on it is exactly the leak that channel exists to replace.
@@ -171,6 +176,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
             ServiceRequestMessageRepository messages,
             ServiceRequestMapper mapper,
             DocumentService documents,
+            TicketMirror ticketMirror,
             ServiceRequestIdentityService identities,
             UserRepository users,
             PropertyRepository properties,
@@ -184,6 +190,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
         this.messages = messages;
         this.mapper = mapper;
         this.documents = documents;
+        this.ticketMirror = ticketMirror;
         this.identities = identities;
         this.users = users;
         this.properties = properties;
@@ -192,29 +199,6 @@ public class ServiceRequestService implements AbandonedCheckouts {
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.transactions = new TransactionTemplate(transactionManager);
-    }
-
-    /**
-     * Contract {@code listServiceRequests} (spec fix S40) — own for a customer, the queue for ops.
-     *
-     * <p>The scope is derived from the principal's role, never from a parameter. There is no
-     * {@code ?requesterId=} for the same reason there is no nullable scope on the repository: a
-     * filter a client can set is a filter a client can remove.
-     */
-    @Transactional(readOnly = true)
-    public Page<ServiceRequestDto> list(AuthPrincipal caller, String type, String status,
-            Pageable pageable) {
-        String typeFilter = blankToNull(type);
-        String statusFilter = blankToNull(status);
-        if (statusFilter != null && !ServiceRequestStatuses.isKnown(statusFilter)) {
-            throw new BadRequestException("Unknown service request status: " + statusFilter);
-        }
-        Page<ServiceRequest> page = isOps(caller)
-                ? requests.findForQueue(typeFilter, statusFilter, pageable)
-                : requests.findForRequester(caller.userId(), typeFilter, statusFilter, pageable);
-        // One mapper call for the whole page — see ServiceRequestMapper on why this is not a .map().
-        List<ServiceRequestDto> content = mapper.toDtos(page.getContent());
-        return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
     }
 
     /**
@@ -278,6 +262,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
             throw new BadRequestException("Unknown service request type '" + type + "'; expected one of "
                     + ServiceRequestTypes.known());
         }
+        UUID ticketId = ticketMirror.resolve(caller, body.ticketId());
         Long price = priceFor(type, details);
         if (price != null) {
             // Each priced request opens a live gateway order. Nothing else throttles this endpoint,
@@ -292,12 +277,12 @@ public class ServiceRequestService implements AbandonedCheckouts {
             // produces the better message on the ordinary double click; the unique index caught
             // below is what holds under concurrency.
             long openUnpaid = requests.countByRequesterIdAndTypeAndStatus(
-                    caller.userId(), type, ServiceRequestStatuses.AWAITING_PAYMENT);
+                    caller.userId(), type, ServiceRequestStatus.AWAITING_PAYMENT);
             if (openUnpaid >= MAX_OPEN_UNPAID_PER_TYPE) {
                 throw openUnpaidConflict(type);
             }
         }
-        ServiceRequest draft = new ServiceRequest(caller.userId(), type, propertyId, details);
+        ServiceRequest draft = new ServiceRequest(caller.userId(), type, propertyId, details, ticketId);
         if (price != null) {
             // A priced desk (rent agreement) is held behind a Cashfree order: ops sees nothing until
             // the payment webhook settles it (findForQueue excludes awaiting-payment). The hold is
@@ -323,6 +308,12 @@ public class ServiceRequestService implements AbandonedCheckouts {
                 log.info("Concurrent create lost the open-unpaid race for {} on desk {}",
                         caller.userId(), type);
                 throw openUnpaidConflict(type);
+            }
+            // The other rule with a unique index behind it (D45): one ticket, one request.
+            if (ConstraintViolations.isOn(violation, TicketMirror.INDEX)) {
+                log.info("Service request for {} refused: ticket {} is already mirrored",
+                        caller.userId(), ticketId);
+                throw TicketMirror.alreadyMirrored();
             }
             throw violation;
         }
@@ -381,7 +372,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
             transactions.executeWithoutResult(tx -> requests.findById(opened.requestId())
                     .filter(request -> request.getPaymentRef() == null)
                     .ifPresent(request -> {
-                        transition(request, ServiceRequestStatuses.CANCELLED);
+                        transition(request, ServiceRequestStatus.CANCELLED);
                         record(request, "payment.failed", null);
                     }));
             log.error("No gateway order for service request {}; cancelled it. Nothing was charged "
@@ -631,15 +622,15 @@ public class ServiceRequestService implements AbandonedCheckouts {
             log.error("Amount mismatch on service request {}: billed {} but provider charged {}",
                     request.getId(), billed, providerAmount);
         }
-        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+        if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
             reportRefusedSettlement(request, paid);
             return true;
         }
         if (paid) {
-            transition(request, ServiceRequestStatuses.NEW);
+            transition(request, ServiceRequestStatus.NEW);
             record(request, "payment.received", null);
         } else {
-            transition(request, ServiceRequestStatuses.CANCELLED);
+            transition(request, ServiceRequestStatus.CANCELLED);
             record(request, "payment.failed", null);
         }
         return true;
@@ -658,7 +649,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
      * families and it belongs here for the same reason.
      */
     private void reportRefusedSettlement(ServiceRequest request, boolean paid) {
-        if (!paid || !ServiceRequestStatuses.CANCELLED.equals(request.getStatus())) {
+        if (!paid || request.getStatus() != ServiceRequestStatus.CANCELLED) {
             log.info("Ignored payment callback for service request {}: already {}",
                     request.getId(), request.getStatus());
             return;
@@ -701,15 +692,15 @@ public class ServiceRequestService implements AbandonedCheckouts {
             throw new ForbiddenException(
                     "Only the person who raised this request can cancel it.");
         }
-        if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+        if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
             throw new ConflictException(
                     "Only a request still waiting for payment can be cancelled here — this one is "
                             + request.getStatus() + ".");
         }
-        transition(request, ServiceRequestStatuses.CANCELLED);
+        transition(request, ServiceRequestStatus.CANCELLED);
         record(request, ABANDONED_EVENT, displayName(caller.userId()));
         audit.record(caller, "service-request.cancelled-unpaid", "service_request",
-                request.getId().toString(), "from", ServiceRequestStatuses.AWAITING_PAYMENT);
+                request.getId().toString(), "from", ServiceRequestStatus.AWAITING_PAYMENT.wire());
         return mapper.toDto(request);
     }
 
@@ -749,13 +740,13 @@ public class ServiceRequestService implements AbandonedCheckouts {
     @Transactional
     public int expireAbandonedCheckouts(Instant cutoff) {
         List<ServiceRequest> stale = requests.findStaleByStatus(
-                ServiceRequestStatuses.AWAITING_PAYMENT, cutoff, Limit.of(MAX_PER_SWEEP));
+                ServiceRequestStatus.AWAITING_PAYMENT, cutoff, Limit.of(MAX_PER_SWEEP));
         int expired = 0;
         for (ServiceRequest request : stale) {
-            if (!ServiceRequestStatuses.AWAITING_PAYMENT.equals(request.getStatus())) {
+            if (request.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
                 continue;
             }
-            transition(request, ServiceRequestStatuses.CANCELLED);
+            transition(request, ServiceRequestStatus.CANCELLED);
             record(request, ABANDONED_EVENT, null);
             expired++;
             log.info("Service request {} cancelled: its checkout was opened at {} and never paid",
@@ -852,6 +843,26 @@ public class ServiceRequestService implements AbandonedCheckouts {
     }
 
     /**
+     * Contract {@code getServiceRequestChecklist} — the requester or ops (D120).
+     *
+     * <p>Same guard as {@link #get}, and deliberately the same <em>call</em>: the checklist is
+     * folded from the document list that {@code GET /service-requests/{id}} already returns, so the
+     * two can never disagree about what has been filed. Reading the vault a second time with its
+     * own query would be marginally cheaper and would introduce exactly the class of bug this
+     * endpoint exists to remove — a document column that says one thing while the documents tab
+     * says another.
+     *
+     * <p>No {@code @PreAuthorize}. {@link #visible} is the guard, and it answers a stranger with
+     * {@code 404} rather than {@code 403}: which service requests exist is not a fact this API
+     * confirms to people who are not on them. A role annotation here would additionally lock out
+     * the customer, who is the person the checklist is for.
+     */
+    @Transactional(readOnly = true)
+    public ServiceRequestChecklistDto checklist(AuthPrincipal caller, String id) {
+        return ServiceRequestChecklist.of(mapper.toDto(visible(caller, id)).documents());
+    }
+
+    /**
      * Contract {@code addServiceRequestMessage} — 201. The requester or ops.
      *
      * <p>{@code authorRole} is taken from the principal, so a customer cannot post as staff.
@@ -859,7 +870,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
     @Transactional
     public MessageDto addMessage(AuthPrincipal caller, String id, String body) {
         ServiceRequest request = visible(caller, id);
-        if (ServiceRequestStatuses.isTerminal(request.getStatus())) {
+        if (request.getStatus().isTerminal()) {
             throw new ConflictException(
                     "This request is " + request.getStatus() + " — start a new one to continue.");
         }
@@ -880,25 +891,24 @@ public class ServiceRequestService implements AbandonedCheckouts {
      */
     @Transactional
     public ServiceRequestDto updateStatus(AuthPrincipal caller, String id, String status, String note) {
-        ServiceRequest request = found(id);
-        String target = status == null ? "" : status.trim();
-        if (!ServiceRequestStatuses.isKnown(target)) {
-            throw new BadRequestException("Unknown service request status: " + status);
-        }
-        if (!ServiceRequestStatuses.isStaffSettable(target)) {
+        ServiceRequest request = opsAccessible(caller, id);
+        ServiceRequestStatus target = ServiceRequestStatus.parse(status == null ? "" : status.trim())
+                .orElseThrow(() ->
+                        new BadRequestException("Unknown service request status: " + status));
+        if (!target.isStaffSettable()) {
             throw new BadRequestException(
                     ("'%s' is not set directly. Share a draft to reach draft-shared, the customer "
                             + "approves it, and uploading the final document completes it.")
                             .formatted(target));
         }
-        String from = transition(request, target);
-        if (ServiceRequestStatuses.ASSIGNED.equals(target)) {
+        ServiceRequestStatus from = transition(request, target);
+        if (target == ServiceRequestStatus.ASSIGNED) {
             request.setAssigneeId(caller.userId());
         }
         String actor = displayName(caller.userId());
         record(request, "status." + target, actor);
         audit.record(caller, "service-request.status", "service_request", request.getId().toString(),
-                "from", from, "to", target, "note", note);
+                "from", from.wire(), "to", target.wire(), "note", note);
         return mapper.toDto(request);
     }
 
@@ -932,11 +942,11 @@ public class ServiceRequestService implements AbandonedCheckouts {
     @Transactional
     public ServiceRequestDto shareDraft(AuthPrincipal caller, String id, String note,
             MultipartFile file) {
-        ServiceRequest request = found(id);
-        String from = transition(request, ServiceRequestStatuses.DRAFT_SHARED);
+        ServiceRequest request = opsAccessible(caller, id);
+        ServiceRequestStatus from = transition(request, ServiceRequestStatus.DRAFT_SHARED);
         storeDocument(caller, request, "draft", file, "draft.shared");
         audit.record(caller, "service-request.draft-shared", "service_request",
-                request.getId().toString(), "from", from, "note", note);
+                request.getId().toString(), "from", from.wire(), "note", note);
         return mapper.toDto(request);
     }
 
@@ -945,9 +955,16 @@ public class ServiceRequestService implements AbandonedCheckouts {
      *
      * <p>Staff and admin are refused here even though they can do everything else on the request.
      * That is the entire maker-checker: the person who produced the draft must not be the person
-     * who accepts it, and "admin can do anything" would quietly delete the control. A rejection is
-     * not a failure state — it returns the request to {@code in-progress}, which is where the work
-     * is, and the customer's note goes on the timeline so ops can see what to change.
+     * who accepts it, and "admin can do anything" would quietly delete the control.
+     *
+     * <p><strong>A rejection lands in {@code changes-requested}, not {@code in-progress} (D121),</strong>
+     * and the note is written as the customer's own message. It used to do neither: the status
+     * collapsed into the one a request that had never been rejected also sits in, and the note went
+     * only to {@code audit_log}. Between them that left a rejection invisible from every surface a
+     * customer or an operator actually reads — the request looked like ordinary work in flight and
+     * nothing said what was wrong with the draft. The message goes on the thread rather than the
+     * timeline because {@code ServiceRequestEvent} is an audit trail of what the server did, and
+     * customer free text does not belong in one.
      *
      * @throws ForbiddenException if the caller is not the requester
      * @throws ConflictException  if there is no draft outstanding
@@ -965,16 +982,22 @@ public class ServiceRequestService implements AbandonedCheckouts {
             case "reject" -> false;
             default -> throw new BadRequestException("decision must be 'approve' or 'reject'");
         };
-        String target = approve ? ServiceRequestStatuses.APPROVED : ServiceRequestStatuses.IN_PROGRESS;
-        if (!ServiceRequestStatuses.DRAFT_SHARED.equals(request.getStatus())) {
+        ServiceRequestStatus target = approve
+                ? ServiceRequestStatus.APPROVED
+                : ServiceRequestStatus.CHANGES_REQUESTED;
+        if (request.getStatus() != ServiceRequestStatus.DRAFT_SHARED) {
             throw new ConflictException(
                     "There is no draft awaiting your decision — this request is "
                             + request.getStatus() + ".");
         }
-        String from = transition(request, target);
+        ServiceRequestStatus from = transition(request, target);
         record(request, approve ? "draft.approved" : "draft.rejected", displayName(caller.userId()));
+        if (!approve && blankToNull(note) != null) {
+            messages.save(new ServiceRequestMessage(
+                    request.getId(), caller.userId(), caller.role(), note.trim()));
+        }
         audit.record(caller, "service-request.draft-decision", "service_request",
-                request.getId().toString(), "from", from, "to", target, "note", note);
+                request.getId().toString(), "from", from.wire(), "to", target.wire(), "note", note);
         return mapper.toDto(request);
     }
 
@@ -986,15 +1009,15 @@ public class ServiceRequestService implements AbandonedCheckouts {
      */
     @Transactional
     public DocumentDto uploadFinalDoc(AuthPrincipal caller, String id, MultipartFile file) {
-        ServiceRequest request = found(id);
-        if (!ServiceRequestStatuses.APPROVED.equals(request.getStatus())) {
+        ServiceRequest request = opsAccessible(caller, id);
+        if (request.getStatus() != ServiceRequestStatus.APPROVED) {
             throw new ConflictException(
                     "The customer has not approved the draft yet — this request is "
                             + request.getStatus() + ".");
         }
         DocumentDto uploaded =
                 storeDocument(caller, request, "final-document", file, "final-document.uploaded");
-        transition(request, ServiceRequestStatuses.COMPLETED);
+        transition(request, ServiceRequestStatus.COMPLETED);
         record(request, "status.completed", displayName(caller.userId()));
         audit.record(caller, "service-request.completed", "service_request",
                 request.getId().toString(), "document", uploaded.id());
@@ -1039,14 +1062,14 @@ public class ServiceRequestService implements AbandonedCheckouts {
      * timeline the customer reads, because "we have discarded your Aadhaar number" is the half of a
      * retention promise that is worth showing rather than only keeping.
      */
-    private String transition(ServiceRequest request, String target) {
-        String from = request.getStatus();
-        if (!ServiceRequestStatuses.canTransition(from, target)) {
+    private ServiceRequestStatus transition(ServiceRequest request, ServiceRequestStatus target) {
+        ServiceRequestStatus from = request.getStatus();
+        if (!from.canTransitionTo(target)) {
             throw new ConflictException(
                     "Cannot move a service request from %s to %s.".formatted(from, target));
         }
         request.moveTo(target);
-        if (ServiceRequestStatuses.isTerminal(target) && identities.purgeFor(request.getId()) > 0) {
+        if (target.isTerminal() && identities.purgeFor(request.getId()) > 0) {
             record(request, "identities.purged", null);
         }
         return from;
@@ -1063,13 +1086,26 @@ public class ServiceRequestService implements AbandonedCheckouts {
                 .orElseThrow(() -> NotFoundException.of("Service request"));
     }
 
-    /** The requester's own request, or any request for ops. A stranger's is a 404, not a 403. */
-    private ServiceRequest visible(AuthPrincipal caller, String id) {
+    /**
+     * Anyone on the request, or any request for ops. A stranger's is a 404, not a 403.
+     *
+     * <p>Package-private rather than private since D121, so {@code ServiceRequestReadReceipts} can
+     * use the same guard the reads use instead of re-deriving it. One participant test, one answer.
+     */
+    ServiceRequest visible(AuthPrincipal caller, String id) {
         ServiceRequest request = found(id);
-        if (!isOps(caller) && !caller.userId().equals(request.getRequesterId())) {
-            throw NotFoundException.of("Service request");
+        if (!isOps(caller)) {
+            if (!requests.isParticipant(request.getId(), caller.userId())) {
+                throw NotFoundException.of("Service request");
+            }
+            return request;
         }
-        return request;
+        return ServiceDeskAuthority.onCallersDesk(caller, request);
+    }
+
+    /** Any existing request, on the calling operator's own desk. For the ops-only operations. */
+    private ServiceRequest opsAccessible(AuthPrincipal caller, String id) {
+        return ServiceDeskAuthority.onCallersDesk(caller, found(id));
     }
 
     private static boolean isOps(AuthPrincipal caller) {

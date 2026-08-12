@@ -9,7 +9,6 @@ import java.time.Instant;
  * but no {@code role}; it is an off-platform person the owner jotted down (D1, S6).
  *
  * @param id     server-assigned opaque id (stable across edits — S5)
- * @param name   the party's name (required)
  * @param mobile raw mobile, if provided
  * @param note   owner's private note
  * @param at     when the party was added ({@code created_at})

@@ -68,8 +68,6 @@ public class LocalityResolver {
      * Resolve a display name (with optional coordinates) to a curated locality slug.
      *
      * @param name display locality as typed/picked, nullable
-     * @param lat  listing latitude, nullable
-     * @param lng  listing longitude, nullable
      * @return the curated slug, or {@code null} when nothing matched confidently
      */
     @Transactional(readOnly = true)

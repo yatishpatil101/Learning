@@ -55,7 +55,7 @@ export function ReviewModal({ onClose, onSubmit }) {
               {RV_CATS.map(([k]) => (
                 <div key={k} className="flex items-center justify-between">
                   <span className="text-sm text-slate-300">{t('property.reviewCats.' + k)}</span>
-                  <StarInput value={cats[k] || 0} onChange={(v) => setCats((c) => ({ ...c, [k]: v }))} size={18} />
+                  <StarInput value={cats[k] || 0} onChange={(v) => setCats((c) => ({ ...c, [k]: v }))} size={18} aspect={t('property.reviewCats.' + k)} />
                 </div>
               ))}
             </div>

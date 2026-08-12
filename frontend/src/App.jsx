@@ -95,7 +95,10 @@ const AdminPostOnBehalf = lazy(() => import('./pages/admin/AdminPostOnBehalf.jsx
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
 const AdminSocieties = lazy(() => import('./pages/admin/AdminSocieties.jsx'));
 const AdminLocalities = lazy(() => import('./pages/admin/AdminLocalities.jsx'));
-const AdminTeam = lazy(() => import('./pages/admin/AdminTeam.jsx'));
+/* The only admin route with a locale namespace: the approvals queue and the refusals around it are
+   new UI (D205) and were written translated. The rest of this page's strings predate D129 and are
+   still English \u2014 see the item's report. */
+const AdminTeam = lazyPage(() => import('./pages/admin/AdminTeam.jsx'), 'team');
 
 /* ─── Lazy ops pages ─── */
 const OpsDashboard = lazy(() => import('./pages/ops/OpsDashboard.jsx'));

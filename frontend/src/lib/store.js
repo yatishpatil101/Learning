@@ -12,7 +12,6 @@ export * from './store/deals.js';
 export {
   getEntityReviews,
   addEntityReview,
-  entityRating,
   getPropReviews,
   savePropReviews,
   getPropReview,

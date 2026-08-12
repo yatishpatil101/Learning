@@ -9,6 +9,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.Roles;
+import jakarta.servlet.http.HttpServletRequest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -73,16 +74,18 @@ public class ReferralService {
     private final ReferralMapper mapper;
     private final UserRepository users;
     private final PlatformSettings settings;
+    private final ReferralSignals signals;
     private final AuditService audit;
 
     public ReferralService(ReferralRepository referrals, ReferralCodeRepository codes,
             ReferralMapper mapper, UserRepository users, PlatformSettings settings,
-            AuditService audit) {
+            ReferralSignals signals, AuditService audit) {
         this.referrals = referrals;
         this.codes = codes;
         this.mapper = mapper;
         this.users = users;
         this.settings = settings;
+        this.signals = signals;
         this.audit = audit;
     }
 
@@ -92,10 +95,14 @@ public class ReferralService {
      * <p>Not read-only: the code is minted on first read. Generating it at signup would mean a
      * migration over every existing user and a code for the overwhelming majority who never open
      * this screen; generating it here costs one insert, once, for the people who actually refer.
+     *
+     * <p>The request is carried in because minting is also when the referrer's half of the D55
+     * correlation signals is stamped — see {@link ReferralCode}. Reads after the first do not
+     * re-stamp, so this stays one insert and never a write on a repeat read.
      */
     @Transactional
-    public ReferralSummaryDto summary(AuthPrincipal caller) {
-        String code = codeFor(caller.userId());
+    public ReferralSummaryDto summary(AuthPrincipal caller, HttpServletRequest request) {
+        String code = codeFor(caller.userId(), request);
         List<Referral> mine = referrals.findByReferrerId(caller.userId());
 
         int converted = 0;
@@ -119,9 +126,15 @@ public class ReferralService {
      * own code and a mobile that has already been referred are indistinguishable to the caller. The
      * alternative leaks: distinct messages turn this endpoint into an oracle for "is {@code PUNE-XXXX}
      * a real code?", which is exactly the reconnaissance step before farming one.
+     *
+     * <p>{@code shareChannel} is advisory and anything unrecognised is stored as unknown rather than
+     * refused — see {@link ShareChannels#normalise}. The request is read for the two D55 digests,
+     * which are compared here against the referrer's and then kept only as the booleans the desk
+     * sees plus a ninety-day digest.
      */
     @Transactional
-    public void redeem(AuthPrincipal caller, String rawCode) {
+    public void redeem(AuthPrincipal caller, String rawCode, String shareChannel,
+            HttpServletRequest request) {
         User referred = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
 
@@ -138,22 +151,31 @@ public class ReferralService {
         boolean velocityHigh = referrals.countByReferrerIdAndAtAfter(
                 referrer.getId(), Instant.now().minus(VELOCITY_WINDOW)) >= VELOCITY_LIMIT;
 
+        ReferralSignals.Signals observed = signals.of(request);
+        boolean sameIp = ReferralSignals.matches(owner.get().getReferrerIpHash(), observed.ipHash());
+        boolean sameDevice =
+                ReferralSignals.matches(owner.get().getReferrerDeviceHash(), observed.deviceHash());
+
         Referral referral = new Referral(
                 referrer.getId(),
                 referrer.getMobile(),
                 referred.getName(),
                 referred.getMobile(),
                 channelOf(referred),
+                ShareChannels.normalise(shareChannel),
                 "₹" + reward + " PuneNest credit",
                 reward,
-                risk(velocityHigh, referred.isAadhaarVerified()),
+                risk(velocityHigh, referred.isAadhaarVerified(), sameDevice || sameIp),
                 referred.isAadhaarVerified(),
                 // Aadhaar uniqueness is enforced at verification time -- a second account cannot
                 // complete a badge against an identity hash the platform already holds
                 // (AadhaarAlreadyRegisteredException). So a verified referred party is, by
                 // construction, a unique one; there is nothing further to check here.
                 referred.isAadhaarVerified(),
-                velocityHigh);
+                velocityHigh,
+                sameDevice,
+                sameIp,
+                observed);
         try {
             referrals.saveAndFlush(referral);
         } catch (DataIntegrityViolationException raced) {
@@ -245,15 +267,16 @@ public class ReferralService {
      * concurrent collision (two mints in flight at the same instant) still reaches the index and is
      * answered as a 409; at one chance in a million per attempt, that is a re-tap, not a design.
      */
-    private String codeFor(UUID userId) {
+    private String codeFor(UUID userId, HttpServletRequest request) {
         Optional<ReferralCode> existing = codes.findById(userId);
         if (existing.isPresent()) {
             return existing.get().getCode();
         }
+        ReferralSignals.Signals observed = signals.of(request);
         for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
             String candidate = generateCode();
             if (!codes.existsByCode(candidate)) {
-                return codes.saveAndFlush(new ReferralCode(userId, candidate)).getCode();
+                return codes.saveAndFlush(new ReferralCode(userId, candidate, observed)).getCode();
             }
         }
         throw new IllegalStateException("Could not mint a unique referral code for " + userId);
@@ -277,9 +300,13 @@ public class ReferralService {
     }
 
     /**
-     * Which side of the marketplace the referred party joined on. The contract allows exactly two
-     * values, so a staff or admin account — which cannot meaningfully be referred anyway — records
-     * as {@code seeker} rather than putting an undeclared value on the wire.
+     * Which side of the marketplace the referred party joined on — the <em>referred</em> party's
+     * role, not the referrer's. The contract allows exactly two values, so a staff or admin
+     * account — which cannot meaningfully be referred anyway — records as {@code seeker} rather than
+     * putting an undeclared value on the wire.
+     *
+     * <p>Not to be confused with {@link Referral#getShareChannel()}, which is how the link actually
+     * travelled. That the two were ever conflated is what D60 recorded.
      */
     private static String channelOf(User referred) {
         return Roles.Wire.OWNER.equals(referred.getRole()) ? "owner" : "seeker";
@@ -288,13 +315,19 @@ public class ReferralService {
     /**
      * The risk band shown to the desk.
      *
-     * <p>Two inputs, because two are all the platform can honestly compute: how fast the referrer is
-     * going, and whether the referred party has a verified identity behind them. Device and IP
-     * correlation would be the other two signals and neither is captured — see {@link Referral}.
+     * <p>Three inputs since V64: how fast the referrer is going, whether the referred party has a
+     * verified identity behind them, and whether the two sides correlate on device or network
+     * (D55). The correlation raises the band rather than refusing anything — a couple sharing a flat
+     * and a router is the platform's most common genuine referral, and treating that as fraud would
+     * reject exactly the people the scheme is for. It is a reason for a human to look, which is what
+     * a risk band is.
      */
-    private static String risk(boolean velocityHigh, boolean aadhaarVerified) {
+    private static String risk(boolean velocityHigh, boolean aadhaarVerified, boolean correlated) {
         if (velocityHigh) {
             return RISK_HIGH;
+        }
+        if (correlated) {
+            return RISK_MEDIUM;
         }
         return aadhaarVerified ? RISK_LOW : RISK_MEDIUM;
     }

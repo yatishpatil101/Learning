@@ -20,6 +20,18 @@ public interface DocumentRequestRepository extends JpaRepository<DocumentRequest
     Page<DocumentRequest> findByPropertyIdInOrderByCreatedAtDesc(
             Collection<UUID> propertyIds, Pageable pageable);
 
+    /**
+     * The buyer's own asks — every request this caller wrote, across every listing. Newest first,
+     * paged (D123).
+     *
+     * <p>The mirror of the inbox above, and deliberately a different query rather than the same one
+     * with a different argument: the inbox starts from "listings you own" and this starts from
+     * "rows you wrote", so there is no shape in which one can be made to answer for the other and
+     * accidentally show a buyer somebody else's page. Rides V74's
+     * {@code idx_document_requests_requester_created} for the same reason the inbox rides V49's.
+     */
+    Page<DocumentRequest> findByRequesterIdOrderByCreatedAtDesc(UUID requesterId, Pageable pageable);
+
     /** The idempotency read behind {@code POST /documents/requests}. */
     Optional<DocumentRequest> findByRequesterIdAndPropertyIdAndStatus(
             UUID requesterId, UUID propertyId, String status);

@@ -58,6 +58,7 @@ public class ReferralMapper {
                 r.getReferred(),
                 masked(r.getReferredMobile()),
                 r.getChannel(),
+                r.getShareChannel(),
                 r.getReward(),
                 r.getRewardAmount(),
                 r.getStatus(),
@@ -69,6 +70,7 @@ public class ReferralMapper {
                 r.isVelocityHigh(),
                 r.isActivated(),
                 r.getAt(),
+                r.getQualifiedAt(),
                 r.getHandledBy(),
                 r.getHandledAt())).toList();
     }

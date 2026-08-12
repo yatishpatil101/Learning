@@ -5,8 +5,7 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.NotFoundException;
-import com.punenest.api.engagement.notification.Notification;
-import com.punenest.api.engagement.notification.NotificationRepository;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
@@ -49,14 +48,14 @@ public class FlatmateModerationService {
     private final FlatmateSeekerPostRepository posts;
     private final PropertyRepository properties;
     private final UserRepository users;
-    private final NotificationRepository notifications;
+    private final Notifier notifier;
     private final AuditService audit;
 
     public FlatmateModerationService(FlatmateReviewRepository reviews,
             FlatmateGroupApplicationRepository applications, FlatmateRoomRepository rooms,
             FlatmateGroupRepository groups, FlatmateSeekerPostRepository posts,
             PropertyRepository properties, UserRepository users,
-            NotificationRepository notifications, AuditService audit) {
+            Notifier notifier, AuditService audit) {
         this.reviews = reviews;
         this.applications = applications;
         this.rooms = rooms;
@@ -64,7 +63,7 @@ public class FlatmateModerationService {
         this.posts = posts;
         this.properties = properties;
         this.users = users;
-        this.notifications = notifications;
+        this.notifier = notifier;
         this.audit = audit;
     }
 
@@ -336,14 +335,13 @@ public class FlatmateModerationService {
     }
 
     private void tellHost(FlatmateReview review, boolean approved, String reason) {
-        Notification note = new Notification(
+        notifier.notify(
                 review.getHostId(),
                 "flatmate.review." + (approved ? "approved" : "rejected"),
                 approved ? "Your flatmate post is verified" : "We could not verify your flatmate post",
                 approved
                         ? "Thanks — we have checked your agreement and your post now shows as verified."
-                        : "We could not verify your post. " + reason);
-        note.setLink("/flatmates");
-        notifications.saveAndFlush(note);
+                        : "We could not verify your post. " + reason,
+                "/flatmates");
     }
 }

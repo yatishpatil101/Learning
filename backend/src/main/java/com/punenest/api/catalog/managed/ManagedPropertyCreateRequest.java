@@ -30,7 +30,6 @@ import java.util.Map;
  * @param society     society/project name, nullable
  * @param area        built area value, nullable
  * @param areaUnit    area unit, defaults sqft when null
- * @param furnishing  furnishing level, nullable
  * @param rented      owner rent-tracker: currently rented, nullable (defaults false)
  * @param tenantName  current tenant, nullable
  * @param monthlyRent monthly rent for the tracker, nullable

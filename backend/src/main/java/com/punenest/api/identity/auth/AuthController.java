@@ -21,9 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final StaffInviteService staffInvites;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, StaffInviteService staffInvites) {
         this.authService = authService;
+        this.staffInvites = staffInvites;
     }
 
     /** {@code POST /auth/login} — dual-mode: {mobile} sends an OTP; {mobile,otp} verifies + issues tokens. */
@@ -42,6 +44,22 @@ public class AuthController {
     @PostMapping(Routes.Auth.REFRESH)
     public AuthResponse refresh(@Valid @RequestBody RefreshRequest request) {
         return authService.refresh(request);
+    }
+
+    /**
+     * {@code POST /auth/staff-invite/redeem} — a new back-office colleague sets their own password
+     * (tech debt D206). Returns 204.
+     *
+     * <p>Public, and it has to be: the caller has no credential yet. It also returns <em>nothing</em>
+     * — not the account, not a token. Answering with the user would tell whoever holds the token
+     * whose account it was, and answering with a session would let a colleague whose account is
+     * still awaiting a second administrator sign in around that gate. Redeeming sets a password; it
+     * is not a login.
+     */
+    @PostMapping(Routes.Auth.STAFF_INVITE_REDEEM)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void redeemStaffInvite(@Valid @RequestBody StaffInviteRedeemRequest request) {
+        staffInvites.redeem(request.token(), request.password());
     }
 
     /** {@code POST /auth/logout} — revoke the caller's refresh-token family. Returns 204. */

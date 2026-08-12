@@ -97,6 +97,26 @@ public class FlatmateSeekerController {
     }
 
     /**
+     * {@code GET /flatmates/posts/{id}/interests} (contract {@code listFlatmatePostInterests}) —
+     * paged, poster-scoped (D70).
+     *
+     * <p>The author of one ad reading the replies to that ad. Sits next to the write on the same
+     * path family but is a different audience entirely, and the id in the path grants nothing: the
+     * service re-establishes ownership before a single row is read, because the rows carry a
+     * stranger's name and phone number.
+     *
+     * <p>Paged and {@link Pageables#unsorted} on the same terms as the inbox — the poster writes
+     * none of these rows, so the list grows with how many people answered, and the order is fixed
+     * server-side rather than taken from a client {@code ?sort=}.
+     */
+    @GetMapping(Routes.Flatmates.POST_INTERESTS)
+    public PageResponse<FlatmateRequestDto> interests(@CurrentUser AuthPrincipal principal,
+            @PathVariable UUID id, @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                service.interests(principal, id, Pageables.unsorted(pageable)), dto -> dto);
+    }
+
+    /**
      * {@code GET /me/flatmate-requests} (contract {@code listMyFlatmateRequests}) — paged (D77).
      *
      * <p>Was a bare array. The host writes none of these rows, so the list grows with how many

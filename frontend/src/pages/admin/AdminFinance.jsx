@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, Wallet } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { AlertTriangle, ArrowRight, Download, IndianRupee, Eye, Receipt, RefreshCw, Sparkles, TrendingUp, Users, Wallet } from 'lucide-react';
 import { getSettings, rawDb } from '../../lib/mockApi.js';
 import { fmtINR, fmtNum } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -20,17 +21,47 @@ function pct(cur, prev) {
   return { val: (d >= 0 ? '+' : '') + d + '%', up: d >= 0 };
 }
 
-// Defined outside component to avoid recreation on every render
-function FlowRow({ label, amount, neg, pos, total }) {
+/* Structural zeros disclose themselves (tech debt D63/D65).
+ *
+ * Three of the money lines on this screen describe paths the platform does not have: no payout has
+ * ever been executed, there is no refund path at all, and revenue excludes the services marketplace
+ * because `service_orders.amount` is a quote rather than a receipt. Rendered plainly they are
+ * indistinguishable from a quiet month, and an operator reading "₹0 refunded" concludes something
+ * false about the business rather than something true about the software.
+ *
+ * So the marker is attached to the figure, not printed instead of it: the row keeps its number and
+ * gains a reason. Which markers show is read from the settings document (`settings.finance.*`),
+ * mirroring `punenest.finance.*` on the server, so the day a path ships the marker goes away
+ * without anyone editing this file. Absent means "not measured" — the default has to be today's
+ * truth, because a disclosure that defaults to "measured" is a lie told by a typo.
+ */
+function NotMeasured({ children }) {
   return (
-    <div className={`flex justify-between border-b border-white/5 py-2 text-sm ${total ? 'font-bold border-white/15' : ''}`}>
-      <span className="text-gray-300">{label}</span>
-      <span className={neg ? 'text-red-400' : pos ? 'text-emerald-300' : 'font-medium'}>{neg ? '−' : ''}{fmtINR(Math.abs(amount))}</span>
+    <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-amber-300/90">
+      <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+// Defined outside component to avoid recreation on every render
+function FlowRow({ label, amount, neg, pos, total, note, noteLabel }) {
+  return (
+    <div className={`border-b border-white/5 py-2 text-sm ${total ? 'font-bold border-white/15' : ''}`}>
+      <div className="flex justify-between">
+        <span className="text-gray-300">{label}</span>
+        <span className={neg ? 'text-red-400' : pos ? 'text-emerald-300' : 'font-medium'}>
+          {neg ? '−' : ''}{fmtINR(Math.abs(amount))}
+          {note && noteLabel ? <span className="ml-1.5 align-middle text-[10px] font-medium uppercase tracking-wide text-amber-300/90">{noteLabel}</span> : null}
+        </span>
+      </div>
+      {note ? <NotMeasured>{note}</NotMeasured> : null}
     </div>
   );
 }
 
 export default function AdminFinance() {
+  const { t } = useTranslation();
   const { optionEnabled } = useAdminFlags();
   const [settings, setSettings] = useState(null);
   const [range, setRange] = useState(12);
@@ -70,9 +101,10 @@ export default function AdminFinance() {
   const gstAmount = Math.round(monthTotal * gstRate);
   const { refunds, pending } = useMemo(() => {
     let r = 0, p = 0;
-    for (const t of transactions) {
-      if (t.status === 'refunded') r += Math.abs(t.amount);
-      else if (t.status === 'pending') p += Math.abs(t.amount);
+    // Named `tx`, not `t` — `t` is the translator in this component's scope.
+    for (const tx of transactions) {
+      if (tx.status === 'refunded') r += Math.abs(tx.amount);
+      else if (tx.status === 'pending') p += Math.abs(tx.amount);
     }
     return { refunds: r, pending: p };
   }, [transactions]);
@@ -87,14 +119,28 @@ export default function AdminFinance() {
     return rows;
   }, [transactions, txType, txStatus, txQ]);
 
-  const txTypes = useMemo(() => [...new Set(transactions.map((t) => t.type))].sort(), [transactions]);
+  const txTypes = useMemo(() => [...new Set(transactions.map((tx) => tx.type))].sort(), [transactions]);
 
   if (!settings) return <Loading />;
+
+  /* Absent means "not measured": the default has to describe the platform as it is today, so only
+     an explicit `true` in the settings document may claim a figure is real. */
+  const finance = settings.finance || {};
+  const payoutsMeasured = finance.payoutsMeasured === true;
+  const refundsMeasured = finance.refundsMeasured === true;
+  const serviceOrdersCounted = finance.serviceOrdersCounted === true;
+  const disclosures = [
+    !payoutsMeasured && { id: 'payouts', text: t('adminFinance.payoutsNotMeasured') },
+    !refundsMeasured && { id: 'refunds', text: t('adminFinance.refundsNotMeasured') },
+    !serviceOrdersCounted && { id: 'services', text: t('adminFinance.servicesNotCounted') },
+  ].filter(Boolean);
 
   const KPIS = [
     { label: 'MRR (subscriptions)', value: fmtINR(month.subscriptions), delta: pct(month.subscriptions, prev.subscriptions), icon: RefreshCw },
     { label: 'Revenue this month', value: fmtINR(monthTotal), delta: pct(monthTotal, prevTotal), icon: IndianRupee },
-    { label: 'Services revenue', value: fmtINR(month.services), delta: pct(month.services, prev.services), icon: Receipt },
+    /* Figure-local wording: the aggregate rows say revenue *excludes* services, which would read as
+       a denial of the number printed directly above it on this card. */
+    { label: 'Services revenue', value: fmtINR(month.services), delta: pct(month.services, prev.services), icon: Receipt, note: serviceOrdersCounted ? null : t('adminFinance.servicesQuoted') },
     { label: 'Featured revenue', value: fmtINR(month.featured), delta: pct(month.featured, prev.featured), icon: Sparkles },
     { label: 'Revenue (12 mo)', value: fmtINR(ytd), delta: null, icon: TrendingUp },
     { label: 'Rent-pay fees', value: fmtINR(rentFee), delta: null, icon: Wallet },
@@ -139,6 +185,29 @@ export default function AdminFinance() {
         <button onClick={doRevenueExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
       } />
 
+      {/* Deliberately not `pn-card`: that class sets the `background` and `border` shorthands and is
+          declared after `@tailwind utilities` at equal specificity, so it would silently overwrite
+          the amber and render this as an ordinary panel. Same recipe as the help-page callout. */}
+      {disclosures.length > 0 && (
+        <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-testid="finance-disclosures">
+          {/* h3 to match the other panels on this page — the banner is their sibling, not their
+              parent, and the outline must not change shape when a flag is flipped. */}
+          <h3 className="flex items-center gap-2 text-sm font-bold text-amber-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('adminFinance.disclosureTitle')}
+          </h3>
+          <p className="mt-1 text-xs text-gray-400">{t('adminFinance.disclosureLead')}</p>
+          <ul className="mt-2 space-y-1.5">
+            {disclosures.map((d) => (
+              <li key={d.id} className="flex items-start gap-1.5 text-xs leading-snug text-amber-100/85">
+                <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-300/70" />
+                <span>{d.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {KPIS.map((k) => (
           <div key={k.label} className="pn-card p-3">
@@ -148,6 +217,7 @@ export default function AdminFinance() {
             <div className="mt-2 text-xl font-extrabold">{k.value}</div>
             <div className="mt-0.5 text-xs text-gray-400">{k.label}</div>
             {k.delta ? <div className={`mt-1 text-xs font-medium ${k.delta.up ? 'text-emerald-300' : 'text-red-400'}`}>{k.delta.val} MoM</div> : <div className="mt-1 h-4" />}
+            {k.note ? <NotMeasured>{k.note}</NotMeasured> : null}
           </div>
         ))}
       </div>
@@ -234,17 +304,43 @@ export default function AdminFinance() {
             <div className="pn-card p-4">
               <h3 className="mb-1 text-sm font-bold">Net position</h3>
               <p className="mb-2 text-xs text-gray-500">This month, after tax & payouts</p>
-              <FlowRow label="Gross revenue" amount={monthTotal} />
+              <FlowRow
+                label="Gross revenue"
+                amount={monthTotal}
+                note={serviceOrdersCounted ? null : t('adminFinance.servicesNotCounted')}
+                noteLabel={t('adminFinance.notMeasured')}
+              />
               <FlowRow label={`GST collected (${fees.gstPercent || 18}%)`} amount={gstAmount} pos />
-              <FlowRow label="Partner payouts" amount={partnerPayout} neg />
+              {/* Same figure as the "Payouts & outstanding" card below, so it carries the same
+                  marker — one flagged and one bare would read as a contrast between a measured
+                  copy and an unmeasured one, which is worse than no disclosure at all. */}
+              <FlowRow
+                label="Partner payouts"
+                amount={partnerPayout}
+                neg
+                note={payoutsMeasured ? null : t('adminFinance.payoutsNotMeasured')}
+                noteLabel={t('adminFinance.notMeasured')}
+              />
               <FlowRow label="Net retained" amount={netRetained} total />
             </div>
             <div className="pn-card p-4">
               <h3 className="mb-1 text-sm font-bold">Payouts & outstanding</h3>
-              <FlowRow label="Partner payouts (65%)" amount={partnerPayout} neg />
+              <FlowRow
+                label="Partner payouts (65%)"
+                amount={partnerPayout}
+                neg
+                note={payoutsMeasured ? null : t('adminFinance.payoutsNotMeasured')}
+                noteLabel={t('adminFinance.notMeasured')}
+              />
               <FlowRow label="Platform commission (35%)" amount={commission} pos />
               <FlowRow label="Outstanding (pending)" amount={pending} />
-              <FlowRow label="Refunds (recent)" amount={refunds} neg />
+              <FlowRow
+                label="Refunds (recent)"
+                amount={refunds}
+                neg
+                note={refundsMeasured ? null : t('adminFinance.refundsNotMeasured')}
+                noteLabel={t('adminFinance.notMeasured')}
+              />
             </div>
           </div>
         </div>

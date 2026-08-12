@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { societyForListing } from '../../../data/societies.js';
-import { entityRating, resolveSociety } from '../../../lib/store.js';
+import { resolveSociety } from '../../../lib/store.js';
+import { getEntityReviewSummary } from '../../../services/reviewService.js';
 import { Stars } from './Stars.jsx';
 
 export function SocietySection({ p }) {
@@ -12,23 +14,37 @@ export function SocietySection({ p }) {
   const socName = soc ? soc.name : t('property.societyBuilding');
   const verified = soc ? (soc.registration && soc.conveyance) : !!p.ownershipVerified;
   const claimed = soc && soc.claimStatus === 'claimed';
-  /* SEAM NOTE: still the mock aggregate, on purpose — but keyed on the **slug**, not `soc.id`.
+  /* SEAM NOTE: one society's aggregate, from the seam, keyed on the **slug**.
 
      The society itself comes from `data/societies.js`, so `soc.id` is a synthetic `S01` the server
-     has never seen. The reviews the hub writes are keyed on `soc.slug`, so keying this read on the
-     id addressed a bucket nothing ever writes and this block rendered the builder name and a 4.2
-     placeholder for a society that may well be rated.
+     has never seen; the reviews the hub writes are keyed on `soc.slug`. This used to reduce the
+     `entityRating` localStorage bucket, which a live session never writes — so against the real API
+     it was permanently empty, and the empty branch rendered a hard-coded `4.2` as a real star
+     rating. That is the fabricated-`registration: true` defect in a more quantitative costume: a
+     reader had no way to tell 4.2-because-people-said-so from 4.2-because-a-developer-typed-it.
 
-     `services/societyService.js` now indexes `avgRating`/`reviewCount` from `GET /societies` for the
-     directory. This call site has **not** moved, and it needs more than a wiring change to: it wants
-     *one* society's rating, and the seam's only operation reads the whole index — four requests to
-     draw one star on a property page. The right shape is `reviewService.getEntityReviewSummary`,
-     which is a single request, already live, and already what the society hub uses.
+     `getEntityReviewSummary` is one request, already live, and already what the society hub uses.
+     `services/societyService.js` indexes `avgRating`/`reviewCount` off `GET /societies` for the
+     *directory*; that read is deliberately not used here, because it walks four pages / 348 rows to
+     draw one star.
 
-     Whichever it becomes, the `4.2` below has to go with it: it is an invented rating rendered for a
-     society nobody has reviewed, which is the same class of defect as the fabricated `registration:
-     true` that put "Society Verified" on unconfirmed buildings. */
-  const rating = soc ? entityRating('society', soc.slug) : { avg: 0, count: 0 };
+     Three states, not two: `null` = we have not been told yet (or the read failed), which renders
+     the builder alone and claims nothing; `count === 0` = the server says nobody has rated it, which
+     is the only branch entitled to say "Not rated yet"; `count > 0` = a real average. The server is
+     careful about this distinction — `SocietyResponse` returns `avgRating: null` for an unrated
+     society and its docblock says "no rating is not a rating of zero" — and the client's job is to
+     stop undoing it. */
+  const [rating, setRating] = useState(null);
+  const slug = soc ? soc.slug : null;
+  useEffect(() => {
+    if (!slug) { setRating(null); return undefined; }
+    let alive = true;
+    setRating(null);
+    getEntityReviewSummary('society', slug)
+      .then((s) => { if (alive) setRating(s); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [slug]);
 
   const quick = soc ? [
     ['home', t('property.homesCount', { count: soc.units })],
@@ -64,8 +80,14 @@ export function SocietySection({ p }) {
               <p className="font-bold text-white text-lg">{socName}</p>
               {soc ? (
                 <div className="flex items-center gap-2 mt-1">
-                  <Stars value={rating.count ? rating.avg : 4.2} size={13} />
-                  <span className="text-xs text-slate-500">{rating.count ? `${rating.avg} · ${t('property.societyReviewCount', { count: rating.count })}` : soc.builder}</span>
+                  {rating && rating.count ? (
+                    <>
+                      <Stars value={rating.avg} size={13} />
+                      <span className="text-xs text-slate-500" data-testid="property-society-rating">{`${Number(rating.avg).toFixed(1)} · ${t('property.societyReviewCount', { count: rating.count })}`}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-slate-500">{rating ? `${t('property.societyNotRated')} · ${soc.builder}` : soc.builder}</span>
+                  )}
                 </div>
               ) : null}
             </div>

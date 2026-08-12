@@ -15,6 +15,22 @@ import { get, set } from './internals.js';
    Everything ELSE (boosts, featured placement, priority support, unlimited
    contacts) stays strictly behind the paid plans — referrals only ever move
    these two specific quotas.
+
+   ── Q17 / D191 ─────────────────────────────────────────────────────────────
+   The counters below are LOCAL and grant quota locally, which is exactly what
+   D191 records: one person with several SIMs can move them. The rule the
+   platform actually runs on now lives on the server — a referral credits the
+   referrer when the referee's FIRST listing passes ownership verification —
+   because clearing the document gate is the only qualifying action a browser
+   cannot fake. See ReferralQualification on the backend.
+
+   These counters are NOT the server's ledger and must not be treated as one.
+   They stay until there is a `referral` domain in services/providers/{mock,http}
+   and a product decision mapping the server's ₹ credit onto the client's quota
+   (free listing slots / free contacts) — two different currencies today, which
+   is why the seam cannot simply be pointed at the existing endpoints. Removing
+   them first would delete a shipped perk with nothing to restore it from.
+   Do not add new ways to increment them.
    ========================================================================= */
 export const referralListingsTarget = 3;
 export const referralJoinsTarget = 1;
@@ -47,16 +63,14 @@ export const addReferralInvite = () => {
   s.invited++;
   return set(statsKey(), s);
 };
-export const addReferralListing = () => {
-  const s = getReferralStats();
-  s.listed = (s.listed || 0) + 1;
-  return set(statsKey(), s);
-};
-export const addReferralJoin = () => {
-  const s = getReferralStats();
-  s.joined = (s.joined || 0) + 1;
-  return set(statsKey(), s);
-};
+/* `listed` and `joined` had ungated setters here (addReferralListing /
+   addReferralJoin) that nothing ever called — two exported ways to mint quota,
+   reachable from any module, guarding nothing. Removed rather than left as dead
+   code: under Q17 the qualifying action is server-side, so any future increment
+   has to arrive through the services seam, and an exported local incrementer is
+   the first thing someone reaches for instead. The counters themselves are
+   still written by claimReferralCredits(), which drains the deduped credit
+   ledger below \u2014 one place, with a dedupe key, rather than two open setters. */
 export const referralFreeAgreements = () => Math.floor((getReferralStats().listed || 0) / referralListingsTarget);
 export const referralContactsEarned = () => Math.floor((getReferralStats().joined || 0) / referralJoinsTarget) * referralContactsPerReward;
 /* Extra free listing slots earned by referring owners who went on to post.

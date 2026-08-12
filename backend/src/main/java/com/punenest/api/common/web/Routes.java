@@ -46,6 +46,17 @@ public final class Routes {
         /** Public — rotates the refresh token; reuse revokes the whole family. */
         public static final String REFRESH = "/auth/refresh";
 
+        /**
+         * Public — a newly minted back-office colleague redeems their single-use invite and sets
+         * their own password (tech debt D206).
+         *
+         * <p>Necessarily unauthenticated: the person holding the token has no credential yet, which
+         * is the entire point. The unguessable, expiring, single-use token <em>is</em> the
+         * credential, and it is verified in {@code identity.auth.StaffInviteService} — the same
+         * shape as {@code GET /documents/shared}.
+         */
+        public static final String STAFF_INVITE_REDEEM = "/auth/staff-invite/redeem";
+
         /** Authenticated — revokes the caller's refresh-token family. */
         public static final String LOGOUT = "/auth/logout";
 
@@ -280,6 +291,16 @@ public final class Routes {
         /** Participants only — send a message. */
         public static final String REPLY = BY_ID + "/reply";
 
+        /**
+         * Participants only — upload a file to attach to a later message (D49).
+         *
+         * <p>Separate from {@link #REPLY} because the reply takes JSON and bytes do not travel in
+         * JSON. The upload is unclaimed until a reply names it, so this endpoint on its own reveals
+         * nothing: what it returns is an id only its uploader can use, on a thread they already had
+         * to be a participant of.
+         */
+        public static final String ATTACHMENTS = BY_ID + "/attachments";
+
         /** Participants only — mark everything the caller did not write as read. */
         public static final String READ = BY_ID + "/read";
     }
@@ -298,6 +319,13 @@ public final class Routes {
 
         /** The raiser or ops — add a message. */
         public static final String MESSAGES = BY_ID + "/messages";
+
+        /**
+         * The raiser or ops — upload a file to attach to a later message (D49). Same two-phase
+         * shape as {@link Conversations#ATTACHMENTS}, and guarded by the same rule that guards the
+         * thread itself.
+         */
+        public static final String ATTACHMENTS = BY_ID + "/attachments";
 
         /**
          * The raiser or ops — clear the caller's own unread flag, and only that one (D50, V53).
@@ -415,6 +443,38 @@ public final class Routes {
     }
 
     /**
+     * Local-disk object bytes, <strong>{@code dev} profile only</strong> ({@code @DevOnly}) — the
+     * thing {@code MockFileStorage.signedDownloadUrl} points at (D120).
+     *
+     * <p>Under {@code dev} there is no object store, so the mock's download URLs pointed at
+     * {@code https://mock.storage.local/…} — a host that does not resolve. Every document read
+     * therefore answered with a URL-shaped fiction, and the service tracker's document preview
+     * could not be exercised at all without real R2 credentials. This is the missing half: the
+     * mock writes the bytes to disk already, and this serves them back.
+     *
+     * <p><strong>Not in the contract, and not in production.</strong> The controller is
+     * {@code @DevOnly}, so the route does not exist anywhere the {@code dev} profile is not named,
+     * and {@code SpecCoverageTest} exempts it for exactly that reason: publishing an operation that
+     * 404s everywhere that matters is the inverse of the rot that test exists to catch. In a real
+     * deployment the equivalent URL is R2's own signed URL and never touches this server.
+     */
+    public static final class DevStorage {
+
+        private DevStorage() {
+        }
+
+        /**
+         * The object itself. {@code {*key}} rather than {@code {key}} because a storage key has
+         * slashes in it ({@code documents/{propertyId}/{uuid}}) and a single-segment template would
+         * match none of them.
+         */
+        public static final String OBJECT = "/dev/storage/{*key}";
+
+        /** The same routes as a servlet pattern, for the security matcher that fronts them. */
+        public static final String ANY = "/dev/storage/**";
+    }
+
+    /**
      * The owner's private property finance ledger (slice 5). Every route is {@code /me/**} and
      * strictly owner-scoped — a non-owner gets 404, not 403, because a 403 would confirm that a
      * property id belongs to someone else.
@@ -477,6 +537,28 @@ public final class Routes {
          * a {@code GET} and this is a {@code POST}, so the two never compete for a path pattern.
          */
         public static final String PROFILES_VERIFIED = "/tenant-profiles/verified";
+
+        /**
+         * Authenticated — stays claimed on one listing (D194).
+         *
+         * <p>{@code POST} declares one, {@code GET} returns what the caller may see: every claim if
+         * they own the listing, their own otherwise. Nested under the property because that is the
+         * only place either side acts on it — a name is recognisable next to the flat it is about,
+         * and never in a list of strangers across a portfolio.
+         */
+        public static final String DECLARATIONS = "/properties/{propId}/tenancy-declarations";
+
+        /** Authenticated — the owner agrees a claimed stay happened. Their listing only. */
+        public static final String DECLARATION_CONFIRM = "/tenancy-declarations/{id}/confirm";
+
+        /**
+         * Authenticated — the owner disagrees, or withdraws an earlier confirmation.
+         *
+         * <p>{@code POST}, not {@code DELETE}: the row survives. Eligibility stops either way, but
+         * "claimed, agreed, withdrawn" is the trail an abuse investigation needs, and a deleted row
+         * says nothing at all.
+         */
+        public static final String DECLARATION_REVOKE = "/tenancy-declarations/{id}/revoke";
     }
 
     /**
@@ -542,6 +624,19 @@ public final class Routes {
 
         /** Authenticated — {@code DELETE} one notification the caller owns (dismiss). */
         public static final String NOTIFICATION_BY_ID = NOTIFICATIONS + "/{id}";
+
+        /**
+         * Authenticated — {@code GET}/{@code PUT} the caller's notification and communication
+         * settings: channel switches, the master match-alert switch, quiet hours and language.
+         *
+         * <p>Under {@code /me} rather than under {@link #NOTIFICATIONS}, though it is about
+         * notifications, because the resource is the <em>caller</em> and not a notification. A
+         * {@code /notifications/preferences} would sit in the same path space as
+         * {@link #NOTIFICATION_BY_ID} and be shadowed by it in a reader's mind even where the
+         * matcher gets it right — and a {@code DELETE /notifications/preferences} would then read
+         * as dismissing a notification called "preferences".
+         */
+        public static final String NOTIFICATION_PREFERENCES = "/me/notification-preferences";
     }
 
     /**
@@ -568,6 +663,17 @@ public final class Routes {
 
         /** Authenticated — answer an ad, releasing the <em>requester's</em> contact to the host. */
         public static final String POST_INTEREST = POST_BY_ID + "/interest";
+
+        /**
+         * Authenticated — who answered <em>this</em> ad. Poster-scoped, and never public (D70).
+         *
+         * <p>Plural, one character away from {@link #POST_INTEREST}, and that is uncomfortably
+         * close for two routes with opposite audiences: the singular is a write by a stranger, this
+         * is a read by the author. They are distinguished by method as well as by suffix, and
+         * neither is reachable through the {@code permitAll} matcher on {@link #POSTS}, which is
+         * exact-path and {@code GET}-only.
+         */
+        public static final String POST_INTERESTS = POST_BY_ID + "/interests";
 
         /** Authenticated — the caller's incoming requests (host inbox). */
         public static final String MY_REQUESTS = "/me/flatmate-requests";
@@ -756,6 +862,28 @@ public final class Routes {
         public static final String SHARED = BASE + "/shared";
     }
 
+    /**
+     * The buyer's own asks — the requester's half of {@link MeDocuments#REQUESTS} (D123).
+     *
+     * <p>Its own top-level nest rather than a member of {@link MeDocuments}, because that nest is
+     * the <em>owner's</em> vault: every route under {@code /me/documents} is scoped to properties
+     * the caller owns, and hanging a requester-scoped route off the same prefix would put two
+     * different authorisation rules under one path. {@code /me/document-requests} is a sibling of
+     * {@code /me/contact-requests}, which is the same shape on the other gate.
+     */
+    public static final class MeDocumentRequests {
+
+        private MeDocumentRequests() {
+        }
+
+        /**
+         * Buyer — every access request <em>they</em> wrote, newest first, paged. Never carries the
+         * share token: the grant is delivered to the requester out of band, and a list endpoint
+         * that echoed it would turn one leaked page into every unlocked vault.
+         */
+        public static final String BASE = "/me/document-requests";
+    }
+
     /** Owner — the Leave &amp; License agreement records for their properties. */
     public static final class MeRentAgreements {
 
@@ -805,6 +933,18 @@ public final class Routes {
         public static final String DOCS = BY_ID + "/docs";
 
         /**
+         * Customer or staff — <strong>read-only</strong> progress against the named paperwork the
+         * request needs (D120).
+         *
+         * <p>A sibling of {@link #DOCS} rather than a field on {@link #BY_ID} because it answers a
+         * different question: {@code BY_ID} lists the files that <em>exist</em>, and the tracker's
+         * document column has to show the ones that do <em>not</em>. Derived on read from the
+         * request's own documents — nothing about a checklist is stored, so there is no second
+         * source of truth to fall out of step with the vault.
+         */
+        public static final String CHECKLIST = BY_ID + "/checklist";
+
+        /**
          * The parties' PAN and Aadhaar (D151) — <strong>written by the requester, read only by the
          * staff member the request is assigned to</strong>.
          *
@@ -824,6 +964,37 @@ public final class Routes {
 
         /** Staff/admin — the registered copy; uploading it completes the request. */
         public static final String FINAL_DOC = BY_ID + "/final-doc";
+
+        /**
+         * The requester only — name the other side of a co-filled agreement (D121).
+         *
+         * <p>A rent agreement is two people's paperwork, and every route above this one scopes to a
+         * single requester. This is the route that makes the second person exist: it resolves a
+         * mobile to an <em>account</em> and records an invitation to it. The mobile is not stored,
+         * and there is deliberately no route that opens an invitation by its id — see
+         * {@link #MY_INVITES}.
+         */
+        public static final String PARTIES = BY_ID + "/parties";
+
+        /**
+         * Anyone on the request — mark the other side's messages seen (D121).
+         *
+         * <p>{@code POST} rather than {@code PATCH} on {@link #MESSAGES}: the reader is not editing
+         * the messages, and the receipt is taken for the thread rather than message by message.
+         */
+        public static final String READ = BY_ID + "/read";
+
+        /**
+         * The invited person only — the invitations addressed to them (D121).
+         *
+         * <p>Under {@code /me} rather than as a link with a token in it, which is what the frontend
+         * prototype sent over WhatsApp. An invitation reveals that a named person is arranging a
+         * tenancy; the only safe address for it is the authenticated account it names.
+         */
+        public static final String MY_INVITES = "/me/service-request-invites";
+
+        /** The invited person only — accept or decline. Accepting is what widens their read scope. */
+        public static final String INVITE_DECISION = MY_INVITES + "/{partyId}";
     }
 
     /**
@@ -1002,6 +1173,16 @@ public final class Routes {
         /** Staff/admin — the checker half of the maker-checker listing review. */
         public static final String VERIFICATION_DECISION = PROPERTY_VERIFICATION + "/decision";
 
+        /**
+         * The ownership gate (D190). GET is participant-scoped — an owner must be able to see which
+         * of the three required facts their listing is still waiting on — while POST, which grants
+         * the badge, is staff/admin. One path, two guards, so the mappings are method-level.
+         */
+        public static final String VERIFICATION_OWNERSHIP = PROPERTY_VERIFICATION + "/ownership";
+
+        /** Staff/admin — record one document against the ownership gate (D190). */
+        public static final String VERIFICATION_OWNERSHIP_EVIDENCE = VERIFICATION_OWNERSHIP + "/evidence";
+
         /** Staff/admin — list verification case files (D91). */
         public static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
 
@@ -1072,6 +1253,31 @@ public final class Routes {
         public static final String FLATMATE_MODERATION = "/admin/flatmates/{id}/moderation";
 
         /**
+         * Admin — read one conversation as a moderator, for a chat that has been reported (D53).
+         *
+         * <p><strong>Why this exists at all.</strong> {@code ConversationService.mine} admits
+         * participants and nobody else, staff and admin included, so until now a reported chat could
+         * not be read by the people asked to act on the report. That is the correct default and it
+         * is not a workable end state: a harassment report about a message nobody may read is a
+         * queue item that can only be closed by guessing.
+         *
+         * <p><strong>Why a separate path and not a role branch in the participant guard.</strong>
+         * The register's D53 row names the failure directly — a role check hidden inside a
+         * participant guard is how private surfaces quietly stop being private. Every future reader
+         * of {@code mine} would have to notice the branch to know the surface is no longer
+         * participants-only. Here the exemption is a route, with its own permission atom, its own
+         * handler and an audit write that cannot be skipped, so it can be found by grep, revoked by
+         * an admin, and counted in the log.
+         *
+         * <p>Deliberately {@code /admin/conversations/{id}} rather than a widening of
+         * {@code GET /messages/{id}}: the public path is one segment from a participant-only read,
+         * and the same distance argument that put {@link #ADMIN_REVIEWS} and
+         * {@link #ADMIN_PROPERTIES} under {@code /admin} applies with more force to private
+         * correspondence.
+         */
+        public static final String ADMIN_CONVERSATION = "/admin/conversations/{id}";
+
+        /**
          * Admin — the flatmate moderation queue: what is waiting to be let out (D72).
          *
          * <p>Since D72 a seeker post, room or group starts {@code pending} and is invisible until a
@@ -1127,6 +1333,38 @@ public final class Routes {
 
         /** Admin only — create a staff/admin account. The privilege-escalation surface. */
         public static final String STAFF = BASE + "/staff";
+
+        /**
+         * Admin only — the accounts minted through {@link #STAFF} that are still waiting for a
+         * second administrator to approve them (D200).
+         *
+         * <p>A literal segment under {@code /users}, so it out-ranks the {@link #BY_ID} template on
+         * Spring's {@code PathPattern} comparator the same way {@link #STAFF} does. It exists
+         * because a maker-checker rule nobody can see the queue for is a rule that strands people:
+         * the blocked colleague cannot sign in to say so, and the administrator who could unblock
+         * them has no screen that lists who is waiting.
+         */
+        public static final String PENDING_APPROVALS = BASE + "/pending-approvals";
+
+        /**
+         * Admin only — turn the second key on an account minted by <em>another</em> administrator
+         * (D200).
+         *
+         * <p>{@code POST} rather than {@code PATCH}: this is not an edit to a field of the account,
+         * it is a decision recorded against it, and it is not idempotent — the second attempt is a
+         * conflict, not a repeat.
+         */
+        public static final String APPROVE = BY_ID + "/approve";
+
+        /**
+         * Admin only — read or replace one back-office account's permission document (D192/D13).
+         *
+         * <p>Under {@code /users/{id}} rather than under {@code /admin} because the resource is the
+         * account, not a platform setting: it is deleted when the account is, it is meaningless
+         * without an account to name, and an operator looking for "what may this person do" looks
+         * where they found the person.
+         */
+        public static final String PERMISSIONS = BY_ID + "/permissions";
     }
 
     /** The back-office: the ops dashboard, platform configuration, CMS authoring and the audit read. */
@@ -1168,6 +1406,16 @@ public final class Routes {
 
         /** Admin only — the platform configuration document. GET reads it, PUT merges into it. */
         public static final String SETTINGS = "/admin/settings";
+
+        /**
+         * Admin only — every per-account permission the server actually enforces (D192/D13).
+         *
+         * <p>Served rather than hard-coded in the console so that the grid an administrator ticks
+         * cannot offer a permission the server would ignore. That divergence is what {@code V61}
+         * had to clean up: the console composed bundles from its own module list, the server spoke
+         * a different vocabulary, and the document in between granted nothing.
+         */
+        public static final String PERMISSION_CATALOGUE = "/admin/permission-catalogue";
 
         /**
          * Staff/admin — CMS rows of one type. {@code {type}} is the discriminator across the four

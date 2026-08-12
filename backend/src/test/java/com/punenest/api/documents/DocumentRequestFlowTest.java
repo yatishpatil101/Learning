@@ -223,6 +223,91 @@ class DocumentRequestFlowTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].requester.mobile").value("98XXXXX015"));
     }
 
+    // ---------------- GET /me/document-requests (D123) ----------------
+
+    /**
+     * The buyer's half. Before D123 only the owner could see a document-access request, so the
+     * person who wrote one had no route on which to learn what became of it — granted, refused and
+     * unread all looked the same from their side.
+     *
+     * <p>Would fail if: the handler paged the whole table; or it were wired to the inbox's
+     * owner-scoped query, which would show this buyer nothing while showing an owner-buyer
+     * everyone's.
+     */
+    @Test
+    void myAsks_showOnlyTheCallersOwnRequests() throws Exception {
+        User owner = user("9820002040", "owner");
+        User buyer = user("9820002041", "buyer");
+        User otherBuyer = user("9820002042", "buyer");
+        Property p = listing(owner, "Contested flat");
+        ask(buyer, p, "[\"Sale Deed\"]");
+        ask(otherBuyer, p, "[\"Sale Deed\"]");
+
+        mvc.perform(get(Routes.MeDocumentRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p.getId().toString()));
+    }
+
+    /**
+     * The list reports status; it does not hand back the key.
+     *
+     * <p>The share token is the entire credential for {@code GET /documents/shared} — no session,
+     * no ownership check, just the token. The requester is told it out of band. If this list
+     * echoed it, one intercepted page of JSON would open every vault the buyer has ever been
+     * granted, and it would keep opening them for as long as the grants live.
+     *
+     * <p>Would fail if: someone "simplified" the mapper by reusing the owner-side {@code toDto}.
+     */
+    @Test
+    void myAsks_neverCarryTheShareToken_evenOnceGranted() throws Exception {
+        User owner = user("9820002043", "owner");
+        User buyer = user("9820002044", "buyer");
+        String token = grantedToken(owner, buyer, listing(owner, "Granted flat"), "[\"Sale Deed\"]");
+        assertThat(token).isNotBlank();
+
+        String json = mvc.perform(get(Routes.MeDocumentRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("granted"))
+                .andExpect(jsonPath("$.content[0].shareToken").value(Matchers.nullValue()))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json).doesNotContain(token);
+    }
+
+    /**
+     * Newest first, and the count is the whole history rather than the slice — the same contract
+     * the owner's inbox keeps, because a buyer tracking several asks reads the badge the same way.
+     */
+    @Test
+    void myAsks_areNewestFirst_andKeepTheTotalAcrossPages() throws Exception {
+        User owner = user("9820002045", "owner");
+        User buyer = user("9820002046", "buyer");
+        Property first = listing(owner, "First ask");
+        ask(buyer, first, "[\"Sale Deed\"]");
+        Property second = listing(owner, "Second ask");
+        ask(buyer, second, "[\"Sale Deed\"]");
+        Property third = listing(owner, "Third ask");
+        ask(buyer, third, "[\"Sale Deed\"]");
+
+        mvc.perform(get(Routes.MeDocumentRequests.BASE)
+                        .param("page", "0").param("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].propertyId").value(third.getId().toString()));
+    }
+
+    /** No token, no list. The route is the buyer's own history and there is no anonymous view. */
+    @Test
+    void myAsks_requireAuthentication() throws Exception {
+        mvc.perform(get(Routes.MeDocumentRequests.BASE))
+                .andExpect(status().isUnauthorized());
+    }
+
     /**
      * D77 paged this inbox. An owner reading it wants the count of people waiting on them, and that
      * number has to survive paging: {@code totalElements} is the whole inbox, not the slice.

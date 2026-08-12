@@ -59,8 +59,8 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("the assignee reads the full numbers; a second staff member cannot")
         void onlyTheAssignee() throws Exception {
             User buyer = customer("9820000301");
-            User desk = staff("9820000302", Teams.LEGAL);
-            User otherDesk = staff("9820000303", Teams.LEGAL);
+            User desk = staff("9820000302", Teams.RENTAL);
+            User otherDesk = staff("9820000303", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
 
@@ -88,7 +88,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("an admin is refused too, until they take the request themselves")
         void adminMustTakeItFirst() throws Exception {
             User buyer = customer("9820000304");
-            User desk = staff("9820000305", Teams.LEGAL);
+            User desk = staff("9820000305", Teams.RENTAL);
             User boss = admin("9820000306");
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
@@ -110,7 +110,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("the customer who typed them cannot read them back through the desk's route")
         void customerIsNotAReader() throws Exception {
             User buyer = customer("9820000307");
-            User desk = staff("9820000308", Teams.LEGAL);
+            User desk = staff("9820000308", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
             setStatus(desk, id, "assigned", 200);
@@ -124,7 +124,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("they are on no list, and on no request document")
         void notProjectedAnywhere() throws Exception {
             User buyer = customer("9820000309");
-            User desk = staff("9820000310", Teams.LEGAL);
+            User desk = staff("9820000310", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
             setStatus(desk, id, "assigned", 200);
@@ -146,7 +146,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("staff and admin are refused — a desk that could write them could invent them")
         void staffCannotWrite() throws Exception {
             User buyer = customer("9820000311");
-            User desk = staff("9820000312", Teams.LEGAL);
+            User desk = staff("9820000312", Teams.RENTAL);
             User boss = admin("9820000313");
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
@@ -174,7 +174,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("resubmitting replaces the set rather than appending to it")
         void writeReplaces() throws Exception {
             User buyer = customer("9820000316");
-            User desk = staff("9820000317", Teams.LEGAL);
+            User desk = staff("9820000317", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
 
@@ -219,7 +219,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("completing the request discards them and says so on the timeline")
         void completionPurges() throws Exception {
             User buyer = customer("9820000319");
-            User desk = staff("9820000320", Teams.LEGAL);
+            User desk = staff("9820000320", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
 
@@ -245,7 +245,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("cancelling discards them too — nothing will be drafted from them")
         void cancellationPurges() throws Exception {
             User buyer = customer("9820000321");
-            User desk = staff("9820000322", Teams.LEGAL);
+            User desk = staff("9820000322", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
             setStatus(desk, id, "assigned", 200);
@@ -259,7 +259,7 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("a closed request will not take a fresh set")
         void closedRequestRefusesAWrite() throws Exception {
             User buyer = customer("9820000323");
-            User desk = staff("9820000324", Teams.LEGAL);
+            User desk = staff("9820000324", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             setStatus(desk, id, "cancelled", 200);
 
@@ -275,8 +275,8 @@ class ServiceRequestIdentityTest extends ServiceFixtures {
         @DisplayName("a read and a refused read both leave an audit row naming the caller")
         void readsAreAudited() throws Exception {
             User buyer = customer("9820000325");
-            User desk = staff("9820000326", Teams.LEGAL);
-            User otherDesk = staff("9820000327", Teams.LEGAL);
+            User desk = staff("9820000326", Teams.RENTAL);
+            User otherDesk = staff("9820000327", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             record(buyer, id, 204);
             setStatus(desk, id, "assigned", 200);

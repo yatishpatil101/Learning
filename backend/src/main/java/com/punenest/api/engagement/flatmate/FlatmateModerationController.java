@@ -3,6 +3,7 @@ package com.punenest.api.engagement.flatmate;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -28,12 +29,22 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Every route here is staff/admin, matching the contract's {@code x-roles}. The two axes are kept
  * on separate routes deliberately — see {@link FlatmateModerationService} for why verification and
  * moderation must not collapse into one another.
+ *
+ * <p><strong>Per-account atoms narrow the same routes again</strong> (tech debt D192/D13):
+ * {@code flatmates:read} for the four queues, {@code flatmates:write} for the four decisions. The
+ * split is the one that matters on a queue somebody is being trained on — watching the work is not
+ * the same permission as doing it. Both are {@code and}-ed onto {@link #STAFF_OR_ADMIN}, so neither
+ * can admit a caller the role guard refused.
  */
 @RestController
 public class FlatmateModerationController {
 
     private static final String STAFF_OR_ADMIN =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+    private static final String FLATMATES_READ =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_FLATMATES_READ;
+    private static final String FLATMATES_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_FLATMATES_WRITE;
 
     private final FlatmateModerationService service;
 
@@ -49,7 +60,7 @@ public class FlatmateModerationController {
      * {@link FlatmateModerationService#queue}.
      */
     @GetMapping(Routes.Moderation.FLATMATE_REVIEWS)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateReviewDto> queue(@RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean flagged,
             @PageableDefault(size = 20, sort = "createdAt",
@@ -59,7 +70,7 @@ public class FlatmateModerationController {
 
     /** {@code PATCH /admin/flatmate-reviews/{id}} (contract {@code decideFlatmateReview}). */
     @PatchMapping(Routes.Moderation.FLATMATE_REVIEW_BY_ID)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_WRITE)
     public FlatmateReviewDto decide(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody DecisionRequest body) {
         return service.decideReview(principal, id, body.decision(), body.note());
@@ -73,7 +84,7 @@ public class FlatmateModerationController {
      * posts".
      */
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_READ)
     public PageResponse<FlatmateModerationQueueDto> moderationQueue(
             @RequestParam(defaultValue = "post") String kind,
             @RequestParam(required = false) String modStatus,
@@ -90,7 +101,7 @@ public class FlatmateModerationController {
      * refetching from the queue it is working through.
      */
     @PatchMapping(Routes.Moderation.FLATMATE_MODERATION)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_WRITE)
     @ResponseStatus(HttpStatus.OK)
     public void moderate(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @Valid @RequestBody ModerationRequest body) {
@@ -111,7 +122,7 @@ public class FlatmateModerationController {
 
     /** {@code GET /admin/group-applications} (contract {@code listGroupApplications}) — paged. */
     @GetMapping(Routes.Moderation.GROUP_APPLICATIONS)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_READ)
     public PageResponse<GroupApplicationDto> applications(
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(service.applications(pageable), dto -> dto);
@@ -124,7 +135,7 @@ public class FlatmateModerationController {
      * owner's accept/decline is theirs alone. See {@link FlatmateModerationService}.
      */
     @PatchMapping(Routes.Moderation.GROUP_APPLICATION_BY_ID)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(FLATMATES_WRITE)
     public GroupApplicationDto moderateApplication(@CurrentUser AuthPrincipal principal,
             @PathVariable UUID id, @Valid @RequestBody ModerationRequest body) {
         return service.moderateApplication(principal, id, body.modStatus(), body.note());

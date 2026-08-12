@@ -133,10 +133,18 @@ for assignment, and the staff portal (`TeamRoute`) only shows tickets for the me
 - Fee/geo changes must be validated and authorized server-side (they change money and search behaviour).
 
 ## 6. Maker-checker / approval
-- **Not a maker-checker flow** in the propose/approve sense - a single super-admin edits and it takes effect
-  immediately (flag toggles are only *confirmation*-gated, not two-person). Audit provides the after-the-fact trail.
-- A hardened backend could add maker-checker to sensitive changes (fee schedule, kill-switches like
-  `maintenanceMode`, granting admin) per [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2. Not present today.
+- **This console is not a maker-checker flow** in the propose/approve sense - a single super-admin edits and it
+  takes effect immediately (flag toggles are only *confirmation*-gated, not two-person). Audit provides the
+  after-the-fact trail.
+- **Creating a back-office account is the exception, and it is real server-side.** `POST /users/staff` mints the
+  account in a pending state and a *second* administrator must clear it (`staff_account_approvals`, D200) before
+  it can authenticate. The maker also never sets the credential: the account is created with **no usable
+  password** and a single-use, time-limited invite is issued to the colleague's own handset, redeemed by them
+  through `POST /auth/staff-invite/redeem` (`staff_invites`, V71, D206). Neither administrator ever learns the
+  token, and an unredeemed invite blocks login on every path. The admin console has no screen for either yet
+  (D205), which is why nothing on this page reflects it.
+- Maker-checker on the *other* sensitive changes (fee schedule, kill-switches like `maintenanceMode`) per
+  [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2 is still not present today.
 
 ## 7. State machine
 - **Settings fields:** no lifecycle - each save overwrites (`updateSettings` merges the patched section).

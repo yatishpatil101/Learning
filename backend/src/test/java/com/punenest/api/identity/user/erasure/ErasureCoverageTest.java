@@ -241,6 +241,14 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "The name of a document attached to a property or a service request, both of which "
                         + "are retained. Stripping the file name from a retained document leaves an "
                         + "unidentifiable blob that nobody can produce in a dispute.");
+        map.put("message_attachments.file_name",
+                "The name of a file sent on a chat or support thread (D49). Retained for the same "
+                        + "reason the message body it hangs off is: correspondence is evidence in a "
+                        + "dispute between two people, and only one of them is erasing. Clearing it "
+                        + "would leave the counterparty a thread referring to an attachment nobody "
+                        + "can identify, which damages their record to no one's benefit -- the "
+                        + "erasing user's identity is already gone from users, and a sanitised file "
+                        + "name is not a way back to it.");
         map.put("flatmate_reviews.address",
                 "The flat a flatmate review is about. A property attribute on a review that is "
                         + "retained under ErasureRetention, 'reviews_and_ratings'.");
@@ -276,6 +284,29 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "An owner preference — accept contact requests only from L2-verified users. A "
                         + "boolean on a row that, post-erasure, names nobody.");
         map.put("flatmate_seeker_posts.verified_contact_only", "The same preference on a flatmate post.");
+        map.put("notification_preferences.email",
+                "Matched on the column name, but it is a boolean channel switch — 'may we reach you "
+                        + "by email' — and not an email address. The address itself lives on "
+                        + "users.email and is erased there. The whole row is keyed by user_id with "
+                        + "ON DELETE CASCADE (V73), so it names nobody once the subject is gone.");
+        map.put("notification_preferences.whatsapp",
+                "The same boolean channel switch as notification_preferences.email. The number it "
+                        + "would be delivered to is users.mobile, which is erased there; this column "
+                        + "carries no number of its own.");
+
+        // --- evidence behind a trust claim third parties relied on -------------------------------
+        map.put("property_ownership_evidence.subject_name",
+                "Whose government ID ops sighted when granting the Ownership Verified badge (D202, "
+                        + "V66). Personal, and kept: the badge is a statement about title made to "
+                        + "buyers who acted on it, and this column is the whole of what makes that "
+                        + "statement checkable afterwards. Erasing it would not remove a claim from "
+                        + "the platform, only the evidence for one that stays — leaving a listing "
+                        + "still asserting verified ownership with nothing behind it, which is the "
+                        + "shape a fraudulent listing most wants. Same limb as "
+                        + "rent_agreements.tenant_mobile: evidence of a transaction with somebody "
+                        + "else, retained for the period in which either side may dispute it. It "
+                        + "does not accumulate silently — a row exists only where a staff member "
+                        + "recorded a document, and the badge itself can be withdrawn.");
 
         // --- fraud signals: derived booleans, not the underlying identifiers ---------------------
         map.put("referrals.aadhaar_verified",
@@ -316,6 +347,26 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "A stored number rather than a reference, so it survives pseudonymisation of the "
                         + "users row.");
         map.put("referrals.referred_mobile", "As referrals.referrer_mobile.");
+        map.put("referrals.referred_ip_hash",
+                "Salted SHA-256 of the address the referee redeemed from (V64), held only to "
+                        + "compute the same_ip fraud signal. Not swept on request: the row is "
+                        + "reached by mobile rather than by user id, the same reason its two "
+                        + "mobiles are gaps. It expires anyway — ReferralSignalRetentionSweep "
+                        + "blanks it ninety days after the referral, so the exposure is bounded "
+                        + "without an erasure request. Closing it properly means giving the sweep a "
+                        + "way to reach this table at all, which is one change for all four of "
+                        + "these columns and both mobiles above.");
+        map.put("referrals.referred_device_hash", "As referrals.referred_ip_hash, for the "
+                + "User-Agent behind same_device.");
+        map.put("referral_codes.referrer_ip_hash",
+                "The referrer's half of the same comparison, stamped when their code was minted "
+                        + "(V64). Reachable by user id, unlike the referrals rows — listed as a gap "
+                        + "rather than swept because a sweep that names a column wrongly fails "
+                        + "halfway through the one operation that must not, and this table has "
+                        + "never been in the sweep's UPDATE. Expires ninety days after capture "
+                        + "regardless.");
+        map.put("referral_codes.referrer_device_hash",
+                "As referral_codes.referrer_ip_hash, for the User-Agent.");
 
         map.put("flatmate_group_members.name",
                 "A NOT NULL denormalised copy of users.name, written at join time.");
@@ -738,8 +789,8 @@ class ErasureCoverageTest extends AbstractApiTest {
 
         UUID serviceRequestId = UUID.randomUUID();
         jdbc.update("""
-                insert into service_requests (id, requester_id, type, status)
-                values (?, ?, 'rent-agreement', 'new')
+                insert into service_requests (id, requester_id, type, team, status)
+                values (?, ?, 'rent-agreement', 'rental', 'new')
                 """, serviceRequestId, subjectId);
         jdbc.update("""
                 insert into service_request_identities

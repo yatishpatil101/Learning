@@ -13,15 +13,24 @@
 >
 > **Rule: a finished slice gets one index line here, not a narrative.** The reasoning that is worth
 > keeping goes into the docs above or into a comment next to the code it explains — those are read
-> when the code is read; a worklog entry is not.
->
-> Compressed 2026-08-06 from 5,294 lines, and again 2026-08-09 from 527 (the 2026-08-06/07 seam
-> narratives were collapsed into their one-line rows in the seam table below; the reasoning they
-> carried already lives in the code and docs they describe).
+> when the code is read; a worklog entry is not. Narratives are collapsed to index lines once
+> committed; git history is the archive. Compressed 5,294 → 527 → 1,828 → this.
 
 ---
 
 ## In flight
+
+- **Retire the mock — full-app migration to the live API + Postgres.** Plan (module-wise) lives in
+  [`docs/migration/`](../docs/migration/README.md): R2 storage (already built, one flag), seed as a
+  fixture contract, the new persistent `punenest_e2e` DB with real users, and the 22-domain
+  migration matrix. Now also covers **moving business logic out of the browser into the backend**
+  ([`05`](../docs/migration/05-logic-to-backend.md) — full `frontend/src/lib/` inventory) and
+  **ponytail / comment hygiene / Sonar + Checkmarx**
+  ([`06`](../docs/migration/06-code-quality.md)). Planning only — no code yet; branch
+  `feature/backend-integration`. Start from the seed-fixture inventory (it sizes the effort);
+  dominant cost is rewriting self-seeding e2e specs into seed-reliant / create-via-API specs.
+  **Two open decisions:** Checkmarx (commercial, needs a licence) vs CodeQL (free, native); and
+  whether to add caching once heavy lifting lands server-side — measure first per D133.
 
 - **Sandbox-verify plans + L&L together.** `backend/run-local.ps1` (Zulu 25, real `TEST_` keys,
   `CASHFREE_ENABLED=true`) + frontend with `VITE_API_DOMAINS` covering `plan`/`serviceRequest`.
@@ -35,59 +44,40 @@
 
 ## Needs attention (not mine, not yet actioned)
 
-- ~~**`spring.jpa.open-in-view=false` is a production behaviour change made autonomously (D185) —
-  confirm it should ship.**~~ **Approved to ship 2026-08-10.** Safe on the evidence available: no
-  controller returns an entity, every handler maps to a DTO inside the service transaction, and the
-  full 992-test suite is green with it off *and* with the setting genuinely applied to the test
-  profile. The accepted trade is that silent-N+1 becomes `LazyInitializationException` — a latency
-  problem becomes a 500 on any site the suite does not cover — on the grounds that a loud failure
-  is worth more than an invisible one. If a 500 does appear from serialisation, that is this
-  setting talking, and the fix is to fetch the association in the service, never to switch OSIV
-  back on.
+- **Standing ruling — `spring.jpa.open-in-view=false` (D185), approved 2026-08-10.** No controller
+  returns an entity; every handler maps to a DTO inside the service transaction. The accepted trade
+  is that a silent N+1 becomes a loud `LazyInitializationException`. If a 500 appears from
+  serialisation, that is this setting talking: fetch the association in the service, **never switch
+  OSIV back on**.
 - **Property reviews have no live-API e2e, and that gap hid a total outage.** `listPropertyReviews`
-  requested `/reviews/property/{id}`, which is not a route — it matches
-  `GET /reviews/{entityType}/{entityId}`, whose `entityType` is `society|locality|owner`, so
-  `ReviewTargetKey` rejected `property` and every live read and write 404'd. The property page
-  catches a failed review read and renders an unreviewed listing, so it presented as "no reviews
-  yet" on every listing. Path and UUID are fixed; the missing coverage is not.
-  `live-property-integration` covers only the *locality* route, and `review-parity.mjs` likewise
-  probes a locality, which is why both stayed green throughout. The same live config is where the
-  "summary read fails, cards still render" branch has to be tested — it is unreachable in mock mode
-  because neither read is a request there (logged ❌ in `COVERAGE.md`).
-- **Three other surfaces still average reviews in the browser**: `useSocietyHub.js` (society),
-  `Owner.jsx` (owner), `locality/ReviewsBlock.jsx` (locality). None is a like-for-like swap — the
-  D79 endpoint is property-only — so each needs its own aggregate before it can move.
-- **`hasTenancy` in `ReviewsSection` is mock-only and now says so in a comment.** It reads a
-  localStorage bucket nothing on the live path writes, so it is always false against the real API;
-  the visit half of the eligibility gate is what carries production. A live tenancy read on the seam
-  would close it.
-
-- **`RentMapper` carries a one-line `@Mapping(..., ignore = true)` that belongs to whoever is doing
-  D167.** The working tree already held uncommitted D167 work (`RentPaymentDto.withPaymentSessionId`),
-  which MapStruct reads as a second writable target under `unmappedTargetPolicy = ERROR`, so the
-  backend would not compile. The ignore is an unblock, not a decision — delete it and map the field
-  properly when D167 lands.
-- **The two new 409s (D160) have no e2e coverage and cannot have any yet.** e2e runs mock-mode and
-  the mock provider opens no gateway order, so there is no unpaid row to collide with; the cap is
-  covered at the API level instead by `UnpaidOrderCapTest` (13 tests, both families, index names
-  pinned) and the sweeps by `BillingCheckoutSweepTest` / `RentCheckoutSweepTest`. Revisit when the
-  sandbox-verify item above gives e2e a real checkout to drive.
-- **`backend/.env.local` was surfaced into an editor context during the 2026-08-09 debt wave.** It is
-  git-ignored and was never committed, but it holds live sandbox secrets (Cashfree TEST secret key,
-  R2 access key + secret, Supabase DB password) and its own header says not to paste it anywhere.
+  requested `/reviews/property/{id}`, which matches `GET /reviews/{entityType}/{entityId}` whose
+  `entityType` is `society|locality|owner` — so every live property review read/write 404'd, and the
+  page's catch-and-render-unreviewed branch presented it as "no reviews yet" on every listing. Path
+  fixed; **coverage not**. `live-property-integration` and `review-parity.mjs` both probe a
+  *locality*, which is why they stayed green. Same live config is the only place the "summary read
+  fails, cards still render" branch is testable (logged ❌ in `COVERAGE.md`).
+- **Three surfaces still average reviews in the browser**: `useSocietyHub.js`, `Owner.jsx`,
+  `locality/ReviewsBlock.jsx`. Not a like-for-like swap — the D79 endpoint is property-only, so each
+  needs its own aggregate first.
+- **`hasTenancy` in `ReviewsSection` is mock-only** (reads a localStorage bucket the live path never
+  writes, so always false against the real API). The visit half of the eligibility gate carries
+  production. A live tenancy read on the seam closes it.
+- **`RentMapper`'s `@Mapping(..., ignore = true)` belongs to whoever does D167.** It unblocks a
+  compile break (`RentPaymentDto.withPaymentSessionId` is a second writable target under
+  `unmappedTargetPolicy = ERROR`) — delete it and map the field properly when D167 lands.
+- **The two D160 409s cannot have e2e yet** — the mock provider opens no gateway order, so there is
+  no unpaid row to collide with. Covered at API level by `UnpaidOrderCapTest` + the two checkout
+  sweeps. Revisit when sandbox-verify gives e2e a real checkout.
+- **`backend/.env.local` was surfaced into an editor context on 2026-08-09.** Git-ignored, never
+  committed, but holds live sandbox secrets (Cashfree TEST secret, R2 keys, Supabase DB password).
   Rotate if there is any doubt about where that context went.
-- **Two of the four flaky specs are now fixed; two remain.** Full mock run 2026-08-13 (1617 tests,
-  40.3m) listed four. **Fixed 2026-08-10:** `near-a-place-autoscroll.spec.js:45` — not a console
-  error at all, the guard `abs(after.winY - before.winY) <= 2` was receiving 183 because
-  `option.click()` scrolls its target into view first and the portal menu overflows the 620px
-  viewport, so Playwright itself moved the window; the baseline is now taken *after* an explicit
-  `scrollIntoViewIfNeeded()`, so the guard blames the app only for jumps the app caused (6/6).
-  `mobile/phase3.spec.js:157` (drag-to-dismiss) — passed 3/3 on repeat with no change;
-  `useSwipeDismiss.js` reviewed and sound, so it was environmental. **Still flaky:**
-  `consumer/search/commercial-type-filter.spec.js:60`, `consumer/flatmates/video.spec.js:27` — both
-  animation/timing dependent, the shape that fails under CPU contention. Do not "fix" either by
-  relaxing an assertion, and do not run `graphify` or a build against the same machine during an
-  e2e run.
+- **Still-flaky specs — do not "fix" by relaxing an assertion:**
+  `consumer/search/commercial-type-filter.spec.js:60`, `consumer/flatmates/video.spec.js:27`,
+  `consumer/flatmates/prefreeze.spec.js:66`,
+  `platform/desktop-noleak-guardrails.spec.js:267,282,291,328`, `admin/content.spec.js:59`. All
+  animation/timing dependent — the shape that fails under CPU contention. Never run `graphify` or a
+  build on the same machine during an e2e run.
+
 
 ## Next up
 
@@ -104,989 +94,682 @@
 
 ## Shipped
 
-### 2026-08-11 — society reviews get their own aspect vocabulary, and the composer actually sends it
-
-`ReviewCategories.KEYS` was a single closed set — the *property* vocabulary — applied to every target
-type. On a society, `locality`/`condition`/`value`/`owner`/`accuracy` mean nothing, and the hub's five
-aspect bars (Safety, Maintenance, Management, Amenities, Connectivity) had nothing behind them: the
-read aggregate filtered a society's JSONB to property keys, so `categoryAverages` came back
-permanently `{}` and every bar rendered the deterministic baseline alone. `createEntityReview` also
-sent no `categories` at all, so nothing wrote them either. Split into `PROPERTY_KEYS` / `SOCIETY_KEYS`
-behind `forTarget(targetType)`, which now feeds **both** the write validation and the read aggregate
-so the two cannot drift; added five optional per-aspect rows to the society composer and wired
-`submitReview` to send them. `reviews.categories` is JSONB, so **no migration** was needed. The
-society ids are the ones already in `frontend/src/pages/consumer/society/constants.js` — Capitalized,
-because they are stored keys, not labels. `locality` and `owner` keep the property vocabulary: nothing
-in the product names one for them, and that is reported, not decided.
-
-### 2026-08-11 — Q14 answered: the foundation set splits, and a price edit stops costing the owner search
-
-`ListingService.apply` set one `foundationChanged` flag for all seven searchable facets, and `update`
-reverted to `pending` on any of them — so lowering the asking price took the listing off search,
-punishing exactly the edit we most want owners to make. Q14 answered neither design wholesale: the
-set splits by what the edit does to the *claim*. `locality, propertyType, bhk, deal` change what the
-listing fundamentally is, so a stale index entry is a wrong answer (a 2BHK under 3BHK) and still
-reverts; `price, furnishing, possession` change an attribute of a listing that is still the same
-property, so it stays live and searchable and a background re-check is queued instead.
-
-`apply` now returns an `EditImpact` record and is the one place either set is written down (V62 adds
-`recheck_requested_at` + `recheck_reason` with a partial index; `recheckPending`/`recheckReason`/
-`recheckRequestedAt` go on the wire; `GET /admin/properties?recheck=` is a tri-state filter, drained
-through the **Re-check Queue** tab on `/admin/properties` — oldest first, changed fields and waiting
-age per row, pass/reject via the existing status transitions, no new route).
-`check:listing` went 45 → 61 assertions, comparing each half separately plus a disjointness check,
-because a field moving *between* the sets is the new way to drift. Three tests encoded the old rule
-and were updated, not deleted: `AdminUpdatePropertyTest.ownerEditStillReverts` /
-`.moderatorEditDoesNotRevertToPending` (widened to `{"price":26000,"bhk":3}` so the contrast pair
-still proves "same edit, two paths"), and `PropertiesEndpointsTest.updateFoundationFieldReverts…`
-(split into an identity case and a price case). Closes **D76**; **Q14 CLOSED**.
-
-### 2026-08-13 — the D129 seed race, and the `|| '{}'` fallbacks that would have hidden it
-
-D129 moved mock-store seeding behind a dynamic `import()` in `main.jsx`, and the seed is a promise
-chain (`ensureMockDb().catch(...).finally(...)`), not a top-level await — so module evaluation
-finishes *before* the store is written and the document `load` event fires on an empty store. Every
-spec that navigated and then read `localStorage` straight away was relying on a timing coincidence
-that D129 removed. Measured on a cold dev server: `load` at +839ms, store written at +1702ms. The
-consequence is that **a bare `page.goto()` is exactly as racy as `waitUntil: 'networkidle'`** — the
-usual "just don't use networkidle" advice does not apply here.
-
-Every store-touching `page.evaluate` in `e2e/` was enumerated and classified. An `evaluate` that
-follows a real UI interaction, a passing `expect(locator)…`, or a staff-login helper (which clicks a
-rendered button) is already behind an auto-waiting boundary and was left alone; only the sites that
-read the store off a raw navigation were changed. Those now `await appReady(page)` — the existing
-`data-pn-boot="ready"` waiter in `helpers/app.js` — between the navigation and the read. Probing
-`localStorage.getItem('puneNestDB_v5')` is *not* an acceptable substitute: dev-only disk hydration
-writes that key before the one-shot migrations run, so it can be present and stale.
-
-**The second half is the one that matters more.** `JSON.parse(localStorage.getItem(KEY) || '{}')`
-followed by a `setItem` back to the same key is not a missing-data guard, it is a store-wipe: if the
-read lands early the spec writes `{}` plus its own one field over the entire seeded database, and the
-failure surfaces later in an unrelated assertion that looks like a product bug. Fourteen of those
-read-modify-writes are now an explicit `if (!raw) throw new Error(…)`. Silent
-`if (!db?.settings?.flags) return;` guards in flag helpers got the same treatment for the same
-reason — they leave the flag at its default and the test then fails for the wrong reason. Pure reads
-that only feed an assertion keep their fallback; the distinction is whether the parsed value is
-written back.
-
-19 spec files touched, no production code. `tests/mobile/property-contact.spec.js` runs on the mobile
-projects only, so it was verified separately. Both runs done twice for flakiness: 141 passed
-(chromium) ×2, 14 passed (mobile + mobile-small) ×2, `--retries=0` throughout. No `COVERAGE.md`
-entry — no product behaviour changed.
-
-### 2026-08-13 — the prod profile is now a tested contract, and the container can be told its port
-
-Picked because it was the largest untested surface with the worst failure mode, and it needed no
-Docker and no public tunnel to verify.
-
-- **`application-prod.properties` was a deployment contract that nothing in ~880 tests ever loaded.**
-  A misspelled key there does not fail — Spring ignores it and the *base* file's value stands, and
-  the base file's values are the permissive ones (local Postgres, `db/seed` in the Flyway path, a
-  loosened OTP throttle, `trusted-proxies=none`). So a typo shipped developer defaults to production
-  and looked healthy doing it. `ProdProfileContractTest` (10 tests) now pins the required env set,
-  proves no secret has a fallback default, proves every omission is fatal, and proves the seven
-  secret-bearing **key names** are spelled the way the app reads them.
-- **Mutation-checked, not assumed.** Renaming `punenest.security.trusted-proxies` →
-  `...trusted-proxys` and hardcoding `server.port` each failed exactly one new test — and the
-  misspelling broke *nothing else*, which is the whole argument for the key-name assertion.
-- **`server.port=${PORT:8080}`** (was a hardcoded `8080`). Cloud Run injects `PORT` and health-checks
-  the port it injected; a fixed port passes locally forever and silently never receives traffic in
-  prod. Contract now written down in `platform-architecture.md` §6.1 and pinned by the test.
-- **Three stale comment blocks corrected.** Two in `application-prod.properties` and a
-  self-contradicting pair in `application.properties` all claimed the dev seed was declared in the
-  *base* file; it moved to `application-dev.properties` under D147/D155. The prod overrides are still
-  load-bearing, but for a different reason than stated — `spring.profiles.active=dev,prod` loads both
-  files, and the override is what wins that collision. The test now asserts the divergence it beats,
-  so if dev stops being the loosened profile this fails instead of quietly becoming decorative.
-- **Razorpay→Cashfree drift in `platform-architecture.md`.** ADR-017 moved payments to Cashfree and
-  the doc's own header and sequence diagrams say so, but the cost table, context diagram, component
-  diagram and data-flow diagram still said Razorpay — the file contradicted itself in four places.
-  Corrected. The ADR section still says Razorpay on purpose: there it is the superseded choice and
-  the documented fallback behind the `PaymentClient` seam, which is the historical record.
-
-Not done: `backend/Dockerfile` still does not exist. Deferred deliberately — Docker cannot run on
-this machine, and an unrunnable Dockerfile is a guess, not an artefact. Needs CI to verify.
-
-No `COVERAGE.md` entry, deliberately: nothing here is reachable from a browser. The prod profile is
-never activated in e2e (which runs mock-mode against dev), and `server.port` still resolves to 8080
-without `PORT` set, so the e2e harness sees an identical app. The contract is asserted at the file
-level by `ProdProfileContractTest` because that is the only layer where it exists.
-
-### 2026-08-10 — D79 actually wired up, plus the two defects that were hiding behind it
-
-D79 shipped `GET /properties/{propId}/reviews/summary` and nothing called it: the property page
-still downloaded every review of a listing and reduced the array to draw one number. Swapping it
-over surfaced two live-only defects that had to be fixed for the swap to mean anything.
-
-- **The review seam grew a `summary` capability** — `getPropertyReviewSummary` on the service, the
-  http provider (real endpoint), the mock provider (same shape derived from the local store,
-  rounded to the one decimal the server rounds to) and the mapper (`distribution`'s `"1"…"5"` string
-  keys → the 0-based array the bars are drawn from; `avgRating` passed through **null**, never `0`).
-- **`ReviewsSection` consumes it** for the average, count, distribution and per-aspect averages. The
-  list is still fetched — the cards below are the list — but no longer feeds the numbers above it.
-  "% would recommend" stays client-side: it has no server aggregate. Both reads reset on an id
-  change and the block holds skeletons until they settle, so no listing shows its predecessor's
-  average or a premature "no reviews yet".
-- **`listPropertyReviews`/`createPropertyReview` pointed at `/reviews/property/{id}`, which is not a
-  route** — 404 on every live read and write, swallowed into "no reviews yet". Now
-  `/properties/{propId}/reviews`, and unpaged, matching D8.6.
-- **The page passed `p.id` where the route binds a UUID.** `p.id` is the slug behind the seam;
-  callers use `p.uuid || p.id`, as `DealPanel`/`FinancesTab` already do.
-
-Lint 408 → 408 problems (0 errors, unchanged); `vite build` green. New spec is written but unrun —
-see "Needs attention".
-
-### 2026-08-10 — debt wave 11 close-out: six register rows closed
-
-Register went from 28 Med + 33 Low to **22 Med + 33 Low** (55 open, still zero High).
-[`docs/system/tech-debt.md`](../docs/system/tech-debt.md) carries the reasoning; this is the index.
-
-- **D58** — service orders now have the missing lifecycle endpoints, with a negative-heavy state
-  machine sweep proving legal transitions, 409s for illegal ones, quote-only pricing and the split
-  between staff progression and customer acceptance.
-- **D177** — erasure now has the missing schema-driven exhaustiveness proof: `ErasureCoverageTest`
-  reads `information_schema`, forces every personal-data-looking column to be erased, retained with
-  a reason, or disclosed as a gap, and seeds real rows to prove the erased columns are actually
-  cleared.
-- **D185** — the owner inbox reads `requester.verified` on pending contact requests instead of
-  asking `rentService` to infer it from a mobile that may still be masked. Covered by
-  `consumer/account/contact-request-verified-badge.spec.js`.
-- **D186** — flatmate host inbox buckets and mock `myListings` now key on `ownerId`, not on mobile
-  digits, so masked-vs-real and changed-number splits stop creating two inboxes for one person.
-  Covered by `consumer/flatmates/owner-id-inbox.spec.js` and the existing flatmate My Listings spec.
-- **D188** — photoless cards on home/search surfaces now render no `<img>` at all, so the browser
-  stops re-requesting the whole page and `search-property-types.spec.js` goes green without waiving
-  console errors.
-- **D189** — the cookie banner publishes its real height and the consumer layout reserves that band,
-  so the mobile footer scrolls above the banner and bottom nav instead of living permanently under
-  them. `platform/help/i18n-urls.spec.js` is green end-to-end again.
-
-### 2026-08-12 — debt wave 10: seven write-disjoint lanes, ten register rows closed
-
-Register went from 33 Med + 34 Low to **26 Med + 33 Low** (59 open, still zero High).
-[`docs/system/tech-debt.md`](../docs/system/tech-debt.md) carries the reasoning; this is the index.
-
-- **L1 — D114, the verified-tenant badge in live mode.** The debt lives in `deals.offer` /
-  `deals.finalization`, not `finance/rent` as briefed. `verified` is now stated on the party rather
-  than derived from `mobile`, because the mask is lossy: a client matching `98XXXXX210` against a
-  verified list can only ever answer false. `verifiedAmong(ids)` is batched and id-keyed so it never
-  passes through `MobileMask`.
-- **L2 — D42 + D131.** The share token moved to an `X-Share-Token` header, read from
-  `location.hash` — fragments are never transmitted, so it cannot reach an access log or a
-  `Referer`. **No compatibility window**: nothing had ever constructed a share link, so a live
-  `?token=` path would have preserved the exact vulnerability being removed. Uploads now pass a
-  cumulative `List<DocumentScanner>` (magic-byte agreement, dangerous containers, dangerous *last*
-  extension, PDF `/JavaScript` + `/Launch`) **before** `storage.store`; ClamAV fails closed.
-- **L3 — D118 + stamp duty.** `flatmate_group_members.name` is nullable (**V55**) and renders a
-  neutral glyph rather than an invented initial. `buy.stamp_duty` `0` → `NULL`: a zero rendered as a
-  real, free, wrong number. Every consumer was audited and was already null-safe.
-- **L4 — D68 + D177.** Report triage gained an enforcement verb and **server-side** filtering (the
-  browser had been filtering a single unpaged read, so every count silently described page one).
-  DPDP erasure ships as a two-stage flow (**V56**) with each retention statute cited beside the code;
-  the audit trail deliberately cannot re-identify — `subject_digest` is over the row id, not the
-  mobile, since ten digits are enumerable in seconds.
-- **L5 — D141.** `/property/:id` roughly 5,447 → ~3,500 px on mobile by demoting four low-intent
-  sections, reusing the existing `MobileCollapse` primitive: no new component, no new i18n key, no
-  new dependency, `styles/index.css` untouched.
-- **L6 — D30.** Mock stores key on a minted `ownerId`; the `|| 'anon'` fallback is gone — it was one
-  shared bucket for everyone the app could not identify. Flatmates deliberately left (**D186**):
-  those rows carry no id to key on yet.
-- **L7 — D130 + D158.** Turnstile guards the three unauthenticated writes, with the token riding as
-  a header so it touches neither a DTO nor the contract; missing, rejected and unverifiable tokens
-  return a byte-identical 403. The Redis limiter is written and gated off — **it does not build
-  offline** (the BOM resolves the starter at 4.1.0, `.m2` caches 3.3.5), so `store=redis` fails fast
-  at boot rather than silently counting in memory.
-- **Close-out.** The register's arithmetic was wrong again (claimed 67 open / 33 Med against 69 rows)
-  and is now re-derived from the file. D179 and D96 were already satisfied and were closed on
-  evidence. The contact inbox's badge needed a `common.trust` port — `ArchitectureBoundaryTest`
-  caught `leads` (layer 2) reaching into `finance` (layer 4) on the first run, which is exactly the
-  cycle it exists to prevent.
-
-### 2026-08-11 — debt wave 9: six write-disjoint lanes, and the register's last High
-
-Register went from 1 High + 36 Med + 34 Low to **zero High**, 33 Med, 34 Low.
-[`docs/system/tech-debt.md`](../docs/system/tech-debt.md) carries the reasoning; this is the index.
-
-- **L1 — D182 + D183.** `FlatmateConflicts` mints the 409 sub-code with the `(marker)` appended by
-  the factory, so no call site can put anything after it; `FlatmateConflictsTest` reproduces the
-  client's own `\s*\(([a-z_]+)\)\s*$` regex and pins the marker's *position*, not just its presence.
-  The second-device duplicate no longer promises a thread that exists only on the other device —
-  three i18n keys were **renamed** rather than reworded, so a stale locale fails `check-i18n-locales`
-  instead of passing with the old sentence. No wire-format change.
-- **L2 — D67, the only High.** `security/Capabilities` + `security/PermissionMap`; the stored
-  `settings.permissions` document is now read on `/admin/dashboard`, `/admin/analytics`,
-  `PATCH /tickets/{id}`, `POST /tickets/{id}/notes`, `GET /service-requests`. Capability checks are
-  **`and`-ed onto** the existing role guards, never substituted, so the map can only narrow access,
-  never widen it. Dropped to Med rather than closed: `customRoles` is still inert (that is D13's
-  slice), `export_csv` guards nothing yet, and team-less staff keep the role baseline.
-- **L3 — D51 + D173.** The two "tested server, no screen" surfaces now have screens: `/ops/support`
-  over `GET /admin/support-tickets`, and `/ops/drafting-desk` over
-  `GET /service-requests/{id}/identities`. Both `lazy()` under `RoleRoute roles={['staff','admin']}`.
-  Extending the seam turned up a latent bug — the mock `replyToTicket`/`markTicketRead` were
-  hard-coded to `'customer'`. The desk renders an **allow-list of 21 named `details` keys** rather
-  than the raw object, because `redactIdentityNumbers` strips PAN and Aadhaar but **not mobiles**.
-- **L4 — D176.** `V54` drops `idx_transactions_owner`, proven dead by a full V1→V54 replay on an
-  empty database. `V27`'s comment about the flatmate unique index makes three claims and the first
-  two are backwards; V27 itself is left untouched, because editing an applied migration moves its
-  checksum and breaks every migrated database. The correction ships in V54's header, a
-  `COMMENT ON INDEX`, and repository javadoc — where it is read next to the thing it describes.
-- **L5 — D96.** 203 specs: 70 now share `helpers/console.js`, 0 carry a local copy, 1 waives and
-  composes. New `check:console` gate keeps it that way. A local `trackErrors` that had been silently
-  shadowing the shared one in `search-property-types.spec.js` is gone.
-- **L6 — D26.** `isSeriousBuyer` — `Number(lastTwoDigits) % 3 === 0`, live on the wired path via the
-  owner's Leads inbox — is deleted in favour of `rentService.tenantsVerified(mobiles)`, one request
-  per inbox, **failing closed** on error. The register had this row half wrong:
-  `applyVerifiedBadgeToListings` was never a trust derivation (it is the mock half of the seam) and
-  stays; `isSeriousBuyer` was, and went.
-- **Central close-out.** D178/D179 rows; every lane's register/COVERAGE row applied centrally, not by
-  the lane; backend **1099 tests green**; frontend lint/i18n/help/finance/build/bundle green
-  (535.1 KB gzip of a 595 budget); both new ops specs 39/39 under `--repeat-each=3 --retries=0`.
-
-**The one genuine product defect this wave was found by a console guard, not by an assertion.**
-`serviceFlow.create` minted ids as `'SR' + Date.now() + random(0..99)`, so anything creating two
-requests inside the same millisecond — `seedDemo()`, or any burst — had a coin-flip chance of a
-duplicate. React reported it as a duplicate key on the ops queue, which means a row can be dropped or
-updated in the wrong place on a queue holding identity documents. It is now a per-page counter,
-fixed-width (unpadded, `"…100" + "12"` and `"…10012"` are the same string), starting at a random
-offset so two tabs in the same millisecond do not line up either.
-
-**Lane rules that held** (see D180): no lane ran mock Playwright — several lanes edit
-`frontend/src/**`, and Vite broadcasts a full page reload to every connected page, which is what made
-the rent-agreement wizard look like a product bug. No lane edited `docs/system/tech-debt.md`,
-`tasks/todo.md`, `e2e/COVERAGE.md` or `tasks/lessons.md`; they reported their rows and the rows were
-applied centrally, because parallel edits to shared docs collide.
-
-### 2026-08-11 — D180: the rent-agreement "product bug" was another lane's dev server
-
-The register filed it as a product defect and said so in the strongest terms — *"hardening a test
-around a product defect is how a defect becomes permanent"*. That instinct was right; the diagnosis
-was wrong on all three counts, and the run in isolation says so before any analysis does: **15/15
-pass**, repeatedly. It only fails under parallel load.
-
-The claimed failure was a 30 s timeout at `:116` inside `submitFromReview`, on the review-declaration
-checkbox, *"element is not stable"* / *"outside of the viewport"*. The real one is a **10 s action**
-timeout in `fillTerms` on `.step-panel.active .pn-datefield` — four helpers earlier, a different
-locator, a different timeout. The review step is not involved and `test.slow()` would not have helped.
-
-**The screenshot had the answer.** The *"We saved your progress"* banner is visible **mid-test**, on
-the Tenant step, with the tenant fields blank. `useFormDraft`'s restore effect has deps `[key]` — it
-is mount-only — so that banner can only mean the page remounted. Vite broadcasts a full `page reload`
-to every connected page when a module cannot be hot-swapped, and `frontend/src/i18n/locales/**/*.json`
-and most `src/context/*.jsx` qualify. Captured from the dev-server log during a failing run:
-`8:51:20 AM [vite] (client) page reload src/i18n/locales/hi/dashboard.json`, then seven more at
-`9:04:42` for `src/context/*.jsx`. Those were **other lanes of this wave** editing `frontend/src/**`
-while the suite ran. Reproduced deterministically: fill three steps, `page.reload()`, `Next` → banner
-shown, heading back on *Owner / Licensor Details*, zero date fields. Exactly the observed failure.
-The same reload explains the sibling `referral-rewards.spec.js` *"Execution context was destroyed"*
-failures the row also cited.
-
-**Why it misdirected so badly.** `playwright.config.js` sets `webServer.stdout: 'ignore'`, so Vite's
-log — announcing the cause by name, with a timestamp — was discarded. And the spec's helpers never
-checked their own postconditions: the Property, Owner and Tenant panels share every placeholder
-(`As per PAN/Aadhaar`, `ABCDE1234F`, `10-digit mobile`), so a `Next` that silently refused left the
-next helper cheerfully typing tenant answers into the owner panel, and the run fell over several
-steps later on a locator with nothing to do with the cause.
-
-**What changed.** `clickNext(page, expectStep)` asserts the step dot went `active`; `submitFromReview`
-asserts the done panel appeared (either wording — the owner filled the tenant step, or invited them
-to). No retry, no re-fill, no loosened selector, so this is not hardening: a `Next` that genuinely
-refuses still fails the test, it just fails at the transition saying *"wizard did not advance to
-step 4"*. Three now-redundant `Request submitted!` assertions collapsed into the helper.
-
-Mutation-tested both, since an assertion that cannot go red is decoration: drop the owner PAN →
-`Error: wizard did not advance to step 3`; drop the declaration checkbox → `submitFromReview` fails
-on the done panel at its own line.
-
-**The standing rule this produced:** never run mock e2e while another lane edits `frontend/src/**`.
-To attribute a suspected reload, start Vite yourself with the log captured, point Playwright at it
-with `BASE_URL` (`reuseExistingServer` does the rest), and grep the log for `page reload` across the
-run window.
-
-Verified: `rent-agreement.spec.js` **15/15**, and **88/90** on `--repeat-each=6` — the two failures
-are the same test, both carrying the reload signature (restored-draft banner + *"No active request
-yet"*) inside the `9:04:42` window logged above. A later confirmation run came back **14/15**, and the
-rule proved itself: the dev-server log had seven `page reload src/context/*.jsx` entries at `9:18:38`,
-inside that run's window, and the same test re-run alone `--repeat-each=3` passed **3/3**. Every
-failure seen this session is attributable to a logged reload; none survives isolation.
-
-Review agents were skipped — the diff is 43 lines of test assertions with no product code touched,
-and both assertions were mutation-tested instead. `e2e/COVERAGE.md` needs no row: this strengthens
-existing tests rather than covering new behaviour, and the citation check is clean.
-
-### 2026-08-11 — D181: the three flatmate interest buttons now reach the API
-
-`onInterest`, `onRoomInterest` and `onJoin` go through `flatmateService`. The provider owns the
-host's inbox row, the notification and the chat thread; the hooks own the button state and the
-toast. Register row deleted; two new rows opened from review (**71 open**, 111 gaps).
-
-Three corrections to the register text, worth recording because they were what the row got wrong:
-the provider is `postInterest`, not `expressInterest`; `flatmates.groupAlreadyFull` **already
-existed** in `en`/`hi`/`mr`, so the slice needed no new i18n keys at all; and both 409s arrive on
-the wire as `error: "conflict"` — the real reason is a trailing `(already_interested)` /
-`(group_full)` marker in the message. That last one is why `conflictSubCode` + `withConflictCode`
-exist in `flatmateMapper.js` / `flatmateProvider.js`: without them the two conflicts are
-indistinguishable at the call site and both would have to fall through to the generic error.
-
-**The part that was nearly got wrong.** Removing the client-side short-circuit is what makes the
-409s reachable, so it looked as though the persisted "I already asked" flag had to go with it. It
-did not: `prefreeze.spec.js:47` protects the join done-state surviving a reload, and caught the
-regression on the full suite run. The distinction the first pass missed is that the store was doing
-**two different jobs** — memory of what this browser asked, and a stand-in for the server's uniqueness
-rule — and only the second one was the bug. They are now two stores (`puneNestFlatmateInterests`,
-page-owned; `pnMockFlatmateInterests`, mock-provider-owned), and the rule is that the page may
-*remember* an ask but may never *decide* with it. A repeat tap is always sent, and always answered.
-
-The client-side `seatsLeft(g) <= 0` pre-check in `onJoin` is gone for the same reason: it answered
-from the board's snapshot, which is precisely the stale data `group_full` exists to correct.
-
-Mutation-tested rather than assumed: pointing both 409 branches at `common.somethingWentWrong`
-turns two of the three new tests red, so the branches are load-bearing and not decorative. Tone is
-asserted on the toast's own variant class, because the words are what a future edit changes.
-
-Two mock-fidelity gaps left open deliberately: the mock `joinGroup` does not add a member or spend a
-seat on an open-policy join the way `FlatmateSupplyService.join` does, and mock `postInterest` has no
-`verification_required` 403 — the hook's `isVerified` pre-check opens the verify modal first, which is
-better UX and would make the branch dead code. Neither is reachable from a call site today.
-
-`e2e/COVERAGE.md` spec tallies were already behind before this slice; corrected to the derived
-counts (**203 spec files**, `consumer/flatmates` 30) while adding the five D181 rows. The 205 an
-earlier pass wrote was itself wrong — it counted three throwaway `zz-probe` specs that were live in
-the tree at that moment. Count after deleting them, not during.
-
-**Review found one real bug and two rows' worth of risk.** `react-reviewer` flagged that the page's
-memory of its own asks was a bare global map, so the next person to sign in on a shared browser
-would see the previous one's cards already in "Interest sent" — disclosing their activity **and**
-leaving the newcomer with no button to press, which is the very failure this item removed. Now
-keyed by requester and re-seeded on identity change, with a fourth spec pinning it. Fixing it
-re-broke `prefreeze.spec.js:47` for an unrelated reason: one of the six `rememberAsk` call sites
-kept the old one-argument signature, so it wrote under a garbage key. Worth the note — a widened
-signature is only as safe as the narrowest call site, and the compiler has nothing to say about it
-in JS.
-
-Two findings were out of this lane and are now **D182** (the 409 sub-code is prose in three backend
-places, pinned by `contains` rather than position, so appending anything to those messages silently
-reverts the benign 409 to a red error) and **D183** (on the second device the duplicate path
-promises a conversation Messages does not have, because threads are still `localStorage`).
-
-Deliberately not changed: `err?.message` is surfaced verbatim on the generic branch, matching every
-other handler in this file; `withConflictCode` overwriting `err.code` discards `'conflict'`, which
-nothing reads.
-
-Verified: flatmates e2e **176 passed**; citation check clean; frontend lint 0 errors (the one
-`savedProvider.js` warning belongs to another lane). `prefreeze.spec.js:66` ("saving a room …
-persists the bookmark") went flaky once mid-session and passed on retry — it touches none of this
-slice's code; flagging it as **potentially pre-existing** rather than counting it here.
-
-**Second review pass (`code-reviewer`) — 0 critical, 0 high, three MEDIUMs taken.** The one that
-mattered: `group_full` rolled the card back but never refreshed, so the board still showed a free
-seat and a live Join button, and the user's only move was to tap again and be refused again. The 409
-is the single authoritative signal that the snapshot is stale — it has to be spent correcting it,
-not just undoing the flip. The other two were missing specs, both for branches that would have gone
-silently dead: rollback on an ordinary non-409 failure, and the deliberate seats-before-duplicates
-ordering in the mock. Three new specs, then all three branches mutation-tested — breaking each one
-fails exactly its own spec and nothing else.
-
-Also fixed while in there: `conflictSubCode` matched *any* trailing `(word)`, so a future marker
-this client does not know would fall to the generic toast and be rendered verbatim, internal token
-and all — the marker is now stripped from the message as it is lifted onto `code`, using one
-exported pattern so the matcher and the eraser cannot drift. `requestVm` no longer maps the
-`'anon'`/`'duplicate'` sentinels into a shape-valid empty view model. And `getAskedInterests` /
-`rememberAsk` no longer fall back to a shared `'anon'` bucket, which would have recreated the
-cross-user leak for any two identities without a mobile.
-
-Still unpinned and worth knowing: nothing asserts the host's inbox row itself — the specs prove the
-ask was recorded and will be refused a second time, not that it was delivered. The seed rows carry
-no `ownerMobile`, so `addFlatmateRequest` returns `'anon'` without writing. Not a regression (the
-pre-D181 page did the same), but the delivery leg is untested end to end.
-
-### 2026-08-11 — D174, D175, D50/D51, D100, D42 and the e2e reliability pair (D28/D29)
-
-Six parallel lanes. Six register rows deleted outright, two rewritten to the part of themselves that
-is still true, and five new rows opened from findings the lanes surfaced along the way. Backend
-**1079 tests, 0 failures, 3 skipped** (up from 1056); frontend lint 0 errors, i18n gates pass, build ✓,
-bundle unchanged at 533.0 KB; targeted e2e 42 passed; spec clean at 179 paths / 159 schemas / 226 ops.
-
-**D174 — an owner could be shown the wrong financial year on the morning their tax figure matters.**
-`FinanceService` read the clock in the JVM's default zone. On a UTC host, between 00:00 and 05:30 IST
-the server's "today" is yesterday in India — harmless for a list, not harmless for a boundary. At
-02:00 IST on 1 April, `period=year` resolved to the **previous** Indian financial year and said
-nothing about it. Closed with a new `common/PlatformTime.IST` constant and two private helpers,
-`todayIst()` and `currentMonthIst()`, which are now the only date sources in the class.
-
-The interesting decision was the seam. The clock field is deliberately **zone-agnostic**
-(`Clock.systemUTC()`), with `PlatformTime.IST` applied at each use site, rather than a clock that
-already carries IST. If the clock knew about IST, a test pinning it would be proving that *the test*
-knows about IST. Keeping it zone-agnostic lets `FinanceIstBoundaryTest` pin a **UTC-zoned** clock —
-the exact host misconfiguration that causes the bug — so every IST answer that comes back is the
-service's own. The test pins `2026-03-31T20:00:00Z` (01:30 IST on 1 April: simultaneously the
-previous day, month and financial year to a UTC host) and seeds one row either side, so a wrong
-bucket shows up as the wrong rupee total rather than an empty result. It also asserts the cashflow
-bucket's **label**, because a series that is a month out but internally consistent still misleads the
-chart axis. The clock is set through `AopTestUtils.getTargetObject(...)`: writing it through the
-`@Transactional` proxy sets the field on the CGLIB subclass and leaves the target object — whose
-methods actually run — on the system clock, so the test would have passed for the wrong reason.
-
-**D175 — the same tap answered 201 or 409 depending on timing.** All three flatmate interest doors
-now lock, then re-read, then refuse with one 409 `already_interested`. The unique index catch stays
-as an unreachable backstop with a `debug` log, not a `warn` — if it ever fires, that means the lock
-has stopped working, which is worth being able to switch on and not worth waking anyone up for.
-
-Two things were silently broken and are now not. On the group door the auto-accept block (add a
-member, decrement `seatsOpen`) ran *before* the duplicate refusal, so a repeated press could add a
-second membership row and spend a seat. And `FlatmateSupplyEndpointsTest.secondOpenJoinTakesNothing`
-asserted `members == 1` — wrong, because the group creator is enrolled at create time, so the
-truthful count after one real join is 2. **The production code was right; the expectation was not.**
-Asserting 1 would have been asserting the host had vanished. The group-join fixture that was flagged
-as missing last wave is now built and real.
-
-**D50 + D51 — the support desk could not see its own queue.** `support_tickets.unread` was a single
-boolean, so it could only ever mean one thing: "a staff reply the raiser has not read". Migration
-**V53** adds `staff_unread` beside it, leaving the old column's meaning exactly intact so the customer
-UI and every existing test still hold. Two booleans rather than a `last_message_at` + two
-`last_read_at` trio: three nullable timestamps to derive a boolean the code already stores directly is
-more state, not less. Rules are symmetric — the raiser writing (including the opening message) queues
-it for the desk, a staff reply queues it for the raiser, neither marks the writer, and
-`POST /support/tickets/{id}/read` clears **only the caller's side**. Backfill applies the same rule
-once to history so the queue does not ship empty.
-
-`GET /admin/support-tickets` is new, paged, and staff+admin — staff included deliberately, because
-they could already read and answer any ticket by id, and withholding only the index leaves them able
-to act on tickets they cannot find. `Pageables.unsorted` strips any client `?sort=`, since an
-unvalidated sort property is a 500 any caller can guess into. The row shape is a **summary**: no
-thread (a page of twenty threads is an unbounded response by another route), no mobile (a list is the
-shape that gets exported) and no `notes`. The leak test asserts through the endpoint body *and*
-reflectively over the DTO's components — a test reading the column directly would still pass on the
-day nothing exposed it, which is the whole defect. `IMPLEMENTED_FLOOR` 216 → 217.
-
-The admin queue **screen** is deliberately outstanding and now carries its own row (D51, rewritten).
-`AdminSupport.jsx` is not it — that is the ops board over a different resource on a mock provider.
-
-**D100 — a test harness was publishing to the live site.** `review-parity.mjs` posted a real locality
-review on every run, and reviews are public, so "Parity probe review." rendered on `/locality/aundh`
-to anybody browsing. It now deletes its own row by the id the create returned, inside a `finally`, so
-a contract break does not also cost a public row. Every failure path either deletes exactly one row or
-exits non-zero printing the surviving id **and** the `DELETE` to run by hand; the `psql` command tag
-is treated as authoritative, so a `DELETE 0` can never read as success. One litter row was found and
-removed (`66c9ad47-…`), printed in full before execution.
-
-Two corrections worth recording. The register was **wrong about `conversation-parity.mjs`** — it
-writes nothing to the database; its "creates" go to a client-side staging queue which, under Node, is
-the in-memory stub the script installs itself. And a review pass caught a **HIGH in the new code**:
-the failure path printed the database password, because `execFileSync`'s `Error.message` is
-`Command failed: <argv…>` and the argv carries `-d <DB_URL>` — so taking the first line selected
-exactly the line with the credential *and* discarded the stderr explaining the failure. Fixed by
-preferring `err.stderr` and redacting on the **last** `@`, so a password containing `@` is removed
-whole rather than half-shown.
-
-A throwaway database was rejected as impossible here, not merely worse: the harness drives the real
-HTTP provider, so the *backend* chooses the database. Read-only was rejected because the write **is**
-the assertion — four of the invariants only exist on a row the server actually created.
-
-**D42 — the share token is a 7-day reusable bearer credential in a URL.** Everything closeable is
-closed: `LogSafeUri` redacts `token` and friends for any future request logger (denylist, deliberately
-— a forgotten allowlist entry leaks a secret, a forgotten denylist entry makes a log noisy), the
-Tomcat access-log pattern is pinned to `%m %U %H` so it never writes a query at all, and
-`Referrer-Policy: no-referrer` is set chain-wide. The token itself is well built: 256 bits of
-`SecureRandom`, scoped to one grant, expiry re-checked on every read rather than trusted to a sweeper,
-and never shown to the recipient's counterparty. What remains is the URL — history, bookmarks, proxy
-logs, and the recipient pasting it into chat. That needs a new contract operation, not an edit, and
-it is **unusually cheap right now**: nothing in the frontend constructs a share link yet, so there is
-nothing to keep back-compatible. That window closes the day a share button ships.
-
-**D29 was never a bug.** Git settles it: the path in the register
-(`e2e/tests/services-loans-team.spec.js`) was deleted by commit `57c3b68` — *the same commit that
-wrote the note*. Before that commit, two byte-identical copies of the test ran concurrently in one
-suite, both signing in as the same seeded buyer and both mutating the same `puneNestDB_v5`. The reorg
-fixed it as a side effect and nobody re-triaged. The surviving spec at
-`tests/consumer/services/loans-team.spec.js` passes standalone, inside its 98-test suite, and under
-`--repeat-each=5 --workers=2 --retries=0`. Four robustness fixes were made anyway (chiefly
-`networkidle` → `domcontentloaded`, which is a genuine fragility against a dev server that compiles
-the module graph on demand) and **zero assertions were changed**.
-
-**D28 — the console assertion was already half-gutted, and the fix made it stricter.** `pageerror`
-was completely unfiltered, so one uncaught rejection on an offline machine failed any spec; meanwhile
-four blanket text matches (`Failed to load resource`, `net::ERR`, …) swallowed **our own origin
-returning 404 and 500** along with the map tiles, and bare `cdn`/`unpkg` were short enough to hide a
-genuine application error that merely mentioned them. The helper now judges by **provenance, not
-wording**: a failed request is classified by whose server failed, read from the console message's
-URL. External failures are dropped; same-origin 404/500 is now *caught where it previously was not*.
-Vite allow-listing covers only the **transport**, never a compile error, and a grep confirmed no
-application websocket exists to be masked by it.
-
-Proved in both directions. A 16-case classification probe caught a regression in the first draft (a
-same-origin `favicon.ico` 404 misclassified as real, because the ignore list was only tested against
-message text, not the URL). Then a real `console.error` was injected into `AdminEnquiries` — two tests
-failed and the received array contained **only** the injected string, with no environmental noise
-alongside it — removed, re-run, 7 passed. A 95-spec regression sample chosen to stress exactly what
-changed: green.
-
-**Findings opened as rows rather than fixed:** D177 (DPDP erasure is the real gap behind
-`DELETE /reviews/{id}` — and the recommendation is explicitly **not** to build it as a moderation
-power, because a hidden review is reviewable and a deleted one is not), D178 (`FinancesTab.jsx`
-filters on the calendar year while the server filters on the Indian FY — the summary card and the
-table directly below it disagree by up to three months, live, every January to March), D179 (four more
-services on a bare `LocalDate.now()`, `RentService:220` being the same bug on the same surface), D180
-(`rent-agreement.spec.js:116` is an unstable checkbox in the review step — a product defect, and
-hardening a test around it is how a defect becomes permanent), D181 (the three flatmate interest
-buttons never call the API at all, so D175's correct 409 is currently unreachable — with the note that
-whoever wires them must route it to the benign strings that already exist).
-
-### 2026-08-10 — D163, D132, D47, D129 (partial) and the flatmate duplicate-interest race
-
-Five parallel lanes. Three register rows deleted outright, one rewritten to the third of itself that
-is still true, and one live bug closed that had no row at all. Backend **1056 tests, 0 failures,
-3 skipped** on a database rebuilt from empty, so the whole 52-migration chain is also verified.
-
-**D163 — the platform was billing ₹0 stamp duty on a document that legally attracts more.** The seed
-carried `stamp_duty = 0, registration = 0` for the rent row and D150 had already made the sidebar
-render the server's breakdown, so the displayed price and the charged price were wrong *together* —
-which is worse than wrong separately, because the agreement between them reads as confirmation. The
-fix is not a better constant: a Maharashtra Leave & Licence duty is 0.25% of a consideration built
-from rent, term and both deposits, so **there is no flat value that is right for more than one
-tenancy**. `V52` therefore drops `NOT NULL` from the two columns and the seed publishes `NULL` with
-the reason in `notes` — an honest schedule declining to publish a figure it cannot know — while
-`catalog/fee/LeaveAndLicenceCharges` computes the real one per agreement. Integer-only, basis points,
-`Math.*Exact`, consideration carried ×10 000 so the 10% deposit weighting cannot lose a paisa; a test
-pins ₹917.50 → **918** to fix the rounding direction. Rejected: rate columns (four new columns
-meaningless for the `buy` row, and a statutory rate changes by *legislative amendment*, which
-deserves a code change with a test rather than a config row someone can set to 0.30% at 2am with no
-reviewer); and seeding a flat "indicative" ₹918 (right for exactly one tenancy, and a confident wrong
-number on a public page is worse than the zero it replaces). No response shape changed — `Fees`
-declares no `required` list and `FeeResponse` already carried boxed `Long`. A term-less request still
-prices at **₹2,359, byte-identical to today**; a stated-but-impossible one (rent > ₹100 cr, term >
-600 months) is a **422**, not a clamp.
-
-The frontend half was the part that mattered and it nearly shipped without: `feesProvider.js` coerced
-`Number(row?.stampDuty) || 0`, justified in its own comment by "the server's columns are `NOT NULL`".
-V52 retires that premise, and until the coercion was fixed **the sidebar showed ₹0 while the server
-charged the real figure — the customer quoted less than they are billed.** Now an explicit `== null`
-check comes first for those two fields only; the other four keep the coercion, which exists so a
-money field arriving as a string cannot turn the sidebar's addition into `"1999360"`.
-
-**D132 — the premise was already stale, and the real cost was elsewhere.** The row said the endpoints
-"aggregate per call" and proposed a rollup table. In fact both repository queries already returned
-one row per group; nothing was summed in the JVM. What was actually expensive was the **heap**:
-`type` and `amount` were in no index, so Postgres found rows cheaply and then visited the table once
-per row. `V51` replaces `idx_transactions_property` with a covering index — `(property_id, date)
-INCLUDE (type, amount) WHERE archived = false` — equality column first, range column second, and the
-two summed columns in `INCLUDE` because that is what makes the scan index-only. The old index is
-**dropped**, not kept: its keys are byte-identical and differ only by a payload the planner ignores
-when navigating, so a second one would be paid for on every write and chosen by nothing. Accepted
-trade: entries are ~2× wider, so the paged ledger list reads more index pages — but it reads twenty
-rows either way, while the aggregate scans the owner's whole history. **The rollup table was
-deliberately not built.** These numbers are reconciled against bank statements and tax returns; a
-stale rollup is a *wrong* ledger, which is worse than a slow one. The pinning tests were written and
-run **before** the change (11 pass), then again after (12 — the extra one asserts the index exists in
-`pg_indexes`, since an index is otherwise invisible to the tests it speeds up). No latency measured;
-the claim is structural, not benchmarked.
-
-**D47 — internal ticket notes were one triage rule away from reaching the customer.** `TicketDto`
-carries `notes` and was returned from `POST /tickets` to the person who raised it. It was safe, but
-only by coincidence of three unrelated facts: that endpoint was the only one reaching a non-staff
-caller, it serialised the ticket *inside the transaction that inserted it* so the note query
-necessarily saw an empty set, and `ticket_notes` is written only by a staff-guarded route. Break any
-one — an auto-assignment, a triage rule stamping "raised via web", or the customer read the row
-itself anticipated — and the leak ships **with no diff on that path for a reviewer to see**. Closed by
-splitting the DTO: `CustomerTicketDto` has no `notes` component, so there is nothing to leak and the
-guarantee is the compiler's rather than the timing's. Rejected: role-filtering at the mapper boundary
-and `@JsonView`, both of which leave the field on the object the customer path constructs and make
-correctness depend on every future call site remembering — converting a structural question into a
-code-review question, at every site, forever. Follows the `PropertySummary` precedent, whose javadoc
-makes the same argument for the same reason. The test asserts `notes` is **absent** (not null) from
-the raiser's copy, that the note genuinely exists in the table, and that the staff board still
-returns it with exact text — *the leak is not closed by breaking the feature*. `assignee` was kept:
-the contract labels only `notes` internal. Honest limit: the final assertion is at the projection
-boundary rather than over HTTP, because there is no customer read endpoint on this board today —
-which is precisely the future D47 was filed against.
-
-**Flatmate duplicate interest — a live 500, and it had no register row.** Both interest doors
-check-then-insert against `uq_flatmate_requests_target_requester`, so two taps that interleave give
-the loser a `DataIntegrityViolationException` and a 500. Now caught and translated to the **409** the
-contract already declares. Sabotage proved the test is not a no-op: replacing the business refusal
-with a rethrow reproduced the raw constraint violation and failed the test. Two things are recorded
-rather than fixed — the pre-check answers **201** where the catch answers 409 (now **D175**), and
-`V27`'s comment claims the index is "the reason the service does not check-then-insert" when the
-service does exactly that, and has since V27 landed (now **D176**). The group-join door shares the
-same private method but is untested; it needs a `FlatmateGroup` fixture with seat state.
-
-**D129 — one third done, and it is the third that was still growing.** English locale JSON was the
-only eagerly-bundled language (mr/hi were already lazy), so the remaining win was splitting English
-*by namespace*: a 6-namespace eager shell, 14 route-deferred chunks, loaded inside the `lazy()`
-boundary each route already had. Critical path **591.9 → 533.0 KB gzip (−9.9%)**; entry chunk −12.2%;
-predicted 59.4 KB, delivered 58.9. No flash of untranslated content — `React.lazy` resolves only when
-*both* the component chunk and `addResourceBundle` have settled, and both fetches go out together
-under the existing Suspense fallback. English namespaces load in **every** language, because
-`fallbackLng: 'en'` means a fallback that is not loaded is not a fallback. The lasting part is
-`check-i18n-route-namespaces.mjs`, which walks the transitive import closure of every route and fails
-the build if a route can reach a key it did not declare — so the class of regression this item
-describes cannot silently return. **Not verified in a browser: runtime language switching still needs
-a manual pass.** The other two thirds are not a bundling problem at all — `db.json` (236 KB) and
-`societies-rera.js` (182 KB) compute at *module init*, and no amount of splitting defers a module
-whose top level does the work.
-
-**One test was wrong, not one lane.** `SourceTreeHygieneTest` defines an empty `.java` as one that
-"declares nothing" — comments, `package` and `import` lines stripped. A `package-info.java` is by
-definition nothing but a package javadoc and a package statement, so **every correctly-written one**
-reported as a stub. The rule was authored when the repository contained none, so the false positive
-lay dormant until package documentation landed. The zero-byte half still applies to it, which is the
-ghost-file case the guard actually exists for. Separately, `docs/mobile-design-review.md` reappeared
-at zero bytes after being deliberately retired in 59ab9c7 — the same regeneration the guard's javadoc
-warns about, caught by the guard, deleted again.
-
-### 2026-08-09 — D73, D92, D165 and the payment-hardening four (D169–D172)
-
-Four register rows closed alongside D77 and D151, recorded here because the register keeps its
-arithmetic by *deleting* retired rows (rows + gaps = highest id), so the reasoning has to live
-somewhere that is not the table.
-
-**D73 — every rate limit was check-then-write.** Closed with a transaction-scoped Postgres advisory
-lock (`common.persistence.RateLimitLock`), taken immediately before the count and released by
-Postgres when the transaction ends. Three things were considered and rejected, each for a reason
-worth keeping: `WriteRateLimiter` counts **in memory, per instance, resetting on deploy** (D158) —
-an OTP budget that resets on deploy is not a budget; `SELECT … FOR UPDATE` locks only rows that
-*exist*, so the loser resumes on its pre-block snapshot and never sees the winner's insert (a
-textbook phantom — the cap stays exactly as leaky); and the one-statement
-`INSERT … SELECT … WHERE (SELECT count …) < N` reads the statement's own snapshot under
-`READ COMMITTED`, so both writers see the pre-insert count. That last one *looks* atomic, which
-makes it the worse bug. **It was four call sites, not three:** `ShareFlatService` was retired by
-V28 and its ten-per-hour cap now has two entrances (`FlatmateSeekerService.express`,
-`FlatmateSupplyService.record`) counting the same rows — so they deliberately share one lock
-namespace, because giving each its own would leave the burst a second door.
-The correctness tests run **outside** `AbstractApiTest`, which is `@Transactional` and rolls back
-and therefore cannot observe a commit — the D90 lesson, and a race is a commit-time phenomenon.
-
-**D92 — the last four notification writers.** `visit.confirmed` to the visitor,
-`visit.rescheduled` to whichever side did *not* move it, `offer.received` to the owner,
-`document.granted` to the requester. All via the `Notifier` port, which is **mandatory** for
-`documents`: it is rank 2 and cannot import `engagement`, also rank 2, so the port is the only legal
-route and `ArchitectureBoundaryTest` proves it. Each is tested for the property that matters — the
-recipient gets exactly one row **and the actor gets none**. Deliberately still silent: offer
-counter/accept/decline, document decline, visit completed/no-show, matching the `contact.approved`
-precedent that a terminal "no" is not news to push at someone. `notificationMapper.js` gained
-`visit.`→`visit`, `offer.`→`price`, `document.`→`document` and `message.`→`enquiry`; **that last one
-was a pre-existing break** — every `message.received` row since the conversations slice has rendered
-as a grey `system` row matching no filter chip.
-
-**D165 — connectivity e2e.** Five tests. The one that earns the item: a request that never reaches
-the server hedges (`unreachable`) **while `navigator.onLine` stays true**, because only the
-browser's own signal licenses the confident "You're offline" — telling someone their connection is
-down when it is not is worse than saying nothing. A 500 paints no banner at all, since the server
-answered. Mock mode has no network to fault, so the spec rewrites the Vite-dev-served
-`/src/services/config.js` module to put listings on the http provider; verified by **negative
-control** — sabotaging the rewrite failed exactly the three network tests and left the two
-browser-signal tests standing.
-
-**D169–D172 — payment hardening.** `CheckoutTtl` owns one `Duration` and derives the sweep's
-look-back and Cashfree's `order_expiry_time` by mirror-image methods, so the two windows are equal
-*by construction* rather than by agreement (Cashfree's 15-minute floor is applied to the shared
-value, not to one side, or a 5-minute config would sweep at 5 and expire at 15).
-`ConstraintViolations.isOn` replaced what was about to become a fifth copy of a two-line index-name
-match. `Subscription.fail()`, `Boost.fail()` and `RentPayment.settle(FAILED, …)` now release the
-idempotency key — the PAID branch deliberately keeps it, because a replay of a successful payment
-must return the same row. The free-boost promotion moved below the save, so a future
-non-transactional caller inherits the survivable failure (a boost row with no promotion) rather than
-the unexplainable one (a promoted listing nothing accounts for).
-
-**One test was wrong, not the code.** `RateLimitLockTest.negativeHashesStayInTheirNamespace` asserted
-`"zzzzzzzzzzzz".hashCode()` is negative — it is `+1097476992`, so the test failed on its own premise
-while the masking it meant to verify was correct all along. Now keyed on `"9876500073"`, an ordinary
-ten-digit mobile that genuinely hashes negative — the real shape of an OTP key, which makes it a live
-defect rather than a contrived one.
-
-### 2026-08-09 — D77: the inbound-demand reads are paged, and the half that was already paged now works
-
-**The register said sixteen and named nine. Four were genuinely left.** Seven of the nine had already
-been paged; the count was never measured. What the count *did* find is that the deal cluster had been
-paged in the backend only: `dealProvider.js` and `visitProvider.js` still ran every response through
-`Array.isArray(rows) ? rows : []`, so `/me/deals`, `/offers/mine`, `/me/offers`,
-`/me/finalization-requests`, `/visits` and `/me/visit-requests` had all been returning `[]` against
-the live API — six screens showing nothing, with a green parity harness, because every assertion on
-those lists was a *negative* one (`!list.some(...)`, `Array.isArray(...)`) and an empty list satisfies
-all of them. Positive assertions added to `deal-parity.mjs` and `flatmate-parity.mjs`, plus a direct
-envelope check in `document-parity.mjs`, so the next half-migration is caught by its own harness.
-
-Newly paged: `/me/flatmate-requests` (host inbox, `?status=` filtered in the query so `totalElements`
-counts matches, not everything) and `/me/documents/requests` (owner inbox). Both ship their index in
-V49 — an unindexed paged read is slower than the unpaged one it replaces, since the scan and the sort
-still happen and a second `count(*)` pass is added on top. Screens without a pager read these through
-one shared `unwrapFullPage(res, label)` in `http.js`, which asks for `size=100` and warns when
-`totalElements` exceeds what came back; the pattern existed three times by hand before this.
-
-**Left unpaged on purpose:** `/tenancies` and `/me/tenancies`. Their rows come from a deal the owner
-themselves closed, which fails §5.1's inbound-demand test, and they are ordered by a `CASE` expression
-no index serves — paging them correctly needs either an expression index or a changed published order,
-which is a contract decision rather than a paging one. Recorded as the narrowed carve-out on D77.
-
-### 2026-08-09 — D151: the identity numbers reach one operator, are logged, and then stop existing
-
-A Leave & License names each party by PAN and Aadhaar. The paid-L&L security pass stopped both from
-reaching the server — correctly, because `details` is plaintext `jsonb` echoed verbatim to every
-staff read — and left the drafting desk with nothing. `PUT|GET /service-requests/{id}/identities`
-over a new `service_request_identities` table (V47) is the channel that was missing;
-`rejectIdentityNumbers` is untouched and the wizard still redacts. Reasoning lives in
-[`docs/system/tech-debt.md`](../docs/system/tech-debt.md) (D151 detail) and beside the code.
-
-**The register pointed at the document vault and this went elsewhere on purpose.** The vault's read
-model is `FileStorage.signedDownloadUrl(key)` — a URL that carries its own authority, that nobody can
-be excluded from, whose use never reaches our server — so neither of the two requirements that define
-this item is expressible against it. It has no authenticated read at all, only a signer.
-`DocumentUploads.validate` admits five image/PDF types by magic bytes, so numbers are not something
-it can hold without weakening that allowlist, and `DocumentService.delete` leaves the object behind
-forever, which is defensible for a sale deed and not for an Aadhaar. **Signed off 2026-08-10** — the
-dedicated table is the agreed design, not an unreviewed departure from the register's first wording.
-
-- **Only the assignee reads** — `assigneeId == caller.userId()`, or 403, with an admin refused like
-  anyone else until they take the request. Unassigned refuses everyone: "whoever asked first" is not
-  a name. Enforced by a refusal, not by an omitted DTO field.
-- **Both outcomes are audited**, and the refusal is the more interesting entry. Counts and roles
-  only — putting the numbers in `audit_log` would make the one table that must be trusted the second
-  place they are held.
-- **Retention is bounded by the work**: `purgeFor` runs from `transition` on every terminal move, and
-  the rows survive with their names so "recorded, since discarded" stays distinguishable from "never
-  recorded".
-- **Only the requester writes.** A desk that could write these could invent them.
-- **The wizard now sends what it used to discard** — one `PUT` after the live create, before the
-  checkout modal (which can outlive the page), built from live state by `identityParties` and never
-  held. Nothing new touches `localStorage`; mock mode drops them, because the mock store *is*
-  `localStorage`.
-
-Opened: D173 — the `GET` half has a tested server and no screen, because the ops back-office has no
-live client for service requests at all. **Nothing was executed this pass** (parallel Maven runs
-corrupt `target-cli/`): `ServiceRequestIdentityTest` is written, not run. No e2e spec is possible —
-in mock mode the call is a deliberate no-op, so there is nothing observable to assert.
-
-### 2026-08-09 — Every payment family now has the cap and the sweep, not just the one that needed them first (D160, D161)
-
-Two register rows that were both "service requests have this and the other three do not". The cap
-(D160) is a partial unique index on the open unpaid row plus an in-code count that agrees with it
-exactly — `uq_subscriptions_open_unpaid` on `subscriptions (user_id) where status = 'pending'`,
-`uq_boosts_open_unpaid` on `boosts (buyer_id) where status = 'pending'` (V44, V45), each violation
-translated to the same 409 the service-request cap answers with, by matching the index name rather
-than catching integrity violations wholesale. The sweep (D161) stopped being a service-request class
-and became a port: `common.payments.AbandonedCheckouts` with one `@Scheduled` driver over whatever
-implements it, so the fourth family cost an interface rather than a fourth copy of the same query.
-
-What the reviews changed, which is the part worth indexing:
-
-- **Six javadocs claimed `@Version` closed the sweep/webhook race and none of the three entities had
-  one.** Under READ COMMITTED the sweep reads `pending`, the webhook commits `active`, and the
-  sweep's update-by-primary-key overwrites it — cancelling a customer who has paid. V46 versions
-  `subscriptions`, `boosts` and `rent_payments`; the comment on each column says what raw SQL
-  bypasses. `service_requests` had been versioned since V26 and was the reason nobody noticed.
-- **A paid webhook landing on a swept row logged at INFO and returned `true`**, which is exactly the
-  shape that keeps the controller's "unreconciled" alarm quiet about the one case worth waking up
-  for. Each family now has a `reportRefusedSettlement` with a family-appropriate predicate: benign
-  when the row still entitles, ERROR naming the gateway order and the customer when it does not.
-- **The sweep was unbounded.** `MAX_PER_SWEEP = 500`, on the port rather than four times — and now
-  that the rows are version-checked a larger batch is not merely slower, it is likelier to achieve
-  nothing, because one webhook winning a race anywhere in the set rolls the whole transaction back.
-- **The migrations retire pre-existing violations rather than refusing to deploy**, newest-wins, and
-  each retirement now `RAISE NOTICE`s its gateway order id — the deploy log *is* the reconciliation
-  list, which is the only honest answer when the tiebreak can pick against an in-flight settlement.
-
-Closed: D160, D161. Opened: D169–D172 — the sweep closes our side of a checkout the gateway still
-considers payable (no `order_expiry_time` is ever sent; rent is a genuine double-charge window), plus
-three pre-existing faults the reviews surfaced next door. Backend 966 tests green.
-
-### 2026-08-09 — Paid Leave & License, and the thirteen register rows the review of it opened
-
-The rent-agreement desk is now a paid service request end to end (`create` prices from
-`platform_fees('rent')`, opens a Cashfree order, holds at `awaiting-payment` invisible to ops, and
-the webhook settles it into the queue), and the review passes that followed closed thirteen register
-rows across two parallel waves. The reasoning lives beside the code and in
-[`docs/system/tech-debt.md`](../docs/system/tech-debt.md); what is worth indexing here is what the
-reviews *found*, because in each case the shipped feature was correct and its surroundings were not:
-
-- **The payment gate was opt-in by spelling.** `type` was free text priced by exact match, so
-  `rental` bought the desk for free. Now a closed vocabulary + CHECK constraint + OpenAPI `enum`.
-- **`details` is plaintext `jsonb` echoed to every staff read**, and the wizard was posting the
-  owner's PAN and Aadhaar into it — the ops queue's first page was a bulk identity dump. Redacted at
-  the client, refused at any nesting depth by the server, purged from `localStorage` (D149), and the
-  hand-off to the people who actually draft from those numbers is now the open decision (D151).
-- **A check-then-act cap is not a cap** (D153) — a partial unique index now enforces what the count
-  observed. **An `awaiting-payment` row was a dead end** (D152) — a 45-minute sweep plus a requester
-  self-cancel. **A cap with no release valve locks the customer out** for doing the most ordinary
-  thing in a checkout modal, which is closing it.
-- **`DETAILS_MAX_CHARS = 8000` was a guess** (D157). Measured: worst realistic wizard state is 7,875
-  characters — 125 of headroom. Raised to 16,000 with the measurement recorded at both halves.
-- **The app had no offline state at all** (D128) — `navigator.onLine` returned zero matches across
-  `frontend/src`. One connectivity banner, one shared `useAsyncList`, ~0.7 KB gzip.
-- **The dev-affordance gate was a fail-open denylist** (D147) and its replacement now requires a
-  `PUNENEST_DEV_MACHINE` environment variable read outside Spring's relaxed binding, so no file in
-  this repository can grant dev privileges. Automated test runs are exempted on a test-scoped
-  classpath marker that is not present in the packaged app.
-- **The register was wrong about D114's callers** — filed as an N+1 across three components, it has
-  one. Fixed, then found to be only half-closable: the mobile it keys on arrives masked per D5.
-
-Closed: D9, D128, D135, D147, D148, D149, D150, D152, D153, D154, D155, D156, D157; D114 in part.
-Then a third wave closed the frontend and payment residue the second opened — D159 (the *draft*
-autosave was still writing the two identity numbers D149 had just removed from the KYC record, on
-the same origin by a shorter path; now redacted and purged on read), D160/D161 (subscriptions and
-boosts had no cap on open unpaid orders and no sweep for rows stranded by a hard kill — the
-service-request shape now applies to all four families through one `AbandonedCheckouts` port),
-D162, D164, D166 (the connectivity nudge moved down into `services/http.js`, so every provider
-failure feeds it rather than the two call sites that happened to use `useAsyncList`), D167, D168.
-
-**Three things that pass reviews only find by looking sideways.** Six javadocs claimed `@Version`
-closed the sweep/webhook race and none of the three entities had one — without it the sweep
-silently cancels a customer who has just paid. A paid webhook landing on a swept row logged at INFO
-and returned success, keeping the "unreconciled" alarm quiet about the one case worth waking up
-for. And two e2e failures that looked like a revenue regression were a race: the tests read
-`localStorage` the instant after a click, and the quota is spent when the request *resolves* — the
-passing siblings had always awaited an observable effect. Proved by instrumenting both reads in one
-run rather than assuming.
-
-Opened: D163, D165, D169–D172. Register 82 open (was 89). Backend 966 tests green, lint 396/0,
-bundle 591.6/595 KB.
-
-### 2026-08-09 — The owner→visitor WhatsApp handoff was dead in the field names
-
-`VisitsTab` read `v.customer` / `v.mobile`; the visit seam publishes `visitorName` / `visitorMobile`
-and both providers write exactly those, so neither field was ever populated. The owner saw a
-nameless visit row, and `isFullMobile(undefined)` suppressed the WhatsApp button — it **failed safe**,
-which is why nothing caught it: the D5 test asserts the buyer side has *no* handoff, and that passes
-whether the owner side works or not. Fixed at the eight read sites (component reads the seam's names;
-no compat alias added in the dashboard enrichment, which would just have hidden the drift). New
-regression test asserts the positive case — the visitor's name renders and the link resolves to
-`wa.me/919811111111` with their name in the `aria-label`. 8/8 green. `AdminEnquiries`' `r.customer`
-is a different, mock-only admin shape and is untouched.
-
-### 2026-08-09 — Eight decision-blocked register items closed in one pass
-
-Each had been sitting on a product ruling rather than on engineering. The rulings were taken, then
-executed smallest-first. Reasoning lives in the code comments and in `docs/system/tech-debt.md`.
-
-- **D115 — Pay-Rent deposit financing removed.** The CTA offered a product that does not exist; the
-  tab, the EMI panel, the `depositFinancing` flag and the two e2e tests are gone rather than stubbed.
-- **D93 — `DELETE /notifications/{id}`.** Dismiss was a client tombstone, so a notification cleared
-  on a phone came back on a laptop. Server-side now; the client tombstone survives only as a fallback
-  for rows the server never had. *(Malformed `@PathVariable UUID` answers **400**, not 404.)*
-- **D85 — alerts require sign-in.** An alert nobody can be notified about is not an alert. Anonymous
-  demand is still counted for the gap report; only the managed alert now needs an account.
-- **D87 — `PATCH /visits/{id}/slot`.** Rescheduling meant cancel-and-rebook, which lost the thread.
-  Either participant may move the slot in place; the visit resets to `scheduled`.
-- **D71 — already built.** A stale register row: `flatmate_seeker_posts` has had the full archive
-  triplet and a one-live-post cap for some time. Only the regression test was missing; it was added.
-- **D122 — `POST /me/verification/aadhaar/simulate`, `@Profile("!prod")`.** The DigiLocker webhook
-  cannot reach a dev machine, so the verified tier was unreachable locally. Synthesises a webhook and
-  calls the **real** handler, so idempotency and the flag flips are exercised, not bypassed.
-- **D59 — paid boost ranks, and says so.** Boost affects the **default sort only** — pinning paid
-  listings above a sort the user explicitly chose is deception — and every boosted card carries a
-  "Promoted" chip (ASCI paid-placement guidance). Read-side mirror `properties.boosted_until` (V40)
-  so the catalogue never has to ask billing anything.
-- **D57 — subscription lifecycle.** A scheduler alone only shrinks the "unpaid plan still works"
-  window to one tick, so entitlement is decided against the clock on **every read** and the hourly
-  sweep is bookkeeping on top. No grace period: nobody specified one, and inventing one is policy.
-  *Single-instance only — needs a lock before this runs on more than one node.*
-
-Also closed alongside these: **D5/Q2** and **D72**, both large enough for their own entries below.
-
-### 2026-08-09 — D5 / open-questions Q2 closed: owner number is never revealed to a buyer (global policy)
-
-Global privacy invariant: an owner's raw phone number is never shown to a buyer; approval unlocks
-in-app messaging, not the digits. `users.hide_number` is retained but is now a no-op (the number is
-hidden from buyers unconditionally). Backend enforced this first (`ContactStatuses.revealsContact`
-= owner-only, contact/offer/visit/finalization mappers reveal mobile self-only; signed-lease /
-closed-deal reveals stay). Frontend brought to parity: mock `contactProvider.gateFor` returns
-`ownerHidesNumber: true` unconditionally; `VisitsTab` suppresses the buyer→owner WhatsApp handoff
-(owner→visitor only) and guards every `wa.me` link with `isFullMobile` so a masked number never
-forms a broken link. Dead seeker i18n keys (`waOwner`, `waSeeker`, `waReschedSeeker`) removed across
-en/hi/mr. Two new regression specs (contact-identity-masking, scheduled-visits). 142 Java + 26 e2e
-green. D5 closed in the register (83→82 open); open-questions Q2 answered.
-
-### 2026-08-09 — Decision-blocked items closed (open-questions Q1, Q3, Q4, Q5)
-
-Four answers taken off the engineering-decision queue in `open-questions.md`. One index line each;
-reasoning lives in the closed-question entry, the code comment, or the repo-memory lesson.
-
-- **Q1 — valid mobile on input (option A: tolerant input, strict storage).** New
-  `common.validation.@IndianMobile` (validator normalises via `MobileMask` then gates the result on
-  `Formats.MOBILE`) replaces `@Pattern(Formats.MOBILE)` on all 10 input fields; 8 services normalise
-  at the persist/lookup edge. `+91`/spaced now accepted; wrong-leading-digit / 15-digit still 422.
-  `IndianMobileValidatorTest` + updated Deal/Conversation edge tests (167 green). OpenAPI `Mobile`
-  schema gained an input-tolerance note (pattern unchanged). Frontend already hardened (`MobileField`).
-  Register **D23 deleted** (→ 89 open).
-- **Q3 — legacy enquiries: removed from spec** (already dropped in S45/V22; doc hygiene only, D17 deleted).
-- **Q4 — saved-search count cap: max 10/user** (`SavedSearchService.create` → 409; `SavedSearchCapTest`).
-- **Q5 — reels locality: carry both caption + slug** (V38 `locality_slug`; `ReelSlugFilterTest`; D16 deleted).
-
-### 2026-08-08 — The contract's schemas are now enforced, not just its routes
-
-`SpecCoverageTest` proved every declared route is served and every served route is declared — but
-said nothing about what those routes **return**. Roughly 6,000 of the contract's 6,300 lines are
-schemas, and none of them were checked against anything. A renamed DTO field passed a fully green
-build and surfaced later in a generated client.
-
-`SpecSchemaParityTest` closes that. Three tests: no declared field is absent from the returned type,
-no returned field is missing from the contract, and a floor on how many operations the comparison can
-resolve.
-
-- **The link is the handler's return type, not the schema's name.** Name-matching is the obvious
-  implementation and it is wrong here: the contract's `ContactRequest` schema describes the DTO
-  `ContactRequestResponse`, while a JPA **entity** named `ContactRequest` also exists — so the naive
-  version would have compared the contract against the database entity, agreed with itself, and
-  proved nothing. Only 30 of 147 schema names match a record name anyway.
-- **Names only.** Types, formats and nullability are deliberately not checked: names are where the
-  drift that reaches a client lives, and false positives are how a test like this gets disabled.
-- **Mutation-proven.** Renaming `authorRole` → `authorRoleTYPO` turned it red in both directions with
-  the exact operation and field named. A green assertion that cannot go red is worse than none.
-
-**Six real drifts on the first run**, all fixed:
-
-- `authorId` was missing from two of the three `MessageDto` records. Its own Javadoc on the third
-  calls it *"the field a client must use to decide 'mine or theirs'"* — attributing messages by
-  display name works right up until two users share one, and then a stranger's message renders on
-  the reader's own side of the thread. Both mappers already read the id to look up the name and then
-  discarded it, so the fix was passing through a value already in hand.
-- Five fields were on the wire but undeclared: `hideNumber` (User), `note` (SocietyLead),
-  `failureReason` (RentPayment), `perHead` (FlatmateGroup), `message` (FlatmateRequest). All are
-  legitimate and documented in Java — the **contract** was stale, not the code. Also corrected
-  `FlatmateGroup.rent`'s description, which told clients to compute per-head themselves while the
-  server was already sending it.
-
-Two pre-existing failures surfaced and were recorded rather than papered over: **D144** (eight V32/V33
-endpoints served but undeclared) and **D145** (two catalog test classes still assert 16 localities
-against the regenerated 155-row seed).
-
-Register recount, done properly this time: **105 items — 4 High, 8 Med-High, 52 Med, 41 Low**,
-highest D145. Two counting traps documented in the file header.
-
-
-### 2026-08-08 — Docs: one owner per fact
-
-Prose docs **19,306 → 13,463 lines**. The premise had expired: `docs/README.md` said the set existed
-because "the React app currently holds most business logic in a mock service layer; these docs
-capture that logic so it can be re-implemented server-side". The backend exists now, so those
-sections stopped being a spec-to-build and became an unmaintained second copy.
-
-New rule: **if a machine enforces a fact, the docs do not restate it.** `SpecCoverageTest` enforces
-the OpenAPI contract in both directions (served-but-undeclared *and* declared-but-unhandled), Flyway
-validates the schema, the parity harnesses cover the mock — so only the reasoning is written by hand.
-
-- Stripped §9 *Current mock implementation*, §10 *Target API endpoints*, §11 *Backend
-  responsibilities* from all 28 flow docs (**−1,151 lines**). They are 8 sections now; the 39% that
-  is *Business rules & logic* is what they were always for.
-- Deleted `db-schema.md` (opened with "V1–V8 … all 9 migrations … **verified**" while the tree is at
-  **V33** — confidently documenting 27% of the schema), `coverage-matrix.md`, and four dated reviews:
-  `backend-api-architecture-review.md`, `mobile-design-review.md`, `roadmap/mobile-ux-review.md`,
-  `docs/feature review/*`.
-- **Deleting a doc is not free.** Those four reviews held 100 actionable findings: 51 shipped, 4
-  already in the register, 6 obsolete, 11 duplicated in surviving docs — and **28 orphans** that
-  deletion would have destroyed. Routed by kind: engineering defects → **D128–D143**; the
-  never-hold-deposits constraint → a **standing ruling** (it lived in one file while D115 was asking
-  the question it answers); the two flatmate product gates → **Q11/Q12** in open-questions.
-- Rescued into surviving docs first: the 11 bounded contexts and their "core responsibility" column
-  into `package-structure.md` §3, the four SLOs ADR-016 exists to serve into `platform-architecture.md`.
-- Corrected three things that were **wrong**, not merely redundant: a standing ruling claiming
-  `pendingContactCount` has no endpoint (it shipped as D78); D99 recording swipe-to-dismiss as
-  deferred (`useSwipeDismiss` is wired into `Select.jsx`); and `docs/README.md` listing
-  `platform-architecture.md` twice in its own reading order.
-- Register counts were wrong for months because a naive `split('|')` misreads rows containing `\|`.
-  Real figures: **105 rows — 4 High, 6 Med-High, 53 Med, 42 Low**, highest issued D143.
-
-Verified: 261/261 relative links resolve, 0 BOM, 0 mojibake, OpenAPI parses with no dangling refs,
-`check-coverage-citations` green, frontend build green, 17 e2e passed.
-
+Newest first. **A finished slice gets one index line, not a narrative** (see the rule at the top).
+Entries below are collapsed to that form once committed — git history holds the full write-up.
+
+### 2026-08-12 — wave 14: the tech-debt register closed in one pass, 24 open → 17
+
+Twelve lanes, **one subagent at a time** (concurrent `runSubagent` calls are what lost wave 13's
+reports). **16 rows closed:** D120, D123, D121, D53, D49, D133, D80, D210, D211, D212, D208, D52,
+D184, D98, D99, D84. Two new rows filed: **D214** (bundle budget now slack by ~59 KB) and **D215**
+(44 unbatched provider chunks cost a round-trip, unmeasured). Bundle **495.5 → 437.6 KB**.
+
+*The recurring finding was that the register was wrong about itself*, in five different ways, and
+each correction is written into the row it belongs to:
+
+- **D98b was filed against the wrong bar** — the "account pill at x=360" is the *top* bar; the
+  account entry was already in the header. Compare moved into the mobile drawer instead (7→6 targets).
+- **D99 was not deferred** — the swipe gesture and 5s window were already in HEAD; only the
+  accessible half was missing (`UndoRow` with `role="status"`, focus moved to Undo).
+- **D33 said 670 `@param` lines; there were 844.** A whole-tree hand pass read all of them and
+  deleted 22 — 33 deletions, **zero insertions**. Stays open by design: none of the 822 kept is a
+  provable restatement.
+- **D11 said "style, Low" with no number behind it** — 30 vocabularies / 1,126 refs. Exactly one
+  converted (`ServiceRequestStatuses` → a real enum). `Roles` (414 refs) is *impossible*:
+  `@PreAuthorize` needs a compile-time `String` constant.
+- **D158's blockers had moved** — netty is cached and the row never noticed. Three artifacts are
+  genuinely absent; re-verified and still blocked. **D133 closed won't-do**: 6 requests, 6
+  endpoints, 0 duplicates.
+
+**Defect found during the final verification and fixed:** `AuthService.staffLogin` matched email
+case-sensitively while `V70` indexes `lower(email)`, so a colleague enrolled as `A.Sharma@…` was
+refused when typing `a.sharma@…`. Now `findByEmailIgnoreCaseAndArchivedFalse`; 51/51 green.
+
+**⚠️ Coverage warning:** five identity-disclosure assertions were *moved* to
+`e2e/tests/ops/live-drafting-desk.spec.js` and **have not been executed** — they need Postgres, the
+backend on :8081, `PUNENEST_DEV_MACHINE` and `BACKEND_LOG`.
+
+**Left open by decision:** D4 (merchant account), D41 (real object store), D176 (V27 is applied and
+`validateOnMigrate=true`), D68 (Spotless — excluded outright).
+
+### 2026-08-12 — D208 closed: the provider import cycle is gone, and the seam went async to do it
+
+**The decision the register had been waiting on got made: the glob goes lazy.** `services/config.js`
+now globs the providers without `{ eager: true }`, so it statically imports no provider at all. That
+is what actually removes the cycle rather than defusing one instance of it — the graph is a DAG
+(`*Service.js → config.js`; `providers/* → http.js → config.js`), so a provider body can no longer
+be evaluated inside `http.js`'s own evaluation, which was the only thing that ever made a
+module-scope read of an `http.js` export dangerous.
+
+**The ripple, and why it stopped at the seam.** `createProvider` now returns a *Promise* of the
+provider module, so **167 `provider().foo()` call sites across 22 `*Service.js` files** became
+`(await provider()).foo()` with their enclosing function `async`. Nothing above the seam changed:
+service functions have always returned Promises (`services/index.js` states it as the invariant), so
+no caller can observe the extra tick, and the 10 non-service importers of `config.js` only ever
+wanted `isHttpDomain`. Done with a one-shot espree codemod, not a regex — ~15 of those calls wrap
+across lines and the rewrite needs the *enclosing function's* range, which no regex can see. Every
+output was re-parsed before being written; the codemod was deleted after the run.
+
+**What survived unchanged, deliberately.** The registry *keys* are still synchronous, so the D105
+typo validation and the "no mock provider for domain" throw still fire at the same moment without
+evaluating a provider. The cache holds the promise rather than the module, so concurrent first calls
+share one import; a rejection is evicted, because a failed chunk fetch is a new failure mode that an
+eager glob could not have and should not poison a domain for the session.
+
+**The gate was updated rather than deleted, and re-proven red.** `check-provider-cycle.mjs` keeps its
+module-scope check as defence-in-depth — it costs nothing, it names the offending file and line, and
+it is the only thing that would still fire if someone reinstated the eager glob — and gained the
+assertion that is now load-bearing: `config.js` must not glob with `eager: true`. Verified red (exit
+1, naming `config.js:158`) before being trusted, then reverted.
+
+**Unbudgeted win.** 44 provider chunks left the critical path, so `check:size` fell **495.5 KB →
+437.6 KB** against a 497 KB budget — 1.5 KB of headroom became 59.4 KB.
+
+**Verified by rendering a page, not by gates.** `npm run check` exit 0 with lint unchanged at 0
+errors / 395 warnings; `consumer/home/featured.spec.js` 2 passed; a 328-test consumer sweep
+(property + flatmates + account) green; and the boot canary 4 passed across `/`, `/listings`,
+`/dashboard`, `/admin`. That last one is the point: three green static gates missed this exact
+blank-page bootstrap on 2026-08-11.
+
+Two stale docs corrected on the way past — `frontend-data-seam.md` and `cross-cutting.md` both
+asserted the eager glob as present fact — plus three literal `\u2014` escape artifacts that had been
+rendering as garbage inside the D208 row itself.
+
+**`code-reviewer`: 0 critical, 0 high, five mediums — three taken, and the best one was in the gate
+rather than the change.** Its `DEFERRED` set skipped `ClassDeclaration` and every arrow, so
+`class Q { static page = { size: MAX_PAGE_SIZE } }` and `const paged = (() => ({ size: MAX_PAGE_SIZE }))()`
+both ran at module scope and both passed — and the IIFE is one character from the fix the gate
+itself prints, so it waved through the mistake a reader tidying this code is most likely to make.
+Now it descends into classes and skips only method bodies and instance fields, and treats a function
+as deferred only when it is not a call's callee. Proven on a throwaway provider carrying both
+hazards plus two safe controls: 2 reported, 2 silent, then deleted. Also taken: the eviction comment
+claimed a failed *chunk fetch* could be retried, which the host module map makes false — it now
+claims only what it delivers; and a failed load is re-wrapped to name the domain, since Vite's own
+message names a hashed URL and lands at whichever call site happened to be first. Two findings
+filed rather than folded in — **D214** (the size ratchet is now slack by ~59 KB, but re-tightening a
+shared budget would fail other lanes' uncommitted work) and **D215** (44 provider chunks add a
+round-trip in front of each domain's first request; measure before grouping). Gates re-run after
+the fixes: `check` exit 0, cycle gate green, boot canary + featured 6 passed.
+
+Not committed; the tree carries other lanes' work.
+
+
+
+### 2026-08-12 — D53 + D49: the moderation door, and attachments that survive the round trip
+
+**Two backend rows closed together because they meet in the same place** — the moderated read has to
+return attachments, and an attachment has to be exactly as private as the message carrying it.
+
+**D53 — `GET /admin/conversations/{id}`.** Built as a separate endpoint in `moderation/`, because the
+row's own text names the failure mode: a role check inside the participant guard is how a private
+surface quietly stops being private. `ConversationService.mine(...)` is unchanged to the byte, and a
+new assertion pins that — admin and staff both still get 404 on `/messages/{id}`. The read is audited
+*before* the projection is built (`conversation.moderation_read`, both participant ids + message
+count), so a read that then fails to render is still on the record. Gated on a new
+`conversations:read` atom in the existing `BackOfficePermissions` vocabulary, **admin-only at
+baseline** since the permission document may only intersect and a baseline grant to staff could never
+be withdrawn per-account. No list endpoint and no write atom, both deliberate. No mobile numbers in
+the projection; reading clears no unread flags.
+
+**D49 — message attachments, both `MessageCreate` surfaces** (chat + support ticket; the service-request
+one takes a `MessageRequest` and was never in scope). Two-step upload-then-reference rather than a URL
+on the body — a client-supplied location the platform re-serves is a request-forgery surface. Storage
+is the existing `provider/FileStorage` seam; the magic-byte table moved out of `documents/vault` into
+`common/validation/MediaSignatures` so the two surfaces share it instead of drifting. Caps: 5 MiB /
+file, 5 / message, 10 unsent / thread. Declared type checked against the bytes, sniffed type stored.
+An attachment id is claimable only by its uploader, only on its own thread, only once. Read
+visibility follows the message *by construction* — the only producer of the shape is a batched lookup
+the mapper runs after the thread's own guard.
+
+**Two mutation proofs, both reported red then restored green:** dropping the permission atom from the
+guard turned `staffRefusedByThePermissionAtom` and `refusedReadIsNotAudited` red (403 → 200); removing
+the `audit.record` call turned `readIsAudited` and `everyReadIsRecorded` red. 28 new tests, 89 green
+across the two new classes plus the four neighbours they touch, seven guard tests green.
+
+`V76__message_attachments.sql`; `IMPLEMENTED_FLOOR` 243 → 246; `message_attachments.file_name`
+classified RETAINED in `ErasureCoverageTest`. Not committed — the tree carries other lanes' work.
+
+
+
+### 2026-08-12 — debt wave 12: five lanes, and two of them find the register was wrong about itself
+
+**Five register rows closed (D37, D63, D65, D125, D129), one opened-and-closed (D209) for a real
+duplicate-account bug, and D208 narrowed rather than fixed.** Five write-disjoint lanes ran in
+parallel — four implementing, one a read-only audit — and the two most valuable findings were both
+corrections to the register rather than code.
+
+**Lane A — D208, the import-cycle shape.** `MAX_PAGE_SIZE` moved into new leaf
+`services/apiLimits.js` (imports nothing, and says in a header that adding one re-arms the crash);
+`http.js` re-exports it, five providers import it directly. An audit established it is the *only*
+non-function export of `http.js`, so nothing else can be read at module scope in a way that
+matters. New `scripts/check-provider-cycle.mjs` parses every provider with espree — ESLint 8's own
+parser, already in `node_modules`, deliberately **not** added to `devDependencies` to avoid
+rewriting `package-lock.json` mid-wave — and is wired into `npm run check` as `check:cycle`
+(`58 provider modules, no module-scope reads`). Proven red twice before being believed. And the
+guard wave 11 asked for exists: `platform/boot-canary.spec.js` renders `/`, `/listings`,
+`/dashboard` and `/admin` with a `pageerror` listener. **The cycle itself still exists** — the lazy
+glob is the only fix that removes it, and it makes `createProvider` async across the whole seam.
+That is an architectural call and it is not taken.
+
+**Lane B — D63 + D65, finance disclosure.** Applied the standing ruling: *defer + document + make
+configurable, don't build yet*. Three properties (`punenest.finance.payouts-measured`,
+`.refunds-measured`, `.service-orders-counted`, env-overridable, all default `false` = today's
+truth) ride the `AdminFinance` response and mark the structural zeros in place — the figures stay,
+they are simply labelled as not measured. No payout path, no refund path, no fourth `union all` in
+`REVENUE_BY_SOURCE`. Reasoning in `docs/flows/admin/finance.md` §5.11; three backend test classes
+plus `admin/finance-disclosure.spec.js`.
+
+**Lane C — D37, the service-split rule.** The rule is now `package-structure.md` §4.1 and
+`foundation/ServiceSizeGuardTest`. **The row's premise was false**: it claimed services top out at
+405 lines; the true maximum is 1087, and six services were already past the 450 it proposed to
+agree "while it is free". The six are pinned at exact measured size — may shrink, never grow —
+rather than split or excused by raising the threshold, with guards that fail if a pinned file
+vanishes or drops under the line without its entry being removed.
+
+**Lane D — read-only audit of D129 and D125.** Both verified CLOSE against source, file by file.
+Two nits: the route-deferred chunk count is 15, not the 14 D129 claims, and D129's gzip figures
+were never re-measured against a fresh build. One flagged defect turned out to be a **false
+alarm** worth recording — a row containing `` `buyer\|owner\|staff\|admin` `` looks malformed, but
+escaping pipes inside a code span is required in a GitHub table and is exactly what the register's
+own counting snippet undoes.
+
+**Lane E — D209, two live accounts could share an email.** `\d+ users` returned nine indexes and
+**none touched `email`**. Archive is a soft delete, so *create → archive → re-create → restore the
+first* produced two live rows on one address, and `AuthService`'s `.orElse(null)` over an
+`Optional`-returning derived query then threw a **500 for both people** — while the restore had
+reported success, so the audit trail said nothing. Fixed in three places: a repository check, a 409
+in `UserAdminService.restore` that names the address, and `V70__users_live_email_unique.sql`
+(`UNIQUE (lower(email)) WHERE archived = false AND email IS NOT NULL`). Four mutations run, not
+assumed — including replacing the partial index with a total one, which proved partiality is
+load-bearing. Zero duplicates in either database today.
+
+**Verification (serial, on the merged tree).** Backend `Tests run: 1374, Failures: 0, Errors: 0,
+Skipped: 3` / BUILD SUCCESS (up from 1356; +18 from the new classes, and it settled the one
+question the lanes could not answer between them — two of them had reported test compilation broken
+by a third's uncommitted constructor change). Frontend `check` / `lint` / `check:size` all EXIT=0,
+0 lint errors against a 395-warning baseline, i18n 675 files and 4469 keys in each of hi and mr.
+**`check:size` is at 495.2 KB of a 497 KB budget — roughly 1.8 KB of headroom, and no lane could
+attribute its share of the +2.3 KB because four of them were editing the same tree.**
+
+**Carried:** the lazy-glob decision (D208) needs an owner; `addStaff`/`update`/`updateMe` still set
+emails case-sensitively, which the new index catches but only with a generic message; and
+`AdminUsers.jsx` restores through `mockApi.restoreRecord`, a localStorage write, so the improved
+409 is not yet reachable from an operator's screen.
+
+
+### 2026-08-11 — debt wave 11: three lanes land, and the verification step finds the app does not boot
+
+**Four register rows closed (D32, D183, D201, D205), one verified as already-shipped (D176), and
+one opened (D208) for a crash that none of the static gates could see.** Three write-disjoint lanes
+ran in parallel; the value of the wave turned out to be in the step after them.
+
+**D201 — a role change now lands on the next request, not the next token.** New kernel-side port
+`security/RoleSource`, satisfied directly by `UserRepository` (`extends JpaRepository<User, UUID>,
+RoleSource`) so the shared kernel does not import a feature context — the mirror of what `User
+implements TokenSubject` does on the issuing side. `JwtAuthFilter` rebuilds the principal when the
+stored role disagrees with the token's copy. An empty `roleOf` is **not** a denial, and
+`DataAccessException` is deliberately not caught. Mutation-proven both ways: reverting the fix gives
+`expected: 403 but was: 200` *and* `expected: 200 but was: 403`, the second of which is what rules
+out the cheap "distrust the token, assume the weaker role" pseudo-fix. `team` stays token-sourced on
+purpose — a desk is a routing label, not a privilege level.
+
+**D205 — the Team & Access console stops being theatre.** `AdminTeam.jsx` no longer imports
+`lib/mockApi.js`; a new `services/teamService.js` fronts http and mock providers over the seven real
+endpoints, so the last-administrator floor is now a genuine 409 instead of a mock that always says
+yes. Pending approvals is a *third tab* on `/admin/team`, not a new route, which keeps it inside the
+existing lazy boundary — critical-path bundle unchanged at 492.9 KB. `Remove` was deleted rather
+than disabled: there is no hard-delete endpoint and there should not be one. One asymmetry survives
+and is recorded rather than papered over — the mock's floor counts every `role === 'admin'`, the
+server counts only those holding `users:write`, so the mock is conservative but not at parity.
+
+**D32 / D183 — two small frontend debts.** ProfileTab's identity chips are translated (en/hi/mr),
+with the still-English labels beside them named in the row rather than left to be discovered. The
+flatmate duplicate-409 path now writes the hand-off record instead of showing a done state for a
+thread that is not there; the guard has to check *two* places because `lib/chat.js` consumes the
+pending queue the first time Messages mounts, so a queue-only check would duplicate.
+
+**D176 was already done.** All three prescribed corrections were in the tree and live in both
+databases — confirmed with `\d+`, not by reading the prose. The row is re-worded to say it is parked
+until the next from-empty rebuild, because editing V27 moves its checksum and breaks every applied
+database on boot. **A register row is a claim, not an observation.**
+
+**Then the verification step earned the whole wave.** `check`, `lint` and `check:size` were green;
+the backend suite was 1356/0/0; and the application rendered an **empty `<body>` on every route**.
+`services/config.js` eagerly globs every provider and `http.js` imports `config.js`, so a provider
+can be evaluated inside `http.js`'s own evaluation — and `dealProvider.js` and `visitProvider.js`
+each read `MAX_PAGE_SIZE` at module scope, in its temporal dead zone. They had worked for months;
+adding Lane B's unrelated `teamProvider.js` changed the glob's ordering and detonated both. Fixed by
+deferring the read (`const paged = () => ({ size: MAX_PAGE_SIZE })`). Diagnosis took one throwaway
+spec hooking `page.on('pageerror')` after two full suite runs had produced nothing but timeouts.
+**D208** records the shape rather than the instance: three other providers are safe by accident, and
+no static gate can ever catch this — a Vite build resolves an import cycle happily. The standing
+rule it produces: *a frontend wave is not verified until one e2e spec has actually rendered a page.*
+
+Three of the wave's own new tests then failed on a wrong assumption rather than a regression — a
+fresh flatmate ask has `state: 'pending'`, which `Messages.inTab` files under **Requests**, and the
+spec was asserting on Chats. The tell was that one of the three failed on the plain success path,
+which the change had not touched.
+
+
+### 2026-08-11 — the review of the review finds the alarm was never wired
+
+**A code review of the D200 security fixes (below) found a genuine, pre-existing bug in code D200
+never touched: refresh-token reuse detection had been rolling itself back.** ADR-008 treats a
+replayed refresh token as evidence of theft and burns the whole family before answering 401 — but
+`RefreshTokenService.rotate` and `AuthService.refresh` were both plain `@Transactional`, and the
+revocations are dirty-checked entity mutations, so the throw discarded every one of them. The thief
+got a 401 and **every sibling token stayed live for the remaining TTL**, which is exactly the window
+the burn exists to close. Fixed with `noRollbackFor = UnauthorizedException.class` on *both*
+methods — both, because a participating advice marks the shared transaction rollback-only and the
+outer commit would then fail as a 500. That is tech-debt **D90**, already written up at length on
+`OtpService.sendLoginCode`, two files away. Logged as **D207**.
+
+**Why it survived, which is the part worth keeping.** The response is identical either way — a
+replayed token is already revoked, so it answers 401 whether or not the family burned — and
+`AuthEndpointsTest.refreshRotatesTokensAndOldTokenReuseRevokesFamily` asserted only that 401. The
+suite reported the feature as covered by a test that could not have failed if the feature were
+deleted. Second instance of a test-name-as-only-implementation in one review.
+
+**And the replacement assertion was wrong three times.** The obvious fix — carry the successor
+token forward and expect it dead — passes with the bug restored, because the revoked entities stay
+managed in the test's own transaction and answer "revoked" whether or not the write would ever
+reach the database. So do `TestTransaction.isFlaggedForRollback()` (reports the test's end-of-run
+preference, `true` always) and the bound `EntityManagerHolder`. The `ConnectionHolder` is the thing
+Spring actually marks; reading both under the restored bug gave `false/true`, which is what settled
+it. Each probe was run against the reintroduced bug before being believed — which is the only
+reason the fourth one is worth anything.
+
+Also from the review: three new D200 behaviours had no tests at all (the refresh gate, the
+archived-approver 403, the self-approval audit row) — **added, +3**; `approve()`'s `noRollbackFor`
+was inert and its comment said otherwise (`AuditService` is `REQUIRES_NEW`, so the row survives
+regardless) — **annotation dropped, comment corrected**; a duplicated comment block left by a
+mutation-test cycle — **removed**; two comments overclaiming what a test pins — **rewritten**.
+Suite **1354 green**, 0 failures, 0 errors, 3 skipped.
+
+
+### 2026-08-11 — reviewing the new lock finds it fitted to the wrong door
+
+**A security review of D200 (the maker-checker shipped hours earlier, below) returned no CRITICAL
+and confirmed the core mechanic holds: there is no way to mint a usable administrator without a
+second human.** It also found a permanent-lockout bug, a latent auth bypass, and three comments
+asserting things that were false. All backend, all fixed here except two rulings. Suite **1351
+green** (up two — the regressions below), 0 failures, 0 errors, 3 skipped.
+
+**The lockout.** `UserAdminService.addStaff` asked `approvalIsPossible(creator)` *after* flushing
+the new user. That query counts `role = 'admin'` accounts excluding the creator — so on a
+single-admin platform, creating an admin colleague **counted the colleague**, held the account, and
+left it approvable by nobody: the maker is refused by the maker-checker rule, and the held account
+cannot obtain a token to approve itself. There is no reject or cancel route, so the account was
+stranded permanently, on precisely the path the bootstrap escape exists to keep open. One line
+moved. What makes this worth reading twice is *why sixteen green tests missed it*: the test that
+should have caught it creates a **staff** account, which does not match the query's `role` predicate
+and so never self-counts. Added `theSoleAdministratorCanMintAnAdministrator`, then **reintroduced
+the bug to watch it fail** — exactly one test went red and it was the new one, which is the only
+evidence that a regression test written from a review finding actually pins anything. The same
+audit showed `archivingThePeerDoesNotReopenTheEscape` was **vacuous for the same reason** (count was
+1 either way, so it would have passed with the `archived` filter it exists to forbid); kept, and
+paired with a `role=staff` twin that genuinely pins it.
+
+**The bypass.** `POST /auth/refresh` mints an access token directly rather than through `issueFor`,
+so it never consulted the approval table — a held account with a live refresh token would have kept
+refreshing for the whole TTL. Not exploitable today, and the reason is the interesting part: the
+only writer of an approval row creates it in the same transaction as the user, so no token can
+predate the hold. That is true of today's write paths and **nothing enforces it**; it stops being
+true the first time anyone holds an *existing* account, which is the obvious incident-response use
+this table's own comment invites. The gate now runs on all three issuing paths.
+
+**Three false comments, including one in the database.** V67's table COMMENT claimed a pending row
+blocks authentication "on every login path" — it did not, per the above. Editing an applied
+migration turned out to cost the whole suite (`Migration checksum mismatch for migration version
+67`, 33 tests erroring at 0.001s on context load), so the correction shipped as **V69**, which
+states plainly what the old sentence got wrong rather than quietly replacing it. The `AuthService`
+Javadoc claiming `refresh` was "covered transitively" and `AdministratorGuard`'s account of the
+bootstrap escape were both corrected in place.
+
+**Two smaller ones.** `ForbiddenException` joined `login`'s `noRollbackFor` — a held account's OTP
+was burnt *before* the 403, and rolling back handed back the code's single-use property for its
+whole TTL. And `approve` now audits the self-approval refusal and requires the approver to still be
+live: reaching it proved only that the caller held a valid token, and an administrator archived five
+minutes ago holds one until it expires. Every other definition of "an administrator who counts" in
+that package runs through `AdministratorGuard.isCapable`, which excludes archived accounts; this
+endpoint was the one place trusting the token alone.
+
+**Opened D206 (High) rather than fixed it**, because it is a genuine trade and not a defect. The
+maker chooses the new account's mobile and password; the checker is shown a masked number and no
+`createdBy` at all — so the second signature attests to a *record*, not a *person*, and the original
+D200 attack still runs with a co-signature attached. Surfacing `createdBy` and the unmasked mobile
+would fix the judgement problem but cuts directly against `pendingApprovals`' deliberate masking,
+whose own note calls an unmasked queue "a small bulk-export surface wearing the clothes of a to-do
+list". Needs a ruling, and it should land **before** the D205 console is built rather than be
+retrofitted onto one.
+
+
+### 2026-08-11 — debt wave 10: back-office administration gets two keys, and the console it protects turns out not to exist
+
+**Four lanes in parallel. Three register rows closed (D200, D202, D203), two opened (D204, D205).**
+Lanes B and C wrote their own entries below; this one covers the rest and the merge.
+
+**D200 — a narrowed admin could rebuild itself, closed by both halves.** Migration **V67**
+(`staff_account_approvals`), `IMPLEMENTED_FLOOR` 233 → 237 with D194. *Maker-checker:* a
+`POST /users/staff` creation writes an approval row and the account cannot authenticate until a
+second administrator signs it off. The gate sits in `AuthService#issueFor`, not in each flow, so it
+covers the password path **and** the OTP path — the latter being the one that matters, since a
+freshly minted account has a mobile and needs no password. `approved_by <> created_by` and
+"a decision has both a decider and a timestamp" are database CHECKs as well as service rules,
+because a two-key rule enforced in one place is a one-key rule with extra steps. *The floor:*
+`AdministratorGuard` refuses to archive or demote the last capable administrator, held under
+`pg_advisory_xact_lock` so two concurrent archives cannot each see the other as the survivor. The
+halves are load-bearing for each other — the bootstrap escape asks whether a second administrator
+has *ever* existed, and the floor is what stops someone archiving their way back down to being the
+only one. **The escape is the part to be suspicious of:** with one administrator, "two people
+agreed" is unobtainable, so no row is written and the account is live at once; it is re-evaluated
+per creation and audited as `user.staff.create.bootstrap` rather than folded into the ordinary
+action, so "this account skipped maker-checker" is searchable.
+
+**D205 opened, and it is the finding of the wave.** Closing D200 forced the question "closed
+*where*" — and `users/staff` appears nowhere in `frontend/src`. `AdminTeam.jsx` imports
+`saveTeamMember` / `setTeamMemberStatus` / `deleteTeamMember` straight from `lib/mockApi.js`,
+bypassing the services seam, so the console that administers back-office accounts writes to
+`localStorage` on every environment. Everything D192 and D200 built is enforced, tested, in the
+OpenAPI spec, and unreachable from the product. The failure mode is not a missing feature but a
+confident wrong answer: archive the last administrator in that console and it succeeds.
+
+**D203 and three quick wins (lane D).** Bundle budget 540 → **497 KB** against a measured 492.9,
+mutation-tested both ways (492 fails, 497 passes) so the threshold is known to be live rather than
+merely written down. `VerificationAnnouncer`'s Javadoc rewritten — its *argument* was wrong, not
+just its package name. Index II's verification overclaim fixed in `home.faq.a2` across en/hi/mr.
+`Privacy.jsx` §1.2 gains the referral-capture bullet.
+
+**Merge repair.** Four lanes each self-verified green; merged, the tree would not compile —
+`AuthServiceRaceTest` builds `AuthService` by hand and lane A had added an eighth constructor
+parameter. Then five D200 tests failed, all on the same cause in two directions: `AbstractApiTest`
+is `@Transactional`, so a `jdbc` read cannot see an API write without `em.flush()`, and a `jdbc`
+write cannot be seen by the code under test without `em.clear()`. One of the repaired assertions
+expected **zero** and had been passing regardless of whether its subject worked. Full suite after
+repair: **1349 tests, 0 failures, 0 errors, 3 skipped.** Frontend `check` 0, lint 394/0 (baseline),
+`check:size` 0. See `lessons.md` for the flush/clear pair and why per-lane green proves nothing.
+
+
+### 2026-08-11 — D194: a real tenant can finally review the flat they lived in
+
+**One register row closed (D194), one opened (D204).** Migration **V68** (`tenancy_declarations`),
+four new routes (`IMPLEMENTED_FLOOR` 233 → 237), one new backend test class (10 tests), one new
+Playwright spec (2 tests). Backend: `TenancyDeclarationFlowTest`, `TenancyEndpointsTest`,
+`ReviewEndpointsTest`, `VisitEndpointsTest`, `SpecCoverageTest`, `ArchitectureBoundaryTest` —
+**87 tests, 0 failures**. Playwright: `tenancy-declaration.spec.js` + `review-composer.spec.js` +
+`reviews-summary.spec.js` — **5 passed**.
+
+**The bug.** `ReviewsSection` decided "has a tenancy" from `getTenanciesFor(myMobile())`, a
+`localStorage` bucket nothing on the live path ever writes. Against the API it was unconditionally
+false, so the review composer was shut to the one person most entitled to open it — and every
+mock-mode test passed, because in mock mode that bucket answered both halves of the check at once.
+It agreed with itself and with nothing else.
+
+**The ruling it needed.** A stay is proven by a **brokered agreement** *or* an **owner-confirmed
+self-declaration**, and nothing else. Both halves are built, because the first alone would have
+fixed almost nothing: a `tenancies` row only exists when a rent deal closed *on this platform*, and
+most Pune leases are signed off-platform, so the honest majority of ex-residents would have stayed
+locked out of a door that now merely worked.
+
+**What that cost.** The brokered half is `myTenancies()` off the seam, matched on the same
+`p.uuid || p.id` the review routes bind — a UUID against http, a slug against the mock, true on
+each. The declared half is a new resource: V68, `TenancyDeclarationService`, four routes, and
+`PropertyExperienceService.standingOf` now reading both sources. Deliberately **not** a `tenancies`
+row (V12 permits one active per property; a typed claim written there becomes indistinguishable from
+a signed agreement at every later read, including the ones about money), **not** a second reviewer
+badge (once the landlord agrees it is no longer a self-claim), and **not** confirmable by anyone who
+merely happens to be verified — the check is against the listing's `owner_id`, because "someone real
+said yes" and "the landlord said yes" are different facts. Revocation is a status, never a delete.
+
+**The tests are pointed at the loophole, not the feature.** Making a resident eligible is easy;
+doing it without minting a self-service review button is the whole problem. So the load-bearing
+assertions are negative — a *pending* claim must not open the composer (422 server-side), and a
+*withdrawn* confirmation must close it again — and both were **mutation-checked**: weakening
+`hasTenancy` to accept any declaration turns the e2e red, and dropping the `status = 'confirmed'`
+filter from the repository query turns 3 of the backend tests red. A "the button now appears"
+spec would have passed both mutants.
+
+**Three review agents, and the third one blocked.** `react-reviewer` and `security-reviewer` ran
+first and their findings were applied. `code-reviewer` then returned **BLOCK** on a CRITICAL the
+other two missed: the reversed-dates test asserted **400** while `GlobalExceptionHandler` answers
+bean-validation failures with **422** and a `fields[]` array — the test passed only because the
+request was refused for a *different* reason than the one it claimed to prove, and three comments
+and the OpenAPI document had been written around the same wrong belief. It also caught that the
+declaration list returned an unbounded array where api-standards §5.1 requires a `PageEnvelope` for
+inbound demand (rows written by *other* users against the caller), which is now paged. Five further
+findings applied, four branches added to the suite (revoke-of-pending, re-confirm-after-revoke,
+stranger revoke, absent declarant). A `code-simplifier` pass followed in strict
+no-behaviour-change mode; it applied five reductions and skipped seven as not provably equivalent.
+
+**Opened as D204, not built:** revocation is not retroactive. `ReviewService` freezes the standing
+into the review's `context` badge at write time, so *confirm → publish → revoke* leaves a published
+review wearing a badge whose evidence has been withdrawn. Retracting the review on revoke would hand
+every owner a delete button for criticism, which is the outcome the eligibility rule exists to
+prevent — so this is a **product ruling and not an agent decision**, and it is carried as
+`open-questions.md` **Q19**. The same row records that nothing prevents an owner confirming an alt
+account they control; the audit log makes it detectable, not impossible.
+
+**Not run:** `npm run parity:rent`. It requires a live backend on :8080 and one was not available in
+this session. Nothing in the slice is provider-shape-specific beyond the four functions added to
+both providers, but the harness has not confirmed it.
+
+**Proved on the mock only:** the Playwright spec runs in mock mode, so it proves the UI agrees with
+the mock provider — the same kind of self-agreement that hid the original bug. The server side of
+the identical rule is proved against real HTTP in `TenancyDeclarationFlowTest`; a `live-*`
+counterpart under `playwright.live.config.js` would close the remaining gap and does not exist.
+
+**Blocked on someone else's tree, not mine:** `AuthServiceRaceTest` does not compile against the
+in-flight `AuthService` (it gained a `StaffAccountApprovalRepository` argument that the test has not
+been updated for), which fails `testCompile` for the whole module. The D194 backend suite was
+therefore verified in a throwaway copy of `backend/src` with that one file removed; nothing in the
+working tree was touched to get there. Re-run the module suite once that lane lands.
+
+
+
+### 2026-08-11 — parallel debt chunk: verification becomes earnable, referrals become real, back-office access becomes narrowable
+
+Six lanes run in parallel. **Nine register rows closed** (D190, D191, D192, D13, D55, D56, D60, D61,
+D196), one verified already-closed (D129), **four new rows opened** (D200–D203). Backend suite
+**1315 tests, 0 failures**; frontend `npm run check` green; Playwright 44/44 on the changed surfaces.
+Three migrations landed: **V63** (ownership evidence), **V64** (referral qualification + signals),
+**V65** (back-office permissions).
+
+**D190 — the verification badge becomes earnable.** `property_ownership_evidence` records each
+sighted document against the three facts Q15 requires, and the badge is set only when all three are
+covered. It is a **derived read**, not a swept column: a sweep leaves a window where the badge is
+live but unearned, and the platform's own scheduler could skip or double-run it. Per-type expiry
+(recurring proof 90d, site photos 180d, registry and government ID never); a listing's verification
+expires when its earliest relied-on document does. On lapse the badge drops and the listing stays on
+search. The copy was also wrong in a way that mattered — it promised a registry match the platform
+has never performed — and that, not the state, is what the new e2e asserts.
+
+**D191/D56/D60/D55/D61 — the referral credit stops being a browser number.** `ReferralQualification`
+implements `VerificationAnnouncer`, so `moderation` announces a verification and `billing` hears it
+without either importing the other. Idempotent by construction: it only ever loads a *pending* row,
+so a re-verification after lapse and a second verified listing are both no-ops without needing to be
+told apart. It runs in the verification's own transaction — `REQUIRES_NEW` would commit a credit for
+a verification that then rolled back. `sameIp`/`sameDevice` are salted SHA-256 digests, never raw
+values, blanked at 90 days; unsalted would be reversible by enumerating 2^32 addresses, which turns
+a fraud signal into a stored address, so `REFERRAL_SIGNAL_SALT` is a mandatory prod variable with no
+default. The volume cap gates **automatic** minting only — past it a referral waits for the fraud
+desk, exactly as every referral behaved before — so a genuine flatshare is delayed, never rejected.
+
+**D192/D13 — back-office access becomes narrowable, and a one-word bug nearly shipped.** Resolution
+is `effective = baseline ∩ document`. An intersection cannot yield a member neither operand had, so
+narrow-only holds by construction, and `*` and unknown names are dropped by the same operation with
+no wildcard branch to get wrong. Permissions are read from the database per request, deliberately
+**not** from the JWT: a capability set inside a signed token is a client-held allow-list that cannot
+be revoked before it expires. **The lane's agent crashed mid-flight and left the resolver as
+`addAll` — a union — so every "narrowed" account silently kept its entire baseline.** The guard was
+wired correctly; the resolver could never say no. The class's own Javadoc, V65's header and V61's
+spec all already said intersect — only the code disagreed. Caught by running the *full* suite after
+the merge, which per-lane green would never have shown, and confirmed by mutation.
+
+**D196 — an inert sort key is worse than none.** `SocietiesSection` tie-broke on `entityRating`, a
+reduce over a `localStorage` bucket a live session never writes: a constant zero, so the ordering it
+promised never happened while reading as deliberate. Deleted rather than wired — reading the real
+aggregate costs a four-page walk of the 348-row directory on the home page to break ties among eight
+cards. With its last caller gone, `entityRating` itself is deleted.
+
+**D129 — zero diff, and that was the finding.** Both halves were already closed in code; the
+register entry was stale. Verified rather than assumed: `db-*.js` 22.33 KB and `societies-rera-*.js`
+24.84 KB gzip, neither in `dist/index.html`, critical path 492.9 KB. Measuring it is what exposed
+D203 — the 540 KB budget catches a both-file regression by 0.07 KB and catches neither file alone.
+
+**Three lessons worth more than the lanes.**
+1. **A crashed subagent may still have written everything.** Two lanes returned transport errors at
+   the reporting stage; both had already landed their migrations and classes. Assess the tree before
+   relaunching, or you re-run completed work on top of itself.
+2. **Per-lane green does not prove co-existence.** Every lane passed its own tests. The full suite
+   found 8 failures, one of them a privilege escalation.
+3. **A new control re-prices the gaps around it.** D192 did not introduce D200 — `users:write` has
+   always been able to mint an administrator — it made that fact load-bearing by putting a boundary
+   next to it that someone might now rely on. Look for this after shipping any security control.
+
+**Left open deliberately:** D194 (tenancy proof) and D63/D65 (finance) were scoped but not built —
+D194 needs V66 and has a slug-vs-UUID trap that would fail silently while mock tests stayed green;
+D63/D65 are a documentation-and-configurability item per ruling, not payout machinery.
+
+
+### 2026-08-11 — D202: the evidence table's integrity, and the admin timeline that 500s when unfiltered
+
+**D202 schema (V66).** Four repairs to V63's `property_ownership_evidence`, which is on disk and
+checksummed, so all four are alterations rather than edits. `property_id` CASCADE → RESTRICT (the
+table's own comment and `revoke()`'s Javadoc both promise the case file survives; the cascade made
+that conditional on the listing outliving the dispute). `recorded_by` gets a stated RESTRICT rather
+than an inherited default. `CHECK (expires_at IS NULL OR expires_at > issued_at)`. And
+`subject_name`, required for `aadhaar`/`pan`: an `owner_identity` row that says an identity document
+was seen without saying *whose* cannot be checked against anything, so it cannot be wrong, so it
+proves nothing. The document number is deliberately not stored, masked or otherwise.
+
+**D202 concurrency.** `PropertyRepository.findForVerificationDecision` (PESSIMISTIC_WRITE) is taken
+by all three verification writes. Stated honestly: the duplicate referral credit this prevents is
+already absorbed downstream by `ReferralRepository.findPendingForQualification`, whose own lock
+exists for exactly this, so **no race test could go red and none was fabricated**. The lock is here
+so the path stops depending on a guarantee another context owns.
+
+**Two register claims were wrong, and finding that out was the point.** The `recorded_by` row said
+archiving an ops user would be a foreign-key error — unreachable: erasure pseudonymises the `users`
+row rather than deleting it. And the table was not "quietly skipped" by `ErasureCoverageTest`; no
+column in it matched the classifier's personal-data vocabulary, so the heuristic legitimately never
+fired. Adding `subject_name` is what forces classification — the sixth defect is what closes the
+fourth.
+
+**D202 audit log — a `? is null` with no type.** `GET /admin/audit-log` unfiltered was 500 on
+PostgreSQL 13: `could not determine data type of parameter $5`. Fixed with HQL casts in the null
+checks only, matching `TransactionRepository`. **Casting both occurrences is the same bug in a new
+costume** — Hibernate types a parameter from how it is *used*, a cast is not a use, and a parameter
+appearing only inside casts binds as `bytea`; the first attempt swapped a Postgres inference error
+for `cannot cast type bytea to timestamp with time zone`. Verified both ways.
+
+**One test was passing for the wrong reason.** `staffCanWithdrawABadgeAndTheCaseFileRemains` read
+`ownership_verified` through `jdbc` with no flush, so it asserted the column's value from insert
+rather than from the withdrawal. Nothing forced a flush until the new row lock introduced a query on
+`Property`; the accident then became a red test. Fixed with an explicit `properties.flush()`.
+
+**Four things a security review caught, all fixed in-slice.** (1) The audit entry initially copied
+`subjectName` into `audit_log`, which has no retention window and about which `ErasureRetention`
+tells the subject in as many words that they appear "as an entity id, not as a name or a number" —
+copying it there would have quietly falsified a live disclosure, so the audit entry now points at
+the evidence row instead of duplicating it. (2) `ErasureRetention.retainedWithReasons()` claimed
+listing records "carry no contact data of their own", which `subject_name` made untrue; the
+subject-facing text now names the retention and why. (3) Rows written before V66 can be identity
+documents with no `subject_name` — the CHECK binds writes from V66 onward but cannot retrofit a name
+nobody recorded — and `gate()` was still counting them as satisfying `owner_identity`, so the
+badge could still rest on exactly the assertion this work exists to make falsifiable; `gate()` now
+skips them and the listing stays unverified until ops re-sight the document. (4) `revoke` took the
+row lock and only then rejected a blank `reason`; the validation moved ahead of the lock, and the
+two-lock protocol this slice creates (`properties` then `referrals`, never the reverse) is now
+written down on the finder rather than being discoverable only by reading three files.
+
+`IMPLEMENTED_FLOOR` delta **0** — no new routes. Suite **1335 tests, 0 failures**, one pre-existing
+error in another lane's `AdministratorGuardTest` (identical before and after this slice).
+
+
+### 2026-08-11 — D197: the society rating stops being half invention, and the mapper that was hiding it
+
+**D197.** `useSocietyHub` blended each aspect 50/50 with `baselineBars(soc)` — a deterministic
+estimate seeded off occupancy and build year — for every society that was neither thin nor
+community-sourced, i.e. all 348 curated rows. A society nobody had rated drew five confident bars; a
+society one resident had rated 2.0 displayed **3.1** with "(1)" beside it, so the count made the
+number look sourced. Deleted the baseline outright rather than labelling it: the honest states
+already existed and were merely unreachable. `bars` is now `catAvg` filtered on `Number.isFinite`, so
+a partly rated society draws a partial grid; `overall` is the residents' average or `null`. The hero
+says "Not rated yet"; the Reviews tab renders nothing at the aggregate slot and lets the empty-list
+line speak. Mutation-proven: restoring a constant `4.1` fallback failed exactly the two rewritten
+specs and left the vocabulary one passing.
+
+**The deletion uncovered a live-only defect the baseline had been covering.** `http/reviewMapper.js`
+copied `categoryAverages` through one hardcoded allowlist holding the *property* vocabulary, and
+`getEntityReviewSummary` shares that mapper — so all five society keys were dropped and `catAvg`
+arrived `{}` on every society against the real API, permanently. Nothing failed: the mock provider is
+target-aware so the suite was green, and `live-society-rating.spec.js` asserted the raw JSON via
+`page.request.get`, which cannot catch a client mapper. Without the baseline this would have shipped a
+headline over an empty grid. `toSummaryViewModel` now takes `entityType` and selects the vocabulary,
+mirroring `ReviewCategories.forTarget` and the mock's `categoryKeysFor`; the live spec now reads a
+rendered `society-bar-*` cell as well as the payload.
+
+Gates: `tests/consumer/society` + the D198 composer spec 52 passed; lint 394/0 errors; i18n 4426 keys
+(−1, `communityEstimate` deleted from en/hi/mr together) × hi/mr; bundle 492.9 KB of 540; coverage
+citations 166/216 all resolving. Register recounted: 52 open, 24 Med / 28 Low.
+
+
+### 2026-08-11 — three debts closed: a 404 that claimed to be a 500, an invented star rating, thirty unnamed buttons
+
+**D193.** Every unmapped path under `/api` answered 500. `GlobalExceptionHandler`'s
+`@ExceptionHandler(Exception.class)` catch-all outranks Spring's `DefaultHandlerExceptionResolver`,
+so "no such route" fell into the generic bucket — it told integrators "we broke" when the truth was
+"that route does not exist", and inflated error-rate alerting with non-errors. It only surfaced for
+callers *holding a token*, because unauthenticated requests are answered 401 by the security filter
+first. Added a `NoResourceFoundException` handler returning the standard 404 envelope, logged at
+`debug` with method + path. Mutation-proven: `expected:<404> but was:<500>` without it.
+
+**D195.** `SocietySection.jsx` rendered a hard-coded `4.2` star strip for societies nobody had rated
+— the D101 pattern in quantitative costume, and the exact value the society *directory* had just been
+taught to reject. Moved onto `getEntityReviewSummary('society', slug)`, the same read the hub uses, in
+an `alive`-guarded effect. Three honest states now, where there was one lie: unknown/failed renders
+the builder alone and claims nothing; `count === 0` renders "Not rated yet"; only a real aggregate
+renders stars. This leaves `entityRating` with **one** call site (`home/SocietiesSection.jsx:56`,
+D196) — resolving that item either way deletes the function.
+
+**D198.** The property review composer's stars had no accessible name: thirty identical
+`<button>`s wrapping an SVG in one dialog, WCAG 4.1.2 on the only control that writes user content on
+a listing page. `StarInput` now takes an `aspect` and labels every star, wording copied verbatim from
+the society composer built one directory away — the asymmetry that made this worth recording is gone.
+Both new specs were mutation-tested before being believed: the D198 one passed on its first run, which
+proves nothing when an eligibility gate could have left the dialog unopened.
+
+Gates: backend 129 classes / 1259 tests green; `tests/consumer/property` + `tests/consumer/society`
+117 passed; lint 394/0 errors; i18n 4427 keys × hi/mr; bundle 492.9 KB of 540.
+
+
+#### Earlier waves — index only
+
+| Date | What shipped |
+|---|---|
+| 2026-08-11 | society reviews get their own aspect vocabulary, and the composer actually sends it |
+| 2026-08-11 | Q14 answered: the foundation set splits, and a price edit stops costing the owner search |
+| 2026-08-13 | the D129 seed race, and the `\|\| '{}'` fallbacks that would have hidden it |
+| 2026-08-13 | the prod profile is now a tested contract, and the container can be told its port |
+| 2026-08-10 | D79 actually wired up, plus the two defects that were hiding behind it |
+| 2026-08-10 | debt wave 11 close-out: six register rows closed |
+| 2026-08-12 | debt wave 10: seven write-disjoint lanes, ten register rows closed |
+| 2026-08-11 | debt wave 9: six write-disjoint lanes, and the register's last High |
+| 2026-08-11 | D180: the rent-agreement "product bug" was another lane's dev server |
+| 2026-08-11 | D181: the three flatmate interest buttons now reach the API |
+| 2026-08-11 | D174, D175, D50/D51, D100, D42 and the e2e reliability pair (D28/D29) |
+| 2026-08-10 | D163, D132, D47, D129 (partial) and the flatmate duplicate-interest race |
+| 2026-08-09 | D73, D92, D165 and the payment-hardening four (D169–D172) |
+| 2026-08-09 | D77: the inbound-demand reads are paged, and the half that was already paged now works |
+| 2026-08-09 | D151: the identity numbers reach one operator, are logged, and then stop existing |
+| 2026-08-09 | Every payment family now has the cap and the sweep, not just the one that needed them first (D160, D161) |
+| 2026-08-09 | Paid Leave & License, and the thirteen register rows the review of it opened |
+| 2026-08-09 | The owner→visitor WhatsApp handoff was dead in the field names |
+| 2026-08-09 | Eight decision-blocked register items closed in one pass |
+| 2026-08-09 | D5 / open-questions Q2 closed: owner number is never revealed to a buyer (global policy) |
+| 2026-08-09 | Decision-blocked items closed (open-questions Q1, Q3, Q4, Q5) |
+| 2026-08-08 | The contract's schemas are now enforced, not just its routes |
+| 2026-08-08 | Docs: one owner per fact |
 
 Newest first. Each line: what changed, and the one thing worth remembering.
 
@@ -1186,6 +869,7 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 
 | Date | Change |
 |---|---|
+| 2026-08-12 | **D133 closed won't-do, D158 re-verified still blocked — both were measurement tasks, and both registers were wrong about something.** D133: measured the dashboard load against a **production** bundle (`vite preview`, `VITE_API_DOMAINS=property,visit,contact,document`, Playwright intercepting `**/api/**`) — **6 requests / 6 distinct endpoints / 0 duplicates**, all concurrent, same for owner and seeker. The 4× duplicate the row remembered is gone, so no `GET /me/dashboard` was added. Two traps, both of which gave a wrong number first: the same run on `vite dev` reports **13 requests, every endpoint 2×** (`StrictMode`, dev-only), and `page.route` reported **0** for the seeker while the Vite proxy logged all six — page-level interception misses service-worker requests, so always corroborate a zero against the server log. D158: `RedisEval` still cannot ship; `mvnw -o dependency:get` confirms `spring-boot-starter-data-redis:4.1.0`, `lettuce-core:7.5.2.RELEASE` and `reactor-core:3.8.6` are all absent, and the online run times out against the mirror, so the "first time the build runs online" trigger has not fired. Corrected a stale claim in both the row and `RedisEval`'s javadoc: `netty:4.2.15.Final` **is** cached and stopped being a blocker; the trigger is now a runnable command instead of a paragraph. Guards green (37 tests, 0 failures) |
 | 2026-08-08 | **Encoding guard restored (D126 closed).** Stripped UTF-8 BOMs from 18 committed files via `node e2e/scripts/fix-mojibake.mjs` (BOM-only — 0 content bytes changed); `SourceTreeHygieneTest.noMojibakeOrBom` now green, so the ban on non-UTF-8 source writes is live again. Disproved D126's guess that the BOM broke `listing-freshness.spec.js` — it still fails on a nudge-banner assertion after the strip, so the two standing mock e2e failures are functional drifts, not encoding (re-recorded as D127) |
 | 2026-08-02 | Re-sync docs + OpenAPI to the flatmates redesign & mobile-first UI |
 | 2026-07-27 | 3-way sync: `platform-architecture.md` (SOT) → OpenAPI → React |

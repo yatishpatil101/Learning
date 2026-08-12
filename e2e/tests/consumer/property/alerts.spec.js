@@ -58,7 +58,7 @@ test('signed-in alert submit confirms with a link to manage alerts (D85)', async
   await expect(page.getByRole('link', { name: /Manage my alerts/i })).toBeVisible();
 });
 
-test('dashboard Alerts tab lists, toggles and deletes saved alerts', async ({ page }) => {
+test('dashboard Alerts tab lists, retunes and deletes saved alerts', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876500088', role: 'buyer', loginAt: Date.now() }));
     localStorage.setItem('pnSavedSearches:9876500088', JSON.stringify([
@@ -73,11 +73,28 @@ test('dashboard Alerts tab lists, toggles and deletes saved alerts', async ({ pa
   await expect(page.getByText('Flat', { exact: true })).toBeVisible();
   await expect(page.getByText('Furnished', { exact: true })).toBeVisible();
   await expect(page.getByText('2 new')).toBeVisible();
-  await expect(page.getByText('Alerts on')).toBeVisible();
 
-  // Toggle it off.
-  await page.getByRole('switch').first().click();
-  await expect(page.getByText('Alerts off')).toBeVisible();
+  // The cadence picker replaced the on/off Switch (D84) — a row with `alerts: true` and no stored
+  // frequency reads as the server's default rather than as an empty select.
+  const freq = page.getByTestId('alert-frequency').first();
+  await expect(freq).toHaveValue('daily');
+
+  // Turn it off through the picker.
+  await freq.selectOption('off');
+  await expect(freq).toHaveValue('off');
+
+  /* The point of D84: the two cadences the old boolean Switch could not express must
+     survive a full off → on round trip in *stored* state, not merely in the select's
+     value. `alerts` stays as a derived mirror so older readers keep working. */
+  for (const cadence of ['instant', 'weekly']) {
+    await freq.selectOption(cadence);
+    await expect(freq).toHaveValue(cadence);
+    await expect.poll(async () => page.evaluate(
+      () => JSON.parse(localStorage.getItem('pnSavedSearches:9876500088') || '[]')[0],
+    )).toMatchObject({ alertFrequency: cadence, alerts: true });
+    await freq.selectOption('off');
+    await expect(freq).toHaveValue('off');
+  }
 
   // Delete it → empty state.
   await page.getByRole('button', { name: /Delete alert/i }).click();

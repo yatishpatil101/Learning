@@ -162,19 +162,17 @@ export default function BottomNav() {
         to={postTo}
         aria-label={t('nav.postProperty')}
         aria-current={path.startsWith('/list-property') ? 'page' : undefined}
-        /* justify-end + a bottom pad that lands the label on the same baseline the
-           other tabs' centred icon+label stack happens to end on, so "Post" doesn't
-           float a few pixels off its siblings even though the circle above it is
-           pulled out of the bar. */
-        className="pn-bottom-nav__tab flex flex-1 flex-col items-center justify-end pb-[9px] min-w-[52px]"
+        /* No visible label under the circle. It used to carry one, baselined against
+           the sibling tabs with `justify-end` and a 9px pad; at 200% text that stack
+           needed ~61px inside a 56px bar and the circle deformed to fit (D98a). The
+           label was pure redundancy — the plus glyph is the universal post affordance
+           and the link is already named by `aria-label`, so nothing was said twice for
+           a screen reader either. Centring the circle is what the free height buys. */
+        className="pn-bottom-nav__tab flex flex-1 flex-col items-center justify-center min-w-[52px]"
       >
         <span className="pn-bottom-nav__fab grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] text-white">
           <Icon name="plus" className="w-6 h-6 stroke-[2.5]" />
         </span>
-        {/* Semibold and near-white, not muted like its siblings — the circle above it
-            already claims primary status, and a grey label underneath was arguing with
-            that. This is the only slot allowed to shout. */}
-        <span className="pn-bottom-nav__label font-semibold text-white">{t('nav.post')}</span>
       </Link>
 
       {/* Both tabs avoid glyphs that are spoken for elsewhere: `users` is the

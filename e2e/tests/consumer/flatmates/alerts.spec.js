@@ -132,12 +132,13 @@ test('dashboard Alerts panel shows the share alert with an intent badge, then to
   // Intent badge + label render.
   await expect(page.getByText('Rooms · Baner · ≤ ₹15,000 · Women · Verified')).toBeVisible();
 
-  // Toggle alerts off.
-  const toggle = page.getByRole('switch').first();
-  await toggle.click();
+  // Turn alerts off through the cadence picker (D84 replaced the on/off Switch).
+  const freq = page.getByTestId('alert-frequency').first();
+  await freq.selectOption('off');
   await page.waitForTimeout(200);
   let saved = await savedSearches(page);
   expect(saved[0].alerts).toBe(false);
+  expect(saved[0].alertFrequency).toBe('off');
 
   // Delete it.
   await page.getByRole('button', { name: /Delete alert/i }).first().click();

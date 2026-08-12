@@ -148,13 +148,9 @@ test('admin services page loads without errors', async ({ page }) => {
   expect(errors).toHaveLength(0);
 });
 
-test('admin analytics page loads without errors', async ({ page }) => {
-  const errors = trackErrors(page);
-  await loginAsAdmin(page);
-  await page.goto(`${BASE}/admin/analytics`);
-  await page.waitForTimeout(1000);
-  expect(errors).toHaveLength(0);
-});
+/* The /admin/analytics load-without-errors sweep lives in analytics.spec.js.
+   The copy that used to sit here was byte-identical, so it bought a second
+   admin login and page load for nothing. */
 
 // ─── Enquiries module ───
 

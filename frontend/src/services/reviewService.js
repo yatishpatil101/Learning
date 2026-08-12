@@ -72,8 +72,8 @@ const provider = createProvider('review');
  * @param {{page?: number, size?: number}} [opts]
  * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
  */
-export const listPropertyReviews = (propertyId, opts) =>
-  provider().listPropertyReviews(propertyId, opts);
+export const listPropertyReviews = async (propertyId, opts) =>
+  (await provider()).listPropertyReviews(propertyId, opts);
 
 /**
  * The rating aggregate for one listing: `{ count, avg, dist, catAvg }`.
@@ -95,8 +95,8 @@ export const listPropertyReviews = (propertyId, opts) =>
  *                            is the slug. Callers pass `p.uuid || p.id`.
  * @returns {Promise<{count: number, avg: number|null, dist: number[], catAvg: object}>}
  */
-export const getPropertyReviewSummary = (propertyId) =>
-  provider().getPropertyReviewSummary(propertyId);
+export const getPropertyReviewSummary = async (propertyId) =>
+  (await provider()).getPropertyReviewSummary(propertyId);
 
 /**
  * Rate a property.
@@ -107,8 +107,8 @@ export const getPropertyReviewSummary = (propertyId) =>
  * @param {string} propertyId
  * @param {{rating: number, text?: string, categories?: object, recommend?: boolean|null}} review
  */
-export const createPropertyReview = (propertyId, review) =>
-  provider().createPropertyReview(propertyId, review);
+export const createPropertyReview = async (propertyId, review) =>
+  (await provider()).createPropertyReview(propertyId, review);
 
 /**
  * Reviews of a society, locality or owner.
@@ -116,8 +116,8 @@ export const createPropertyReview = (propertyId, review) =>
  * @param {'society'|'locality'|'owner'} entityType
  * @param {string} entityId slug for society and locality; see the module note on owner
  */
-export const listEntityReviews = (entityType, entityId, opts) =>
-  provider().listEntityReviews(entityType, entityId, opts);
+export const listEntityReviews = async (entityType, entityId, opts) =>
+  (await provider()).listEntityReviews(entityType, entityId, opts);
 
 /**
  * The rating aggregate for one society, locality or owner: `{ count, avg, dist, catAvg }`.
@@ -143,9 +143,9 @@ export const listEntityReviews = (entityType, entityId, opts) =>
  * @param {string} entityId slug or id for society, slug for locality, user id for owner
  * @returns {Promise<{count: number, avg: number|null, dist: number[], catAvg: object}>}
  */
-export const getEntityReviewSummary = (entityType, entityId) =>
-  provider().getEntityReviewSummary(entityType, entityId);
+export const getEntityReviewSummary = async (entityType, entityId) =>
+  (await provider()).getEntityReviewSummary(entityType, entityId);
 
 /** Rate a society, locality or owner. Resolves to the created review. */
-export const createEntityReview = (entityType, entityId, review) =>
-  provider().createEntityReview(entityType, entityId, review);
+export const createEntityReview = async (entityType, entityId, review) =>
+  (await provider()).createEntityReview(entityType, entityId, review);

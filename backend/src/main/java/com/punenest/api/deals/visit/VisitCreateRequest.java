@@ -13,7 +13,6 @@ import java.time.Instant;
  * @param propertyId the listing to visit (required — spec fix S2)
  * @param slot       the proposed date/time as a single ISO instant (reconciliation item c)
  * @param mode       {@code in-person} or {@code video}; defaults to {@code in-person}
- * @param note       optional free-text note
  */
 public record VisitCreateRequest(
         @NotBlank String propertyId,

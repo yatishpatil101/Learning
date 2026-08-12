@@ -23,10 +23,24 @@ import lombok.Getter;
  * than read from settings when the summary is computed, so changing the offer never rewrites what
  * people were already promised.
  *
- * <p><strong>{@code sameDevice} and {@code sameIp} are always false today.</strong> The platform
- * captures neither a device fingerprint nor the request IP, so these two signals cannot be computed
- * honestly and are left at their default rather than filled with a guess. A fraud signal that is
- * wrong is worse than one that is absent: a checker who trusts it stops looking.
+ * <p><strong>{@code sameDevice} and {@code sameIp} are computed at redemption (D55, V64).</strong>
+ * They were {@code false} on every row for as long as the platform captured neither side of the
+ * comparison; it now stores a salted digest of the referee's address and User-Agent here, and of the
+ * referrer's on their {@link ReferralCode}, and compares the two. The old rule still governs the
+ * gaps: a code minted before V64, or a request that carried no {@code User-Agent}, produces no
+ * digest and the signal stays {@code false}. A fraud signal that is wrong is worse than one that is
+ * absent, because a checker who trusts it stops looking.
+ *
+ * <p><strong>The two digests are personal data with a ninety-day life.</strong> Their purpose is
+ * referral fraud detection and nothing else, they are never on the wire, and
+ * {@link ReferralSignalRetention} blanks them once the row passes the window. The <em>findings</em>
+ * outlive the evidence — {@code sameDevice} and {@code sameIp} stay, the same way
+ * {@code aadhaarVerified} records an outcome rather than a number.
+ *
+ * <p><strong>{@code qualifiedAt} is the one thing that mints a credit without a human (Q17).</strong>
+ * It moves from null exactly once, when the referred party's <em>first</em> listing passes ownership
+ * verification. Because it can only move once on a row, and {@code uq_referrals_referred_mobile}
+ * admits one row per referred mobile, "one credit per referee, ever" needs no further constraint.
  */
 @Entity
 @Table(name = "referrals")
@@ -47,6 +61,14 @@ public class Referral extends AuditedEntity {
 
     @Column(name = "channel", updatable = false)
     private String channel;
+
+    /**
+     * How the link reached the referee, as reported at redemption. Null when unknown, which
+     * includes every code passed on by voice — see {@link ShareChannels}. Distinct from
+     * {@link #channel}, which records which side of the marketplace the referred party joined on.
+     */
+    @Column(name = "share_channel", updatable = false)
+    private String shareChannel;
 
     /** The human label. See the class Javadoc. */
     @Column(name = "reward", updatable = false)
@@ -77,11 +99,55 @@ public class Referral extends AuditedEntity {
     @Column(name = "velocity_high", nullable = false, updatable = false)
     private boolean velocityHigh;
 
-    @Column(name = "activated", nullable = false, updatable = false)
+    /**
+     * Whether the referred party has done something real on the platform.
+     *
+     * <p>Updatable since V64. It was declared alongside {@code status = 'qualified'} and, like it,
+     * was produced by nothing — so the desk read {@code false} on every row including the ones it
+     * had just approved. Q17 supplies the activation event, and this flag and the status now move
+     * together in {@link #qualify}: a row that says {@code qualified} while claiming the referee
+     * never activated contradicts itself on the desk's own screen.
+     */
+    @Column(name = "activated", nullable = false)
     private boolean activated;
 
     @Column(name = "at", nullable = false, updatable = false)
     private Instant at;
+
+    /** When the referee's first listing cleared the ownership gate. Null until it does. */
+    @Column(name = "qualified_at")
+    private Instant qualifiedAt;
+
+    /**
+     * Which listing cleared it. Evidence rather than an association — no foreign key, so a listing
+     * that is later withdrawn neither erases the reason a credit was granted nor is blocked by it.
+     */
+    @Column(name = "qualified_property_id")
+    private UUID qualifiedPropertyId;
+
+    /**
+     * Salted digest of the address the referee redeemed from. Personal data; see the class Javadoc
+     * for its purpose limitation and retention. Never returned on the wire.
+     *
+     * <p>Stored rather than merely compared and discarded, because the comparison it feeds is only
+     * referrer-to-referee: the pattern a fraud desk is actually looking for is one referrer whose
+     * <em>referees</em> all share an address, and that question can only be asked of rows that kept
+     * the digest. It is also what makes {@link #sameIp} auditable after the fact instead of a
+     * boolean nobody can check. No getter: nothing in Java needs to read it, and not having one is
+     * the cheapest guarantee it never reaches a DTO.
+     */
+    @Column(name = "referred_ip_hash")
+    @Getter(AccessLevel.NONE)
+    private String referredIpHash;
+
+    /**
+     * Salted digest of the User-Agent the referee redeemed with. Personal data; see the class
+     * Javadoc for its purpose limitation and retention. Never returned on the wire, and no getter,
+     * for the same reasons as {@link #referredIpHash}.
+     */
+    @Column(name = "referred_device_hash")
+    @Getter(AccessLevel.NONE)
+    private String referredDeviceHash;
 
     @Column(name = "handled_by")
     private String handledBy;
@@ -102,21 +168,54 @@ public class Referral extends AuditedEntity {
     }
 
     Referral(UUID referrerId, String referrerMobile, String referred, String referredMobile,
-            String channel, String reward, long rewardAmount, String risk, boolean aadhaarVerified,
-            boolean aadhaarUnique, boolean velocityHigh) {
+            String channel, String shareChannel, String reward, long rewardAmount, String risk,
+            boolean aadhaarVerified, boolean aadhaarUnique, boolean velocityHigh,
+            boolean sameDevice, boolean sameIp, ReferralSignals.Signals signals) {
         this.referrerId = referrerId;
         this.referrerMobile = referrerMobile;
         this.referred = referred;
         this.referredMobile = referredMobile;
         this.channel = channel;
+        this.shareChannel = shareChannel;
         this.reward = reward;
         this.rewardAmount = rewardAmount;
         this.status = ReferralStatuses.PENDING;
         this.risk = risk;
         this.aadhaarVerified = aadhaarVerified;
         this.aadhaarUnique = aadhaarUnique;
+        this.sameDevice = sameDevice;
+        this.sameIp = sameIp;
         this.velocityHigh = velocityHigh;
+        this.referredIpHash = signals.ipHash();
+        this.referredDeviceHash = signals.deviceHash();
         this.at = Instant.now();
+    }
+
+    /**
+     * Record that the referee's first listing cleared the ownership gate (Q17).
+     *
+     * <p>Returns whether anything changed, and that return value <em>is</em> the idempotency: the
+     * announcement runs inside the verification write's transaction, so a retried write announces
+     * again, and a second verified listing by the same owner announces a different property against
+     * the same referral. Both must mint exactly nothing the second time. Guarding on
+     * {@code qualifiedAt == null} rather than on the property id makes that true for a repeat of the
+     * same announcement and for a genuinely different listing alike, which is what "first listing"
+     * has to mean if a second one is not to buy a second credit.
+     *
+     * <p>Only a {@code pending} referral qualifies. A row the desk has already rejected must not be
+     * resurrected by a later verification, and one already {@code rewarded} has nothing left to
+     * gain — the caller checks the status because it also has to decide whether to consume a slot in
+     * the referrer's monthly allowance.
+     */
+    boolean qualify(UUID propertyId, Instant verifiedAt) {
+        if (this.qualifiedAt != null || !ReferralStatuses.PENDING.equals(this.status)) {
+            return false;
+        }
+        this.status = ReferralStatuses.QUALIFIED;
+        this.qualifiedAt = verifiedAt;
+        this.qualifiedPropertyId = propertyId;
+        this.activated = true;
+        return true;
     }
 
     /**

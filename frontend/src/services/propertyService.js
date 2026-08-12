@@ -7,9 +7,9 @@ import { createProvider } from './config.js';
 const provider = createProvider('property');
 
 // Public discovery
-export const listProperties = (filters, sort) => provider().listProperties(filters, sort);
-export const getProperty = (id) => provider().getProperty(id);
-export const featuredProperties = (limit) => provider().featuredProperties(limit);
+export const listProperties = async (filters, sort) => (await provider()).listProperties(filters, sort);
+export const getProperty = async (id) => (await provider()).getProperty(id);
+export const featuredProperties = async (limit) => (await provider()).featuredProperties(limit);
 
 /**
  * How many listings match `filters` — **without** transferring them.
@@ -19,10 +19,10 @@ export const featuredProperties = (limit) => provider().featuredProperties(limit
  * count silently becomes "however many fitted in one page". This is the aggregate that mattered
  * most, because a wrong number looks like a fact rather than a bug.
  */
-export const countProperties = (filters) => provider().countProperties(filters);
+export const countProperties = async (filters) => (await provider()).countProperties(filters);
 
 /** Resolve several listings by id, skipping any that no longer exist. Order follows `ids`. */
-export const getPropertiesByIds = (ids) => provider().getPropertiesByIds(ids);
+export const getPropertiesByIds = async (ids) => (await provider()).getPropertiesByIds(ids);
 
 /**
  * Every listing at every status, **including archived** — the moderation queue. Staff/admin only.
@@ -37,7 +37,7 @@ export const getPropertiesByIds = (ids) => provider().getPropertiesByIds(ids);
  * against — so every owner opening their dashboard was routed to the staff endpoint and got a 403.
  * An authorization-relevant choice has to be named by the caller, not guessed from a flag.
  */
-export const listForModeration = (filters, sort) => provider().listForModeration(filters, sort);
+export const listForModeration = async (filters, sort) => (await provider()).listForModeration(filters, sort);
 
 /**
  * The signed-in owner's own listings, **at every status**.
@@ -47,10 +47,10 @@ export const listForModeration = (filters, sort) => provider().listForModeration
  * catalogue and matching on owner mobile therefore cannot work against the API — the rows simply
  * aren't in the response — which is why this is its own operation rather than a filter.
  */
-export const myListings = (user) => provider().myListings(user);
+export const myListings = async (user) => (await provider()).myListings(user);
 
 // Owner: create listing (goes to global DB as pending)
-export const addListing = (listing) => provider().addListing(listing);
+export const addListing = async (listing) => (await provider()).addListing(listing);
 
 // Admin: moderation.
 //
@@ -73,23 +73,23 @@ export const addListing = (listing) => provider().addListing(listing);
  * which also records why, and `archived` to {@link archiveListing}, which is owner-or-staff rather
  * than staff-only; both are separate operations rather than status values.
  */
-export const setListingStatus = (id, status, reason) => provider().setListingStatus(id, status, reason);
+export const setListingStatus = async (id, status, reason) => (await provider()).setListingStatus(id, status, reason);
 
 /** Toggle homepage merchandising. No status precondition on either side. */
-export const toggleFeatured = (id) => provider().toggleFeatured(id);
+export const toggleFeatured = async (id) => (await provider()).toggleFeatured(id);
 
 /** Raise a moderation flag — takes the listing off the public site and records the reason. */
-export const flagListing = (id, reason) => provider().flagListing(id, reason);
+export const flagListing = async (id, reason) => (await provider()).flagListing(id, reason);
 
 /**
  * Clear a moderation flag. **Publishes the listing** — status becomes `approved`, it is not
  * restored to whatever it was before being flagged. Both providers behave this way.
  */
-export const clearFlag = (id) => provider().clearFlag(id);
+export const clearFlag = async (id) => (await provider()).clearFlag(id);
 
-export const deleteListing = (id) => provider().deleteListing(id);
-export const updateListingFields = (id, patch) => provider().updateListingFields(id, patch);
+export const deleteListing = async (id) => (await provider()).deleteListing(id);
+export const updateListingFields = async (id, patch) => (await provider()).updateListingFields(id, patch);
 
 // Admin/owner: soft-delete. Backed by PATCH /properties/{id}/archive|restore in http mode.
-export const archiveListing = (id, reason) => provider().archiveListing(id, reason);
-export const restoreListing = (id) => provider().restoreListing(id);
+export const archiveListing = async (id, reason) => (await provider()).archiveListing(id, reason);
+export const restoreListing = async (id) => (await provider()).restoreListing(id);

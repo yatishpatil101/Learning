@@ -20,8 +20,7 @@
  *
  * BUDGET_KB is a ratchet, not an aspiration — set just above the measured size at
  * the time of writing so the gate is green today and any regression fails loudly.
- * Lower it as D129 lands; a budget that is never tightened is a budget that has
- * stopped working.
+ * A budget that is never tightened is a budget that has stopped working.
  *
  * It has been raised twice now, and the reason is worth writing down because it is
  * not "the app got bigger". Route chunks are already lazy — every page in App.jsx is
@@ -38,17 +37,26 @@
  * slack from a raise that anticipated growth which then did not arrive, and slack is
  * how a ratchet quietly stops ratcheting: a 59 KB cushion is eleven percent of the
  * critical path, enough to absorb an entire eager namespace without ever going red.
- * The headroom is now ~4 KB, which is deliberately uncomfortable — the next eager
- * import is *supposed* to have to argue for itself. If this fails on work that did
- * nothing wrong, the fix is to make a namespace lazy (D129), not to raise the number
- * again; raising it is only honest when the app genuinely needs to be bigger.
+ *
+ * Lowered 540 → 497 (D203) once D129's lazy chunks landed and the critical path
+ * measured 492.9 KB. 540 had stopped being a gate and become an accident: the two
+ * chunks D129 split out are 22.3 KB (db) and 24.8 KB (societies-rera) gzip, so a
+ * regression that pulled *both* back onto the critical path totalled 540.1 KB and
+ * tripped by 0.07 KB, while either one *alone* landed at 515.2 / 517.7 KB and passed
+ * in silence. A budget that can only catch the double failure is not catching the
+ * single one. 497 keeps the same deliberately uncomfortable ~4 KB headroom the
+ * previous ratchet chose, and either chunk alone now fails by ~18 KB.
+ *
+ * If this fails on work that did nothing wrong, the fix is to make another eager
+ * namespace lazy, not to raise the number again; raising it is only honest when the
+ * app genuinely needs to be bigger.
  */
 import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Current ceiling (KB gzip). TARGET is where §2 of the mobile review takes us. */
-const BUDGET_KB = 540;
+const BUDGET_KB = 497;
 const TARGET_KB = 180;
 
 const DIST = join(process.cwd(), 'dist');

@@ -17,7 +17,6 @@ import java.time.Instant;
  *
  * @param id                 opaque user id
  * @param mobile             10-digit mobile (natural identity)
- * @param email              contact email, nullable
  * @param team               staff ops team, else null
  * @param verified           opt-in identity "Verified" badge (L2)
  * @param city               home city
@@ -30,7 +29,6 @@ import java.time.Instant;
  *                           {@code ContactGateService}, never by the client reading this
  * @param listingsCount      active listings (owners)
  * @param joinedAt           first sign-up time
- * @param lastActive         last activity time, nullable
  * @param createdAt          row creation time
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)

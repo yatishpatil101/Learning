@@ -16,7 +16,8 @@ import org.mapstruct.ReportingPolicy;
  * Entity→wire mapper for the flatmates market (api-standards §8.1).
  *
  * <p><strong>Why generated.</strong> {@link FlatmateRoomDto} is 47 fields, 40 of them name-for-name
- * copies. The hand-written factory it replaces was a 40-argument positional constructor call, and
+ * copies, and {@link FlatmateRoomFeedDto} is the 39-field card projection of the same row (D80).
+ * The hand-written factory it replaces was a 40-argument positional constructor call, and
  * the risk there is not tedium but silence: {@code society}, {@code flatNumber}, {@code locality},
  * {@code flatType}, {@code homeTypeLabel} and {@code furnishing} are all {@code String} and sit next
  * to each other, so transposing two of them compiles cleanly and ships a card with the flat number
@@ -61,6 +62,25 @@ public interface FlatmateMapper {
     @Mapping(target = "flatMax", expression = "java(flatMax(room))")
     @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
     FlatmateRoomDto toDto(FlatmateRoom room, @Context RoomView view);
+
+    /**
+     * The card-sized projection (D80) — same derivations, nine fewer fields.
+     *
+     * <p>Note what is <em>not</em> here: {@code ownerMobile}. Every producer of this shape passed
+     * {@code null} for it anyway, so the omission changes no payload — it just means an anonymous
+     * room read no longer has a slot a future edit could accidentally fill. {@code modStatus} left
+     * on the same reasoning (D210). See {@link FlatmateRoomFeedDto} for the evidence behind each of
+     * the other seven.
+     *
+     * @param view what the caller joined or decided — never derivable from the room row alone
+     */
+    @Mapping(target = "type", constant = "flatmate")
+    @Mapping(target = "flatCommitted", expression = "java(view.flatCommitted())")
+    @Mapping(target = "owner", expression = "java(view.ownerName())")
+    @Mapping(target = "occupancy", expression = "java(occupancyOf(room, view.flatCommitted()))")
+    @Mapping(target = "flatMax", expression = "java(flatMax(room))")
+    @Mapping(target = "shareMax", expression = "java(shareMax(room, view.flatCommitted()))")
+    FlatmateRoomFeedDto toFeedDto(FlatmateRoom room, @Context RoomView view);
 
     /**
      * "Will I have flatmates from day one?" — derived from the flat's ledger, never trusted from a
@@ -112,6 +132,24 @@ public interface FlatmateMapper {
     @Mapping(target = "ownerName", expression = "java(view.ownerName())")
     @Mapping(target = "ownerMobile", expression = "java(view.ownerMobile())")
     FlatmateGroupDto toDto(FlatmateGroup group, @Context PartyView view);
+
+    /**
+     * The card-sized projection of a group (D211) — D80's room split, applied to the other half of
+     * supply. Five fewer fields; see {@link FlatmateGroupFeedDto} for the evidence behind each.
+     *
+     * <p><strong>The derivations below are written out a second time on purpose, and that is the
+     * risk this shape carries.</strong> MapStruct cannot inherit {@code @Mapping} across differing
+     * target types, so {@code seatsOpen}, {@code perHead} and {@code ownerName} are wired here as
+     * well as on {@link #toDto(FlatmateGroup, PartyView)}. Editing one and not the other compiles,
+     * generates and ships two different payloads for the same group.
+     * {@code FlatmateGroupShapeTest} is what catches that; nothing structural can.
+     *
+     * @param view what the caller joined or decided — never derivable from the group row alone
+     */
+    @Mapping(target = "seatsOpen", expression = "java(group.openSeats())")
+    @Mapping(target = "perHead", expression = "java(perHead(group))")
+    @Mapping(target = "ownerName", expression = "java(view.ownerName())")
+    FlatmateGroupFeedDto toFeedDto(FlatmateGroup group, @Context PartyView view);
 
     /** Members map name-for-name; no contact on a member, so nothing to gate. */
     FlatmateGroupDto.Member toMember(FlatmateGroupMember member);
@@ -302,9 +340,21 @@ public interface FlatmateMapper {
      */
     record RoomView(int flatCommitted, String ownerName, String ownerMobile) {
 
-        /** The anonymous projection: no contact, and no flat ledger to read. */
-        static RoomView anonymous(String ownerName) {
-            return new RoomView(0, ownerName, null);
+        /**
+         * The anonymous projection: no contact, and a <em>real</em> flat ledger (D212).
+         *
+         * <p>This used to take the name alone and pass {@code 0} for the ledger, on the reasoning
+         * that an anonymous caller has no business knowing how many people already live there. But
+         * {@code flatCommitted} is not only shown — {@link #occupancyOf} and {@link #shareMax} are
+         * derived from it, so a fake zero did not withhold the number, it published a wrong
+         * <em>label</em>: a full flat reported {@code empty} on all three public reads while the
+         * host's own view of the same room said {@code occupied}. One row, one occupancy answer.
+         *
+         * <p>What an anonymous caller must not see is a phone number, and that is exactly what this
+         * factory still withholds — there is no parameter to pass one to.
+         */
+        static RoomView anonymous(int flatCommitted, String ownerName) {
+            return new RoomView(flatCommitted, ownerName, null);
         }
     }
 

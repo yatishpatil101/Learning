@@ -87,6 +87,10 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.ARCHIVE), "admin"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.RESTORE), "admin"),
                 new Guarded(HttpMethod.POST, Routes.Users.STAFF, "admin"),
+                // Maker-checker on that same surface (D200). Both admin-only: seeing who is waiting
+                // for a second key, and turning it, are the same audience as minting the account.
+                new Guarded(HttpMethod.GET, Routes.Users.PENDING_APPROVALS, "admin"),
+                new Guarded(HttpMethod.POST, id(Routes.Users.APPROVE), "admin"),
                 new Guarded(HttpMethod.GET, Routes.Admin.AUDIT_LOG, "admin"));
     }
 

@@ -22,7 +22,9 @@
  * sites below rather than smoothed over, because a control that quietly does nothing is worse than
  * one that is absent.
  */
-import { del, get, post, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
+import { del, get, post, unwrapFullPage } from '../../http.js';
+// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
   mayRespond,
@@ -49,15 +51,25 @@ const toList = (rows, fn) => (Array.isArray(rows) ? rows : []).map(fn);
  *
  * The other reads in this file stay on {@link toList}: they are bare arrays server-side and
  * deliberately so (`/me/deals/{propId}/parties` is bounded by the parties to one deal).
+ *
+ * A function rather than a constant, kept that way on purpose. `config.js` globs every provider in
+ * this directory eagerly and `http.js` imports `config.js` for `API_BASE`, so whenever a page
+ * reaches `http.js` first this module is evaluated *inside* `http.js`'s own evaluation. When
+ * `MAX_PAGE_SIZE` still lived in `http.js`, reading it here at module scope threw `Cannot access
+ * 'MAX_PAGE_SIZE' before initialization` and blanked the whole app, from a file the failing screen
+ * never used. It now comes from the import-free `apiLimits.js` (D208), which is always evaluated
+ * first, so the module-scope form would be safe again — but the cycle itself is still there, and
+ * deferring the read to call time keeps this module out of its critical section regardless of what
+ * else `http.js` grows.
  */
-const paged = { size: MAX_PAGE_SIZE };
+const paged = () => ({ size: MAX_PAGE_SIZE });
 
 /* ─── Deals (owner-scoped) ──────────────────────────────────────────────────────────────────── */
 
 /** `GET /me/deals` — every deal on the caller's own listings. Paged (D77). */
 export async function myDeals() {
   if (!signedIn()) return [];
-  return unwrapFullPage(await get('/me/deals', paged), 'deal').map(toDealViewModel);
+  return unwrapFullPage(await get('/me/deals', paged()), 'deal').map(toDealViewModel);
 }
 
 /**
@@ -192,13 +204,13 @@ export async function respondOffer(id, action, counterAmount, opts = {}) {
 /** `GET /offers/mine` — offers the caller **made**, newest first. Paged (D77). */
 export async function myOffers() {
   if (!signedIn()) return [];
-  return unwrapFullPage(await get('/offers/mine', paged), 'offer').map(toOfferViewModel);
+  return unwrapFullPage(await get('/offers/mine', paged()), 'offer').map(toOfferViewModel);
 }
 
 /** `GET /me/offers` — offers **on** the caller's own listings, newest first. Paged (D77). */
 export async function offersOnMine() {
   if (!signedIn()) return [];
-  return unwrapFullPage(await get('/me/offers', paged), 'offer').map(toOfferViewModel);
+  return unwrapFullPage(await get('/me/offers', paged()), 'offer').map(toOfferViewModel);
 }
 
 /* ─── Finalization (maker/checker) ──────────────────────────────────────────────────────────── */
@@ -254,7 +266,7 @@ export async function cancelFinalization(propId) {
  */
 export async function myFinalizationRequests() {
   if (!signedIn()) return [];
-  const rows = unwrapFullPage(await get('/me/finalization-requests', paged), 'finalization');
+  const rows = unwrapFullPage(await get('/me/finalization-requests', paged()), 'finalization');
   return rows.map(toFinalizationViewModel).filter(Boolean);
 }
 

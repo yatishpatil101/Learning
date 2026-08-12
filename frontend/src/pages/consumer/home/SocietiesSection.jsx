@@ -4,7 +4,7 @@ import Icon from '../../../components/Icon.jsx';
 import { listProperties } from '../../../services/propertyService.js';
 import { allSocieties, listingsInSociety } from '../../../data/societies.js';
 import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
-import { resolveSociety, entityRating } from '../../../lib/store.js';
+import { resolveSociety } from '../../../lib/store.js';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -46,21 +46,19 @@ export default function SocietiesSection() {
       const verified = !community && !!(soc.registration && soc.conveyance);
       return {
         id: soc.id, slug: soc.slug, name: soc.name, localitySlug: soc.localitySlug || '',
-        /* SEAM NOTE: still the mock aggregate, keyed on the **slug** — the key the society hub writes
-           under. `soc.id` is a synthetic `S01` from `data/societies.js`, not an id the server or the
-           review store ever sees, so keying on it made this aggregate a constant zero.
-
-           The seam now exists — `services/societyService.js` indexes `avgRating`/`reviewCount` from
-           `GET /societies` and `Societies.jsx` reads it — and this call site has **deliberately not**
-           moved. Nothing here renders a rating: the card shows locality + homes, and the aggregate is
-           only the third sort key. Reading the seam would cost this strip a four-page walk of the
-           348-row society directory on the home page to break ties among eight cards, which is a
-           worse trade than the tie going unbroken. The real question is whether the tie-break earns
-           its place at all — that is a product call, not a wiring one. See `Societies.jsx`. */
-        verified, rating: entityRating('society', soc.slug), homes: listingsInSociety(listings, soc.id).length,
+        verified, homes: listingsInSociety(listings, soc.id).length,
       };
     })
-    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || (b.rating.avg - a.rating.avg) || a.name.localeCompare(b.name))
+    /* D196: there used to be a rating tie-break between `homes` and `name`, read from the
+       `pnEntityReviews` localStorage bucket. A live session never writes that bucket, so the
+       term was a constant zero against the real API and the ordering it promised never happened
+       — an inert sort key is worse than no sort key, because it reads as intentional.
+
+       Reading the real aggregate instead was considered and rejected on cost: `GET /societies`
+       would make this eight-card home strip walk four pages of the 348-row directory purely to
+       break ties. A tie broken by name is a better trade than that, and it is honest about what
+       it is doing. Nothing rendered the rating here, so nothing visible changed. */
+    .sort((a, b) => (Number(b.verified) - Number(a.verified)) || (b.homes - a.homes) || a.name.localeCompare(b.name))
     .slice(0, 8), [listings, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- invalidation signal for the module-level society store; see `lib/useSocietyCatalogue.js`.
 
   // Reflect the strip's scroll position in the arrow enabled-state and the edge

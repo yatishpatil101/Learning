@@ -39,7 +39,7 @@ const provider = createProvider('notification');
  *
  * @param {object[]} [extra] client-derived notifications to merge in, deduped by id
  */
-export const listNotifications = (extra) => provider().listNotifications(extra);
+export const listNotifications = async (extra) => (await provider()).listNotifications(extra);
 
 /**
  * How many unread, over the **whole** inbox rather than the first page.
@@ -48,13 +48,13 @@ export const listNotifications = (extra) => provider().listNotifications(extra);
  * counting a page would quietly cap the badge at the page size — the same bug `countProperties`
  * exists to avoid on the catalogue.
  */
-export const unreadCount = () => provider().unreadCount();
+export const unreadCount = async () => (await provider()).unreadCount();
 
 /** Mark one notification read. Resolves when applied; does not resolve to the new list. */
-export const markRead = (id) => provider().markRead(id);
+export const markRead = async (id) => (await provider()).markRead(id);
 
 /** Mark every notification read. The server treats an empty id list as "all". */
-export const markAllRead = () => provider().markAllRead();
+export const markAllRead = async () => (await provider()).markAllRead();
 
 /**
  * Hide one notification.
@@ -65,4 +65,4 @@ export const markAllRead = () => provider().markAllRead();
  * regression traded for a purity that no user asked for. Its limits are real and documented on the
  * http provider — it does not sync across devices, and clearing site data brings the row back.
  */
-export const dismiss = (id) => provider().dismiss(id);
+export const dismiss = async (id) => (await provider()).dismiss(id);

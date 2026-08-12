@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import Switch from '../../../components/ui/Switch.jsx';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
+import { ALERT_FREQUENCIES, DEFAULT_ALERT_FREQUENCY } from '../../../services/savedSearchService.js';
 import { criteriaChips } from '../listings/alertCriteria.js';
 import { flatmateCriteriaChips, tabMeta } from '../flatmates/alertCriteria.js';
 import { normalizeTab } from '../flatmates/model.js';
@@ -12,6 +12,12 @@ const CHANNEL_META = {
   sms: { label: 'SMS', icon: 'smartphone' },
 };
 
+/* The cadence the server's enum already supported and the UI could not reach: the row carried a
+   two-state Switch, so `instant` and `weekly` were unreachable and switching off and on again
+   flattened whatever you held to `daily` (D84). A native <select> rather than a custom menu — it is
+   keyboard- and screen-reader-correct for free, and on a phone it opens the platform picker. */
+const FREQ_LABEL = { off: 'Off', instant: 'Instant', daily: 'Daily', weekly: 'Weekly' };
+
 const fmtDate = (ts) => {
   if (!ts) return '';
   try { return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
@@ -21,10 +27,10 @@ const fmtDate = (ts) => {
 export default function AlertsPanel() {
   // Shared with the Overview stat card and the match-count effect, so deleting an alert here no
   // longer leaves the count above it claiming the old number until a reload.
-  const { searches: alerts, toggleAlerts, remove } = useSavedSearches();
+  const { searches: alerts, setFrequency, remove } = useSavedSearches();
   const activeCount = alerts.filter((a) => a.alerts).length;
 
-  const onToggle = (id) => toggleAlerts(id);
+  const onFrequency = (id, frequency) => setFrequency(id, frequency);
   const onDelete = (id) => remove(id);
 
   return (
@@ -90,8 +96,18 @@ export default function AlertsPanel() {
 
                 <div className="flex items-center justify-between gap-4 sm:justify-end">
                   <label className="flex items-center gap-2 text-xs text-gray-400">
-                    <span className={a.alerts ? 'text-teal-300' : ''}>{a.alerts ? 'Alerts on' : 'Alerts off'}</span>
-                    <Switch checked={!!a.alerts} onChange={() => onToggle(a.id)} label={`Toggle alerts for ${a.label || 'saved search'}`} />
+                    <span className={a.alerts ? 'text-teal-300' : ''}>Alerts</span>
+                    <select
+                      value={a.alertFrequency || (a.alerts === false ? 'off' : DEFAULT_ALERT_FREQUENCY)}
+                      onChange={(e) => onFrequency(a.id, e.target.value)}
+                      data-testid="alert-frequency"
+                      aria-label={`Alert frequency for ${a.label || 'saved search'}`}
+                      className="min-h-[44px] rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-gray-200 focus:border-teal-400/50 focus:outline-none"
+                    >
+                      {ALERT_FREQUENCIES.map((f) => (
+                        <option key={f} value={f} className="bg-[#0f0d1a]">{FREQ_LABEL[f]}</option>
+                      ))}
+                    </select>
                   </label>
                   <button
                     type="button"

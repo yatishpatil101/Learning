@@ -85,7 +85,7 @@ test.describe('Saved properties — desktop', () => {
     await expect(page.getByRole('heading', { name: '4 BHK Villa in Magarpatta' })).toBeVisible();
   });
 
-  test('remove/unsave drops a card and unsaves it in the store', async ({ page, login }) => {
+  test('remove stages an undo first, then commits the unsave when the window lapses', async ({ page, login }) => {
     await login.asBuyer();
     await seedConsent(page);
     await seedSavedProps(page, BUY_IDS);
@@ -95,8 +95,20 @@ test.describe('Saved properties — desktop', () => {
     // Each buy card exposes an explicit "Remove from saved" action.
     await page.getByRole('button', { name: 'Remove from saved' }).first().click();
 
-    // The card animates out (~400ms) then the grid settles at one card.
-    await expect(page.locator('.property-card')).toHaveCount(1);
+    // It stages rather than commits (D99): the card is replaced by an undo row, which
+    // takes focus, and the store is untouched for the whole window. Asserted here on
+    // desktop too because the undo window is not the swipe's — every removal path goes
+    // through it, so a keyboard user gets the same five seconds a thumb does.
+    const undo = page.getByRole('button', { name: /Undo removing/i });
+    await expect(undo).toBeFocused();
+    const staged = await page.evaluate(
+      (m) => JSON.parse(localStorage.getItem(`pnSavedProps:${m}`) || '[]'),
+      BUYER_MOBILE,
+    );
+    expect(staged).toHaveLength(2);
+
+    // Then the window lapses (5s) and the card animates out (~400ms).
+    await expect(page.locator('.property-card')).toHaveCount(1, { timeout: 15_000 });
     // The unsave is persisted back to pnSavedProps (one id removed).
     const remaining = await page.evaluate(
       (m) => JSON.parse(localStorage.getItem(`pnSavedProps:${m}`) || '[]'),

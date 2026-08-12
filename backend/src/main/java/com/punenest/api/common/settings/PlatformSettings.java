@@ -59,6 +59,29 @@ public class PlatformSettings {
      */
     private static final long MAX_REFERRAL_REWARD = 100_000L;
 
+    /**
+     * Referrals one referrer may have auto-qualify in a rolling month before the rest go to a human
+     * (D61).
+     *
+     * <p>Ten is deliberately generous, and the reason is on the record: automated velocity limits
+     * were avoided here for years precisely because they "would reject genuine roommates and
+     * flatmates, which is the platform's most common referral". A flatshare, a floor of neighbours
+     * and a WhatsApp group of colleagues all have to fit under it comfortably. It is a threshold for
+     * <em>automatic</em> minting only — past it, referrals stay pending for the fraud desk, which is
+     * how every referral behaved before Q17 — so setting it too low costs review time, not honest
+     * referrers their reward.
+     */
+    private static final long DEFAULT_REFERRAL_QUALIFY_PER_MONTH = 10L;
+
+    /**
+     * Ceiling on that cap.
+     *
+     * <p>Not a safety limit on money — {@link #MAX_REFERRAL_REWARD} is that — but on the number of
+     * rewards a single account can mint without anyone looking. A back office that can type an
+     * arbitrarily large number here can switch the fraud desk off by accident.
+     */
+    private static final long MAX_REFERRAL_QUALIFY_PER_MONTH = 1_000L;
+
     private final SettingRepository settings;
     private final ObjectMapper objectMapper;
 
@@ -89,14 +112,37 @@ public class PlatformSettings {
      */
     @Transactional(readOnly = true)
     public long referralRewardInr() {
-        return rupees(FEES_KEY, "referralReward", DEFAULT_REFERRAL_REWARD, MAX_REFERRAL_REWARD);
+        return wholeNumber(FEES_KEY, "referralReward", DEFAULT_REFERRAL_REWARD,
+                MAX_REFERRAL_REWARD);
     }
 
     /**
-     * Reads one numeric field out of a settings document as whole rupees in {@code [0, max]},
-     * falling back to {@code fallback} for every way that can fail.
+     * How many referrals one referrer may have qualify automatically in a rolling month (D61).
+     *
+     * <p>Configuration rather than a constant because it is a fraud threshold, and a fraud threshold
+     * has to be movable on the day it is wrong — tightening it during an attack, or loosening it
+     * when a campaign makes ten a month normal, must be a deployment change and not a release.
+     *
+     * <p>Lives in the {@code fees} block beside {@code referralReward} because it is the other half
+     * of the same offer: what a referral is worth, and how many of them one account can mint before
+     * a human looks. Splitting them across two documents would let one be changed without the other
+     * being read.
      */
-    private long rupees(String key, String field, long fallback, long max) {
+    @Transactional(readOnly = true)
+    public long referralQualifyPerMonth() {
+        return wholeNumber(FEES_KEY, "referralQualifyPerMonth", DEFAULT_REFERRAL_QUALIFY_PER_MONTH,
+                MAX_REFERRAL_QUALIFY_PER_MONTH);
+    }
+
+    /**
+     * Reads one numeric field out of a settings document as a whole number in {@code [0, max]},
+     * falling back to {@code fallback} for every way that can fail.
+     *
+     * <p>Named for the shape rather than for rupees: it also reads counts. Every caller supplies its
+     * own ceiling, because "how large is too large" is a property of the thing being configured and
+     * not of the reader.
+     */
+    private long wholeNumber(String key, String field, long fallback, long max) {
         try {
             JsonNode value = settings.findById(key)
                     .map(Setting::getValue)

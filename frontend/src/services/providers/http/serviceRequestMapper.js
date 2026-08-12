@@ -14,8 +14,9 @@
  * |-------------------|------------------|------|
  * | `new`             | `submitted`      | every request opens here |
  * | `assigned`        | `docs_review`    | ops picked it up |
- * | `in-progress`     | `docs_review`    | **also** where a rejected draft returns — the server has no `changes_requested`, so that distinction is lost on read |
+ * | `in-progress`     | `docs_review`    | ops are working the request |
  * | `draft-shared`    | `draft_shared`   | the draft is out for the customer's decision |
+ * | `changes-requested` | `changes_requested` | the customer rejected the draft; the server has had this state since V75 (D121) |
  * | `approved`        | `approved`       | customer approved; awaiting the final document |
  * | `completed`       | `completed`      | |
  * | `cancelled`       | `cancelled`      | |
@@ -67,6 +68,11 @@ const STATUS = {
   assigned: 'docs_review',
   'in-progress': 'docs_review',
   'draft-shared': 'draft_shared',
+  // The customer's rejection of a shared draft. Only `POST /{id}/draft-decision` reaches it —
+  // `PATCH /{id}/status` cannot — so it is the one status ops never set. Without this entry the
+  // raw hyphenated key reached a stepper that only knows underscored step names, and a rejection
+  // rendered as an unknown state instead of the rose "Changes requested" step.
+  'changes-requested': 'changes_requested',
   approved: 'approved',
   completed: 'completed',
   cancelled: 'cancelled',
@@ -183,9 +189,15 @@ export function toViewModel(dto) {
     docs: [],
     draft,
     finalDoc: final,
-    // The server collapses "changes requested" back into `in-progress`, so only an approval is
-    // recoverable on read. A rejection is indistinguishable from ordinary in-progress work.
-    draftDecision: dto.status === 'approved' ? { type: 'accepted', at: created } : null,
+    // `ServiceRequestDto` carries no decision object, so the decision is inferred from the status:
+    // `approved` is an acceptance and `changes-requested` is a rejection, which are the only two
+    // states `POST /{id}/draft-decision` can produce. The customer's rejection *note* is not
+    // recoverable — it lands in the message thread, not on the request — so `note` is omitted
+    // rather than invented, and the ops queue falls back to its unadorned "Customer requested
+    // changes" line. `at` is the request's creation time, not the decision's, for the same reason.
+    draftDecision: dto.status === 'approved' ? { type: 'accepted', at: created }
+      : dto.status === 'changes-requested' ? { type: 'changes', at: created }
+        : null,
     messages,
     timeline,
     assignedTo: dto.assignee || null,

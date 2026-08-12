@@ -36,6 +36,9 @@
     "overviewCta": "Get verified",
     "buyerNudgeTitle": "Verified buyers get 2× faster responses",
     "buyerNudgeBody": "This owner is verified — add your Verified badge to stand out from other enquiries.",
-    "buyerNudgeCta": "Get verified · ~1 min"
+    "buyerNudgeCta": "Get verified · ~1 min",
+    "chipMobileVerified": "Mobile verified",
+    "chipIdVerified": "ID verified",
+    "chipIdNotVerified": "ID not verified"
   }
 }

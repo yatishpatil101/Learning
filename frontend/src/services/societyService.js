@@ -50,4 +50,4 @@ const provider = createProvider('society');
  *   decimal and is `null` when `count` is 0. Slugs the source knows nothing about are absent
  *   rather than present-and-zero.
  */
-export const listSocietyRatings = () => provider().listSocietyRatings();
+export const listSocietyRatings = async () => (await provider()).listSocietyRatings();

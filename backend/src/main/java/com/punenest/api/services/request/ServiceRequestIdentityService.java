@@ -106,7 +106,7 @@ public class ServiceRequestIdentityService {
                     "Only the person who raised this request can record the parties' identity "
                             + "numbers.");
         }
-        if (ServiceRequestStatuses.isTerminal(request.getStatus())) {
+        if (request.getStatus().isTerminal()) {
             throw new ConflictException("This request is " + request.getStatus()
                     + " — identity numbers cannot be recorded against it.");
         }

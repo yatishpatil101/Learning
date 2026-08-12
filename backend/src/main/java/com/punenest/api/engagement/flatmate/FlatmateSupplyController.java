@@ -47,7 +47,7 @@ public class FlatmateSupplyController {
 
     /** {@code GET /flatmates/rooms} (contract {@code listFlatmateRooms}) — public. */
     @GetMapping(Routes.Flatmates.ROOMS)
-    public PageResponse<FlatmateRoomDto> rooms(
+    public PageResponse<FlatmateRoomFeedDto> rooms(
             @RequestParam(required = false) String locality,
             @RequestParam(required = false) String gender,
             @RequestParam(required = false) String food,
@@ -108,9 +108,9 @@ public class FlatmateSupplyController {
 
     // ---- groups ----
 
-    /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public. */
+    /** {@code GET /flatmates/groups} (contract {@code listFlatmateGroups}) — public, cards (D211). */
     @GetMapping(Routes.Flatmates.GROUPS)
-    public PageResponse<FlatmateGroupDto> groups(
+    public PageResponse<FlatmateGroupFeedDto> groups(
             @RequestParam(required = false) String locality,
             @RequestParam(required = false) String policy,
             @RequestParam(required = false) Long minRent,

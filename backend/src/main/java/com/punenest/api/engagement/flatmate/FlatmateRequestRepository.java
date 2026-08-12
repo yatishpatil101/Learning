@@ -43,6 +43,25 @@ public interface FlatmateRequestRepository extends JpaRepository<FlatmateRequest
     Page<FlatmateRequest> findByHostIdAndStatusOrderByRequestedAtDesc(
             UUID hostId, String status, Pageable pageable);
 
+    /**
+     * Who answered one particular ad, newest first, paged (D70).
+     *
+     * <p>The inbox above answers "who has written to me"; this answers "who replied to <em>this</em>
+     * post", which is the question a poster looking at their own ad is actually asking. Before this
+     * existed the only per-ad record was the notification the interest sent, so dismissing it lost
+     * the lead while the row sat in the table.
+     *
+     * <p><strong>{@code hostId} is in the query and not only in the caller's check.</strong> The
+     * service already refuses a post the caller does not own, so on every reachable path this
+     * predicate is redundant — which is the point. The payload is a stranger's name and phone
+     * number, and a second, independent narrowing means a future bug in the ownership check cannot
+     * on its own return somebody else's leads. Costs nothing: {@code (kind, target_id)} are the
+     * leading columns of V27's {@code uq_flatmate_requests_target_requester}, so the host is a
+     * filter over rows already located by index.
+     */
+    Page<FlatmateRequest> findByKindAndTargetIdAndHostIdOrderByRequestedAtDesc(
+            String kind, UUID targetId, UUID hostId, Pageable pageable);
+
     /** Host-scoped by id, so deciding somebody else's request is a 404 rather than a 403. */
     Optional<FlatmateRequest> findByIdAndHostId(UUID id, UUID hostId);
 

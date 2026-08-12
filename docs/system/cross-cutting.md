@@ -298,7 +298,10 @@ component  ->  services/xService.js  ->  createProvider('x')  ->  mock | http pr
 - `VITE_API_MODE` selects the backend: `mock` (default, `src/services/providers/mock/*Provider.js`,
   localStorage) or `http` (`src/services/providers/http/*Provider.js`, future Spring Boot).
 - Swapping mock <-> http is **one env variable**; no component changes. `createProvider(domain)`
-  resolves and caches the provider via `import.meta.glob`.
+  resolves and caches the provider via a **lazy** `import.meta.glob`, so it returns a *Promise* of
+  the provider module and services await it: `(await provider()).foo(...)`. The glob must stay lazy
+  — an eager one reinstates an import cycle that blanks the app at bootstrap (tech-debt D208), and
+  `scripts/check-provider-cycle.mjs` fails the build if it comes back.
 - **All service functions return Promises** regardless of provider, so the mock's synchronous
   localStorage wrappers and the future async HTTP calls are interchangeable (mock providers wrap
   sync helpers in `Promise.resolve(...)`).

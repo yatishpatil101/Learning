@@ -92,6 +92,7 @@
     "guestCta": "Sign in",
     "swipeToRemove": "Swipe a card left to remove it",
     "removedTitle": "Removed {{title}}",
-    "undo": "Undo"
+    "undo": "Undo",
+    "undoAria": "Undo removing {{title}}"
   }
 }

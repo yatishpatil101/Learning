@@ -82,7 +82,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, RoleSource roles) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -102,7 +102,12 @@ public class SecurityConfig {
                         // Public auth entry points (contract: security: []).
                         .requestMatchers(HttpMethod.POST,
                                 Routes.Auth.LOGIN, Routes.Auth.STAFF_LOGIN,
-                                Routes.Auth.REFRESH).permitAll()
+                                Routes.Auth.REFRESH,
+                                // D206: a newly minted colleague setting their own password. It is
+                                // unauthenticated for the same reason /auth/refresh is — the caller
+                                // holds no session, and the single-use token they present IS the
+                                // credential, verified in StaffInviteService.
+                                Routes.Auth.STAFF_INVITE_REDEEM).permitAll()
                         // Public catalogue reads (contract: security: []): search, featured, detail.
                         // Single-segment matcher keeps deeper writes (e.g. /{id}/archive) authenticated.
                         .requestMatchers(HttpMethod.GET,
@@ -191,7 +196,12 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
-                .addFilterBefore(new JwtAuthFilter(jwtService),
+                // The role source is a bean-method parameter rather than a constructor field: it is
+                // backed by a JPA repository, and a @Configuration class that holds one forces the
+                // persistence infrastructure to initialise ahead of the bean post-processors that
+                // are meant to decorate it. Resolved here instead, at chain-assembly time, where it
+                // is an ordinary singleton lookup.
+                .addFilterBefore(new JwtAuthFilter(jwtService, roles),
                         UsernamePasswordAuthenticationFilter.class);
         if (rateLimitEnabled) {
             // After the JWT filter, so the counter keys on a user id. Switched off for the test run

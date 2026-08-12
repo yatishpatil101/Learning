@@ -12,9 +12,8 @@ import com.punenest.api.common.error.RateLimitedException;
 import com.punenest.api.common.persistence.ConstraintViolations;
 import com.punenest.api.common.persistence.RateLimitLock;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
-import com.punenest.api.engagement.notification.Notification;
-import com.punenest.api.engagement.notification.NotificationRepository;
 import com.punenest.api.identity.auth.OtpCode;
 import com.punenest.api.identity.auth.OtpService;
 import com.punenest.api.identity.user.User;
@@ -81,9 +80,11 @@ public class FlatmateSupplyService {
     private final FlatmateOwnerConsentRepository consents;
     private final FlatmateGuardrails guardrails;
     private final FlatmateMapper mapper;
+    /** Room rows → room cards: the host-name and occupancy joins, batched once per window (D212). */
+    private final FlatmateRoomCards cards;
     private final PropertyRepository properties;
     private final UserRepository users;
-    private final NotificationRepository notifications;
+    private final Notifier notifier;
     private final OtpService otpService;
     private final AuditService audit;
     /** Makes the per-requester interest budget atomic with the insert it guards (D73). */
@@ -93,8 +94,8 @@ public class FlatmateSupplyService {
             FlatmateRequestRepository requests, FlatmateReviewRepository reviews,
             FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
-            NotificationRepository notifications, OtpService otpService, AuditService audit,
-            RateLimitLock locks) {
+            Notifier notifier, OtpService otpService, AuditService audit,
+            RateLimitLock locks, FlatmateRoomCards cards) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
@@ -104,55 +105,56 @@ public class FlatmateSupplyService {
         this.mapper = mapper;
         this.properties = properties;
         this.users = users;
-        this.notifications = notifications;
+        this.notifier = notifier;
         this.otpService = otpService;
         this.audit = audit;
         this.locks = locks;
+        this.cards = cards;
     }
 
     // =======================================================================================
     // Rooms
     // =======================================================================================
 
-    /** {@code GET /flatmates/rooms} — public. */
+    /** {@code GET /flatmates/rooms} — public, card projection (D80). */
     @Transactional(readOnly = true)
-    public Page<FlatmateRoomDto> roomFeed(RoomFacets facets, Pageable pageable) {
-        Page<FlatmateRoom> page = rooms.feed(
+    public Page<FlatmateRoomFeedDto> roomFeed(RoomFacets facets, Pageable pageable) {
+        return cards.render(rooms.feed(
                 FlatmateVocabulary.blankToNull(facets.locality()),
                 FlatmateVocabulary.facetOrNull(facets.gender()),
                 FlatmateVocabulary.facetOrNull(facets.food()),
                 FlatmateVocabulary.blankToNull(facets.roomType()),
                 FlatmateVocabulary.blankToNull(facets.furnishing()),
                 FlatmateVocabulary.blankToNull(facets.bhk()),
-                facets.minBudget(), facets.maxBudget(), pageable);
-        return page.map(room -> mapper.toDto(room,
-                FlatmateMapper.RoomView.anonymous(hostName(room.getHostId()))));
+                facets.minBudget(), facets.maxBudget(), pageable));
     }
 
     /**
      * {@code GET /properties/{id}/rooms} — the rooms a flat has been split into, public.
      *
      * <p>Declared in the contract since the flatmates slice and served by nothing until now: a
-     * client generated from the spec got a 404 from an operation the document promised. It is a read
-     * on the largest UI surface in the app, so it was implemented rather than struck out.
+     * client generated from the spec got a 404 from an operation the document promised.
      *
      * <p><strong>Anonymous view, like every other public room read.</strong> The host's number is
-     * never on this response — it is reached by expressing interest, which is the whole point of the
-     * contact rules. {@code RoomView.anonymous} has no parameter to pass a number to, so that is
-     * structural here rather than a line somebody has to remember.
+     * reached by expressing interest, so this returns the card projection
+     * ({@link FlatmateRoomFeedDto}, D80) rather than the full room: "detail" here describes the
+     * <em>flat</em>, not the room row. The projection has no {@code ownerMobile} field at all, so
+     * the rule is structural rather than a line somebody has to remember.
      *
-     * <p>The occupancy ledger is computed once for the flat rather than per room. Every row shares
-     * one {@code propertyId}, so {@code committedInFlat} would otherwise issue the same query N
-     * times and — worse — each row would see a ledger built from a separate read.
+     * <p><strong>Only rooms Ops has cleared (D210).</strong> The same rule the other two public
+     * room reads express in JPQL, borrowed as {@link FlatmateRoom#isVisible()} rather than
+     * restated, so there is one definition of "visible" and not two. Note where the filter sits:
+     * on the returned stream, not in the finder — {@code findByPropertyIdAndArchivedFalse} also
+     * feeds {@code committedInFlat}, the {@code already_split} check and {@code unsplit}, all of
+     * which must keep seeing every non-archived row. A room awaiting moderation still occupies the
+     * flat and must still block a re-split, so it stays in the ledger while dropping out of the
+     * response, and a freshly split flat reads empty here until Ops clears it.
      */
     @Transactional(readOnly = true)
-    public List<FlatmateRoomDto> roomsInFlat(UUID propertyId) {
-        List<FlatmateRoom> flatRooms = rooms.findByPropertyIdAndArchivedFalse(propertyId);
-        int flatCommitted = flatRooms.stream().mapToInt(FlatmateRoom::getOccupants).sum();
-        return flatRooms.stream()
-                .map(room -> mapper.toDto(room, new FlatmateMapper.RoomView(
-                        flatCommitted, hostName(room.getHostId()), null)))
-                .toList();
+    public List<FlatmateRoomFeedDto> roomsInFlat(UUID propertyId) {
+        return cards.render(rooms.findByPropertyIdAndArchivedFalse(propertyId).stream()
+                .filter(FlatmateRoom::isVisible)
+                .toList());
     }
 
     /**
@@ -268,14 +270,13 @@ public class FlatmateSupplyService {
             throw new ForbiddenException(
                     "Only a flat let room by room has a joint agreement to reissue.");
         }
-        Notification note = new Notification(
+        notifier.notify(
                 caller.userId(),
                 "flatmate.agreement.reissue",
                 "Joint rent agreement reissue started",
                 "A room in this flat changed hands, so the joint agreement covering everyone needs "
-                        + "reissuing. Our team will be in touch to arrange it.");
-        note.setLink("/flatmates");
-        notifications.saveAndFlush(note);
+                        + "reissuing. Our team will be in touch to arrange it.",
+                "/flatmates");
         audit.record(caller, "flatmate.agreement.reissue", "flatmateRoom", room.getId().toString(),
                 "propertyId", String.valueOf(room.getPropertyId()));
     }
@@ -298,14 +299,14 @@ public class FlatmateSupplyService {
     // Groups
     // =======================================================================================
 
-    /** {@code GET /flatmates/groups} — public. */
+    /** {@code GET /flatmates/groups} — public, card projection (D211). */
     @Transactional(readOnly = true)
-    public Page<FlatmateGroupDto> groupFeed(GroupFacets facets, Pageable pageable) {
+    public Page<FlatmateGroupFeedDto> groupFeed(GroupFacets facets, Pageable pageable) {
         return groups.feed(
                 FlatmateVocabulary.blankToNull(facets.locality()),
                 FlatmateVocabulary.facetOrNull(facets.policy()),
                 facets.minRent(), facets.maxRent(), pageable)
-                .map(g -> mapper.toDto(g,
+                .map(g -> mapper.toFeedDto(g,
                         FlatmateMapper.PartyView.anonymous(hostName(g.getHostId()))));
     }
 
@@ -616,13 +617,12 @@ public class FlatmateSupplyService {
 
         User requester = users.findById(caller.userId())
                 .orElseThrow(() -> NotFoundException.of("User"));
-        Notification note = new Notification(
+        notifier.notify(
                 hostId,
                 "flatmate." + kind + ".interest",
                 requester.getName() + " is interested in " + targetLabel,
-                body + "\n\nReach them on " + requester.getMobile() + ".");
-        note.setLink("/flatmates");
-        notifications.saveAndFlush(note);
+                body + "\n\nReach them on " + requester.getMobile() + ".",
+                "/flatmates");
         audit.record(caller, "flatmate." + kind + ".interest", "flatmate" + kind,
                 targetId.toString(), "host", hostId.toString());
         return saved;

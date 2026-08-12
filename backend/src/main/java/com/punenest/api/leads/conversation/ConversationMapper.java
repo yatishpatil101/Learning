@@ -2,6 +2,8 @@ package com.punenest.api.leads.conversation;
 
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.attachment.MessageAttachmentDto;
+import com.punenest.api.common.attachment.MessageAttachments;
 import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.MobileMask;
 import com.punenest.api.identity.user.User;
@@ -44,13 +46,16 @@ public class ConversationMapper {
     private final UserRepository users;
     private final PropertyRepository properties;
     private final ContactRequestRepository contactRequests;
+    private final MessageAttachments attachments;
 
     public ConversationMapper(ConversationMessageRepository messages, UserRepository users,
-            PropertyRepository properties, ContactRequestRepository contactRequests) {
+            PropertyRepository properties, ContactRequestRepository contactRequests,
+            MessageAttachments attachments) {
         this.messages = messages;
         this.users = users;
         this.properties = properties;
         this.contactRequests = contactRequests;
+        this.attachments = attachments;
     }
 
     /** The inbox: no threads, one unread count each. */
@@ -141,8 +146,13 @@ public class ConversationMapper {
         return counts;
     }
 
-    private static List<MessageDto> toMessages(List<ConversationMessage> thread,
+    private List<MessageDto> toMessages(List<ConversationMessage> thread,
             Map<UUID, User> people) {
+        // One batched lookup for the whole thread rather than one per message — the same reason the
+        // names and unread counts above are batched. The reader has already passed the thread's own
+        // guard to get here, which is what makes these attachments theirs to see (D49).
+        Map<UUID, List<MessageAttachmentDto>> files =
+                attachments.byMessage(thread.stream().map(ConversationMessage::getId).toList());
         return thread.stream()
                 .map(m -> {
                     User author = people.get(m.getAuthorId());
@@ -152,7 +162,8 @@ public class ConversationMapper {
                             author == null ? null : author.getName(),
                             m.getAuthorRole(),
                             m.getBody(),
-                            m.getCreatedAt());
+                            m.getCreatedAt(),
+                            files.getOrDefault(m.getId(), List.of()));
                 })
                 .toList();
     }

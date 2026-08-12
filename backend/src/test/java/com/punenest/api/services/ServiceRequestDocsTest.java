@@ -47,7 +47,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
     @DisplayName("the draft and the final document land in the property's vault, newest first")
     void documentsAppearOnTheRequestAndTheVault() throws Exception {
         User buyer = customer("9820000203");
-        User desk = staff("9820000204", Teams.LEGAL);
+        User desk = staff("9820000204", Teams.RENTAL);
         Property p = listing(buyer);
         String id = raise(buyer, "rent-agreement", p);
 

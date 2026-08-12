@@ -57,7 +57,7 @@ const provider = createProvider('report');
  * @param {{kind: string, targetId: string, reason: string, details?: string}} report
  * @returns {Promise<object|'duplicate'>}
  */
-export const createReport = (report) => provider().createReport(report);
+export const createReport = async (report) => (await provider()).createReport(report);
 
 /**
  * The moderation queue, newest first. **Staff/admin only** — 403 for anyone else.
@@ -65,7 +65,7 @@ export const createReport = (report) => provider().createReport(report);
  * @param {{status?: string, page?: number, size?: number}} [opts]
  * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
  */
-export const listReports = (opts) => provider().listReports(opts);
+export const listReports = async (opts) => (await provider()).listReports(opts);
 
 /**
  * Move a report through triage. **Staff/admin only.**
@@ -74,4 +74,4 @@ export const listReports = (opts) => provider().listReports(opts);
  * @param {{status: string, note?: string}} decision
  * @returns {Promise<object>} the updated report
  */
-export const triageReport = (id, decision) => provider().triageReport(id, decision);
+export const triageReport = async (id, decision) => (await provider()).triageReport(id, decision);

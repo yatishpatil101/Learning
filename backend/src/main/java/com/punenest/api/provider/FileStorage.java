@@ -1,13 +1,8 @@
 package com.punenest.api.provider;
 
+import com.punenest.api.provider.storage.DevObjectStore;
 import com.punenest.api.security.DevOnly;
 import com.punenest.api.security.DevProfileGuard;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -67,17 +62,21 @@ public interface FileStorage {
 
 
 /**
- * Dev only: deterministic fake signed URLs, with the bytes written to a local directory so an
- * upload is a real side effect rather than a shape.
+ * Dev only: bytes written to a local directory, and signed URLs that actually resolve to them.
  *
- * <p>Opt-in under the {@code dev} profile rather than excluded from {@code prod} (D147). The URLs it
- * mints are unauthenticated and point at a host that does not exist, and the bytes go to a container
- * filesystem that vanishes with the container — a deployment that inherited this by mistake would
- * accept KYC documents and agreements, answer 201, and lose them.
+ * <p>Opt-in under the {@code dev} profile rather than excluded from {@code prod} (D147). The bytes
+ * go to a container filesystem that vanishes with the container — a deployment that inherited this
+ * by mistake would accept KYC documents and agreements, answer 201, and lose them.
  *
  * <p>Also steps aside when {@code punenest.providers.storage.enabled=true}: a developer with real R2
  * sandbox keys exercises {@link com.punenest.api.provider.storage.R2FileStorage} instead, so the
  * flag wins over the profile.
+ *
+ * <p>The download URL used to point at {@code https://mock.storage.local/}, a host that does not
+ * resolve, so every document read in dev returned a {@code url} nothing could open (D120). It now
+ * delegates to {@link com.punenest.api.provider.storage.DevObjectStore}, which serves the bytes
+ * this class already wrote. Uploads are untouched — nothing consumes {@code signedUploadUrl} yet,
+ * and inventing a dev receiver for a flow no client uses would be shape without a caller.
  */
 @Component
 @DevOnly
@@ -87,29 +86,15 @@ class MockFileStorage implements FileStorage {
 
     private static final String BASE = "https://mock.storage.local/";
 
-    private final Path root;
+    private final DevObjectStore objects;
 
-    MockFileStorage(@Value("${punenest.storage.dir:${java.io.tmpdir}/punenest-storage}") String root) {
-        this.root = Path.of(root);
+    MockFileStorage(DevObjectStore objects) {
+        this.objects = objects;
     }
 
     @Override
     public void store(String key, byte[] content, String contentType) {
-        // The key is server-minted today, so traversal is not currently reachable. Checked rather
-        // than trusted because this seam is one careless refactor — "just use the filename" — away
-        // from writing wherever the caller asks.
-        Path base = root.normalize();
-        Path target = base.resolve(key).normalize();
-        if (!target.startsWith(base)) {
-            throw new IllegalArgumentException("storage key escapes the storage root: " + key);
-        }
-        try {
-            Files.createDirectories(target.getParent());
-            Files.write(target, content, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        } catch (IOException e) {
-            throw new UncheckedIOException("cannot store object " + key, e);
-        }
+        objects.store(key, content, contentType);
     }
 
     @Override
@@ -119,13 +104,15 @@ class MockFileStorage implements FileStorage {
 
     @Override
     public String signedDownloadUrl(String key) {
-        return BASE + key + "?op=get&sig=dev";
+        return objects.downloadUrl(key);
     }
 
     @Override
     public String storePublic(String key, byte[] content, String contentType) {
         // Same on-disk write as store(), under a public/ prefix, but the URL is deliberately
-        // unsigned — mirroring the real public bucket, whose objects are world-readable.
+        // unsigned — mirroring the real public bucket, whose objects are world-readable. Left on
+        // the fake host: listing photos are persisted on the listing row, so changing this shape
+        // would rewrite what is already in the database rather than what is served today.
         store("public/" + key, content, contentType);
         return BASE + "public/" + key;
     }

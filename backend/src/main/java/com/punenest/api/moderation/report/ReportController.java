@@ -4,6 +4,7 @@ import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
@@ -34,9 +35,22 @@ import org.springframework.web.bind.annotation.RestController;
  * legitimately had none: no operation in slices 1–8 carried {@code x-roles}, and caller-scoping was
  * the guard. Slice 9's spec fix S28 added {@code x-roles} to 26 back-office operations that had been
  * left open by omission, and these annotations are what enforce them.
+ *
+ * <p><strong>The two ops routes additionally carry a per-account atom</strong> (tech debt
+ * D192/D13), {@code and}-ed onto the role term. Reading and triaging are separately revocable
+ * because they are separate jobs: a queue that is watched by more people than may act on it is the
+ * normal shape of trust &amp; safety. {@code POST} is untouched — it has no role guard to narrow,
+ * and an atom that was the only guard on a route would be a grant rather than a narrowing.
  */
 @RestController
 public class ReportController {
+
+    private static final String STAFF_OR_ADMIN =
+            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+    private static final String REPORTS_READ =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_REPORTS_READ;
+    private static final String REPORTS_WRITE =
+            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_REPORTS_WRITE;
 
     private final ReportService reportService;
 
@@ -74,7 +88,7 @@ public class ReportController {
      * true without saying so.
      */
     @GetMapping(Routes.Moderation.REPORTS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(REPORTS_READ)
     public PageResponse<ReportResponse> list(@RequestParam(required = false) String status,
             @RequestParam(required = false) String reason,
             @RequestParam(required = false) String targetType,
@@ -92,7 +106,7 @@ public class ReportController {
      * than say something — see {@link ReportEnforcement}.
      */
     @PatchMapping(Routes.Moderation.REPORT_BY_ID)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
+    @PreAuthorize(REPORTS_WRITE)
     public ReportResponse triage(@CurrentUser AuthPrincipal principal,
             @PathVariable String id,
             @Valid @RequestBody ReportTriageRequest body) {

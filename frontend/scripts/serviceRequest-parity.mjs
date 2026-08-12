@@ -20,6 +20,10 @@
  * 5. **`at` must be a number.** The thread sorts on it.
  * 6. **Co-fill and read-receipts have no endpoint** — `listPartyServiceRequests` is `[]` and
  *    `markServiceRequestRead` is a no-op against the API.
+ * 7. **The drafting desk's three operations are live-only** (D184). Point 1 is the reason: a queue
+ *    filter that sends the server's status against the stepper's rows matches nothing, and the
+ *    translation table that would paper over it was rejected. So the mock no longer implements
+ *    them, and this harness names the exception rather than asserting a symmetry that is now false.
  *
  * Usage (backend must be running):
  *   node scripts/serviceRequest-parity.mjs --otp-log <path-to-backend-console-log>
@@ -75,11 +79,29 @@ const live = await load('../src/services/providers/http/serviceRequestProvider.j
 const { toCreate, toViewModel, toViewModelList } = await load('../src/services/providers/http/serviceRequestMapper.js');
 
 // ─── The seam itself: both providers must expose the same operations ──────────────────────────
+// …with one named exception. The drafting desk (D184) is http-only: the mock's rows carry the
+// stepper's statuses, so its queue read answered most `?status=` filters with an empty page — a
+// work queue that lies about being idle. Rather than translate between the vocabularies, the three
+// desk operations were removed from the mock and `OpsDraftingDesk.jsx` gates itself on
+// `isHttpDomain('serviceRequest')`. They are listed here so the exception has to be deleted on
+// purpose if the mock ever implements them again — and so a *fourth* operation quietly going
+// live-only still fails.
+const DESK_ONLY = ['listServiceRequestQueue', 'readServiceRequestIdentities', 'takeServiceRequest'];
 const surfaceOf = (m) => Object.keys(m).filter((k) => typeof m[k] === 'function').sort();
 const missingOnLive = surfaceOf(mock).filter((k) => !surfaceOf(live).includes(k));
-const missingOnMock = surfaceOf(live).filter((k) => !surfaceOf(mock).includes(k));
+const missingOnMock = surfaceOf(live).filter((k) => !surfaceOf(mock).includes(k) && !DESK_ONLY.includes(k));
 if (missingOnLive.length) failures.push(`http provider is missing: ${missingOnLive.join(', ')}`);
 if (missingOnMock.length) failures.push(`mock provider is missing: ${missingOnMock.join(', ')}`);
+// The exception is only legitimate while the http provider actually has them.
+const deskGone = DESK_ONLY.filter((k) => !surfaceOf(live).includes(k));
+if (deskGone.length) failures.push(`http provider is missing the drafting desk's own operations: ${deskGone.join(', ')}`);
+const deskBack = DESK_ONLY.filter((k) => surfaceOf(mock).includes(k));
+if (deskBack.length) {
+  failures.push(
+    `the mock re-implements ${deskBack.join(', ')} — D184 retired the mock drafting desk because its `
+    + 'status vocabulary is the stepper\'s, not the server\'s. If this is deliberate, drop it from DESK_ONLY.',
+  );
+}
 
 // ─── The create body must carry only what the schema declares ─────────────────────────────────
 const body = toCreate({
@@ -200,6 +222,7 @@ for (const [wire, expected] of [
   ['assigned', 'docs_review'],
   ['in-progress', 'docs_review'],
   ['draft-shared', 'draft_shared'],
+  ['changes-requested', 'changes_requested'],
   ['approved', 'approved'],
   ['completed', 'completed'],
   ['cancelled', 'cancelled'],
@@ -211,10 +234,13 @@ const unknown = toViewModel({ id: 'r', type: 'legal', status: 'on-hold' }).statu
 if (unknown !== 'on-hold') {
   failures.push(`an unknown status was coerced to ${JSON.stringify(unknown)} — pass it through instead; erasing a distinction ops made is worse than an unstyled label`);
 }
-// An approved request is the only draft decision recoverable on read (a rejection collapses to
-// in-progress); it must surface as an `accepted` decision so the tracker shows the right state.
+// Both draft decisions are recoverable on read, because the server has a distinct status for each:
+// `approved` is an acceptance and `changes-requested` is a rejection. The tracker and the ops queue
+// both branch on `draftDecision.type`, so getting either wrong shows the customer the wrong state.
 const approved = toViewModel({ id: 'r', type: 'legal', status: 'approved' });
 if (approved.draftDecision?.type !== 'accepted') failures.push('an approved request must read back a draftDecision of `accepted`');
+const rejected = toViewModel({ id: 'r', type: 'legal', status: 'changes-requested' });
+if (rejected.draftDecision?.type !== 'changes') failures.push('a changes-requested request must read back a draftDecision of `changes`');
 
 // Message roles and time.
 for (const [role, expected] of [['buyer', 'user'], ['owner', 'user'], [null, 'user'], ['staff', 'staff'], ['admin', 'staff']]) {

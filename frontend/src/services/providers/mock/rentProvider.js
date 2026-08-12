@@ -21,6 +21,9 @@
 import { ApiError } from '../../http.js';
 import { readUser } from '../../../lib/auth.js';
 import { digits, myMobile } from '../../../lib/contact.js';
+import { rawDb } from '../../../lib/mockApi.js';
+import { myOwnerId, ownerIdOfProperty } from '../../../lib/data/ownerIdentity.js';
+import { get as _lsGet, set as _lsSet } from '../../../lib/store/internals.js';
 import {
   getFees,
   getRentPayments,
@@ -30,6 +33,7 @@ import {
   setRentMandate as _storeSetMandate,
   getPayoutAccount as _storeGetPayout,
   savePayoutAccount as _storeSavePayout,
+  getListings,
   getTenanciesFor,
   getTenantProfile as _storeGetProfile,
   saveTenantProfile as _storeSaveProfile,
@@ -101,6 +105,132 @@ export async function myTenancies() {
   const mine = me();
   if (!mine) return [];
   return (getTenanciesFor(mine) || []).map((t) => tenancyVm(t, { asTenant: true }));
+}
+
+/* ─── Tenancy declarations (D194) ───────────────────────────────────────────────────────────── */
+
+/**
+ * Keyed by **property**, not by mobile, and that is the whole reason this bucket can model the
+ * feature at all. A declaration is a conversation between two people about one flat: the claimant
+ * writes it and the owner answers it. Every other bucket in this file is keyed by the caller's own
+ * mobile, which is exactly why the mock could never express "somebody else agreed" — and why the
+ * check this replaces was a mock-only fiction (D194).
+ */
+const declKey = (propId) => 'pnTenancyDeclarations:' + String(propId || 'anon');
+const readDecls = (propId) => _lsGet(declKey(propId), []);
+
+/**
+ * Every listing id the caller owns — the seeded catalogue *and* anything they posted through the
+ * mock. One function, because the two questions this file asks about ownership ("may I declare
+ * here?" and "may I decide this claim?") have to be answered from the same set. Resolving the
+ * first from the catalogue alone and the second from the union is what lets somebody declare a
+ * stay on a listing they posted themselves and then confirm it — minting the one status the
+ * server never issues, since it refuses both halves outright.
+ */
+const myListingIds = () => {
+  const mine = myOwnerId();
+  const ids = new Set();
+  if (!mine) return ids;
+  try {
+    (rawDb().listings || []).forEach((l) => { if (ownerIdOfProperty(l) === mine) ids.add(String(l.id)); });
+  } catch { /* seeded catalogue unavailable */ }
+  try { getListings().forEach((l) => { if (l?.id) ids.add(String(l.id)); }); } catch { /* none posted */ }
+  return ids;
+};
+
+/** Is the caller the owner of this listing? */
+const ownsListing = (propId) => myListingIds().has(String(propId));
+
+const declVm = (d) => ({
+  id: String(d?.id || ''),
+  propId: String(d?.propertyId || ''),
+  propertyId: String(d?.propertyId || ''),
+  // Never the claimant's mobile. The row is keyed internally by `by` (below) because that is the
+  // only identity the mock session reliably has, but projecting it here would put a phone number
+  // into a view model the listing's owner reads — the exact field the contact gate withholds, and
+  // the server sends a name and a uuid precisely so it never has to.
+  declarantId: String(d?.declarantId || ''),
+  declarantName: String(d?.declarantName || ''),
+  livedFrom: d?.livedFrom || null,
+  livedTo: d?.livedTo || null,
+  status: d?.status || 'pending',
+  confirmed: d?.status === 'confirmed',
+  decidedAt: d?.decidedAt || null,
+});
+
+/**
+ * `GET /properties/{propId}/tenancy-declarations` — every claim for the listing's owner, the
+ * caller's own for anybody else. The narrowing is done here rather than at the call site because
+ * that is where the server does it, and a mock that hands back more than the server would is how a
+ * suite goes green over a rule production does not have (the D97d failure mode).
+ */
+export async function listTenancyDeclarations(propId) {
+  const mine = me();
+  if (!mine) return [];
+  const rows = readDecls(propId);
+  return (ownsListing(propId) ? rows : rows.filter((d) => digits(d.by) === mine))
+    .map(declVm);
+}
+
+/** `POST /properties/{propId}/tenancy-declarations` — claim a stay. Refuses what the server refuses. */
+export async function declareTenancy(propId, body = {}) {
+  const mine = me();
+  if (!mine) throw unauthorized();
+  if (!propId) throw notFound('Property');
+  if (ownsListing(propId)) throw conflict('You cannot declare a tenancy on your own listing');
+  if ((getTenanciesFor(mine) || []).some((t) => String(t.propId) === String(propId))) {
+    throw conflict('Your tenancy on this listing is already on record');
+  }
+  const rows = readDecls(propId);
+  if (rows.some((d) => digits(d.by) === mine)) {
+    throw conflict('You have already declared a stay at this listing');
+  }
+  const user = readUser();
+  const row = {
+    // Two claimants inside the same millisecond would otherwise collide, and the id is the React
+    // key for the owner's list.
+    id: 'td' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+    propertyId: String(propId),
+    by: mine,                        // internal match key, never projected
+    declarantId: user?.id || '',     // only the seeded sessions carry one; http always does
+    declarantName: user?.name || '',
+    livedFrom: body.livedFrom || null,
+    livedTo: body.livedTo || null,
+    status: 'pending',
+    decidedAt: null,
+  };
+  _lsSet(declKey(propId), [row, ...rows]);
+  return declVm(row);
+}
+
+const decideDeclaration = (id, status) => {
+  const mine = me();
+  if (!mine) throw unauthorized();
+  // The store has no index from declaration id back to property, so the caller's own listings are
+  // the search space — which is also the guard: a caller who owns no listing carrying this id gets
+  // the same 404 the server gives, never a 403 confirming the id exists.
+  for (const propId of myListingIds()) {
+    const rows = readDecls(propId);
+    const hit = rows.find((d) => String(d.id) === String(id));
+    if (!hit) continue;
+    const next = { ...hit, status, decidedAt: new Date().toISOString() };
+    _lsSet(declKey(propId), rows.map((d) => (String(d.id) === String(id) ? next : d)));
+    return declVm(next);
+  }
+  throw notFound('Tenancy declaration');
+};
+
+/** `POST /tenancy-declarations/{id}/confirm` — the owner agrees the stay happened. */
+export async function confirmTenancyDeclaration(id) {
+  return decideDeclaration(id, 'confirmed');
+}
+
+/**
+ * `POST /tenancy-declarations/{id}/revoke` — the owner disagrees, or takes a confirmation back.
+ * A status change, not a delete: the row keeps the claimant's slot so they cannot simply re-declare.
+ */
+export async function revokeTenancyDeclaration(id) {
+  return decideDeclaration(id, 'revoked');
 }
 
 /**

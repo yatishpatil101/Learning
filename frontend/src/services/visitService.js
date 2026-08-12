@@ -38,10 +38,10 @@ import { createProvider } from './config.js';
 const provider = createProvider('visit');
 
 /** Visits the caller booked, newest first. */
-export const listVisits = () => provider().listVisits();
+export const listVisits = async () => (await provider()).listVisits();
 
 /** Visits booked against listings the caller owns, newest first. */
-export const myVisitRequests = () => provider().myVisitRequests();
+export const myVisitRequests = async () => (await provider()).myVisitRequests();
 
 /**
  * Book a visit.
@@ -55,7 +55,7 @@ export const myVisitRequests = () => provider().myVisitRequests();
  *          note?: string, listing?: string}} req
  * @throws {ApiError} 409 `visit_exists` when a live visit is already booked on this property
  */
-export const scheduleVisit = (req) => provider().scheduleVisit(req);
+export const scheduleVisit = async (req) => (await provider()).scheduleVisit(req);
 
 /**
  * Move a visit through the workflow: `confirmed`, `cancelled`, `completed`, `no-show`.
@@ -64,7 +64,7 @@ export const scheduleVisit = (req) => provider().scheduleVisit(req);
  * rejects illegal ones with a 409, so this deliberately does not second-guess it client-side —
  * a guard here could only ever disagree with the authority.
  */
-export const updateVisitStatus = (id, status) => provider().updateVisitStatus(id, status);
+export const updateVisitStatus = async (id, status) => (await provider()).updateVisitStatus(id, status);
 
 /**
  * Reschedule to a new slot, returning the visit to `scheduled` so the other party re-confirms.
@@ -74,4 +74,4 @@ export const updateVisitStatus = (id, status) => provider().updateVisitStatus(id
  * server rejects a terminal one (completed/cancelled/no-show) with a 409, so this does not
  * second-guess it client-side.
  */
-export const rescheduleVisit = (id, when) => provider().rescheduleVisit(id, when);
+export const rescheduleVisit = async (id, when) => (await provider()).rescheduleVisit(id, when);

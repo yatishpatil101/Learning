@@ -18,19 +18,15 @@ import java.util.List;
  * (enforced in the service, per the domain rule; ADR-019 trust). Server-owned fields
  * ({@code status}/{@code owner}/counters/badges) are omitted so a PATCH can't self-escalate.
  *
- * @param title        headline, nullable
  * @param deal         buy|rent, nullable (foundation field)
- * @param propertyType type, nullable (foundation field)
  * @param bhk          bedroom count, nullable (foundation field)
  * @param price        amount in whole INR, positive when present (foundation field)
  * @param deposit      security deposit, nullable
  * @param maintenance  monthly maintenance, nullable
  * @param area         built area, nullable
- * @param furnishing   furnishing level, nullable
  * @param locality     display locality, nullable (foundation field)
  * @param reraId       MahaRERA id, nullable
  * @param possession   possession state ({@link PropertyPossession}), nullable = not stated
- * @param amenities    amenity labels, nullable
  * @param images       image URLs, nullable
  */
 public record ListingUpdate(

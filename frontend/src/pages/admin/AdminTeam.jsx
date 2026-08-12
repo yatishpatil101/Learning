@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, Check, Info, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, UsersRound } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Ban, Check, Clock, Info, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, UserCog, UsersRound } from 'lucide-react';
+/* Team members come through the services seam, so this console talks to the real API when the
+   `team` domain is switched on and to a mock that enforces the same refusals when it is not
+   (D205). Custom roles and the audit log stay on the mock barrel deliberately: the server has no
+   route for either — it refuses `settings.customRoles` outright with 422 (D67) — so there is
+   nothing for an http provider to call and pretending otherwise would be the same lie again. */
 import {
-  listTeamMembers, saveTeamMember, setTeamMemberStatus, deleteTeamMember,
-  listCustomRoles, saveCustomRole, deleteCustomRole, logAudit,
-} from '../../lib/mockApi.js';
+  listTeamMembers, saveTeamMember, setTeamMemberStatus,
+  listPendingApprovals, approveTeamMember,
+} from '../../services/teamService.js';
+import { listCustomRoles, saveCustomRole, deleteCustomRole, logAudit } from '../../lib/mockApi.js';
 import { GRANTABLE_PERMISSIONS, OPS_TEAMS, moduleLabel } from '../../lib/adminModules.js';
 import { effectiveModuleKeys } from '../../lib/permissions.js';
 import { roleLabel } from '../../lib/auth.js';
-import { classNames } from '../../lib/format.js';
+import { classNames, isoToDisplay } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
@@ -71,15 +78,37 @@ function CheckGrid({ items, isOn, onToggle }) {
 
 export default function AdminTeam() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [tab, setTab] = useState('members');
   const [members, setMembers] = useState(null);
+  const [pending, setPending] = useState([]);
+  const [approving, setApproving] = useState(null);
   const [customRoles, setCustomRoles] = useState([]);
   const [memberModal, setMemberModal] = useState(null); // form object or null
   const [roleModal, setRoleModal] = useState(null);
+  const [pendingError, setPendingError] = useState(null);
+
+  /* Every mutation on this page can now be refused by the server, and a refusal an operator never
+     sees is indistinguishable from the console's old confident wrong answer. `role_change_unsupported`
+     is the one failure this client raises itself, so it is the one with a translated message; the
+     rest carry the server's own wording, which names the fix and must not be reworded here. */
+  const failed = (err) => toast(
+    err?.code === 'role_change_unsupported' ? t('team.errors.roleChangeUnsupported') : (err?.message || t('team.errors.generic')),
+    'error',
+  );
 
   const reload = () => Promise.all([listTeamMembers(), listCustomRoles()])
-    .then(([m, r]) => { setMembers(m); setCustomRoles(r); });
-  useEffect(() => { reload(); }, []);
+    .then(([m, r]) => { setMembers(m); setCustomRoles(r); })
+    .catch(failed);
+
+  /* Admin-only live, unlike the directory read beside it — a scoped manager who can open this page
+     can still be refused here. Report that in place rather than showing an empty queue, which would
+     read as "nobody is waiting". */
+  const reloadPending = () => listPendingApprovals()
+    .then((p) => { setPending(p); setPendingError(null); })
+    .catch((err) => { setPending([]); setPendingError(err?.message || t('team.errors.generic')); });
+
+  useEffect(() => { reload(); reloadPending(); }, []);
 
   const roleOptionsForSelect = useMemo(
     () => [{ value: '', label: '— No preset role —' }, ...customRoles.map((r) => ({ value: r.id, label: r.name }))],
@@ -98,7 +127,10 @@ export default function AdminTeam() {
   };
 
   // ---- Member CRUD ----
-  const openNewMember = () => setMemberModal({ id: null, name: '', mobile: '', email: '', role: 'manager', roleId: '', moduleAccess: [], teams: [], status: 'active' });
+  /* New accounts default to Ops staff, not Manager: `manager` is an admin-console permission label
+     and not one of the contract's roles (`Role = buyer|owner|staff|admin`), so a live create with it
+     is refused. Defaulting to a role that cannot be created would make the primary action fail. */
+  const openNewMember = () => setMemberModal({ id: null, name: '', mobile: '', email: '', role: 'staff', roleId: '', moduleAccess: [], teams: [], status: 'active' });
   const openEditMember = (m) => setMemberModal({ id: m.id, name: m.name || '', mobile: m.mobile || '', email: m.email || '', role: m.role || 'manager', roleId: m.roleId || '', moduleAccess: [...(m.moduleAccess || [])], teams: [...(m.teams || [])], status: m.status || 'active' });
 
   const saveMember = async () => {
@@ -107,13 +139,14 @@ export default function AdminTeam() {
     const mobile = digits10(f.mobile);
     if (!name) return toast('Name is required', 'error');
     if (mobile.length !== 10) return toast('Enter a valid 10-digit mobile number', 'error');
+    /* The duplicate-mobile check is a courtesy, not the rule: live, the directory returns masked
+       mobiles (`98XXXXX210`), so this can never match and the server's own 409 is what refuses. */
     if (members.some((m) => m.id !== f.id && digits10(m.mobile) === mobile)) return toast('Another member already uses this mobile', 'error');
-    // Guardrail: the row-action suspend/delete are guarded, but the edit form could
-    // otherwise demote (admin→manager/staff) or suspend the final active super-admin
-    // and lock everyone out. Block that here too.
-    if (f.id) {
-      const current = members.find((m) => m.id === f.id);
-      const wasLastAdmin = current?.role === 'admin' && current?.status === 'active' && activeAdmins.length <= 1;
+    const current = f.id ? members.find((m) => m.id === f.id) : null;
+    // Guardrail on the edit form: the contract has no role-change route at all, so demoting the
+    // final active administrator is a console-only path and has to be stopped in the console.
+    if (current) {
+      const wasLastAdmin = current.role === 'admin' && current.status === 'active' && activeAdmins.length <= 1;
       const staysActiveAdmin = f.role === 'admin' && (f.status || 'active') === 'active';
       if (wasLastAdmin && !staysActiveAdmin) return toast('Cannot demote or suspend the last active administrator', 'error');
     }
@@ -128,33 +161,47 @@ export default function AdminTeam() {
       teams: f.role === 'staff' ? f.teams : [],
       status: f.status || 'active',
     };
-    const rec = await saveTeamMember(payload);
+    const rec = await saveTeamMember(payload, current || null).catch((err) => { failed(err); return null; });
+    if (!rec) return;
     logAudit('Team & Access', `${f.id ? 'Updated' : 'Created'} ${roleLabel(rec.role)} "${rec.name}"`);
-    toast(`Member ${f.id ? 'updated' : 'created'}`, 'success');
+    toast(rec.approval && !rec.approval.approvedAt
+      ? t('team.toast.awaitingApproval', { name: rec.name })
+      : `Member ${f.id ? 'updated' : 'created'}`, 'success');
     setMemberModal(null);
     reload();
+    reloadPending();
   };
 
+  /* No client-side pre-check on the last administrator any more. That guard was the console's own
+     invention and it answered from a list this page happened to be holding; the platform's floor
+     lives in `AdministratorGuard`, counts administrators who can still manage back-office access,
+     and holds an advisory lock while it counts. Letting the refusal come back from the provider is
+     the entire point of D205 \u2014 the console now reports what actually happened. */
   const toggleMemberStatus = async (m) => {
     const next = m.status === 'active' ? 'suspended' : 'active';
-    if (next === 'suspended' && m.role === 'admin' && activeAdmins.length <= 1) {
-      return toast('Cannot suspend the last active administrator', 'error');
+    try {
+      await setTeamMemberStatus(m.id, next);
+    } catch (err) {
+      return failed(err);
     }
-    await setTeamMemberStatus(m.id, next);
     logAudit('Team & Access', `${next === 'active' ? 'Reactivated' : 'Suspended'} "${m.name}"`);
     toast(`${m.name} ${next === 'active' ? 'reactivated' : 'suspended'}`, next === 'active' ? 'success' : undefined);
     reload();
   };
 
-  const removeMember = async (m) => {
-    if (m.role === 'admin' && activeAdmins.length <= 1 && m.status === 'active') {
-      return toast('Cannot delete the last active administrator', 'error');
+  const approveMember = async (m) => {
+    setApproving(m.id);
+    try {
+      await approveTeamMember(m.id);
+      logAudit('Team & Access', `Approved back-office account "${m.name}"`);
+      toast(t('team.toast.approved', { name: m.name }), 'success');
+    } catch (err) {
+      failed(err);
+    } finally {
+      setApproving(null);
     }
-    if (!window.confirm(`Remove ${m.name} from the team? They will lose all portal access.`)) return;
-    await deleteTeamMember(m.id);
-    logAudit('Team & Access', `Removed "${m.name}"`);
-    toast(`${m.name} removed`);
     reload();
+    reloadPending();
   };
 
   // ---- Custom role CRUD ----
@@ -197,19 +244,21 @@ export default function AdminTeam() {
     { key: 'role', header: 'Role', render: (m) => <RolePill role={m.role} /> },
     { key: 'access', header: 'Access', render: (m) => <span className="text-gray-300">{accessSummary(m)}</span> },
     { key: 'status', header: 'Status', render: (m) => <StatusPill status={m.status} /> },
+    /* No Remove action. There is no `DELETE /users/{id}` in the contract and there never was — this
+       platform is soft-delete only, so Suspend *is* the removal (it archives the account). The
+       button used to drop the row from the mock store and would have had nothing to call live. */
     { key: 'actions', header: '', className: 'text-right', render: (m) => (
       <div className="flex items-center justify-end gap-1.5">
         <button onClick={() => openEditMember(m)} title="Edit" className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition"><Pencil className="h-4 w-4" /></button>
         <button onClick={() => toggleMemberStatus(m)} title={m.status === 'active' ? 'Suspend' : 'Reactivate'} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition">
           {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
         </button>
-        <button onClick={() => removeMember(m)} title="Remove" className="rounded-lg p-1.5 text-gray-400 hover:bg-red-500/15 hover:text-red-300 transition"><Trash2 className="h-4 w-4" /></button>
       </div>
     ) },
   ];
 
-  /* Stacked-card fallback below `sm` (see Table.jsx). Edit / suspend / remove are
-     44px here — at 28px in the table they were the smallest targets on the page. */
+  /* Stacked-card fallback below `sm` (see Table.jsx). Edit / suspend are 44px here — at 28px in
+     the table they were the smallest targets on the page. */
   const memberCard = (m) => (
     <div className="pn-card p-3.5">
       <div className="flex items-start gap-3">
@@ -228,7 +277,56 @@ export default function AdminTeam() {
         <button onClick={() => toggleMemberStatus(m)} aria-label={`${m.status === 'active' ? 'Suspend' : 'Reactivate'} ${m.name}`} className="tap-target rounded-lg text-gray-300">
           {m.status === 'active' ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
         </button>
-        <button onClick={() => removeMember(m)} aria-label={`Remove ${m.name}`} className="tap-target rounded-lg text-red-300"><Trash2 className="h-4 w-4" /></button>
+      </div>
+    </div>
+  );
+
+  const waitingSince = (m) => isoToDisplay(String(m.approval?.createdAt || m.createdAt || '').slice(0, 10)) || '—';
+
+  /* Pending approvals reuse the members table wholesale — same columns in the same order, same
+     pills, same stacked card below `sm` — because it is the same population of people in a
+     different state, and giving it its own visual language would imply it was a different subject.
+     The columns that differ are the two an operator triages on: who raised the account and how
+     long it has been waiting. */
+  const approvalColumns = [
+    { key: 'name', header: t('team.approvals.columns.member'), render: (m) => (
+      <div>
+        <div className="font-semibold text-white">{m.name}</div>
+        {m.email ? <div className="text-xs text-gray-500">{m.email}</div> : null}
+      </div>
+    ) },
+    { key: 'mobile', header: t('team.approvals.columns.mobile'), render: (m) => <span className="text-gray-300">+91 {m.mobile}</span> },
+    { key: 'role', header: t('team.approvals.columns.role'), render: (m) => <RolePill role={m.role} /> },
+    { key: 'createdBy', header: t('team.approvals.columns.createdBy'), render: (m) => (
+      m.approval?.createdByName
+        ? <span className="text-gray-300">{m.approval.createdByName}</span>
+        : <span className="text-gray-500">{t('team.approvals.creatorUnknown')}</span>
+    ) },
+    { key: 'waiting', header: t('team.approvals.columns.waitingSince'), render: (m) => <span className="text-gray-300">{waitingSince(m)}</span> },
+    { key: 'actions', header: '', className: 'text-right', render: (m) => (
+      <button onClick={() => approveMember(m)} disabled={approving === m.id} className="pn-btn pn-btn-primary">
+        <Check className="h-4 w-4" /> {t('team.approvals.approve')}
+      </button>
+    ) },
+  ];
+
+  const approvalCard = (m) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-white">{m.name}</div>
+          <div className="mt-0.5 text-xs text-gray-400">+91 {m.mobile}{m.email ? ` · ${m.email}` : ''}</div>
+        </div>
+        <div className="shrink-0"><RolePill role={m.role} /></div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <Clock className="h-3.5 w-3.5" />
+        <span>{t('team.approvals.columns.waitingSince')}: {waitingSince(m)}</span>
+      </div>
+      <div className="mt-3 border-t border-white/5 pt-3">
+        <button onClick={() => approveMember(m)} disabled={approving === m.id} className="pn-btn pn-btn-primary w-full">
+          <Check className="h-4 w-4" /> {t('team.approvals.approve')}
+        </button>
       </div>
     </div>
   );
@@ -238,13 +336,15 @@ export default function AdminTeam() {
       <PageHeader
         title="Team & Access"
         subtitle="Create internal accounts and control which admin modules each person can open"
-        actions={tab === 'members'
-          ? <button onClick={openNewMember} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" /> Add member</button>
-          : <button onClick={openNewRole} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" /> New role</button>}
+        actions={tab === 'approvals'
+          ? null
+          : tab === 'members'
+            ? <button onClick={openNewMember} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" /> Add member</button>
+            : <button onClick={openNewRole} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" /> New role</button>}
       />
 
       <HScroll role="tablist" wrapClassName="mb-4" fadeColor="var(--brand-card, #1a1730)" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['members', 'Team members', UsersRound], ['roles', 'Custom roles', UserCog]].map(([key, label, Icon]) => (
+        {[['members', 'Team members', UsersRound], ['approvals', t('team.tabs.approvals', { count: pending.length }), ShieldCheck], ['roles', 'Custom roles', UserCog]].map(([key, label, Icon]) => (
           <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
             className={classNames('flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === key ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
             <Icon className="h-4 w-4" /> {label}
@@ -261,6 +361,30 @@ export default function AdminTeam() {
           label="members"
           mobileCard={memberCard}
         />
+      ) : tab === 'approvals' ? (
+        <>
+          {/* Maker-checker is a server rule, not a console one: a back-office account created by
+              one administrator does not exist until a *different* one approves it. This tab is the
+              only place that second signature can be given, which is the gap D205 closes. */}
+          <div className="pn-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-gray-400">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
+            <span>{t('team.approvals.explainer')}</span>
+          </div>
+          {pendingError ? (
+            <div className="pn-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-red-300">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{pendingError}</span>
+            </div>
+          ) : null}
+          <Table
+            columns={approvalColumns}
+            rows={pending}
+            empty={t('team.approvals.empty')}
+            pageSize={12}
+            label={t('team.approvals.label')}
+            mobileCard={approvalCard}
+          />
+        </>
       ) : (
         <>
           {/* Custom roles are not a security boundary and must not read like one. The server has no
@@ -344,6 +468,16 @@ export default function AdminTeam() {
 
             {memberModal.role === 'admin' ? (
               <p className="rounded-lg bg-indigo-500/10 px-3 py-2.5 text-sm text-indigo-200">Administrators have full access to every module, including Team &amp; Access and Settings.</p>
+            ) : null}
+
+            {memberModal.role === 'manager' && !memberModal.id ? (
+              /* Said before the save, not after it. `manager` is an admin-console permission label,
+                 not one of the contract's roles, so this create is refused — by the server live,
+                 and by the mock too, which now refuses it in the server's words. */
+              <p className="flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-amber-200">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{t('team.managerNotCreatable')}</span>
+              </p>
             ) : null}
 
             {memberModal.role === 'manager' ? (

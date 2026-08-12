@@ -18,12 +18,13 @@ export const addEntityReview = (type, id, o) => {
   set(ENTITY_KEY, all);
   return all[key][0];
 };
-export const entityRating = (type, id) => {
-  const rs = getEntityReviews(type, id);
-  if (!rs.length) return { avg: 0, count: 0 };
-  const sum = rs.reduce((a, r) => a + (+r.rating || 0), 0);
-  return { avg: Math.round((sum / rs.length) * 10) / 10, count: rs.length };
-};
+/* D196 removed `entityRating(type, id)` here on 2026-08-11. It averaged this bucket for a card
+   badge, and its last caller (the home page's society strip) only used it as a sort tie-break that
+   nothing rendered. Against the real API the bucket is never written, so the average was a constant
+   zero and the ordering it promised never happened. The live aggregate now comes from the server
+   (`avgRating`/`reviewCount` on `GET /societies`, and `getEntityReviewSummary` for the property
+   page's society block, D195) — so a local reduce over unsent drafts had no remaining honest use.
+   `addEntityReview` and `getEntityReviews` stay: they are how a draft is written and read back. */
 
 /* =========================================================================
    Property verification & two-way review thread (shared with admin)

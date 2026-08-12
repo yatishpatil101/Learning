@@ -44,7 +44,7 @@ a domain flip. Zero results = zero leaks.
 | `savedSearch` | `savedSearchService.js` | mock + **http** | Live: list/create/patch/delete. Seam flattens the server's `filters` jsonb onto the record and derives `alerts` from `alertFrequency`. Anonymous lead capture stays local (D85) |
 | `visit` | `visitService.js` | mock + **http** | Live: `/visits` (mine) and `/me/visit-requests` (on my listings), create, status. Seam carries the human `when` string; `visitWhen` converts to/from the wire's ISO slot. Reschedule has no endpoint (D87) |
 | `notification` | `notificationService.js` | mock + **http** | Live: `GET /notifications` (paged), `POST /notifications/read`. Dismiss is a client tombstone — no endpoint. Client-derived alerts merge in. Preferences stay on `lib/` |
-| `conversation` | `conversationService.js` | mock + **http** | Live: inbox (paged), start, detail, reply, mark-read. `pending` is a client staging queue; `incoming` + accept/decline are mock-only |
+| `conversation` | `conversationService.js` | mock + **http** | Live: inbox (paged), start, detail, reply, mark-read. Both providers speak one shape: a thread carries **`staged`** — `false` for a thread the server has, `true` for one still queued client-side under `pnPendingRequests`. There is **no `state`** field on either side (D52): the invented `active`/`incoming`/`pending` triple is gone, and `conversation-parity.mjs` fails if a `state` key reappears. `incoming` had no server referent at all — a conversation cannot exist before an approved contact request, so accept/decline belongs to the contact gate, not here |
 | `review` | `reviewService.js` | mock + **http** | Live: property reviews and entity (society/locality/owner) reviews, read + write. `context` is server-derived and never sent. Owner reviews stay on mocks — the *target* is not live |
 | `support` | `supportService.js` | mock + **http** | Live: list, create, detail, reply, mark-read. Bare list with the thread inline. Priority and attachments are mock-only — no field on the schema, so the page hides both controls in http mode |
 | `report` | `reportService.js` | mock + **http** | Live: file, queue (paged, **staff/admin**), triage. First domain whose two ends have different audiences. Duplicate → 409; terminal is terminal |
@@ -52,7 +52,7 @@ a domain flip. Zero results = zero leaks.
 | `deal` | `dealService.js` | mock + **http** | Live: the whole transaction cluster — `/me/deals` (+reserve/close/reopen/parties), `/offers` (+respond/mine), `/me/offers`, `/finalization/*`, `/me/finalization-requests`. Every signature dropped its `ownerMobile`: the token scopes the read. A buyer cannot see a listing is closed, and cannot accept an offer |
 | `rent` | `rentService.js` | mock + **http** | Live: the money cluster — `/me/tenancies` + `/tenancies`, `/me/tenant-profile`, `/tenant-profiles/{mobile}`, `/me/rent-payments`, `/me/rent-ledger`, `/me/rent-mandate`, `/me/payout-account`, and `/me/finances/{propId}/*`. **Paying rent yields `due`, not `paid`** — the webhook settles it. The payout account returns a mask, never the number |
 | `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. The server filters on `locality` only, so the other ten facets are applied client-side (D116) |
-| `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121) |
+| `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121). **The only domain with a partial mock**: `listServiceRequestQueue`, `takeServiceRequest` and `readServiceRequestIdentities` exist on http *only* (D184) — the drafting desk filters on the server's nine-value status vocabulary, which the mock store cannot speak, so `/ops/drafting-desk` gates on `isHttpDomain('serviceRequest')` and says so rather than showing a queue it cannot filter. `serviceRequest-parity.mjs` names those three as the exception, so a fourth going live-only still fails |
 | `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
 | others (content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
 | `document` | `documentService.js` | mock + **http** | **Owner side only.** Live surface: the vault — `GET /me/documents/{propId}`, multipart `POST` (upload), `DELETE` — and the owner's request inbox — `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}` (grant/decline). The wire's `categories[]` collapses to a single `docType` for the inbox row; the requester mobile stays masked; `shareToken`/`expiresAt` are re-send affordances, null until granted. The vault's signed `url` does not resolve in dev, so the bytes live behind the mock's `dataUrl` (D120 pattern). The **buyer's half** (ask → poll → open a shared bundle, token-mediated), the cross-user grant notification, shared-doc counts, the dashboard doc-count badge, rent agreements, and every presentation helper stay on `lib/data/documents.js` (D123). The consumer flip shipped as an **honest subset**: `DocumentsTab` — the owner's per-listing vault, the personal/KYC bucket (`/me/documents/personal`) and the request inbox — reads and writes through the service, and `document` is in the live e2e `VITE_API_DOMAINS`. `useRentAgreement`'s vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` (the first needs the bytes the signed URL withholds; the last two address mock-only managed-property ids). What the flip left rough — failure states that read as emptiness, the missing loading state, wrong-flat mutation updates, and the request inbox on localStorage (tracked as D125, resolved 2026-08-08) |
@@ -81,12 +81,14 @@ worse than a missing one: it reads as coverage that does not exist.
 
 Four more mock providers — `admin`, `content`, `document`, `listing` — were deleted afterwards for
 the mirror-image reason: they had no service, so `createProvider` was never called with those names
-and nothing could reach them. They were not inert, though. `config.js` resolves providers with
-`import.meta.glob(..., { eager: true })`, so every file matching `providers/mock/*Provider.js` is
-pulled into the main bundle whether or not a service exists for it; removing them took it from
-1864 KB to 1848 KB. Each was a pure pass-through (`Promise.resolve(_fn())`) over `lib/` functions
-the pages already import directly, so nothing changed behaviourally — the wrappers had simply been
-built ahead of a seam that never arrived.
+and nothing could reach them. They were not inert at the time, though. `config.js` then resolved
+providers with `import.meta.glob(..., { eager: true })`, so every file matching
+`providers/mock/*Provider.js` was pulled into the main bundle whether or not a service existed for
+it; removing them took it from 1864 KB to 1848 KB. (That glob is **lazy** as of 2026-08-12 — see
+D208 — so an orphan provider no longer costs bundle weight. It still costs comprehension, which is
+the better reason to delete one.) Each was a pure pass-through (`Promise.resolve(_fn())`) over
+`lib/` functions the pages already import directly, so nothing changed behaviourally — the wrappers
+had simply been built ahead of a seam that never arrived.
 
 The old `savedProvider.js` bundled five unrelated domains (saved properties, saved searches, plans,
 boosts, service orders) behind one name. On the server those are five separate controllers, so the
@@ -276,7 +278,7 @@ no server home**, and each gap needed a different answer rather than one blanket
 | `dismiss` | client tombstones (`pnDismissedNotifs`) | no `DELETE /notifications/{id}` |
 | saved-search / saved-property alerts | client-derived, merged per read | computed from `countMatches`; the server has no slot |
 | `pushNotificationFor` | mock only, **permanently** | writing into another user's inbox is a server-side effect, never a client call |
-| preferences + quiet hours | `lib/` only | no endpoint at all; `ProfileTab` untouched |
+| preferences + quiet hours | `lib/` only | the server surface now exists (`GET/PUT /me/notification-preferences`, V73, D94/D15) and the writers honour quiet hours by **deferring** the row; the client has not been moved onto it yet, so `ProfileTab` is still untouched |
 
 ### The vocabulary mismatch that would have been invisible
 
@@ -1185,13 +1187,16 @@ and `finalDoc` are projected from `documents[]` by category (`draft` / `final-do
 per-request **document checklist** — six named items in the mock — has no read representation on the
 wire and stays mock-only.
 
-### `changes_requested` collapses server-side
+### `changes_requested` survives; the rejection note does not
 
 The maker-checker has three customer-visible outcomes in the mock: accept, reject-with-changes, and
-a standing `draftDecision` record. The server has two — `approve` and `reject` — and a rejection
-returns the request to `in-progress` rather than recording a distinct `changes_requested` state. So
-`draftDecision` is reconstructed as `{type:'accepted'}` **only** when the request reached `approved`;
-a rejection is unrecoverable from the read shape and shows as ongoing work, which is what it is.
+a standing `draftDecision` record. The server's `POST /{id}/draft-decision` takes `approve` / `reject`
+and parks a rejection in its own `changes-requested` status (added by D121, widened in V75), so the
+mapper maps it to the tracker's `changes_requested` step and reconstructs `draftDecision` as
+`{type:'accepted'}` for `approved` and `{type:'changes'}` for `changes-requested`. What is *not*
+recoverable is the customer's note: it lands in the message thread rather than on the request, so
+`draftDecision.note` is empty on a live read and the ops queue shows its unadorned
+"Customer requested changes" line.
 
 ### Message roles, and the identity that keys them
 

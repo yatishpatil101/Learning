@@ -6,9 +6,10 @@ import com.punenest.api.identity.user.User;
 
 /**
  * Hand-written mapper for the tenancy feature, mirroring {@code deals.deal.DealMapper}. MapStruct
- * is not used: both projections carry a mobile number, so the whole shape is trust-shaping and the
- * masking rule must stay reviewable in source rather than in generated code
- * ({@code api-standards.md} §8.1).
+ * is not used because the shapes here are trust-shaping and must stay reviewable in source rather
+ * than in generated code ({@code api-standards.md} §8.1): two projections carry a mobile number
+ * under a masking rule, and the third — the declaration — deliberately carries none at all. Which
+ * of those a projection is is the decision worth reading, and generated code would not show it.
  *
  * <p><strong>When a tenancy party's mobile reveals.</strong> Unlike an offer or a visit — which are
  * approaches, and therefore masked until the owner acts — a tenancy only exists because a deal
@@ -40,6 +41,31 @@ public final class TenancyMapper {
                 tenancy.getStartDate(),
                 tenancy.getEndDate(),
                 tenancy.getStatus());
+    }
+
+    /**
+     * Project a tenancy declaration (D194).
+     *
+     * <p><strong>A name and no mobile</strong>, which is why this projection is here rather than
+     * generated: the claimant is asserting a relationship, and letting an assertion mint a contact
+     * reveal would route straight around the gate the rest of this file exists to hold. The owner
+     * gets enough to recognise a former tenant and nothing they could not already look up.
+     *
+     * @param declaration the stored claim
+     * @param declarant   the claimant, or null if the account no longer exists — a deleted user
+     *                    leaves the claim readable with an empty name rather than making the
+     *                    owner's inbox fail to load over one missing row
+     */
+    public static TenancyDeclarationDto toDto(TenancyDeclaration declaration, User declarant) {
+        return new TenancyDeclarationDto(
+                declaration.getId().toString(),
+                declaration.getPropertyId().toString(),
+                declaration.getDeclarantId().toString(),
+                declarant == null ? "" : declarant.getName(),
+                declaration.getLivedFrom(),
+                declaration.getLivedTo(),
+                declaration.getStatus(),
+                declaration.getDecidedAt());
     }
 
     /**

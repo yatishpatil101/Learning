@@ -53,14 +53,18 @@ public class FlatmateFeedService {
     private final FlatmateGroupRepository groups;
     private final FlatmateMapper mapper;
     private final UserRepository users;
+    /** The room card's own joins — host name and flat ledger — batched across the window (D212). */
+    private final FlatmateRoomCards cards;
 
     public FlatmateFeedService(FlatmateSeekerPostRepository posts, FlatmateRoomRepository rooms,
-            FlatmateGroupRepository groups, FlatmateMapper mapper, UserRepository users) {
+            FlatmateGroupRepository groups, FlatmateMapper mapper, UserRepository users,
+            FlatmateRoomCards cards) {
         this.posts = posts;
         this.rooms = rooms;
         this.groups = groups;
         this.mapper = mapper;
         this.users = users;
+        this.cards = cards;
     }
 
     /** {@code GET /flatmates/feed} — public. One feed per tab, sorted newest first. */
@@ -112,7 +116,11 @@ public class FlatmateFeedService {
      * Map the merged window to wire DTOs.
      *
      * <p>Host names are resolved in one batch rather than per row: a page of twenty cards would
-     * otherwise be twenty lookups of a table we already know the keys for.
+     * otherwise be twenty lookups of a table we already know the keys for. The room half then hands
+     * that map to {@link FlatmateRoomCards}, which batches the other join a room card needs — its
+     * flat's occupancy ledger. That used to be hardcoded to zero here (D212), which is why a full
+     * flat read as {@code empty} on this feed and {@code occupied} on the room feed from the same
+     * row.
      */
     private List<Object> render(List<Object> window) {
         List<UUID> hostIds = window.stream()
@@ -121,12 +129,18 @@ public class FlatmateFeedService {
                 .distinct()
                 .toList();
         Map<UUID, String> names = users.findAllById(hostIds).stream()
+                .filter(user -> user.getName() != null)
                 .collect(Collectors.toMap(User::getId, User::getName));
+        Map<UUID, FlatmateMapper.RoomView> roomViews = cards.anonymousViews(
+                window.stream()
+                        .filter(FlatmateRoom.class::isInstance)
+                        .map(FlatmateRoom.class::cast)
+                        .toList(),
+                names);
 
         return window.stream().map(source -> switch (source) {
-            case FlatmateRoom r -> (Object) mapper.toDto(r,
-                    FlatmateMapper.RoomView.anonymous(names.get(r.getHostId())));
-            case FlatmateGroup g -> (Object) mapper.toDto(g,
+            case FlatmateRoom r -> (Object) mapper.toFeedDto(r, roomViews.get(r.getId()));
+            case FlatmateGroup g -> (Object) mapper.toFeedDto(g,
                     FlatmateMapper.PartyView.anonymous(names.get(g.getHostId())));
             case FlatmateSeekerPost p -> (Object) mapper.toDto(p,
                     FlatmateMapper.SeekerView.ANONYMOUS);

@@ -33,7 +33,6 @@
     "saved": "Saved",
     "account": "Account",
     "primaryMobile": "Primary",
-    "post": "Post",
     "postProperty": "Post Property"
   },
   "dashboard": {
@@ -53,6 +52,15 @@
       "messages": "Messages",
       "profile": "Profile & Settings"
     }
+  },
+  "adminFinance": {
+    "disclosureTitle": "Not every figure below is measured",
+    "disclosureLead": "These are structural zeros, not quiet months. Totals and averages computed from them carry the same caveat. Each turns live on its own flag.",
+    "payoutsNotMeasured": "Payouts completed: no payout has ever been executed, because the platform has no payout path. The destination is stored; nothing writes a remittance.",
+    "refundsNotMeasured": "Refunds: the platform has no refund path, so no refund can be recorded here.",
+    "servicesNotCounted": "Revenue excludes the services marketplace: a service order records a quote, not money received.",
+    "servicesQuoted": "Quoted value, not money received, so it is left out of revenue.",
+    "notMeasured": "Not measured"
   },
   "settings": {
     "languageTitle": "App language",

@@ -100,7 +100,7 @@ export async function unreadCount() {
  * - **Let it throw** — a dead button, with an error the user cannot act on.
  * - **Stage it locally and send when the gate opens** — what this does.
  *
- * The staged row is marked `state: 'pending'` and carries a `staged:` id, so nothing can mistake it
+ * The staged row is marked `staged: true` and carries a `staged:` id, so nothing can mistake it
  * for a server thread. Its limits are real: it lives on one device and does not survive clearing
  * site data. That is acceptable for a message the user has been told is *waiting*, and it is the
  * same split the anonymous saved-search capture took (D85).

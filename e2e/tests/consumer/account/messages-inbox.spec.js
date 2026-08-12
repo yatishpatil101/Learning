@@ -74,18 +74,27 @@ test('report action opens the moderation modal', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: /Report/ })).toBeVisible();
 });
 
-test('pending request shows waiting state, not a composer', async ({ page }) => {
+test('staged request shows waiting state, not a composer', async ({ page }) => {
   await login(page);
   await page.goto(`${BASE}/messages?c=c4`);
   await expect(page.getByText(/Waiting for the owner/)).toBeVisible();
   await expect(page.locator('input.pc-input')).toHaveCount(0);
 });
 
-test('accepting an incoming request moves it into chats with a composer', async ({ page }) => {
+/* Re-scoped for D52 (was: "accepting an incoming request moves it into chats with a composer").
+   The `incoming` state, and the Accept/Decline panel that acted on it, were the frontend's own
+   invention — the contract has no field for them, and on the server a conversation cannot exist
+   before an approved contact request, so the accepting happens one layer up in the contact gate.
+   `c3` is now what the server would actually hold at that point: a real owner-side thread carrying
+   the buyer's unread opening message. This asserts the successor behaviour — it opens ready to
+   reply — and that the retired panel is gone rather than merely unreachable. */
+test('an owner-side thread with an unread message opens ready to reply, with no accept panel', async ({ page }) => {
   await login(page);
-  await page.goto(`${BASE}/messages?c=c3`); // incoming
-  await page.getByRole('button', { name: 'Accept chat' }).click();
+  await page.goto(`${BASE}/messages?c=c3`);
+  await expect(page.locator('.pc-bubble.them', { hasText: /interested in your 4 BHK Villa/i })).toBeVisible();
   await expect(page.locator('input.pc-input')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Accept chat' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Decline' })).toHaveCount(0);
 });
 
 test('search filters the conversation list', async ({ page }) => {

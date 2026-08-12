@@ -177,13 +177,16 @@ export function unwrapPage(res, requested = {}) {
 }
 
 /**
- * The server's hard ceiling on `size` (`spring.data.web.pageable.max-page-size`).
+ * Re-exported so existing importers keep working; the value itself lives in `./apiLimits.js`.
  *
- * Asking for more is silently clamped, not rejected, so a client that asked for 500 and got 100
- * would believe it had read everything. That silence is the reason {@link unwrapFullPage} measures
- * truncation against `totalElements` rather than against this constant.
+ * It moved out (D208) because `http.js` sits inside an import cycle — `http.js` → `config.js` →
+ * every provider (eager glob) → `http.js` — so anything a provider reads at module scope from here
+ * can land in a temporal dead zone and take the whole app down. `apiLimits.js` imports nothing, so
+ * it is always fully evaluated first. **New provider code should import it from there, not here**;
+ * `scripts/check-provider-cycle.mjs` enforces that. Read the header of `apiLimits.js` before
+ * moving this back.
  */
-export const MAX_PAGE_SIZE = 100;
+export { MAX_PAGE_SIZE } from './apiLimits.js';
 
 /**
  * Read a paged endpoint that the UI consumes as a plain list, and say so out loud when it overflows.

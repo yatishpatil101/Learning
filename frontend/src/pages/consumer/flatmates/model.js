@@ -129,11 +129,18 @@ export const maxOccupantsOf = (flat) => Number(flat?.maxOccupants) || DEFAULT_MA
 export const occupantsOf = (r) => Math.max(0, Number(r?.occupants) || 0);
 /* Rooms in one flat share a single ceiling, so the cap can only be read across
    siblings — which means the key must identify a FLAT, never just a building.
-   propertyId is exact (an owner split always has one) and society+flat number is
-   a safe fallback; a bare society name is not, since two unrelated hosts in
+   `flatKey` is the server's own opaque identity when it sends one; propertyId is
+   exact (an owner split always has one) and society+flat number is a safe
+   fallback; a bare society name is not, since two unrelated hosts in
    "Skyline Heights" would pool into one ledger and silently suppress each
-   other's rooms. Those posts fall back to their own id and stand alone. */
+   other's rooms. Those posts fall back to their own id and stand alone.
+
+   The `flatKey` branch is first so that D213 becomes a server-only change: the
+   anonymous room read publishes a precise door number today purely because this
+   function needs *an* identity, and an opaque one groups exactly as well. Until
+   the server mints it the branch is inert and the `addr:` fallback still runs. */
 const flatKeyOf = (r) => {
+  if (r?.flatKey) return 'flat:' + r.flatKey;
   if (r?.propertyId) return 'prop:' + r.propertyId;
   if (r?.society && r?.flatNumber) return 'addr:' + r.society + '|' + r.flatNumber;
   return 'room:' + (r?.id || '');

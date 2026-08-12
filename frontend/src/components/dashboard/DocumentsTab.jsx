@@ -31,12 +31,6 @@ const KYC_GROUP = { id: 'kyc', titleKey: 'dash.grpKyc', subKey: 'dash.grpKycSub'
 
 const OWNER_CATS = OWNER_GROUPS.flatMap((g) => g.cats);
 
-/* The dev backend mints a vault signed URL against a storage stub host that does not resolve in the
-   browser (documentMapper §1, D120). A viewer that opened it would get a blank tab with a DNS error
-   instead of a "no preview" toast, so a URL on that host is treated as non-viewable. Production
-   signed URLs are on a real storage origin and open normally. */
-const DEV_STORAGE_STUB = /^https?:\/\/mock\.storage\.local\b/i;
-
 /* Match an uploaded doc to a slot: exact category first, then the legacy loose match so any
    documents saved by the previous version of the tab still line up with their slot. */
 const findDoc = (list, category) =>
@@ -361,12 +355,11 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     }
   };
   // Live docs carry a signed `url`; mock docs carry an inline `dataUrl`. Prefer whichever the
-  // active provider filled. In dev the http signed URL points at a storage stub that never resolves
-  // in the browser (D120), so opening it would yield a blank tab with a DNS error — treat that as
-  // non-viewable and show the same "no preview" toast the mock shows for a missing file (D125-5).
+  // active provider filled. `openDocUrl` refuses anything it cannot safely render as a passive
+  // document, including the dev storage stub host that never resolves in the browser (D120); a
+  // refusal gets the same "no preview" toast the mock shows for a missing file (D125-5).
   const viewDoc = (doc) => {
-    const src = doc.url || doc.dataUrl;
-    if (DEV_STORAGE_STUB.test(src || '') || !openDocUrl(src)) toast(t('dash.noPreviewToast'));
+    if (!openDocUrl(doc.url || doc.dataUrl)) toast(t('dash.noPreviewToast'));
   };
   const genHraReceipts = () => {
     if (!hraForm.landlordName || !hraForm.tenantName || !hraForm.rentAmt || !hraForm.propertyAddr) { toast(t('dash.fillRequiredToast'), 'error'); return; }

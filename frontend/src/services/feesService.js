@@ -42,7 +42,7 @@ const provider = createProvider('fees');
  * @returns {Promise<{deal: string, brokerage: number, platformFee: number, stampDuty: (number|null),
  *   registration: (number|null), gst: number, notes: (string|null)}[]>}
  */
-export const listFees = () => provider().listFees();
+export const listFees = async () => (await provider()).listFees();
 
 /**
  * The breakdown for one deal intent, or `null` when nothing is published for it.

@@ -11,7 +11,6 @@ import java.util.UUID;
  * @param builder            developer, where known
  * @param localitySlug       the locality it sits in; null for unplaced bulk imports
  * @param year               year built or possession year
- * @param towers             number of towers
  * @param units              number of flats
  * @param occupancy          occupancy percentage, 0-100
  * @param maintenancePerSqft monthly maintenance in INR per sq ft
@@ -27,7 +26,6 @@ import java.util.UUID;
  * @param rera               MahaRERA registration id, null if none
  * @param registration       whether the society is registered
  * @param conveyance         whether the conveyance deed is done
- * @param amenities          amenity labels
  * @param source             {@code curated} / {@code rera} / {@code community} — provenance travels
  *                           with the record so a reader can weigh it
  * @param claimStatus        {@link SocietyClaimStatus}

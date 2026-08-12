@@ -36,6 +36,9 @@
     "overviewCta": "Verified बनें",
     "buyerNudgeTitle": "सत्यापित खरीदारों को 2× तेज़ जवाब मिलते हैं",
     "buyerNudgeBody": "यह मालिक सत्यापित है — दूसरी पूछताछ से अलग दिखने के लिए अपना Verified बैज जोड़ें।",
-    "buyerNudgeCta": "सत्यापित हों · ~1 मिनट"
+    "buyerNudgeCta": "सत्यापित हों · ~1 मिनट",
+    "chipMobileVerified": "मोबाइल सत्यापित",
+    "chipIdVerified": "पहचान सत्यापित",
+    "chipIdNotVerified": "पहचान सत्यापित नहीं"
   }
 }

@@ -26,7 +26,6 @@ import java.time.LocalDate;
  * @param category  owner-chosen free text; null is allowed
  * @param amount    whole INR, unsigned and non-zero
  * @param date      the date the money moved
- * @param note      optional free text
  * @param recurring one of {@link RecurringIntervals}; null means {@code none}
  */
 public record TransactionCreateRequest(

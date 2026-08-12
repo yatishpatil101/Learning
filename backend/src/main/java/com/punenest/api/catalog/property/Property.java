@@ -292,9 +292,29 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private boolean ownerVerified = false;
 
+    /**
+     * The ops verdict on this listing's ownership evidence — <em>not</em> the badge. Read
+     * {@link #isOwnershipVerified()} for the badge; this field says only that a complete evidence
+     * set was once accepted, which stops being a true statement about the property the moment the
+     * earliest of those documents expires.
+     *
+     * <p>No setter, deliberately. The three columns move together or the badge lies, so the only
+     * ways in are {@link #verifyOwnership(Instant, Instant)} and
+     * {@link #revokeOwnershipVerification()}.
+     */
     @Column(name = "ownership_verified", nullable = false)
-    @Setter
     private boolean ownershipVerified = false;
+
+    /** When ops last accepted a complete evidence set. The instant announced to billing (D190). */
+    @Column(name = "ownership_verified_at")
+    private Instant ownershipVerifiedAt;
+
+    /**
+     * The earliest expiry among the documents the verdict was taken on, or {@code null} when every
+     * one of them was a never-expiring registry or identity document (D190/Q15).
+     */
+    @Column(name = "ownership_verified_until")
+    private Instant ownershipVerifiedUntil;
 
     @Column(name = "society_verified", nullable = false)
     @Setter
@@ -401,6 +421,77 @@ public class Property extends SoftDeleteEntity {
     /** Is a stays-live re-check queued on this listing? (Q14) */
     public boolean isRecheckPending() {
         return recheckRequestedAt != null;
+    }
+
+    /**
+     * The <strong>Ownership Verified</strong> badge (D190/Q15) — derived, not stored.
+     *
+     * <p>This is what MapStruct reads for {@code PropertyResponse.ownershipVerified}, and therefore
+     * what the buyer sees. It is an ops verdict that has not yet lapsed: a listing verified on a
+     * property-tax receipt stops being verified ninety days after that receipt was <em>issued</em>,
+     * with no further write to this row.
+     *
+     * <p><strong>Why derived rather than swept.</strong> The obvious alternative is a scheduled job
+     * that flips {@link #ownershipVerified} to false once {@link #ownershipVerifiedUntil} passes —
+     * and this codebase does have a scheduler, so that was available. It was still rejected. A
+     * sweep leaves a window, however short, in which a listing whose proof has expired is still
+     * telling buyers its ownership is verified, and the length of that window is a deployment
+     * detail rather than a product decision. Worse, the sweep is a second writer of a fact the
+     * evidence already determines: it can be skipped by a failed job, run twice, or drift after a
+     * restore, and each of those failure modes is silent and shows a wrong badge. A comparison
+     * against the clock has no window, nothing to backfill, and cannot disagree with the evidence
+     * it is computed from. The cost is that this is not queryable in SQL — no repository filters on
+     * it today, and one that needs to would add {@code ownership_verified_until > now()} to its
+     * predicate, which is the same rule spelled in the same place.
+     *
+     * <p>A {@code null} {@link #ownershipVerifiedUntil} means "does not lapse", not "lapsed". With
+     * today's evidence vocabulary the gate cannot produce one — site presence rests on photographs
+     * and those always expire — so in practice it marks a row that predates D190, which is how demo
+     * data keeps its badge. It is honoured rather than treated as invalid because which documents
+     * expire is a product decision that will change.
+     */
+    public boolean isOwnershipVerified() {
+        return isOwnershipVerifiedAt(Instant.now());
+    }
+
+    /**
+     * The badge as at a given moment.
+     *
+     * <p>The parameter exists so a request evaluates the badge, the gate and the evidence list
+     * against <em>one</em> reading of the clock. Three separate {@code Instant.now()} calls in the
+     * same response can straddle an expiry and produce a listing that reports itself verified and
+     * missing its ownership proof in the same breath.
+     */
+    public boolean isOwnershipVerifiedAt(Instant at) {
+        return ownershipVerified
+                && (ownershipVerifiedUntil == null || ownershipVerifiedUntil.isAfter(at));
+    }
+
+    /**
+     * Record an ops verdict that the ownership evidence for this listing is complete (D190).
+     *
+     * @param at    when the verdict was taken; announced to billing so both sides carry the same
+     *              instant
+     * @param until the earliest expiry among the documents relied on, or {@code null} when none of
+     *              them expires
+     */
+    public void verifyOwnership(Instant at, Instant until) {
+        this.ownershipVerified = true;
+        this.ownershipVerifiedAt = at;
+        this.ownershipVerifiedUntil = until;
+    }
+
+    /**
+     * Withdraw the verdict — the evidence was forged, or belonged to another flat (D190).
+     *
+     * <p>Not the same thing as a lapse, which needs no write at all and leaves the row saying when
+     * the badge was granted and until when. This erases the verdict itself, because the claim it
+     * recorded turned out not to be true. Idempotent.
+     */
+    public void revokeOwnershipVerification() {
+        this.ownershipVerified = false;
+        this.ownershipVerifiedAt = null;
+        this.ownershipVerifiedUntil = null;
     }
 
 }

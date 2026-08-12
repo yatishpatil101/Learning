@@ -16,7 +16,6 @@ import java.time.Instant;
  * @param alertFrequency  off|instant|daily|weekly
  * @param channel         whatsapp|sms|email|push
  * @param newCount        stored column, currently always 0 — see class Javadoc on D8.8
- * @param createdAt       row creation
  */
 public record SavedSearchResponse(
         String id,

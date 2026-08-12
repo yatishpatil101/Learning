@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -61,4 +62,53 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
      * all rejected is exactly who this signal is for.
      */
     long countByReferrerIdAndAtAfter(UUID referrerId, Instant since);
+
+    /**
+     * The one referral this person's activation could qualify, held under a row lock (Q17).
+     *
+     * <p>Keyed on the mobile because that is what {@code referrals} stores — there is no
+     * {@code referred_id} column, and {@code uq_referrals_referred_mobile} (V23) guarantees at most
+     * one row comes back, so this is a lookup rather than a search.
+     *
+     * <p><strong>The lock is what makes qualification idempotent.</strong> Ownership verification
+     * announces inside the verifying transaction, so a retried write announces again, and an owner
+     * who publishes two listings announces twice. Both races read {@code status = 'pending'}, both
+     * would qualify, and the referrer would collect twice for one referee. Locking the row turns the
+     * read and the write into one step, so the second caller sees {@code qualified} and does
+     * nothing. Restricting to {@code pending} in the query as well means an already-decided referral
+     * is not even locked — a fraud desk deciding a case must not be made to wait behind an unrelated
+     * property verification.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Referral r where r.referredMobile = :mobile and r.status = 'pending'")
+    Optional<Referral> findPendingForQualification(@Param("mobile") String mobile);
+
+    /**
+     * How many of this referrer's referrals have qualified since {@code since} — the D61 cap.
+     *
+     * <p>Counts qualifications rather than redemptions, because the cap exists to bound what can be
+     * <em>minted</em> automatically. Serves {@code idx_referrals_referrer_qualified} (V64).
+     */
+    long countByReferrerIdAndQualifiedAtAfter(UUID referrerId, Instant since);
+
+    /**
+     * Blank the referee-side correlation digests on rows past their retention window (D55).
+     *
+     * <p>A bulk update rather than a load-mutate-flush: this touches rows nobody is looking at and
+     * loading them would be an unbounded read for a job whose whole output is two nulls. It
+     * deliberately leaves {@code updated_at} alone — dropping evidence at the end of its retention
+     * period is not an edit to the referral, and bumping the timestamp would make every row look
+     * freshly touched to anyone auditing the queue.
+     *
+     * <p>The {@code is not null} guard is what keeps the job cheap: without it every tick would
+     * rewrite the entire historical table to set null over null.
+     */
+    @Modifying
+    @Query("""
+            update Referral r
+               set r.referredIpHash = null, r.referredDeviceHash = null
+             where r.at < :cutoff
+               and (r.referredIpHash is not null or r.referredDeviceHash is not null)
+            """)
+    int clearSignalsOlderThan(@Param("cutoff") Instant cutoff);
 }

@@ -44,6 +44,41 @@ export const pushPendingRequest = (req) => {
   } catch (e) { console.warn('[flatmates] pending-request write failed', e); return false; }
 };
 
+/* `lib/chat.js` owns this shape. The key is duplicated here rather than imported the way
+   `providers/http/conversationProvider.js` already duplicates the queue key above — pulling
+   `chat.js` in would drag `mockApi` and `contactService` into the flatmates chunk for one read. */
+const CONVERSATIONS_KEY = 'pnConversations';
+
+/** Does this browser already hold the seeker's side of the thread for `propertyId`? Looks in BOTH
+ *  places it can be, because `loadConversations()` consumes the hand-off queue the first time
+ *  Messages is opened and the row lives on as a conversation from then on. */
+const hasLocalThread = (propertyId) => {
+  const queued = get(PENDING_REQ_KEY, []);
+  if (Array.isArray(queued) && queued.some((r) => r?.propertyId === propertyId)) return true;
+  const convs = get(CONVERSATIONS_KEY, []);
+  return Array.isArray(convs) && convs.some((c) => c?.propertyId === propertyId && c.youAre === 'buyer');
+};
+
+/* The one place an ask becomes visible on THIS device (D183).
+
+   Every flatmate ask — seeker interest, room enquiry, group join — used to write the bell
+   notification and the Messages hand-off only when the provider accepted it. The duplicate `409`
+   path flipped the card to its done state without them, so a seeker who first asked from their
+   phone opened this laptop to a finished card and an empty Messages: the server's truth and the
+   device's state disagreed. Both paths call this now, so they leave the device in the same state.
+
+   Idempotent on `request.propertyId`, which is the identity the record already carries — the device
+   that DID make the original ask calls this again on any later 409 and writes nothing. The
+   notification is gated on the same check rather than on a key of its own: the two are only ever
+   written together, so the thread's presence is exactly the question "has this ask landed here". */
+export const recordAskLocally = ({ notification, request }) => {
+  const propertyId = request?.propertyId;
+  if (propertyId == null || hasLocalThread(propertyId)) return false;
+  pushNotification(notification);
+  pushPendingRequest(request);
+  return true;
+};
+
 export const getFlatmatePosts = () => get(STORE_KEY, []);
 export const saveFlatmatePost = (req) => {
   const arr = getFlatmatePosts();

@@ -37,10 +37,20 @@ function displayDate(iso) {
 
 /**
  * The product's order for the per-aspect rows, which is *not* the order either provider emits.
- * See `toSummaryViewModel`. Anything outside this set is dropped: it matches the server's closed
- * key vocabulary, so a key the API would reject cannot reach the page from any other source.
+ * See `toSummaryViewModel`. Anything outside the target's set is dropped: it matches the server's
+ * closed key vocabulary, so a key the API would reject cannot reach the page from any other source.
+ *
+ * **Two vocabularies, and picking the wrong one renders an empty grid rather than an error.** A
+ * society is rated on Safety/Maintenance/Management/Amenities/Connectivity; a listing, a locality
+ * and an owner on locality/condition/value/owner/accuracy. This mirrors `ReviewCategories.forTarget`
+ * on the server and `categoryKeysFor` in the mock provider — three copies of one list, because the
+ * alternative is the client importing a server enum or the seam learning the review domain. They
+ * are keys, not labels: renaming one orphans every rating already stored under the old id.
  */
-const CATEGORY_ORDER = ['locality', 'condition', 'value', 'owner', 'accuracy'];
+const PROPERTY_CATEGORY_ORDER = ['locality', 'condition', 'value', 'owner', 'accuracy'];
+const SOCIETY_CATEGORY_ORDER = ['Safety', 'Maintenance', 'Management', 'Amenities', 'Connectivity'];
+const categoryOrderFor = (entityType) =>
+  (entityType === 'society' ? SOCIETY_CATEGORY_ORDER : PROPERTY_CATEGORY_ORDER);
 
 /** One wire `Review` → one view model. */
 export function toViewModel(r) {
@@ -109,10 +119,17 @@ export function toViewModelPage(res, fallback = {}) {
  * because averaging it over everyone would understate it — so it is copied key by key rather than
  * expanded to a fixed set.
  *
+ * `entityType` selects which vocabulary those keys are drawn from and defaults to the property one,
+ * which is what every caller but the society hub wants. Passing nothing for a society is not a
+ * degraded rendering but an empty one: none of the five society keys survives the property
+ * allowlist, so `catAvg` comes back `{}` and the aspect grid draws nothing at all, on every society,
+ * for ever. That was live behaviour until D197 — invisible only because the hub was blending in a
+ * fabricated baseline, so the bars looked populated whether or not a single key had survived.
+ *
  * There is no `recommend` field here and that is not an omission: "% would recommend" has no server
  * aggregate, and the page still derives it from the list. See `ReviewsSection.jsx`.
  */
-export function toSummaryViewModel(s) {
+export function toSummaryViewModel(s, entityType) {
   const dist = ['1', '2', '3', '4', '5'].map((star) => Number(s?.distribution?.[star]) || 0);
   const catAvg = {};
   /* Iterate a fixed order rather than the wire's. The page renders these rows with
@@ -122,7 +139,7 @@ export function toSummaryViewModel(s) {
      the e2e suite and every screenshot prove a layout production does not render. Ordering here,
      rather than at either edge, makes the row order provider-independent; only present keys are
      copied, so the sparseness the server is careful about survives. */
-  CATEGORY_ORDER.forEach((k) => {
+  categoryOrderFor(entityType).forEach((k) => {
     const n = Number(s?.categoryAverages?.[k]);
     // Guarded because these are BigDecimals on the server: JSON gives us a number, but a
     // serialiser configured to write decimals as strings would otherwise reach `.toFixed` as NaN.

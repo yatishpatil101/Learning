@@ -240,6 +240,20 @@ test('the live directory card reports the aggregate the server computed', async 
       expect(catAvg, `${skipped} was never rated and must be absent, not 0`)
         .not.toHaveProperty(skipped);
     }
+
+    /* And now the same fact on the *rendered* page, which is a genuinely different claim.
+     *
+     * Everything above reads the API directly, and an API-only assertion cannot catch a client
+     * mapper — which is exactly how the next defect survived. `http/reviewMapper.js` copied
+     * `categoryAverages` through one hardcoded allowlist holding the property vocabulary, shared by
+     * the property summary and the entity summary alike, so all five society keys were dropped on
+     * the way to the page: the payload asserted above was correct and `catAvg` still arrived `{}`.
+     * The suite stayed green because the *mock* provider is target-aware, and the baseline drew
+     * five plausible bars over the hole. Read a bar off the DOM, and neither excuse is available. */
+    await page.goto(`/society/${chosen.slug}?tab=reviews`);
+    await expect(page.getByTestId('society-bar-Safety')).toHaveText('5', { timeout: 20_000 });
+    await expect(page.getByTestId('society-bar-Connectivity')).toHaveText('1');
+    await expect(page.getByTestId('society-bar-Maintenance')).toHaveCount(0);
   }
 });
 

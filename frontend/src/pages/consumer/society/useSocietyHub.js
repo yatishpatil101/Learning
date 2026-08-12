@@ -30,7 +30,7 @@ import {
   getSocietyLocationFix, proposeSocietyLocation,
 } from '../../../lib/store.js';
 import { TAB_IDS, REVIEW_CATS, REVIEW_CAT_KEYS, NOW_YEAR, HERO, CONTRIB_META, BOARD_META, ymd, titleCase } from './constants.js';
-import { baselineBars, genericSociety } from './helpers.jsx';
+import { genericSociety } from './helpers.jsx';
 
 export function useSocietyHub() {
   const rootRef = useScrollReveal();
@@ -205,36 +205,50 @@ export function useSocietyHub() {
     loading: !summary && !summaryFailed,
     failed: summaryFailed,
   }), [summary, summaryFailed]);
-  // Estimated (baseline-blended) ratings are only honest for societies with real,
-  // confirmed specs — i.e. NOT thin and NOT community-sourced. Everyone else shows
-  // real resident reviews only (or "Not rated yet").
-  const showEstimate = !soc._thin && !soc._community;
   /**
-   * Per-aspect means from the summary's `catAvg`, blended with the baseline estimate.
+   * Per-aspect means from the summary's `catAvg` — resident answers, and nothing else.
    *
-   * Also no longer a browser reduce over page one. `catAvg` is sparse — an aspect nobody rated is
-   * absent, not 0 — and each present aspect is averaged over the reviews that answered *it*, so the
-   * `Number.isFinite` guard is the whole presence test.
+   * These used to be blended 50/50 with `baselineBars`, a deterministic per-society estimate seeded
+   * off occupancy and build year. Every curated society therefore drew five confident bars whether
+   * or not a resident had ever rated one, and where a resident *had*, the number shown was half
+   * theirs: a lone 2.0 against a 4.1 baseline displayed as 3.1 while the label next to it read
+   * "(1)". D197 deleted the baseline. A bar now exists only where somebody put a number behind it.
    *
-   * These ids (`Safety`, `Maintenance`, …) are now the server's vocabulary for a society target —
-   * `ReviewCategories.SOCIETY_KEYS` — so a bar with a real number behind it is a real resident
-   * average. Before that split the server only knew the *property* aspects, every key here was
-   * filtered out of the aggregate, and every bar was the baseline alone. The fix had to be a second
-   * vocabulary rather than a mapping: reading `condition` as "Maintenance" would put a number under
-   * a label it does not mean.
+   * `catAvg` is sparse — an aspect nobody rated is absent, not 0 — and each present aspect is
+   * averaged over the reviews that answered *it*, so the `Number.isFinite` guard is the whole
+   * presence test, and a partly-rated society draws a partial grid rather than a padded one. Each
+   * cell carries its own label, so three bars read as three aspects rather than as a total.
+   *
+   * These ids (`Safety`, `Maintenance`, …) are the server's vocabulary for a society target —
+   * `ReviewCategories.SOCIETY_KEYS`. Before that split the server only knew the *property* aspects
+   * and filtered every key here straight back out of the aggregate, which is precisely why the
+   * baseline went unnoticed for so long: it was the only thing these bars had ever shown. The fix
+   * had to be a second vocabulary rather than a mapping — reading `condition` as "Maintenance"
+   * would put a number under a label it does not mean.
    */
   const bars = useMemo(() => {
     const catAvg = summary?.catAvg || {};
-    if (!showEstimate) return REVIEW_CATS.filter((k) => Number.isFinite(catAvg[k])).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: catAvg[k] }));
-    const base = baselineBars(soc);
-    return REVIEW_CATS.map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: Number.isFinite(catAvg[k]) ? +((catAvg[k] + base[k]) / 2).toFixed(1) : base[k] }));
-  }, [soc, summary, showEstimate]);
+    return REVIEW_CATS.filter((k) => Number.isFinite(catAvg[k])).map((k) => ({ id: k, labelKey: REVIEW_CAT_KEYS[k], value: catAvg[k] }));
+  }, [summary]);
+  /**
+   * The headline number is the residents' average and nothing else.
+   *
+   * `null` rather than `0` when nobody has rated it. Not a defence — `Stars` does
+   * `Math.round(Number(value) || 0)`, so `null` and `0` draw the same empty strip, and the guard
+   * that actually keeps either off the page is the `rating.count` branch at each call site. It is a
+   * *signal*: `0` is a number a future caller would happily print beside those stars, and "0/5" on
+   * an unreviewed society is the same false claim the baseline was making, just quieter. `null`
+   * makes the missing case unmistakable to anyone who forgets the branch.
+   *
+   * `Number.isFinite` is the second condition and it is not redundant with `count`: the summary
+   * contract allows `avgRating: null`, so a count with no usable average is expressible on the wire.
+   * It resolves to `null` here rather than `NaN`, which the http mapper also collapses to `count: 0`
+   * one layer down — belt and braces, because the two are read off the payload independently.
+   */
   const overall = useMemo(() => {
     const rated = rating.count > 0 && Number.isFinite(rating.avg);
-    if (!showEstimate) return rated ? +rating.avg.toFixed(1) : 0;
-    const b = bars.reduce((s, x) => s + x.value, 0) / (bars.length || 1);
-    return rated ? +(((rating.avg + b) / 2)).toFixed(1) : +b.toFixed(1);
-  }, [bars, rating, showEstimate]);
+    return rated ? +rating.avg.toFixed(1) : null;
+  }, [rating]);
 
   const priceStats = useMemo(() => {
     const buys = listings.filter((l) => l.deal === 'buy' && l.area);
@@ -548,7 +562,7 @@ export function useSocietyHub() {
 
   const ctx = {
     soc, locName, living, listings, priceStats,
-    showEstimate, rating, overall, bars, reviews, openReport,
+    rating, overall, bars, reviews, openReport,
     qText, setQText, submitQuestion, inp, qa,
     answerFor, aText, setAText, submitAnswer, setAnswerFor,
     iAmResidentOrAdmin, openBoard, calMonth, setCalMonth, eventDots, calDay, setCalDay,

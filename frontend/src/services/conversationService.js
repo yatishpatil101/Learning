@@ -8,26 +8,28 @@
  * ## What the server does and does not model
  *
  * Five endpoints cover the thread itself: list (paged), start (find-or-create), detail, reply,
- * mark-read. What the server has **no concept of** is the mock's `state` machine:
+ * mark-read. What the server has **no concept of** is a conversation lifecycle:
  *
  * > A conversation only exists once the two people already have business together — an approved
  * > contact request in one direction or the other (`ConversationService.related`). There is nothing
  * > to accept, because the contact gate already did the accepting.
  *
- * So every server thread is `active`. The mock's `pending` (I asked, they have not accepted) and
- * `incoming` (they asked, I have not accepted) describe a negotiation that happens one layer up, in
- * the contact gate, and the accept/decline buttons that act on them have no server counterpart.
+ * The prototype modelled that as an `active` / `incoming` / `pending` `state` the contract has no
+ * field for. It is gone (D52). `incoming` (they asked, I have not accepted) described a negotiation
+ * that happens one layer up, in the contact gate, and the accept/decline buttons that acted on it
+ * have been removed with it.
  *
- * `pending` survives as a **client-side staging queue** (`pnPendingRequests`) — a chat the user has
- * composed but which cannot be sent until the gate opens. `startConversation` drains it. That is the
- * same split the anonymous saved-search capture took (D85): stage locally, submit when the server
- * can accept it, and never write a local record that pretends to be a server one.
+ * What survives is a **client-side staging queue** (`pnPendingRequests`) — a chat the user has
+ * composed but which cannot be sent until the gate opens — and the view model says so with a single
+ * boolean, `staged`. That is the same split the anonymous saved-search capture took (D85): stage
+ * locally, submit when the server can accept it, and never write a local record that pretends to be
+ * a server one. `startConversation` drains it.
  *
  * ## Shape gaps, each degraded rather than faked
  *
  * | Mock field | Server | What happens |
  * |---|---|---|
- * | `state` | — | always `active` on live threads; `pending` only from the local queue |
+ * | `staged` | — | `false` on every live thread; `true` only for a row held in the local queue |
  * | `youAre` | — | derived from `counterpartyRole` |
  * | `property.{price,loc,img}` | `propertyTitle` only | title renders, the rest is omitted |
  * | `party.online` | — | always `false` — there is no presence service |
@@ -38,10 +40,10 @@ import { createProvider } from './config.js';
 const provider = createProvider('conversation');
 
 /** The caller's inbox, newest first. Threads are omitted — use {@link getConversation}. */
-export const listConversations = () => provider().listConversations();
+export const listConversations = async () => (await provider()).listConversations();
 
 /** One thread with its messages. `null` when it does not exist or the caller is not in it. */
-export const getConversation = (id) => provider().getConversation(id);
+export const getConversation = async (id) => (await provider()).getConversation(id);
 
 /**
  * Open a thread, or return the existing one.
@@ -52,13 +54,13 @@ export const getConversation = (id) => provider().getConversation(id);
  * **Throws when the two parties have no approved contact.** That is the server's rule and the seam
  * does not soften it: the caller should stage the request instead — see {@link queuePendingChat}.
  */
-export const startConversation = (input) => provider().startConversation(input);
+export const startConversation = async (input) => (await provider()).startConversation(input);
 
 /** Send a message into an existing thread. Resolves with the message as stored. */
-export const replyToConversation = (id, body) => provider().replyToConversation(id, body);
+export const replyToConversation = async (id, body) => (await provider()).replyToConversation(id, body);
 
 /** Mark the caller's side of a thread read. Idempotent on both providers. */
-export const markConversationRead = (id) => provider().markConversationRead(id);
+export const markConversationRead = async (id) => (await provider()).markConversationRead(id);
 
 /**
  * Total attention count for the navbar badge — unread messages plus staged requests.
@@ -66,7 +68,7 @@ export const markConversationRead = (id) => provider().markConversationRead(id);
  * Its own operation rather than `listConversations().length` so the count is defined in one place;
  * the badge and the page disagreeing after an action is the classic version of this bug.
  */
-export const unreadCount = () => provider().unreadCount();
+export const unreadCount = async () => (await provider()).unreadCount();
 
 /**
  * Stage a chat that cannot be sent yet.
@@ -76,7 +78,7 @@ export const unreadCount = () => provider().unreadCount();
  * working affordance) or let it throw (a dead button), the message is queued on the device and sent
  * by {@link drainPendingChats} once approval lands.
  */
-export const queuePendingChat = (property, options) => provider().queuePendingChat(property, options);
+export const queuePendingChat = async (property, options) => (await provider()).queuePendingChat(property, options);
 
 /**
  * Send everything staged that can now be sent, and report what happened.
@@ -84,4 +86,4 @@ export const queuePendingChat = (property, options) => provider().queuePendingCh
  * Returns `{ sent, blocked }`. `blocked` entries stay queued — the gate may open later — which is
  * why this is not a fire-and-forget drain.
  */
-export const drainPendingChats = () => provider().drainPendingChats();
+export const drainPendingChats = async () => (await provider()).drainPendingChats();

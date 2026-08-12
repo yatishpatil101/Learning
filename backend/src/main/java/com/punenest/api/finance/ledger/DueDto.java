@@ -16,12 +16,10 @@ import java.time.LocalDate;
  * due date an owner sees depends on which screen they are looking at.
  *
  * @param id         opaque transaction id
- * @param propertyId the listing
  * @param type       one of {@link TransactionTypes}
  * @param category   owner-chosen free text
  * @param amount     whole INR, unsigned
  * @param date       the anchor — the last known occurrence
- * @param note       optional free text
  * @param recurring  one of {@link RecurringIntervals}; never {@code none} here
  * @param nextDue    the next occurrence on or after today
  * @param daysUntil  whole days from today to {@code nextDue}; negative would mean overdue, though

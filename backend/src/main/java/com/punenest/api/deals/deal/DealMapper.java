@@ -36,7 +36,6 @@ public final class DealMapper {
     /**
      * Synthesize an active deal DTO when no stored row exists (reconciliation item d).
      *
-     * @param propertyId the listing id
      * @param dealIntent {@code buy} or {@code rent}
      */
     public static DealDto synthesizeActive(String propertyId, String dealIntent) {

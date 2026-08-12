@@ -1,5 +1,7 @@
 package com.punenest.api.services.support;
 
+import com.punenest.api.common.attachment.MessageAttachmentDto;
+import com.punenest.api.common.attachment.MessageAttachments;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.HashMap;
@@ -25,10 +27,13 @@ public class SupportTicketMapper {
 
     private final SupportTicketMessageRepository messages;
     private final UserRepository users;
+    private final MessageAttachments attachments;
 
-    public SupportTicketMapper(SupportTicketMessageRepository messages, UserRepository users) {
+    public SupportTicketMapper(SupportTicketMessageRepository messages, UserRepository users,
+            MessageAttachments attachments) {
         this.messages = messages;
         this.users = users;
+        this.attachments = attachments;
     }
 
     public SupportTicketDto toDto(SupportTicket ticket) {
@@ -55,6 +60,12 @@ public class SupportTicketMapper {
             }
         }
 
+        // A third batched lookup, on the same principle as the two above: whatever the page size,
+        // attachments cost one query (D49). Visibility rides on the ticket — whoever got this far
+        // has already passed readable() or the ops guard.
+        Map<UUID, List<MessageAttachmentDto>> files = attachments.byMessage(
+                all.stream().map(SupportTicketMessage::getId).toList());
+
         return tickets.stream()
                 .map(t -> new SupportTicketDto(
                         t.getId().toString(),
@@ -69,7 +80,8 @@ public class SupportTicketMapper {
                                         names.get(m.getAuthorId()),
                                         m.getAuthorRole(),
                                         m.getBody(),
-                                        m.getCreatedAt()))
+                                        m.getCreatedAt(),
+                                        files.getOrDefault(m.getId(), List.of())))
                                 .toList(),
                         t.getCreatedAt()))
                 .toList();

@@ -48,7 +48,6 @@ public class AuditService {
      * @param actor     server-resolved actor handle (user id/mobile)
      * @param action    what happened (e.g. {@code property.approve})
      * @param entity    affected entity type
-     * @param entityId  affected entity id
      * @param checker   the second party in a maker-checker flow, else {@code null}
      * @param metadataJson free-form JSON context (before/after diff); {@code "{}"} if none
      */
@@ -77,7 +76,6 @@ public class AuditService {
      * @param actor    the authenticated caller; {@code actor} and {@code actorRole} are read from it
      * @param action   dotted verb, e.g. {@code report.triage}, {@code user.archive}
      * @param entity   affected entity type
-     * @param entityId affected entity id
      * @param context  alternating key/value pairs; an odd number is a programming error. Values may
      *                 be {@code null}, which is recorded as JSON null rather than dropped — "the
      *                 reason was blank" and "there is no reason field" are different statements.

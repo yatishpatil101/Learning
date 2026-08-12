@@ -223,18 +223,29 @@ class PermissionMapGuardTest extends AbstractApiTest {
     }
 
     /**
-     * The third: {@code users.team} is nullable (V2), so a team-less staff account is legal and the
-     * document has no key that addresses it. Refusing would be inventing a policy nobody wrote;
-     * per-account scoping is tech debt D13's slice, and this class deliberately does not pre-empt it.
+     * The third: {@code users.team} is nullable (V2), so a team-less staff account is legal — but
+     * the two surfaces answer it differently, and deliberately.
+     *
+     * <p>The dashboard is capability-gated and has no desk in its key space, so an absent team is
+     * simply a key the document does not address and the role baseline stands: 200.
+     *
+     * <p>The ops queue is not, since D44 scoped it by desk. There {@code null} is not "no opinion",
+     * it is the query's own word for <em>every</em> desk — so admitting a deskless caller on the
+     * baseline would hand them all five desks' work, strictly more than any desked colleague can
+     * see. Falling back would therefore make the absence of a team a privilege rather than a gap in
+     * the record, so the queue refuses (403) and says which fact is missing. Granting per-account
+     * scope remains D13's slice; this only settles what happens meanwhile.
      */
     @Test
-    @DisplayName("staff with no team are outside the map's key space and keep the role baseline")
+    @DisplayName("staff with no team keep the baseline where it is safe, and are refused the desk-scoped queue")
     void teamlessStaffKeepTheRoleBaseline() throws Exception {
         String unassigned = bearer("9866010009", Roles.Wire.STAFF, null);
         storePermissions("{\"rental\":[\"view_dashboard\"],\"admin\":[\"*\"]}");
 
         assertThat(dashboardStatus(unassigned)).isEqualTo(200);
-        assertThat(queueStatus(unassigned)).isEqualTo(200);
+        assertThat(queueStatus(unassigned))
+                .as("a deskless caller must not out-rank a desked one by seeing every desk")
+                .isEqualTo(403);
     }
 
     /**

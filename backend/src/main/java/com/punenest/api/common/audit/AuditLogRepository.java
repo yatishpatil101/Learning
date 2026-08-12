@@ -24,13 +24,30 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * non-deterministic sort silently drops and repeats rows, which on an ordinary list is a
      * cosmetic glitch and on the audit log is a missing entry in the one record consulted precisely
      * when someone suspects something.
+     *
+     * <p><strong>Why the null checks are cast and the comparisons are not.</strong> A bare
+     * {@code :from is null} renders as {@code $5 is null}, which gives PostgreSQL no way to infer
+     * what {@code $5} is: that comparison is true or false for a parameter of <em>any</em> type, so
+     * nothing in the position constrains it. The server refuses the whole statement — {@code could
+     * not determine data type of parameter $5} — so the unfiltered call, the one the admin console
+     * makes when it opens, answered 500. The cast names the type in the position that lacks one,
+     * matching {@code FlatmateRoomRepository} and {@code TransactionRepository}, which hit the same
+     * wall. Not fixed by requiring a filter: "no filters" is the default view of a timeline.
+     *
+     * <p>The second occurrence is deliberately left bare, and casting it too is not a harmless
+     * belt-and-braces — it is the bug back in a new costume. Hibernate types a parameter from how
+     * it is <em>used</em>, and a cast is not a use: a parameter that appears only inside casts has
+     * no inferred type at all and is bound as {@code bytea}, which PostgreSQL then refuses with
+     * {@code cannot cast type bytea to timestamp with time zone}. {@code a.at >= :from} is what
+     * tells Hibernate this is an {@code Instant}; the cast merely repeats that fact to the server
+     * in the one place the SQL cannot work it out. Both halves are needed and neither is optional.
      */
     @Query("""
             select a from AuditLog a
-            where (:actor is null or a.actor = :actor)
-              and (:entity is null or a.entity = :entity)
-              and (:from is null or a.at >= :from)
-              and (:to is null or a.at <= :to)
+            where (cast(:actor as string) is null or a.actor = :actor)
+              and (cast(:entity as string) is null or a.entity = :entity)
+              and (cast(:from as Instant) is null or a.at >= :from)
+              and (cast(:to as Instant) is null or a.at <= :to)
             order by a.at desc, a.id desc
             """)
     Page<AuditLog> search(@Param("actor") String actor,

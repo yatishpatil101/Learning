@@ -192,6 +192,25 @@ test('the property page society block reports reviews written against that socie
   await expect(block).toContainText('2 reviews');
 });
 
+test('the property page society block invents no rating for a society nobody has reviewed', async ({ page }) => {
+  /* D195. The unrated half, and the half that was actually broken: with no fixture this block used
+     to render a full star strip at a hard-coded `4.2` — not a fallback the reader could recognise
+     as one, but four-and-a-bit filled stars indistinguishable from a real aggregate. It is the same
+     class of defect as the fabricated `registration: true` that put "Society Verified" on
+     unconfirmed buildings, and it survived this long because every assertion above seeds reviews
+     first and so never visits this branch.
+
+     `4.2` is asserted absent by literal on purpose: the number is the bug, and a structural check
+     alone would still pass if someone reinstated it through a differently-named constant. */
+  await page.goto(`/property/${PROP}?tab=amenities`, { waitUntil: 'networkidle' });
+  await reveal(page);
+
+  const block = page.locator('section').filter({ hasText: 'Society Information' }).last();
+  await expect(block).toContainText('Not rated yet', { timeout: 15_000 });
+  await expect(block).not.toContainText('4.2');
+  await expect(block.getByTestId('property-society-rating')).toHaveCount(0);
+});
+
 test('a review posted on the hub shows up on that society\'s directory card', async ({ page, login }) => {
   /* The end-to-end version of the two tests above, and the one that proves the readers converged on
      the *correct* key rather than merely a consistent one: the write goes through the review seam

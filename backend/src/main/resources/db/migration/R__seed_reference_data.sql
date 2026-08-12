@@ -44,7 +44,8 @@ INSERT INTO settings (key, value) VALUES
         "featuredListing": 999,
         "gstPercent": 18,
         "rentPayPercent": 2,
-        "referralReward": 500
+        "referralReward": 500,
+        "referralQualifyPerMonth": 10
     }'::jsonb),
     ('flags', '{
         "kycBadgeEnabled": true,

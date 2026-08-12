@@ -5,9 +5,10 @@ import { seedStorage } from '../../../helpers/seed.js';
  *
  * ## What was broken, and why it was invisible
  *
- * The hub has always drawn five aspect bars — Safety, Maintenance, Management, Amenities,
- * Connectivity — and has always blended them with a deterministic per-society baseline. Two things
- * meant no resident had ever moved one:
+ * The hub drew five aspect bars — Safety, Maintenance, Management, Amenities, Connectivity —
+ * whether or not a resident had ever rated one, because `baselineBars` supplied a deterministic
+ * per-society number seeded off occupancy and build year, and any real average was blended 50/50
+ * into it. Two things meant no resident had ever moved one:
  *
  *   1. the composer collected an overall rating and a paragraph, and nothing else; and
  *   2. the server's category vocabulary was a single closed set of the *property* aspects
@@ -15,27 +16,24 @@ import { seedStorage } from '../../../helpers/seed.js';
  *      if the hub had sent `Safety` the aggregate would have filtered it straight back out.
  *
  * The failure mode is the dangerous one: every bar rendered a plausible number, the page looked
- * complete, and the number was the baseline alone. There was no error to notice. That is why the
- * assertions below are about *movement* rather than presence — presence is exactly what the defect
- * already satisfied.
+ * complete, and the number was the baseline alone. There was no error to notice.
  *
- * ## Why movement, and why it needs no knowledge of the baseline
+ * ## Why these assertions are about presence again
  *
- * `useSocietyHub` renders `(catAvg[k] + base[k]) / 2` when an aspect has a real average, and
- * `base[k]` when it does not. `baselineBars` clamps every baseline into `[3.4, 4.9]`, so:
+ * They could not be, while the baseline existed — presence was precisely what the defect already
+ * satisfied, so the first version of this file asserted *movement* across a before/after snapshot
+ * and leaned on three untouched bars as its load-bearing claim.
  *
- *   rate Safety 5       → (5 + b)/2 > b for every b ≤ 4.9   → strictly up
- *   rate Connectivity 1 → (1 + b)/2 < b for every b ≥ 3.4   → strictly down
- *   rate neither M/M/A  → b, unchanged, to the decimal
+ * D197 deleted the baseline. A bar exists only where a resident put a number behind it, which makes
+ * absence assertable and turns the same claim into a strictly stronger one: rate two aspects and
+ * exactly two bars exist, at exactly the values rated. If an unrated aspect were folded in as 0 —
+ * the shape this codebase keeps refusing, and the one D101 was — five bars would appear instead of
+ * two. If the write dropped `categories`, none would. If the server took the key but the read
+ * filtered it out, none would either. And the numbers are now the residents' own, so they can be
+ * asserted to the value rather than by direction.
  *
- * The three untouched bars are the load-bearing assertion. If an unrated aspect were folded into
- * the aggregate as 0 — the shape the codebase keeps refusing, and the one D101 was — all five would
- * move, and all five would move *down*. If the write dropped `categories`, none would move. If the
- * server accepted the key but the read filtered it out, none would move either. Only "the aspects
- * the reviewer actually touched, and only those, reached the aggregate" produces this pattern.
- *
- * The society is a real MahaRERA row rather than a thin one so the blend is exercised, and the
- * before/after comparison is what makes the test independent of the baseline's actual value.
+ * The society is a real MahaRERA row rather than a thin one because the thin path was already
+ * honest before D197 — a curated society is where the fabrication lived.
  */
 
 const SLUG = 'palm-court-panchshil-undri';
@@ -57,13 +55,18 @@ async function openReviews(page) {
   await reveal(page);
 }
 
-/** The five aspect numbers, as floats, keyed by aspect id. */
+/**
+ * The aspect bars actually on the page, as floats, keyed by aspect id.
+ *
+ * Deliberately tolerant of a missing bar. Post-D197 an aspect nobody rated has no cell at all, and
+ * that absence is half of what these tests assert — a helper that waited for all five would turn
+ * the expected result into a 15-second timeout.
+ */
 async function readBars(page) {
   const out = {};
   for (const id of ASPECTS) {
     const cell = page.getByTestId(`society-bar-${id}`);
-    await expect(cell).toBeVisible({ timeout: 15_000 });
-    out[id] = Number(await cell.innerText());
+    if (await cell.count()) out[id] = Number(await cell.innerText());
   }
   return out;
 }
@@ -99,10 +102,14 @@ test('the society composer offers the five aspects the hub draws bars for, and n
   }
 });
 
-test('rating two aspects moves exactly those two bars, in the directions rated', async ({ page, login }) => {
+test('rating two aspects draws exactly those two bars, at the values rated', async ({ page, login }) => {
   await login.asBuyer();
   await openReviews(page);
-  const before = await readBars(page);
+  /* Settle the summary read before asserting absence, or "no bars" passes for the wrong reason —
+     while the rating is still loading there are none either. The hero above the tabs is the
+     cheapest signal that the read came back, and came back empty. */
+  await expect(page.getByText('Not rated yet')).toBeVisible({ timeout: 15_000 });
+  expect(await readBars(page)).toEqual({});
 
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   // `exact` on the overall strip only: `getByRole`'s name match is a substring one, so a bare
@@ -114,32 +121,31 @@ test('rating two aspects moves exactly those two bars, in the directions rated',
   // The composer closes only after the seam round-trip resolves and the hub re-reads the summary.
   await expect(page.getByRole('button', { name: 'Post review' })).toHaveCount(0, { timeout: 15_000 });
 
-  const after = await readBars(page);
-
-  expect(after.Safety).toBeGreaterThan(before.Safety);
-  expect(after.Connectivity).toBeLessThan(before.Connectivity);
-  /* The half that catches a zero masquerading as a rating. These three were never touched, so they
-     must still be the baseline to the decimal — not "roughly", and specifically not lower. */
-  expect(after.Maintenance).toBe(before.Maintenance);
-  expect(after.Management).toBe(before.Management);
-  expect(after.Amenities).toBe(before.Amenities);
+  await expect(page.getByTestId('society-bar-Safety')).toBeVisible({ timeout: 15_000 });
+  /* One assertion carries both halves: the two rated aspects hold the residents' own numbers rather
+     than a blend of them with anything, and the three skipped ones are absent rather than sitting
+     at 0 — which `toEqual` on the whole map catches without a denylist. */
+  expect(await readBars(page)).toEqual({ Safety: 5, Connectivity: 1 });
 });
 
-test('a review with no aspects rated leaves every bar where it was', async ({ page, login }) => {
+test('a review with no aspects rated draws no bars at all', async ({ page, login }) => {
   /* Aspects are optional — the composer submits on the overall rating alone, exactly as the
-     property modal does. The review still counts toward the headline, but an aggregate it
-     contributed nothing to must not move: a blank row is not a rating of zero, and the reason to
-     assert that here is that "average over everyone" and "average over everyone who answered *this*"
-     look identical until somebody skips a row. */
+     property modal does. The review counts toward the headline, but it answered no aspect, so the
+     grid it contributed nothing to must stay empty: a blank row is not a rating of zero, and
+     "average over everyone" and "average over everyone who answered *this*" look identical until
+     somebody skips a row. Before D197 this was unassertable — the baseline drew five bars for a
+     society whose every aspect was unrated. */
   await login.asBuyer();
   await openReviews(page);
-  const before = await readBars(page);
 
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: '5 star', exact: true }).click();
   await page.getByRole('button', { name: 'Post review' }).click();
   await expect(page.getByRole('button', { name: 'Post review' })).toHaveCount(0, { timeout: 15_000 });
 
-  const after = await readBars(page);
-  for (const id of ASPECTS) expect(after[id]).toBe(before[id]);
+  // The headline moved, so the write and the re-read both happened — without which "no bars" would
+  // be true of a page that simply never updated.
+  const ratings = page.locator('section').filter({ hasText: 'Resident ratings' }).last();
+  await expect(ratings.getByText('5/5')).toBeVisible({ timeout: 15_000 });
+  expect(await readBars(page)).toEqual({});
 });

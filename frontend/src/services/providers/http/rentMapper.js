@@ -125,6 +125,36 @@ export function toTenancyViewModel(row) {
 }
 
 /**
+ * Wire `TenancyDeclaration` → the seam's shape (D194).
+ *
+ * ## 3a. `propId` carries the identifier the page already holds
+ *
+ * Named `propId` and set from the wire's `propertyId` for the same reason `toTenancyViewModel`
+ * carries both: the property page compares it against `p.uuid || p.id`, which is the listing's UUID
+ * against this API and its slug under the mock. That single resolution is what keeps the comparison
+ * true on both providers — the tenancy half of review eligibility was dead for a year because one
+ * side of it compared a slug to a UUID and quietly matched nothing (D194).
+ *
+ * `status` is the only field with authority here. `pending` is somebody's unopposed assertion,
+ * `revoked` is one the owner took back, and only `confirmed` proves a stay — so callers must branch
+ * on it rather than on the row's existence.
+ */
+export function toTenancyDeclarationViewModel(row) {
+  return {
+    id: row?.id || '',
+    propId: row?.propertyId || '',
+    propertyId: row?.propertyId || '',
+    declarantId: row?.declarantId || '',
+    declarantName: row?.declarantName || '',
+    livedFrom: row?.livedFrom || null,
+    livedTo: row?.livedTo || null,
+    status: row?.status || 'pending',
+    confirmed: row?.status === 'confirmed',
+    decidedAt: row?.decidedAt || null,
+  };
+}
+
+/**
  * Wire `TenantProfileDto` → the seam's shape.
  *
  * ## 4. The tenant score is the server's, and `verified` is not `idVerified`

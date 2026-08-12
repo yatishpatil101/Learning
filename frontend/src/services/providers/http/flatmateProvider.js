@@ -18,7 +18,9 @@
  * it exists to convert. Everything that names *me* (`/me/flatmate-requests`) or acts as me
  * (create, interest, join) is caller-scoped and short-circuits without a session.
  */
-import { del, get, patch, post, unwrapPage, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
+import { del, get, patch, post, unwrapPage, unwrapFullPage } from '../../http.js';
+// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { readAccessToken } from '../../../lib/auth.js';
 import {
   conflictSubCode,

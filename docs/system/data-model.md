@@ -105,9 +105,18 @@ users 1--* saved_properties      (*--* users<->properties)
 users 1--* saved_searches
 users 1--* referrals             (referrals.referrerMobile -> users.mobile)
 users 1--* tenancies             (tenant side; created on rent-deal finalize)
+users 1--* tenancy_declarations  (declarant side; V68 — a claimed stay + the owner's answer)
+properties 1--* tenancy_declarations  (many per listing, unlike `tenancies`)
 users 1--1 tenant_profile
 users 1--1 aadhaar_verification
+users 1--1 notification_preferences (V73 — channels, matchAlerts, quiet hours, language. No row means
+                                    the defaults in NotificationPreferenceService; read by
+                                    NotificationPublisher on every server-written notification)
+users 1--0..1 staff_invites      (V71 — back-office accounts only. An unredeemed row BLOCKS login,
+                                  because the account has no usable password until it is redeemed)
 users 1--* service_requests / tickets
+tickets 1--0..1 service_requests (V72 — service_requests.ticket_id, unique where present: the
+                                  board item a request came off, so ops need not match them by hand)
 users 1--* support_tickets 1--* ticket_messages
 
 (society|locality|owner) 1--* entity_reviews

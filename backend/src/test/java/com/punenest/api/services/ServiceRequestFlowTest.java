@@ -36,7 +36,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("staff cannot approve their own draft — not even an admin")
         void staffCannotDecide() throws Exception {
             User buyer = customer("9820000101");
-            User desk = staff("9820000102", Teams.LEGAL);
+            User desk = staff("9820000102", Teams.RENTAL);
             User boss = admin("9820000103");
             Property p = listing(buyer);
             String id = raise(buyer, "rent-agreement", p);
@@ -69,7 +69,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("completed always has a registered document behind it")
         void completionRequiresTheFile() throws Exception {
             User buyer = customer("9820000106");
-            User desk = staff("9820000107", Teams.LEGAL);
+            User desk = staff("9820000107", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             // Nothing shared yet, so there is nothing to be approved and nothing to register.
@@ -84,16 +84,19 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         }
 
         @Test
-        @DisplayName("a rejected draft returns to in-progress, not to a dead end")
+        @DisplayName("a rejected draft lands in changes-requested, not back in the general pool")
         void rejectionReopensTheWork() throws Exception {
             User buyer = customer("9820000108");
-            User desk = staff("9820000109", Teams.LEGAL);
+            User desk = staff("9820000109", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             setStatus(desk, id, "assigned", 200);
             shareDraft(desk, id, 200);
             decide(buyer, id, "reject", 200);
-            expectStatus(desk, id, "in-progress");
+            // D121. This used to read "in-progress" — the same state a request that had never been
+            // rejected also sits in, which made a rejection unrecoverable from the read shape: the
+            // operator saw ordinary work in flight and nothing said the draft had been refused.
+            expectStatus(desk, id, "changes-requested");
 
             // and a revised draft is the same act done twice
             shareDraft(desk, id, 200);
@@ -128,7 +131,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("a decision must be approve or reject")
         void decisionVocabulary() throws Exception {
             User buyer = customer("9820000112");
-            User desk = staff("9820000113", Teams.LEGAL);
+            User desk = staff("9820000113", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             setStatus(desk, id, "assigned", 200);
             shareDraft(desk, id, 200);
@@ -146,7 +149,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("a cancelled request accepts no further work")
         void terminalIsTerminal() throws Exception {
             User buyer = customer("9820000114");
-            User desk = staff("9820000115", Teams.LEGAL);
+            User desk = staff("9820000115", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             setStatus(desk, id, "cancelled", 200);
@@ -159,7 +162,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("an unknown status is a 400 naming the problem, not a 500 from the CHECK")
         void unknownStatusRejected() throws Exception {
             User buyer = customer("9820000116");
-            User desk = staff("9820000117", Teams.LEGAL);
+            User desk = staff("9820000117", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             setStatus(desk, id, "registration", 400);
@@ -169,7 +172,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("assigning takes the request for the staff member who assigned it")
         void assignmentIsAcknowledgement() throws Exception {
             User buyer = customer("9820000118");
-            User desk = staff("9820000119", Teams.LEGAL);
+            User desk = staff("9820000119", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             setStatus(desk, id, "assigned", 200);
@@ -273,7 +276,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("the author's role is taken from the token, not the body")
         void authorRoleIsServerResolved() throws Exception {
             User buyer = customer("9820000128");
-            User desk = staff("9820000129", Teams.LEGAL);
+            User desk = staff("9820000129", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
 
             message(buyer, id, "when will the draft be ready?", 201);
@@ -291,7 +294,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("the timeline narrates every transition, oldest first")
         void timelineNarratesTheWorkflow() throws Exception {
             User buyer = customer("9820000130");
-            User desk = staff("9820000131", Teams.LEGAL);
+            User desk = staff("9820000131", Teams.RENTAL);
             String id = raise(buyer, "rent-agreement", listing(buyer));
             setStatus(desk, id, "assigned", 200);
             shareDraft(desk, id, 200);
@@ -527,7 +530,7 @@ class ServiceRequestFlowTest extends ServiceFixtures {
         @DisplayName("ops does not see it until the payment settles, then it enters the queue at new")
         void invisibleToTheQueueUntilPaid() throws Exception {
             User buyer = customer("9820000141");
-            User desk = staff("9820000142", Teams.LEGAL);
+            User desk = staff("9820000142", Teams.RENTAL);
             String id = raiseUnpaid(buyer, listing(buyer));
 
             // The unpaid request is the customer's, at awaiting-payment...

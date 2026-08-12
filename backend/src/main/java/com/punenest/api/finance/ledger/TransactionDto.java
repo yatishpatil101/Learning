@@ -15,7 +15,6 @@ import java.time.LocalDate;
  * @param category   owner-chosen free text, may be null
  * @param amount     whole INR, unsigned
  * @param date       the date the money moved
- * @param note       optional free text
  * @param recurring  one of {@link RecurringIntervals}
  */
 public record TransactionDto(

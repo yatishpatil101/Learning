@@ -59,7 +59,15 @@ class ProdProfileContractTest {
             "JWT_SECRET",
             "WEB_ORIGINS",
             "CASHFREE_WEBHOOK_SECRET",
-            "INTERNAL_PROXIES");
+            "INTERNAL_PROXIES",
+            // D55. Salts the SHA-256 of the referral signup's IP and User-Agent. Mandatory rather
+            // than defaulted because a default salt committed to this repository is no salt at all:
+            // IPv4 is 2^32 values, so an unsalted — or publicly-salted — digest of an address is
+            // reversed by enumerating the space, which turns a fraud signal into a stored address.
+            // The base file keeps a dev default so a local run needs no secret; prod deliberately
+            // does not, so a deploy that forgets it fails loudly at startup instead of quietly
+            // hashing every referrer's IP under a value an attacker can read on GitHub.
+            "REFERRAL_SIGNAL_SALT");
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
 

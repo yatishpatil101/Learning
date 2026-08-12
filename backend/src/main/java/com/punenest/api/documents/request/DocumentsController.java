@@ -1,11 +1,15 @@
 package com.punenest.api.documents.request;
 
+import com.punenest.api.common.web.PageResponse;
+import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.security.AuthPrincipal;
 import com.punenest.api.security.CurrentUser;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,6 +34,29 @@ public class DocumentsController {
     public DocumentRequestDto requestDocumentAccess(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody DocumentRequestCreate body) {
         return requestService.request(principal.userId(), body);
+    }
+
+    /**
+     * {@code GET /me/document-requests} (contract {@code myDocumentAsks}) — the caller's own asks,
+     * newest first, paged (D123).
+     *
+     * <p>On this controller rather than {@code MeDocumentRequestsController}, despite the
+     * {@code /me} prefix the two now share. That class is the <em>owner's</em> inbox and every
+     * method on it is scoped through {@code properties.owner_id}; this one is scoped through
+     * {@code requester_id}. Putting both authorisation rules in one class is how a later edit ends
+     * up calling the wrong helper, and the buyer's side of a gate belongs with the rest of the
+     * buyer's side of the gate — which is here, next to the {@code POST} that writes the row.
+     *
+     * <p>{@link Pageables#unsorted} for the same reason as the inbox: the order is fixed server-side
+     * and a caller-supplied {@code sort} would let a client order rows by a column that is not
+     * indexed for it.
+     */
+    @GetMapping(Routes.MeDocumentRequests.BASE)
+    public PageResponse<DocumentRequestDto> myDocumentAsks(
+            @CurrentUser AuthPrincipal principal, @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                requestService.myAsks(principal.userId(), Pageables.unsorted(pageable)),
+                dto -> dto);
     }
 
     /**

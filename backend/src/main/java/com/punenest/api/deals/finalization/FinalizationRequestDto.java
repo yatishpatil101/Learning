@@ -14,7 +14,6 @@ import java.time.Instant;
  * @param counterparty the owner/checker as a {@link Party}
  * @param agreedPrice  whole INR — the agreed transaction price
  * @param status       one of {@link FinalizationStatuses}
- * @param createdAt    when the request was created
  */
 public record FinalizationRequestDto(
         String id,

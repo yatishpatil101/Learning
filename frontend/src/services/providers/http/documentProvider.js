@@ -23,7 +23,9 @@
  * table in `documentService.js`. The dev signed-URL limitation means an uploaded file's *bytes* do
  * not render in dev (D120); the upload round-trip, list and delete are fully live.
  */
-import { get, del, patch, postMultipart, MAX_PAGE_SIZE, unwrapFullPage } from '../../http.js';
+import { get, del, patch, postMultipart, unwrapFullPage } from '../../http.js';
+// Leaf module, no imports of its own — see its header, and D208. Deliberately not from `http.js`.
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toDoc, toDocList, toRequestList, toStatusUpdate } from './documentMapper.js';
 
 /** The owner's uploaded files for one property, newest first (the server already orders them). */

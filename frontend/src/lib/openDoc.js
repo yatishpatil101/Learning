@@ -13,7 +13,19 @@
 // as a top-level document), so it is excluded from the passive-viewable allowlist.
 const VIEWABLE_DATA_URL = /^data:(image\/(?!svg\b)[a-z0-9.+-]+|application\/pdf);base64,/i;
 
-export const isViewableDoc = (url) => VIEWABLE_DATA_URL.test(url || '') || /^https?:\/\//i.test(url || '');
+/* The dev backend mints a vault signed URL against a storage stub host that does not resolve in the
+   browser (documentMapper §1, D120). Opening it yields a blank tab with a DNS error rather than the
+   "no preview" toast the caller wants, so it is not viewable. Production signed URLs sit on a real
+   storage origin and open normally. This lived at one call site (`DocumentsTab`) and every other
+   caller of `openDocUrl` was silently missing it — the point of this module is that the guard is
+   in one place. */
+const DEV_STORAGE_STUB = /^https?:\/\/mock\.storage\.local\b/i;
+
+export const isViewableDoc = (url) => {
+  const u = url || '';
+  if (VIEWABLE_DATA_URL.test(u)) return true;
+  return /^https?:\/\//i.test(u) && !DEV_STORAGE_STUB.test(u);
+};
 
 export function openDocUrl(url) {
   if (!isViewableDoc(url)) return false;

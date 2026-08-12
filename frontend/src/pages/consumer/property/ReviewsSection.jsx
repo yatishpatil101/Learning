@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import MobileCollapse from '../../../components/ui/MobileCollapse.jsx';
 import { digits } from '../../../lib/contact.js';
-import { myMobile, getTenanciesFor } from '../../../lib/store.js';
+import { myMobile } from '../../../lib/store.js';
 import { listPropertyReviews, createPropertyReview, getPropertyReviewSummary } from '../../../services/reviewService.js';
+import {
+  myTenancies,
+  listTenancyDeclarations,
+  declareTenancy,
+  confirmTenancyDeclaration,
+  revokeTenancyDeclaration,
+} from '../../../services/rentService.js';
 import { listVisits } from '../../../services/visitService.js';
 import { Stars } from './Stars.jsx';
 import { ReviewModal } from './ReviewModal.jsx';
@@ -113,12 +120,67 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
 
   const owner = String(p.ownerMobile || '');
   const isOwner = isIn && digits(myMobile()) === digits(owner);
-  /* Mock-only, and named as such rather than left looking load-bearing: `getTenanciesFor` reads a
-     localStorage bucket that nothing on the live path ever writes, so this term is always false
-     against the real API. It stays because it is the mock suite's route to an eligible reviewer;
-     the live equivalent needs a tenancy read on the seam. Keyed on `p.id` deliberately — the
-     bucket is written with the same slug. */
-  const hasTenancy = getTenanciesFor(myMobile()).some((t) => t.propId === p.id);
+
+  /* ── The tenancy half of eligibility, which used to be dead against the API ──────────────────
+     This term was `getTenanciesFor(myMobile()).some(t => t.propId === p.id)` — a read of a
+     localStorage bucket nothing on the live path ever writes. Against the real API it was
+     unconditionally false, so the write path was closed for the one person most entitled to use
+     it: an actual resident. It passed every test because in mock mode that store is the source of
+     truth for both halves at once, so the check agreed with itself and with nothing else.
+
+     A stay is now proved two ways, and the server agrees with both (`PropertyExperience`):
+
+       1. a BROKERED TENANCY — a rent deal closed here, so `/me/tenancies` has the row; and
+       2. an OWNER-CONFIRMED DECLARATION — the resident says they lived here and the *landlord*
+          agrees. Most Indian leases are signed off-platform, so without this second door the
+          honest majority of residents stay locked out.
+
+     Both are read from the seam, so both work in either mode.
+
+     Matched on `propId`, never `p.id`. That single resolution (`p.uuid || p.id`) is the listing's
+     UUID against the live API and its slug under the mock, and both providers key a tenancy by the
+     same identifier the review routes bind — so the comparison is true on each. Comparing `p.id`
+     instead would match nothing live, which is exactly how the visit half was broken once already. */
+  const [brokeredTenancy, setBrokeredTenancy] = useState(false);
+  useEffect(() => {
+    // Cleared on every id change, not just on sign-out. The `alive` guard stops a late response
+    // from landing on the wrong listing, but it cannot clear what is already in state — so between
+    // one property and the next, standing earned on the first would still be granting the composer
+    // on the second for as long as the new read takes.
+    setBrokeredTenancy(false);
+    if (!isIn || !propId) return undefined;
+    let alive = true;
+    myTenancies()
+      // Fails closed: an unreadable tenancy list means "not proven", which shows the prompt to ask
+      // the owner. Failing open would let an unreachable endpoint hand out reviewer standing.
+      .then((all) => { if (alive) setBrokeredTenancy(all.some((tn) => String(tn.propId) === propId)); })
+      .catch(() => { if (alive) setBrokeredTenancy(false); });
+    return () => { alive = false; };
+  }, [isIn, propId]);
+
+  /* Declarations the caller may see for this listing. The server decides the row set — every claim
+     when the caller owns the listing, their own otherwise — so this holds two different things
+     depending on who is asking, and the two branches below say which. Deliberately not filtered
+     here: a client-side filter over rows the server was willing to hand out is a rendering
+     preference, not a rule. */
+  const [declarations, setDeclarations] = useState([]);
+  useEffect(() => {
+    setDeclarations([]); // same reason as above — carried claims would follow the reader across listings
+    if (!isIn || !propId) return undefined;
+    let alive = true;
+    listTenancyDeclarations(propId)
+      .then((rows) => { if (alive) setDeclarations(rows); })
+      .catch(() => { if (alive) setDeclarations([]); });
+    return () => { alive = false; };
+  }, [isIn, propId]);
+
+  /* A non-owner's list is their own row and only ever their own, so the first entry is theirs. */
+  const myDeclaration = isOwner ? null : (declarations[0] || null);
+  /* `status`, never the row's existence. A pending claim is an assertion nobody has agreed with —
+     treating it as proof would turn "declare" into a self-service eligibility button and make the
+     owner's confirmation decorative. The server refuses it too (422), so a client that got this
+     wrong would open a composer that could not submit. */
+  const hasTenancy = brokeredTenancy || myDeclaration?.status === 'confirmed';
 
   /* The anti-fake-review gate: only someone who actually visited (or lived there) may rate.
 
@@ -156,11 +218,56 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
     if (isOwner) { toast(t('property.cantReviewOwn'), 'info'); return; }
     if (!eligible) {
       if (myVisit === 'scheduled') toast(t('property.visitBookedReview'), 'info');
+      // A resident who never booked a visit is not told to go and book one — that sentence was
+      // simply wrong for them, and it was the only thing the dead tenancy check left them with.
+      else if (myDeclaration) toast(t('property.declarationPending'), 'info');
       else toast(t('property.bookVisitFirst'), 'info');
       return;
     }
     setModal(true);
   };
+
+  /* ── Declaring a past stay, and the owner answering ────────────────────────────────────────── */
+
+  const [deciding, setDeciding] = useState(false);
+  /* The banner that replaces whichever control was just used. Both actions unmount the button the
+     user activated, which drops focus to `<body>` a long way up the page; moving it here keeps a
+     keyboard reader where they were, and `role="status"` is what makes the outcome audible at all
+     (the toast is not, and the toast is otherwise the only announcement). */
+  const outcomeRef = useRef(null);
+  const restoreFocus = () => { requestAnimationFrame(() => outcomeRef.current?.focus()); };
+
+  const declare = () => {
+    // Guarded twice, because the flag is only true after a re-render: a double-tap inside that gap
+    // sends a second POST, which the server correctly refuses as a duplicate — and the user is then
+    // shown a failure toast for an operation that worked, with the pending banner contradicting it
+    // underneath.
+    if (deciding) return;
+    setDeciding(true);
+    declareTenancy(propId)
+      // Replaces rather than prepends: a non-owner's list is exactly their own row, and the server
+      // permits only one, so anything else here would be a second copy of the same claim.
+      .then((row) => { setDeclarations([row]); toast(t('property.declarationSent'), 'success'); restoreFocus(); })
+      .catch(() => toast(t('property.declarationFailed'), 'error'))
+      .finally(() => setDeciding(false));
+  };
+
+  /* The owner's answer. Applies the row the server returned rather than a locally-assumed status:
+     the decision is the server's, and guessing it here would let the list disagree with the
+     eligibility the same server is about to enforce. */
+  const decide = (id, action) => {
+    if (deciding) return;
+    setDeciding(true);
+    action(id)
+      .then((row) => setDeclarations((prev) => prev.map((d) => (d.id === row.id ? row : d))))
+      .catch(() => toast(t('property.declarationFailed'), 'error'))
+      .finally(() => setDeciding(false));
+  };
+
+  /* Offered only to somebody who has no other route in. A completed visit already makes them
+     eligible, and a brokered tenancy is already on record — asking either of them to make a claim
+     the owner then has to answer is work for both parties that changes nothing. */
+  const canDeclare = isIn && !!propId && !isOwner && !eligible && myVisit !== 'completed' && !myDeclaration;
 
   const submit = (review) => {
     // Re-read rather than push the local object in: the server decides the id, the timestamp and
@@ -192,6 +299,65 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
           {!isOwner ? <button type="button" onClick={openRate} className="btn-teal inline-flex items-center gap-2 text-sm py-2.5 px-4"><Icon name="star" className="w-4 h-4" /> {t('property.rateProperty')}</button> : null}
         </div>
       </div>
+
+      {/* ── The tenancy door (D194) ──────────────────────────────────────────────────────────────
+          Two audiences, never both at once. A former resident is offered a way in that does not
+          involve pretending to be a buyer and booking a viewing of the flat they used to live in;
+          the owner is asked to answer, because their agreement is the only thing that makes the
+          claim mean anything. */}
+      {canDeclare ? (
+        <div className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 mb-6 flex items-center gap-3 flex-wrap" data-testid="tenancy-declare">
+          <Icon name="home" className="w-5 h-5 text-brand-teal-3 flex-shrink-0" />
+          <p className="text-slate-300 text-sm flex-1 min-w-[12rem]">{t('property.livedHerePrompt')}</p>
+          <button type="button" onClick={declare} disabled={deciding} className="btn-teal inline-flex items-center gap-2 text-sm min-h-[44px] sm:min-h-0 py-2.5 px-4 disabled:opacity-60">{t('property.declareTenancy')}</button>
+        </div>
+      ) : null}
+
+      {myDeclaration && myDeclaration.status !== 'confirmed' ? (
+        /* Pending and revoked get their own sentence rather than sharing one. "Waiting" and "the
+           owner did not agree" are different facts, and collapsing them would leave a rejected
+           claimant waiting forever for an answer that has already been given. */
+        <div ref={outcomeRef} tabIndex={-1} role="status" className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 mb-6 flex items-center gap-3" data-testid={'tenancy-declaration-' + myDeclaration.status}>
+          <Icon name={myDeclaration.status === 'revoked' ? 'alert-triangle' : 'clock'} className="w-5 h-5 text-slate-400 flex-shrink-0" />
+          <p className="text-slate-300 text-sm">{t(myDeclaration.status === 'revoked' ? 'property.declarationRevoked' : 'property.declarationPending')}</p>
+        </div>
+      ) : null}
+
+      {isOwner && declarations.length ? (
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 mb-6" data-testid="tenancy-claims">
+          <h3 className="text-white font-semibold text-sm mb-1">{t('property.tenancyClaims')}</h3>
+          {/* The warning is the feature. Confirming is not an acknowledgement that somebody wrote
+              in — it hands them the right to publish a rating on this listing, and an owner who
+              taps it to clear a notification has given that away without being told. */}
+          <p className="text-slate-400 text-xs mb-3">{t('property.tenancyClaimsHint')}</p>
+          {declarations.map((d) => {
+            // Every row's buttons read "Confirm" / "Reject", so an owner navigating by button list
+            // hears the same word repeated with no way to tell which stranger they are about to
+            // hand publish rights to. The name is in a sibling span, which is not part of any
+            // accessible name — so it is put into one.
+            const who = d.declarantName || t('property.someone');
+            return (
+              <div key={d.id} className="flex items-center gap-3 flex-wrap py-2 border-t border-white/8 first:border-t-0">
+                <span className="text-white text-sm font-medium flex-1 min-w-[8rem]">{who}</span>
+                {d.livedFrom || d.livedTo ? <span className="text-slate-500 text-xs">{[d.livedFrom, d.livedTo].filter(Boolean).join(' – ')}</span> : null}
+                {d.status === 'confirmed' ? (
+                  <>
+                    <span role="status" className="text-emerald-400 text-xs inline-flex items-center gap-1"><Icon name="badge-check" className="w-3 h-3" /> {t('property.claimConfirmed')}</span>
+                    <button type="button" disabled={deciding} aria-label={t('property.claimWithdrawFor', { name: who })} onClick={() => decide(d.id, revokeTenancyDeclaration)} className="text-xs font-medium text-slate-400 hover:text-red-400 min-h-[44px] sm:min-h-0 px-2 disabled:opacity-60">{t('property.claimWithdraw')}</button>
+                  </>
+                ) : d.status === 'revoked' ? (
+                  <span role="status" className="text-slate-500 text-xs">{t('property.claimRevoked')}</span>
+                ) : (
+                  <>
+                    <button type="button" disabled={deciding} aria-label={t('property.claimConfirmFor', { name: who })} onClick={() => decide(d.id, confirmTenancyDeclaration)} className="btn-teal text-xs min-h-[44px] sm:min-h-0 py-2 px-3 disabled:opacity-60">{t('property.claimConfirmAction')}</button>
+                    <button type="button" disabled={deciding} aria-label={t('property.claimRejectFor', { name: who })} onClick={() => decide(d.id, revokeTenancyDeclaration)} className="text-xs font-medium text-slate-400 hover:text-red-400 min-h-[44px] sm:min-h-0 px-2 disabled:opacity-60">{t('property.claimRejectAction')}</button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {loading ? (
         /* Placeholders rather than the empty-state panel. "No reviews yet" is a claim about the

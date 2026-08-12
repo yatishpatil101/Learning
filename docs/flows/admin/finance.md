@@ -140,6 +140,64 @@ A synthetic ledger built from existing collections, newest-first (sorted by `dat
 - GST, payouts and net-retained are computed in the browser from `monthTotal` and must be
   authoritative server figures.
 
+### 5.11 Disclosed figures: what is measured and what is a structural zero (D63, D65)
+
+Three of the money lines on this screen describe paths the platform **does not have**. Until this
+section shipped, they rendered as ordinary numbers, and a structural zero and a measured zero look
+identical to an operator:
+
+| Figure | Reality today | Evidence |
+| --- | --- | --- |
+| `payoutsCompleted` (server) / **Partner payouts** (screen) | No payout has ever been executed. `payout_accounts` stores *where* a remittance would go; nothing writes one. | `AdminMetricsService.finance()` passes a literal `0L`; there is no `payoutsCompleted()` repository method. |
+| `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | Literal `0L`, same call. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
+| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V8__engagement_billing_cms.sql`, status vocabulary widened in `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions rent + subscriptions + boosts only. |
+
+**Why disclosed rather than omitted.** Dropping a figure the screen has a slot for makes a rendering
+bug and an absent money path into the same blank cell. Keeping the number and attaching a reason
+makes the gap legible: the operator sees `₹0`, sees *why* it is zero, and cannot mistake it for a
+quiet month.
+
+**Which flag turns each one on.** The disclosures are configuration, not data - nothing in the
+schema can distinguish "no refunds this month" from "this platform cannot refund", so the answer is
+a fact about which slices have shipped. Defaults are today's truth.
+
+| Property (`application.properties`) | Env override | Default | Turns off the disclosure for |
+| --- | --- | --- | --- |
+| `punenest.finance.payouts-measured` | `FINANCE_PAYOUTS_MEASURED` | `false` | `payoutsCompleted` / **Partner payouts (65%)** |
+| `punenest.finance.refunds-measured` | `FINANCE_REFUNDS_MEASURED` | `false` | `refunds` / **Refunds (recent)** |
+| `punenest.finance.service-orders-counted` | `FINANCE_SERVICE_ORDERS_COUNTED` | `false` | services inside **revenue** / **Gross revenue** / **Services revenue** KPI |
+
+They are read in `AdminMetricsService`'s constructor via `@Value` and travel on the `AdminFinance`
+response as `payoutsMeasured`, `refundsMeasured` and `serviceOrdersCounted`. Three tests hold the
+promise "set the property, no code change" together, and it takes all three:
+`AdminFinanceDisclosureTest` pins the defaults; `AdminFinanceDisclosureEnabledTest` proves the
+properties actually flip the response; and `AdminFinancePropertyContractTest` reads the real
+`src/main/resources/application.properties` off disk and checks it spells the keys the way the
+annotations read them - without it, `src/test/resources/application.properties` shadows the deployed
+file, so a typo there (`payout-measured` for `payouts-measured`) would leave the first two green
+while the env override did nothing in production.
+
+**They disclose; they do not enable.** Setting one `true` does not create the money path behind it -
+it only stops the screen from warning that the path is missing. Turning one on before the thing it
+describes exists puts the dashboard back to lying quietly, which is the state this section ends.
+
+**Frontend delivery, and its known gap.** `/admin/finance` (the React page) does not call the
+backend endpoint - it is entirely mock-driven (`getSettings()` + `rawDb()`), and there is no admin
+seam in `src/services/providers/**` (see [`../../system/frontend-data-seam.md`](../../system/frontend-data-seam.md);
+a `financeService.js` was deleted for having zero importers). So the page reads the same three flags
+from the settings document it already loads:
+
+```
+settings.finance.payoutsMeasured        // absent or non-true => disclose
+settings.finance.refundsMeasured
+settings.finance.serviceOrdersCounted
+```
+
+Absent means "not measured" deliberately: a disclosure that defaults to *measured* is an affirmative
+claim about a figure, made by a typo. **When the admin http provider lands, these three keys should
+be fed from the endpoint's `payoutsMeasured` / `refundsMeasured` / `serviceOrdersCounted` fields**,
+at which point the server property becomes the single source of truth for both halves.
+
 ## 6. Maker-checker / approval
 - **Applicable: no.** Finance is a read-only reporting surface today - no proposal/approval
   states, no mutations, no audit writes. Refunds/payouts are only *displayed*, not initiated

@@ -39,10 +39,11 @@ public class FlatSplitController {
      *
      * <p>Reads the rooms produced by {@link #split}, which is why it lives here rather than on the
      * flatmates feed: same resource, opposite direction. Anonymous view — no host number — like
-     * every other unauthenticated room read.
+     * every other unauthenticated room read, so it returns the card projection
+     * ({@link FlatmateRoomFeedDto}, D80) rather than the full room.
      */
     @GetMapping(Routes.Properties.ROOMS)
-    public List<FlatmateRoomDto> rooms(@PathVariable UUID id) {
+    public List<FlatmateRoomFeedDto> rooms(@PathVariable UUID id) {
         return supply.roomsInFlat(id);
     }
 

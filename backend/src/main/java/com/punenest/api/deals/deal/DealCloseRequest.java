@@ -16,7 +16,6 @@ import jakarta.validation.constraints.Size;
  *
  * @param agreedPrice        whole INR — the agreed transaction price
  * @param counterpartyMobile the other party's mobile (may be off-platform)
- * @param note               optional free-text note
  */
 public record DealCloseRequest(
         @NotNull @Positive Long agreedPrice,

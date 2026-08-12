@@ -9,7 +9,6 @@ import java.time.Instant;
  * @param type      notification type (e.g. "price_drop"), nullable
  * @param read      whether the caller has seen it
  * @param link      deep link, nullable
- * @param createdAt timestamp
  */
 public record NotificationResponse(
         String id,

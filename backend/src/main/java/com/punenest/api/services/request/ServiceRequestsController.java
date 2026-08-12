@@ -1,5 +1,6 @@
 package com.punenest.api.services.request;
 
+import com.punenest.api.common.validation.IndianMobile;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
@@ -58,6 +59,24 @@ public class ServiceRequestsController {
     private final ServiceRequestIdentityService identities;
 
     /**
+     * The read side (D44/D45). Split out of {@link ServiceRequestService} for the same reason as
+     * {@link #identities}: the queue's authorisation rule is desk scoping, which has nothing to do
+     * with the payment state machine the write side is.
+     */
+    private final ServiceRequestQueryService queries;
+
+    /**
+     * The co-fill counterparty (D121). Its own collaborator for the same reason as
+     * {@link #identities}: the invite's authorisation rule is "the requester and nobody else", and
+     * the decision's is "the invited person and nobody else" — a third and fourth model on a
+     * resource whose other nine methods all resolve "ops or the customer".
+     */
+    private final CoFillParties parties;
+
+    /** Read receipts on the conversation (D121). */
+    private final ServiceRequestReadReceipts receipts;
+
+    /**
      * {@code POST /service-requests/{id}/cancel} — the customer's escape from an abandoned checkout
      * (D152).
      *
@@ -84,9 +103,15 @@ public class ServiceRequestsController {
                     + Capabilities.REQUIRE_VIEW_SERVICE_REQUESTS;
 
     public ServiceRequestsController(ServiceRequestService service,
-            ServiceRequestIdentityService identities) {
+            ServiceRequestIdentityService identities,
+            ServiceRequestQueryService queries,
+            CoFillParties parties,
+            ServiceRequestReadReceipts receipts) {
         this.service = service;
         this.identities = identities;
+        this.queries = queries;
+        this.parties = parties;
+        this.receipts = receipts;
     }
 
     /**
@@ -98,15 +123,23 @@ public class ServiceRequestsController {
      *
      * <p>The guard is {@link #OPS_MAY_SEE_THE_QUEUE}: no role is required to read your own requests,
      * and the capability is required to read everybody's.
+     *
+     * <p>{@code team} narrows an admin's view to one desk (D44); a staff caller's is already pinned
+     * to their own and naming another is a 403. {@code ticketId} answers "which request came off this
+     * board item" (D45) — the direction of the link that {@code ServiceRequest.ticketId} does not
+     * serve, so an operator holding a ticket does not have to match it to a request by hand.
      */
     @GetMapping(Routes.ServiceRequests.BASE)
     @PreAuthorize(OPS_MAY_SEE_THE_QUEUE)
     public PageResponse<ServiceRequestDto> list(@CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String team,
+            @RequestParam(required = false) String ticketId,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                service.list(principal, type, status, Pageables.unsorted(pageable)), dto -> dto);
+                queries.list(principal, type, status, team, ticketId, Pageables.unsorted(pageable)),
+                dto -> dto);
     }
 
     /** {@code POST /service-requests} (contract {@code createServiceRequest}) — 201. */
@@ -121,6 +154,21 @@ public class ServiceRequestsController {
     @GetMapping(Routes.ServiceRequests.BY_ID)
     public ServiceRequestDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.get(principal, id);
+    }
+
+    /**
+     * {@code GET /service-requests/{id}/checklist} (contract {@code getServiceRequestChecklist}) —
+     * the named paperwork this request needs and what has arrived (D120).
+     *
+     * <p>No role annotation, by design: the customer is the person this is for, and the guard is
+     * participant identity inside {@code ServiceRequestService.checklist} — a request that is not
+     * the caller's is {@code 404}, not {@code 403}. Read-only; the only way to move an item is to
+     * upload the document, which is {@link Routes.ServiceRequests#DOCS}.
+     */
+    @GetMapping(Routes.ServiceRequests.CHECKLIST)
+    public ServiceRequestChecklistDto checklist(
+            @CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.checklist(principal, id);
     }
 
     /**
@@ -269,6 +317,35 @@ public class ServiceRequestsController {
         return service.cancelUnpaid(principal, id);
     }
 
+    /**
+     * {@code POST /service-requests/{id}/parties} (contract {@code inviteServiceRequestParty}) — 201.
+     * The requester's own request, and nobody else's.
+     *
+     * <p><strong>No {@code @PreAuthorize}, and this one excludes ops rather than merely not
+     * requiring them.</strong> Naming the counterparty on an agreement decides who may read it, so
+     * it is the customer's act and not a support action. {@code CoFillParties} answers a stranger's
+     * request with 404, matching every other customer-scoped route on this resource.
+     */
+    @PostMapping(Routes.ServiceRequests.PARTIES)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ServiceRequestPartyDto inviteParty(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody PartyInvite body) {
+        return parties.invite(principal, id, body.role(), body.mobile());
+    }
+
+    /**
+     * {@code POST /service-requests/{id}/read} (contract {@code markServiceRequestRead}) — 204.
+     * Anyone who can read the request.
+     *
+     * <p>204 rather than the updated thread: the client already holds the messages, and returning
+     * them would make an idempotent bookkeeping call look like a read of the conversation.
+     */
+    @PostMapping(Routes.ServiceRequests.READ)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markRead(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        receipts.markRead(principal, id);
+    }
+
     /** Body of {@code updateServiceRequestStatus} (schema {@code StatusUpdate}). */
     public record StatusRequest(@NotBlank String status, @Size(max = 500) String note) {
     }
@@ -279,5 +356,15 @@ public class ServiceRequestsController {
 
     /** Body of {@code decideServiceRequestDraft} (schema {@code DecisionRequest}). */
     public record DecisionRequest(@NotBlank String decision, @Size(max = 500) String note) {
+    }
+
+    /**
+     * Body of {@code inviteServiceRequestParty} (schema {@code ServiceRequestPartyInvite}).
+     *
+     * <p>{@link IndianMobile} so a typo that is not even a phone number is a 400 here rather than a
+     * "no account" 409 further in — the two are different problems and the caller can only fix one
+     * of them.
+     */
+    public record PartyInvite(@NotBlank String role, @NotBlank @IndianMobile String mobile) {
     }
 }

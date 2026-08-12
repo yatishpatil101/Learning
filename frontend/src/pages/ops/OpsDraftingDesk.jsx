@@ -4,6 +4,7 @@ import {
   listServiceRequestQueue, readServiceRequestIdentities, takeServiceRequest,
 } from '../../services/serviceRequestService.js';
 import { classNames, fmtINR, fmtNum } from '../../lib/format.js';
+import { isHttpDomain } from '../../services/config.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Table from '../../components/ui/Table.jsx';
@@ -73,13 +74,18 @@ const TYPE_OPTS = [
   { value: 'valuation', label: 'Property Valuation' },
 ];
 
-/* The server's status vocabulary, not the stepper's — this filter is sent as `?status=`. */
+/* `ServiceRequestStatus` in full, in transition order — this filter is sent as `?status=`, and the
+   server is the only thing that defines these. `awaiting-payment` (a paid desk before the payment
+   lands) and `changes-requested` (the customer sent a shared draft back) are both real states a
+   matter sits in and both were missing here, so a desk filtering for them saw an empty queue. */
 const STATUS_OPTS = [
   { value: '', label: 'All statuses' },
+  { value: 'awaiting-payment', label: 'Awaiting payment' },
   { value: 'new', label: 'New' },
   { value: 'assigned', label: 'Assigned' },
   { value: 'in-progress', label: 'In progress' },
   { value: 'draft-shared', label: 'Draft shared' },
+  { value: 'changes-requested', label: 'Changes requested' },
   { value: 'approved', label: 'Approved' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -91,6 +97,20 @@ const STATUS_OPTS = [
  * An allow-list rather than a deny-list: `details` is whatever a form put there, so anything not
  * named here is skipped — including `_state`, the wizard's full form snapshot, which carries the
  * parties' mobile numbers.
+ *
+ * ## Live only, on purpose (D184)
+ *
+ * This screen does not dual-run on the mock. It used to, and the status filter was the tell: the
+ * filter sends `?status=` in the *server's* vocabulary, while the mock's rows come from
+ * `lib/serviceFlow.js` and carry the stepper's (`docs_review`, …), so in mock mode most filters
+ * matched nothing and the desk looked empty when it was not. A translation table between the two
+ * was rejected — a mapping that exists only to make a demo look right is a second vocabulary to
+ * keep in sync, and it would have been the *third* thing to update whenever the server added a
+ * status. The mock provider's three desk operations have been removed instead, and in mock mode
+ * this screen says so rather than rendering a queue it cannot filter.
+ *
+ * That leaves one vocabulary, `ServiceRequestStatus`, and `STATUS_OPTS` below is now all nine of
+ * its values rather than the seven that happened to be reachable through the demo flow.
  */
 const DETAIL_FIELDS = [
   ['property', 'Property'],
@@ -137,10 +157,12 @@ const PARTY_LABEL = { owner: 'Owner', tenant: 'Tenant' };
 
 export default function OpsDraftingDesk() {
   const { toast } = useToast();
+  /* Read once: the seam's domain opt-in is fixed at build time, so this cannot change under us. */
+  const liveApi = isHttpDomain('serviceRequest');
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
-  const [state, setState] = useState({ status: 'loading', items: [], total: 0 });
+  const [state, setState] = useState(() => ({ status: liveApi ? 'loading' : 'offline', items: [], total: 0 }));
   const [nonce, setNonce] = useState(0);
 
   const [detail, setDetail] = useState(null);
@@ -152,6 +174,7 @@ export default function OpsDraftingDesk() {
   const busy = useRef(false);
 
   const load = useCallback(() => {
+    if (!liveApi) return undefined;
     let live = true;
     setState((s) => ({ ...s, status: 'loading' }));
     listServiceRequestQueue({ type: type || undefined, status: status || undefined, page, size: PAGE_SIZE })
@@ -160,7 +183,7 @@ export default function OpsDraftingDesk() {
       .catch(() => { if (live) setState({ status: 'error', items: [], total: 0 }); })
       .finally(() => {});
     return () => { live = false; };
-  }, [type, status, page]);
+  }, [type, status, page, liveApi]);
 
   useEffect(load, [load, nonce]);
 
@@ -265,12 +288,29 @@ export default function OpsDraftingDesk() {
         title="Drafting desk"
         subtitle="The live service-request queue, and the parties' identity numbers for a matter you hold."
         actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost">
+          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost" disabled={!liveApi}>
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
       />
 
+      {state.status === 'offline' ? (
+        <div className="pn-card flex flex-col items-center gap-3 p-8 text-center">
+          <ShieldAlert className="h-6 w-6 text-gray-400" />
+          <p className="text-sm text-gray-300">
+            The drafting desk reads the server&apos;s request queue directly, so it needs the live API.
+          </p>
+          <p className="max-w-md text-xs text-gray-500">
+            There is no demo queue behind this screen. The seeded workflow in the browser speaks the
+            stepper&apos;s statuses, not the server&apos;s, so filtering it here would quietly return
+            nothing — an empty desk is indistinguishable from a finished one. Add
+            {' '}<code>serviceRequest</code> to <code>VITE_API_DOMAINS</code> and run the backend.
+          </p>
+        </div>
+      ) : null}
+
+      {state.status === 'offline' ? null : (
+      <>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <Select value={type} onChange={(v) => { setType(v); setPage(0); }} options={TYPE_OPTS} className="sm:w-56" ariaLabel="Filter by desk" />
         <Select value={status} onChange={(v) => { setStatus(v); setPage(0); }} options={STATUS_OPTS} className="sm:w-48" ariaLabel="Filter by status" />
@@ -428,6 +468,8 @@ export default function OpsDraftingDesk() {
           </div>
         ) : null}
       </Modal>
+      </>
+      )}
     </div>
   );
 }

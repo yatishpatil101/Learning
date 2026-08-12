@@ -32,11 +32,15 @@ import org.springframework.transaction.annotation.Transactional;
  * the rental desk protects nothing and would send a staffer hunting for a ticket they can plainly
  * see referenced in an email. Being told "that belongs to the legal desk" is the useful answer.
  *
- * <p><strong>Service requests are not scoped this way, on purpose.</strong> {@code service_requests}
- * has no team column and its {@code type} is free text, so a team would have to be inferred from the
- * type string — and the day somebody adds a new service type, every request of it would silently
- * belong to nobody and vanish from every queue. An unscoped queue that shows too much is a worse
- * product and a better failure mode than a scoped one that hides work. Recorded as debt.
+ * <p><strong>Service requests are scoped the same way</strong> (D44, closed). They used to be the
+ * exception: {@code service_requests} had no team column and its {@code type} was free text, so a
+ * desk could only have been inferred from the type string — and the day somebody added a new service
+ * type, every request of it would have belonged to nobody and vanished from every queue. V42 closed
+ * the type vocabulary and V72 gave the table a {@code team} of its own, paired to the type by a
+ * CHECK that is total over that vocabulary, so an unmapped type is refused at INSERT instead of
+ * being silently hidden. {@code ServiceRequestService.list} then applies the identical three rules
+ * above. A request also names the ticket it came off ({@code service_requests.ticket_id}, D45), so
+ * an operator working one can reach the other.
  */
 @Service
 public class TicketService {

@@ -90,13 +90,17 @@ export function toViewModel(c, viewerId) {
     youAre: c.counterpartyRole === 'owner' ? 'buyer' : 'owner',
 
     /**
-     * Always `active`.
+     * Never staged.
      *
-     * A server thread cannot exist before an approved contact request, so there is no `pending` or
-     * `incoming` state for it to be in — those describe the contact gate, one layer up. Staged
-     * (unsent) chats carry `pending` and are produced by the provider's local queue, not here.
+     * A server thread cannot exist before an approved contact request, so there is no waiting or
+     * incoming condition for it to be in — those describe the contact gate, one layer up. `staged`
+     * is the one distinction the wire supports (D52): a row the server holds, or a row the seam is
+     * still holding back. Staged rows are minted by {@link stagedToViewModel}, not here.
+     *
+     * Emitted explicitly rather than left undefined, because the inbox branches on it directly and
+     * an absent flag reads the same as `false` only by accident.
      */
-    state: 'active',
+    staged: false,
 
     at: c.updatedAt ? Date.parse(c.updatedAt) : Date.now(),
     unread: c.unread ?? 0,
@@ -114,7 +118,7 @@ export const toViewModelList = (payload, viewerId) =>
 /**
  * A staged (unsent) chat → the same view-model shape, so the page cannot tell them apart.
  *
- * This is the one place the seam mints a row the server has never seen. It is marked `pending` and
+ * This is the one place the seam mints a row the server has never seen. It is marked `staged` and
  * carries the queue's own key as `id`, so nothing can mistake it for a server thread or try to
  * reply into it.
  */
@@ -127,7 +131,6 @@ export function stagedToViewModel(item) {
     property: item.property || { title: 'Conversation', price: '', loc: '', img: '' },
     party: { online: false, avatar: initialsOf(name), role: 'Owner', mobile: '', ...item.party, name },
     youAre: 'buyer',
-    state: 'pending',
     at: item.at || Date.now(),
     unread: 0,
     lastMessage: item.firstMessage || '',

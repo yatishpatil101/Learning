@@ -1,0 +1,100 @@
+# 01 — Storage strategy (photos & documents): Cloudflare R2
+
+**Headline:** the R2 provider is **already fully built**. This is a *configuration* task, not a
+build task. ADR-013 chose Cloudflare R2; `R2FileStorage` implements the complete upload → store →
+serve flow for both buckets. Turning it on is one flag plus six properties.
+
+## What already exists (do not rebuild)
+
+| Class | Role |
+|-------|------|
+| `provider/FileStorage.java` | The seam. `store` / `signedUploadUrl` / `signedDownloadUrl` (private) + `storePublic` (public). |
+| `provider/storage/R2FileStorage.java` | **Complete** R2 impl — S3 SDK v2, path-style, region `auto`, 15-min presigned PUT/GET, separate public+private buckets. Gated on `punenest.providers.storage.enabled=true`. |
+| `provider/storage/R2Properties.java` | The six config values it needs. |
+| `provider/storage/DevObjectStore.java` | Dev fallback — writes bytes to a local dir, serves them back via HMAC-signed, expiring `/dev/storage/...` URLs (D120 fix). Active when the flag is **off**. |
+| `provider/FileStorage.java` → `MockFileStorage` | Dev bean that delegates to `DevObjectStore`. Flag off. |
+| `provider/FileStorage.java` → `ObjectStoreFileStorage` | Non-dev safe default — **throws** until real storage is configured. |
+
+Bean selection is by `@ConditionalOnProperty`:
+
+- `punenest.providers.storage.enabled=true` → **`R2FileStorage`** (real R2).
+- flag off, `dev` profile → **`MockFileStorage` + `DevObjectStore`** (local disk, resolvable URLs).
+- flag off, non-dev → **`ObjectStoreFileStorage`** (throws — deliberately, so an unconfigured
+  prod cannot silently drop uploads).
+
+## The public/private boundary (keep it)
+
+Two buckets, routed at the vendor so a document can never come back as an unsigned URL:
+
+- **Photos → public bucket** via `storePublic(key, bytes, type)` → returns a **permanent,
+  world-readable CDN URL** persisted directly on the listing row. No signature, no expiry.
+- **Documents / KYC → private bucket** via `store(...)` + `signedDownloadUrl(key)` → a fresh
+  **15-minute signed GET** every read. World-unreadable at rest.
+
+## What "permanently stored and seeded" means here — two distinct kinds of asset
+
+The owner's requirement splits cleanly:
+
+1. **Seed/demo photos & localities** — these are **already external URLs** in the seed
+   (Unsplash `images.unsplash.com/...` in the `photos` JSONB + `hero_image`; localities/societies
+   from `R__seed_reference_data.sql`). They **display live for free** the moment the frontend hits
+   the API — no storage work needed. Decision in [02-seed-and-fixtures.md](02-seed-and-fixtures.md):
+   keep them as stable URLs (simplest, zero-cost) **or** optionally re-host into the R2 public
+   bucket for offline-proof demos. Recommend **keep-URL** unless offline demos are required.
+2. **User-uploaded photos & documents** — new listing photos, KYC papers, agreements. These are
+   the assets that need real storage, and R2 already handles them. This is the actual "storage
+   strategy" deliverable.
+
+## Configuration to turn R2 on (Phase 2)
+
+Put real values in a **git-ignored** `backend/.env.local` (or profile props); never commit keys.
+
+```properties
+punenest.providers.storage.enabled=true
+punenest.providers.storage.endpoint=https://<accountid>.r2.cloudflarestorage.com
+punenest.providers.storage.access-key-id=<r2-access-key-id>
+punenest.providers.storage.secret-access-key=<r2-secret>
+punenest.providers.storage.private-bucket=punenest-docs-sandbox
+punenest.providers.storage.public-bucket=punenest-photos-sandbox
+punenest.providers.storage.public-base-url=https://<public-bucket-custom-domain>
+```
+
+`R2FileStorage` **refuses to start** if any of the six is blank — by design. Verify the exact
+property names against `R2Properties.java` before wiring (do not guess the prefix casing).
+
+### Bucket / key scheme
+
+- Public (photos): `listings/{propertyId}/{uuid}.{ext}` → served at `public-base-url/<key>`.
+- Private (docs): `personal/{ownerId}/{uuid}` and per-property doc keys (as the document endpoints
+  already mint them). Confirm the exact key shape from the document/photo controllers before
+  changing anything — the keys are already persisted on rows.
+
+## Dev-without-keys stays working
+
+A developer with **no** R2 keys keeps the flag **off** and gets `DevObjectStore`: uploads write to
+`${java.io.tmpdir}/punenest-storage`, downloads resolve via signed `/dev/storage/...` URLs that
+expire in 30 min and die on restart. This is the correct local default; only the person exercising
+real R2 flips the flag.
+
+## Migration checklist
+
+- [ ] Provision an R2 sandbox: two buckets (public + private), an API token, a public base URL
+      (custom domain or `r2.dev`) for the public bucket.
+- [ ] Read `R2Properties.java` and set the six properties in `backend/.env.local` (git-ignored).
+- [ ] Confirm `backend/.env.local` is in `.gitignore`.
+- [ ] Flip `punenest.providers.storage.enabled=true`; boot; confirm the log line
+      `R2 object storage enabled (private bucket '…', public bucket '…')`.
+- [ ] Exercise `R2FileStorageLiveTest` against the sandbox (it already exists).
+- [ ] Upload a listing photo end-to-end; confirm the CDN URL is persisted and renders in the UI.
+- [ ] Upload a document; confirm the signed GET opens and a stale/copied URL is refused.
+- [ ] Decide seed-photo hosting (keep-URL vs re-host) in [02](02-seed-and-fixtures.md).
+- [ ] Leave the flag **off** in the committed dev config so no-keys devs still work.
+
+## Risks
+
+- **Signed-URL preview in dev today** returns a static `?sig=dev` on the pure mock host and the
+  frontend's `DEV_STORAGE_STUB` regex treats `mock.storage.local` as non-previewable. With R2 on,
+  URLs are real R2 presigned URLs and preview works — verify the frontend stub logic does not
+  block real R2 hosts.
+- **CORS on the public bucket** must allow the app origin for `<img>`/direct GET.
+- **Key collisions**: ensure the `{uuid}` in keys is per-object, not per-property.

@@ -107,6 +107,129 @@ test('the same seeker on a second device is told the owner already holds the enq
   await expect(card().getByRole('button', { name: /Interest sent/i })).toBeVisible();
 });
 
+/* ── D183 (second half) — the 409 has to leave the DEVICE where the success path would ──
+ *
+ * The copy half shipped above: the toast tells the seeker what the server knows and does not
+ * promise a thread. That was correct about the wording and left the state wrong. The bell entry
+ * and the Messages hand-off are written by the page into localStorage, on the success path only,
+ * so the second device flipped its card to "Interest sent" over an inbox that had never heard of
+ * the enquiry. The fix is not more careful words — it is writing the same record on both paths.
+ */
+
+/** Everything this browser knows about its own asks, minus the provider's ledger — i.e. the seeker's
+ *  OTHER phone: same account, same server-side interest, nothing local. `pnMockFlatmateInterests`
+ *  survives because it stands in for the server's unique index, which is what raises the 409. */
+async function forgetDevice(page) {
+  await page.evaluate(() => {
+    ['puneNestFlatmateInterests', 'pnPendingRequests', 'pnConversations', 'puneNestNotifications']
+      .forEach((k) => localStorage.removeItem(k));
+  });
+  await page.reload();
+}
+
+const queuedFor = (page, propertyId) => page.evaluate(
+  (id) => JSON.parse(localStorage.getItem('pnPendingRequests') || '[]').filter((r) => r?.propertyId === id),
+  propertyId,
+);
+const threadsFor = (page, propertyId) => page.evaluate(
+  (id) => JSON.parse(localStorage.getItem('pnConversations') || '[]').filter((c) => c?.propertyId === id && c.youAre === 'buyer'),
+  propertyId,
+);
+
+/* Open the inbox on the tab a fresh ask actually lands on.
+
+   `loadConversations` gives a handed-off request `state: 'pending'`, and `Messages.inTab` files
+   anything pending or incoming under Requests — Chats is only `state: 'active'`, i.e. threads the
+   other side has already answered. Asserting on the default tab would miss the row no matter how
+   correctly the hand-off was written, which is the opposite of what these tests are for. */
+const openInboxRequests = async (page) => {
+  await page.goto('/messages');
+  await page.getByRole('tab', { name: /Requests/i }).click();
+};
+
+test('a second device that never made the enquiry still ends up holding the thread behind its sent card', async ({ page }) => {
+  await seedSeeker(page);
+  await page.goto('/flatmates?view=rooms');
+
+  const card = () => page.locator('.sf-card', { hasText: ROOM_SOCIETY }).first();
+  await card().getByRole('button', { name: /Message owner/i }).click();
+  await expect(page.getByText(`Message sent to the owner of ${ROOM_SOCIETY}.`)).toBeVisible({ timeout: 5000 });
+
+  await forgetDevice(page);
+  // Precondition, and the thing that makes the assertions below mean something: this device really
+  // does start with nothing. If the fixture ever leaks the queue across the reload the test is void.
+  expect(await queuedFor(page, 'room-rm1'), 'the second device must start with no thread').toEqual([]);
+
+  const again = card().getByRole('button', { name: /Message owner/i });
+  await again.waitFor({ state: 'visible', timeout: 10_000 });
+  await again.click();
+  await expect(page.getByText(`The owner of ${ROOM_SOCIETY} already has your earlier enquiry`)).toBeVisible({ timeout: 5000 });
+
+  /* THE assertion. Before the fix this array is empty: the 409 branch returned after the toast, so
+     the card flipped to "Interest sent" and Messages stayed empty — the state the shipped copy was
+     carefully worded around instead of fixing. Revert `recordAskLocally` out of the 409 branch in
+     `useFlatmates.onRoomInterest` and this line goes red. */
+  expect(await queuedFor(page, 'room-rm1'), 'the 409 must leave this device the same hand-off the success path writes').toHaveLength(1);
+  const notifs = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestNotifications') || '[]'));
+  expect(notifs.some((n) => /Room enquiry sent/i.test(n?.title || '')), 'and the same bell entry').toBe(true);
+
+  // And it is a real thread, not just a row: the card's sent state now has somewhere to point.
+  await expect(card().getByRole('button', { name: /Interest sent/i })).toBeVisible();
+  await openInboxRequests(page);
+  await expect(page.getByText(`Room in ${ROOM_SOCIETY}`).first()).toBeVisible({ timeout: 10_000 });
+});
+
+test('a repeat enquiry does not give the device that made it a second thread', async ({ page }) => {
+  await seedSeeker(page);
+  await page.goto('/flatmates?view=rooms');
+
+  const card = () => page.locator('.sf-card', { hasText: ROOM_SOCIETY }).first();
+  await card().getByRole('button', { name: /Message owner/i }).click();
+  await expect(page.getByText(`Message sent to the owner of ${ROOM_SOCIETY}.`)).toBeVisible({ timeout: 5000 });
+
+  /* Open Messages once, which is what makes this the hard case: `loadConversations()` drains
+     `pnPendingRequests` into `pnConversations` and deletes the queue. A repeat-write guard that
+     only looks at the queue sees nothing here and duplicates the thread. */
+  await openInboxRequests(page);
+  await expect(page.getByText(`Room in ${ROOM_SOCIETY}`).first()).toBeVisible({ timeout: 10_000 });
+  expect(await queuedFor(page, 'room-rm1'), 'the inbox consumes the queue on mount').toEqual([]);
+  expect(await threadsFor(page, 'room-rm1')).toHaveLength(1);
+
+  // Forget only the tap memory, so the CTA is offered again on the device that already has the thread.
+  await page.evaluate(() => localStorage.removeItem('puneNestFlatmateInterests'));
+  await page.goto('/flatmates?view=rooms');
+  const again = card().getByRole('button', { name: /Message owner/i });
+  await again.waitFor({ state: 'visible', timeout: 10_000 });
+  await again.click();
+  await expect(page.getByText(`The owner of ${ROOM_SOCIETY} already has your earlier enquiry`)).toBeVisible({ timeout: 5000 });
+
+  expect(await queuedFor(page, 'room-rm1'), 'nothing to re-queue — this device already holds the thread').toEqual([]);
+  await page.goto('/messages');
+  expect(await threadsFor(page, 'room-rm1'), 'one ask, one thread, however many times it is repeated').toHaveLength(1);
+});
+
+test('a second device that never made the join request still ends up holding the thread', async ({ page }) => {
+  await seedSeeker(page, [OPEN_GROUP]);
+  await page.goto('/flatmates?view=groups');
+
+  const card = () => page.locator('.sf-card', { hasText: OPEN_GROUP.title }).first();
+  await card().getByRole('button', { name: /Join group/i }).click();
+  await expect(page.getByText(`Joined ${OPEN_GROUP.title}. Continue in Messages.`)).toBeVisible({ timeout: 5000 });
+
+  await forgetDevice(page);
+  expect(await queuedFor(page, `group-${OPEN_GROUP.id}`), 'the second device must start with no thread').toEqual([]);
+
+  const again = card().getByRole('button', { name: /Join group/i });
+  await again.waitFor({ state: 'visible', timeout: 10_000 });
+  await again.click();
+  await expect(page.getByText(/already has your earlier request/i)).toBeVisible({ timeout: 5000 });
+
+  // The third sibling door, fixed with the same call — they diverge the moment only one is patched.
+  expect(await queuedFor(page, `group-${OPEN_GROUP.id}`), 'the join 409 must write the same hand-off too').toHaveLength(1);
+  await openInboxRequests(page);
+  await expect(page.getByText(OPEN_GROUP.title).first()).toBeVisible({ timeout: 10_000 });
+});
+
 test('a group that fills while the board is on screen answers group_full, not already-asked', async ({ page }) => {
   await seedSeeker(page, [OPEN_GROUP]);
   await page.goto('/flatmates?view=groups');

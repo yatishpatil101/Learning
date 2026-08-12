@@ -2,6 +2,7 @@ package com.punenest.api.admin;
 
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
@@ -25,9 +26,15 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><strong>The two staff-visible reads additionally require the {@code view_dashboard} capability</strong>
  * (tech debt D67). That is a narrowing of the role guard beside it and never a widening of it: a
  * desk whose bundle omits the capability is refused, and no bundle can admit a caller the role check
- * has already rejected. {@code /admin/finance} is left on the role axis alone — it is admin-only
- * already, and the map's seeded {@code admin} bundle is {@code ["*"]}, so a capability there would
- * be a second lock on a door with one key.
+ * has already rejected.
+ *
+ * <p><strong>And a third axis, per account (tech debt D192/D13).</strong> {@code dashboard:read} and
+ * {@code finance:read} narrow the same two guards again, from an account's own document rather than
+ * from a team bundle — so an ops hire can be given the queues without the scorecard. Every one of
+ * the three is {@code and}-ed on, so the effective answer is the intersection of all of them and no
+ * axis can readmit a caller another has refused. {@code /admin/finance} now carries an atom where it
+ * previously carried none: the {@code admin} capability bundle is {@code ["*"]} and could not
+ * express "this administrator does not see revenue", which is exactly the request D192 records.
  */
 @RestController
 public class AdminMetricsController {
@@ -36,7 +43,10 @@ public class AdminMetricsController {
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
     private static final String ADMIN_ONLY = "hasRole('" + Roles.ADMIN + "')";
     private static final String SCORECARD_READ =
-            STAFF_OR_ADMIN + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD;
+            STAFF_OR_ADMIN + " and " + Capabilities.REQUIRE_VIEW_DASHBOARD
+                    + " and " + BackOfficePermissions.REQUIRE_DASHBOARD_READ;
+    private static final String FINANCE_READ =
+            ADMIN_ONLY + " and " + BackOfficePermissions.REQUIRE_FINANCE_READ;
 
     private final AdminMetricsService service;
 
@@ -64,7 +74,7 @@ public class AdminMetricsController {
 
     /** {@code GET /admin/finance} (contract {@code adminFinance}) — admin only. */
     @GetMapping(Routes.Admin.FINANCE)
-    @PreAuthorize(ADMIN_ONLY)
+    @PreAuthorize(FINANCE_READ)
     public AdminFinance finance() {
         return service.finance();
     }

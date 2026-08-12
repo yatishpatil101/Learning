@@ -2,6 +2,9 @@ package com.punenest.api.leads.conversation;
 
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
+import com.punenest.api.common.attachment.MessageAttachmentDto;
+import com.punenest.api.common.attachment.MessageAttachments;
+import com.punenest.api.common.attachment.MessageSurfaces;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
@@ -30,6 +33,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * In-app messaging between two people.
@@ -86,6 +90,7 @@ public class ConversationService {
     private final ContactRequestRepository contactRequests;
     private final Notifier notifier;
     private final AuditService audit;
+    private final MessageAttachments attachments;
 
     /**
      * Runs the attempt and, when it loses the race, the re-read — see {@link #start} for why those
@@ -109,7 +114,8 @@ public class ConversationService {
             ConversationMessageRepository messages, ConversationMapper mapper,
             UserRepository users, PropertyRepository properties,
             ContactRequestRepository contactRequests, Notifier notifier,
-            AuditService audit, PlatformTransactionManager transactionManager) {
+            AuditService audit, MessageAttachments attachments,
+            PlatformTransactionManager transactionManager) {
         this.conversations = conversations;
         this.messages = messages;
         this.mapper = mapper;
@@ -118,6 +124,7 @@ public class ConversationService {
         this.contactRequests = contactRequests;
         this.notifier = notifier;
         this.audit = audit;
+        this.attachments = attachments;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -289,9 +296,16 @@ public class ConversationService {
         return new Started(mapper.toDetail(conversation, me), existing.isEmpty());
     }
 
-    /** {@code POST /messages/{id}/reply} — 201 with the message as sent. */
+    /**
+     * {@code POST /messages/{id}/reply} — 201 with the message as sent.
+     *
+     * <p>{@code attachmentIds} names uploads the caller already made against this thread (D49).
+     * They are bound <em>after</em> {@link #mine} has answered, so a stranger never gets as far as
+     * touching an attachment row, and inside the same transaction as the message, so a reply that
+     * names an attachment it may not have leaves neither behind.
+     */
     @Transactional
-    public MessageDto reply(AuthPrincipal caller, String id, String body) {
+    public MessageDto reply(AuthPrincipal caller, String id, String body, List<String> attachmentIds) {
         Conversation conversation = mine(caller, id);
         ConversationMessage sent = send(conversation, caller, body);
         User author = users.findById(caller.userId()).orElse(null);
@@ -301,7 +315,23 @@ public class ConversationService {
                 author == null ? null : author.getName(),
                 sent.getAuthorRole(),
                 sent.getBody(),
-                sent.getCreatedAt());
+                sent.getCreatedAt(),
+                attachments.bind(conversation.getId(), caller.userId(), sent.getId(), attachmentIds));
+    }
+
+    /**
+     * {@code POST /messages/{id}/attachments} — 201 with the stored attachment.
+     *
+     * <p>Guarded by {@link #mine} and nothing else: an upload endpoint on a thread is exactly as
+     * private as the thread, so the participant rule decides here too. Note this deliberately does
+     * <em>not</em> go through the moderation read — a moderator may read a conversation (D53) but
+     * may not post into one.
+     */
+    @Transactional
+    public MessageAttachmentDto attach(AuthPrincipal caller, String id, MultipartFile file) {
+        Conversation conversation = mine(caller, id);
+        return attachments.upload(MessageSurfaces.CONVERSATION, conversation.getId(),
+                caller.userId(), file);
     }
 
     /**

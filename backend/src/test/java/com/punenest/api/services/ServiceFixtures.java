@@ -18,7 +18,7 @@ import com.punenest.api.provider.cashfree.WebhookSignature;
 import com.punenest.api.services.request.ServiceRequest;
 import com.punenest.api.services.request.ServiceRequestRepository;
 import com.punenest.api.services.request.ServiceRequestService;
-import com.punenest.api.services.request.ServiceRequestStatuses;
+import com.punenest.api.services.request.ServiceRequestStatus;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +100,7 @@ abstract class ServiceFixtures extends AbstractApiTest {
         // settle it here exactly as the live webhook would. A free desk (legal opinion) is already at
         // `new` and the filter skips it. The dedicated paid-gate test drives the unsettled path.
         requestRepo.findById(UUID.fromString(id))
-                .filter(r -> ServiceRequestStatuses.AWAITING_PAYMENT.equals(r.getStatus()))
+                .filter(r -> r.getStatus() == ServiceRequestStatus.AWAITING_PAYMENT)
                 .map(ServiceRequest::getPaymentRef)
                 .ifPresent(ref -> serviceRequests.applyWebhookOutcome(ref, true, 0));
         return id;

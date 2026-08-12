@@ -5,19 +5,32 @@ import { Stars } from '../../property/Stars.jsx';
 export default function ReviewsTab({ ctx }) {
   const { t } = useTranslation();
   const {
-    showEstimate, rating, overall, bars, reviews, openReport,
+    rating, overall, bars, reviews, openReport,
     qText, setQText, submitQuestion, inp, qa,
     answerFor, aText, setAText, submitAnswer, setAnswerFor,
   } = ctx;
   /**
    * Three outcomes, not two.
    *
-   * `rating` now comes from the summary endpoint, so "we could not read it" is a state that exists.
-   * Collapsing it into the unrated branch would render the baseline estimate — a confident number —
-   * for a society whose real rating simply failed to load, which is exactly the shape that let a
-   * total review outage read as "no reviews yet" on every property page for weeks.
+   * `rating` comes from the summary endpoint, so "we could not read it" is a state that exists, and
+   * collapsing it into the unrated branch is the shape that let a total review outage read as "no
+   * reviews yet" on every property page for weeks. It stays its own branch.
+   *
+   * The aggregate now requires a real review behind it. It used to render for any society that was
+   * neither thin nor community-sourced — all 348 curated rows — because the bars had a baseline to
+   * fall back on. D197 deleted that baseline, so at zero reviews there is nothing to draw.
+   *
+   * The grid is gated separately, on `bars.length`, and the two conditions are genuinely different:
+   * a review may rate the society overall and skip every aspect, which leaves a headline worth
+   * printing and no bars to print under it. Sharing one gate rendered an empty grid element whose
+   * bottom margin opened a gap the reader could see and not explain.
+   *
+   * Neither gate carries the "nobody has reviewed this" sentence. That comes from the empty-list
+   * line below, which is driven by `reviews.length` — a *different* read from `rating.count`. The
+   * two normally agree, and when they disagree the list is the one telling the truth about what is
+   * on screen. The hero above the tabs is where an unrated society is stated in words.
    */
-  const showAggregate = !rating.loading && !rating.failed && (showEstimate || rating.count > 0);
+  const showAggregate = !rating.loading && !rating.failed && rating.count > 0;
   return (
             <>
             {/* Resident ratings breakdown + reviews */}
@@ -30,7 +43,7 @@ export default function ReviewsTab({ ctx }) {
               {rating.failed ? (
                 <p className="text-amber-300/80 text-sm mb-4 flex items-center gap-1.5" data-testid="society-rating-unavailable"><Icon name="alert-triangle" className="w-4 h-4 flex-shrink-0" /> {t('society.ratingUnavailable')}</p>
               ) : null}
-              {showAggregate ? (
+              {showAggregate && bars.length ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mb-4">
                   {bars.map((b) => (
                     <div key={b.id} className="rd-cell">

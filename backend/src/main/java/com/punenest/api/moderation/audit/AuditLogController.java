@@ -5,6 +5,7 @@ import com.punenest.api.common.audit.AuditLogRepository;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.Roles;
 import java.time.Instant;
 import java.util.Map;
@@ -46,7 +47,8 @@ public class AuditLogController {
     }
 
     @GetMapping(Routes.Admin.AUDIT_LOG)
-    @PreAuthorize("hasRole('" + Roles.ADMIN + "')")
+    @PreAuthorize("hasRole('" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_AUDIT_READ)
     public PageResponse<AuditEntryResponse> list(
             @RequestParam(required = false) String actor,
             @RequestParam(required = false) String entity,

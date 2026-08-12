@@ -11,7 +11,6 @@ import jakarta.validation.constraints.Size;
  * @param action        one of {@link OfferActions#ACCEPT}, {@link OfferActions#DECLINE} or
  *                      {@link OfferActions#COUNTER}
  * @param counterAmount required when {@code action == "counter"}; whole INR
- * @param message       optional note
  */
 public record OfferRespondRequest(
         @NotBlank @Pattern(regexp = OfferActions.PATTERN, message = OfferActions.PATTERN_MESSAGE)

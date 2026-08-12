@@ -12,7 +12,6 @@ import java.time.Instant;
  *
  * @param id           opaque listing id
  * @param slug         URL key (nullable until curated)
- * @param title        listing headline
  * @param deal         buy|rent
  * @param propertyType free-text type (e.g. apartment)
  * @param bhk          bedroom count (whole-number-safe {@link BigDecimal})
@@ -20,7 +19,6 @@ import java.time.Instant;
  * @param priceUnit    {@code total} (buy) or {@code per-month} (rent)
  * @param area         built area value
  * @param areaUnit     area unit (default sqft)
- * @param furnishing   furnishing level, nullable
  * @param possession   possession state ({@link PropertyPossession}), nullable when not stated
  * @param locality     display locality name (the slug is the filter key, not this)
  * @param localitySlug curated locality key (FK to {@code localities.slug}); the value the
@@ -37,7 +35,6 @@ import java.time.Instant;
  *                     benefit from it — ranking a listing higher for money without saying so is an
  *                     undisclosed ad. Computed from the promotion window against request time, so
  *                     it is never stale. It is a label, not a capability: nothing is gated on it.
- * @param createdAt    row creation time
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PropertySummary(

@@ -1,6 +1,7 @@
 package com.punenest.api.engagement.notification;
 
 import com.punenest.api.common.error.NotFoundException;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -29,24 +30,34 @@ public class NotificationService {
     /**
      * Paged notifications, newest first. The sort is fixed server-side (contract does not expose
      * a sort parameter), so client-supplied sort is stripped before reaching the query.
+     *
+     * <p><strong>Deferred rows are withheld, not hidden forever.</strong> A notification written
+     * inside the recipient's quiet-hours window carries a {@code deliverAfter} instant and does not
+     * appear here until that window has closed — at which point it appears in its natural place in
+     * the ordering, because the sort is on {@code createdAt} and that still records when the thing
+     * happened. Nothing sweeps the flag; the comparison against "now" is the whole mechanism. See
+     * {@link NotificationPublisher} for why this is deferral and not suppression.
      */
     @Transactional(readOnly = true)
     public Page<NotificationResponse> list(UUID userId, Pageable pageable) {
         Pageable sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repo.findByUserId(userId, sorted).map(mapper::toResponse);
+        return repo.findDeliverable(userId, Instant.now(), sorted).map(mapper::toResponse);
     }
 
     /**
      * Mark notifications read. If ids is null/empty, marks ALL of the caller's unread notifications.
-     * Only ever touches the caller's own rows (invariant 2, 3).
+     * Only ever touches the caller's own rows (invariant 2, 3), and only rows that are actually
+     * visible — see {@link NotificationRepository#markAllRead} for why "mark all read" must not
+     * reach a notification the user has not been shown yet.
      */
     @Transactional
     public void markRead(UUID userId, Collection<UUID> ids) {
+        Instant now = Instant.now();
         if (ids == null || ids.isEmpty()) {
-            repo.markAllRead(userId);
+            repo.markAllRead(userId, now);
         } else {
-            repo.markRead(userId, ids);
+            repo.markRead(userId, ids, now);
         }
     }
 

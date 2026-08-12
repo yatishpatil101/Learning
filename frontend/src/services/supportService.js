@@ -55,10 +55,10 @@ const provider = createProvider('support');
  *
  * @returns {Promise<object[]>}
  */
-export const listTickets = () => provider().listTickets();
+export const listTickets = async () => (await provider()).listTickets();
 
 /** One ticket with its full thread, or null if it is not the caller's. */
-export const getTicket = (id) => provider().getTicket(id);
+export const getTicket = async (id) => (await provider()).getTicket(id);
 
 /**
  * The platform-wide support queue, paged — **staff and admin only** (D51).
@@ -80,17 +80,17 @@ export const getTicket = (id) => provider().getTicket(id);
  *   from the customer and nobody on the desk has read; `false` is the complement.
  * @returns {Promise<{items: object[], total: number, page: number, size: number}>}
  */
-export const listSupportQueue = (opts) => provider().listSupportQueue(opts);
+export const listSupportQueue = async (opts) => (await provider()).listSupportQueue(opts);
 
 /**
  * Raise a ticket. Resolves to the created ticket, including its server-assigned id.
  *
  * @param {{subject: string, category: string, message: string, priority?: string, images?: string[]}} ticket
  */
-export const createTicket = (ticket) => provider().createTicket(ticket);
+export const createTicket = async (ticket) => (await provider()).createTicket(ticket);
 
 /** Reply to a ticket. Resolves to the created message. */
-export const replyToTicket = (id, text) => provider().replyToTicket(id, text);
+export const replyToTicket = async (id, text) => (await provider()).replyToTicket(id, text);
 
 /**
  * Clear the "unread" flag on the caller's own side of the thread. Idempotent on both providers.
@@ -99,4 +99,4 @@ export const replyToTicket = (id, text) => provider().replyToTicket(id, text);
  * signal, and neither touches the other. Which side the caller is on is derived from the session,
  * never passed in — a parameter here would let one side clear the other's flag.
  */
-export const markTicketRead = (id) => provider().markTicketRead(id);
+export const markTicketRead = async (id) => (await provider()).markTicketRead(id);

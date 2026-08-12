@@ -13,7 +13,6 @@ import jakarta.validation.constraints.Size;
  * (D23a), so an off-shape number was persisted verbatim and {@code MobileMask.mask} then answered
  * {@code null} — it returns {@code null} for anything that is not exactly ten digits.
  *
- * @param name   the party's name (required)
  * @param note   optional private note
  */
 public record DealPartyCreateRequest(

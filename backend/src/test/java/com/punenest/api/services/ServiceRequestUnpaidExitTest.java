@@ -14,7 +14,8 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.security.Teams;
-import com.punenest.api.services.request.ServiceRequestStatuses;
+import com.punenest.api.services.request.ServiceRequestStatus;
+import com.punenest.api.services.request.ServiceRequestTypes;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
@@ -85,7 +86,7 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
 
             cancel(buyer, id, 200);
 
-            expectStatus(buyer, id, ServiceRequestStatuses.CANCELLED);
+            expectStatus(buyer, id, ServiceRequestStatus.CANCELLED.wire());
             // payment.abandoned, not payment.failed: no money was ever attempted, and support needs
             // to be able to tell "my card was declined" from "I closed the tab".
             mvc.perform(get(Routes.ServiceRequests.BY_ID, id)
@@ -115,11 +116,11 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
         @DisplayName("a staff caller is refused — they already have PATCH /status")
         void staffCannotUseTheCustomersDoor() throws Exception {
             User buyer = customer("9820000903");
-            User desk = staff("9820000904", Teams.LEGAL);
+            User desk = staff("9820000904", Teams.RENTAL);
             String id = raiseUnpaid(buyer, listing(buyer));
 
             cancel(desk, id, 403);
-            expectStatus(buyer, id, ServiceRequestStatuses.AWAITING_PAYMENT);
+            expectStatus(buyer, id, ServiceRequestStatus.AWAITING_PAYMENT.wire());
         }
 
         @Test
@@ -138,10 +139,10 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
             User buyer = customer("9820000907");
             String id = raiseUnpaid(buyer, listing(buyer));
             deliverSigned(paymentRef(id), true);
-            expectStatus(buyer, id, ServiceRequestStatuses.NEW);
+            expectStatus(buyer, id, ServiceRequestStatus.NEW.wire());
 
             cancel(buyer, id, 409);
-            expectStatus(buyer, id, ServiceRequestStatuses.NEW);
+            expectStatus(buyer, id, ServiceRequestStatus.NEW.wire());
         }
 
         @Test
@@ -168,7 +169,7 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
 
             assertThat(serviceRequests.expireAbandonedCheckouts(future())).isEqualTo(1);
 
-            expectStatus(buyer, id, ServiceRequestStatuses.CANCELLED);
+            expectStatus(buyer, id, ServiceRequestStatus.CANCELLED.wire());
             // The point of the sweep: the customer who never came back is not locked out either.
             create(buyer, p, 201);
         }
@@ -181,7 +182,7 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
 
             assertThat(serviceRequests.expireAbandonedCheckouts(past())).isZero();
 
-            expectStatus(buyer, id, ServiceRequestStatuses.AWAITING_PAYMENT);
+            expectStatus(buyer, id, ServiceRequestStatus.AWAITING_PAYMENT.wire());
         }
 
         @Test
@@ -193,7 +194,7 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
 
             assertThat(serviceRequests.expireAbandonedCheckouts(future())).isZero();
 
-            expectStatus(buyer, id, ServiceRequestStatuses.NEW);
+            expectStatus(buyer, id, ServiceRequestStatus.NEW.wire());
         }
 
         @Test
@@ -282,8 +283,13 @@ class ServiceRequestUnpaidExitTest extends ServiceFixtures {
         }
 
         private void insertOpenUnpaid(User requester, String type) {
-            jdbc.update("insert into service_requests (requester_id, type, status) "
-                    + "values (?, ?, 'awaiting-payment')", requester.getId(), type);
+            // `team` is written explicitly rather than left out: V72 made it NOT NULL and paired it
+            // to `type` by CHECK, so a raw insert has to state the desk the service would have
+            // derived. Resolved through the same map the production path uses, so this fixture
+            // cannot drift away from it.
+            jdbc.update("insert into service_requests (requester_id, type, team, status) "
+                    + "values (?, ?, ?, 'awaiting-payment')",
+                    requester.getId(), type, ServiceRequestTypes.teamFor(type));
         }
 
         private int openUnpaidCount(User requester) {

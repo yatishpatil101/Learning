@@ -4,6 +4,7 @@ import com.punenest.api.common.persistence.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 
@@ -36,6 +37,19 @@ public class ServiceRequestMessage extends BaseEntity {
 
     @Column(name = "body", nullable = false, updatable = false)
     private String body;
+
+    /**
+     * When the <em>other</em> side opened the thread this message is on (D121). {@code null} until
+     * they do.
+     *
+     * <p>The one mutable column on an otherwise write-once row, and it is only ever written by
+     * {@code ServiceRequestMessageRepository.markRead} — a bulk {@code update} that sets it where it
+     * is still null, so a receipt records the first read and never a later one. There is deliberately
+     * no setter: what a message says is not editable, and "seen" is a fact about a reader rather than
+     * something an author gets to assert.
+     */
+    @Column(name = "read_at")
+    private Instant readAt;
 
     protected ServiceRequestMessage() {
         // JPA

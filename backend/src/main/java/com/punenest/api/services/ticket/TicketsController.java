@@ -4,6 +4,7 @@ import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Pageables;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
+import com.punenest.api.security.BackOfficePermissions;
 import com.punenest.api.security.Capabilities;
 import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
@@ -42,13 +43,22 @@ import org.springframework.web.bind.annotation.RestController;
  * board is left alone on purpose: a desk that may no longer act on a ticket can still need to see
  * that it exists in order to hand it on, and the rows it sees are already narrowed by the team
  * scoping above.
+ *
+ * <p><strong>The per-account atoms do cover the read</strong> (tech debt D192/D13), and the two
+ * axes are answering different questions. {@code update_ticket} is a property of a <em>desk</em>:
+ * whether the rental team, as a team, works tickets. {@code tickets:read} is a property of a
+ * <em>person</em>: whether this particular hire is on ticket duty at all. An account that is not
+ * cannot be given the board by being on a team that is, because the two are {@code and}-ed.
  */
 @RestController
 public class TicketsController {
 
     private static final String OPS = "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
+    private static final String OPS_MAY_READ_TICKETS =
+            OPS + " and " + BackOfficePermissions.REQUIRE_TICKETS_READ;
     private static final String OPS_MAY_WORK_TICKETS =
-            OPS + " and " + Capabilities.REQUIRE_UPDATE_TICKET;
+            OPS + " and " + Capabilities.REQUIRE_UPDATE_TICKET
+                    + " and " + BackOfficePermissions.REQUIRE_TICKETS_WRITE;
 
     private final TicketService service;
 
@@ -64,7 +74,7 @@ public class TicketsController {
      * 500.
      */
     @GetMapping(Routes.Tickets.BASE)
-    @PreAuthorize(OPS)
+    @PreAuthorize(OPS_MAY_READ_TICKETS)
     public PageResponse<TicketDto> list(@CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String team,
             @RequestParam(required = false) String status,

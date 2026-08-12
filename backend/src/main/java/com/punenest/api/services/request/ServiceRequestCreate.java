@@ -17,9 +17,13 @@ import java.util.Map;
  * @param details    the fields the customer filled — property, rent, deposit, scope — as a structured
  *                   object (D119). Stored as-is and echoed back on {@link ServiceRequestDto}, so what
  *                   the form sent is what the tracker reads; optional
+ * @param ticketId   the ops board item this request comes off (D45); optional, and it must be one of
+ *                   the caller's own tickets — a request stapled to a stranger's enquiry would put
+ *                   two unrelated customers on one screen
  */
 public record ServiceRequestCreate(
         @NotBlank @Size(max = 64) String type,
         @Size(max = 64) String propertyId,
-        Map<String, Object> details) {
+        Map<String, Object> details,
+        @Size(max = 64) String ticketId) {
 }
