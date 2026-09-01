@@ -14,6 +14,13 @@
  * about them is a claim about where their data came from. So the reason for staying on the mock
  * has expired, and this is the live home for the sweep.
  *
+ * That mock file has since been **deleted**, and the deletion is the point rather than a tidy-up:
+ * a rationale for staying on the mock is a claim about the frontend that goes stale silently, and
+ * this one had. Every one of its fourteen tests is either re-asserted below or named in the
+ * section further down as belonging to another live spec; none was dropped without a home. Keeping
+ * it alongside would have meant a second admin login and page load per claim to re-check, against
+ * `db.json`, facts this file checks against Postgres.
+ *
  * ## Every negative is anchored on a positive, for the same reason as before
  *
  * The claims here are almost all removals — a nav item, a tab, a panel — and a removal asserted as

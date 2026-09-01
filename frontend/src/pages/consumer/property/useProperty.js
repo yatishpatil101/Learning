@@ -10,7 +10,7 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useContactGate } from './useContactGate.js';
-import { requestMorePhotos } from '../../../lib/photoRequests.js';
+import { requestPhotos as askForPhotos } from '../../../services/photoRequestService.js';
 import { messagesLinkForProp } from '../../../lib/chat.js';
 import { queuePendingChat } from '../../../services/conversationService.js';
 import { pushRecentProp, getLastSearch } from '../../../lib/localPrefs.js';
@@ -38,6 +38,10 @@ export default function useProperty() {
   const { gate: contactGate } = useContactGate(id);
   const rootRef = useScrollReveal([p]);
   const lbTouchX = useRef(null);
+  /* Re-entrancy guard for the "more photos" ask, declared up here rather than beside its handler
+     because everything below line 86 is past an early return — a hook there changes call order
+     between the found and not-found renders. */
+  const photoAskBusy = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -256,14 +260,32 @@ export default function useProperty() {
   if (p.ownershipVerified) tags.push([tr('property.ownershipVerified'), 'tag-emerald', 'file-check', 'tag.ownershipVerified']);
   if (p.rera) tags.push([tr('property.reraApproved'), 'tag-emerald', 'badge-check', 'tag.rera']);
 
-  // Persist a "more photos" request so the owner sees it in their dashboard.
-  // Sign-in gate only (no PII exposed); can't request photos on your own listing.
-  const requestPhotos = () => {
+  /* Record a "more photos" request so the owner sees it in their dashboard.
+
+     Sign-in is the whole gate — no PII moves in either direction — and an owner cannot ask about
+     their own listing. Both rules are re-stated here only to spend a toast instead of a round trip;
+     the server enforces them independently (401 / 400), and the branches below are what happens
+     when these two disagree with it, which they will the moment a stale session outlives its token.
+
+     `created` is the server's word on whether this was a new row. Reading it, rather than assuming
+     success, is what keeps the second press honest after the previous ask has already been
+     resolved: the row is still there, so it is still a duplicate, and telling the buyer "sent"
+     would promise the owner a notification nobody is going to receive. */
+  const requestPhotos = async () => {
     if (!isIn) { toast(tr('property.signInPhotos'), 'info'); return; }
     if (isOwner) { toast(tr('property.ownListingPhotos'), 'info'); return; }
-    const res = requestMorePhotos(ownerMob, p.id, title);
-    if (res === 'duplicate') { toast(tr('property.photosDuplicate'), 'info'); return; }
-    toast(tr('property.photosSent'), 'success');
+    if (photoAskBusy.current) return;
+    photoAskBusy.current = true;
+    try {
+      const { created } = await askForPhotos(p.id);
+      toast(created ? tr('property.photosSent') : tr('property.photosDuplicate'), created ? 'success' : 'info');
+    } catch (err) {
+      if (err?.status === 401) { toast(tr('property.signInPhotos'), 'info'); return; }
+      if (err?.status === 400) { toast(tr('property.ownListingPhotos'), 'info'); return; }
+      toast(tr('property.photosFailed'), 'error');
+    } finally {
+      photoAskBusy.current = false;
+    }
   };
 
   const returnTo = location.state?.from || getLastSearch()?.search || `/listings?deal=${p.deal}&loc=${encodeURIComponent(p.locality)}`;

@@ -72,7 +72,7 @@ function SummaryStat({ icon, tint, value, label }) {
   );
 }
 
-export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
+export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs = [], resolvePhotoReq, flatmateReqs = [], decideFlatmateReq, docReqs = [], decideDocReqs, listings = [], contactReqsFailed = false, contactReqsError, onRetryContactReqs, photoReqsFailed = false, photoReqsError, onRetryPhotoReqs, docReqsFailed = false, docReqsError, onRetryDocReqs }) {
   const { t } = useTranslation();
   /* Leads inbox, split into sub-tabs so each lead type gets its own focused view:
      Number requests, Photo requests, Documents and Flatmate. Every one of those is a
@@ -91,7 +91,11 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
   // Attention math — what needs a decision now vs. total open leads.
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending');
   const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending');
-  const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...photoReqs, ...pendingDocGroups];
+  // A photo request used to sit in "waiting on you" forever, because there was nothing the owner
+  // could do to it. Now that they can mark one done, an unfiltered list would keep counting work
+  // they have already finished — which is how an attention badge stops being read at all.
+  const pendingPhotoReqs = photoReqs.filter((r) => (r.status || 'pending') === 'pending');
+  const waitingItems = [...pendingContacts, ...pendingFlatmateReqs, ...pendingPhotoReqs, ...pendingDocGroups];
   const waitingOnYou = waitingItems.length;
   const totalLeads = contactReqs.length + photoReqs.length + flatmateReqs.length + docGroups.length;
 
@@ -106,7 +110,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
   const items = [
     { key: 'all', label: 'All leads', icon: 'inbox', count: waitingOnYou },
     { key: 'numbers', label: 'Number requests', icon: 'lock-keyhole', count: pendingContacts.length },
-    { key: 'photos', label: 'Photo requests', icon: 'image', count: photoReqs.length },
+    { key: 'photos', label: 'Photo requests', icon: 'image', count: pendingPhotoReqs.length },
     { key: 'documents', label: 'Documents', icon: 'folder-check', count: pendingDocGroups.length },
     { key: 'flatmate', label: 'Flatmate', icon: 'users', count: pendingFlatmateReqs.length },
   ];
@@ -143,13 +147,25 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
     approve: () => decideContact(r.id, 'approved'), decline: () => decideContact(r.id, 'declined'),
     approveLabel: 'Share', declineLabel: 'Decline',
   });
-  const itemPhoto = (r) => ({
-    id: 'photo:' + r.id, type: 'photo', typeLabel: 'Photo request', typeIcon: 'image',
-    name: r.buyerName, propLabel: r.propLabel || '',
-    detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: 'pending',
-    attention: true, canApprove: false,
-    primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
-  });
+  /* A photo request has one transition and no second option, so this descriptor carries `approve`
+     and no `decline` — the row and the sheet both render the decline button only when there is one.
+     There is nothing to decline: the owner either has more photos or does not, and a request they
+     are not going to act on is already expressed by it staying pending.
+
+     `attention` is now the row's own status rather than a hardcoded `true`. It was hardcoded
+     because nothing could ever clear it; leaving it that way once the owner has a Mark-done button
+     would mean pressing it changed nothing they can see. */
+  const itemPhoto = (r) => {
+    const pending = (r.status || 'pending') === 'pending';
+    return {
+      id: 'photo:' + r.id, type: 'photo', typeLabel: 'Photo request', typeIcon: 'image',
+      name: r.buyerName, propLabel: r.propLabel || '',
+      detail: 'Wants more photos of your listing', requestedAt: r.requestedAt, status: pending ? 'pending' : 'resolved',
+      attention: pending, canApprove: pending && !!resolvePhotoReq,
+      approve: () => resolvePhotoReq(r.id), approveLabel: 'Mark done',
+      primaryAction: r.propId ? { to: `/list-property?edit=${r.propId}`, label: 'Add photos', icon: 'image' } : null,
+    };
+  };
   const itemDoc = (g) => {
     const n = g.docTypes.length;
     const preview = g.docTypes.slice(0, 3).join(', ') + (n > 3 ? ` +${n - 3} more` : '');
@@ -260,13 +276,19 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
                 onOpen={() => setSheetLead(item)}
               >
                 <FollowUpChip ts={annos[item.id]?.followUpAt} />
+                {/* The primary link comes first and independently of the decision buttons: a photo
+                    request is the first lead type where doing the work (adding photos) and closing
+                    the row are two different acts, and an if/else chain would have hidden one. */}
+                {item.primaryAction ? (
+                  <Link to={item.primaryAction.to} className={btnTeal}><Icon name={item.primaryAction.icon} className="w-3.5 h-3.5" /> {item.primaryAction.label}</Link>
+                ) : null}
                 {item.canApprove && item.status === 'pending' ? (
                   <>
-                    <button onClick={item.approve} className={btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> {item.approveLabel}</button>
-                    <button onClick={item.decline} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> {item.declineLabel}</button>
+                    <button onClick={item.approve} className={item.primaryAction ? btnGhost : btnTeal}><Icon name="check" className="w-3.5 h-3.5" /> {item.approveLabel}</button>
+                    {item.decline ? (
+                      <button onClick={item.decline} className={btnGhost}><Icon name="x" className="w-3.5 h-3.5" /> {item.declineLabel}</button>
+                    ) : null}
                   </>
-                ) : item.primaryAction ? (
-                  <Link to={item.primaryAction.to} className={btnTeal}><Icon name={item.primaryAction.icon} className="w-3.5 h-3.5" /> {item.primaryAction.label}</Link>
                 ) : item.contactMobile ? (
                   <>
                     <CallBtn mobile={item.contactMobile} name={item.name} />
@@ -330,27 +352,45 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
       {sub === 'photos' && (
       <Card className="p-4 sm:p-6">
         <SectionHead icon="image" title="Photo requests" sub="Buyers who asked for more photos of your listings. Adding photos converts these into visits." />
-        {photoReqs.length === 0 ? (
+        {photoReqsFailed ? (
+          /* An empty state here would be a claim — "nobody has asked" — that a failed read cannot
+             support. Same reasoning as the number- and document-request inboxes (D166). */
+          <LoadError message={t('dash.photoReqsLoadError')} error={photoReqsError} onRetry={onRetryPhotoReqs} className="rounded-2xl p-5" />
+        ) : photoReqs.length === 0 ? (
           <RequestEmpty icon="image" text="No photo requests yet." cta={{ to: '/list-property', label: 'Add photos to your listings', icon: 'image' }} />
         ) : (
           <RequestList>
-            {photoReqs.map((r) => (
-              <RequestRow
-                key={r.id}
-                icon="image"
-                tint="teal"
-                title={r.buyerName}
-                meta={`Wants more photos${r.propLabel ? ' · ' + r.propLabel : ''}`}
-                time={timeAgo(r.requestedAt)}
-                urgency={waitPill(r.requestedAt)}
-                attention
-                onOpen={() => setSheetLead(itemPhoto(r))}
-              >
-                {r.propId ? (
-                  <Link to={`/list-property?edit=${r.propId}`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
-                ) : null}
-              </RequestRow>
-            ))}
+            {photoReqs.map((r) => {
+              const pending = (r.status || 'pending') === 'pending';
+              return (
+                <RequestRow
+                  key={r.id}
+                  icon="image"
+                  tint="teal"
+                  title={r.buyerName}
+                  meta={`Wants more photos${r.propLabel ? ' · ' + r.propLabel : ''}`}
+                  time={timeAgo(r.requestedAt)}
+                  urgency={pending ? waitPill(r.requestedAt) : undefined}
+                  attention={pending}
+                  onOpen={() => setSheetLead(itemPhoto(r))}
+                >
+                  {r.propId ? (
+                    <Link to={`/list-property?edit=${r.propId}`} className={btnTeal}><Icon name="image" className="w-3.5 h-3.5" /> Add photos</Link>
+                  ) : null}
+                  {/* Two separate acts, deliberately two separate controls: uploading photos is the
+                      answer, marking done is the owner saying they have answered. Tying them
+                      together would either close rows nobody acted on, or leave a satisfied buyer
+                      sitting in the queue because the upload happened on a different screen. */}
+                  {pending ? (
+                    <button type="button" onClick={() => resolvePhotoReq(r.id)} className={btnGhost}>
+                      <Icon name="check" className="w-3.5 h-3.5" /> Mark done
+                    </button>
+                  ) : (
+                    <span className="text-xs font-semibold text-gray-500">Done</span>
+                  )}
+                </RequestRow>
+              );
+            })}
           </RequestList>
         )}
       </Card>

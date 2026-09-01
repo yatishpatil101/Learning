@@ -23,7 +23,9 @@
  *
  * That bug is invisible to a mock-mode spec **by construction**: a seeded spec asserts against the
  * same `localStorage` the dialog wrote, so it passes precisely because the write never left the
- * browser. `tests/admin/societies.spec.js` covers the dialog and was green throughout. The only
+ * browser. `tests/admin/societies.spec.js` covered the dialog and was green throughout — it has
+ * since been deleted for that reason, its surviving claims moved to
+ * `admin/live-societies-directory.spec.js`. The only
  * assertion that can tell the two apart is one that reads the value back from somewhere the browser
  * cannot have reached — which is what every test below does, over the API with a token of its own.
  *

@@ -86,6 +86,7 @@
     "reqsLoadError": "Couldn’t load your requests — please try again",
     "dashboardLoadError": "Couldn’t load your dashboard — what you see below may be incomplete",
     "contactReqsLoadError": "Couldn’t load your contact requests — please try again",
+    "photoReqsLoadError": "Couldn’t load your photo requests — please try again",
     "retry": "Retry"
   },
   "visits": {

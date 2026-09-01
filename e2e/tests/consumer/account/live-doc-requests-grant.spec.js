@@ -167,7 +167,7 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
 
     // After the re-read the group leaves the pending state: the buttons go and the row confirms.
     await expect(page.getByRole('button', { name: 'Grant all' })).toHaveCount(0);
-    await expect(page.getByText('All granted')).toBeVisible();
+    await expect(page.getByRole('button', { name: `Open ${BUYER_NAME} details` }).locator('..').getByText('All granted')).toBeVisible();
 
     /* And the database agrees. `sharedDocumentCount` counts *files*, not categories, which is the
        number that would stay at zero if the grant had matched no uploads. */

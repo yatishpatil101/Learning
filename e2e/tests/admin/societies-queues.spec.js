@@ -2,8 +2,11 @@ import { test, expect } from '../../fixtures/base.js';
 
 /* `/admin/societies` — the three server-backed queues, and what the screen does when they fail.
  *
- * `admin/societies.spec.js` covers this console on the happy path: the KPI strip, the tabs, the
- * directory pager, the edit overlay, and the empty states. What it cannot cover is the half of the
+ * `admin/live-societies-directory.spec.js` covers this console on the happy path: the KPI strip, the
+ * tabs, and the directory pager, against a real catalogue; the edit overlay is
+ * `admin/live-society-admin.spec.js`. (Both replaced `admin/societies.spec.js`, which covered the
+ * same ground in mock mode and could not tell a server pager from a client-side slice.) What none of
+ * them can cover is the half of the
  * screen that only exists because the page moved off `localStorage` and onto the API seam (D242) —
  * a queue that *fails*, a decision that is *in flight*, and a decision that has *already been made*.
  * All three are network facts, and in mock mode the page makes no network calls at all, so
@@ -27,14 +30,15 @@ import { test, expect } from '../../fixtures/base.js';
  * WHY THERE IS NO `consoleErrors` ASSERTION. These tests fulfil real 500s on the app's own origin,
  * which the browser logs as console errors by design, and `helpers/console.js` judges failed
  * requests by origin rather than by intent. Asserting an empty console here would mean asserting
- * that the injected failure did not happen. `admin/societies.spec.js` keeps that guarantee for the
- * clean load.
+ * that the injected failure did not happen. `admin/live-societies-directory.spec.js` keeps that
+ * guarantee for the clean load.
  *
  * Source: `pages/admin/AdminSocieties.jsx` (reload/safe/withDeciding/decideClaim/decideReport),
  * `pages/admin/societies/ClaimsTab.jsx` (decisionCell), `pages/admin/societies/ModerationTab.jsx`,
  * `services/providers/http/societyProvider.js`, `services/providers/http/reportMapper.js`.
  * Guards (`RoleRoute roles={['admin']}`, `ModuleRoute moduleKey="societies"`) are asserted in
- * `admin/societies.spec.js` and deliberately not repeated here.
+ * `admin/live-societies-directory.spec.js`, at the router and at the API both, and deliberately not
+ * repeated here.
  */
 
 /* Playwright globs: `*` does not cross a `/`, so the collection and the item would need two
@@ -42,6 +46,11 @@ import { test, expect } from '../../fixtures/base.js';
 const CLAIMS = '**/api/admin/society-claims**';
 const PROPOSALS = '**/api/admin/society-proposals**';
 const REPORTS = '**/api/reports**';
+/* The three queues this file never fault-injects, and which nevertheless have to be answered. See
+   `stubQuietQueues` for why an unrouted read is not neutral here. */
+const RESIDENTS = '**/api/admin/society-residents**';
+const CANDIDATES = '**/api/admin/society-candidates**';
+const MERGES = '**/api/admin/society-merges**';
 
 /** A Spring `PageResponse`, the shape `unwrapFullPage` reads. */
 const pageOf = (rows) => ({ content: rows, page: 0, size: 100, totalElements: rows.length, totalPages: 1 });
@@ -109,10 +118,37 @@ async function goLive(page, domains) {
       body: next,
     });
   });
+  await stubQuietQueues(page);
   return () => expect(
     patched,
     'services/config.js was never rewritten — the app is still on mocks, so this test would assert nothing',
   ).toBe(true);
+}
+
+/**
+ * Answer the society queues this file has no claim about, so that the only failure on screen is the
+ * one a test injected.
+ *
+ * The seam is per **domain**, not per endpoint: `goLive(page, 'society')` moves every society read
+ * onto http, including the four `reload()` fires that no test here stubs. In mock mode there is no
+ * backend behind the dev proxy, so those reads do not quietly return nothing — they raise
+ * `NetworkError`, and `AdminSocieties.reload()` collects the label of every queue that broke into
+ * one banner. Three uninteresting failures therefore rewrite the sentence test 1 asserts, from the
+ * singular branch it was written against to the plural one, and take with them the distinction that
+ * test exists to draw. That is not hypothetical: it is how this file broke, and it broke silently in
+ * the five tests that only need the banner to be *absent* from their own assertions.
+ *
+ * Empty pages rather than rows, deliberately. Nothing below reads a resident, candidate or merge, so
+ * inventing fixtures for them would be three more wire shapes to keep in step with the server for no
+ * assertion; an empty queue is the one answer that cannot be wrong about them.
+ *
+ * `listReports` is not here — it is a `report`-domain read, so it stays on mocks unless a test asks
+ * for that domain too, and the two that do stub it themselves.
+ */
+async function stubQuietQueues(page) {
+  for (const pattern of [RESIDENTS, CANDIDATES, MERGES]) {
+    await page.route(pattern, (route) => route.fulfill(json(200, pageOf([]))));
+  }
 }
 
 /**

@@ -116,6 +116,15 @@ of that and both *reduce* the queue, so they are stated before the lists:
   `society` (1) and `services` (1). The flatmates four are gone, leaving **12 pairs / 44 bodies** in
   `home`, `search`, `society` and `services`. Recorded here so P5c deletes them as one known set
   instead of rediscovering them folder by folder.
+
+  > **Closed 2026-08-24 — the set is empty, and P5c must not act on the paragraph above.**
+  > Re-hashed every remaining legacy/live name-pair in the tree: **17 pairs, 0 byte-identical.**
+  > The `home` and `search` duplicates went out with their own waves rather than as a batch, and
+  > the rest have since diverged — the surviving legacy file is now a genuinely different body from
+  > its `live-` twin, which is exactly what a converted pair should look like. The paragraph is left
+  > standing because the *finding* was real and the reasoning is worth keeping, but acting on it now
+  > would delete 17 files that carry real coverage on the belief they are copies. **Re-hash before
+  > deleting any pair; never delete on the strength of a matching filename.**
 - **`account/owner-profile.spec.js` (5) is a strict subset of `consumer/live-owner-profile.spec.js`
   (11)** — the live twin covers the same header/grid/not-found ground *and* masking, the seven-field
   wire contract, provenance and the reviews-read failure state. It is a **delete**, not a convert.
@@ -144,11 +153,22 @@ of that and both *reduce* the queue, so they are stated before the lists:
       accounts. The conversion also caught that **the name field is empty and required for a real
       new account** — the retired spec's "name + mobile are prefilled" was true only of the mock's
       seeded user, and a genuinely new writer meets a required empty field.
-- [ ] `messages-inbox` (12) — session-only on paper, but the conversation fixture is the risk: the
-      four seeded threads are between *generated* users, so a spec signing in as a named actor sees
-      an empty inbox. Check the seed before converting, not after.
-- [ ] `tenant-profile` (6) / `photo-requests` (2) / `contact-request-verified-badge` (1) — small
-      seeders.
+- [x] `messages-inbox` (12) — **converted** to `live-messages-inbox` (3 ✅). The seed now has a
+  named Rahul↔Meera row, but the live test mints a unique buyer thread against Meera's seeded
+  Baner listing so message writes never poison shared fixture state. It owns quick/typed sends,
+  readback after reload, contact visibility, the report modal, and the dashboard hand-off.
+  Staged chat coverage remains in `consumer/property/live-chat-owner`; auto-replies are mock
+  theatre, and the location card is not live-reachable because the HTTP mapper has no location.
+- [x] `tenant-profile` (6) — **converted** to `live-tenant-profile` (3 ✅). The server-backed
+  profile save/reload, blank-name no-write guard, and score checklist replaced browser-store
+  premises. The DigiLocker completion and changed-mobile cases are owned by the live verification
+  funnel or lack a deterministic provider callback.
+- [x] `contact-request-verified-badge` (1) — **converted** to
+  `live-contact-request-verified-badge` (1 ✅), with isolated verified/unverified buyers and
+  the server-projected `requester.verified` bit before approval.
+- [ ] `photo-requests` (2) — **intentionally mock-only**: requests still live exclusively in
+  `puneNestPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
+  exists yet.
 - [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
       counterpart was `live-property-integration.spec.js`, and reading that file confirmed it:
       `:295` drives the same upload → slot-flips → remove → slot-empty round-trip *and* asserts
@@ -160,14 +180,20 @@ of that and both *reduce* the queue, so they are stated before the lists:
       exists for — a dashboard that decided the request in the browser's own copy of the inbox and
       told the server nothing. The PATCH is now asserted on the wire and the row re-read outside the
       browser.
-- [ ] `doc-viewer-scheme` (3), `doc-info` (4), `view-documents-flow` (3) — the rest of the document
-      cluster. `live-buyer-document-access` (2) owns the *security* half; the grant→category-match→
-      awaiting-upload rendering and the data-URL scheme guard are still uncovered. **Check first
-      whether the scheme guard is reachable live at all** — live documents are served as URLs rather
-      than `data:` payloads, so that spec may be a capability gap to record rather than a conversion.
-- [ ] `listing-freshness` (4) — reads `db.json` off disk; needs seeded `freshenedAt`, not a literal.
-- [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5), `action-center` (4), `deals-offers` (11),
-      `dashboard` (14) — the expensive tail; `dashboard` last, it is the widest.
+- [x] `view-documents-flow` (3) — **converted** to `live-view-documents-flow` (2 ✅): category
+  matching, notification deep-link provenance, view-only rendering, and the granted-without-file
+  state now read the API. `doc-viewer-scheme` stays mock-only because live rows are storage URLs,
+  never inline `data:` payloads; `doc-info` stays mock-only because no live agreement/info-dot
+  fixture reaches that panel.
+- [ ] `listing-freshness` (4) — mock-only until the seed exposes deterministic fresh/stale/dormant
+  `last_confirmed_at` states; live confirmation itself is already covered elsewhere.
+- [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5) — mock cases retained for manual receipt,
+  financial-year clock, multiple/empty tenancy, and payout-removal states that the API cannot
+  currently fixture or express. Their managed/rent live seam coverage already exists.
+- [ ] `action-center` (4), `deals-offers` (11), `dashboard` (14) — focused live additions now cover
+  API-backed actions in `live-action-center` (2 ✅), `live-deals-offers` (2 ✅), and
+  `live-dashboard` (2 ✅); the mock twins remain for local photo/recent-search and unavailable
+  timestamp/owner-mobile flows.
 
 #### `flatmates` — cheapest first
 

@@ -24,7 +24,7 @@ export function buildDocGroups(docReqs) {
 export function buildActionItems({
   isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
   scheduledVisits, rental, payEnabledRent,
-  decideContact, decideApp, go, decideDocReqs, navigate,
+  decideContact, decideApp, go, decideDocReqs, resolvePhotoReq, navigate,
 }) {
   const actionItems = [];
   if (isOwner) {
@@ -52,13 +52,19 @@ export function buildActionItems({
         ],
       });
     });
-    photoReqs.forEach((r) => {
+    /* Filtered to pending, unlike before: every other row in this list disappears once the owner
+       has dealt with it, and a photo request that could never leave was the one row teaching people
+       that the Action Center does not empty. "Mark done" is what makes the filter reachable. */
+    photoReqs.filter((r) => (r.status || 'pending') === 'pending').forEach((r) => {
       actionItems.push({
         id: 'photo:' + r.id, tone: 'amber', icon: 'image',
         title: `${r.buyerName || 'A buyer'} asked for more photos`,
         sub: r.propLabel || (r.propId ? 'Listing ' + r.propId : 'Photo request'),
         at: r.requestedAt || null,
-        actions: [{ label: 'Add photos', icon: 'image', onClick: () => go('leads') }],
+        actions: [
+          { label: 'Add photos', icon: 'image', onClick: () => go('leads') },
+          ...(resolvePhotoReq ? [{ label: 'Mark done', icon: 'check', variant: 'ghost', onClick: () => resolvePhotoReq(r.id) }] : []),
+        ],
       });
     });
     pendingDocGroups.forEach((g) => {

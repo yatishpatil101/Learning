@@ -83,10 +83,11 @@ export default function Dashboard() {
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
-    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
+    decideContact, decideDocReqs, decideFlatmateReq, resolvePhotoReq, mutateVisit, openReview, sendReview,
     dataStatus, dataError, retryData,
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
+    photoReqsStatus, photoReqsError, retryPhotoReqs,
   } = useDashboardData({ user, toast });
   const isOwner = (listings || []).length > 0 || ownsInventory;
   /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy —
@@ -167,6 +168,11 @@ export default function Dashboard() {
   );
   const pendingContacts = contactReqs.filter((r) => r.status === 'pending').length;
   const pendingFlatmateReqs = flatmateReqs.filter((r) => r.status === 'pending').length;
+  // Photo requests only started having a resolved state when the owner got a way to answer them;
+  // before that every row was permanently 'pending' and this filter would have been a no-op dressed
+  // up as a rule. It is a real filter now, which is what stops a dealt-with request from sitting in
+  // the badge forever and training owners to ignore it.
+  const pendingPhotoReqs = photoReqs.filter((r) => r.status === 'pending').length;
   // Buyer document requests, grouped per buyer+property (one due-diligence request =
   // one lead), counting only groups with at least one pending document.
   const docGroups = useMemo(() => buildDocGroups(docReqs), [docReqs]);
@@ -194,7 +200,7 @@ export default function Dashboard() {
   const actionItems = buildActionItems({
     isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
     scheduledVisits, rental, payEnabledRent,
-    decideContact, decideApp, go, decideDocReqs, navigate,
+    decideContact, decideApp, go, decideDocReqs, resolvePhotoReq, navigate,
   });
   // Counts for the always-visible sidebar/tab badges, so pending work is obvious
   // from any tab — not just Overview. Requests (leads) badge = items genuinely
@@ -202,7 +208,7 @@ export default function Dashboard() {
   // the "Waiting on you" figure in the Requests panel. Already-contactable
   // enquiries aren't counted as attention — they need no accept/decline decision.
   const attentionCounts = {
-    leads: pendingContacts + photoReqs.length + pendingFlatmateReqs + pendingDocGroups.length,
+    leads: pendingContacts + pendingPhotoReqs + pendingFlatmateReqs + pendingDocGroups.length,
     visits: scheduledVisits.length,
     messages: chatUnread,
   };
@@ -226,7 +232,7 @@ export default function Dashboard() {
       case 'activity':
         return <ActivityPanel key={'act:' + (sub || '')} initialSub={sub} recent={recent} />;
       case 'leads':
-        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
+        return <EnquiriesPanel contactReqs={contactReqs} decideContact={decideContact} photoReqs={photoReqs} resolvePhotoReq={resolvePhotoReq} flatmateReqs={flatmateReqs} decideFlatmateReq={decideFlatmateReq} docReqs={docReqs} decideDocReqs={decideDocReqs} listings={listings} contactReqsFailed={contactReqsStatus === 'error'} contactReqsError={contactReqsError} onRetryContactReqs={retryContactReqs} photoReqsFailed={photoReqsStatus === 'error'} photoReqsError={photoReqsError} onRetryPhotoReqs={retryPhotoReqs} docReqsFailed={docReqsStatus === 'error'} docReqsError={docReqsError} onRetryDocReqs={retryDocReqs} />;
       case 'finances':
         return <FinancesTab user={user} listings={listings} toast={toast} isOwner={isOwner} showRental={showRental} />;
       case 'documents':

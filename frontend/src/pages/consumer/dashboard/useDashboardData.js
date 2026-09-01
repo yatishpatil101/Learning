@@ -7,7 +7,7 @@ import { myContactRequests, respondToContactRequest } from '../../../services/co
 import { listDocRequests, respondDocRequest } from '../../../services/documentService.js';
 import { decideGroupApplication, listMyGroupApplications } from '../../../services/flatmateService.js';
 import { isHttpDomain } from '../../../services/config.js';
-import { getPhotoReqs } from '../../../lib/photoRequests.js';
+import { myPhotoRequests, resolvePhotoRequest } from '../../../services/photoRequestService.js';
 import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
   listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
@@ -43,6 +43,27 @@ const toLeadRow = (r) => ({
   requestedAt: r.createdAt ? Date.parse(r.createdAt) : 0,
 });
 
+/**
+ * A photo request, in the same row vocabulary.
+ *
+ * `propId` prefers the **slug** over the UUID, mirroring `propertyMapper`'s `id: p.slug || p.id`.
+ * Everything downstream feeds this straight into a route (`/list-property?edit=<propId>`), and the
+ * two identifiers are not interchangeable there: the server emits both precisely so this choice is
+ * made once, out loud, instead of a UUID silently producing a link that 404s.
+ *
+ * `buyerMobile` is the masked number and there is no unmasked variant to fall back to — unlike a
+ * contact request, this row has no approval that could ever reveal one.
+ */
+const toPhotoRow = (r) => ({
+  id: r.id,
+  propId: r.propertySlug || r.propertyId || '',
+  propLabel: r.propertyTitle || '',
+  buyerName: r.requester?.name || 'A buyer',
+  buyerMobile: r.requester?.mobile || '',
+  status: r.status || 'pending',
+  requestedAt: r.createdAt ? Date.parse(r.createdAt) : 0,
+});
+
 /* Data layer for the consumer Dashboard: owns all remote/persisted state, the
    load + per-user request effects, and the mutation handlers. Extracted verbatim
    from the Dashboard container so the container is a thin orchestrator; behaviour
@@ -54,7 +75,6 @@ export function useDashboardData({ user, toast }) {
   const [recent, setRecent] = useState([]);
   const [recommended, setRecommended] = useState([]);
   const [alertMatches, setAlertMatches] = useState([]);
-  const [photoReqs, setPhotoReqs] = useState([]);
   const [flatmateReqs, setFlatmateReqs] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
@@ -70,7 +90,6 @@ export function useDashboardData({ user, toast }) {
 
   useEffect(() => {
     if (user?.mobile) {
-      setPhotoReqs(getPhotoReqs(user.mobile));
       setFlatmateReqs(getFlatmateRequests(user.mobile));
     }
   }, [user]);
@@ -133,6 +152,42 @@ export function useDashboardData({ user, toast }) {
     const res = await myContactRequests();
     setContactReqs(res.items.map(toLeadRow));
     toast(decision === 'approved' ? 'Your number is now shared with this buyer.' : 'Request declined — your number stays private.', decision === 'approved' ? 'success' : 'info');
+  };
+
+  /* The photo-request inbox — buyers asking for more pictures of listings this caller owns.
+     Owner-scoped by the session, so like the contact and document inboxes it takes no argument.
+
+     This was a synchronous localStorage read, and it could never have worked: the buyer's browser
+     wrote `puneNestPhotoReq:<ownerMobile>` into *its own* storage, and the owner read that key from
+     *theirs*. Two origins, one key name — so no real owner has ever seen a photo request, and the
+     e2e spec that covered it passed only because a single browser context played both parts. That
+     is the whole reason this domain moved server-side.
+
+     `useAsyncList` rather than a `.catch(() => [])`: "nobody has asked about your listings" is a
+     claim we cannot make from a request that failed (D166). */
+  const [photoReqs, photoReqsStatus, setPhotoReqs, retryPhotoReqs, photoReqsError] = useAsyncList(
+    () => myPhotoRequests().then((res) => res.items.map(toPhotoRow)),
+    [user],
+    !!user?.mobile,
+  );
+
+  /* The owner's half of the maker-checker pair: the buyer makes the request, the owner marks it
+     satisfied. The server is the one that enforces they are different people — a requester
+     resolving their own row gets a 404 — so this handler carries no authorisation logic of its own;
+     it would only be a second, weaker copy of a rule that already holds.
+
+     Re-read rather than patched in place, matching `decideContact`: what comes back is what the
+     server actually recorded. The toast waits for the write for the same reason — raised
+     optimistically it would promise a buyer had been answered when the request may have failed. */
+  const resolvePhotoReq = async (reqId) => {
+    try {
+      await resolvePhotoRequest(reqId);
+      const res = await myPhotoRequests();
+      setPhotoReqs(res.items.map(toPhotoRow));
+      toast('Marked done — this buyer is no longer waiting on you.', 'success');
+    } catch (e) {
+      toast(e?.message || 'That did not go through. Please try again.', 'error');
+    }
   };
 
   // Buyer document requests are stored one record per document; the Requests panel
@@ -366,12 +421,13 @@ export function useDashboardData({ user, toast }) {
     contactReqs, photoReqs, flatmateReqs, docReqs,
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
-    decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
+    decideContact, decideDocReqs, decideFlatmateReq, resolvePhotoReq, mutateVisit, openReview, sendReview,
     // Load state, so the page can say "we couldn't load this" instead of rendering a plausible
     // dashboard for a user whose data never arrived.
     dataStatus, dataError, retryData,
     docReqsStatus, docReqsError, retryDocReqs,
     contactReqsStatus, contactReqsError, retryContactReqs,
+    photoReqsStatus, photoReqsError, retryPhotoReqs,
     appsStatus, appsError, retryApps,
   };
 }

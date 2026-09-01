@@ -729,6 +729,50 @@ public final class Routes {
         public static final String BASE = "/me/photos";
     }
 
+    /**
+     * The "request more photos" demand signal — a buyer's side.
+     *
+     * <p>Nested under the listing rather than sitting at {@code /photo-requests} with a
+     * {@code propertyId} in the body, because a photo request has no meaning apart from the listing
+     * it is against: there is no "list all photo requests" read and never will be. That is the
+     * opposite call from {@link Contacts#REQUEST}, which is flat because the contact gate also
+     * answers {@link Contacts#STATUS} for the same pair and wants one shape for both.
+     *
+     * <p>Authenticated, and not by accident: {@link Properties#ANY_SINGLE} is single-segment
+     * ({@code /properties/*}) on purpose, so this deeper path is never swept into the public
+     * allowlist alongside the listing read it hangs off.
+     */
+    public static final class PropertyPhotoRequests {
+
+        private PropertyPhotoRequests() {
+        }
+
+        /** Authenticated. Sign-in is the whole gate — no badge, no quota; see {@code PhotoRequestService}. */
+        public static final String BASE = Properties.BY_ID + "/photo-requests";
+    }
+
+    /**
+     * The listing owner's side of the photo-request signal. Strictly owner-scoped, like
+     * {@link MeContactRequests}.
+     */
+    public static final class MePhotoRequests {
+
+        private MePhotoRequests() {
+        }
+
+        public static final String BASE = "/me/photo-requests";
+
+        /**
+         * The owner's "buyers want more photos" badge — a count, not a list, for the same reason as
+         * {@link MeContactRequests#PENDING_COUNT}: {@link #BASE} is paged, and a badge derived by
+         * filtering one page is wrong as soon as there are two.
+         */
+        public static final String PENDING_COUNT = BASE + "/pending-count";
+
+        /** {@code reqId}, mirroring {@link MeContactRequests#BY_ID}. */
+        public static final String BY_ID = BASE + "/{reqId}";
+    }
+
 
     /** The contact gate: what a signed-in caller may see of a listing owner, and how to ask. */
     public static final class Contacts {

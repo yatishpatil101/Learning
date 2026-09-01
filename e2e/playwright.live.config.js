@@ -145,7 +145,7 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       VITE_API_DOMAINS:
-        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,fees,team,settings,city,ticket,referral,users,staffActivity,propertyReview,outreach,content,locality,demand,adminContent,note,entitlement,managed,enquiryBoard,finance,analytics,pageview',
+        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,photoRequest,fees,team,settings,city,ticket,referral,users,staffActivity,propertyReview,outreach,content,locality,demand,adminContent,note,entitlement,managed,enquiryBoard,finance,analytics,pageview',
 
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,

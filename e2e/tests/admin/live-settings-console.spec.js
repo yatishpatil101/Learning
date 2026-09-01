@@ -8,7 +8,8 @@
  *
  * ## Why this file exists
  *
- * `tests/admin/settings.spec.js` covers the same desk in mock mode, and its two save tests assert
+ * `tests/admin/settings.spec.js` covered the same desk in mock mode until this file replaced it and
+ * it was deleted. Its two save tests asserted
  * exactly one thing each: that a toast appeared. That was a fair test of the screen while the
  * settings document lived in `localStorage`, because there a write could not fail — the toast and
  * the save were the same event. It stopped being fair the moment the document moved behind
@@ -44,7 +45,8 @@
  * ## The audit-log test did not come across, and will not
  *
  * The mock file's seventh test — "the Audit log tab shows the empty state for a fresh workspace" —
- * has no live twin, and adding one would be worse than leaving the gap. That tab is fed by
+ * has no live twin, and adding one would be worse than leaving the gap. It is the one claim that
+ * did not survive the deletion of that file, and this section is where it went. That tab is fed by
  * `listAudit` / `clearAudit` from `frontend/src/lib/mockApi.js`: a log kept in the browser, written
  * by whichever tab happened to make the change, and invisible to every other operator and to the
  * server. Decision 39 in `tasks/DECISIONS-NEEDED.md` settled that on 2026-08-22 — the tab stays,

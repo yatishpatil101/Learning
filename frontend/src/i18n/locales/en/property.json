@@ -149,6 +149,7 @@
     "signInPhotos": "Please sign in to request more photos",
     "ownListingPhotos": "This is your listing — add photos from Edit listing.",
     "photosDuplicate": "You've already asked for more photos on this listing.",
+    "photosFailed": "We couldn't send that request. Please try again.",
     "photosSent": "Request sent — the owner will see it in their dashboard.",
 
     "compareLimitAlert": "You can compare up to 4 properties",

@@ -1,24 +1,19 @@
-/* "Request more photos" demand signal (prototype, localStorage).
+/* localStorage store behind the MOCK photo-request provider.
 
-   When a buyer taps "More photos" on a listing, we persist a lightweight request
-   keyed to the OWNER (same per-owner keying idea as contact.js), so the owner sees
-   who asked from their dashboard Enquiries tab and is nudged to add more photos.
+   This used to be the feature itself. It is now only the mock provider's storage: the real
+   read/write path is services/photoRequestService.js → providers/http/photoRequestProvider.js,
+   backed by /properties/{id}/photo-requests and /me/photo-requests.
 
-   Photo requests are lower-stakes than a phone-number reveal — they expose no owner
-   PII — so the gate is lighter: sign-in only (no Aadhaar). A buyer can't spam the
-   same listing: a repeat request for a listing they've already asked about is a no-op. */
+   The per-owner key is preserved deliberately, faithfully reproducing the bug that motivated the
+   server: the buyer writes puneNestPhotoReq:<ownerMobile> into THEIR OWN browser, where the owner
+   can never read it. Keep it — a mock that quietly worked better than production would hide the
+   very defect the live suite exists to catch.
 
-const USER_KEY = 'puneNestUser';
+   `requestMorePhotos` and `photoReqCount` lived here too and are gone; their logic (sign-in gate,
+   own-listing guard, duplicate suppression) now belongs to the provider, which mirrors the server's
+   rules rather than inventing its own. */
 
 const digits = (num) => String(num || '').replace(/\D/g, '');
-
-function readUser() {
-  try {
-    return JSON.parse(localStorage.getItem(USER_KEY));
-  } catch {
-    return null;
-  }
-}
 
 const photoKey = (ownerMobile) => 'puneNestPhotoReq:' + (digits(ownerMobile) || 'anon');
 
@@ -33,26 +28,3 @@ export function getPhotoReqs(ownerMobile) {
 export function savePhotoReqs(ownerMobile, arr) {
   localStorage.setItem(photoKey(ownerMobile), JSON.stringify(arr));
 }
-
-/* → 'login' | 'duplicate' | 'ok' */
-export function requestMorePhotos(ownerMobile, propId, propLabel) {
-  const u = readUser();
-  if (!u) return 'login';
-  const mine = digits(u.mobile);
-  const reqs = getPhotoReqs(ownerMobile);
-  if (reqs.some((r) => r.buyerMobile === mine && r.propId === (propId || ''))) {
-    return 'duplicate';
-  }
-  reqs.unshift({
-    id: 'ph' + Date.now(),
-    propId: propId || '',
-    propLabel: propLabel || '',
-    buyerName: u.name || 'Buyer',
-    buyerMobile: mine,
-    requestedAt: Date.now(),
-  });
-  savePhotoReqs(ownerMobile, reqs);
-  return 'ok';
-}
-
-export const photoReqCount = (ownerMobile) => getPhotoReqs(ownerMobile).length;

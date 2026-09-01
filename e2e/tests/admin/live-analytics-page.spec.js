@@ -76,7 +76,7 @@ test('analytics opens on Traffic and offers all eight tabs', async ({ page, logi
 
 test('analytics does not show a Conversion tab', async ({ page, login }) => {
   await openAnalytics(page, login);
-  // Conversion moved to the Enquiries funnel (`admin/consolidation.spec.js` asserts it arrived).
+  // Conversion moved to the Enquiries funnel (`admin/live-consolidation.spec.js` asserts it arrived).
   // Anchored on the strip having rendered, so this is "not among these eight" rather than
   // "nothing matched", which a blank page would also satisfy.
   await expect(page.getByRole('tab', { name: 'Traffic' })).toBeVisible();
