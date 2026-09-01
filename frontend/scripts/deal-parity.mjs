@@ -42,6 +42,10 @@ installStorageStubs();
 const failures = [];
 const warnings = [];
 
+/* Render an `ApiError` for a human. It carries `code`/`message`/`status`, never a `body` — printing
+   `JSON.stringify(e.body)` yields the literal `undefined` and discards the server's reason. */
+const describe = (e) => [e?.status, e?.code, e?.message].filter(Boolean).join(' ') || String(e);
+
 console.log(`\n  live API: ${BASE}`);
 console.log(`  owner: ${OWNER_MOBILE}   buyer: ${BUYER_MOBILE}`);
 
@@ -182,9 +186,18 @@ if (!ownerDeal) {
 // empty list rather than an error — the dashboard renders "no deals yet" and nobody sees a stack
 // trace. Only a *positive* assertion catches it: the buyer-scoping check above passes vacuously on
 // an empty array, which is precisely how the breakage survived its own harness once already.
+// `/me/deals` lists *stored* deal rows, and an untouched listing has none: `DealService.myDeals`
+// reads the `deals` table, while `getDeal` synthesizes an active deal on the fly when no row is
+// there. So the two endpoints legitimately disagree about a listing nobody has acted on yet —
+// `getDeal` says active, the list omits it — and the row only becomes real at the first reserve.
+//
+// This used to be asserted here as a failure, which made it red on every run: it demanded that the
+// list contain a deal the server had never been asked to create. The D77 envelope guard it was
+// really there for has moved below the reserve, where a stored row genuinely exists and the
+// assertion can be positive without inventing state.
 const ownerDeals = await live.myDeals();
-if (!ownerDeals.some((d) => d.propId === listing)) {
-  failures.push('the owner\'s /me/deals does not contain their own listing — if it is also empty, the page envelope is not being unwrapped');
+if (ownerDeals.some((d) => d.propId === listing)) {
+  warnings.push('an untouched listing already has a stored deal row — harmless, but it means something created one before the owner acted');
 }
 
 // Reserve → parties → the id-based removal the mock used to do by index.
@@ -192,6 +205,19 @@ await live.reserveDeal(listing).catch((e) => failures.push(`reserve failed: ${e.
 const afterReserve = await live.getDeal(listing).catch(() => null);
 if (afterReserve && afterReserve.status !== 'reserved') {
   failures.push(`after reserve the deal reports "${afterReserve?.status}", expected "reserved"`);
+}
+
+/* The list read, not just the single-row one, and deliberately *after* the reserve — that is the
+   call that materialises the stored row, so from here the listing must appear.
+
+   `/me/deals` is paged on the wire (D77) while the provider hands back a plain array, and the
+   failure mode of getting that translation wrong is an empty list rather than an error: the
+   dashboard renders "no deals yet" and nobody sees a stack trace. Only a *positive* assertion
+   catches it — the buyer-scoping check above passes vacuously on an empty array, which is precisely
+   how that breakage survived its own harness once already. */
+const dealsAfterReserve = await live.myDeals();
+if (!dealsAfterReserve.some((d) => d.propId === listing)) {
+  failures.push('after reserving, the owner\'s /me/deals still does not contain their own listing — if it is also empty, the page envelope is not being unwrapped');
 }
 const party = await live.addParty(listing, { name: 'Parity Probe Party', mobile: '9876500011', note: 'probe' })
   .catch((e) => { failures.push(`addParty failed: ${e.status} ${e.message}`); return null; });
@@ -223,7 +249,7 @@ if (noPrice.status < 400) {
 
 // The real close, which must then block a reserve.
 await live.closeDeal(listing, { agreedPrice: 5200000, counterpartyMobile: BUYER_MOBILE, note: 'parity probe' })
-  .catch((e) => failures.push(`close failed: ${e.status} ${JSON.stringify(e.body)}`));
+  .catch((e) => failures.push(`close failed: ${describe(e)}`));
 const closed = await live.getDeal(listing).catch(() => null);
 if (closed && closed.status !== 'closed') {
   failures.push(`after close the deal reports "${closed?.status}", expected "closed"`);

@@ -424,3 +424,48 @@
   seeding a partial DB pre-boot white-screens the app. Seed extra rows after boot.
 - **The cookie-consent banner intercepts clicks on bottom-anchored targets.** Any new bottom-click or
   mobile-FAB spec must seed `pn_cookie_consent_v1`.
+
+## House style
+
+Match it. It is the reason this codebase is navigable. (Rescued from `tasks/HANDOFF.md` when that
+file was retired — the rest of it had gone stale, but this had no other home.)
+
+**Backend Javadoc, SQL, OpenAPI:** bold lead-ins (`<p><strong>Why …</strong>`), the counter-example
+that motivated the design, and an explicit statement of what the code deliberately does *not* do.
+For withheld fields: *"Absent (NON_NULL) rather than null, so the shape of the response does not
+advertise that a field is being withheld."*
+
+**Frontend comments:** when you delete something, leave a comment saying what stood there and why it
+went. When deleting N repetitive calls, write **one** consolidated block comment at the first site
+and name the honest cost.
+
+**Migrations:** a long `--` header giving why the object exists, why nullable, why no backfill, why
+this index, why no FK. `V86`–`V88` are the models.
+
+**Specs:** long docblock header ending `Fixtures: …`. Named constants with `/** … */`. Deltas, not
+absolutes, for append-only ledgers. Never guess a UI anchor. Every sweep needs a floor. Never wrap
+an assertion in `if (await x.isVisible())`. **`networkidle` is a sleep with a network-shaped excuse.**
+Locate by role and accessible name. **Assert the status of the write, not the state of the control.**
+An assertion of absence needs a positive readiness gate. An assertion of rejection needs a matching
+assertion of acceptance. Prove a write reached the database with a reload. A live spec that mutates
+shared seed data must restore it. **When two components must agree on a value, fetch both and
+compare — never assert the value's shape.**
+
+**Register items:** `## N. <one-sentence claim as a heading>`, `**Where:**` with file:line,
+`### What happens today`, `### Why this is not a port`, `### Options` (numbered, recommendation
+bolded), `### Related`. **When resolved, insert a `> **RESOLVED — …**` blockquote immediately under
+the heading**, naming the commits, what was deliberately left undone, and where the coverage lives.
+
+**Commit messages:** long-form, narrating the reasoning and what was deliberately *not* done, with
+`##` sections, a "Deliberately not done" section, and a `Verified:` line. **When a wrong intermediate
+conclusion was reached and corrected, keep both** — the correction is the useful part. Models:
+`26129a2`, `368ad4f`, `38c33a7`, `7b7c006`, `fbbfd18`, `48386b2`.
+
+**`tasks/todo.md` D-entries:** `## D<N> — <the commit's subject line>`, then the narrative with `###`
+sections, a bolded generalisable rule in a blockquote where one emerged, a `**Verified:**` line, the
+commit hash, and a `### Deliberately not done`.
+
+**When a claim in an existing Javadoc, comment, spec header or document turns out to be false, quote
+it and correct it in place.** Do not silently delete it — the correction is the useful artefact. This
+applies to documents written minutes earlier in the same session. Conversely, when an existing
+Javadoc turns out to be *right*, quote it.

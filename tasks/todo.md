@@ -10,8 +10,7 @@ Where things live:
 | Topic | File |
 |---|---|
 | Open decisions and the damage-ordered work queue | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) |
-| Where a new session starts | [tasks/HANDOFF.md](HANDOFF.md) |
-| Durable rules learned the hard way | [tasks/lessons.md](lessons.md) |
+| Durable rules learned the hard way, and house style | [tasks/lessons.md](lessons.md) |
 | Tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) |
 | Unanswered product questions | [docs/system/open-questions.md](../docs/system/open-questions.md) |
 | The frontend data seam | [docs/system/frontend-data-seam.md](../docs/system/frontend-data-seam.md) |
@@ -39,8 +38,10 @@ Two things that are true and are not going to change soon:
 
 - Ledger 20 (finance console) is shipped and verified (`023c311`).
 - Ledger 35 (`GET /geo`) is shipped and closed in the decision register.
-- Rent-agreement co-fill (V107) — backend green at `b7bc2fa`, frontend seam and wizard done, live
-  e2e written. **Not yet run against a live backend**; see `HANDOFF.md` §4 for the command.
+- Rent-agreement co-fill (V107) — backend at `b7bc2fa`, frontend seam, wizard and live e2e at
+  `499732d`. Run and green: 5/5 in the live service-request block. The run earned its keep — it
+  caught `http/serviceRequestMapper.toViewModel` dropping `parties` on the wire, which no mock spec
+  could have seen, since the mock builds its own party list.
 
 ## Needs attention
 

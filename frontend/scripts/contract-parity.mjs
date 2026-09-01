@@ -27,7 +27,23 @@ const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
 
 installStorageStubs();
 
-const mock = await import('../src/services/providers/mock/authProvider.js');
+// Plain `await import()` cannot reach the mock provider: it pulls in `mockApi/core`, which imports
+// `db.json` (Node >= 22 demands an import attribute) and `persist.js` (which reads
+// `import.meta.env.DEV`, undefined outside a bundler — the `Cannot read properties of undefined
+// (reading 'DEV')` this used to die on). Vite's SSR loader resolves both, and it is what every
+// other harness here already uses.
+const { createServer } = await import('vite');
+const vite = await createServer({
+  server: { middlewareMode: true },
+  appType: 'custom',
+  logLevel: 'warn',
+  define: { 'import.meta.env.VITE_API_BASE': JSON.stringify(BASE) },
+});
+const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
+
+const mock = await load('../src/services/providers/mock/authProvider.js');
+// The seed is fetched asynchronously and every mock read throws until it lands.
+await (await load('../src/lib/mockApi.js')).ensureMockDb();
 
 const failures = [];
 
@@ -153,6 +169,13 @@ function installStorageStubs() {
   globalThis.localStorage = make();
   globalThis.sessionStorage = make();
   globalThis.window = globalThis;
+  globalThis.location ??= new URL(BASE);
+  // `lib/mockApi/core.js` subscribes at module scope and the mock provider reaches it through the
+  // store. Node has no DOM event target, so these are the minimum that lets the *real* provider
+  // load unmodified — which is the whole point of driving it rather than a reimplementation.
+  globalThis.addEventListener ??= () => {};
+  globalThis.removeEventListener ??= () => {};
+  globalThis.dispatchEvent ??= () => {};
 }
 
 function report() {

@@ -108,13 +108,25 @@ if (dup.status !== 409) {
   failures.push(`duplicate visit: live returned HTTP ${dup.status}, expected 409 — the mock refuses, so a caller written against one would break on the other`);
 }
 
+/* `GET /visits` is paged (D77): the body is `{content: [...]}`, not an array. Reading it with
+   `Array.isArray(body) ? body : []` yields an empty list *silently*, and both reads below did — so
+   the harness reported "one side did not return the visit it had just created" and "the live visit
+   vanished after a reschedule" when the server had returned both perfectly well and the harness had
+   thrown the page away. It is the same envelope mistake `unwrapPage` exists to stop in the
+   providers, and it is worth noting that it produced two confident, specific, wrong accusations
+   against the server rather than an error. */
+const rows = (body) => (Array.isArray(body) ? body : (body?.content ?? []));
+
 const liveList = await api('GET', '/visits', null, token);
-const liveRaw = (Array.isArray(liveList.body) ? liveList.body : []).find((v) => v.id === liveId);
+const liveRaw = rows(liveList.body).find((v) => v.id === liveId);
 
 // ─── Drive the mock ───────────────────────────────────────────────────────────────────────────
 globalThis.localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Parity Probe', mobile: MOBILE, role: 'buyer' }));
 const mock = await load('../src/services/providers/mock/visitProvider.js');
-const { rawDb } = await load('../src/lib/mockApi.js');
+// The seed is fetched asynchronously and `rawDb()` throws outright if it is not there yet — in the
+// browser `main.jsx` awaits this before rendering, and a script has to do the same.
+const { rawDb, ensureMockDb } = await load('../src/lib/mockApi.js');
+await ensureMockDb();
 const mockProperty = (rawDb().listings || []).find((p) => p.ownerMobile);
 if (!mockProperty) {
   console.error('\n  The mock database has no listing with an ownerMobile.\n');
@@ -171,12 +183,18 @@ if (liveId) {
     failures.push(`rescheduleVisit: live returned HTTP ${moved.status}, expected 200`);
   }
   const afterMove = await api('GET', '/visits', null, token);
-  const movedRaw = (Array.isArray(afterMove.body) ? afterMove.body : []).find((v) => v.id === liveId);
+  const movedRaw = rows(afterMove.body).find((v) => v.id === liveId);
   if (!movedRaw) {
     failures.push('rescheduleVisit: the live visit vanished after a reschedule — the id was not kept');
   } else {
     if (movedRaw.status !== 'scheduled') failures.push(`rescheduleVisit: live status is "${movedRaw.status}" after a move, expected "scheduled"`);
-    if (movedRaw.slot !== newSlot) failures.push(`rescheduleVisit: live slot is "${movedRaw.slot}", expected "${newSlot}"`);
+    // Compared as instants, not as strings. The server echoes `2026-09-10T09:30:00Z` for the
+    // `...:00.000Z` that was sent — the same moment, spelled without the milliseconds it does not
+    // store. A string comparison called that a contract break; the calendar parses this value, so
+    // the only thing that can actually break is the instant being wrong.
+    if (Date.parse(movedRaw.slot) !== Date.parse(newSlot)) {
+      failures.push(`rescheduleVisit: live slot is "${movedRaw.slot}", a different instant from the requested "${newSlot}"`);
+    }
   }
 }
 const mockMoved = await mock.rescheduleVisit(mockCreated.id, whenFromSlot(slotFromParts(furtherDateIso(), '3:00 PM'), 'in-person'));

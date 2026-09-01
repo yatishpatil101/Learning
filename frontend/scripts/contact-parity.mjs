@@ -73,7 +73,10 @@ const vite = await createServer({
 const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
 
 const mock = await load('../src/services/providers/mock/contactProvider.js');
-const { rawDb } = await load('../src/lib/mockApi.js');
+// The seed is fetched asynchronously and `rawDb()` throws outright if it is not there yet — in the
+// browser `main.jsx` awaits this before rendering, and a script has to do the same.
+const { rawDb, ensureMockDb } = await load('../src/lib/mockApi.js');
+await ensureMockDb();
 const mockProperty = rawDb().listings.find((p) => p.ownerMobile);
 if (!mockProperty) {
   console.error('\n  The mock database has no listing with an ownerMobile.\n');

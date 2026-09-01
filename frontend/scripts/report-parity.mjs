@@ -69,6 +69,9 @@ const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
 useSession(consumer);
 
 const mock = await load('../src/services/providers/mock/reportProvider.js');
+// The mock reads a seed that is fetched asynchronously, and every read throws until it lands — in
+// the browser `main.jsx` awaits this before rendering, and a script has to do the same.
+await (await load('../src/lib/mockApi.js')).ensureMockDb();
 const live = await load('../src/services/providers/http/reportProvider.js');
 const { toReportCreate, toReportTriage, toTargetType, toViewModel, canTriage } =
   await load('../src/services/providers/http/reportMapper.js');

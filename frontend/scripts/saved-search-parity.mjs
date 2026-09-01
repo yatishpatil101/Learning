@@ -56,6 +56,16 @@ if (loginRes.status !== 200) {
 }
 const token = loginRes.body.accessToken;
 
+// The http provider authenticates out of localStorage, exactly as the browser does, so the session
+// has to be installed before any provider call. Same two keys `become()` writes in
+// flatmate-parity.mjs; without them every provider read here would 401 and read as drift.
+globalThis.localStorage.setItem('puneNestUser', JSON.stringify({
+  id: loginRes.body.user?.id, name: 'Parity Probe', mobile: MOBILE, role: 'buyer',
+}));
+globalThis.localStorage.setItem('puneNestTokens', JSON.stringify({
+  accessToken: token, refreshToken: loginRes.body.refreshToken,
+}));
+
 // ─── Load the real modules through Vite's SSR loader ──────────────────────────────────
 // Plain `await import()` no longer reaches these modules: the mock provider pulls in `mockApi/core`,
 // which imports `db.json` (Node >= 22 demands an import attribute) and `persist.js` (which reads
@@ -71,18 +81,21 @@ const vite = await createServer({
 const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
 
 const httpProvider = await load('../src/services/providers/http/savedSearchProvider.js');
-// The provider's own request shaping is under test, so build the body through it rather than by
-// hand — a hand-written body would prove the server works while hiding a broken mapper.
-const created = await api('POST', '/me/saved-searches', buildCreateBody(RECORD), token);
-if (created.status !== 201) {
-  console.error(`\n  Live create failed (HTTP ${created.status}): ${JSON.stringify(created.body)}\n`);
+// Both directions go through the provider, because both of its mappers are the thing under test:
+// `toCreateRequest` on the way out and `toViewModel` on the way back.
+//
+// Until 2026-08-21 this called the raw endpoint with a hand-built body and then re-implemented
+// `toViewModel` locally to read the reply. That grades a *copy* of the mapper, not the mapper — and
+// the copy duly drifted: it never learned `matchCount` or `newCount`, so it reported the live
+// provider missing the two fields the provider has mapped ever since D227 shipped. Two false
+// failures, and, worse, no real coverage at all of the fields gap 3 below is named after. A mapper
+// can only be checked by running it.
+const liveCreated = await httpProvider.createSavedSearch(RECORD).catch((e) => {
+  console.error(`\n  Live create failed: ${e?.status ?? ''} ${JSON.stringify(e?.body ?? e?.message)}\n`);
   process.exit(1);
-}
-const liveId = created.body.id;
-
-const liveRows = (await api('GET', '/me/saved-searches', null, token)).body;
-const liveRaw = (Array.isArray(liveRows) ? liveRows : []).find((r) => r.id === liveId);
-const liveView = liveRaw ? viewModelOf(httpProvider, liveRaw) : null;
+});
+const liveId = liveCreated.id;
+const liveView = (await httpProvider.listSavedSearches()).find((r) => r.id === liveId) || null;
 
 // ─── Drive the mock ───────────────────────────────────────────────────────────────────────────
 globalThis.localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Parity Probe', mobile: MOBILE, role: 'buyer' }));
@@ -140,6 +153,27 @@ if (!liveView || !mockView) {
   for (const [label, view] of [['mock', mockView], ['live', liveView]]) {
     if (view.newCount !== 0) warnings.push(`newCount: ${label} returned ${view.newCount} for a search created just now`);
   }
+
+  /* Gap 3b: the same two fields, on the wire this time.
+     The check above cannot fail for the live side, and it is worth being explicit about why rather
+     than deleting it: `toViewModel` reads them as `row.matchCount ?? 0`, so a *server* that stopped
+     sending the field is coerced to a number before the assertion ever sees it. That `?? 0` is
+     deliberate and correct — it is what keeps the UI working against an older server — but it means
+     gap 3 grades only the mapper. The field going missing at the source is the more likely drift of
+     the two (it is one `@Mapping` or one renamed column away), and it produces exactly the failure
+     D227 was raised to stop: a confident zero that empties the retention strip. So assert it where
+     the coercion cannot reach — on the raw response body. */
+  const wire = (await api('GET', '/me/saved-searches', null, token)).body;
+  const wireRow = (Array.isArray(wire) ? wire : []).find((r) => r.id === liveId);
+  if (!wireRow) {
+    failures.push('the row just created is absent from the raw GET /me/saved-searches body');
+  } else {
+    for (const field of ['matchCount', 'newCount']) {
+      if (typeof wireRow[field] !== 'number') {
+        failures.push(`${field}: the server sent ${typeof wireRow[field]}, expected number — the provider's \`?? 0\` would mask this as a confident zero and empty the retention strip (D227)`);
+      }
+    }
+  }
 }
 
 // The off→on round trip the Switch performs, checked against the server rather than assumed.
@@ -167,36 +201,11 @@ report();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────────────────────
 
-/**
- * The provider does not export its mappers (they are internal), so exercise them through the
- * public surface: the shape a caller sees is what matters, not the function that produced it.
- */
-function buildCreateBody(record) {
-  const TOP = new Set(['id', 'kind', 'name', 'query', 'criteria', 'label', 'mobile', 'alertFrequency', 'alerts', 'channel', 'newCount', 'at']);
-  const filters = {};
-  for (const [k, v] of Object.entries(record)) if (!TOP.has(k) && v !== undefined) filters[k] = v;
-  return {
-    kind: 'listings',
-    query: record.query || record.label,
-    filters,
-    alertFrequency: 'daily',
-    channel: record.channel || 'whatsapp',
-  };
-}
-
-function viewModelOf(_provider, row) {
-  const filters = row?.filters && typeof row.filters === 'object' ? row.filters : {};
-  return {
-    ...filters,
-    id: row.id,
-    kind: row.kind || 'listings',
-    query: row.query ?? '',
-    label: row.label || filters.label || '',
-    alertFrequency: row.alertFrequency || 'daily',
-    alerts: (row.alertFrequency || 'daily') !== 'off',
-    channel: row.channel || 'whatsapp',
-  };
-}
+// `buildCreateBody` and `viewModelOf` lived here until 2026-08-21. They were hand-written copies of
+// the provider's own `toCreateRequest` / `toViewModel`, kept because "the provider does not export
+// its mappers" — but the provider's public functions call them, so the mappers were reachable all
+// along. Both copies are now deleted rather than repaired: a second implementation of a mapper is a
+// second thing to keep in step, and this one silently stopped being in step.
 
 async function api(method, path, body, token) {
   const res = await fetch(BASE + path, {

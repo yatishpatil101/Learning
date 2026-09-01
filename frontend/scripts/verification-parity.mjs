@@ -32,7 +32,7 @@
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
-const BASE = args.get('base') || 'http://localhost:8081/api';
+const BASE = args.get('base') || 'http://localhost:8080/api';
 const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
 
 installStorageStubs();
@@ -70,6 +70,9 @@ globalThis.localStorage.setItem('puneNestTokens', JSON.stringify({
 }));
 
 const mock = await load('../src/services/providers/mock/verificationProvider.js');
+// The mock reads a seed that is fetched asynchronously, and every read throws until it lands — in
+// the browser `main.jsx` awaits this before rendering, and a script has to do the same.
+await (await load('../src/lib/mockApi.js')).ensureMockDb();
 const live = await load('../src/services/providers/http/verificationProvider.js');
 const { NONE_VERIFICATION, toVerificationViewModel, toStartHandle } = await load('../src/services/providers/http/verificationMapper.js');
 

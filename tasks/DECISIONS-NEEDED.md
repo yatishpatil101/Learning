@@ -6,7 +6,7 @@ the phase plan is `docs/migration/`, and the coverage claim is `e2e/COVERAGE.md`
 
 Rules for this file: a decision gets a row, never a section. When a row's work ships,
 the row stays (it is the record of *why*) and nothing else is written anywhere else.
-Do not restate a decision in `todo.md`, `HANDOFF.md` or `docs/migration/` — link to the number.
+Do not restate a decision in `todo.md` or `docs/migration/` — link to the number.
 
 ---
 

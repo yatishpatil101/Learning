@@ -34,7 +34,7 @@
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
-const BASE = args.get('base') || 'http://localhost:8081/api';
+const BASE = args.get('base') || 'http://localhost:8080/api';
 const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
 const LIVE = args.has('base') || args.has('otp-log');
 

@@ -40,6 +40,7 @@
     "parity:serviceRequest": "node scripts/serviceRequest-parity.mjs",
     "parity:verification": "node scripts/verification-parity.mjs",
     "parity:document": "node scripts/document-parity.mjs",
+    "parity:all": "node scripts/parity-all.mjs",
     "import:rera": "node scripts/import-rera.mjs",
     "rename:brand": "node scripts/rename-brand.mjs"
   },

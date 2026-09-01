@@ -38,6 +38,12 @@ installStorageStubs();
 const failures = [];
 const warnings = [];
 
+/* Render an `ApiError` for a human. It carries `code`/`message`/`status`, never a `body` — these
+   catches used to print `JSON.stringify(e.body)`, which is always the literal `undefined`, so every
+   failure here read as `404 undefined` and the server's actual explanation was thrown away. That
+   cost two separate investigations before anyone checked the class. */
+const describe = (e) => [e?.status, e?.code, e?.message].filter(Boolean).join(' ') || String(e);
+
 console.log(`\n  live API: ${BASE}`);
 console.log(`  host: ${HOST_MOBILE}   seeker: ${SEEKER_MOBILE}`);
 
@@ -168,7 +174,7 @@ const room = await live.createRoom({
   foodPref: 'any',
   photos: ['https://example.test/room.jpg'],
   note: 'flatmate parity probe',
-}).catch((e) => { failures.push(`createRoom failed: ${e.status} ${JSON.stringify(e.body)}`); return null; });
+}).catch((e) => { failures.push(`createRoom failed: ${describe(e)}`); return null; });
 
 if (room) {
   for (const [field, type] of Object.entries({ id: 'string', budget: 'number', locality: 'string', modStatus: 'string' })) {
@@ -194,15 +200,46 @@ const group = await live.createGroup({
   seatsOpen: 2,
   name: 'Parity Host',
   hostRole: 'tenant',
-}).catch((e) => { failures.push(`createGroup failed: ${e.status} ${JSON.stringify(e.body)}`); return null; });
+}).catch((e) => { failures.push(`createGroup failed: ${describe(e)}`); return null; });
+
+/** The request the seeker's join produced, or null when moderation refused it (the usual case). */
+let joinedGroup = null;
 
 if (group) {
-  // 5. An OPEN group accepts a join outright. The mock used to always return `pending`, which would
-  // show "waiting for approval" for a join that had already succeeded.
+  /* 5. Moderation gates the join, and that is the product, not a bug.
+     `V41__flatmate_moderate_before_public.sql` made `pending` the default for rooms, groups and
+     seeker posts alike, and `FlatmateGroupRepository.findVisible` only matches `live`/`approved`.
+     So a group is unreachable to everyone but its host until a moderator passes it, and asking to
+     join one is a 404 — the group genuinely is not found *for this caller*.
+
+     This block used to assert the opposite: that a group created one line earlier could be joined
+     outright. It had been failing on every run since V41, reported as `joinGroup failed: 404
+     undefined` — `undefined` because the catch printed `e.body`, which `ApiError` has never had, so
+     the server's actual `not_found` explanation was discarded and two separate investigations went
+     looking for a missing `id` instead. Both bugs are fixed here: the message now says what the
+     server said, and the assertion now states the rule that actually holds. */
+  if (group.modStatus !== 'pending' || group.publiclyVisible) {
+    failures.push(`a freshly created group came back modStatus='${group.modStatus}' (publiclyVisible=${group.publiclyVisible}), expected 'pending' and hidden — V41 moderates flatmate supply before it is public, and a group going straight live would put unreviewed listings on the board`);
+  }
+
   become(seekerSession);
+  let joinError = null;
   const joined = await live.joinGroup(group.id, { share: 'solo', message: 'parity probe' })
-    .catch((e) => { failures.push(`joinGroup failed: ${e.status} ${JSON.stringify(e.body)}`); return null; });
-  if (joined) {
+    .catch((e) => { joinError = e; return null; });
+
+  if (!joined) {
+    // The expected outcome today. Assert the *shape* of the refusal, so that a 500, a 403, or a
+    // silent success all still fail here.
+    if (joinError?.status !== 404 || joinError?.code !== 'not_found') {
+      failures.push(`joining an unmoderated group answered ${describe(joinError)}, expected 404 not_found — that is how findVisible hides a pending group from everyone but its host`);
+    } else {
+      warnings.push('the accepted-join path is unreachable from this harness: a group it creates is pending, and no moderator session exists here to approve it');
+    }
+  } else {
+    /* Kept, not deleted. These are the assertions for an OPEN-policy group that *has* been
+       approved, and they are correct — they simply cannot run against a fresh fixture. Leaving them
+       reachable means the day this harness gains a moderator step, or moderation is relaxed, they
+       start grading again without anyone having to remember they existed. */
     if (joined.action !== 'join') {
       failures.push(`joining produced action='${joined.action}', expected 'join'`);
     }
@@ -213,6 +250,7 @@ if (group) {
       failures.push('an accepted join reports awaitingDecision=true — the inbox would show it as needing a decision it has already had');
     }
   }
+  joinedGroup = joined;
   become(hostSession);
 }
 
@@ -228,9 +266,14 @@ if (!Array.isArray(hostInbox)) failures.push('myRequests did not return an array
 // A positive assertion, deliberately. The scoping check above and the isArray check both pass on an
 // empty list, so between them they would have said nothing when D77 paged this endpoint and the
 // provider kept reading the response as a bare array — every host would have seen an empty inbox
-// and the harness would have been green. The seeker joined the host's group a few lines up, so the
-// host's inbox has to contain exactly that.
-if (group && !hostInbox.some((r) => r.targetId === group.id)) {
+// and the harness would have been green.
+//
+// It is conditional on `joinedGroup` rather than on `group` because since V41 the seeker's join is
+// refused by moderation, so no inbox row is created and requiring one asserted something that could
+// not happen. Gating it on the join having actually succeeded keeps the guard exactly as strict for
+// every case it can grade, and makes it start grading again the moment the join path reopens —
+// which is the opposite of deleting it and hoping someone remembers.
+if (joinedGroup && !hostInbox.some((r) => r.targetId === group.id)) {
   failures.push('the host\'s /me/flatmate-requests does not contain the join that just happened — if it is also empty, the page envelope is not being unwrapped');
 }
 

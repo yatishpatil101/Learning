@@ -9,18 +9,27 @@
  *    the server has `new|assigned|in-progress|draft-shared|...`. The mapper must translate every
  *    known one and **pass an unknown one through unchanged** — collapsing it onto a state the UI
  *    knows would erase a distinction ops made.
- * 2. **`details` is write-only.** `ServiceRequestCreate.details` is a flat string; `ServiceRequestDto`
- *    does not return it. So a live view model's `details` is `{}` — present (the view optional-chains
- *    it) but empty, never a fabricated value.
+ * 2. **`details` is a structured object, round-tripped.** ~~`ServiceRequestCreate.details` is a flat
+ *    string; `ServiceRequestDto` does not return it, so a live view model's `details` is `{}`.~~
+ *    **That was true until D119 (`59ab9c7`, 2026-08-09), which made `details` a jsonb object the
+ *    server stores as-is and echoes back.** The claim is kept and struck through rather than
+ *    deleted because this harness went on asserting the reversed contract for eleven days — it was
+ *    even edited on 2026-08-12 without being run. `toCreate` now passes the object through
+ *    untouched and `toViewModel` reads `dto.details`, defaulting a missing one to `{}` so the
+ *    view's optional chaining stays safe.
  * 3. **Draft / final documents live in `documents[]`, keyed by `category`.** Newest `draft` is the
  *    current version and their count is the version number; `final-document` is the registered copy.
  *    Their `url` is a signed URL, not a base64 `dataUrl`.
  * 4. **`authorRole` → `from`.** `buyer|owner|staff|admin` collapses to `user|staff`; anything not
  *    staff-side is the customer, or their own words render as ours.
  * 5. **`at` must be a number.** The thread sorts on it.
- * 6. **Co-fill and read-receipts have no endpoint** — `listPartyServiceRequests` is `[]` and
- *    `markServiceRequestRead` is a no-op against the API.
- * 7. **The drafting desk's three operations are live-only** (D184). Point 1 is the reason: a queue
+ * 6. **The legacy co-fill merge is empty live, and read-receipts have no endpoint** —
+ *    `listPartyServiceRequests` is `[]` and `markServiceRequestRead` is a no-op against the API.
+ *    ~~Co-fill has no endpoint.~~ **V107 shipped one** (`POST /service-requests/{id}/parties`,
+ *    `GET /me/service-request-invites`), so the old reason is gone but the assertion stands on a
+ *    new one: live, an accepted party's request is already in `listServiceRequests`, so returning
+ *    rows from this second bucket too would double every one of them.
+ * 7. **The drafting desk's four operations are live-only** (D184). Point 1 is the reason: a queue
  *    filter that sends the server's status against the stepper's rows matches nothing, and the
  *    translation table that would paper over it was rejected. So the mock no longer implements
  *    them, and this harness names the exception rather than asserting a symmetry that is now false.
@@ -37,7 +46,7 @@
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
-const BASE = args.get('base') || 'http://localhost:8081/api';
+const BASE = args.get('base') || 'http://localhost:8080/api';
 const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
 
 installStorageStubs();
@@ -78,15 +87,29 @@ const mock = await load('../src/services/providers/mock/serviceRequestProvider.j
 const live = await load('../src/services/providers/http/serviceRequestProvider.js');
 const { toCreate, toViewModel, toViewModelList } = await load('../src/services/providers/http/serviceRequestMapper.js');
 
+// The mock store is seeded by an async dynamic `import()` of `data/db.json`, so a mock read issued
+// before it lands throws "localStorage[puneNestDB_v5] is missing". In the browser `main.jsx` awaits
+// this before rendering; a script has no boot gate, so it must await it here. Skipping it does not
+// fail every time — it is a race, and it was losing on one port while winning on another, which is
+// the worst shape a check can have: a harness that is red for a reason that has nothing to do with
+// the contract it exists to police.
+await (await load('../src/lib/mockApi.js')).ensureMockDb();
+
 // ─── The seam itself: both providers must expose the same operations ──────────────────────────
 // …with one named exception. The drafting desk (D184) is http-only: the mock's rows carry the
 // stepper's statuses, so its queue read answered most `?status=` filters with an empty page — a
-// work queue that lies about being idle. Rather than translate between the vocabularies, the three
-// desk operations were removed from the mock and `OpsDraftingDesk.jsx` gates itself on
+// work queue that lies about being idle. Rather than translate between the vocabularies, the desk
+// operations were removed from the mock and `OpsDraftingDesk.jsx` gates itself on
 // `isHttpDomain('serviceRequest')`. They are listed here so the exception has to be deleted on
-// purpose if the mock ever implements them again — and so a *fourth* operation quietly going
+// purpose if the mock ever implements them again — and so a *fifth* operation quietly going
 // live-only still fails.
-const DESK_ONLY = ['listServiceRequestQueue', 'readServiceRequestIdentities', 'takeServiceRequest'];
+//
+// `readServiceRequestChecklist` is the fourth, added 2026-08-20. It was **not** a stale assertion:
+// this list said three, the desk had grown a fourth, and the harness failed exactly as its author
+// intended. It is a desk operation on the same terms as the others — its only consumer is
+// `OpsDraftingDesk.jsx`, behind the same `isHttpDomain` gate. Recording it here is the deliberate
+// deletion of the exception that the comment above asks for, not a silencing of the check.
+const DESK_ONLY = ['listServiceRequestQueue', 'readServiceRequestChecklist', 'readServiceRequestIdentities', 'takeServiceRequest'];
 const surfaceOf = (m) => Object.keys(m).filter((k) => typeof m[k] === 'function').sort();
 const missingOnLive = surfaceOf(mock).filter((k) => !surfaceOf(live).includes(k));
 const missingOnMock = surfaceOf(live).filter((k) => !surfaceOf(mock).includes(k) && !DESK_ONLY.includes(k));
@@ -108,8 +131,8 @@ const body = toCreate({
   type: 'valuation',
   service: 'Property Valuation',
   ticketRef: 'TR-should-not-leak',
-  // A structured details object the schema cannot hold — it is a flat string on the wire.
-  details: { property: 'Aundh, Pune', area: '1320 sq.ft', nested: { ignore: 'me' } },
+  // A structured details object, which since D119 the schema holds as jsonb and echoes back.
+  details: { property: 'Aundh, Pune', area: '1320 sq.ft', nested: { keep: 'me' } },
 });
 for (const forbidden of ['service', 'ticketRef', 'customer', 'docs', 'status', 'assignee']) {
   if (forbidden in body) {
@@ -117,11 +140,13 @@ for (const forbidden of ['service', 'ticketRef', 'customer', 'docs', 'status', '
   }
 }
 if (!('type' in body) || !('details' in body)) failures.push('toCreate must always carry `type` and `details`');
-if (typeof body.details !== 'string') failures.push('toCreate must flatten `details` to a string — the schema is a single string, not a tree');
-if (typeof body.details === 'string' && body.details.includes('ignore')) {
-  failures.push('toCreate serialised a nested object into `details` — nested values are dropped, only scalar fields become lines');
+if (typeof body.details !== 'object' || body.details === null || Array.isArray(body.details)) {
+  failures.push('toCreate must pass `details` through as an object — D119 made it jsonb; flattening it to a string would lose the structure the tracker reads back');
 }
-if ('propertyId' in body) failures.push('toCreate sent `propertyId` when none was given — the server validates it exists (404), so a free-text address must stay in the details string');
+if (body.details?.nested?.keep !== 'me') {
+  failures.push('toCreate dropped a nested value from `details` — the server stores the object as-is, so nesting must survive rather than be flattened away');
+}
+if ('propertyId' in body) failures.push('toCreate sent `propertyId` when none was given — the server validates it exists (404), so a free-text address must stay in `details.property`');
 
 // ─── Round trip: raise one, message it, read it back ──────────────────────────────────────────
 const created = await live.createServiceRequest({
@@ -137,9 +162,11 @@ if (!created?.id) {
   if (created.status !== 'submitted') {
     failures.push(`a fresh live request came back status=${JSON.stringify(created.status)} — the server opens \`new\`, which must map to the frontend \`submitted\``);
   }
-  // details is write-only on the wire: present but empty on read.
-  if (created.details && Object.keys(created.details).length) {
-    failures.push('the live provider reported non-empty `details` — it is write-only on the wire and must read back as {}');
+  // details round-trips (D119). Asserting the value we sent comes back is the whole point: it is
+  // the one field whose loss would be invisible, since the tracker optional-chains it and an empty
+  // object renders as a blank line rather than an error.
+  if (created.details?.property !== 'Aundh, Pune' || created.details?.purpose !== 'Parity probe') {
+    failures.push(`the live provider did not round-trip \`details\` — sent {property, purpose}, read back ${JSON.stringify(created.details)}. D119 stores it as jsonb and echoes it; a mapper that drops it blanks the tracker's detail line silently`);
   }
   if (created.draft !== null || created.finalDoc !== null) {
     failures.push('a fresh request must have null draft/finalDoc — nothing has been shared yet');
@@ -194,10 +221,10 @@ if (created?.id) {
   }
 }
 
-// ─── Co-fill has no endpoint on the wire ──────────────────────────────────────────────────────
+// ─── The legacy co-fill merge stays empty live ──────────────────────────────────────────
 const party = await live.listPartyServiceRequests();
 if (!Array.isArray(party) || party.length) {
-  failures.push('listPartyServiceRequests must be an empty array in http mode — co-fill has no server endpoint');
+  failures.push('listPartyServiceRequests must be an empty array in http mode — not because co-fill is missing (V107 shipped it) but because an accepted party\'s request is already in listServiceRequests, so a second bucket would double every row');
 }
 
 // ─── Both providers must answer the same shape ────────────────────────────────────────────────
@@ -215,6 +242,27 @@ if (defaults.details == null || typeof defaults.details !== 'object') failures.p
 if (!Array.isArray(defaults.docs)) failures.push('toViewModel must default `docs` to an array');
 if (!Array.isArray(defaults.messages)) failures.push('toViewModel must default `messages` to an array');
 if (typeof defaults.updatedAt !== 'number') failures.push('toViewModel must always produce a numeric `updatedAt`');
+
+// `parties` (V107) must survive the mapper. This assertion is here because its absence cost a
+// cycle: `toViewModel` silently dropped `dto.parties`, and nothing caught it until a live e2e spec
+// read back `undefined` and threw. A dropped field is invisible to every check that only inspects
+// the fields it knows about — the wizard rendered, it just never showed the invite. So assert the
+// passthrough of the whole row, not merely that the key exists.
+const withParties = toViewModel({
+  id: 'r2',
+  type: 'rent',
+  parties: [{ id: 'p1', role: 'tenant', status: 'invited', pending: true, mobile: '98XXXXX210', invitedBy: 'u1' }],
+});
+if (!Array.isArray(withParties.parties) || withParties.parties.length !== 1) {
+  failures.push(`toViewModel dropped \`parties\` — got ${JSON.stringify(withParties.parties)}. The co-fill panel reads it to tell an owner which wait they are in; losing it renders a blank panel rather than an error`);
+} else {
+  for (const k of ['id', 'role', 'status', 'pending', 'mobile', 'invitedBy']) {
+    if (!(k in withParties.parties[0])) failures.push(`toViewModel dropped \`parties[].${k}\` — the panel branches on pending/mobile to distinguish an unregistered invitee from an unanswered one`);
+  }
+}
+if (!Array.isArray(toViewModel({ id: 'r3', type: 'rent' }).parties)) {
+  failures.push('toViewModel must default `parties` to an array — the panel maps over it unguarded');
+}
 
 // Status vocabulary: every known server status maps to its frontend step; an unknown survives.
 for (const [wire, expected] of [

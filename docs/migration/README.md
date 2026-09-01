@@ -861,8 +861,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
 
 **All of them live in `tasks/DECISIONS-NEEDED.md`, and as of 2026-08-17 all of them are answered.**
 That file is the single record of every question raised during this migration and the answer given.
-Nothing about a decision is restated here, in `tasks/todo.md` or in `tasks/HANDOFF.md` — cite the
-number instead.
+Nothing about a decision is restated here or in `tasks/todo.md` — cite the number instead.
 
 Two items are decided but not yet built; the ledger lists them in the order they should be
 worked. Five entries remain genuinely undecided (Checkmarx vs CodeQL, a caching layer, the

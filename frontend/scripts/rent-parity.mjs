@@ -46,6 +46,10 @@ installStorageStubs();
 const failures = [];
 const warnings = [];
 
+/* Render an `ApiError` for a human. It carries `code`/`message`/`status`, never a `body` — printing
+   `JSON.stringify(e.body)` yields the literal `undefined` and discards the server's reason. */
+const describe = (e) => [e?.status, e?.code, e?.message].filter(Boolean).join(' ') || String(e);
+
 console.log(`\n  live API: ${BASE}`);
 console.log(`  owner: ${OWNER_MOBILE}   tenant: ${TENANT_MOBILE}`);
 
@@ -146,7 +150,7 @@ if (stale !== 409) {
 
 // ─── 3. Paying yields `due`, not `paid` ───────────────────────────────────────────────────────
 const payment = await live.payRent({ tenancyId: tenancy.id, expectedAmount: RENT, method: 'upi' })
-  .catch((e) => { failures.push(`payRent failed: ${e.status} ${JSON.stringify(e.body)}`); return null; });
+  .catch((e) => { failures.push(`payRent failed: ${describe(e)}`); return null; });
 
 if (payment) {
   if (payment.settled || payment.status === 'paid') {
@@ -188,7 +192,7 @@ if (payment) {
 become(ownerSession);
 const savedAcct = await live.savePayoutAccount({
   accountHolder: 'Parity Probe', accountNumber: '123456789012', ifsc: 'HDFC0001234', upiId: '',
-}).catch((e) => { failures.push(`savePayoutAccount failed: ${e.status} ${JSON.stringify(e.body)}`); return null; });
+}).catch((e) => { failures.push(`savePayoutAccount failed: ${describe(e)}`); return null; });
 
 if (savedAcct) {
   if (JSON.stringify(savedAcct).includes('123456789012')) {

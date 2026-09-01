@@ -54,6 +54,9 @@ const vite = await createServer({
 const load = (p) => vite.ssrLoadModule(new URL(p, import.meta.url).pathname);
 
 const mock = await load('../src/services/providers/mock/propertyProvider.js');
+// The mock reads a seed that is fetched asynchronously, and every read throws until it lands — in
+// the browser `main.jsx` awaits this before rendering, and a script has to do the same.
+await (await load('../src/lib/mockApi.js')).ensureMockDb();
 const live = await load('../src/services/providers/http/propertyProvider.js');
 const { toModerationQuery, toQuery, toViewModel, toViewModelList, unsupportedFilters } =
   await load('../src/services/providers/http/propertyMapper.js');
@@ -130,7 +133,7 @@ if (liveDetailRaw.status !== 200) {
 // OPTIONAL: read as `p.x || default` — a gap degrades gracefully.
 const REQUIRED = [
   'id', 'title', 'deal', 'type', 'price', 'locality', 'localitySlug',
-  'bhk', 'bhkNum', 'area', 'status', 'image',
+  'bhk', 'bhkNum', 'area', 'status',
   // Drives the availability/construction facet. The filtering itself is now the server's
   // (`PropertySpecs`, on the `construction` column), so a gap here no longer silently empties a
   // result set — but the card still prints it, so a gap is still a visible break.
@@ -147,6 +150,18 @@ const OPTIONAL = [
   // `Array.isArray` guards (chat.js, RentDetails, derivations, useProperty), so their absence
   // thins the detail page rather than breaking it. Verified read-by-read, not assumed.
   'priceStr', 'commercialType', 'shellType', 'washrooms', 'powerBackup', 'fixtures', 'form',
+  // Every surface pipes this through `PropertyImage`, which renders a sized empty box when `src` is
+  // falsy — the component exists for exactly this case, and says so: "a photoless listing is
+  // ordinary (an owner can publish before the photos are uploaded)". It was REQUIRED here, which
+  // made every live listing without a cover photo a contract break, and `getPropertiesByIds` failed
+  // on the same misclassification. The mapper reads `p.coverImage`, so a gap is missing data, not a
+  // missing mapping.
+  'image',
+  // `p.boosted ? … : …` in Card.jsx (twice), and the mapper defaults it to `false` anyway.
+  'boosted',
+  // Carried by the mapper ahead of the Society hub; nothing in src/ reads it yet, so a gap cannot
+  // surface. Listed rather than waived so that it starts being graded the moment it is consumed.
+  'societySlug',
 ];
 const DETAIL_REQUIRED = ['desc', 'amenities', 'owner', 'ownerMobile'];
 
