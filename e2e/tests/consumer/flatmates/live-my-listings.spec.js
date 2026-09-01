@@ -255,6 +255,30 @@ test.describe('LIVE: my flatmate listings', () => {
     const { accessToken } = await apiLogin(mobile);
     track('rooms', room.id, accessToken);
 
+    /* Read the room back from outside the browser. The status check above only proves the request
+       left; this proves the server kept it, and that what it kept is what the wizard was told to
+       send. Anything asserted from inside the page could be satisfied by a browser-side copy. */
+    const mine = await fetch(`${API}/me/flatmate-rooms`, { headers: auth(accessToken) })
+      .then((r) => r.json());
+    const rows = mine.content || mine.items || mine;
+    expect(rows.map((r) => r.society), 'the server did not keep the room the wizard posted')
+      .toContain(society);
+
+    /* And the wizard kept no copy of its own. Until this commit the room post ran through a fork in
+       product code — `isHttpDomain('flatmate') ? createRoom(...) : persistFlatmate(...)` — whose
+       else-branch wrote `puneNestRoomListings` directly, the very key the mock provider writes. Both
+       arms are one provider now and the fork is gone, so a browser-side room store appearing here
+       again means the seam has been stepped around a second time.
+
+       This is checked live rather than in the mock suite because in mock mode that key is written on
+       purpose, by the provider — there the presence of a row proves nothing either way. Live, the
+       only thing that could have written it is product code that should not have. */
+    const stored = await page.evaluate(() => {
+      try { return JSON.parse(localStorage.getItem('puneNestRoomListings') || '[]') || []; }
+      catch { return []; }
+    });
+    expect(stored, 'the wizard kept a browser-side copy of a server room').toEqual([]);
+
     await expect(page.getByText(/Flatmate Listing Posted/i)).toBeVisible({ timeout: 20_000 });
     await openMyListings(page);
     await expect(page.getByText(society, { exact: false }).first()).toBeVisible({ timeout: 20_000 });

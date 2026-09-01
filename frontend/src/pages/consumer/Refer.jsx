@@ -4,7 +4,7 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
-import { referralListingsTarget } from '../../lib/store.js';
+import { referralListingsTarget } from '../../lib/referralConfig.js';
 import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import { getDealFees } from '../../services/feesService.js';

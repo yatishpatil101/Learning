@@ -29,7 +29,7 @@ import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
  * the lookup missed and the hub drew `genericSociety` — a real, ops-verified building rendered as
  * a stub with its slug for a name.
  */
-import { digits } from '../../../lib/store.js';
+import { digits } from '../../../lib/contact.js';
 import {
   getSociety,
   getSocietyMembership, requestResidency, listSocietyResidents, decideResidency, claimSociety,

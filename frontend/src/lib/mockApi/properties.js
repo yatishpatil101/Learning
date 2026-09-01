@@ -3,6 +3,8 @@ import { rawLoad, rawSave, delay } from './core.js';
 import { isDormant, createdMs, freshnessState } from '../freshness.js';
 import { isFeaturedActive } from '../featured.js';
 import { withPosition } from '../listings/coords.js';
+import { requestRecheckFields, clearedRecheckFields } from '../recheckFields.js';
+export { requestRecheckFields, clearedRecheckFields };
 
 /* Rooms live in their own localStorage key (store.js `puneNestRoomListings`) and
    are read directly here — the same trick data/flatmates.js uses — because
@@ -134,38 +136,9 @@ function matchesFilters(p, f = {}) {
   return true;
 }
 
-/**
- * Mirror of `Property.requestRecheck` (Q14) for the mock store.
- *
- * Returns the three re-check fields to merge onto a listing record. Kept here, beside
- * `setListingStatus` which clears them, so the pair that owns this work item lives in one place.
- *
- * Two rules are copied deliberately, because a mock that is *more permissive* than the server
- * passes tests the real thing would fail:
- *  - the reason accumulates field names rather than replacing them (two edits before a moderator
- *    looks must leave the moderator both fields, not just the last one), and
- *  - `requestedAt` is set once and never refreshed, so queue age is honest and an owner editing
- *    their price daily cannot keep resetting their own place in the queue.
- */
-export function requestRecheckFields(prev = {}, fields = []) {
-  const merged = [...new Set([
-    ...String(prev.recheckReason || '').split(/,\s*/).filter(Boolean),
-    ...fields,
-  ])];
-  if (!merged.length) return {};
-  return {
-    recheckPending: true,
-    recheckReason: merged.join(', '),
-    recheckRequestedAt: prev.recheckRequestedAt || new Date().toISOString(),
-  };
-}
-
-/** Mirror of `Property.clearRecheck` — a moderator has looked. Idempotent. */
-export const clearedRecheckFields = () => ({
-  recheckPending: false,
-  recheckReason: '',
-  recheckRequestedAt: '',
-});
+/* requestRecheckFields and clearedRecheckFields are pure helpers that live in
+   ../recheckFields.js and are re-exported above so callers that imported them
+   from here keep working unchanged. */
 
 /**
  * Is a paid promotion window open right now? Mirrors the server's `Property.isBoosted()` (D59):

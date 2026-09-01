@@ -1,5 +1,8 @@
 /* Formatting + small helpers shared across the app (ports AdminUI.esc/fmtINR/fmtNum). */
 
+/** Parse a price/amount string ("₹25,000/mo") into an integer. */
+export const parseAmount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
+
 /**
  * Format an ISO date string (yyyy-mm-dd) as DD/MM/YYYY for display.
  * Guarantees the Indian date order regardless of the browser/OS locale.

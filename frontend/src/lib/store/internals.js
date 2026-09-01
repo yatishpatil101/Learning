@@ -72,8 +72,9 @@ export function _scheduleUserDataPersist() {
   }
 })();
 
-/* ---- Parse a price/amount string ("₹25,000/mo") into an integer ---- */
-export const parseAmount = (s) => parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10) || 0;
+/* parseAmount moved to ../format.js — re-exported here so the mock-store
+   modules that import it from ./internals keep working without change. */
+export { parseAmount } from '../format.js';
 
 /* =========================================================================
    Return-to-search context (per browser tab)

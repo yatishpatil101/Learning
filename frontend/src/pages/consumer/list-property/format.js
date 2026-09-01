@@ -1,4 +1,4 @@
-import { parseAmount } from '../../../lib/store';
+import { parseAmount } from '../../../lib/format';
 
 /* ---------- money / number formatting helpers ---------- */
 export const formatIndian = (v) => {

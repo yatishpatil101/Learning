@@ -61,9 +61,9 @@ import { get, set } from './internals.js';
    e2e harness. Nothing in the application imports them, and nothing writes
    them. That is the difference between a fixture and a ledger.
    ========================================================================= */
-export const referralListingsTarget = 3;
-export const referralJoinsTarget = 1;
-export const referralContactsPerReward = 15;
+import { referralListingsTarget, referralContactsPerReward } from '../referralConfig.js';
+export { referralListingsTarget, referralContactsPerReward };
+const referralJoinsTarget = 1;
 /* One referred owner who posts a property = one extra free listing slot. */
 export const referralListingSlotsPerReward = 1;
 

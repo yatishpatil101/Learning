@@ -6,7 +6,7 @@ import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import PayRentComingSoon from './PayRentComingSoon.jsx';
-import { digits } from '../../lib/store.js';
+import { digits } from '../../lib/contact.js';
 import { usePricing } from '../../context/PricingContext.jsx';
 import {
   myTenancies, getPayoutAccount, savePayoutAccount, rentLedger,

@@ -487,13 +487,32 @@ test.describe('LIVE: property domain against the real API', () => {
 
     await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 20_000 });
 
-    /* And it must come back from the server, not from the localStorage mirror the wizard still
-       keeps for the duplicate scan. `/dashboard` reads `myListings` through the seam, so a row here
-       is a row the API returned. */
+    /* And it must come back from the server. `/dashboard` reads `myListings` through the seam, so a
+       row here is a row the API returned. */
     const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
     await page.goto('/dashboard');
     const rows = await lastJson(mine).then((b) => (Array.isArray(b) ? b : (b.content ?? [])));
     expect(rows.some((r) => String(r.id) === String(body.id))).toBe(true);
+
+    /* …and the browser must not be keeping a second copy of it. `persistListing` used to mirror
+       every write into `puneNestListings:<mobile>` as well, which is a different store from the one
+       the seam writes (`db.listings` inside `puneNestDB_v5`) and was read only by the mock arm. On a
+       live build it was a private duplicate of a server row, with no reader and no way to stay in
+       step — the shape a stale "My Listings" takes the first time an owner edits from a second
+       device. Asserted here rather than in a unit test because the claim is about what the wizard
+       leaves behind in a real browser after a real post, which is exactly what mock specs cannot
+       see: there, the mirror and the seam are both localStorage and a regression stays green.
+
+       Every `puneNestListings:*` key is scanned rather than the signed-in owner's alone, because the
+       store keys by whatever `readUser()` holds and asserting on a re-derived mobile would make this
+       a test of the key format. The context is fresh per test, so anything found here was written by
+       this post. */
+    const mirrored = await page.evaluate(() => Object.keys(localStorage)
+      .filter((k) => k.startsWith('puneNestListings:'))
+      .flatMap((k) => {
+        try { return JSON.parse(localStorage.getItem(k) || '[]') || []; } catch { return []; }
+      }));
+    expect(mirrored, 'the wizard kept a browser-side copy of a server listing').toEqual([]);
   });
 
   /* A listing filed straight through the API, for the two tests below.

@@ -4,10 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
-import { parseAmount } from '../../../lib/store';
+import { parseAmount } from '../../../lib/format';
 import { myListing } from '../../../services/propertyService.js';
 import { createRoom } from '../../../services/flatmateService.js';
-import { isHttpDomain } from '../../../services/config.js';
 import { loadListingQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
@@ -18,7 +17,7 @@ import { initialForm } from './initialForm.js';
 import { classifyChanges } from './editPolicy.js';
 import { scrollToError, validateStep1, validateStep2, validateStep3, validateFlatmateStep1, validateFlatmateStep2 } from './validation.js';
 import { triggerConfetti } from './confetti.js';
-import { persistListing, persistFlatmate } from './submit.js';
+import { persistListing } from './submit.js';
 import { hasAgreementEvidence } from '../flatmates/helpers.js';
 import { hashPhotos } from '../../../lib/data/imageHash.js';
 import { computeProgress } from './progress.js';
@@ -371,46 +370,66 @@ export default function useListProperty() {
     if (posting) return;
     setPosting(true);
     try {
-      if (isHttpDomain('flatmate')) {
-        const agreementDoc = form.hostRole === 'tenant' && form.agreementDeclared ? form.agreementDoc : null;
-        await createRoom({
-          bhk: form.bhk,
-          roomType: form.roomType,
-          attachedBath: form.attachedBath,
-          furnishing: form.furnishing,
-          locality: form.locality,
-          societyId: form.societyId,
-          society: form.society,
-          flatNumber: form.flatNumber,
-          rentShare: form.rentShare,
-          deposit: parseAmount(form.deposit),
-          availableFrom: form.availableFrom,
-          lookingFor: form.lookingFor,
-          foodPref: form.foodPref,
-          lifestyle: form.lifestyle,
-          hostRole: form.hostRole,
-          agreementDeclared: !!form.agreementDeclared && hasAgreementEvidence(agreementDoc),
-          agreementDoc,
-          ownerConsentMobile: form.ownerConsentMobile,
-          photos: photos.map((photo) => photo.url),
-          note: form.note,
-          lat: form.propLat,
-          lng: form.propLng,
-        });
-      } else {
-        const res = persistFlatmate({ form, user, photos });
-        if (res?.ok === false) {
-          toast(res.reason, 'error');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          return;
-        }
-      }
+      const agreementDoc = form.hostRole === 'tenant' && form.agreementDeclared ? form.agreementDoc : null;
+      const house = isHouseType(form.propertyType);
+      await createRoom({
+        bhk: form.bhk,
+        roomType: form.roomType,
+        attachedBath: form.attachedBath,
+        furnishing: form.furnishing,
+        locality: form.locality,
+        societyId: house ? '' : (form.societyId || ''),
+        society: form.society,
+        flatNumber: form.flatNumber,
+        rentShare: form.rentShare,
+        deposit: parseAmount(form.deposit),
+        availableFrom: form.availableFrom,
+        lookingFor: form.lookingFor,
+        foodPref: form.foodPref,
+        lifestyle: form.lifestyle,
+        hostRole: form.hostRole,
+        agreementDeclared: !!form.agreementDeclared && hasAgreementEvidence(agreementDoc),
+        agreementDoc,
+        ownerConsentMobile: form.ownerConsentMobile,
+        photos: photos.map((photo) => photo.url),
+        note: form.note,
+        lat: form.propLat,
+        lng: form.propLng,
+        /* The physical detail of the flat the room sits in. A room share is the same asset a
+           whole-place let would describe, so seekers get the same specs to judge it by. The wire
+           contract does not carry these yet — http/flatmateProvider's `clean()` whitelist drops
+           them on the way out — but they are shaped here, once, rather than in a second copy of
+           this payload that only the mock could see. */
+        propertyType: form.propertyType || 'flat',
+        homeTypeLabel: form.homeTypeLabel || 'Flat',
+        gatedCommunity: !!form.gatedCommunity,
+        // Only a house has floors of its own; a flat has a floor *within* a building.
+        floorsInHouse: house ? (form.floorsInHouse || '') : '',
+        floor: house ? 0 : (parseInt(form.floor, 10) || 0),
+        totalFloors: house ? 0 : (parseInt(form.totalFloors, 10) || 0),
+        bathrooms: parseInt(form.bathrooms, 10) || 0,
+        balconies: parseInt(form.balconies, 10) || 0,
+        carpetArea: parseAmount(form.carpetArea),
+        builtUp: parseAmount(form.builtUp),
+        facing: form.facing || '',
+        age: form.age || '',
+        furniture: form.furniture || [],
+        tower: form.tower || '',
+        street: form.street || '',
+        landmark: form.landmark || '',
+        pincode: form.pincode || '',
+      });
       clearFormDraft();
       triggerConfetti();
       setShowSuccess(true);
       setTimeout(() => navigate('/dashboard'), 3200);
-    } catch {
-      toast('Could not post your flatmate listing. Please try again.', 'error');
+    } catch (err) {
+      /* A 400 is the anti-broker guardrail refusing the post — a live-share cap, or an address
+         this host has already claimed. Its message is the only thing that tells the host what to
+         change, so it goes in front of them verbatim; anything else is ours to apologise for. */
+      const refused = err?.status === 400 && err?.message;
+      toast(refused || 'Could not post your flatmate listing. Please try again.', 'error');
+      if (refused) window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setPosting(false);
     }

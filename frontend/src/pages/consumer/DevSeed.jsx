@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FlaskConical, Sparkles, Check, Handshake, CircleDot, Lock, Database, Trash2, List, LayoutDashboard, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router';
 import { seedNow, clearDemo, OWNER, getInventory } from '../../lib/data/devSeed.js';
-import { digits } from '../../lib/store.js';
+import { digits } from '../../lib/contact.js';
 
 function fmtPhone(mobile) {
   const d = digits(mobile);

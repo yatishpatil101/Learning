@@ -1,6 +1,6 @@
 import { ImagePlus } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
-import { parseAmount } from '../../../lib/store.js';
+import { parseAmount } from '../../../lib/format.js';
 import Select from '../../../components/ui/Select.jsx';
 import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import MultiSelect from '../../../components/ui/MultiSelect.jsx';

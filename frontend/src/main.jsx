@@ -18,7 +18,7 @@ import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
 import { loadGeoPolicy } from './lib/geoConfig.js';
-import { ensureMockDb } from './lib/mockApi.js';
+import { ensureServicesReady } from './services/boot.js';
 import './i18n';
 // Ahead of index.css so the @font-face declarations land before anything sets
 // font-family. A JS import rather than a CSS `@import`, per the repo convention:
@@ -120,20 +120,22 @@ const app = (
 );
 
 /* D129 — the one await between the module graph and the first render.
-   `db.json` is now a lazy chunk (see lib/mockApi/core.js), so the mock store may not
-   exist yet on a first visit. Every mockApi reader stays synchronous — including
-   `AppFlagsContext`, which reads flags in a `useState` initialiser during render —
-   and they stay correct because this resolves first. Nothing in the app reads the
-   store at module scope, so the gate is exhaustive; a read that beat it anyway would
-   throw out of `rawLoad()` rather than quietly return an empty database.
+   `db.json` is a lazy chunk (see lib/mockApi/core.js), so the mock store may not exist yet
+   on a first visit, and every mockApi reader is synchronous. They stay correct because this
+   resolves first. Nothing in the app reads the store at module scope, so the gate is
+   exhaustive; a read that beat it anyway would throw out of `rawLoad()` rather than quietly
+   return an empty database.
 
    It resolves without a fetch on every visit after the first, so this is not a
    render-blocking round trip for a returning user.
 
    A failure here is logged and rendered through: a first-time visitor gets a loud
    console error naming the cause instead of a blank page with no explanation, and the
-   seed promise is not cached on rejection, so the next read retries the fetch. */
-ensureMockDb()
+   seed promise is not cached on rejection, so the next read retries the fetch.
+
+   What is being awaited belongs to the seam, and `services/boot.js` holds the reasoning for
+   why it is still unconditional — this file deliberately no longer names the mock store. */
+ensureServicesReady()
   .catch((err) => { console.error('[boot] mock store failed to initialise', err); })
   .finally(() => {
     /* The app's readiness contract, for anything outside the page that needs to know the

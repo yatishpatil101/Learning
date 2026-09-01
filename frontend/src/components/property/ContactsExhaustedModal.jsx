@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { referralContactsPerReward } from '../../lib/store.js';
+import { referralContactsPerReward } from '../../lib/referralConfig.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 
 /* Shown when a seeker has spent every free owner contact. Two honest ways out:

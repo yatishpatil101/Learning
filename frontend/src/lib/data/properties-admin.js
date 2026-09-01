@@ -10,7 +10,7 @@
    admin-specific helpers that are NOT in the service's public API (archiveListing, restoreListing,
    the review functions, duplicate detection). See docs/system/frontend-data-seam.md. */
 import { rawDb, mutateDb, archiveRecord, restoreRecord } from '../mockApi.js';
-import { clearedRecheckFields } from '../mockApi/properties.js';
+import { clearedRecheckFields } from '../recheckFields.js';
 import { keysForListing, listingActive } from './propertyIdentity.js';
 import { photoSetsMatch } from './imageHash.js';
 

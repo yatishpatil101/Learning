@@ -1,8 +1,8 @@
 import { Flag, MessageCircle, MapPin } from 'lucide-react';
-// A pure regex validator, not state — it stays a local import after the migration because there is
-// no endpoint to ask "is this a real WhatsApp invite", and there should not be: the operator is
-// looking at the link precisely because a server cannot tell a scam group from a real one.
-import { isSafeWhatsappUrl } from '../../../lib/store.js';
+// A pure regex validator, not state — inlined because there is no endpoint to
+// ask "is this a real WhatsApp invite" and the single caller does not warrant
+// a separate module. Same regex as lib/store/societyMod.js.
+const isSafeWhatsappUrl = (u) => /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,32}$/.test(String(u || ''));
 import { titleCase, fmtDate, Chip, actBtn, REPORT_LABELS, TEAL, RED, PLAIN } from './helpers.jsx';
 
 /**

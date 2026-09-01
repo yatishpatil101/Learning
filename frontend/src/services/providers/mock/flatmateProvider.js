@@ -40,6 +40,9 @@ import {
   decideFlatmateRequest,
   setOwnerConsent,
   getFlatmateReviewStatusMap,
+  evaluateHostEligibility,
+  enqueueFlatmateReview,
+  pushNotification,
 } from '../../../lib/data/flatmates.js';
 import {
   splitFlat,
@@ -208,8 +211,23 @@ export async function listRooms(filters = {}, page = 0, size = 24) {
   return paginate(rows, page, size);
 }
 
+/**
+ * `POST /flatmates/rooms`.
+ *
+ * Most of the derivation below used to live in the wizard, as `persistFlatmate` in
+ * `list-property/submit.js`, behind an `isHttpDomain('flatmate')` fork — product code deciding
+ * which transport it was talking to and, in the mock branch, writing `puneNestRoomListings`
+ * itself through `lib/store`'s `addRoom`. It wrote the *same key this function writes*, so the
+ * two were one provider split across the seam.
+ *
+ * Everything that branch did is a claim about what the **server** does with a room post: cap a
+ * host's live shares, dedupe the address, decide the verification tier, route a self-attested
+ * tenant to the Ops queue, ring the bell. So it belongs on this side, where the http provider's
+ * silence about it is the honest statement that the real API does not do it yet — rather than in
+ * the wizard, where it read as behaviour the product has in both modes.
+ */
 export async function createRoom(room = {}) {
-  requireUser();
+  const u = requireUser();
   // `photos` is `@NotEmpty` on the server: a room with no pictures is what broker spam looks like.
   if (!(room.photos || []).length) throw badRequest('photos must not be empty');
   if (!room.locality) throw badRequest('locality must not be blank');
@@ -220,17 +238,89 @@ export async function createRoom(room = {}) {
   requireVocab('hostRole', room.hostRole, 'hostRole');
   requireVocab('gender', room.lookingFor, 'lookingFor');
   requireVocab('food', room.foodPref, 'foodPref');
+
+  /* Host tier. Identity is guaranteed by L1 sign-in — the floor — not by an Aadhaar gate: under
+     badge-not-gate, Aadhaar earns visibility and is never a precondition for posting. An `owner`
+     lists their own flat and is vetted through the listing's own documents. A `tenant`
+     self-attests a registered agreement, so the tenant tier only holds when `agreementDeclared`
+     arrives true, which the caller only sets when the declaration is backed by evidence Ops can
+     read. Declared-without-evidence still posts — it just lands at identity tier, no host badge. */
+  const role = room.hostRole === 'tenant' ? 'tenant' : 'owner';
+  const agreementDoc = room.agreementDoc || null;
+  const agreementDeclared = role === 'tenant' && !!room.agreementDeclared;
+  const verificationTier = role === 'owner' ? 'owner' : (agreementDeclared ? 'tenant' : 'identity');
+
+  /* Anti-broker guardrails: cap live shares per identity, and dedupe the address. A hard block —
+     the cap is hit, or this same host is re-claiming an address they already listed — refuses the
+     post as a 400 the wizard can put in front of the user. A soft flag — a *different* host
+     already claimed this address — still posts, and routes to Ops to adjudicate. Owner tier is
+     exempt from the numeric cap. */
+  const guard = evaluateHostEligibility({
+    mobile: me(),
+    tier: verificationTier,
+    address: { society: room.society, locality: room.locality },
+  });
+  if (guard.blocked) throw badRequest(guard.reason);
+
+  // A shared room offers two beds; a private room, one. Seats start fully open, and the owner
+  // backfill stepper moves seatsOpen as flatmates come and go.
+  const seatsTotal = room.roomType === 'Shared room' ? 2 : 1;
+  const imgs = room.photos || [];
+  const lifestyle = room.lifestyle || [];
+  const gender = room.lookingFor || 'any';
+
   const rec = {
-    id: 'fr' + Date.now(),
     ...room,
-    budget: Number(room.rent ?? room.rentShare) || 0,
+    id: 'fr' + Date.now(),
+    type: 'flatmate',
+    owner: u.name || '',
     ownerMobile: me(),
+    flatType: room.bhk ? (String(room.bhk) === '4' ? '4+ BHK' : room.bhk + ' BHK') : '',
+    budget: Number(room.rent ?? room.rentShare) || 0,
+    area: Number(room.carpetArea) || Number(room.builtUp) || 0,
+    // Rooms carry `localities[]` and groups carry one `locality`; `inLocality` matches either.
+    localities: room.locality ? [room.locality] : [],
+    gender, food: room.foodPref,
+    lifestyle, tags: lifestyle,
+    img: imgs[0] || '',
+    hostRole: role, verificationTier, agreementDeclared, agreementDoc,
+    ownerConsentMobile: role === 'tenant' ? (room.ownerConsentMobile || '') : '',
+    seatsTotal, seatsOpen: seatsTotal,
+    addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview,
+    verified: false, time: 'Just now',
+    status: 'pending', createdAt: new Date().toISOString(),
     modStatus: MOD_PENDING,
     at: Date.now(),
   };
   const arr = getRooms();
   arr.unshift(rec);
   try { localStorage.setItem('puneNestRoomListings', JSON.stringify(arr)); } catch { /* quota */ }
+
+  /* Tenant declarations are self-attested and contested addresses are fuzzy, so both go to Ops to
+     verify. Owner tier is vetted through the listing's own paperwork and needs no queue entry. */
+  if (verificationTier === 'tenant' || guard.flagForReview) {
+    enqueueFlatmateReview({
+      roomId: rec.id,
+      kind: 'room',
+      host: u.name || '',
+      hostMobile: me(),
+      address: (room.society || 'Room') + ' · ' + (room.locality || 'Pune'),
+      tier: verificationTier,
+      flagForReview: guard.flagForReview,
+      ownerConsent: false,
+      agreementDoc,
+    });
+  }
+
+  // Tell the host their post is under review, through the one writer that knows the bell's
+  // storage shape — the wizard used to inline its own try/JSON.parse/setItem here.
+  pushNotification({
+    type: 'listing',
+    title: 'Flatmate listing posted!',
+    desc: `Your flatmate listing${room.locality ? ' in ' + room.locality : ''} is now under review.`,
+    link: '/dashboard#listings',
+  });
+
   return roomVm(rec);
 }
 

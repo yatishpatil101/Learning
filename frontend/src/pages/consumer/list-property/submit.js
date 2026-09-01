@@ -1,6 +1,4 @@
-import {
-  addListing, updateListing, addRoom, parseAmount,
-} from '../../../lib/store';
+import { parseAmount } from '../../../lib/format';
 import {
   addListing as saveListing,
   updateListingFields as saveListingFields,
@@ -8,8 +6,6 @@ import {
 } from '../../../services/propertyService.js';
 import { uploadDocument } from '../../../services/documentService.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
-import { evaluateHostEligibility, enqueueFlatmateReview } from '../../../lib/data/flatmates.js';
-import { hasAgreementEvidence } from '../flatmates/helpers.js';
 import { formatIndian } from './format.js';
 import { COMMERCIAL_SUBTYPES, PG_SHARING, isResidentialType, isPgType, isCommercialType, isLandType, isHouseType } from './constants.js';
 import { matchLocalityToCanonical } from '../../../data/localities.js';
@@ -18,7 +14,7 @@ import {
   FOUNDATION_STAYS_LIVE_KEYS,
   PRICE_REDUCED_PCT, PRICE_JUMP_FLAG_PCT, MATERIAL_EDIT_CAP,
 } from './editPolicy.js';
-import { requestRecheckFields, clearedRecheckFields } from '../../../lib/mockApi/properties.js';
+import { requestRecheckFields, clearedRecheckFields } from '../../../lib/recheckFields.js';
 
 /* Wizard form key → the server's wire field name, inverted from the map the gate already pins.
    `price` and `monthlyRent` both fold onto `price`, because the wizard splits sale price from
@@ -97,20 +93,26 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
    exactly one screen (admin post-on-behalf), so the detector was blind to the people it was
    written for: owners.
 
-   The local writes that follow are a mirror, not the system of record. **Edit prefill no longer
-   depends on them** (D237) — it reads `propertyService.myListing(id)`, because a form that
-   prefills from this browser and then PATCHes the server is a form that silently blanks a listing
-   the moment the owner opens it on a second device. What still reads the mirror is
-   `lib/data/documents.js` — `evaluateListingDedup`'s cross-owner scan used to, and that is exactly
-   why it never worked (D245): the mirror cannot contain another owner's listing.
+   The local mirror that used to follow is gone. It was kept behind a documented trap — that
+   `saveListing` is handed `forTheWire(record, …)`, which carries `electricityConsumerNo` (kept out
+   of `record` on purpose, because the record is buyer-readable), and that "in mock mode the seam
+   write and this mirror are the same store function", so dropping the mirror would leave the wire
+   record as the stored one and expose a meter number. That reasoning was wrong on every count, and
+   the check is worth writing down because it reads plausible:
 
-   Removing the mirror is deliberately *not* part of that change, and the reason is a trap rather
-   than a preference: `saveListing` is handed `forTheWire(record, …)`, which carries
-   `electricityConsumerNo` — kept out of `record` on purpose, because the record is buyer-readable.
-   In mock mode the seam write and this mirror are the same store function, so deleting the mirror
-   would leave the wire record as the stored one and put a meter number where the detail page can
-   read it. The mirror goes when those two readers do, and the wire/record split is resolved with
-   them. */
+   - They were never the same function. The seam write is `lib/mockApi/properties.js addListing`,
+     into `db.listings` inside `puneNestDB_v5`; the mirror was `lib/store/listings.js addListing`,
+     into `puneNestListings:<mobile>`. Two stores, two keys.
+   - So the mirror never gated the meter number. In mock mode `forTheWire(record, …)` has been the
+     row in `db.listings` all along, which is the row the detail page reads. Deleting the mirror
+     changes nothing about that exposure — it is mock-fidelity noise, not a live leak: on the wire
+     `electricityMeterNo` is owner/staff-only and the public response omits it (D218).
+   - `lib/data/documents.js`, named above as the remaining reader, no longer reads it at all.
+
+   What did still read `puneNestListings:` is entirely inside the mock arm, and all of it survives
+   on `db.listings`, which the seam write populates with `ownerMobile`:
+   `mock/dealProvider.ownerOf`/`ownsListing` fall through to `ownerIdOfListingId`, and
+   `mock/propertyProvider.myListings` never consulted the mirror in the first place. */
 export const persistListing = async ({ form, user, editId, editListing, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
@@ -394,162 +396,149 @@ export const persistListing = async ({ form, user, editId, editListing, document
       }
     }
 
-    try {
-      // ---- Edit policy (P0 + P3) ----------------------------------------
-      // Editing a listing must never silently pull it down. We classify the
-      // change into material (Tier A → schedule a re-check, stays live) vs soft
-      // (Tier B → instant), keep an audit log, and raise price/abuse signals.
-      if (editId) {
-        /* The listing as it was when the editor opened, handed in by the hook rather than read back
-           out of `lib/store`. A local read answered about whatever this browser had written, which
-           on a live build is usually nothing — so every edit classified as a change from an empty
-           record, and every field looked material. */
-        const oldListing = editListing || {};
-        const oldForm = oldListing.form || oldListing;
-        /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. Read off the
-           record the editor opened rather than from `isListingApproved(editId)`, which asked the
-           local store the same question and got the same wrong answer for the same reason. An
-           archived listing is not in search, so raising a re-check on one would queue a moderator
-           to look at a listing nobody can see. */
-        const wasApproved = /approved|verified|live/i.test(String(oldListing.status || '')) && !oldListing.archived;
-        const oldPhotoUrls = (oldListing.images || oldListing.gallery || []).filter(Boolean);
-        const newPhotoUrls = photos.map((p) => p.url).filter(Boolean);
-        const cls = classifyChanges(oldForm, form, oldPhotoUrls, newPhotoUrls);
+    // ---- Edit policy (P0 + P3) ----------------------------------------
+    // Editing a listing must never silently pull it down. We classify the
+    // change into material (Tier A → schedule a re-check, stays live) vs soft
+    // (Tier B → instant), keep an audit log, and raise price/abuse signals.
+    if (editId) {
+      /* The listing as it was when the editor opened, handed in by the hook rather than read back
+         out of `lib/store`. A local read answered about whatever this browser had written, which
+         on a live build is usually nothing — so every edit classified as a change from an empty
+         record, and every field looked material. */
+      const oldListing = editListing || {};
+      const oldForm = oldListing.form || oldListing;
+      /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. Read off the
+         record the editor opened rather than from `isListingApproved(editId)`, which asked the
+         local store the same question and got the same wrong answer for the same reason. An
+         archived listing is not in search, so raising a re-check on one would queue a moderator
+         to look at a listing nobody can see. */
+      const wasApproved = /approved|verified|live/i.test(String(oldListing.status || '')) && !oldListing.archived;
+      const oldPhotoUrls = (oldListing.images || oldListing.gallery || []).filter(Boolean);
+      const newPhotoUrls = photos.map((p) => p.url).filter(Boolean);
+      const cls = classifyChanges(oldForm, form, oldPhotoUrls, newPhotoUrls);
 
-        // Preserve the live/pending state instead of the default 'pending'.
-        record.status = oldListing.status || 'pending';
-        record.statusClass = oldListing.statusClass || 'pill-pending';
+      // Preserve the live/pending state instead of the default 'pending'.
+      record.status = oldListing.status || 'pending';
+      record.statusClass = oldListing.statusClass || 'pill-pending';
 
-        // Keep the stored photo hashes when this edit still has photos but they
-        // couldn't be re-hashed (e.g. the owner didn't re-upload, or the prefilled
-        // gallery is remote/cross-origin) — don't wipe a good fingerprint. But if
-        // the owner removed every photo, clear the hashes so we don't flag future
-        // listings against photos that no longer exist here.
-        if (!Array.isArray(photoHashes) || !photoHashes.length) {
-          record.photoHashes = newPhotoUrls.length ? (oldListing.photoHashes || []) : [];
-        }
-
-        // If this edit resolved a former auto-duplicate collision, clear our own
-        // stale flag reason — but never wipe a flag an admin set manually (their
-        // text won't match our "Possible duplicate …" message).
-        if (!dedup.flagForReview && /^Possible duplicate/.test(String(oldListing.flagReason || ''))) {
-          record.flagReason = '';
-        }
-
-        // Audit log + counters.
-        const prevLog = Array.isArray(oldListing.editLog) ? oldListing.editLog : [];
-        const entry = {
-          at: Date.now(),
-          tierA: cls.tierA.length,
-          tierB: cls.tierB.length,
-          fields: [...cls.tierA, ...cls.tierB].map((c) => c.label),
-          priceSwing: cls.priceSwing ? Math.round(cls.priceSwing.pct * 100) : 0,
-        };
-        record.editLog = [entry, ...prevLog].slice(0, 20);
-        record.editCount = (oldListing.editCount || 0) + 1;
-        record.lastEditAt = entry.at;
-
-        // Price-swing signals: buyer "Price reduced" badge, admin flag on a jump.
-        record.priceReduced = oldListing.priceReduced || false;
-        record.prevPrice = oldListing.prevPrice || 0;
-        record.priceJumpFlag = oldListing.priceJumpFlag || false;
-        if (cls.priceSwing && cls.priceSwing.abs >= PRICE_REDUCED_PCT) {
-          const isDown = cls.priceSwing.dir === 'down';
-          record.priceReduced = isDown;
-          record.prevPrice = isDown ? cls.priceSwing.from : 0;
-          if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
-        }
-
-        /* The server's stays-live re-check (Q14), mirrored into the mock store so the moderation
-           queue exists in both modes.
-
-           When the API answers, its verdict is the one that counts, and it is already in hand:
-           `PropertyResponse` carries `recheckPending`, `recheckReason` and `recheckRequestedAt`
-           (mapped by `propertyMapper`), so `saved` has the answer the server actually recorded.
-           Recomputing it client-side and storing that instead was how this used to work, and it
-           meant the mirror could disagree with the row it mirrors -- silently, and in the direction
-           the client happened to guess. The local computation below is now the fallback for the
-           mock provider, which returns no such fields because it has no server to have decided
-           them.
-
-           The fallback copies three conditions rather than approximating them, because each is a
-           way for the mock to be *more permissive* than the server and so to pass a test the API
-           would fail:
-             - only when the listing was already approved (`isPubliclyVisible`) -- a pending listing
-               is in front of a moderator already and a second work item is queue noise;
-             - never alongside an off-search change, because re-moderation supersedes a re-check
-               (`recheckOnly && !remoderationRequired`) and looks at the whole listing anyway;
-             - the timestamp is preserved across edits by `requestRecheckFields`, so age is honest. */
-        const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
-          ? {
-              recheckPending: saved.recheckPending,
-              recheckReason: saved.recheckReason || '',
-              recheckRequestedAt: saved.recheckRequestedAt || '',
-            }
-          : null;
-        const staysLiveWireFields = wasApproved && !cls.remoderation.length
-          ? [...new Set(cls.staysLive.map((c) => STAYS_LIVE_FORM_TO_WIRE[c.key]).filter(Boolean))]
-          : [];
-        if (serverRecheck) {
-          Object.assign(record, serverRecheck);
-        } else if (staysLiveWireFields.length) {
-          Object.assign(record, requestRecheckFields(oldListing, staysLiveWireFields));
-        } else if (cls.remoderation.length) {
-          /* Re-moderation supersedes: the server's `ListingService.update` calls
-             `Property.revertToPending()` on this path, and that calls `clearRecheck()`. Carrying
-             the old re-check forward instead would leave a listing sitting in *both* queues, and
-             the moderator who is about to re-approve the whole thing would then still owe someone
-             a re-check of a field they had already looked at. */
-          Object.assign(record, clearedRecheckFields());
-        } else {
-          record.recheckPending = !!oldListing.recheckPending;
-          record.recheckReason = oldListing.recheckReason || '';
-          record.recheckRequestedAt = oldListing.recheckRequestedAt || '';
-        }
-
-        // Material change on a LIVE listing → re-check while it stays live.
-        if (wasApproved && cls.tierA.length) {
-          record.reReview = {
-            fields: cls.tierA.map((c) => ({ label: c.label, from: displayValue(c.from), to: displayValue(c.to) })),
-            identityChanged: cls.identityChanged,
-            at: Date.now(),
-          };
-          record.materialEditFlag = cls.identityChanged || recentMaterialEdits(record.editLog) > MATERIAL_EDIT_CAP;
-        } else if (wasApproved) {
-          record.reReview = null;
-          record.materialEditFlag = false;
-        } else {
-          record.reReview = oldListing.reReview || null;
-          record.materialEditFlag = oldListing.materialEditFlag || false;
-        }
+      // Keep the stored photo hashes when this edit still has photos but they
+      // couldn't be re-hashed (e.g. the owner didn't re-upload, or the prefilled
+      // gallery is remote/cross-origin) — don't wipe a good fingerprint. But if
+      // the owner removed every photo, clear the hashes so we don't flag future
+      // listings against photos that no longer exist here.
+      if (!Array.isArray(photoHashes) || !photoHashes.length) {
+        record.photoHashes = newPhotoUrls.length ? (oldListing.photoHashes || []) : [];
       }
 
-      // Mirror into the per-user store — still read by edit prefill, the browser-side dedup and
-      // the documents shelf, none of which have crossed the seam yet.
-      if (editId) {
-        updateListing(editId, record);
-        // The re-review note used to be composed here and written to localStorage, which meant the
-        // sentence explaining why a listing had gone dark existed only on the machine that made the
-        // edit — and was signed "PuneNest" by the very person it was addressed to. The server writes
-        // it now, into the same verification thread ops reads (see ListingService.update).
+      // If this edit resolved a former auto-duplicate collision, clear our own
+      // stale flag reason — but never wipe a flag an admin set manually (their
+      // text won't match our "Possible duplicate …" message).
+      if (!dedup.flagForReview && /^Possible duplicate/.test(String(oldListing.flagReason || ''))) {
+        record.flagReason = '';
+      }
+
+      // Audit log + counters.
+      const prevLog = Array.isArray(oldListing.editLog) ? oldListing.editLog : [];
+      const entry = {
+        at: Date.now(),
+        tierA: cls.tierA.length,
+        tierB: cls.tierB.length,
+        fields: [...cls.tierA, ...cls.tierB].map((c) => c.label),
+        priceSwing: cls.priceSwing ? Math.round(cls.priceSwing.pct * 100) : 0,
+      };
+      record.editLog = [entry, ...prevLog].slice(0, 20);
+      record.editCount = (oldListing.editCount || 0) + 1;
+      record.lastEditAt = entry.at;
+
+      // Price-swing signals: buyer "Price reduced" badge, admin flag on a jump.
+      record.priceReduced = oldListing.priceReduced || false;
+      record.prevPrice = oldListing.prevPrice || 0;
+      record.priceJumpFlag = oldListing.priceJumpFlag || false;
+      if (cls.priceSwing && cls.priceSwing.abs >= PRICE_REDUCED_PCT) {
+        const isDown = cls.priceSwing.dir === 'down';
+        record.priceReduced = isDown;
+        record.prevPrice = isDown ? cls.priceSwing.from : 0;
+        if (!isDown && cls.priceSwing.abs >= PRICE_JUMP_FLAG_PCT) record.priceJumpFlag = true;
+      }
+
+      /* The server's stays-live re-check (Q14), mirrored into the mock store so the moderation
+         queue exists in both modes.
+
+         When the API answers, its verdict is the one that counts, and it is already in hand:
+         `PropertyResponse` carries `recheckPending`, `recheckReason` and `recheckRequestedAt`
+         (mapped by `propertyMapper`), so `saved` has the answer the server actually recorded.
+         Recomputing it client-side and storing that instead was how this used to work, and it
+         meant the mirror could disagree with the row it mirrors -- silently, and in the direction
+         the client happened to guess. The local computation below is now the fallback for the
+         mock provider, which returns no such fields because it has no server to have decided
+         them.
+
+         The fallback copies three conditions rather than approximating them, because each is a
+         way for the mock to be *more permissive* than the server and so to pass a test the API
+         would fail:
+           - only when the listing was already approved (`isPubliclyVisible`) -- a pending listing
+             is in front of a moderator already and a second work item is queue noise;
+           - never alongside an off-search change, because re-moderation supersedes a re-check
+             (`recheckOnly && !remoderationRequired`) and looks at the whole listing anyway;
+           - the timestamp is preserved across edits by `requestRecheckFields`, so age is honest. */
+      const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
+        ? {
+            recheckPending: saved.recheckPending,
+            recheckReason: saved.recheckReason || '',
+            recheckRequestedAt: saved.recheckRequestedAt || '',
+          }
+        : null;
+      const staysLiveWireFields = wasApproved && !cls.remoderation.length
+        ? [...new Set(cls.staysLive.map((c) => STAYS_LIVE_FORM_TO_WIRE[c.key]).filter(Boolean))]
+        : [];
+      if (serverRecheck) {
+        Object.assign(record, serverRecheck);
+      } else if (staysLiveWireFields.length) {
+        Object.assign(record, requestRecheckFields(oldListing, staysLiveWireFields));
+      } else if (cls.remoderation.length) {
+        /* Re-moderation supersedes: the server's `ListingService.update` calls
+           `Property.revertToPending()` on this path, and that calls `clearRecheck()`. Carrying
+           the old re-check forward instead would leave a listing sitting in *both* queues, and
+           the moderator who is about to re-approve the whole thing would then still owe someone
+           a re-check of a field they had already looked at. */
+        Object.assign(record, clearedRecheckFields());
       } else {
-        addListing(record);
-        // Likewise the duplicate warning: it was addressed to an ops desk that could not read it.
-        // ListingService.create runs the probe and opens the case.
+        record.recheckPending = !!oldListing.recheckPending;
+        record.recheckReason = oldListing.recheckReason || '';
+        record.recheckRequestedAt = oldListing.recheckRequestedAt || '';
       }
 
-      // Bug #11 fix: Push notification on new listing (mirrors HTML behavior)
-      if (!editId) {
-        try {
-          const notifs = JSON.parse(localStorage.getItem('puneNestNotifications') || '[]');
-          notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Property listed!', desc: `Your ${title} is now under review.`, time: 'Just now', link: record.viewUrl, unread: true });
-          localStorage.setItem('puneNestNotifications', JSON.stringify(notifs));
-        } catch { /* quota */ }
+      // Material change on a LIVE listing → re-check while it stays live.
+      if (wasApproved && cls.tierA.length) {
+        record.reReview = {
+          fields: cls.tierA.map((c) => ({ label: c.label, from: displayValue(c.from), to: displayValue(c.to) })),
+          identityChanged: cls.identityChanged,
+          at: Date.now(),
+        };
+        record.materialEditFlag = cls.identityChanged || recentMaterialEdits(record.editLog) > MATERIAL_EDIT_CAP;
+      } else if (wasApproved) {
+        record.reReview = null;
+        record.materialEditFlag = false;
+      } else {
+        record.reReview = oldListing.reReview || null;
+        record.materialEditFlag = oldListing.materialEditFlag || false;
       }
+    }
 
-    } catch {
-      /* localStorage quota — listing core is tiny, so this should not happen;
-         swallow so the success flow still completes. */
+    /* No local write here. The re-review note used to be composed at this point and written to
+       localStorage, which meant the sentence explaining why a listing had gone dark existed only
+       on the machine that made the edit — and was signed "PuneNest" by the very person it was
+       addressed to. The server writes it now, into the same verification thread ops reads (see
+       ListingService.update). Likewise the duplicate warning, which was addressed to an ops desk
+       that could not read it: ListingService.create runs the probe and opens the case. */
+
+    // Bug #11 fix: Push notification on new listing (mirrors HTML behavior)
+    if (!editId) {
+      try {
+        const notifs = JSON.parse(localStorage.getItem('puneNestNotifications') || '[]');
+        notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Property listed!', desc: `Your ${title} is now under review.`, time: 'Just now', link: record.viewUrl, unread: true });
+        localStorage.setItem('puneNestNotifications', JSON.stringify(notifs));
+      } catch { /* quota */ }
     }
 
     /* The documents go to the server, not only to this browser.
@@ -595,104 +584,4 @@ export const persistListing = async ({ form, user, editId, editListing, document
     // name any paper that did not make it, instead of the owner finding out from a
     // moderator weeks later that the listing cannot be verified.
     return { ok: true, listing: record, documentsFailed };
-};
-
-export const persistFlatmate = ({ form, user, photos }) => {
-    const mob = (user && user.mobile) || '';
-    const id = 'room-' + Date.now();
-    const rent = parseAmount(form.rentShare);
-    const flatType = form.bhk ? (String(form.bhk) === '4' ? '4+ BHK' : form.bhk + ' BHK') : '';
-    const imgs = photos.map((p) => p.url);
-    const gender = form.lookingFor || 'any';
-    const lifestyle = form.lifestyle || [];
-
-    // Host eligibility mirrors the flatmate GROUPS flow. Identity is guaranteed
-    // by L1 sign-in (the floor) — not by an Aadhaar gate. Under badge-not-gate,
-    // Aadhaar is an opt-in badge that earns visibility, never a precondition for
-    // posting. 'owner' lists their own flat (trust is earned once Ops verifies the
-    // listing docs); a 'tenant' self-attests a registered agreement, so tenant
-    // posts are routed to the Ops review queue.
-    const role = form.hostRole === 'tenant' ? 'tenant' : 'owner';
-    // Tenant tier requires both the declaration AND the uploaded agreement Ops verifies.
-    // Declared-without-upload stays identity tier (still lists, just no host badge).
-    const agreementDoc = role === 'tenant' && form.agreementDeclared ? (form.agreementDoc || null) : null;
-    const agreementDeclared = role === 'tenant' ? (!!form.agreementDeclared && hasAgreementEvidence(agreementDoc)) : false;
-    const verificationTier = role === 'owner' ? 'owner' : (agreementDeclared ? 'tenant' : 'identity');
-    // A shared room offers two beds; a private room, one. Seats start fully open
-    // and the owner backfill stepper adjusts seatsOpen as flatmates come and go.
-    const seatsTotal = form.roomType === 'Shared room' ? 2 : 1;
-
-    // Anti-broker guardrails: cap live shares per identity + dedupe the address.
-    // A hard block (cap hit / same host re-claiming an address) stops the save; a
-    // soft flag (a different host already claimed this address) still posts but is
-    // routed to Ops. Owner tier is exempt from the numeric cap.
-    const guard = evaluateHostEligibility({
-      mobile: mob,
-      tier: verificationTier,
-      address: { society: form.society, locality: form.locality },
-    });
-    if (guard.blocked) return { ok: false, reason: guard.reason };
-
-    addRoom({
-      id,
-      type: 'flatmate',
-      owner: (user && user.name) || '',
-      ownerMobile: mob,
-      bhk: form.bhk, flatType, roomType: form.roomType, furnishing: form.furnishing,
-      // Room-specific: washroom (attached/shared) is a top seeker question; home
-      // type + gated + floors-in-house cover independent houses/villas, not just
-      // society flats. floorsInHouse is only meaningful for a house.
-      attachedBath: form.attachedBath || '',
-      propertyType: form.propertyType || 'flat',
-      homeTypeLabel: form.homeTypeLabel || 'Flat',
-      gatedCommunity: !!form.gatedCommunity,
-      floorsInHouse: isHouseType(form.propertyType) ? (form.floorsInHouse || '') : '',
-      // Physical-flat details — same asset as a whole-place let, so a room share
-      // carries the same specs, address, and furniture for seekers to evaluate.
-      bathrooms: parseInt(form.bathrooms, 10) || 0,
-      balconies: parseInt(form.balconies, 10) || 0,
-      carpetArea: parseAmount(form.carpetArea), builtUp: parseAmount(form.builtUp),
-      area: parseAmount(form.carpetArea || form.builtUp),
-      floor: isHouseType(form.propertyType) ? 0 : (parseInt(form.floor, 10) || 0),
-      totalFloors: isHouseType(form.propertyType) ? 0 : (parseInt(form.totalFloors, 10) || 0),
-      facing: form.facing || '', age: form.age || '', furniture: form.furniture || [],
-      locality: form.locality, localities: form.locality ? [form.locality] : [], society: form.society, societyId: isHouseType(form.propertyType) ? '' : (form.societyId || ''),
-      flatNumber: form.flatNumber || '', tower: form.tower || '', street: form.street || '',
-      landmark: form.landmark || '', pincode: form.pincode || '',
-      lat: form.propLat, lng: form.propLng,
-      rentShare: form.rentShare, budget: rent, deposit: parseAmount(form.deposit), availableFrom: form.availableFrom,
-      lookingFor: gender, gender, foodPref: form.foodPref, food: form.foodPref,
-      lifestyle, tags: lifestyle,
-      photos: imgs, img: imgs[0] || '', note: form.note,
-      hostRole: role, verificationTier, agreementDeclared,
-      ownerConsentMobile: role === 'tenant' ? (form.ownerConsentMobile || '') : '',
-      seatsTotal, seatsOpen: seatsTotal,
-      addressFingerprint: guard.fingerprint, flagForReview: guard.flagForReview,
-      verified: false, time: 'Just now',
-      status: 'pending', createdAt: new Date().toISOString(),
-    });
-
-    // Tenant declarations are self-attested, and contested addresses are fuzzy —
-    // both go to Ops to verify. Owner tier is vetted via the listing's own docs.
-    if (verificationTier === 'tenant' || guard.flagForReview) {
-      enqueueFlatmateReview({
-        roomId: id,
-        kind: 'room',
-        host: (user && user.name) || '',
-        hostMobile: (mob || '').replace(/\D/g, ''),
-        address: (form.society || 'Room') + ' · ' + (form.locality || 'Pune'),
-        tier: verificationTier,
-        flagForReview: guard.flagForReview,
-        ownerConsent: false,
-        agreementDoc,
-      });
-    }
-
-    // Mirror the property-listing flow: notify the owner their post is under review.
-    try {
-      const notifs = JSON.parse(localStorage.getItem('puneNestNotifications') || '[]');
-      notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Flatmate listing posted!', desc: `Your flatmate listing${form.locality ? ' in ' + form.locality : ''} is now under review.`, time: 'Just now', link: '/dashboard#listings', unread: true });
-      localStorage.setItem('puneNestNotifications', JSON.stringify(notifs));
-    } catch { /* quota */ }
-    return { ok: true };
 };
