@@ -2520,3 +2520,293 @@ The import survives only to keep the mock path working, and retires with it. **N
 The pattern worth carrying forward: "still imports mockApi" and "still depends on the
 mock" are different questions. One of these three is real work, one is a decision nobody
 has made yet, and one has been finished for months.
+
+---
+
+## D223 — suite-wide anti-pattern audit
+
+After rewriting `admin/properties.spec.js` we swept all **242** spec files under `e2e/tests/`
+for the three patterns that file was full of, to find out how much of the rest of the suite
+shares them. Counts below are verified by reading each candidate in context, not by regex —
+a naive regex pass reported 40 guarded assertions and 86 affected files, and almost all of
+that was the rewritten specs' own docblocks *describing* the patterns they removed.
+
+### Totals
+
+| metric | count |
+|---|---:|
+| spec files swept | 242 |
+| files with at least one occurrence | 55 |
+| guarded assertions (pattern 1) | 10 |
+| assertions that cannot fail (pattern 2) | 13 |
+| `waitForTimeout` (non-`live-` files) | 107 |
+| `waitForTimeout` including `live-` files | 133 |
+
+**The headline: patterns 1 and 2 are nearly eradicated; sleeps are the remaining debt.**
+107 of the 130 findings are `waitForTimeout`, concentrated in `consumer/list-property/`
+(~40 across 12 files), `consumer/flatmates/` and `consumer/services/`.
+`admin/properties.spec.js` itself now scores 0/0/0 — the rewrite held.
+
+### Fixed immediately (this commit)
+
+The four sharpest cases, all vacuous truth or a guard around the point of the test:
+
+- `consumer/flatmates/owner-split.spec.js` — four `rooms.every(...)` assertions with no length
+  floor. `[].every(...)` is `true`, so a split producing zero rooms passed tests named
+  "grants the owner badge" and "promotes the rooms once the flat is approved later". The
+  sibling test twenty lines up does it correctly (`toHaveLength(3)` before its `.every()`
+  calls), so this was inconsistency rather than house style.
+- `live-property-integration.spec.js:1510` — the save/shortlist write was wrapped in
+  `if (await heart.count())`. The stated purpose is "the write is the only proof it reached
+  the server"; the control disappearing is exactly the regression that breaks saving, and the
+  guard reported success in precisely that case.
+- `live-property-integration.spec.js:672` — `expect(detailBody.messages.every((m) => typeof
+  m.authorId === 'string')).toBe(true)` with no length floor. A thread detail returning
+  `messages: []` satisfied the assertion the `authorId` contract addition exists for. Sharpest
+  find in the suite: the *same test*, thirty lines earlier, carries the comment "Asserted before
+  the negative checks below, because a signed-out page would satisfy every 'X is absent'
+  assertion trivially" — the author named this failure mode and then walked into it.
+
+### Backlog, ranked
+
+**P1 — six guarded assertions that disable the test they guard.** Each needs the same
+treatment as the heart: assert the element present, because its absence is the failure.
+- `platform/live-i18n.spec.js:164` — the *entire* body of "the date picker shows month names in
+  the active language" sits inside `if (await field.count())`. A missing date picker leaves the
+  test asserting only that an `h1` exists.
+- `platform/live-desktop-noleak-guardrails.spec.js:321` — `if (r.pillH) expect(r.pillH).not.toBe('40px')`.
+  `pillH` is `null` exactly when the element is absent, so a top bar that renders no pill and no
+  icon box satisfies both guards. The only place in the suite where the guard variable's falsy
+  value *is* the failure condition.
+- `consumer/home/entity-search.spec.js` (2), `consumer/property/infotips.spec.js:—`,
+  `platform/live-route-redirects-404.spec.js`, `mobile/live-sheets-and-actions.spec.js`,
+  `mobile/live-touch-targets-p3.spec.js`.
+
+**P2 — twelve conditional `test.skip` calls used as an environment shrug.** A skipped test
+reports as skipped, so a regression that removes the element turns the run green rather than
+red, and a summary read at a glance shows no failures. "no listings rendered" and "no filter
+panel in this build" describe a broken application, not an unsupported environment. In
+`mobile/live-sheets-and-actions.spec.js:136,154`,
+`platform/live-desktop-noleak-guardrails.spec.js:139,254`, `mobile/live-topbar-scroll.spec.js:80`,
+`live-property-integration.spec.js:558,582`, `consumer/search/qa-location-search.spec.js:193,224`,
+`consumer/home/entity-search.spec.js:121`, `mobile/live-phase3.spec.js:67`,
+`platform/help/live-article-feedback.spec.js:86`.
+(The two in `live-property-integration.spec.js` are conditional on an empty inbox, not
+unconditional — worth keeping, but the condition should seed rather than skip.)
+
+**P3 — seven scan-and-assert-empty sweeps with no "the scan found anything" floor.** These
+collect violations across a page and assert `toEqual([])`, which passes cleanly on a blank,
+crashed or 404 page. In `mobile/live-text-legibility.spec.js:135,151,161`,
+`mobile/live-content-budget.spec.js:173,204`, `mobile/live-touch-targets-p3.spec.js:135`,
+`mobile/live-auth-keyboard.spec.js:82`.
+The idiom is already applied correctly elsewhere — `mobile/live-tap-targets.spec.js:163` polls
+`toBeGreaterThanOrEqual(MIN_CANDIDATES)` first, `mobile/live-safe-area.spec.js:136` and
+`mobile/live-ops-field.spec.js:136` both assert a non-zero candidate count with a message saying
+why — so this is uneven application, not an unknown technique. `live-text-legibility.spec.js` is
+the pointed case: its own comment at lines 111-115 explains that a 404 page has no band to
+measure and the sweep would pass by finding nothing, and then does not guard against it.
+
+**P4 — 107 sleeps.** Lowest value per edit but the largest number, and each one is both slower
+and weaker than the assertion it replaced. Worst files: `consumer/services/emi-calculator.spec.js`
+(8), `consumer/list-property/types.spec.js` (8), `consumer/list-property/p3.spec.js` (7),
+`consumer/services/refer.spec.js` (6), `consumer/list-property/progress.spec.js` (6).
+
+### Not counted, deliberately
+
+`expect(consoleErrors).toEqual([])` — ~200 occurrences. That is the house convention paired with
+the `trackErrors` helper and the `consoleErrors` fixture, not an anti-pattern.
+
+### Corrections to the sweep, found by spot-checking
+
+Three of the reported findings did not survive reading the code, which is the reason
+every claim in a delegated survey has to be checked before it is acted on:
+
+- **`live-property-integration.spec.js:558,582` are not unconditional skips.** They are
+  `if (!(await markAll.count())) test.skip(...)` and `if (!before) test.skip(...)`, both
+  guarding on an empty notification inbox with a comment explaining that only flatmate
+  flows write server notifications. Still worth converting -- the right answer is to seed
+  a notification rather than to skip -- but they do run.
+- **`live-property-integration.spec.js:236` is not a guarded assertion.** It is documented
+  idempotency cleanup ("this test writes to a real database, and a failure between upload
+  and delete must not make every later run fail on a full slot"). Correct as written.
+- **`live-content-budget.spec.js:173,204` already have floors.** The first returns
+  `['toolbar not found']` from inside the page evaluate, which fails loudly; the second is
+  preceded by `await expect(badge).toBeVisible()`. Neither is unfloored.
+
+Conversely one finding was **understated**. `live-sheets-and-actions.spec.js:137` skipped
+with the message "wizard gated (auth/paywall) in this environment" -- but `/list-property`
+is wrapped in `ProtectedRoute` (App.jsx:253) and the test never signed in, so it was not
+gated *in this environment*, it was gated in every environment. That assertion had never
+executed. The skip message was describing the test's own omission back to us, which is the
+most expensive kind of comment: one that sounds like a diagnosis.
+
+### Fixed in this pass
+
+`owner-split.spec.js` (4 vacuous `.every()`), `live-property-integration.spec.js` (guarded
+save-write, unfloored `authorId`), `live-i18n.spec.js` (whole date-picker test guarded),
+`live-desktop-noleak-guardrails.spec.js` (null-means-absent guards),
+`live-text-legibility.spec.js` (three unfloored sweeps; the helper now returns `measured`),
+`live-auth-keyboard.spec.js` (unfloored field sweep),
+`live-touch-targets-p3.spec.js` (unfloored card sweep, and its sleep replaced by the
+assertion it was standing in for), `entity-search.spec.js` (skip -> assertion),
+`live-sheets-and-actions.spec.js` (four: two guards, one loop-`continue`, one permanent skip),
+`live-fees-and-photos.spec.js` (the draft-restore race that made the run's second failure).
+
+Remaining from the backlog: the `/dashboard` and `/messages` legibility floors are covered by
+the same helper change; the two notification skips want a seeded notification; the 107 sleeps
+are untouched.
+
+### D225 — the P4 sleep backlog, cleared
+
+The ten worst offenders from the D223 sweep are done: **53 `waitForTimeout` calls removed, zero left in
+any of them.** No file gained a sleep, and no assertion was weakened to make one go away.
+
+| File | Sleeps | Now |
+|---|---:|---:|
+| `consumer/services/emi-calculator.spec.js` | 8 | 0 |
+| `consumer/list-property/types.spec.js` | 8 | 0 |
+| `consumer/list-property/p3.spec.js` | 7 | 0 |
+| `consumer/services/refer.spec.js` | 6 | 0 |
+| `consumer/list-property/progress.spec.js` | 6 | 0 |
+| `consumer/flatmates/filters.spec.js` | 5 | 0 |
+| `consumer/list-property/pricing-rera.spec.js` | 4 | 0 |
+| `consumer/list-property/layout.spec.js` | 3 | 0 |
+| `consumer/list-property/validation.spec.js` | 3 | 0 |
+| `consumer/list-property/custom-features.spec.js` | 3 | 0 |
+
+**Roughly forty of the fifty-three were one bug wearing forty hats.** `Select.jsx` portals its menu and
+only sets `portalOpen` one `requestAnimationFrame` after the open (`Select.jsx:178`); until that flips,
+the menu carries `opacity: 0; pointer-events: none` (`dropdown.css:198`) and gains `.is-portal-open`
+afterwards. Every `waitForTimeout(200)` sitting between a dropdown trigger click and an option click was
+waiting out that single frame. They are now a `menuOpen()` helper asserting `.is-portal-open`, defined
+locally in each of the six files that needed it. `MultiSelect.jsx:308` uses the identical mechanism, so
+the same helper covers it.
+
+**Two of them were hiding a defect, not a delay.** `p3.spec.js:19` and `layout.spec.js:49` both read
+
+```js
+const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+if (await opt.count()) await opt.first().click();
+```
+
+`count()` does not retry. Whenever the sleep was a little short, the count came back 0, the click was
+skipped in silence, and the wizard carried its *default* property type through a test whose whole
+premise was that a type had been chosen. The guard existed because of the flakiness the sleep caused;
+both are now `await expect(opt).toHaveCount(1)` followed by an unconditional click.
+
+**One needed the application changed to be testable at all.** `refer.spec.js` asserts that a *cancelled*
+native share does not count an invite — and a cancelled share deliberately mutates nothing, so there was
+no signal to wait on and the test settled for "still 0, three hundred milliseconds after a click". That
+assertion would have passed just as happily against a button wired to nothing. The `reject` stub in
+`loginAndOpen` now counts attempts, so the test proves the handler ran before claiming the counter did
+not move.
+
+**The rest divide cleanly by whether the next line retries.** Where a sleep sat directly above a
+Playwright assertion it was pure superstition and simply went. Where it sat above a non-retrying read —
+`innerText()`, `.count()`, `allInnerTexts()`, `page.evaluate()` — it was load-bearing, and has been
+replaced by whatever state change the test was really waiting for: `not.toHaveText(`${start}%`)` for the
+progress meter, `toHaveValue('1200')` for a committed field, `not.toHaveCount(before)` for a filtered
+card list, `toContainText('1')` for the referral counter, `toHaveClass(/selected/)` for a deal-type pill.
+
+Two replacements are stronger than what they replaced rather than merely equivalent. `p3.spec.js:120`
+asserted that submitting without a document raises *no* document error — which passes for free against a
+form that has not validated yet, and at the moment of the click that is exactly the state it is in. It
+now waits for the *photos* error to appear first, so the absence of a document error is a decision the
+form made rather than a race the test won. Likewise the photo-upload test now waits for the thumbnail to
+render (`PhotoUploader.jsx:59`) instead of for an error class to disappear, because a page that never
+processed the upload also has no error class.
+
+
+### D225 — P5: `networkidle`, 122 call sites, one of which just failed
+
+Removing the sleeps surfaced the next tier of the same problem. `waitForLoadState('networkidle')` and
+`goto(..., { waitUntil: 'networkidle' })` appear **122 times across 31 of the 242 spec files.**
+
+| Count | File |
+|---:|---|
+| 19 | `consumer/services/rent-agreement.spec.js` |
+| 17 | `consumer/dashboard.spec.js` |
+| 9 | `scheduled-visits.spec.js` |
+| 8 | `platform/live-desktop-noleak-guardrails.spec.js` |
+| 7 | `my-rental.spec.js` |
+| 7 | `tenant-profile.spec.js` |
+| 7 | `mobile/live-sheets-and-actions.spec.js` |
+| 6 | `owner-finances.spec.js` |
+| 5 | `live-verify-funnel.spec.js` |
+| 5 | `action-center.spec.js` |
+| — | …21 more files with 1-4 each |
+
+**This is not a style preference; one of them failed in the current live run.**
+`live-text-legibility.spec.js` timed out after 20s on `/society/skyline-heights-baner` — and the
+failure artefact's own page snapshot shows the route had rendered *perfectly*: breadcrumb, hero image,
+Follow button, the lot. The page was fine. The wait was wrong.
+
+`networkidle` does not mean "the page is ready". It means "no request has been in flight for 500ms",
+which is a property of the *network*, not of the DOM the test is about to assert on. A surface with a
+hero image, lazily-loaded tiles, a poller or any periodic beacon can simply never satisfy it. It fails
+in both directions at once: it makes fast pages 500ms slower each time, and makes busy pages time out
+at 20s — and the failure it produces names the load state rather than the page, so it reads like an
+application problem when it is a test problem.
+
+**Fixed here:** `live-text-legibility.spec.js` (3 call sites) now uses a `settled()` helper asserting
+`main` is visible and non-empty, backstopped by the `MIN_MEASURED` floor added earlier today. If a
+route paints its shell and nothing else, the floor fails loudly with the route name instead of the
+navigation timing out anonymously.
+
+**Not fixed:** the other 119. They are not currently failing, and changing 122 navigation calls without
+running them is exactly the kind of blind edit that turns one known flake into thirty unknown ones. The
+replacement is per-route rather than mechanical — each site needs the assertion that names what that
+page is waiting for, which is the whole point. Recommended order when this is picked up: the four
+files with 7+ occurrences first, since they concentrate a third of the total, and each is a coherent
+surface that can be run on its own in under a minute.
+
+
+### D225 (cont.) — the sleep backlog is finished, not just dented
+
+Carried on past the ten surveyed files and swept the rest. **105 of the 107 non-`live-` sleeps are gone,
+across 34 files.**
+
+| Wave | Files | Sleeps removed |
+|---|---:|---:|
+| The ten worst offenders | 10 | 53 |
+| `consumer/flatmates/` — video, full-journey, my-listings, alerts | 4 | 14 |
+| `consumer/list-property/` remainder — reset, rent-maintenance, seam-write, geocode, map, possession, stepnav, consumer-fixes | 8 | 13 |
+| listing-freshness, dup-modal, detail-improvements, detail-sale, qa-location-search | 5 | 10 |
+| The sixteen singles | 15 | 15 |
+| **Total** | **34** | **105** |
+
+**Two left, deliberately.** `entity-search.spec.js:93` and `qa-location-search.spec.js:185/216` each run the
+alphabet through the search box looking for a society or landmark suggestion in the seed. The suggestion
+fetch is debounced, and *no result* is a legitimate outcome for most letters — so there is no signal that
+distinguishes "the debounce has not fired yet" from "this letter matches nothing". Polling for a non-empty
+list would fail on the empty letters; polling for any change would be satisfied by the previous letter's
+results clearing. The honest answer is that this needs a marker the application does not currently expose,
+and inventing one in the test would be worse than the 120ms. Recorded rather than faked.
+
+**★★ The silent-skip guard was in EIGHT files, not two.** The full set:
+`p3.spec.js`, `layout.spec.js`, `reset.spec.js`, `geocode.spec.js`, `map.spec.js`, `possession.spec.js`,
+`stepnav.spec.js`, `locality-select.spec.js` — every one of them
+
+```js
+await page.waitForTimeout(250);
+const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+if (await opt.count()) await opt.first().click();
+```
+
+Eight copies of a wizard step that could silently decline to pick a property type and carry the default
+through the rest of the test. This is what copy-paste does to a workaround: the sleep and the guard
+travelled together as a unit, and each new file inherited a defect nobody had noticed in the first one.
+
+**Two more tests gained a signal rather than losing one.** The geocode-failure test asserted that a failed
+lookup leaves the address fields empty — which is also true of a page that never called the geocoder, and
+true of the fields *before* the search. The stub now counts invocations (`window.__geocodeCalls`), so the
+emptiness is a consequence rather than a starting condition. Same shape as the cancelled-share fix earlier
+today. Separately, `listing-freshness.spec.js` had its positive `Active` assertion sitting *below* two
+`toHaveCount(0)` claims; moving it above them is the difference between "gone because confirmed" and "not
+rendered yet".
+
+**Diagnostics that were only ever `console.log` are gone.** `flatmates/video.spec.js` spent two sleeps and
+three reads populating log lines nobody reads — stored-room count, tab visibility, whether the body text
+contained the society. The one claim among them worth making (the post reached storage under this user) is
+now an `expect.poll`; the rest went.
+

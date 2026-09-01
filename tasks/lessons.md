@@ -3487,3 +3487,237 @@ damaged the page to protect the test.
   attributing it to whoever is signed in loses the mobile that was the point of the form.
 - **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.live.config.js`.**
   `frontend/.env.live` is `*` and will mislead you into thinking a new provider is already live.
+
+## D223 — the test-quality sweep, and what a green suite was hiding
+
+- **`title=` contributes to a button's accessible name.** `getByRole('button', { name: 'Archive',
+  exact: true })` matched ten card icon buttons, not the modal footer, because every card renders
+  `<button title="Archive">`. A role-based selector is not automatically safer than a class-based
+  one — it is safer only about the *role*. Scope modal footer buttons to
+  `page.getByRole('dialog', { name: … })`.
+- **A component that renders the same data twice makes every unscoped `getByText` a strict-mode
+  violation, not an assertion.** The `Table` component ships a desktop `<table>` and a mobile card
+  list, so `getByText('No transactions match.')` matched two elements. Scope to
+  `getByRole('table')` — and then remember that the empty state *is itself a `tbody tr`*, so
+  `toHaveCount(0)` on rows could never pass. What distinguishes empty from populated is a row with
+  more than one cell.
+- **A counter and a list can legitimately disagree.** `{rows.length} of {all.length}` is uncapped;
+  the list under it is `slice(0, PAGE_LIMIT)`. Asserting card count equals the counter's second
+  number fails against any corpus larger than a page. Derive from the first number and cap it.
+- **A test that needs a specific data state must seed that state, not hope for it.** The
+  `Unconfirmed (stale)` sub-filter needs an approved, non-archived, stale-or-dormant listing. The
+  demo seed sometimes has one. The right move was to delete the test and point at the spec that
+  already seeds `Unconfirmed Stale Flat` explicitly — duplicating it with a weaker fixture would
+  have added a flake, not coverage.
+- **Three patterns account for almost all dead weight in an old spec, and all three are invisible
+  in a green run:** an assertion inside `if (await x.isVisible())`; an assertion on something that
+  renders unconditionally (a counter, a heading) placed after an action, as if the action caused
+  it; and a `waitForTimeout` standing in for the assertion on the next line. The first no-ops in
+  exactly the broken state you wrote it for. The second passes for every input. The third is slower
+  *and* weaker than the assertion it replaced, because `toBeVisible()` retries and a fixed sleep
+  does not.
+- **A stale count is stale in the direction that cannot fail.** "all 7 tabs are visible" against a
+  strip that renders nine, and "all 5 KPI cards" against seven, both stayed green while two tabs
+  and two cards had no test at all. Assert the count, not a list of names.
+- **"Still imports `mockApi`" and "still depends on the mock" are different questions.** Of the
+  three remaining consumer call sites, one was real work, one was blocked on a product decision
+  nobody has made, and one had been dead code under the live provider for months. Grepping the
+  import tells you none of that.
+- **A migration from sync to async introduces races the old tests cannot see.** Repointing
+  `Contact.jsx` from a synchronous `useMemo` over localStorage to an awaited API read meant the
+  prefill could land *after* the user started typing and clobber it. The test that catches this
+  holds the response open with `page.route` and a manual `release()`, types, then releases — and it
+  was worth mutation-testing, because a prefill guard that does nothing looks exactly like one that
+  works.
+- **The client should not recompute a verdict the server already sent.** `submit.js` reimplemented
+  three re-check rules in the browser and stored its own answer, while the server's was sitting
+  unread in the response. Any drift produced a mirror that disagreed with the row it mirrors,
+  silently, in whichever direction the client guessed.
+- **Contract tests go red for two different reasons and only one is a bug.** All three foundation
+  tests failed on code that was correct — the OpenAPI file had simply fallen behind three routes and
+  six fields. That is still worth fixing immediately: a red contract test cannot report the next
+  drift, which might be a field meant to stay internal.
+- **`-Dtest=A+B+C` matches nothing.** Surefire wants commas. The failure is
+  `No tests matching pattern`, and with `-DfailIfNoTests=false` it still exits 1 — so it reads like
+  a test failure rather than a typo.
+
+## D224 — a delegated survey is a lead, not a verdict
+
+- **Spot-check every claim a subagent makes before acting on it.** A read-only survey of 242
+  spec files reported 10 guarded assertions; three of them did not survive being read. One was
+  documented idempotency cleanup against a real database and was correct as written; two already
+  carried floors the survey had not noticed. Two "unconditional" `test.skip` calls were in fact
+  conditional. Roughly 30% of the specific citations were wrong in some way, while the *shape* of
+  the finding — sleeps are the real debt, guards are nearly gone — was right. Trust the shape,
+  verify the instances.
+- **Ask the survey to name the directories it swept.** It did, and that is the only reason the
+  totals are usable: a partial sweep presented as complete would have made "10 guarded assertions"
+  a floor rather than a count.
+- **A regex sweep for anti-patterns over a codebase that documents its anti-patterns will
+  massively over-report.** The first automated pass found 40 guarded assertions across 86 files;
+  nearly all of the excess was the rewritten specs' own docblocks *describing* the patterns they
+  had removed. Any future sweep needs to exclude comment bodies before counting.
+
+## D224 — the skip message that was describing itself
+
+`live-sheets-and-actions.spec.js` skipped with `'wizard gated (auth/paywall) in this environment'`
+when `.lp-step-actions` was missing. `/list-property` is wrapped in `ProtectedRoute` and the test
+never signed in, so it was not gated *in that environment* — it was gated in every environment,
+and the assertion had never once run.
+
+- **A conditional `test.skip` whose message sounds like a diagnosis is the most expensive kind of
+  comment**, because it stops anyone looking again. The message was a guess written at the moment
+  the author saw a missing element, and it then stood for however long as an explanation.
+- **A skipped test is invisible in a summary that counts failures.** Prefer a failing test over a
+  skipped one whenever the condition describes a broken application rather than a genuinely
+  unsupported environment. "no listings rendered" and "no filter panel in this build" are the
+  former.
+- **When converting a skip to an assertion, check the route's guard first.** The fix here was not
+  to assert harder; it was to sign in.
+
+## D224 — floors, and the two shapes that pass on an empty page
+
+- **`[].every(...)` is `true`, and `expect([]).toEqual([])` passes.** Both shapes are extremely
+  common in sweep-style tests and both are satisfied perfectly by a blank, crashed or 404 page.
+  Every such assertion needs a floor asserting the scan found something to measure.
+- **The floor belongs in the helper's return value, not in each test.** `undersizedText` now
+  returns `{ bad, measured }`; before, each of its three call sites would have had to re-derive the
+  population count, and they would have drifted.
+- **Look for the comment that already knows.** `live-text-legibility.spec.js` carries a comment
+  explaining that a 404 page has no five-stat band to measure "so the sweep would have passed by
+  finding nothing" — and then did not guard against it. When a file documents a failure mode,
+  check whether it also defends against it.
+- **A stale-fixture failure and a code failure look identical from the log.** `live-contact-ref`
+  passed alone and failed at position 109 of the full suite, because the live database resets once
+  per run and earlier specs had posted listings that sorted newest-first with no owner name. The
+  fixture must be *selected* for the fields the test asserts on, never taken as `rows[0]`.
+
+## D224 — "element is not stable" names the symptom, not the cause
+
+A wizard step click failed with `element is not stable` after fifteen seconds of retries. The
+cause was a `localStorage` draft restored in an effect: the first paint is the empty form, the
+restore is a second render, and everything above the sticky footer changes height in between.
+
+- **Waiting on a restored *value* is the honest wait for a hydration race** — it is true exactly
+  when the restore has landed, and it fails loudly if the seed never loaded, which a
+  `waitForTimeout` would have hidden until it surfaced as a confusing validation error two steps
+  later.
+
+## D225 — a sleep is a comment that says "I don't know what I'm waiting for"
+
+Fifty-three `waitForTimeout` calls came out of ten spec files today. Sorting them turned out to be
+mechanical once I stopped asking "how long does this need?" and started asking **"does the next line
+retry?"**
+
+- **Next line is a Playwright assertion** (`expect(locator)...`) or an auto-waiting action (`.click()`,
+  `.fill()`) → the sleep does nothing. Delete it. Playwright already retries, which is the entire point
+  of it.
+- **Next line is a non-retrying read** — `innerText()`, `.count()`, `allInnerTexts()`, `page.evaluate()`
+  → the sleep is load-bearing and deleting it will cause a flake. It must be *replaced* by an assertion
+  on whatever state change it was really waiting for.
+
+That second category is where the value is, because writing the replacement forces you to name the thing
+you were waiting for — and about a third of the time, naming it revealed the test was wrong.
+
+**Forty of the fifty-three were a single application detail.** `Select.jsx` renders its menu through
+`createPortal` behind a `portalOpen` flag set one `requestAnimationFrame` after the open. Every spec that
+touched a dropdown had independently discovered this and independently papered over it with 200ms. Nobody
+wrote down *why*. When one component has a timing quirk, it does not produce one sleep — it produces one
+sleep per call site, scattered across a dozen files, each looking like an isolated bit of sloppiness. **If
+you find the same sleep duration repeated across unrelated files, stop fixing the tests and go read the
+component.** The fix is one helper, not forty edits.
+
+## D225 — `if (await x.count())` after a sleep is a skipped test with a straight face
+
+Two files had this:
+
+```js
+await page.waitForTimeout(250);
+const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+if (await opt.count()) await opt.first().click();
+```
+
+`count()` does not retry. When the sleep ran short — on a loaded CI box, on a cold chunk — the count came
+back 0, the click was skipped, and the test continued against a wizard that still held its *default*
+property type. The test was named for choosing a type. It sometimes never chose one, and passed anyway.
+
+The guard was almost certainly added *because* the sleep was flaky: someone saw an intermittent failure on
+the click, wrapped it in a conditional, and the intermittency went away. It went away because the test
+stopped testing. **A defensive `if` around an action is not defensive — it converts a loud failure into a
+silent change of scenario.** The tell is that the `if` has no else and no comment; nobody who genuinely
+believed the element might legitimately be absent would leave it at that.
+
+## D225 — when the app gives a test nothing to wait for, change the app
+
+`refer.spec.js` asserts that a *cancelled* native share does not count a referral invite. A cancelled
+share is defined by mutating nothing: no counter moves, nothing renders, no request goes out. So there was
+no signal, and the test settled for `waitForTimeout(150)` then "the counter still reads 0".
+
+That assertion is worthless. It passes against a Share button wired to nothing at all, against a button
+that does not exist, and against a page that failed to load its handler — every one of those also leaves
+the counter at 0. It was measuring the absence of an effect it had never established could occur.
+
+The fix was not in the test. The `reject` stub now increments `window.__shareAttempts`, so the test can
+wait for the handler to have *run* and only then claim the counter did not move. **A negative assertion
+needs a positive anchor, and if the application does not expose one, the honest move is to add one to the
+test double rather than to keep asserting nothing carefully.**
+
+## D225 — the strongest replacement is often not the one the sleep was covering
+
+Two cases came out better than break-even, both by swapping a negative check for a positive one.
+
+`p3.spec.js` asserted that submitting without a document raises **no** document error. At the instant of
+the click the form has not validated at all, so `toHaveCount(0)` passes immediately and for the wrong
+reason. It now waits for the *photos* error to appear first. The photos error is proof the validation pass
+ran; only then is "and there is no document error" a decision the form made rather than a race the test
+won.
+
+Similarly, the photo-upload test waited for an error class to *disappear*. A page that never processed the
+upload also has no error class. It now waits for the thumbnail to render, which only happens once the file
+is in state.
+
+**When you replace a sleep, you get to choose the new anchor — so choose the one that can only be true if
+the thing actually happened, not merely the one that is true afterwards.**
+
+
+## D225 — a workaround and the defect it hides travel together
+
+The `if (await opt.count())` guard turned out to be in **eight** spec files, not the two the survey found.
+Every copy was identical, and every copy sat directly under a `waitForTimeout(250)`:
+
+```js
+await page.waitForTimeout(250);
+const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+if (await opt.count()) await opt.first().click();
+```
+
+Somebody wrote the sleep once, hit an intermittent failure, added the guard, and the pair got pasted into
+the next seven files as a working recipe. It *was* a working recipe — for making the suite green. What it
+actually did was let eight different tests silently decline to choose a property type and carry the wizard
+default through assertions that were named for the type they thought they had picked.
+
+**The lesson is about the shape of the search, not the bug.** I found the first two because a survey
+listed them. I found the other six because I went looking for the *pattern* rather than for more sleeps.
+When a workaround turns out to be load-bearing for a defect, grep the whole tree for it before assuming
+the survey was complete — copy-paste is the main way a small mistake becomes a systemic one, and the
+copies are always literal enough to find with one regex.
+
+Corollary worth remembering: `git grep` for the *guard* found more than grepping for the *sleep* did,
+because the guard is distinctive and the sleep is everywhere. When two anti-patterns appear together,
+search for the rarer one.
+
+## D225 — `networkidle` is the same mistake with better manners
+
+122 call sites across 31 files, and one of them failed in the live run — on a page the failure artefact's
+own snapshot shows had rendered perfectly. `waitForLoadState('networkidle')` reads like an intention
+("wait until the page is ready") and means something else entirely ("no request has been in flight for
+500ms"). It is a property of the network, not of the DOM the next line asserts on, and a page with a hero
+image, a lazily-loaded grid or any beacon can simply never satisfy it.
+
+It is worse than `waitForTimeout` in one specific way: a sleep is obviously arbitrary, so nobody defends
+it. `networkidle` looks principled, so it survives review. The failure it produces names the load state
+rather than the page, which sends whoever triages it looking at the application first.
+
+Fixed the three sites in the file that failed and left the other 119 alone with a note. Changing 122
+navigation calls without running them would trade one known flake for thirty unknown ones, and the
+replacement is per-route by design — the point is to name what *that* page is waiting for.
