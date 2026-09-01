@@ -39,11 +39,21 @@
  *
  * ## Why this stays on the mock provider
  *
- * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, but three things are wired
- * to localStorage regardless: every `logAudit` line this console writes, the whole Pipeline tab
- * (`pipelineStage` is a localStorage-only column, and `setPipelineStage` also silently flips
- * `status` to `approved`), and the Duplicates tab with its KPI. Promoting this file to live would
- * need those three to grow a server home first. Recorded in `tasks/todo.md`.
+ * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, but two things are wired
+ * to localStorage regardless: the whole Pipeline tab (`pipelineStage` is a localStorage-only column
+ * here, and `setPipelineStage` also silently flips `status` to `approved`), and the Duplicates tab
+ * with its KPI. Promoting this file to live would need those two to grow a server home first.
+ * Recorded in `tasks/todo.md`.
+ *
+ * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
+ * lines are gone: every moderation call on this page goes to the server, and the server records its
+ * own audit row from the authenticated principal, so the browser's copy was a duplicate of a record
+ * it could not read back. Nothing here asserted on it, which is how it stayed unnoticed.
+ *
+ * The Pipeline entry is a genuine conflict rather than unfinished work: the server does have a
+ * `pipeline_stage`, but it is the post-on-behalf onboarding funnel
+ * (`listed → docs_submitted → … → claimed`) while this console's is a moderation funnel of the same
+ * name. Reconciling the two vocabularies is a product decision, not a migration.
  *
  * Fixtures: `login.asAdmin()`.
  */

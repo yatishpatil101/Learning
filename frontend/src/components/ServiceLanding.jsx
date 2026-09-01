@@ -10,8 +10,14 @@ import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { createServiceRequest } from '../lib/mockApi.js';
-// Flow request creation crosses the seam (mock or live per VITE_API_DOMAINS); the ops lead ticket
-// (`createServiceRequest` from mockApi) stays a separate, synchronous mock system.
+/* Two writes, and they are not the same write.
+   - The ops *lead ticket* is what a desk calls back from. Live it is `POST /tickets`; in mock mode
+     the `ticket` domain has no provider on purpose (see `services/config.js`), so the browser store
+     keeps its own copy rather than losing the lead entirely.
+   - The *flow request* is the workflow the customer then tracks. It crosses the seam per
+     `VITE_API_DOMAINS` either way. */
+import { createTicket } from '../services/ticketService.js';
+import { isHttpDomain } from '../services/config.js';
 import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
@@ -81,17 +87,45 @@ export default function ServiceLanding({
     ], toast);
     if (!ok) return;
     const detail = (quote?.fields || []).filter((f) => form[f.name]).map((f) => `${f.label}: ${form[f.name]}`).join(' · ');
-    // For services with an ops workflow, link the admin ticket and the ops flow via one
-    // shared ref so ops progress mirrors onto the admin ticket (via syncServiceTicket) —
-    // no more phantom "new" leads. syncServiceTicket no-ops for unlinked (flow-less) tickets.
-    const ref = flowType ? 'TR' + Date.now() + Math.floor(Math.random() * 1000) : null;
-    createServiceRequest({ team, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: form.name, mobile: form.mobile, detail, ...(ref ? { ref } : {}) });
-    if (flowType) {
-      // Identity is the session (the page is sign-in gated above), so the mobile is no longer passed.
-      // Optimistic: the UI proceeds regardless, matching the mock's synchronous behaviour; a live POST
-      // failure is swallowed rather than blocking the confirmation the lead ticket already earned.
-      createFlowRequest({ type: flowType, service: form[quote?.serviceField] || quote?.title || 'Service request', customer: { name: form.name }, ticketRef: ref, details: (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {}) }).catch(() => {});
-    }
+    const service = form[quote?.serviceField] || quote?.title || 'Service request';
+    const details = (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {});
+
+    /* The lead ticket and the flow request are two records for one submit, and they have to name
+       each other or an operator opening either has no route to the other.
+
+       Live, the link is the server's: `POST /tickets` returns a real id and it goes onto the
+       request as `ticketId` (D45, `service_requests.ticket_id`). Until now this branch did not
+       exist — the ticket was written to `localStorage` on every deployment, so on a live one the
+       desk never saw the lead at all and the request carried no link, while the customer was shown
+       the same confirmation either way. That is the failure this replaces.
+
+       In mock mode the `ticket` domain has no provider on purpose, so the browser store keeps the
+       lead and the two are paired by a `TR…` ref that `syncServiceTicket` mirrors flow status onto.
+       `serviceRequestMapper.toCreate` refuses to forward a `TR…` ref to the server for exactly the
+       reason it exists: it is a browser-local pairing, and the server has never heard of it. */
+    const raiseLead = async () => {
+      if (!isHttpDomain('ticket')) {
+        const ref = flowType ? 'TR' + Date.now() + Math.floor(Math.random() * 1000) : null;
+        createServiceRequest({ team, service, customer: form.name, mobile: form.mobile, detail, ...(ref ? { ref } : {}) });
+        return ref;
+      }
+      // Contact details are not sent: the page is sign-in gated above and the server copies the
+      // name and number off the session, so a form-supplied pair would be a second, unverified one.
+      const ticket = await createTicket({ team, subject: service, body: detail });
+      return ticket?.id || null;
+    };
+
+    /* Optimistic, and deliberately so: the confirmation below is for the enquiry the customer just
+       made, not for a round trip they cannot see. A failed lead must not also cost them the flow
+       request, so the two are chained rather than gated — a rejected ticket yields a null ref and
+       the request is still created, unlinked. */
+    raiseLead()
+      .catch(() => null)
+      .then((ref) => {
+        if (!flowType) return null;
+        return createFlowRequest({ type: flowType, service, customer: { name: form.name }, ticketRef: ref, details });
+      })
+      .catch(() => {});
     draft.clear();
     setDone(true);
   };

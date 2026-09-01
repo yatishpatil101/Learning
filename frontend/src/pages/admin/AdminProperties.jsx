@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
 import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
-import { logAudit, setPipelineStage } from '../../lib/mockApi.js';
+import { setPipelineStage } from '../../lib/mockApi.js';
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
@@ -27,7 +27,7 @@ import PipelineTab from './properties/PipelineTab.jsx';
 import DuplicatesTab from './properties/DuplicatesTab.jsx';
 import PropertyReviewModal from './properties/PropertyReviewModal.jsx';
 import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyBulkRejectModal, PropertyRecheckRejectModal } from './properties/PropertyModals.jsx';
-import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, PIPELINE_STAGES, fmtAgo, exportCsv } from './properties/constants.js';
+import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, fmtAgo, exportCsv } from './properties/constants.js';
 
 /**
  * The verification routes bind `{id}` as a UUID, and `propertyMapper` sets a listing's `id` to
@@ -310,6 +310,18 @@ export default function AdminProperties() {
   const toggleOneVer = toggleOne(setSelVer);
 
   // ---- actions ----
+  // There used to be a `logAudit(...)` line after each of these, writing a sentence into a
+  // browser-local array. Every moderation call below now goes to the server, and every one of those
+  // endpoints records its own audit row from the authenticated principal — `property.status`,
+  // `property.featured`, `property.flag`, `property.archive`, `review.decide`. The browser's copy
+  // was a duplicate of a record it could not see, composed from the row the table happened to be
+  // holding rather than from what the server actually did, and it survived a failed call in one
+  // case and a partial bulk failure in three. Two audit trails that can disagree are worse than
+  // one, and the one that cannot be tampered with from a console is the one to keep.
+  //
+  // `setPipelineStage` below is the exception and is still local: the server's `pipeline_stage` is
+  // the post-on-behalf onboarding funnel (listed → docs_submitted → … → claimed) and this console's
+  // is a moderation funnel that happens to share the name. Recorded, not reconciled.
   const findListing = (id) => (all || []).find((l) => l.id === id);
 
   // Every moderation call is awaited and every failure is surfaced. Against the API these are real
@@ -327,7 +339,6 @@ export default function AdminProperties() {
       return;
     }
     const nowFeatured = !l.featured;
-    logAudit('Listing', `${nowFeatured ? 'Featured' : 'Unfeatured'} "${l.title}"`);
     toast(nowFeatured ? 'Marked as featured' : 'Removed from featured');
     refresh();
   };
@@ -340,7 +351,6 @@ export default function AdminProperties() {
       return;
     }
     setPipelineStage(l.id, 'live');
-    logAudit('Listing', `Cleared flag & published "${l.title}"`);
     toast('Flag cleared — listing published', 'success');
     refresh();
   };
@@ -356,7 +366,6 @@ export default function AdminProperties() {
       toast(`Could not clear the re-check: ${err.message}`, 'error');
       return;
     }
-    logAudit('Listing', `Re-check passed on "${l.title}" (${l.recheckReason || 'edited fields'})`);
     toast('Re-check cleared — listing stays live', 'success');
     refresh();
   };
@@ -383,7 +392,6 @@ export default function AdminProperties() {
       toast(`Could not reject: ${err.message}`, 'error');
       return;
     }
-    logAudit('Listing', `Re-check failed on "${target.title}" — rejected: ${r}`);
     setRecheckRejectFor(null);
     setRecheckRejectReason('');
     toast('Listing rejected and removed from search', 'success');
@@ -391,8 +399,8 @@ export default function AdminProperties() {
   };
 
   const doArchive = (l) => { setArchiveFor(l); setArchiveReason(''); setInternalNote(''); };
-  const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); logAudit('Listing', `Archived "${archiveFor.title}"${archiveReason.trim() ? ' — ' + archiveReason.trim() : ''}`); setArchiveFor(null); toast('Listing archived'); refresh(); };
-  const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } logAudit('Listing', `Restored "${l.title}" from archive`); toast('Listing restored — moved to pending review', 'success'); refresh(); };
+  const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); setArchiveFor(null); toast('Listing archived'); refresh(); };
+  const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } toast('Listing restored — moved to pending review', 'success'); refresh(); };
   const openFlag = (l) => { setFlagFor(l); setFlagReason(''); setInternalNote(''); };
   const submitFlag = async () => {
     const r = flagReason.trim();
@@ -404,7 +412,6 @@ export default function AdminProperties() {
       return;
     }
     submitNote('listing', flagFor.id, internalNote, 'Flagged');
-    logAudit('Listing', `Flagged "${flagFor.title}" — ${r}`);
     setFlagFor(null);
     toast('Listing flagged');
     refresh();
@@ -432,7 +439,6 @@ export default function AdminProperties() {
       toast(`Could not save: ${err.message}`, 'error');
       return;
     }
-    logAudit('Listing', `Edited "${title}" (${edit.id})`);
     setEdit(null);
     toast('Listing updated', 'success');
     refresh();
@@ -474,7 +480,7 @@ export default function AdminProperties() {
   };
   const handleReminder = (l) => chase(l, 'wa-gentle');
   const handleConfirmReminder = (l) => chase(l, freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale');
-  const advancePipeline = async (id, newStage) => { await setPipelineStage(id, newStage); logAudit('Pipeline', `Moved listing ${id} to "${PIPELINE_STAGES.find((s) => s.key === newStage)?.label}"`); toast('Pipeline stage updated', 'success'); refresh(); };
+  const advancePipeline = async (id, newStage) => { await setPipelineStage(id, newStage); toast('Pipeline stage updated', 'success'); refresh(); };
 
   // ---- bulk ----
   // `allSettled`, not `all`: a partial failure still applied to some listings, and reporting "12
@@ -490,13 +496,12 @@ export default function AdminProperties() {
     const results = await Promise.allSettled(selAllIds.map((id) => toggleFeatured(id)));
     const failed = results.filter((r) => r.status === 'rejected').length;
     const done = results.length - failed;
-    if (done) logAudit('Listings', `Toggled featured for ${done} listing(s)`);
     if (failed) toast(`${done} updated, ${failed} failed`, 'error');
     else toast(`${done} listing(s) updated`);
     setSelAll(new Set());
     refresh();
   };
-  const bulkArchive = async () => { if (!selAllIds.length) return; if (!window.confirm(`Archive ${selAllIds.length} listing(s)?`)) return; const results = await Promise.allSettled(selAllIds.map((id) => archiveListing(id, 'Bulk archive'))); const failed = results.filter((r) => r.status === 'rejected').length; const done = results.length - failed; if (done) logAudit('Listings', `Bulk archived ${done} listing(s)`); if (failed) toast(`${done} archived, ${failed} failed`, 'error'); else toast(`${done} listing(s) archived`); setSelAll(new Set()); refresh(); };
+  const bulkArchive = async () => { if (!selAllIds.length) return; if (!window.confirm(`Archive ${selAllIds.length} listing(s)?`)) return; const results = await Promise.allSettled(selAllIds.map((id) => archiveListing(id, 'Bulk archive'))); const failed = results.filter((r) => r.status === 'rejected').length; const done = results.length - failed; if (failed) toast(`${done} archived, ${failed} failed`, 'error'); else toast(`${done} listing(s) archived`); setSelAll(new Set()); refresh(); };
   const bulkApprove = async () => {
     if (!selVerIds.length) return;
     if (!window.confirm(`Approve ${selVerIds.length} listing(s)?`)) return;
@@ -508,7 +513,6 @@ export default function AdminProperties() {
     }));
     const failed = results.filter((r) => r.status === 'rejected').length;
     const done = results.length - failed;
-    if (done) logAudit('Listings', `Bulk approved ${done} listing(s)`);
     if (failed) toast(`${done} approved, ${failed} failed`, 'error');
     else toast(`${done} listing(s) approved`, 'success');
     setSelVer(new Set());
@@ -525,7 +529,6 @@ export default function AdminProperties() {
     }));
     const failed = results.filter((r) => r.status === 'rejected').length;
     const done = results.length - failed;
-    if (done) logAudit('Listings', `Bulk rejected ${done} listing(s)`);
     if (failed) toast(`${done} rejected, ${failed} failed`, 'error');
     else toast(`${done} listing(s) rejected`, 'error');
     setBulkRejectOpen(false);

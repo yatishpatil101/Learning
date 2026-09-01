@@ -665,6 +665,107 @@ half-done.**
 **Not blocking anything else.** The society *catalogue* surfaces (directory, hub header,
 locality lists) could flip independently of the binding question, since they never touch
 `societyForListing`. That is the salvageable half, and it is small.
+## 20. Finance: the console and the endpoint disagree about what money is
+
+**Decision needed.** Not "which transport does the Finance console use" — that turns
+out to be the wrong question. The two sides model the business differently, and only
+one of them is honest.
+
+### What I found
+
+I set out to flip `/admin/finance` onto the API the way every other console has been
+flipped, and stopped when I read both sides.
+
+**The server already has the endpoint, and it is careful.** `GET /admin/finance`
+(admin only, `finance:read`) returns `AdminFinance` — `revenue`, `payoutsDue`,
+`payoutsCompleted`, `refunds`, a `breakdown` by source, and *three disclosure
+booleans*: `payoutsMeasured`, `refundsMeasured`, `serviceOrdersCounted`. Its Javadoc
+explains that GST is excluded because collecting tax on the government's behalf is not
+income, that `payoutsCompleted` is zero because no payout has ever been executed,
+that `refunds` is zero because there is no refund path, and that service orders are
+excluded because `service_orders.amount` is a quote rather than a receipt. The
+booleans exist so an operator can tell "nothing was refunded" from "refunds do not
+exist here". `AdminKpis.revenue30d` is deliberately null for staff so the
+staff-visible dashboard cannot leak the admin-only figure.
+
+**Nothing in the frontend has ever called it.** A fully built, documented,
+permission-gated, tested endpoint has zero callers.
+
+**What the console shows instead is generated.** In
+`frontend/src/lib/data/finance-admin.js`:
+
+- `buildRevenueSeries` returns `db.analytics.revenue` when that array is long
+  enough, and otherwise synthesises twelve months from a *deterministic
+  pseudo-random function seeded on the month index*. The growth curve an operator
+  reads off the chart is arithmetic.
+- `buildTransactions` fabricates a ledger from deals, tickets and listings, and
+  assigns each row a status by rotating through a hardcoded `STAT` array. The
+  "failed" and "refunded" rows in the Transactions tab are at those positions
+  because of their index, not because anything failed or was refunded — while the
+  server refuses to report a refund figure at all, on the grounds that there is no
+  refund path.
+- `rentFeeRevenue` sums `db.rentFeeLedger`. **That collection does not exist in
+  `db.json`** — zero matches. So the "Rent-pay fees" KPI has always displayed ₹0,
+  and has always looked like a measurement.
+
+And the page's own model is arithmetic on top of that: partner payouts are 65% of
+revenue, GST is 18% of revenue, "net retained" is what is left. Those are formulas,
+not ledgers.
+
+### Why this is not a migration
+
+Flipping the page is not a matter of swapping a provider. The two sides do not
+compute the same numbers:
+
+| The console shows | The server can serve |
+|---|---|
+| 12-month revenue series | current totals only — no time series |
+| a transactions ledger | no ledger endpoint |
+| MRR, ARPU, subscription counts | not modelled |
+| GST and partner payouts as % of revenue | GST excluded on principle; payouts as a real liability |
+| refunds and payouts as computed figures | both zero, *with a disclosure saying why* |
+
+Doing it honestly means the growth chart and the transaction table **disappear**, and
+the screen becomes four figures and three disclosures. That may well be the right
+answer — a finance screen that invents a ledger is worse than a finance screen that
+admits it has none — but it is a change to what the business looks at, and I am not
+making it on my own.
+
+### Correction
+
+Earlier in this session I recorded that AdminFinance was blocked because "the
+platform needs a new admin revenue endpoint". That was wrong, and I had not looked
+hard enough when I wrote it: `AdminMetricsController` has carried
+`GET /admin/finance` for some time, and `Routes.Admin.FINANCE` names it. The blocker
+is not a missing endpoint. It is that the endpoint tells the truth and the screen
+does not, and reconciling them removes things people may be used to seeing.
+
+### The options
+
+1. **Flip it and lose the fiction.** Point the console at `/admin/finance`, keep the
+   four figures and the three disclosures, delete the chart, the ledger, MRR, ARPU
+   and the percentage model. Honest, smaller, and immediately shippable — the
+   endpoint is done.
+2. **Flip the honest half, keep the rest on the mock, and say so on the screen.** The
+   figures the server can vouch for come from the server and are labelled; the chart
+   and ledger stay, visibly marked as illustrative. Least disruptive, but a screen
+   that mixes measured and illustrative money is exactly the confusion the disclosure
+   booleans were built to prevent.
+3. **Extend the endpoint first.** Add a monthly revenue series and a real payments
+   ledger server-side, then flip everything. That is new product surface and needs
+   the payments work that does not exist yet — `payoutsCompleted` is zero because
+   there is no remittance path, not because nobody has queried it.
+
+**My recommendation is (1)**, on the grounds that the disclosure booleans already
+exist because someone decided this screen must not overstate the business, and a
+generated growth chart overstates it more than any zero could.
+
+### Meanwhile
+
+The page stays on the mock provider and keeps its `rawDb` import. It is listed here
+rather than left silently unconverted, and this note is the reason the mock-retirement
+sweep steps over it.
+
 ## What this round changes
 
 Two items shrink to nothing (13 removes work rather than adding it; 14 turns out to be one

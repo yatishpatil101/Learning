@@ -301,11 +301,26 @@ export function toChecklist(dto) {
  * — the server validates it exists (404) or is malformed (400). The frontend often carries a
  * free-text address in `details.property` instead, which stays in the details object; sending it as
  * `propertyId` would fail the request.
+ *
+ * ## `ticketId` — the link that was being dropped
+ *
+ * `ServiceRequestCreate.ticketId` (D45) records the ops enquiry a request came off, and it was not
+ * being sent. The consequence was not cosmetic: `ServiceLanding` raises a lead ticket and then a
+ * flow request for the same customer in the same submit, and without the link an operator opening
+ * either one had no way to reach the other. `TicketMirror` on the server refuses a ticket that is
+ * not the caller's own and answers 404 rather than 403, so passing one through is safe — the worst
+ * a wrong id can do is fail the create it was attached to.
+ *
+ * Sent only when it looks like a server id. The mock seam mints refs of the form `TR1739...` to
+ * pair a browser-local ticket with a browser-local request, and forwarding one of those would turn
+ * a working mock-mode submit into a 404 from a server that has never heard of it.
  */
 export function toCreate(data) {
   const type = toWireType(data?.type || 'rental');
   const details = data?.details && typeof data.details === 'object' ? data.details : {};
   const out = { type, details };
   if (data?.propertyId) out.propertyId = String(data.propertyId);
+  const ticket = data?.ticketId ?? data?.ticketRef;
+  if (ticket && !String(ticket).startsWith('TR')) out.ticketId = String(ticket);
   return out;
 }

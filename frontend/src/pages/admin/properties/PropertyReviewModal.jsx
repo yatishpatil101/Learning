@@ -9,7 +9,7 @@ import {
   startPropertyReview, getPropertyReview, markPropertyReviewRead,
   setPropertyReviewChecklistItem, addPropertyReviewMessage, decidePropertyReview,
 } from '../../../services/propertyReviewService.js';
-import { setPipelineStage, logAudit } from '../../../lib/mockApi.js';
+import { setPipelineStage } from '../../../lib/mockApi.js';
 import { clearFlag, setListingStatus } from '../../../services/propertyService.js';
 import { chaseOwner, listOutreachTemplates, listOwnerOutreach } from '../../../services/outreachService.js';
 import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
@@ -238,7 +238,6 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       // while the toast below still said "approved".
       await clearFlag(review.id);
       submitNote('listing', review.id, internalNote, 'Approved');
-      logAudit('Listing', `Approved & published "${review.title}"`);
       handleClose();
       toast('Approved & published \u2014 owner notified', 'success');
       onRefresh();
@@ -258,7 +257,6 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     try {
       await decidePropertyReview(pid(review), 'reject', reason);
       submitNote('listing', review.id, internalNote, 'Rejected');
-      logAudit('Listing', `Rejected "${review.title}" \u2014 reason: ${reason}`);
       handleClose();
       toast('Property rejected \u2014 owner notified', 'error');
       onRefresh();
@@ -286,7 +284,6 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setBusy(true);
     try {
       await setListingStatus(review.id, 'approved', 'Owner edits reviewed');
-      logAudit('Listing', `Approved owner edits on "${review.title}"`);
       setThread(await getPropertyReview(pid(review)));
       toast('Owner edits approved \u2014 re-review cleared', 'success');
       onRefresh();

@@ -12,7 +12,10 @@ import {
 import {
   getPermissionCatalogue, getMemberPermissions, saveMemberPermissions,
 } from '../../services/permissionsService.js';
-import { logAudit } from '../../lib/mockApi.js';
+// No `logAudit` import any more. Every write on this page is a server call that records its own
+// audit row from the authenticated actor — `user.staff.create`, `user.update`, `user.suspend`,
+// `user.reactivate`, `user.staff.approve`, `user.permissions.replace`. The browser's second copy
+// was composed from the row the grid happened to be holding and could not be read back.
 import { OPS_TEAMS, permissionLabel } from '../../lib/adminModules.js';
 import { roleLabel } from '../../lib/auth.js';
 import { classNames, isoToDisplay } from '../../lib/format.js';
@@ -247,7 +250,6 @@ export default function AdminTeam() {
         failed(err);
       }
     }
-    logAudit('Team & Access', `${f.id ? 'Updated' : 'Created'} ${roleLabel(rec.role)} "${rec.name}"`);
     toast(rec.approval && !rec.approval.approvedAt
       ? t('team.toast.awaitingApproval', { name: rec.name })
       : `Member ${f.id ? 'updated' : 'created'}`, 'success');
@@ -268,7 +270,6 @@ export default function AdminTeam() {
     } catch (err) {
       return failed(err);
     }
-    logAudit('Team & Access', `${next === 'active' ? 'Reactivated' : 'Suspended'} "${m.name}"`);
     toast(`${m.name} ${next === 'active' ? 'reactivated' : 'suspended'}`, next === 'active' ? 'success' : undefined);
     reload();
   };
@@ -277,7 +278,6 @@ export default function AdminTeam() {
     setApproving(m.id);
     try {
       await approveTeamMember(m.id);
-      logAudit('Team & Access', `Approved back-office account "${m.name}"`);
       toast(t('team.toast.approved', { name: m.name }), 'success');
     } catch (err) {
       failed(err);

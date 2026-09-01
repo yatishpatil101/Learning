@@ -4498,6 +4498,50 @@ paths:
             advisory lock rather than in memory, because a budget that resets on deploy is not a
             budget — and it is the only one of the three controls on this route (IP rate limit, bot
             challenge, per-mobile cap) that survives the other two being unconfigured.
+  /demand-signals:
+    post:
+      tags: [Services & Support]
+      summary: Record that somebody looked for a home the platform may not have
+      description: >
+        D10. What buyers and tenants asked for, as opposed to what owners listed. Three moments
+        produce a signal: a search, a "notify me" submit, and a property view. The aggregate is the
+        demand half of `GET /admin/supply-gap`.
+
+
+        Anonymous, and that is the point rather than an oversight. Most of the people whose demand
+        is worth measuring have no account yet - they are looking precisely because they have not
+        found anything. A signal that only fired for signed-in visitors would report the population
+        that already stayed, which is the one group the report does not need to hear from. When a
+        session does exist the user id is attached, so repeat interest can be told apart from
+        breadth of interest.
+
+
+        There is deliberately no `GET`. A public read of this aggregate would let anyone enumerate,
+        locality by locality, what PuneNest is short of - a competitor's market research budget
+        handed over for free. The write is open and the read is guarded; the asymmetry is the
+        design, not an omission.
+
+
+        No contact detail is accepted or stored. The only reader is a count, so a mobile number
+        here would be data held on people who never opened an account, for a report that cannot use
+        it. Where a relationship does exist the contact already lives on `saved_searches` or
+        `city_waitlist`.
+
+
+        Answers 202 with no body. Nothing is created that the caller can later address, and the
+        client must not wait on it: a failed analytics write must never break a search or a
+        property page. Capped per IP by the platform write rate limit.
+      security: []
+      operationId: recordDemandSignal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DemandSignalCreate' }
+      responses:
+        '202': { description: Accepted. No body, and no id - there is nothing to address later. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /service-requests:
     # Slice-11 spec fix S40. Two changes, one cause: without a list a staff member cannot find the
     # requests the five staff-only operations below act on, and "every service request on the
@@ -6373,6 +6417,61 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/AnalyticsPoint' }
+  /admin/supply-gap:
+    get:
+      tags: [Admin & Analytics]
+      summary: Where demand outruns supply, by locality
+      operationId: adminSupplyGap
+      # D10. A sibling of /admin/analytics rather than another `metric=` value on it, because this
+      # is two quantities across a non-time dimension - a series of {date, value} points cannot
+      # carry it without lying about one of them.
+      #
+      # This replaces a report that was assembled in the browser from localStorage, and therefore
+      # described the searches performed by whichever administrator happened to be reading it.
+      x-roles: [staff, admin]
+      description: >
+        Live approved listings against recorded demand signals, per locality, over a rolling
+        window.
+
+
+        `demand` is weighted, not a raw total: an alert counts 5, a search 2, a view 1. Somebody who
+        left an alert has said they want to be told when something appears, which is a stronger
+        statement than a page view. The weights are a judgement rather than a measurement, and they
+        are applied on read - changing them re-scores the whole history rather than only what
+        arrives afterwards.
+
+
+        `gap` is `demand - supply` and is computed server-side so that one definition of the
+        weighting exists in one place.
+
+
+        Two rows are easy to miss and both are deliberate. A locality with listings and no demand
+        still appears, with `demand` zero, because inventory nobody is asking for is a finding.
+        And signals that carried no locality at all are reported together as a single row with no
+        `localitySlug`, rather than being discarded - "people are looking, we do not know where"
+        is information about the search UI, not noise.
+
+
+        A locality that has demand but no row in the localities table is reported too, with
+        `localityName` absent. That is somebody asking for somewhere PuneNest does not cover, which
+        is the single most useful row here - and exactly the row a foreign key would have refused
+        at write time.
+      parameters:
+        - name: days
+          in: query
+          description: >
+            Rolling window in days, counted back from now. Capped at 365: an unbounded window over
+            an append-only table is a full scan with a report on it.
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+      responses:
+        '200':
+          description: One row per locality with supply or demand, ordered by gap descending
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SupplyGapRow' }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /admin/finance:
     get:
       tags: [Admin & Analytics]
@@ -10634,6 +10733,68 @@ components:
       properties:
         date: { type: string, format: date }
         value: { type: number }
+    DemandSignalCreate:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [search, alert, view]
+          description: >
+            Which moment produced the signal. Constrained rather than free text: an unrecognised
+            kind would be a row the report has to invent a weight for.
+        localitySlug:
+          type: string
+          maxLength: 120
+          description: >
+            Where they were looking. Not a foreign key, and not required - a signal for a place the
+            platform does not cover is the most valuable row this endpoint can produce, and a
+            missing one still counts toward "people are searching".
+        deal: { type: string, enum: [buy, rent] }
+        bhk: { type: string, maxLength: 40, description: As typed in the filter, not normalised. }
+        propertyId:
+          type: string
+          format: uuid
+          description: Set on a view. Absent on a search, which by definition has no one property.
+    SupplyGapRow:
+      type: object
+      description: >
+        Counts only. There is no revenue, no conversion and no per-person detail here, and that is a
+        constraint rather than an accident - the underlying table holds no contact detail, so
+        nothing richer could honestly be derived from it.
+      properties:
+        localitySlug:
+          type: string
+          description: Absent on the single row aggregating signals that carried no locality.
+        localityName:
+          type: string
+          description: >
+            Absent (NON_NULL) rather than null when the slug has no row in `localities`, so the
+            shape of the response does not advertise that a field is being withheld. An absent name
+            means the demand is for somewhere PuneNest does not yet cover.
+        supply: { type: integer, format: int64, description: Live approved listings in this locality. }
+        searches: { type: integer, format: int64 }
+        alerts: { type: integer, format: int64 }
+        views: { type: integer, format: int64 }
+        repeatSeekers:
+          type: integer
+          format: int64
+          description: >
+            Signed-in people who searched this locality three or more times in the window.
+            Knowingly an undercount, and deliberately so: without an account there is nothing that
+            distinguishes one person searching three times from three people searching once. The
+            browser report it replaces claimed otherwise, by stamping every anonymous search with
+            the same literal user id and then counting it as a repeat visitor.
+        demand:
+          type: integer
+          format: int64
+          description: Weighted total - alerts x5, searches x2, views x1.
+        gap:
+          type: integer
+          format: int64
+          description: >
+            `demand - supply`. Negative means the platform holds more homes there than anybody is
+            asking for, which is as actionable as the positive case and is why this is signed.
     AdminFinance:
       type: object
       properties:
@@ -10763,7 +10924,11 @@ components:
       properties:
         title: { type: string, maxLength: 200 }
         body: { type: string, maxLength: 4000 }
-        severity: { type: string, enum: [info, warning, critical] }
+        # Matches the announcements.severity CHECK constraint (V8) and the Announcement read
+        # schema. This previously read [info, warning, critical], which offered a value the
+        # database rejects and omitted one it accepts, so a client following the contract was
+        # answered with a constraint violation. AdminContentService now checks the same three.
+        severity: { type: string, enum: [info, success, warning] }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
         active: { type: boolean }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
-import { logPropertyView } from '../../../lib/mockApi.js';
+import { recordSignal } from '../../../services/demandService.js';
 import { getProperty } from '../../../services/propertyService.js';
 import { track } from '../../../lib/pmf.js';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
@@ -53,7 +53,11 @@ export default function useProperty() {
     getProperty(id).then((r) => {
       if (alive && r) {
         setP(r);
-        logPropertyView(r.locality, r.id);
+        // The slug and the UUID, not the display name and the routing id. `r.id` is the slug the
+        // app routes by; the demand table stores a property UUID, so it wants `r.uuid`. Not
+        // awaited: `recordSignal` never rejects, and a telemetry write must not delay the page it
+        // is measuring.
+        recordSignal({ kind: 'view', localitySlug: r.localitySlug, propertyId: r.uuid });
         pushRecentProp(r.id);
         track('view_listing', { id: r.id, locality: r.locality, deal: r.deal });
       }

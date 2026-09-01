@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
-import { addDemandAlert } from '../../../lib/mockApi.js';
+import { recordSignal } from '../../../services/demandService.js';
 import { myMobile } from '../../../lib/store.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
-import { buildAlertRecord, criteriaChips, demandTypeLabel } from './alertCriteria.js';
+import { buildAlertRecord, criteriaChips } from './alertCriteria.js';
 
 const CHANNELS = [
   { key: 'whatsapp', label: 'WhatsApp', icon: 'message-circle' },
@@ -18,7 +18,7 @@ const CHANNELS = [
  * Doubles as a cold-start lead capture: one submit (a) creates a user-owned
  * saved-search alert (manageable from the dashboard) — account-gated since D85, so a
  * signed-out visitor is redirected to `/signin?reason=alerts` instead — and (b) feeds
- * the admin demand-gap signal via addDemandAlert, which still fires for anonymous
+ * the admin demand-gap signal via `recordSignal`, which still fires for anonymous
  * visitors before the sign-in redirect.
  */
 export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
@@ -31,7 +31,6 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const { create: createSavedSearch } = useSavedSearches();
   const navigate = useNavigate();
 
-  const localityNames = [...filters.localities].map((s) => locNameBySlug[s] || s);
   const record = buildAlertRecord(filters, locNameBySlug);
   const chips = criteriaChips(record, locNameBySlug);
   const label = record.label;
@@ -43,11 +42,16 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
     // Admin demand-gap signal — one per selected locality (or one blank if none). Captured for
     // signed-out visitors too, so cold-start demand is still measured even though the alert itself
     // now requires an account (D85).
-    const demandType = demandTypeLabel(record);
+    //
+    // Slugs now, not display names: the server joins to `localities` on the slug. And no `mobile` --
+    // the number is still collected on this form because the *alert* needs a channel to reach, but
+    // it is no longer copied into the demand record. That table's only reader is a count, so a
+    // contact detail there would have been held on people who never opened an account, for a report
+    // that could not use it. Where the visitor does sign in, the saved search carries the number.
     const demandBhk = record.bhk.join('/');
-    const targets = localityNames.length ? localityNames : [''];
-    targets.forEach((locality) => {
-      addDemandAlert({ locality, deal: filters.deal, type: demandType, bhk: demandBhk, budget: '', mobile });
+    const targets = filters.localities.size ? [...filters.localities] : [''];
+    targets.forEach((localitySlug) => {
+      recordSignal({ kind: 'alert', localitySlug, deal: filters.deal, bhk: demandBhk });
     });
 
     // The alert is user-owned and lives in the login-only dashboard, so it needs an account. Signed

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Search, UserX, XCircle } from 'lucide-react';
-import { logAudit, addInternalNote } from '../../lib/mockApi.js';
+import { addInternalNote } from '../../lib/mockApi.js';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
 import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
@@ -160,7 +160,10 @@ export default function AdminReports() {
       return;
     }
     if (note) addInternalNote('report', id, note, actionTaken || status);
-    logAudit('Reports', `${status} report ${id}`);
+    // No `logAudit` here: `ReportService.triage` writes `report.triage` with the from-status, the
+    // to-status and the authenticated actor. The line that stood here wrote the *requested* status
+    // into a browser-local array — and the comment immediately below explains why the requested
+    // status is not always the stored one.
     // The server's answer is authoritative for `status` — `resolved` is recorded as `dismissed`,
     // so echoing the requested value would show a state the server did not store.
     const saved = updated?.status || status;
@@ -185,7 +188,6 @@ export default function AdminReports() {
       ids.map((id) => triageReport(id, { status, note: actionTaken, actionTaken })),
     );
     const failed = results.filter((r) => r.status === 'rejected').length;
-    logAudit('Reports', `Bulk ${status} ${ids.length - failed} reports`);
     setSelected(new Set());
     await load();
     if (failed) toast(`${ids.length - failed} of ${ids.length} updated — ${failed} could not be saved.`, 'error');

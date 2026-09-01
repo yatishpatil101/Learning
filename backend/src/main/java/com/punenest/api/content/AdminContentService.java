@@ -8,6 +8,7 @@ import com.punenest.api.common.web.Ids;
 import com.punenest.api.security.AuthPrincipal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -76,6 +77,7 @@ public class AdminContentService {
     public ContentItem create(AuthPrincipal caller, String type, ContentWrite write) {
         String kind = require(type);
         requireFor(kind, write);
+        checkSeverity(kind, write);
         SoftDeleteEntity saved = switch (kind) {
             case ContentTypes.ANNOUNCEMENTS -> {
                 AnnouncementEntity e = new AnnouncementEntity();
@@ -106,6 +108,7 @@ public class AdminContentService {
     @Transactional
     public ContentItem update(AuthPrincipal caller, String type, String id, ContentWrite write) {
         String kind = require(type);
+        checkSeverity(kind, write);
         SoftDeleteEntity entity = load(kind, id);
         applyTo(entity, write);
         audit.record(caller, "content.update", kind, entity.getId().toString());
@@ -179,6 +182,42 @@ public class AdminContentService {
         };
         if (missing != null) {
             throw new BadRequestException("A " + kind + " item needs '" + missing + "'");
+        }
+    }
+
+    /**
+     * The three values {@code announcements.severity} will actually accept.
+     *
+     * <p>These are not a Java enum because the column is {@code text} with a {@code CHECK}
+     * constraint (V8), and duplicating the list as an enum would give two places to change it and
+     * no mechanism to keep them agreeing. Named here so the failure is a 400 that says which values
+     * are allowed, rather than a constraint violation naming an index the caller has never heard
+     * of.
+     *
+     * <p><strong>The contract used to advertise a different set.</strong> {@code ContentItemWrite}
+     * declared {@code [info, warning, critical]} - offering {@code critical}, which the database
+     * rejects, and omitting {@code success}, which it accepts and which the read schema
+     * {@code Announcement} has always listed. A client following the published contract would have
+     * been handed a 500 for doing exactly as it was told. The spec is corrected alongside this
+     * check; the two now agree because they are both describing the constraint rather than each
+     * other.
+     */
+    private static final Set<String> SEVERITIES = Set.of("info", "success", "warning");
+
+    /**
+     * Reject a severity the column will not store.
+     *
+     * <p>Null passes, because null means "leave alone" on PATCH and "no severity" on POST, and the
+     * column is nullable. Only announcements carry the field; sending it to any other type is
+     * ignored, consistent with every other cross-type field on {@link ContentWrite}.
+     */
+    private static void checkSeverity(String kind, ContentWrite w) {
+        if (!ContentTypes.ANNOUNCEMENTS.equals(kind) || w.severity() == null) {
+            return;
+        }
+        if (!SEVERITIES.contains(w.severity())) {
+            throw new BadRequestException(
+                    "severity must be one of info, success, warning");
         }
     }
 

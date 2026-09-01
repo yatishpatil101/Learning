@@ -1724,6 +1724,19 @@ public final class Routes {
         public static final String ANALYTICS = "/admin/analytics";
 
         /**
+         * Staff/admin — live listings against recorded demand, per locality.
+         *
+         * <p>A sibling of {@link #ANALYTICS} rather than a metric inside it: every other analytics
+         * series is one number over time, and this is two unrelated quantities compared across a
+         * dimension that is not time. Squeezing it into {@code ?metric=} would have meant a series
+         * endpoint that sometimes returns something that is not a series.
+         *
+         * <p>The demand half is the only place the anonymous {@code /demand-signals} writes can be
+         * read, and it is aggregate-only by construction — see {@code SupplyGapRow}.
+         */
+        public static final String SUPPLY_GAP = "/admin/supply-gap";
+
+        /**
          * Staff/admin — the platform-wide support queue, paged (D51).
          *
          * <p>Lives here rather than as a role branch inside {@code GET /support/tickets}, which is
@@ -1779,6 +1792,24 @@ public final class Routes {
 
         /** Staff/admin — undo an archive. */
         public static final String CONTENT_RESTORE = CONTENT_ITEM + "/restore";
+    }
+
+    /**
+     * Anonymous demand telemetry: what people looked for, whether or not the platform had it.
+     *
+     * <p>Not under {@code /admin} for the same reason {@link SocietyLeads} is not — the write comes
+     * from a public surface, and in this case from a visitor who may well be about to leave. Not
+     * under {@code /me} either, because the row belongs to nobody: it is deliberately anonymous, and
+     * a {@code /me} route would promise a reader that they can see and manage their own signals,
+     * which is the opposite of the design.
+     */
+    public static final class DemandSignals {
+
+        private DemandSignals() {
+        }
+
+        /** POST is public and capped per IP by {@code WriteRateLimitFilter}. There is no GET. */
+        public static final String BASE = "/demand-signals";
     }
 
     /**

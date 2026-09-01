@@ -185,6 +185,19 @@ public class SecurityConfig {
                         // hands out a page of unverified phone numbers. Rate-limited per mobile in
                         // TicketService.joinWaitlist, and challenged in BotDefenceFilter.
                         .requestMatchers(HttpMethod.POST, Routes.ServiceWaitlist.BASE).permitAll()
+                        // Anonymous demand telemetry (D-supply-gap). Unauthenticated because the
+                        // two high-volume kinds fire on public surfaces -- a search and a property
+                        // view -- and because the demand most worth measuring belongs to the visitor
+                        // who left without signing up. Requiring a session would have restricted the
+                        // supply-gap report to people the platform already serves, which is the one
+                        // population it does not need to hear from.
+                        // POST-only and exact-path, and there is deliberately no GET on this route
+                        // at all: the aggregate is on /admin/supply-gap behind the back-office
+                        // guards, because a public read would hand a competitor a locality-by-
+                        // locality map of what PuneNest is short of. Write-only is the correct
+                        // asymmetry for telemetry. Capped per IP by WriteRateLimitFilter like every
+                        // other mutating route; the body carries no contact detail to abuse.
+                        .requestMatchers(HttpMethod.POST, Routes.DemandSignals.BASE).permitAll()
                         // The flatmates feed (contract: security: []). A person deciding whether
                         // PuneNest is worth an account needs to see whether anyone is actually
                         // posting. Exact-path and GET-only: POST /flatmates/posts is authenticated

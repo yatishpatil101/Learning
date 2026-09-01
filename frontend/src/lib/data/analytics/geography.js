@@ -13,7 +13,9 @@ export function supplyDemandGap() {
   const searchIntents = Array.isArray(db.searchIntents) ? db.searchIntents : [];
   const demandAlerts = Array.isArray(db.demandAlerts) ? db.demandAlerts : [];
   const propertyViews = Array.isArray(db.propertyViews) ? db.propertyViews : [];
-  const demandPosts = Array.isArray(db.demandPosts) ? db.demandPosts : [];
+  // `db.demandPosts` used to be a fourth input here. Nothing ever wrote it: its only writer,
+  // `addDemandPost`, had no callers anywhere in the repo, so one of the four demand sources on this
+  // report was empty by construction. Removed with the writer rather than left looking optional.
 
   // Count active listings per locality
   const supplyMap = {};
@@ -34,7 +36,6 @@ export function supplyDemandGap() {
 
   // Search intents (last 30 days)
   const cutoff30 = Date.now() - 30 * 86400000;
-  const cutoff7 = Date.now() - 7 * 86400000;
   const searchMap = {};
   searchIntents.forEach((s) => {
     if (new Date(s.at).getTime() < cutoff30 || !s.locality) return;
@@ -57,26 +58,15 @@ export function supplyDemandGap() {
     alertMap[a.locality] = (alertMap[a.locality] || 0) + 1;
     demandMap[a.locality] = (demandMap[a.locality] || 0) + 2;
   });
-  demandPosts.forEach((p) => {
-    if (!p.locality) return;
-    alertMap[p.locality] = (alertMap[p.locality] || 0) + 1;
-    demandMap[p.locality] = (demandMap[p.locality] || 0) + 3;
-  });
 
-  // Hot demand: users who searched same locality 3+ times in 7 days
+  // Repeat seekers ("hot demand") is not computed here any more, and the mock reports zero.
+  //
+  // It used to count users who searched the same locality 3+ times in 7 days, keyed on
+  // `s.userId` -- but `logSearchIntent` stamped every signed-out searcher with the literal string
+  // 'anon', so three searches by three different strangers registered as one hot user. The field
+  // is now written only by the server, which counts sessions it can genuinely tell apart, and the
+  // mock declines to guess rather than reproducing a number that was never true.
   const hotMap = {};
-  const userLocCount = {};
-  searchIntents.forEach((s) => {
-    if (new Date(s.at).getTime() < cutoff7 || !s.locality) return;
-    const key = `${s.userId}|${s.locality}`;
-    userLocCount[key] = (userLocCount[key] || 0) + 1;
-  });
-  Object.entries(userLocCount).forEach(([key, count]) => {
-    if (count >= 3) {
-      const loc = key.split('|')[1];
-      hotMap[loc] = (hotMap[loc] || 0) + 1;
-    }
-  });
 
   // Build rows
   const rows = locs.map((loc) => {
@@ -102,32 +92,32 @@ export function supplyDemandGap() {
     };
   });
 
+  // Places with demand and no locality record at all.
+  //
+  // These used to be dropped, because the row set was built purely from `db.localities`. That threw
+  // away the single most actionable finding this report can produce: somebody searched for, or set
+  // an alert on, a place PuneNest has never listed. Zero supply against real demand is the whole
+  // point of a supply-gap report, so an unrecognised locality now gets a row of its own rather than
+  // being silently rounded down to nothing. The server does the same -- it groups by the slug it
+  // was sent and leaves the display name empty when no locality matches.
+  const known = new Set(locs.map((l) => l.name));
+  const unknown = new Set([...Object.keys(searchMap), ...Object.keys(viewMap), ...Object.keys(alertMap)]
+    .filter((name) => !known.has(name)));
+  unknown.forEach((name) => {
+    const searches = searchMap[name] || 0;
+    const views = viewMap[name] || 0;
+    const alerts = alertMap[name] || 0;
+    const demand = Math.round(demandMap[name] || 0);
+    rows.push({ name, slug: name, supply: 0, demand, searches, views, alerts, hot: 0, gap: demand });
+  });
+
   return rows.sort((a, b) => b.gap - a.gap);
 }
 
 // ---- Demand alerts grouped by locality ----
-// Surfaces the "places users want but we don't serve yet" signal from demandAlerts
-// (fed by the listings "Create a property alert" card). Mirrors city-expansion demand.
-export function alertsByLocality() {
-  const db = rawDb();
-  const demandAlerts = Array.isArray(db.demandAlerts) ? db.demandAlerts : [];
-  const map = {};
-  demandAlerts.forEach((a) => {
-    const loc = (a.locality || '').trim();
-    if (!loc) return;
-    if (!map[loc]) map[loc] = { locality: loc, count: 0, lastAt: 0, rent: 0, buy: 0, _types: {} };
-    map[loc].count += 1;
-    const at = a.at ? new Date(a.at).getTime() : 0;
-    if (at > map[loc].lastAt) map[loc].lastAt = at;
-    if (a.deal === 'rent') map[loc].rent += 1;
-    else if (a.deal === 'buy') map[loc].buy += 1;
-    const type = (a.type || '').trim();
-    if (type) map[loc]._types[type] = (map[loc]._types[type] || 0) + 1;
-  });
-  return Object.values(map)
-    .map(({ _types, ...rest }) => {
-      const top = Object.entries(_types).sort((a, b) => b[1] - a[1])[0];
-      return { ...rest, topType: top ? top[0] : '' };
-    })
-    .sort((a, b) => b.count - a.count);
-}
+// Deleted with the demand seam. `alertsByLocality()` grouped `db.demandAlerts` by locality for the
+// second panel on the Supply Gap tab, adding a deal split, a "last requested" date and the most
+// common property type. That panel now reads the `alerts` count off the same server rows as the
+// rest of the tab, and the three extra fields are gone rather than reproduced: `demand_signals`
+// stores counts, so a deal split would have been the mock's alone and the two modes would have
+// disagreed about what the panel meant.

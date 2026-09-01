@@ -189,6 +189,53 @@ class AdminContentEndpointsTest extends AbstractApiTest {
         }
     }
 
+    /**
+     * A severity the column will not store is a 400 naming the allowed values, not a 500.
+     *
+     * <p>This is a regression test with a specific history. {@code ContentItemWrite} advertised
+     * {@code [info, warning, critical]}, but {@code announcements.severity} has carried a
+     * {@code CHECK (severity IN ('info','success','warning'))} since V8. A client doing exactly
+     * what the published contract told it to do was answered with a constraint violation. The
+     * contract and the service now both describe the constraint.
+     */
+    @Test
+    void anUnstorableSeverityIsRejectedBeforeItReachesTheColumn() throws Exception {
+        String token = staff();
+        mvc.perform(post(Routes.Admin.CONTENT, ContentTypes.ANNOUNCEMENTS)
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Outage\",\"severity\":\"critical\"}"))
+                .andExpect(status().isBadRequest());
+
+        // The three the column does accept, on create and on patch alike.
+        for (String severity : new String[] {"info", "success", "warning"}) {
+            String id = create(token, ContentTypes.ANNOUNCEMENTS,
+                    "{\"title\":\"Notice\",\"severity\":\"" + severity + "\"}");
+            mvc.perform(patch(Routes.Admin.CONTENT_ITEM, ContentTypes.ANNOUNCEMENTS, id)
+                            .header(HttpHeaders.AUTHORIZATION, token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"severity\":\"" + severity + "\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.severity").value(severity));
+        }
+
+        // A patch is checked too, or the create-side guard would only be half a guard.
+        String id = create(token, ContentTypes.ANNOUNCEMENTS, "{\"title\":\"Notice\"}");
+        mvc.perform(patch(Routes.Admin.CONTENT_ITEM, ContentTypes.ANNOUNCEMENTS, id)
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"severity\":\"critical\"}"))
+                .andExpect(status().isBadRequest());
+
+        // Severity means nothing to the other three types and is ignored rather than rejected,
+        // consistent with every other cross-type field on the shared write schema.
+        mvc.perform(post(Routes.Admin.CONTENT, ContentTypes.FAQS)
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"How?\",\"severity\":\"critical\"}"))
+                .andExpect(status().isCreated());
+    }
+
     /** An id from the wrong table must be a 404, not somebody else's row. */
     @Test
     void anIdFromAnotherTypeIsNotFound() throws Exception {

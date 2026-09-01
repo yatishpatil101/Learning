@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
 import { createListingOnBehalf, listForModeration } from '../../services/propertyService.js';
-import { logAudit, logStaffActivity } from '../../lib/mockApi.js';
+import { logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -198,7 +198,12 @@ export default function AdminPostOnBehalf() {
       };
 
       const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
-      logAudit('Post on behalf', `Created draft "${title}" for owner ${form.ownerName} (${form.ownerMobile})`);
+      // `OnBehalfListingService` records two audit rows for this one call —
+      // `user.provision_on_behalf` when the owner account is created, and `property.create_on_behalf`
+      // for the listing — both naming the staff member from their token. The `logAudit` line that
+      // stood here wrote a third, browser-local sentence that no reader on this deployment can see.
+      // `logStaffActivity` stays: it feeds the Staff Activity console, which is a different
+      // record with a different purpose and no server home yet.
       logStaffActivity({ action: 'post-on-behalf', category: 'listing', detail: `Posted "${title}" for ${form.ownerName} (${form.ownerMobile})`, meta: { listingId: created.id, ownerName: form.ownerName, ownerMobile: form.ownerMobile } });
       setCreatedId(created.id);
       setSuccess(true);

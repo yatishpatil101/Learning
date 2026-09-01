@@ -1,3 +1,24 @@
+/**
+ * Finance console — **still on the mock provider, on purpose.** See item 20 in
+ * `tasks/DECISIONS-NEEDED.md`.
+ *
+ * This is not an unconverted page that the sweep has not reached yet. `GET /admin/finance` exists,
+ * is admin-gated, and returns `revenue`, `payoutsDue`, `payoutsCompleted`, `refunds`, a breakdown
+ * by source and three disclosure booleans. It has never had a caller.
+ *
+ * The reason it does not have one is that the two sides model the business differently. The server
+ * excludes GST because pass-through tax is not income, reports zero refunds *with a flag saying no
+ * refund path exists*, and refuses to count service orders because their `amount` is a quote. This
+ * screen synthesises a twelve-month growth curve from a seeded pseudo-random function when
+ * `analytics.revenue` is short, fabricates a transaction ledger whose statuses come from rotating a
+ * hardcoded array, derives GST and partner payouts as fixed percentages of that revenue, and sums a
+ * `rentFeeLedger` collection that has never existed in `db.json` — which is why "Rent-pay fees" has
+ * always read zero and always looked measured.
+ *
+ * Pointing this page at the endpoint therefore deletes the chart, the ledger, MRR and ARPU rather
+ * than re-sourcing them. That is very likely the right answer, but it changes what the business
+ * looks at, so it is a decision rather than a migration.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';

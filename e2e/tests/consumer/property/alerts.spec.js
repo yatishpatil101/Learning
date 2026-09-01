@@ -11,7 +11,10 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
    A fake ?loc= slug guarantees zero results deterministically. */
 
 test('anonymous alert submit captures the demand signal then routes to sign-in (D85)', async ({ page }) => {
-  // ?ptype=flat pre-selects the Flat property type so it is carried into the demand signal.
+  // ?ptype=flat pre-selects the Flat property type. It is *not* carried into the demand signal --
+  // that used to be asserted here, and stopped being true when demand moved server-side: the
+  // demand table stores a locality, a deal and a BHK, and no property type. The parameter is left
+  // in place because it is also what forces the empty state this test needs.
   await page.goto(`${BASE}/listings?deal=rent&ptype=flat&loc=Testville`);
 
   // The redesigned alert card appears in the empty state.
@@ -28,8 +31,9 @@ test('anonymous alert submit captures the demand signal then routes to sign-in (
   // to sign in (the demand signal is captured before the redirect).
   await page.waitForURL(/\/signin\?reason=alerts/);
 
-  // The admin Supply-Gap tab still surfaces this as a demand signal for the locality,
-  // including the requested property type (topType).
+  // The admin Supply-Gap tab still surfaces this as a demand signal for the locality. Testville is
+  // not a locality PuneNest knows, which is exactly the row this report exists to produce: real
+  // demand against zero supply.
   await page.goto(`${BASE}/staff-login`);
   await page.getByRole('button', { name: /Admin/i }).first().click();
   await page.waitForURL('**/admin');
@@ -37,8 +41,6 @@ test('anonymous alert submit captures the demand signal then routes to sign-in (
   await page.getByRole('tab', { name: 'Supply Gap' }).click();
   await expect(page.getByRole('heading', { name: /Demand Alerts by Locality/i })).toBeVisible();
   await expect(page.getByText(/Top: testville/i)).toBeVisible();
-  const demandCard = page.locator('div.rounded-xl', { has: page.getByRole('heading', { name: /Demand Alerts by Locality/i }) });
-  await expect(demandCard.getByText('Flat', { exact: true })).toBeVisible();
 });
 
 test('signed-in alert submit confirms with a link to manage alerts (D85)', async ({ page }) => {

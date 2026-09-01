@@ -13,8 +13,20 @@
  *   and the mock's banners carry a `cta` and a `theme` the server has no column for. Moving the
  *   consumer onto the server would silently drop copy that is currently rendered.
  * - **announcements** and **services** have no consumer a *public read* can serve. Their only
- *   caller is the admin content console, which asks for archived rows and then writes — and there
- *   are no admin content routes at all, in either direction.
+ *   caller is the admin content console, which asks for archived rows and then writes.
+ *
+ * ### Correction: this file used to claim there is no admin content API
+ *
+ * The paragraph above ended, until now, with *"and there are no admin content routes at all, in
+ * either direction."* **That was wrong.** `AdminContentController` has always existed, at
+ * `/admin/content/{type}` with five operations — list (including archived), create, patch, archive,
+ * restore — covering all four types. The claim was presumably written from a grep of
+ * `ContentController` alone, and it survived because nothing on the frontend was calling the admin
+ * routes, so nothing contradicted it.
+ *
+ * The rest of the paragraph stands, and is the reason this file did not simply grow to four
+ * methods: the admin console needs *archived* rows and a *write* path, and this seam is the public
+ * read. They are separate services on purpose. See `adminContentService.js`.
  *
  * So this file will grow, and it is deliberately not shaped as though it already had.
  *

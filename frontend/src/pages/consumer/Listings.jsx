@@ -3,7 +3,7 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, use
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import Icon from '../../components/Icon.jsx';
-import { logSearchIntent } from '../../lib/mockApi.js';
+import { recordSignal } from '../../services/demandService.js';
 import { listProperties } from '../../services/propertyService.js';
 import { listLocalities } from '../../services/localityService.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -46,7 +46,10 @@ export default function Listings() {
   const location = useLocation();
   const { toast } = useToast();
   const { create: createSavedSearch } = useSavedSearches();
-  const { user, isIn } = useAuth();
+  // `user` was read only to stamp a demand signal with `user?.mobile || 'anon'`. The server takes
+  // the session from the token now, so the page no longer needs to know who is signed in to
+  // measure demand.
+  const { isIn } = useAuth();
   const { flagEnabled } = useAppFlags();
 
   // URL param compat: ?type= / ?ptype= accept one or more canonical type keys
@@ -257,8 +260,17 @@ export default function Listings() {
     const key = `${loc}|${deferredF.deal}|${bhk}`;
     if (key === intentLogged.current || (!loc && !bhk)) return;
     intentLogged.current = key;
-    const locName = loc ? (locNameBySlug[loc] || loc) : '';
-    logSearchIntent({ locality: locName, deal: deferredF.deal, bhk, userId: user?.mobile || 'anon' });
+    // The slug, not the display name. This used to send `locNameBySlug[loc] || loc`, which meant
+    // the demand table was keyed on whatever the label happened to be that day; the server joins
+    // to `localities` on the slug and resolves the name itself.
+    //
+    // No `userId` either. It used to send `user?.mobile || 'anon'`, so every signed-out searcher
+    // shared one identity and three strangers looked like one repeat visitor. The server reads the
+    // session from the token if there is one and records nothing if there is not.
+    //
+    // Not awaited, and deliberately not caught here: `recordSignal` never rejects. A telemetry
+    // write must not be able to break a search.
+    recordSignal({ kind: 'search', localitySlug: loc, deal: deferredF.deal, bhk });
   }, [deferredF, loaded]);
 
   const activeChips = useMemo(

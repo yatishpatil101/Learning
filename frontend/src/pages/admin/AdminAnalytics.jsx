@@ -9,11 +9,11 @@ import {
   trafficSeries,
   localities as getLocalities,
   anonymousSurfers,
-  supplyDemandGap,
   pricingInsight,
   slaMetrics,
   seasonalAnalytics,
 } from '../../lib/data/analytics-extra.js';
+import { supplyGap as fetchSupplyGap } from '../../services/demandService.js';
 import TrafficTab from './analytics/TrafficTab.jsx';
 import EngagementTab from './analytics/EngagementTab.jsx';
 import GeographyTab from './analytics/GeographyTab.jsx';
@@ -36,10 +36,23 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, []);
 
+  // The supply gap is a server aggregate now, so it is fetched rather than derived. Kept out of the
+  // `analytics` gate above because it is one tab: an outage in the demand report should leave the
+  // other seven tabs rendering, so a failure here empties this tab rather than the page.
+  const [supplyGap, setSupplyGap] = useState([]);
+  const showSupplyGap = optionEnabled('analytics.supplyGap');
+  useEffect(() => {
+    if (!showSupplyGap) { setSupplyGap([]); return undefined; }
+    let alive = true;
+    fetchSupplyGap()
+      .then((rows) => { if (alive) setSupplyGap(rows); })
+      .catch(() => { if (alive) setSupplyGap([]); });
+    return () => { alive = false; };
+  }, [showSupplyGap]);
+
   const traffic = useMemo(() => trafficSeries(days), [days]);
   const locs = useMemo(() => (optionEnabled('analytics.geography') ? getLocalities() : []), [optionEnabled]);
   const surfers = useMemo(() => (optionEnabled('analytics.anonymous') ? anonymousSurfers(days, traffic) : null), [days, traffic, optionEnabled]);
-  const supplyGap = useMemo(() => (optionEnabled('analytics.supplyGap') ? supplyDemandGap() : []), [optionEnabled]);
   const pricing = useMemo(() => (optionEnabled('analytics.pricing') ? pricingInsight() : null), [optionEnabled]);
   const sla = useMemo(() => (optionEnabled('analytics.sla') ? slaMetrics() : null), [optionEnabled]);
   const seasonal = useMemo(() => (optionEnabled('analytics.seasonal') ? seasonalAnalytics() : null), [optionEnabled]);
