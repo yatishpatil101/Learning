@@ -63,6 +63,7 @@
  * Exit code 0 = shapes agree and the probe row is gone, 1 = drift found or the row survived.
  */
 import { execFileSync } from 'node:child_process';
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
 
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
@@ -77,6 +78,20 @@ const DB_URL = args.get('db') || process.env.PARITY_DB_URL
 const SAFE_DB_URL = DB_URL.includes('@')
   ? `${DB_URL.slice(0, DB_URL.indexOf('//') + 2)}***@${DB_URL.slice(DB_URL.lastIndexOf('@') + 1)}`
   : DB_URL;
+
+/**
+ * Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`.
+ *
+ * Worth more here than in most: this harness does not only POST a review, it then reaches past the
+ * API with `psql` to delete the row it wrote. A `--base` and a `--db` that disagree about which
+ * environment is meant leaves the review published and the cleanup pointed elsewhere.
+ */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness signs in with a real OTP, publishes a review and then deletes it with psql,'
+  + '\n  so it may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

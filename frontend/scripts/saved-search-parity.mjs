@@ -23,11 +23,21 @@
  *
  * **The base must include `/api`.** Exit 0 = shapes match, 1 = drift.
  */
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
 const BASE = args.get('base') || 'http://localhost:8080/api';
 const MOBILE = args.get('mobile') || `98765${String(Date.now()).slice(-5)}`;
+
+/** Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`. */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness signs in with a real OTP and writes saved searches (including alert settings),'
+  + '\n  so it may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

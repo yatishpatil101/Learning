@@ -3,14 +3,29 @@ package com.punenest.api.engagement.society;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /** Community proposals about a society: detail suggestions, the WhatsApp invite, the map pin. */
 public interface SocietyProposalRepository extends JpaRepository<SocietyProposal, UUID> {
+
+    /**
+     * Load a proposal for an operator's decision, holding a row lock until the transaction commits.
+     *
+     * <p>Deciding is check-then-act on {@code status}, and approving writes the proposed value onto
+     * the society in the same transaction. Two operators deciding at once would both read
+     * {@code pending} and both proceed — double-applying the change, or letting a rejection quietly
+     * overwrite an approval the author was already told about. The lock makes the read and the write
+     * one step, so the second operator gets the 409 they should.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from SocietyProposal p where p.id = :id")
+    Optional<SocietyProposal> findForDecision(@Param("id") UUID id);
 
     /**
      * The pending proposal of one kind for one society, if any.

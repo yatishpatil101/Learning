@@ -16,7 +16,6 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { cityHasData } from '../../lib/geoConfig.js';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
-import { setReferredBy } from '../../lib/store.js';
 import { redeemReferral } from '../../services/referralService.js';
 
 const BENEFITS = [
@@ -126,9 +125,15 @@ export default function Signup() {
       setDone(true);
       const ref = params.get('ref');
       if (ref) {
-        setReferredBy(ref);
-        /* Tell the server, which is now the only half there is: `POST /referrals/redeem` has
-           shipped since V23 and nothing has ever called it, so `ReferralQualification`'s hook — a
+        /* Tell whoever is serving, and only them. This line used to be preceded by a direct
+           `setReferredBy(ref)` into the mock store, which ran on every build: a live sign-up wrote
+           `pnReferredBy:<mobile>`, a key nothing on a live build reads, beside the call that does
+           the real attributing. The local write is the mock build's *answer to this same request*,
+           so it moved into `providers/mock/referralProvider.js` — one writer per build, and this
+           page no longer reaches below the seam to reach it.
+
+           On a live build that leaves `POST /referrals/redeem`, which had shipped since V23 with
+           nothing ever calling it — so `ReferralQualification`'s hook — a
            referral credits the referrer when the referee's first listing passes ownership
            verification, "the only qualifying action a browser cannot fake" — had never fired for a
            real user, and the fraud desk at the far end had only ever reviewed seed rows.

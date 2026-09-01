@@ -47,6 +47,7 @@ import {
   getResidentReqs,
   getSocietyCandidates,
   getSocietyClaim,
+  getSocietyClaims,
   getSocietySuggestion,
   isSocietyAdmin,
   isVerifiedResident,
@@ -55,6 +56,7 @@ import {
   residentStatus,
   resolveSociety,
   setResidentStatus,
+  setSocietyClaimStatus,
   suggestSocietyDetails,
   verifyCommunitySociety,
 } from '../../../lib/store/societyAdmin.js';
@@ -621,7 +623,7 @@ export async function listSocietyProposalQueue({ status, kind } = {}) {
   // decided row is only reachable by slug. Asking for a decided queue answers empty rather than
   // silently returning the pending one, which would tell an operator a rejected link is still live.
   const wantPending = !status || status === 'pending';
-  if (!wantPending) return { items: [], total: 0 };
+  if (!wantPending) return [];
 
   const rows = [];
   if (!kind || kind === 'details') {
@@ -639,7 +641,10 @@ export async function listSocietyProposalQueue({ status, kind } = {}) {
   // Oldest first, like the server: the proposal that has waited longest is the one somebody is
   // still waiting on.
   rows.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-  return { items: rows, total: rows.length };
+  // A flat array, because that is what `unwrapFullPage` hands back on the live side. This used to
+  // answer `{ items, total }`: harmless while nothing consumed it, and a `.map is not a function`
+  // on exactly one of the two providers the moment something did.
+  return rows;
 }
 
 export async function decideSocietyProposal(id, body = {}) {
@@ -688,6 +693,60 @@ export async function decideSocietyProposal(id, body = {}) {
   }
 
   throw Object.assign(new Error('Proposal not found.'), { status: 404 });
+}
+
+/* --- society claims: the ops side ------------------------------------------------------------- */
+
+/**
+ * The claim queue, oldest first.
+ *
+ * Three differences from the live queue, none of them hideable, all of them a consequence of the
+ * store keeping **one claim per society keyed by slug** where the server keeps every claim ever
+ * filed:
+ *
+ * - *History does not exist here.* Re-claiming a society after a rejection overwrites the rejected
+ *   record rather than adding a second row, so this queue can never show the same society twice.
+ * - *`regNo` and `cert` are dropped.* The old browser-only claim form collected a registration
+ *   number and a scanned certificate and parked them in localStorage; `SocietyClaimRequest`
+ *   declares neither, so there is no field on the wire to carry them and forwarding them here
+ *   would keep a column alive that is permanently blank against the real API.
+ * - *`id` is the store's `sc<timestamp>`, not a UUID.* It only has to round-trip to
+ *   `decideSocietyClaim`, which is exactly what the server's id has to do.
+ */
+export async function listSocietyClaimQueue({ status } = {}) {
+  return getSocietyClaims()
+    .filter((c) => !status || (c.status || 'pending') === status)
+    .map((c) => toClaimWire(c, resolveSociety(c.slug)))
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+}
+
+/**
+ * Approve or reject one claim, by id.
+ *
+ * The store decides by slug — `setSocietyClaimStatus(slug, status, by)` — because it holds one
+ * claim per society and the slug was therefore unique enough. The endpoint decides by the claim's
+ * own id, which stays unique when the server holds four. Resolving the id back to a slug here is
+ * the same trick `decideResidency` plays for residency rows, and it keeps the caller writing
+ * against the server's shape rather than against this environment's shortcut.
+ *
+ * `body.note` is accepted and dropped: the store has nowhere to put a reviewer's reason — its
+ * `note` field is the claimant's own — and the server keeps it with the decision, not on the row
+ * the queue reads back. Writing it into `note` here would show the operator their own words as if
+ * the committee had typed them.
+ */
+export async function decideSocietyClaim(id, body = {}) {
+  const row = getSocietyClaims().find((c) => c.id === id);
+  if (!row) throw Object.assign(new Error('Claim not found.'), { status: 404 });
+  if (body.status !== 'approved' && body.status !== 'rejected') {
+    throw Object.assign(new Error('A decision is either approved or rejected.'), { status: 400 });
+  }
+  if (row.status && row.status !== 'pending') {
+    throw Object.assign(new Error('This claim has already been decided.'), { status: 409 });
+  }
+  // `by` is the deciding operator. The store wants a mobile; the server takes it from the token.
+  const result = setSocietyClaimStatus(row.slug, body.status, myMobile());
+  if (!result) throw Object.assign(new Error('Claim not found.'), { status: 404 });
+  return toClaimWire(result, resolveSociety(row.slug));
 }
 
 /* --- community minting (D241 C5) -------------------------------------------------------------- */

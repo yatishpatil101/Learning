@@ -4,11 +4,11 @@ import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
-import { referralLink, referralListingsTarget, fee } from '../../lib/store.js';
+import { referralListingsTarget, fee } from '../../lib/store.js';
 import { loadListingQuota } from '../../lib/data/listingQuota.js';
 import { getEntitlements } from '../../services/entitlementService.js';
 import { getDealFees } from '../../services/feesService.js';
-import { getMyReferralSummary } from '../../services/referralService.js';
+import { getMyReferralSummary, referralLink } from '../../services/referralService.js';
 
 /**
  * The fallback figure for the rent-agreement platform fee, and the reason it is only a fallback.
@@ -81,7 +81,11 @@ export default function Refer() {
   useEffect(() => reloadSummary(), [reloadSummary]);
 
   const CODE = summary?.code || '';
-  const LINK = CODE ? referralLink(CODE) : '';
+  /* Built from the summary's code, never from a default. `referralLink` moved out of the store with
+     this line: its old signature defaulted the argument to the browser-minted code, so the page
+     could show the server's code and share a link carrying the other one. It now takes the code and
+     returns '' for a blank one, which is what this expression used to guard by hand. */
+  const LINK = referralLink(CODE);
   const L_TARGET = referralListingsTarget;
   const [copied, setCopied] = useState(null); // 'code' | 'link' | null
   /* The progress narrative, from the server. `listed` used to be a localStorage counter drained

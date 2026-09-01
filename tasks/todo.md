@@ -47,6 +47,28 @@ Two things that are true and are not going to change soon:
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
 
+**Society ops console — what the migration could not finish** (opened by `87f2d07`)
+
+- **No cross-society residents queue.** `AdminSocieties` ▸ Residents is the last tab still reading
+  localStorage, because the only residents route on the backend is per-society
+  (`/societies/{slug}/residents`) and this tab is cross-society by definition. It needs a real route
+  — `GET /admin/society-residents?status=` alongside the claims and proposals queues it sits next to.
+  It must **not** be faked by looping the society list: the operator would be issuing one request per
+  society to find the handful that have anything pending, and the page would get slower as the
+  product grew.
+- **Claims lost their Reg/Cert column.** `SocietyClaimRequest` carries only `name`, `role`, `email`
+  and `note`, so no registration number or certificate scan exists on the wire. The column was
+  removed rather than left rendering blank, because a blank proof column on a proof-checking screen
+  reads as "the claimant supplied nothing" rather than "we never asked". Restoring it is a backend
+  change: the field has to be collected before it can be reviewed.
+- **Society review reports are not in the society console.** A review is reported as a plain `review`
+  and is indistinguishable on the wire from a property review, so the console filters to
+  `contribution|reply|question|answer|board` and society reviews stay in Admin ▸ Reports. Splitting
+  them needs a target-type the reporter does not currently send.
+- **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass,
+  the `/simplify` pass, and a `live-*.spec.js` + `e2e/COVERAGE.md` row for the society admin queues.
+  Verified so far: full lint at the 0-error baseline, and 18/18 parity harnesses green.
+
 **Data and schema**
 
 - `idx_properties_society_unit` (V79) indexes a column combination nothing queries. Both options —

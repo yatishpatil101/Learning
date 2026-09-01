@@ -5,11 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import LoadError from '../../components/LoadError.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { maskPhone } from '../../lib/contact.js';
 
-import { getTenantProfile, saveTenantProfile as saveLocalProfile } from '../../lib/store.js';
 import { myTenantProfile, saveTenantProfile } from '../../services/rentService.js';
 import { useVerification } from '../../context/VerificationContext.jsx';
 
@@ -22,12 +22,30 @@ export default function TenantProfile() {
   const navigate = useNavigate();
   // The opt-in Aadhaar badge, held once in VerificationContext. Mirrored into the profile below
   // (`idVerified` + `kyc`) so a user who verified elsewhere is not asked again.
-  const { verified: badgeVerified, aadhaarMobile, verifiedAt } = useVerification();
-  const [form, setForm] = useState(() => getTenantProfile()
-    || { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null });
+  const { verified: badgeVerified, aadhaarMobile, verifiedAt, mobileMatch } = useVerification();
+  /* The form opens empty and is filled by the two effects below — the profile from
+     `myTenantProfile()`, the identity half from `useVerification()`. It used to seed from a
+     `pnTenantProfile:<mobile>` blob in localStorage, which is the one source here that no longer
+     has anything behind it: the merge below prefers a truthy server value, so a field the server
+     had *cleared* (PUT replaces — see `TenantProfileUpdateRequest`) kept showing this browser's
+     stale copy, and the copy carried a client-computed `score` for a number the server owns. */
+  const [form, setForm] = useState(
+    { name: user?.name || '', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '', idVerified: false, kyc: null },
+  );
   const [errors, setErrors] = useState({});
   const [justSaved, setJustSaved] = useState(false);
   const [kycOpen, setKycOpen] = useState(false);
+  // A read that has not answered *yet* looks exactly like one that failed: the form is empty either
+  // way. `loadError` only covers the second, so between mount and the promise settling the writes
+  // below were armed over a blank form — and `name` is pre-seeded from the session, so the one
+  // validation gate passes. This flag covers the pending half.
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [saving, setSaving] = useState(false);
+  // The `saving` flip only lands on the next render, so a second click inside that gap would sail
+  // past the disabled button. The ref is the guard that closes before the paint does.
+  const savingRef = useRef(false);
   // The score belongs to the server — a tenant who could compute their own would be grading the
   // number owners use to decide about them. It arrives with the profile and is refreshed by every
   // save, so it moves as the checklist below is completed.
@@ -36,9 +54,9 @@ export default function TenantProfile() {
 
   /* Hydrate from the server once it answers.
 
-     Two fields do **not** come from it and must survive the merge: `idVerified` and `kyc`. Those are
-     the local Aadhaar record, which the server models as its own `verified` flag it alone may set —
-     so overwriting them with the response would un-verify somebody who verified in this browser.
+     `kyc` does **not** come from it and must survive the merge: `TenantProfileDto` carries a
+     server-owned `verified` flag but no record of *what* was verified, so the masked-number
+     display below is assembled from the badge instead (next effect).
 
      The wire calls the job `occupation`; this form has always called it `employment`. Translated at
      the boundary rather than renaming a field the whole page reads. */
@@ -46,7 +64,10 @@ export default function TenantProfile() {
     let alive = true;
     myTenantProfile()
       .then((p) => {
-        if (!alive || !p) return;
+        if (!alive) return;
+        setLoadError(null);
+        setLoaded(true);
+        if (!p) return;
         setScore(p.score ?? null);
         setForm((prev) => ({
           ...prev,
@@ -61,25 +82,33 @@ export default function TenantProfile() {
           idVerified: prev.idVerified || p.verified,
         }));
       })
-      // A profile that will not load is not worth blanking the form the user is filling in.
-      .catch(() => {});
+      /* A read that failed and an empty profile look identical in this form, and `PUT` replaces the
+         whole record — so one save over unread data silently deletes fields the user never saw.
+         Of the two options that closes the hole, blocking the save is the safer: a banner alone
+         leaves the button armed, and the destructive click is the easy one to make. */
+      .catch((err) => { if (alive) { setLoaded(true); setLoadError(err || new Error('tenant profile load failed')); } });
     return () => { alive = false; };
-  }, []);
+  }, [reloadNonce]);
 
   /* Identity is one Aadhaar per person: if the badge is (or becomes) verified anywhere — the
      contact gate, a dashboard nudge, or the modal on this page — mirror it into the profile instead
-     of asking again. Never downgrades a profile already marked verified; the server's own `verified`
-     flag is merged separately above. */
+     of asking again. Never downgrades; the server's own `verified` flag is merged separately above.
+
+     The guard is on `kyc`, not on `idVerified`, because these two effects race: the profile read can
+     land first and set `idVerified` from `p.verified`, and an `idVerified`-only guard would then
+     bail out and leave `kyc` null forever — taking the stale-verification check below with it. */
   useEffect(() => {
     if (!badgeVerified) return;
-    setForm((prev) => (prev.idVerified ? prev : {
+    // Read outside the updater: StrictMode double-invokes it, and a clock inside would stamp the
+    // two runs differently — an updater has to answer the same thing every time it is replayed.
+    const mirrored = { type: 'aadhaar', label: 'Aadhaar', masked: maskPhone(aadhaarMobile || user?.mobile || ''), verifiedAt: verifiedAt || Date.now() };
+    setForm((prev) => (prev.idVerified && prev.kyc ? prev : {
       ...prev,
       idVerified: true,
-      kyc: { type: 'aadhaar', label: 'Aadhaar', masked: maskPhone(aadhaarMobile || user?.mobile || ''), verifiedAt: verifiedAt || Date.now() },
+      kyc: prev.kyc || mirrored,
     }));
   }, [badgeVerified, aadhaarMobile, verifiedAt, user?.mobile]);
   const persist = async (next) => {
-    saveLocalProfile(next);
     try {
       const saved = await saveTenantProfile({
         name: next.name,
@@ -95,7 +124,9 @@ export default function TenantProfile() {
       if (saved && saved.score != null) setScore(saved.score);
       return true;
     } catch (err) {
-      toast(err?.body?.error || err?.message || t('misc.tpProfileSaveFailed'), 'error');
+      // `ApiError` carries `code`/`message`/`status`/`traceId`/`fields` and never a `body`, so the
+      // old `err.body.error` read undefined and every save failure fell through to the generic copy.
+      toast(err?.message || t('misc.tpProfileSaveFailed'), 'error');
       return false;
     }
   };
@@ -122,29 +153,46 @@ export default function TenantProfile() {
     { key: 'occupants', label: t('misc.tpBoostOccupants'), pts: 10, done: !!form.occupants },
   ];
   const pending = factors.filter((f) => !f.done);
+  // Rendered twice: the mobile progress header and the desktop aside show the same meter.
+  const scoreBar = <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>;
+  const boostSub = pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone');
 
   // Re-verification is only warranted when the identity assurance breaks — i.e. the
   // Aadhaar-linked mobile the user verified against no longer matches their current
   // account number (number change / account moved). An unchanged verified user is
   // never nagged to re-verify. (Admin/ops revocation clears idVerified separately,
   // which falls back to the normal "Verify now" prompt.)
-  const verificationStale = !!(form.idVerified && form.kyc?.masked && user?.mobile && form.kyc.masked !== maskPhone(user.mobile));
+  //
+  // The comparison is the server's, read off the badge: DigiLocker returns no mobile, so the wire
+  // carries none (`aadhaarMobile: ''` in the http mapper) and comparing the masked display against
+  // the account number could only ever fire against the mock. `mobileMatch` is a tri-state — `null`
+  // is "not recorded", which is not evidence of a mismatch, so only an explicit `false` counts.
+  const verificationStale = !!(form.idVerified && form.kyc && mobileMatch === false);
 
-  const onVerified = () => {
+  const onVerified = async () => {
     // The shared AadhaarVerifyModal has already started the seam write and (in mock) recorded the
-    // badge, which VerificationContext has refreshed. Mirror it into the profile and persist
-    // immediately so it isn't lost if the user leaves before pressing Save.
+    // badge, which VerificationContext has refreshed. Mirror it into the form, then save: the badge
+    // itself is the server's and survives a reload on its own, but `PUT /me/tenant-profile`
+    // recomputes `verified` and `score`, so this is what moves the meter to include the +30.
     const masked = maskPhone(aadhaarMobile || user?.mobile || '');
     const next = { ...form, idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked, verifiedAt: verifiedAt || Date.now() } };
     setForm(next);
-    persist(next);
     setKycOpen(false);
     setJustSaved(false);
-    toast(t('misc.tpKycVerified', { label: 'Aadhaar' }), 'success');
+    try {
+      // Only claim success once the write lands: a green toast chased half a second later by the red
+      // one `persist` raises tells the user two different things about the same save.
+      if (await persist(next)) toast(t('misc.tpKycVerified', { label: 'Aadhaar' }), 'success');
+    } catch (err) {
+      // The modal calls this without awaiting, so anything escaping here would surface as an
+      // unhandled rejection instead of in front of the user.
+      toast(err?.message || t('misc.tpProfileSaveFailed'), 'error');
+    }
   };
 
   const save = async (e) => {
     e.preventDefault();
+    if (savingRef.current) return;
     if (!form.name.trim()) {
       setErrors({ name: true });
       toast(t('misc.tpNameRequired'), 'error');
@@ -153,9 +201,18 @@ export default function TenantProfile() {
       return;
     }
     setErrors({});
-    if (!(await persist({ ...form, name: form.name.trim() }))) return;
-    setJustSaved(true);
-    toast(t('misc.tpProfileSaved'), 'success');
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      // Two PUTs in flight is a lost update, not a duplicate: the endpoint replaces the record, so
+      // the slower answer quietly reverts whatever the faster one wrote.
+      if (!(await persist({ ...form, name: form.name.trim() }))) return;
+      setJustSaved(true);
+      toast(t('misc.tpProfileSaved'), 'success');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const incomeDisplay = form.income ? Number(form.income).toLocaleString('en-IN') : '';
@@ -188,9 +245,11 @@ export default function TenantProfile() {
           <span className="text-sm font-semibold inline-flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4 text-emerald-400" /> {t('misc.tpTrustScore')}</span>
           <span className="text-emerald-300 font-bold text-lg">{sLabel}</span>
         </div>
-        <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
-        <p className="text-xs text-gray-400 mt-2">{pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone')}</p>
+        {scoreBar}
+        <p className="text-xs text-gray-400 mt-2">{boostSub}</p>
       </div>
+
+      {loadError && <LoadError message={t('common.somethingWentWrong')} error={loadError} onRetry={() => setReloadNonce((n) => n + 1)} className="glass rounded-2xl p-5 mt-4" />}
 
       <div className="grid lg:grid-cols-3 gap-6 mt-6">
         {/* Form */}
@@ -236,11 +295,16 @@ export default function TenantProfile() {
                 ? (
                   <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-400/15 text-emerald-300 inline-flex items-center gap-1 flex-shrink-0"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('misc.tpVerifiedCheck')}</span>
                 )
-                : <button type="button" onClick={() => setKycOpen(true)} className="px-4 py-2 rounded-lg text-sm font-semibold btn-teal flex-shrink-0">{form.idVerified ? t('misc.tpReverify') : t('misc.tpVerifyNow')}</button>}
+                : <button type="button" onClick={() => setKycOpen(true)} disabled={saving || !loaded || !!loadError} className="px-4 py-2 rounded-lg text-sm font-semibold btn-teal flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed">{form.idVerified ? t('misc.tpReverify') : t('misc.tpVerifyNow')}</button>}
             </div>
           </div>
 
-          <button type="submit" className="btn-teal w-full py-3 rounded-xl font-semibold inline-flex items-center justify-center gap-2"><Icon name="save" className="w-4 h-4" /> {t('misc.tpSaveProfile')}</button>
+          {/* Both writes are blocked while the profile is unread — failed *or* still in flight: each
+              sends the whole form, the form is empty until the read lands, and the PUT replaces the
+              record. Saving over a pending read wipes the unseen fields, and the arriving `.then`
+              then repaints the old values over the cleared record, so the loss only surfaces on the
+              next reload. */}
+          <button type="submit" disabled={saving || !loaded || !!loadError} className="btn-teal w-full py-3 rounded-xl font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"><Icon name="save" className="w-4 h-4" /> {t('misc.tpSaveProfile')}</button>
 
           {justSaved && (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-400/10 p-4">
@@ -267,7 +331,7 @@ export default function TenantProfile() {
             </div>
             <div className="mb-3">
                 <div className="flex items-center justify-between text-xs mb-1"><span className="text-gray-400">{t('misc.tpTrustScore')}</span><span className="text-emerald-300 font-bold">{sLabel}</span></div>
-                <div className="h-2 rounded-full bg-white/10 overflow-hidden" role="progressbar" aria-label={t('misc.tpTrustScore')} aria-valuenow={s ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full" style={{ width: sWidth, background: 'linear-gradient(90deg,#0d9488,#14b8a6)' }} /></div>
+                {scoreBar}
             </div>
             <div className="space-y-1.5 text-sm text-gray-300">
               {meta.length ? meta.map(([ic, txt]) => <p key={txt} className="flex items-center gap-2"><Icon name={ic} className="w-4 h-4 text-teal-400" /> {txt}</p>) : <p className="text-gray-500 text-xs">{t('misc.tpFillToPreview')}</p>}
@@ -279,7 +343,7 @@ export default function TenantProfile() {
               under the form (order-1); on desktop it keeps its place below the preview. */}
           <div className="glass rounded-2xl p-5 order-1 lg:order-2">
             <h3 className="font-bold text-sm mb-1 flex items-center gap-2"><Icon name="trending-up" className="w-4 h-4 text-emerald-400" /> {t('misc.tpBoostTitle')}</h3>
-            <p className="text-xs text-gray-500 mb-3">{pending.length ? t('misc.tpBoostSub', { count: pending.length }) : t('misc.tpBoostDone')}</p>
+            <p className="text-xs text-gray-500 mb-3">{boostSub}</p>
             <ul className="space-y-2">
               {factors.map((f) => (
                 <li key={f.key} className="flex items-center justify-between gap-2 text-sm">

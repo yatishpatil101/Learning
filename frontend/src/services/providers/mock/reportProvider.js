@@ -70,9 +70,14 @@ export async function createReport(report) {
   });
 }
 
-export async function listReports() {
+export async function listReports({ status } = {}) {
+  const all = await _list();
+  /* Same filter the http provider sends to the server, applied here instead. Ignoring it was not a
+     harmless permissiveness like the three above: a caller that wants two statuses asks twice, and
+     an unfiltered answer returns the whole store both times — duplicate React keys and a moderation
+     queue showing every complaint twice. Blank still means "everything", as it does live. */
+  const items = status ? all.filter((r) => r.status === status) : all;
   // The mock store is unpaged; answer the paged contract by reporting the whole list as one page.
-  const items = await _list();
   return { items, total: items.length, page: 0, size: items.length };
 }
 

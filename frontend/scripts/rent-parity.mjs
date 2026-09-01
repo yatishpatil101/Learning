@@ -32,6 +32,8 @@
  *
  * Exit code 0 = the two agree, 1 = drift (suitable for CI).
  */
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
@@ -40,6 +42,14 @@ const stamp = String(Date.now()).slice(-5);
 const OWNER_MOBILE = args.get('owner') || `95${stamp}${stamp.slice(0, 3)}`.slice(0, 10);
 const TENANT_MOBILE = args.get('tenant') || `94${stamp}${stamp.slice(0, 3)}`.slice(0, 10);
 const RENT = 25000;
+
+/** Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`. */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness signs in as two identities and writes rent-ledger and payout-account rows — money'
+  + '\n  records — so it may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

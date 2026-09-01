@@ -353,7 +353,14 @@ export const proposeSocietyChange = async (slug, body) =>
  * `inviteUrl` is populated here and nowhere else — screening a link for a scam is the point of the
  * review, and an operator cannot screen what the response redacts.
  *
- * @param {{status?: string, kind?: string, page?: number, size?: number}} [opts]
+ * The three things the old ops console called separate queues — detail suggestions, group links,
+ * pin corrections — are `kind` filters on this one resource. Ask for all three with one unfiltered
+ * call and group client-side, or ask three times; there is no third queue to forget.
+ *
+ * @param {{status?: 'pending'|'approved'|'rejected', kind?: 'details'|'whatsapp'|'location',
+ *   page?: number, size?: number}} [opts]
+ * @returns {Promise<object[]>} the rows themselves, oldest first — a flat array and not a page
+ *   object, because the console counts and groups over the whole set.
  */
 export const listSocietyProposalQueue = async (opts) =>
   (await provider()).listSocietyProposalQueue(opts);
@@ -370,6 +377,44 @@ export const listSocietyProposalQueue = async (opts) =>
  */
 export const decideSocietyProposal = async (id, body) =>
   (await provider()).decideSocietyProposal(id, body);
+
+/* --- society claims: the ops side ------------------------------------------------------------- */
+
+/**
+ * Committee claims awaiting a decision, across every society. Staff with `societies:read`.
+ *
+ * The other half of `claimSociety`: that files the request from the hub, this is where a human
+ * reads it. Until now the console read the operator's own browser, so the queue was permanently
+ * empty however many committees filled the form in on theirs — the same defect the proposal queue
+ * had, on the one workflow that grants authority over a society page.
+ *
+ * `claimantMobile` and `email` come back populated here and are redacted from the public
+ * membership read, because deciding a claim means phoning the person who filed it.
+ *
+ * @param {{status?: 'pending'|'approved'|'rejected', page?: number, size?: number}} [opts]
+ * @returns {Promise<object[]>} the rows themselves, oldest first — the claim that has waited
+ *   longest is the one somebody is still waiting on.
+ */
+export const listSocietyClaimQueue = async (opts) =>
+  (await provider()).listSocietyClaimQueue(opts);
+
+/**
+ * Approve or reject one claim. Staff with `societies:write`.
+ *
+ * **Keyed by the claim's id, not by the society slug.** The slug was enough while the queue was one
+ * browser holding at most one claim per society; the server keeps every claim ever filed, so "the
+ * claim for Kumar Prospera" stops naming a unique row the moment a second committee asks or the
+ * first one is re-filed after a rejection. Approving grants the committee authority over the hub in
+ * the same transaction — there is no separate step that can fail after the decision is recorded.
+ *
+ * @param {string} id
+ * @param {{status: 'approved'|'rejected', note?: string}} body — `note` is the reviewer's reason,
+ *   kept with the decision; it is not shown to the claimant.
+ * @throws {ApiError} 409 when the claim has already been decided — a second decision would either
+ *   revoke authority silently or re-grant it to somebody who was told they were rejected.
+ */
+export const decideSocietyClaim = async (id, body) =>
+  (await provider()).decideSocietyClaim(id, body);
 
 /* --- community minting ------------------------------------------------------------------------ */
 

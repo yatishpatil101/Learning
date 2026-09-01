@@ -249,8 +249,15 @@ public class SocietyMembershipService {
         if (!SocietyClaimStatuses.isDecision(body.status())) {
             throw new BadRequestException("status must be approved or rejected");
         }
-        SocietyClaim row = claims.findById(claimId)
+        SocietyClaim row = claims.findForDecision(claimId)
                 .orElseThrow(() -> NotFoundException.of("Society claim"));
+        if (!SocietyClaimStatuses.PENDING.equals(row.getStatus())) {
+            // Re-deciding rewrites decidedBy/decidedAt, so the record of who handed this society
+            // over is lost. Worse, re-approving a rejected claim silently transfers the residency
+            // register to someone an operator already turned down. The row lock above is what makes
+            // this check hold under two simultaneous operators; without it both read `pending`.
+            throw new ConflictException("This claim has already been decided.");
+        }
         Society society = societies.findById(row.getSocietyId())
                 .orElseThrow(() -> NotFoundException.of("Society"));
 

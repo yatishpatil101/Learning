@@ -29,6 +29,8 @@
  *
  * Exit code 0 = the two agree, 1 = drift (suitable for CI).
  */
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
@@ -36,6 +38,14 @@ const BASE = args.get('base') || 'http://localhost:8080/api';
 const stamp = String(Date.now()).slice(-5);
 const OWNER_MOBILE = args.get('owner') || `97${stamp}${stamp.slice(0, 3)}`.slice(0, 10);
 const BUYER_MOBILE = args.get('buyer') || `96${stamp}${stamp.slice(0, 3)}`.slice(0, 10);
+
+/** Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`. */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness signs in as two identities and writes offers, counters and closed deals, so it'
+  + '\n  may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

@@ -96,11 +96,39 @@ export async function getMyReferralSummary() {
 /**
  * Tell the server whose code brought this account in.
  *
- * Resolves to `null` on a mock build, where the local `setReferredBy(code)` primitive is the whole
- * of attribution and deliberately credits nobody. A 409 means the code was unknown, was the
- * caller's own, or had already been redeemed by this account; the sign-up path swallows it, because
- * the person who just created an account did not choose the code and cannot fix it.
+ * Resolves to `null` on a mock build, where the provider records the attribution with the local
+ * `setReferredBy(code)` primitive and deliberately credits nobody. `Signup.jsx` used to call that
+ * primitive itself, on every build, so a live sign-up wrote a localStorage key nothing live reads;
+ * the write now sits below the seam with the rest of the mock's answer. A 409 means the code was
+ * unknown, was the caller's own, or had already been redeemed by this account; the sign-up path
+ * swallows it, because the person who just created an account did not choose the code and cannot
+ * fix it.
  */
 export async function redeemReferral(code, shareChannel) {
   return (await provider()).redeemReferral(code, shareChannel);
+}
+
+/**
+ * The share link for a code — `<origin>/signup?ref=<code>`.
+ *
+ * **The one export here that is not a provider call, deliberately.** The link is the same string on
+ * both builds: it is this deployment's origin plus a code the caller already holds, so putting it
+ * behind the seam would mean two implementations of `origin + '/signup?ref='` kept in step by hand.
+ *
+ * It lives here rather than in `lib/store/referrals.js`, where it used to, for the opposite reason.
+ * That version's signature was `referralLink(code = referralCode())` — omit the argument and it
+ * built a link around the browser-minted `RAHU0011`, the string `POST /referrals/redeem` cannot
+ * resolve. A page reading the server's code from `getMyReferralSummary()` and sharing a link built
+ * from the browser's is exactly half right, and nothing about the call site said so. The code is
+ * **required** here, and the only one a caller has is the one the summary just returned.
+ *
+ * A blank code returns `''` rather than a link ending in `?ref=`, because a Copy button that
+ * reports success over a dead link is worse than one that has nothing to copy.
+ */
+export function referralLink(code) {
+  const c = String(code || '').trim();
+  if (!c) return '';
+  const origin =
+    (typeof window !== 'undefined' && window.location && window.location.origin) || 'https://punenest.com';
+  return `${origin}/signup?ref=${encodeURIComponent(c)}`;
 }

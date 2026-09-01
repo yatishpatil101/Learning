@@ -31,10 +31,27 @@
  *
  * Exit code 0 = shapes agree, 1 = drift found (suitable for CI).
  */
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
 const BASE = args.get('base') || 'http://localhost:8080/api';
+
+/**
+ * Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`.
+ *
+ * This is the one harness that never signs in, so it is also the one with the least to lose. It is
+ * guarded anyway: it still fires the write endpoints (with nonexistent ids, to prove they issue a
+ * request rather than throw a "not shipped yet"), and an unguarded exception here would be a
+ * standing invitation to copy this file as the template for the next harness — which will write.
+ */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness reads public data, but it still fires the write endpoints at whatever --base'
+  + '\n  names, so it may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

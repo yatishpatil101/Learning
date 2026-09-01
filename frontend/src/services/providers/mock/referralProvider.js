@@ -42,7 +42,7 @@
  * the shape the same across providers, which is the seam's whole job.
  */
 import { delay } from '../../../lib/mockApi/core.js';
-import { referralCode, getReferralStats } from '../../../lib/store/referrals.js';
+import { referralCode, getReferralStats, setReferredBy } from '../../../lib/store/referrals.js';
 
 /**
  * `GET /me/referrals` — the referrer's own summary.
@@ -66,16 +66,30 @@ export async function getMyReferralSummary() {
 }
 
 /**
- * `POST /referrals/redeem` — a no-op that says so.
+ * `POST /referrals/redeem` — records the attribution locally, and credits nobody.
  *
- * The mock's attribution primitive is `setReferredBy(code)`, which the sign-up flow already calls
- * and which deliberately does *not* credit anybody: "cross-device attribution needs a real backend",
- * per its own comment. Duplicating that here would give the seam two writers for one fact. So this
- * resolves without doing anything, and the caller treats a mock build as "recorded locally", which
- * is the truth.
+ * This used to be a bare no-op, on the reasoning that `Signup.jsx` already called
+ * `setReferredBy(code)` itself and "duplicating that here would give the seam two writers for one
+ * fact". The two writers were real; the fix was the wrong way round. `Signup.jsx` called the store
+ * **unconditionally**, so a live build wrote `pnReferredBy:<mobile>` — a key nothing on a live
+ * build reads — on top of the `POST` that actually attributes the join. The write belongs to the
+ * mock build, so it belongs below the seam, and it is here now: one writer per build.
+ *
+ * ## Deliberate differences from `http/referralProvider.js`
+ *
+ * - **Resolves `null`, where the live call resolves the server's 200 body.** There is no server to
+ *   answer, and the callers treat both as "recorded".
+ * - **Nothing is credited.** `setReferredBy` does not touch the referrer's counters and never did:
+ *   "cross-device attribution needs a real backend", per its own comment. The live half creates a
+ *   referral row that `ReferralQualification` can later turn into a reward; nothing here can.
+ * - **`shareChannel` is accepted and dropped**, hence the one-argument signature. It exists on the
+ *   wire as an attribution statistic (D60), and this build has no statistics to muddy.
+ * - **No 409.** Unknown, self-referred and already-redeemed codes are all recorded happily,
+ *   because none of those facts exist locally to check against.
  */
-export async function redeemReferral() {
+export async function redeemReferral(code) {
   await delay();
+  setReferredBy(code);
   return null;
 }
 

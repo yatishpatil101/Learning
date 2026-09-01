@@ -37,11 +37,24 @@ import { get, set } from './internals.js';
    addReferralInvite. Do not reintroduce a local way to earn.
 
    ── What is still here, and why ────────────────────────────────────────────
-   `referralCode` and `referralLink` survive as the MOCK provider's answer to
-   "what is my code" — `Refer.jsx` reads the real one from `GET /me/referrals`.
-   The code minted here was never resolvable by `POST /referrals/redeem` (the
-   server's is `PUNE-AB12` from `referral_codes`, V23), so every link this
-   product ever produced pointed at a scheme that could not recognise it.
+   `referralCode` survives as the MOCK provider's answer to "what is my code" —
+   `Refer.jsx` reads the real one from `GET /me/referrals`. The code minted here
+   was never resolvable by `POST /referrals/redeem` (the server's is `PUNE-AB12`
+   from `referral_codes`, V23), so every link this product ever produced pointed
+   at a scheme that could not recognise it.
+
+   `referralLink` left with the page that used it — it is now
+   `services/referralService.js`'s `referralLink(code)`, with the code REQUIRED.
+   Here it was `referralLink(code = referralCode())`, so any caller who omitted
+   the argument built a link around the browser-minted code: the failure above,
+   reachable by forgetting a parameter. It is a pure string builder either way,
+   so nothing was gained by it sitting beside the counters.
+
+   `setReferredBy` is still here, but its caller moved. `Signup.jsx` used to call
+   it directly, above the seam, so a live build wrote a localStorage key nothing
+   on that build reads. It is now called by `providers/mock/referralProvider.js`
+   inside `redeemReferral`, which is the mock's whole answer to attribution — one
+   writer per build instead of one unconditional one.
 
    `getReferralStats` and the three derivations below it are the mock build's
    server-side state, read only by the mock providers and seeded directly by the
@@ -93,14 +106,11 @@ export const referralBonusListings = () => (referralRewardsEnabled() ? (getRefer
    Consumed by contactQuota.contactAllowance(). */
 export const referralBonusContacts = () => (referralRewardsEnabled() ? referralContactsEarned() : 0);
 
-// Absolute signup link that carries the referral code so a real backend could
-// attribute the join. In the prototype this drives ?ref capture on /signup.
-export const referralLink = (code = referralCode()) => {
-  const origin = (typeof window !== 'undefined' && window.location && window.location.origin) || 'https://punenest.com';
-  return `${origin}/signup?ref=${encodeURIComponent(code)}`;
-};
 // Record who referred a newly-signed-up user (honest, backend-ready primitive).
 // Does NOT credit the referrer's counters — cross-device attribution needs a real backend.
+// Called by `providers/mock/referralProvider.js` only; `Signup.jsx` reaches it through
+// `redeemReferral()` so that the live build talks to the server and this build talks to here,
+// rather than every build doing both.
 const referredByKey = () => 'pnReferredBy:' + (myMobile() || 'anon');
 export const setReferredBy = (code) => {
   const c = String(code || '').trim().toUpperCase();

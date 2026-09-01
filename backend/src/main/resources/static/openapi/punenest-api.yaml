@@ -8344,6 +8344,12 @@ paths:
 
         `PATCH` with the outcome in the body, not `/approve` and `/reject`, so the vocabulary stays
         enumerable in one place.
+
+
+        A claim can be decided once. Re-deciding would rewrite `decidedBy` and `decidedAt` — losing
+        the record of who handed the building over — and re-approving a rejected claim would pass the
+        residency register to someone an operator had already turned down, so a decided claim answers
+        `409`.
       requestBody:
         required: true
         content:
@@ -8356,6 +8362,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyClaim' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /admin/society-proposals:
     get:
@@ -8375,7 +8382,7 @@ paths:
         applied. Reading it from the database is the fix.
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] }, description: Narrow the queue; omit for everything }
-        - { name: kind, in: query, schema: { type: string, enum: [details, whatsapp, pin] }, description: Narrow to one proposal kind }
+        - { name: kind, in: query, schema: { type: string, enum: [details, whatsapp, location] }, description: Narrow to one proposal kind }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -8408,8 +8415,12 @@ paths:
 
 
         Which fields move depends on `kind`: a `details` proposal fills the missing catalogue facts,
-        `whatsapp` attaches the resident group invite, `pin` moves the map coordinates. One route
-        because the lifecycle is one lifecycle.
+        `whatsapp` attaches the resident group invite, `location` moves the map coordinates. One
+        route because the lifecycle is one lifecycle.
+
+
+        A proposal is decided once. Deciding an already-decided proposal answers 409 rather than
+        rewriting who decided it.
       requestBody:
         required: true
         content:
@@ -8422,6 +8433,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyProposal' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /admin/society-candidates:
     get:
@@ -10774,7 +10786,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         societySlug: { type: string }
-        kind: { type: string, enum: [details, whatsapp, pin] }
+        kind: { type: string, enum: [details, whatsapp, location] }
         status: { type: string, enum: [pending, approved, rejected] }
         builder: { type: [string, 'null'] }
         buildYear: { type: [integer, 'null'] }
@@ -10801,11 +10813,11 @@ components:
       type: object
       description: >
         One body for three proposal kinds. Which fields are read depends on `kind`, and which caller
-        may send it does too: a `details` proposal is open to anyone signed in, `whatsapp` and `pin`
-        need a verified flat.
+        may send it does too: a `details` proposal is open to anyone signed in, `whatsapp` and
+        `location` need a verified flat.
       required: [kind]
       properties:
-        kind: { type: string, maxLength: 16, enum: [details, whatsapp, pin] }
+        kind: { type: string, maxLength: 16, enum: [details, whatsapp, location] }
         builder: { type: string, maxLength: 120 }
         buildYear: { type: integer, minimum: 1 }
         towers: { type: integer, minimum: 1 }

@@ -11,12 +11,14 @@ export const Chip = ({ tone, icon, children }) => (
   <span className={classNames('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]', tone)}>{icon}{children}</span>
 );
 
-export const EDITABLE = { verified: true, registration: true, conveyance: true, maintenancePerSqft: 0, claimStatus: 'unclaimed', adminNote: '' };
-
 export const TEAL = 'border-brand-teal/30 bg-brand-teal/10 text-brand-teal';
 export const RED = 'border-red-400/30 bg-red-500/10 text-red-300';
 export const PLAIN = 'border-white/10 bg-white/5 text-gray-200';
 
-export const actBtn = (label, tone, onClick) => (
-  <button onClick={onClick} className={classNames('rounded-lg border px-2 py-1 text-xs', tone)}>{label}</button>
+export const actBtn = (label, tone, onClick, disabled = false) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={classNames('rounded-lg border px-2 py-1 text-xs', tone, disabled && 'cursor-not-allowed opacity-40')}
+  >{label}</button>
 );

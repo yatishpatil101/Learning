@@ -3,14 +3,30 @@ package com.punenest.api.engagement.society;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /** Society claims: the ops queue, and the "who administers this" lookup the hub runs on load. */
 public interface SocietyClaimRepository extends JpaRepository<SocietyClaim, UUID> {
+
+    /**
+     * Load a claim for an operator's decision, holding a row lock until the transaction commits.
+     *
+     * <p>Deciding is check-then-act on {@code status}. Two operators acting on the same claim at the
+     * same moment would both read {@code pending}, both write, and the later one would overwrite
+     * {@code decidedBy}/{@code decidedAt} — so the record of who handed the building over names the
+     * wrong person. Worse, if the approval commits second it re-homes the residency queue to a
+     * claimant the other operator just rejected. The lock makes the read and the write one step, so
+     * the second operator sees the first one's decision and gets the 409 they should.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from SocietyClaim c where c.id = :id")
+    Optional<SocietyClaim> findForDecision(@Param("id") UUID id);
 
     /**
      * The one live claim on a society, if any.

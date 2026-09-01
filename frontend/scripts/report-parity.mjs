@@ -29,6 +29,8 @@
  *
  * Exit code 0 = shapes agree, 1 = drift found (suitable for CI).
  */
+import { assertLoopbackBase } from './lib-assert-local-base.mjs';
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i].replace(/^--/, ''), process.argv[i + 1]);
 
@@ -36,6 +38,14 @@ const BASE = args.get('base') || 'http://localhost:8080/api';
 const MOBILE = args.get('mobile') || `98766${String(Date.now()).slice(-5)}`;
 /** A seeded staff account — the only kind that may read the queue. */
 const STAFF_MOBILE = args.get('staff') || '9711827190';
+
+/** Refuse a `--base` that is not loopback — the shared test lives in `lib-assert-local-base.mjs`. */
+assertLoopbackBase(
+  BASE,
+  args.has('i-know-what-im-doing'),
+  'This harness signs in as a seeded staff account and files abuse reports into the moderation'
+  + '\n  queue, so it may only run against a backend on this machine.',
+);
 
 installStorageStubs();
 

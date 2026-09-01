@@ -207,7 +207,7 @@ public class SocietyProposalService {
     @Transactional
     public SocietyProposalResponse decide(UUID proposalId, UUID operatorId,
             SocietyProposalDecisionRequest request) {
-        SocietyProposal proposal = proposals.findById(proposalId)
+        SocietyProposal proposal = proposals.findForDecision(proposalId)
                 .orElseThrow(() -> new NotFoundException("Proposal not found."));
         String status = blankToNull(request.status());
         if (!SocietyProposalStatuses.isDecision(status)) {
@@ -215,7 +215,8 @@ public class SocietyProposalService {
         }
         if (!SocietyProposalStatuses.PENDING.equals(proposal.getStatus())) {
             // Re-deciding would either double-apply a detail suggestion or silently revert the
-            // decision an operator already made and told the author about.
+            // decision an operator already made and told the author about. The row lock above is
+            // what makes this check hold under two simultaneous operators.
             throw new ConflictException("This proposal has already been decided.");
         }
 

@@ -21,6 +21,7 @@
  * the failure mode nobody noticed the first time.
  */
 import { del, get, patch, post, put, unwrapFullPage } from '../../http.js';
+import { MAX_PAGE_SIZE } from '../../apiLimits.js';
 import { toRatingIndex } from './societyMapper.js';
 
 /** The server's hard ceiling (`spring.data.web.pageable.max-page-size`); asking for more is clamped. */
@@ -297,8 +298,15 @@ export async function proposeSocietyChange(slug, payload) {
   return post(societyPath(slug, '/proposals'), payload);
 }
 
-/** The ops queue across every society. Staff with `societies:read`. */
-export async function listSocietyProposalQueue({ status, kind, page, size } = {}) {
+/**
+ * The ops queue across every society. Staff with `societies:read`.
+ *
+ * `size` defaults to the server's ceiling rather than to its `@PageableDefault(size = 20)`: this
+ * screen has no pager, and the counts beside each heading are computed over whatever comes back. A
+ * silent 20-row cap would show "3 pending links" to an operator with thirty of them. Past 100,
+ * `unwrapFullPage` says so out loud instead of the queue quietly lying.
+ */
+export async function listSocietyProposalQueue({ status, kind, page, size = MAX_PAGE_SIZE } = {}) {
   const res = await get('/admin/society-proposals', { status, kind, page, size });
   return unwrapFullPage(res, 'society proposals');
 }
@@ -311,6 +319,25 @@ export async function listSocietyProposalQueue({ status, kind, page, size } = {}
  */
 export async function decideSocietyProposal(id, decision) {
   return patch(`/admin/society-proposals/${encodeURIComponent(id)}`, decision);
+}
+
+/* --- society claims: the ops side ------------------------------------------------------------- */
+
+/** Committee claims awaiting a decision, oldest first. Staff with `societies:read`. */
+export async function listSocietyClaimQueue({ status, page, size = MAX_PAGE_SIZE } = {}) {
+  const res = await get('/admin/society-claims', { status, page, size });
+  return unwrapFullPage(res, 'society claims');
+}
+
+/**
+ * Approve or reject one claim. Staff with `societies:write`.
+ *
+ * By claim id, not by society slug — the server keeps every claim ever filed, so a slug names a
+ * society and not a decision. Approving grants the committee authority over the hub in the same
+ * transaction; an already-decided claim answers 409 rather than being rewritten.
+ */
+export async function decideSocietyClaim(id, decision) {
+  return patch(`/admin/society-claims/${encodeURIComponent(id)}`, decision);
 }
 
 /* --- community minting (D241 C5) -------------------------------------------------------------- */

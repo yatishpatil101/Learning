@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Building2, ShieldCheck, Home, BadgeCheck, Check, GitMerge, Sparkles, Flag } from 'lucide-react';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -7,14 +7,16 @@ import { useTabParam } from '../../lib/useTabParam.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { allSocieties } from '../../data/societies.js';
 import {
-  getSocietyClaims, setSocietyClaimStatus,
   getResidentReqs, setResidentStatus,
   getSocietyOverlay, setSocietyOverlay, resolveSociety,
   getSocietyCandidates, verifyCommunitySociety, mergeSocieties, searchSocieties,
-  getPendingSocietySuggestions, applySocietySuggestion, dismissSocietySuggestion,
-  getSocietyReports, moderateReport, pendingSocietyWhatsapps, moderateSocietyWhatsapp,
-  pendingSocietyLocationFixes, moderateSocietyLocation,
 } from '../../lib/store.js';
+import {
+  listSocietyClaimQueue, decideSocietyClaim,
+  listSocietyProposalQueue, decideSocietyProposal,
+} from '../../services/societyService.js';
+import { listReports, triageReport } from '../../services/reportService.js';
+import { ApiError, NetworkError } from '../../services/http.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { titleCase, fmtDate, Chip } from './societies/helpers.jsx';
@@ -23,6 +25,51 @@ import ResidentsTab from './societies/ResidentsTab.jsx';
 import CandidatesTab from './societies/CandidatesTab.jsx';
 import DirectoryTab from './societies/DirectoryTab.jsx';
 import ModerationTab from './societies/ModerationTab.jsx';
+
+/**
+ * The five society UGC surfaces, as the report queue's view model names them.
+ *
+ * `review` is deliberately absent. A society review is reported as an ordinary `review` and taken
+ * down through `PATCH /reviews/{id}/status`, so nothing on the wire says whether a given review
+ * report is about a society or about a listing — including them here would drag every property
+ * review complaint into the societies console. They stay in Admin ▸ Reports, which handles every
+ * kind. The browser-only queue could tell them apart because it stored a slug on every row; the
+ * contract does not, and inventing the distinction client-side would get it wrong silently.
+ */
+const SOCIETY_REPORT_KINDS = new Set(['contribution', 'reply', 'question', 'answer', 'board']);
+
+/** Statuses a moderator can still act on. `actioned` and `dismissed` are terminal server-side. */
+const LIVE_REPORT_STATUSES = new Set(['open', 'reviewing']);
+
+/**
+ * A `details` proposal, dressed as the shape the candidates tab and the review dialog render.
+ *
+ * The wire is flat (`builder`, `buildYear`, …) where the old store nested everything under
+ * `fields`, and it carries no society name or locality at all — a proposal references a society, it
+ * does not restate it. Both are resolved from the catalogue here rather than left blank, because
+ * that is where every other row on the candidates tab already gets them; the alternative is an ops
+ * queue that says "Review details" beside a slug.
+ */
+const toSuggestionRow = (p) => {
+  const society = resolveSociety(p.societySlug);
+  return {
+    id: p.id,
+    slug: p.societySlug,
+    name: society?.name || titleCase(p.societySlug),
+    localitySlug: society?.localitySlug || '',
+    at: p.createdAt,
+    by: p.authorName || '',
+    fields: {
+      builder: p.builder,
+      // The wire says `buildYear`; the dialog and the society column both say `year`.
+      year: p.buildYear,
+      towers: p.towers,
+      units: p.units,
+      maintenancePerSqft: p.maintenancePerSqft,
+      amenities: p.amenities,
+    },
+  };
+};
 
 export default function AdminSocieties() {
   const { toast } = useToast();
@@ -36,6 +83,10 @@ export default function AdminSocieties() {
   const [reports, setReports] = useState([]);
   const [waPending, setWaPending] = useState([]);
   const [locFixes, setLocFixes] = useState([]);
+  /* Which queues did not load. An empty table on an ops screen reads as "nothing to do", so a
+     failed fetch and a drained queue are indistinguishable without this — and the failure mode is
+     that moderation quietly stops and nobody notices. */
+  const [queueErrors, setQueueErrors] = useState([]);
   const [bump, setBump] = useState(0);
   const [edit, setEdit] = useState(null); // { slug, ...form }
   const [merge, setMerge] = useState(null); // { cand, target, query }
@@ -45,14 +96,72 @@ export default function AdminSocieties() {
   // canonical target — both are wrong against the curated-only head (D129).
   const catalogueReady = useSocietyCatalogue();
 
-  const reload = () => { setClaims(getSocietyClaims()); setResidents(getResidentReqs()); setCandidates(getSocietyCandidates()); setSuggestions(getPendingSocietySuggestions()); setReports(getSocietyReports('open')); setWaPending(pendingSocietyWhatsapps()); setLocFixes(pendingSocietyLocationFixes()); };
+  /* Half of this screen now reads the API and half still reads localStorage, so `reload` cannot
+     stay one synchronous statement. It is split rather than made wholly async: the two blocked
+     clusters (resident verifications, community candidates) are still instant, and making them
+     wait on three network round-trips would put an empty table on screen for no reason.
+
+     `reloadSeq` is what stops a slow reload overwriting a fast one. Every decision below bumps
+     `bump`, which re-fires the effect, so two reloads are routinely in flight at once — the first
+     one carrying the pre-decision queue. Without the guard, whichever *response* landed last won,
+     and the row an operator just approved would reappear as pending often enough to look like the
+     write had failed. Only the newest request is allowed to call `setState`. */
+  const reloadSeq = useRef(0);
+
+  const reloadLocal = () => {
+    setResidents(getResidentReqs());
+    setCandidates(getSocietyCandidates());
+  };
+
+  const reload = async () => {
+    reloadLocal();
+    const seq = reloadSeq.current + 1;
+    reloadSeq.current = seq;
+    /* Per-queue, not one `Promise.all` rejection: a 500 on reports must not blank the claims tab.
+       Only transport failures are absorbed. A TypeError from a mapper change would otherwise
+       arrive as an empty queue, and on this screen an empty queue renders as "nothing to
+       moderate" — the most reassuring possible face for a bug. Those rethrow. */
+    const broke = [];
+    const safe = (p, label, empty) => p.catch((err) => {
+      if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
+      console.warn(`[societies] The ${label} queue could not be loaded.`, err);
+      broke.push(label);
+      return empty;
+    });
+    /* Every queue asks the server for just the live rows. Unfiltered, decided rows accumulate
+       forever and fill the 100-row page budget oldest-first, so the newly-filed work falls off
+       the end: the queue would read empty precisely as the backlog grew. `listReports` takes one
+       status, and triage has two live ones. */
+    const [claimRows, proposals, openReports, reviewingReports] = await Promise.all([
+      safe(listSocietyClaimQueue({ status: 'pending' }), 'claims', []),
+      safe(listSocietyProposalQueue({ status: 'pending' }), 'community proposal', []),
+      safe(listReports({ status: 'open' }), 'reports', { items: [] }),
+      safe(listReports({ status: 'reviewing' }), 'reports', { items: [] }),
+    ]);
+    if (seq !== reloadSeq.current) return; // a newer reload has already answered
+
+    // Both report reads carry the same label, so a double failure would otherwise render as
+    // "The reports and reports queues could not be loaded" — a disclosure banner that looks broken.
+    setQueueErrors([...new Set(broke)]);
+    setClaims(claimRows);
+    /* The three "pending" lists this console used to read from three localStorage keys are one
+       resource with a `kind` column — `details`, `whatsapp`, `location`. One request, grouped
+       here. That collapse is the single most surprising thing about this migration: there is no
+       third queue to forget to drain, and a proposal cannot exist in two of them. */
+    setSuggestions(proposals.filter((p) => p.kind === 'details').map(toSuggestionRow));
+    setWaPending(proposals.filter((p) => p.kind === 'whatsapp'));
+    setLocFixes(proposals.filter((p) => p.kind === 'location'));
+    setReports([...(openReports.items || []), ...(reviewingReports.items || [])].filter(
+      (r) => SOCIETY_REPORT_KINDS.has(r.kind) && LIVE_REPORT_STATUSES.has(r.status),
+    ));
+  };
   // `catalogueReady` is a real dependency, not a redundant one: getSocietyCandidates()
   // runs suggestDuplicates(), which reads allSocieties(). Keyed on `bump` alone this
   // scan only ever saw the 28 curated rows, so a candidate that is a textbook duplicate
   // of a RERA society came back with `dupes: []` — and openMerge() then opened the
   // merge dialog with no target, which reads to the operator as "no duplicate exists"
   // and gets the junk row verified into a permanent one.
-  useEffect(() => { reload(); }, [bump, catalogueReady]);
+  useEffect(() => { reload(); }, [bump, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; the two signals above are the real inputs.
 
   /* eslint-disable-next-line react-hooks/exhaustive-deps -- `bump` and `catalogueReady` are
      invalidation signals, not values: `allSocieties()` reads a module-level store that the
@@ -78,33 +187,82 @@ export default function AdminSocieties() {
      is decided. The same deletion was already made in `AdminFlagsContext`, `AdminContent`,
      `AdminProperties`, `AdminReports` and `AdminPostOnBehalf`. The honest cost is ten sentences
      that stopped appearing in one browser's Audit tab. */
-  const decideClaim = (slug, status) => {
-    setSocietyClaimStatus(slug, status, by);
-    reload(); setBump((n) => n + 1);
-    toast(status === 'approved' ? 'Society claim approved' : 'Claim rejected', status === 'approved' ? 'success' : 'info');
+
+  /* Every decision below bumps `bump` and nothing else. It used to call `reload()` *and* bump,
+     which was harmless while the reload was a synchronous localStorage read; now it would fire two
+     overlapping rounds of requests where the effect already fires one. */
+  const failed = (err, fallback) => toast(err?.message || fallback, 'error');
+
+  /* Ids with a decision in flight. The Approve/Reject buttons stay mounted for the whole PATCH
+     plus the reload behind it, and a decided row now answers 409 — so an impatient second click
+     would answer the first click's success with "could not record that decision", which reads as
+     though the approval failed. A Set rather than a boolean because several rows are actionable
+     at once and one operator's click must not grey out the rest of the queue. */
+  const [deciding, setDeciding] = useState(() => new Set());
+  /* The state Set cannot be the guard: it is the value captured at render, so two clicks inside one
+     frame both read the empty one and both fire the PATCH — the second answering the first's
+     success with a 409. This ref is checked and updated synchronously, so it closes before the
+     paint does; `deciding` above stays purely what the buttons render from. */
+  const decidingRef = useRef(new Set());
+  const withDeciding = async (id, run) => {
+    if (decidingRef.current.has(id)) return;
+    decidingRef.current.add(id);
+    setDeciding((prev) => new Set(prev).add(id));
+    try {
+      await run();
+    } finally {
+      decidingRef.current.delete(id);
+      setDeciding((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
   };
+
+  const decideClaim = (id, status) => withDeciding(id, async () => {
+    try {
+      // By claim id, not by society slug: the server keeps every claim ever filed, so a slug names
+      // a society rather than a decision.
+      await decideSocietyClaim(id, { status });
+    } catch (err) { failed(err, 'Could not record that decision.'); return; }
+    setBump((n) => n + 1);
+    toast(status === 'approved' ? 'Society claim approved' : 'Claim rejected', status === 'approved' ? 'success' : 'info');
+  });
   const decideResident = (r, status) => {
     const out = setResidentStatus(r.slug, r.mobile, status, by);
     if (out === 'conflict') { toast('Unit already held by another verified resident — cannot verify.', 'error'); return; }
-    reload();
+    reloadLocal(); // still a localStorage cluster; no reason to re-fetch three queues for it
     toast(status === 'verified' ? 'Resident verified' : 'Resident request rejected', status === 'verified' ? 'success' : 'info');
   };
 
-  const decideReport = (r, action) => {
-    moderateReport(r.id, action);
-    reload(); setBump((n) => n + 1);
+  const decideReport = (r, action) => withDeciding(r.id, async () => {
+    try {
+      /* "Remove content" is two facts on the wire, not one: the complaint is `actioned` *and* the
+         enforcement that discharges it is `hide_content`. Sending the status alone would close the
+         report and leave the post up — which is exactly what the old queue's buttons did. */
+      await triageReport(r.id, action === 'remove'
+        ? { status: 'actioned', enforcement: 'hide_content' }
+        : { status: 'dismissed' });
+    } catch (err) { failed(err, 'Could not triage that report.'); return; }
+    setBump((n) => n + 1);
     toast(action === 'remove' ? 'Content removed & report closed' : 'Report dismissed — content kept', action === 'remove' ? 'success' : 'info');
-  };
-  const decideWa = (w, action) => {
-    moderateSocietyWhatsapp(w.slug, action);
-    reload(); setBump((n) => n + 1);
-    toast(action === 'approve' ? 'WhatsApp link approved — now live on the hub' : 'WhatsApp link rejected', action === 'approve' ? 'success' : 'info');
-  };
-  const decideLoc = (l, action) => {
-    moderateSocietyLocation(l.slug, action);
-    reload(); setBump((n) => n + 1);
-    toast(action === 'approve' ? 'Location approved — the society map now uses this pin' : 'Location fix rejected', action === 'approve' ? 'success' : 'info');
-  };
+  });
+  const decideProposal = (p, status, message, tone) => withDeciding(p.id, async () => {
+    try {
+      await decideSocietyProposal(p.id, { status });
+    } catch (err) { failed(err, 'Could not record that decision.'); return; }
+    setBump((n) => n + 1);
+    toast(message, tone);
+  });
+  const decideWa = (w, action) => decideProposal(
+    w,
+    action === 'approve' ? 'approved' : 'rejected',
+    action === 'approve' ? 'WhatsApp link approved — now live on the hub' : 'WhatsApp link rejected',
+    action === 'approve' ? 'success' : 'info',
+  );
+  const decideLoc = (l, action) => decideProposal(
+    l,
+    action === 'approve' ? 'approved' : 'rejected',
+    action === 'approve' ? 'Location approved — the society map now uses this pin' : 'Location fix rejected',
+    action === 'approve' ? 'success' : 'info',
+  );
 
   const verifyCand = (s) => {
     verifyCommunitySociety(s.slug, by);
@@ -126,16 +284,31 @@ export default function AdminSocieties() {
       .slice(0, 8);
   }, [merge, catalogueReady]); // eslint-disable-line react-hooks/exhaustive-deps -- see `directory` above: `searchSocieties` reads the mutable module store.
 
-  const suggMap = useMemo(() => Object.fromEntries(suggestions.map((s) => [s.slug, s])), [suggestions]);
-  const applyReview = () => {
+  /* Slug to the *list* of that society's pending detail suggestions, not to one of them. The old
+     store held a single pending suggestion per society, so the slug identified it; the server
+     holds a queue, and `Object.fromEntries` would silently keep only the last — the other
+     resident's suggestion would be unreachable from the candidate row that should surface it. */
+  const suggMap = useMemo(() => {
+    const out = {};
+    for (const s of suggestions) {
+      if (!out[s.slug]) out[s.slug] = [];
+      out[s.slug].push(s);
+    }
+    return out;
+  }, [suggestions]);
+  const applyReview = async () => {
     if (!review) return;
-    applySocietySuggestion(review.slug, by);
+    try {
+      await decideSocietyProposal(review.id, { status: 'approved' });
+    } catch (err) { failed(err, 'Could not apply those details.'); return; }
     setReview(null); setBump((n) => n + 1);
     toast('Details applied — now shown as community-provided', 'success');
   };
-  const dismissReview = () => {
+  const dismissReview = async () => {
     if (!review) return;
-    dismissSocietySuggestion(review.slug);
+    try {
+      await decideSocietyProposal(review.id, { status: 'rejected' });
+    } catch (err) { failed(err, 'Could not dismiss that suggestion.'); return; }
     setReview(null); setBump((n) => n + 1);
     toast('Suggestion dismissed', 'info');
   };
@@ -144,7 +317,6 @@ export default function AdminSocieties() {
     const o = getSocietyOverlay(s.slug) || {};
     setEdit({
       slug: s.slug, name: s.name,
-      verified: s.registration && s.conveyance,
       registration: s.registration, conveyance: s.conveyance,
       maintenancePerSqft: s.maintenancePerSqft ?? 3,
       claimStatus: s.claimStatus || 'unclaimed',
@@ -176,6 +348,15 @@ export default function AdminSocieties() {
     <div>
       <PageHeader title="Societies" subtitle="Approve society claims, verify residents & edit society profiles." />
 
+      {queueErrors.length ? (
+        <div role="alert" className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+          The {queueErrors.join(' and ')} {queueErrors.length > 1 ? 'queues' : 'queue'} could not be
+          loaded, so {queueErrors.length > 1 ? 'those tabs are' : 'that tab is'} showing nothing
+          rather than nothing to do. The counts above are wrong for the same reason.{' '}
+          <button onClick={() => setBump((n) => n + 1)} className="underline underline-offset-2">Retry</button>
+        </div>
+      ) : null}
+
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {KPIS.map((k) => (
           <div key={k.label} onClick={() => setTab(k.tab)} className="pn-card p-4 cursor-pointer hover:bg-white/5">
@@ -202,11 +383,11 @@ export default function AdminSocieties() {
               : tab === 'moderation' ? 'Community moderation queue. Review resident reports on society content, approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
                 : 'All societies with admin overlay. Edits are stored as an overlay on the static catalogue.'}
       </p>
-      {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} /> : null}
+      {tab === 'claims' ? <ClaimsTab claims={claims} decideClaim={decideClaim} deciding={deciding} /> : null}
       {tab === 'residents' ? <ResidentsTab residents={residents} decideResident={decideResident} /> : null}
       {tab === 'candidates' ? <CandidatesTab candidates={candidates} suggestions={suggestions} suggMap={suggMap} setMerge={setMerge} setReview={setReview} verifyCand={verifyCand} openMerge={openMerge} /> : null}
       {tab === 'directory' ? <DirectoryTab directory={directory} openEdit={openEdit} /> : null}
-      {tab === 'moderation' ? <ModerationTab reports={reports} waPending={waPending} locFixes={locFixes} decideReport={decideReport} decideWa={decideWa} decideLoc={decideLoc} /> : null}
+      {tab === 'moderation' ? <ModerationTab reports={reports} waPending={waPending} locFixes={locFixes} decideReport={decideReport} decideWa={decideWa} decideLoc={decideLoc} deciding={deciding} /> : null}
 
       {edit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>
