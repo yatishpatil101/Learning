@@ -12,7 +12,7 @@ import { appReady } from '../../helpers/app.js';
  * calls a route — they open `/admin/properties`, read the numbers off the top of the screen,
  * pick a tab, narrow with a search box, and act on what is left. That page had no live coverage at
  * all. `admin/properties.spec.js` covers it in twenty-eight tests, every one of them against
- * `puneNestDB_v5`: a store in the test's own browser, seeded by the test, read back by the test.
+ * `draazyDB_v5`: a store in the test's own browser, seeded by the test, read back by the test.
  *
  * The consequence is sharper than "it uses a mock". The mock spec asserts that seven KPI cards
  * render and that clicking each one moves the tab. It cannot assert that any of those seven
@@ -315,7 +315,7 @@ async function pickOption(page, ariaLabel, optionText) {
   const trigger = page.getByRole('button', { name: ariaLabel });
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-  await page.locator('.pn-dropdown__option', { hasText: optionText }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: optionText }).first().click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await expect(trigger).toContainText(optionText);
 }
@@ -866,13 +866,13 @@ test.describe('LIVE: the properties console', () => {
     await openConsole(page);
 
     /* The filename is the whole feature. These exports go into a spreadsheet next to four others
-       pulled the same afternoon, and `punenest-listings.csv` sitting where the verification queue
+       pulled the same afternoon, and `draazy-listings.csv` sitting where the verification queue
        should be is a report about the wrong population that nobody can tell apart afterwards. */
     const expected = [
-      ['All Listings', 'punenest-listings.csv'],
-      ['Verification Queue', 'punenest-verification-queue.csv'],
-      ['Flagged', 'punenest-flagged.csv'],
-      ['Featured', 'punenest-featured.csv'],
+      ['All Listings', 'draazy-listings.csv'],
+      ['Verification Queue', 'draazy-verification-queue.csv'],
+      ['Flagged', 'draazy-flagged.csv'],
+      ['Featured', 'draazy-featured.csv'],
     ];
 
     for (const [name, filename] of expected) {
@@ -905,7 +905,7 @@ test.describe('LIVE: the properties console', () => {
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     for (const reason of ['All reasons', 'Stale pending', 'Awaiting owner', 'Unconfirmed (stale)']) {
-      await expect(page.locator('.pn-dropdown__option', { hasText: reason })).toHaveCount(1);
+      await expect(page.locator('.dz-dropdown__option', { hasText: reason })).toHaveCount(1);
     }
 
     /* Chosen from the menu that is already open, rather than through `pickOption`. That helper
@@ -913,12 +913,12 @@ test.describe('LIVE: the properties console', () => {
        calling it here would have shut the dropdown and then waited fifteen seconds for the
        `aria-expanded="true"` that its own click had just undone. Reading the failure, it looks like
        the component refusing to open; it is really the test opening it twice. */
-    await page.locator('.pn-dropdown__option', { hasText: 'Unconfirmed (stale)' }).first().click();
+    await page.locator('.dz-dropdown__option', { hasText: 'Unconfirmed (stale)' }).first().click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toContainText('Unconfirmed (stale)');
     // Whichever way it lands, the tab has to say something: a blank pane reads as a broken fetch.
     await expect(
-      page.locator('.pn-card').filter({ hasText: /haven't confirmed availability|All caught up/ }).first(),
+      page.locator('.dz-card').filter({ hasText: /haven't confirmed availability|All caught up/ }).first(),
     ).toBeVisible();
   });
 

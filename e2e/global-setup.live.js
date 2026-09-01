@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { reportSeedCoverage } from './scripts/check-seed-coverage.mjs';
 
 /**
- * Reset `punenest_e2e` to its baseline **before** a live run, not after it.
+ * Reset `draazy_e2e` to its baseline **before** a live run, not after it.
  *
  * ## Why at the start
  *
@@ -36,7 +36,7 @@ const RESOURCES = path.join(REPO, 'backend', 'src', 'main', 'resources', 'db');
 // Not on PATH in a default Windows install, so the full path is the working default and the
 // variable is the escape hatch for anyone whose layout differs.
 const PSQL = process.env.PSQL || 'C:\\Program Files\\PostgreSQL\\13\\bin\\psql.exe';
-const DB = process.env.E2E_DB_NAME || 'punenest_e2e';
+const DB = process.env.E2E_DB_NAME || 'draazy_e2e';
 const USER = process.env.E2E_DB_USER || 'postgres';
 
 /** Seeds in Flyway's order: reference data before the fixtures that point at it. */

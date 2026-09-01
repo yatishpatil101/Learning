@@ -183,8 +183,8 @@ Highest traffic, and where confident zeros hide most comfortably as "no results"
 | `/dashboard` | 🔒 | Recent searches now server-owned (V121) — confirm cross-context |
 | `/owner-hub/property/:id` | 🔒 | Rent receipts are immutable snapshots (V120) |
 | `/tenant-profile` | 🔒 | |
-| `/notifications` | 🔒 | `puneNestNotifications` was write-only and is gone — this must now be genuinely server-backed |
-| `/messages` | 🏳 `inAppMessaging` + 🔒 | `pnConversations` was read-only and is gone |
+| `/notifications` | 🔒 | `draazyNotifications` was write-only and is gone — this must now be genuinely server-backed |
+| `/messages` | 🏳 `inAppMessaging` + 🔒 | `dzConversations` was read-only and is gone |
 | `/refer` | 🔒 | |
 | `/support` | 🔒 | |
 | — inside dashboard | | `MyListingsPanel.jsx:258` calls `sendWhatsappTemplate`, which **403s for owners** (known) |

@@ -8,14 +8,14 @@
  * only exists on a long-lived database. This can.
  *
  *   node backend/tools/live-probe.mjs [base] [otp-log]
- *   node backend/tools/live-probe.mjs http://localhost:8081/api %TEMP%\pn-replay.log
+ *   node backend/tools/live-probe.mjs http://localhost:8081/api %TEMP%\dz-replay.log
  *
  * The base must include `/api` — this talks to the backend directly, with no Vite proxy in front.
  */
 import fs from 'node:fs';
 
 const BASE = process.argv[2] || 'http://localhost:8081/api';
-const LOG = process.argv[3] || `${process.env.TEMP}\\pn-replay.log`;
+const LOG = process.argv[3] || `${process.env.TEMP}\\dz-replay.log`;
 const MOBILE = '9876500123';
 
 const json = { 'content-type': 'application/json' };

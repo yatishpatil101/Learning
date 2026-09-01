@@ -25,7 +25,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  * that one at least failed closed.
  *
  * WHY TWO CONTEXTS AND NOT A SESSION SWAP. The claim is a conversation between two people about one
- * flat, so a single actor cannot exercise it. The mock version swapped `puneNestUser` in place and
+ * flat, so a single actor cannot exercise it. The mock version swapped `draazyUser` in place and
  * reloaded, which works only because the mock reads identity from storage. Live, identity is a
  * bearer token held by the app in its own context, so the two sides genuinely need two browsers —
  * and that is closer to the truth anyway: this feature's whole risk is that one party can act for

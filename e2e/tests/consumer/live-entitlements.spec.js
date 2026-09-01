@@ -2,7 +2,7 @@
  *
  * This is the spec for D31b, and the thing it is really asserting is *where the number lives*.
  *
- * Until this change the quota was a browser fact: `pnContactsUsed:<mobile>` in localStorage, plus a
+ * Until this change the quota was a browser fact: `dzContactsUsed:<mobile>` in localStorage, plus a
  * referral bonus the same browser had also counted, minus a limit the same browser enforced before
  * it made any request at all. Every one of those was defeated by clearing site data, and none of
  * them was visible from a second device. The mock suite could not have caught that, because on a

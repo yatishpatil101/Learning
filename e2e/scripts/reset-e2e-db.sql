@@ -1,4 +1,4 @@
--- Reset punenest_e2e to its baseline. Run before a browser suite, never during one.
+-- Reset draazy_e2e to its baseline. Run before a browser suite, never during one.
 --
 -- ## Why truncate-and-replay rather than anything cleverer
 --

@@ -1,7 +1,7 @@
-# PuneNest Backend API & Code Standards
+# Draazy Backend API & Code Standards
 
 **Status:** authoritative. Applies to every backend slice. The auth + users slice
-(`com.punenest.api.auth`, `com.punenest.api.user`) is the reference implementation — new slices copy
+(`com.draazy.api.auth`, `com.draazy.api.user`) is the reference implementation — new slices copy
 its shape. Where this doc and the OpenAPI spec disagree, **the spec wins** (fix the spec first, then
 code); where the spec is silent, this doc governs.
 
@@ -9,7 +9,7 @@ code); where the spec is silent, this doc governs.
 
 ## 1. The contract is law
 
-- `backend/src/main/resources/static/openapi/punenest-api.yaml` is the single source of truth for every
+- `backend/src/main/resources/static/openapi/draazy-api.yaml` is the single source of truth for every
   path, verb, request/response shape, status code, `x-roles`, and `security` block.
 - Never invent a divergent shape. If the spec is wrong, silent, or self-contradictory: **stop, flag it,
   amend the spec (with rationale), then implement.** Record the decision in `tasks/todo.md`.
@@ -172,7 +172,7 @@ Two rules that follow, and are not optional:
 - Passwordless consumers (OTP); staff/admin use BCrypt email+password. Refresh tokens rotate with
   reuse-detection; logout revokes the refresh family (stateless access tokens expire naturally).
 - The refresh token travels **only** as an `HttpOnly; Secure; SameSite=Lax; Path=/` cookie
-  (`__Host-punenest_rt`; the bare name over plain-HTTP dev, where a browser rejects the prefix) — it
+  (`__Host-draazy_rt`; the bare name over plain-HTTP dev, where a browser rejects the prefix) — it
   is never in a response body and no client can read it, so `POST /auth/refresh`
   takes no credential in its body and answers `401` (not `422`) when the cookie is absent. Browser
   callers must therefore send `credentials: 'include'`. A token replayed within a few seconds of the
@@ -182,7 +182,7 @@ Two rules that follow, and are not optional:
 ## 7. Layering & package-by-feature
 
 - Package by **bounded context**, with flat feature/aggregate sub-packages under
-  `com.punenest.api.<context>[.<aggregate>]` (e.g. `identity.auth`, `identity.user`); shared machinery
+  `com.draazy.api.<context>[.<aggregate>]` (e.g. `identity.auth`, `identity.user`); shared machinery
   lives in `common.*`, `security.*`, `provider.*`. No `service/`/`controller/` layer packages. The
   definitive layout, dependency rules, context→package→schema mapping, and enforcement decision are in
   [`package-structure.md`](./package-structure.md) — that doc is authoritative for *where code lives*.

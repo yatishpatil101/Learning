@@ -16,7 +16,7 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
    ## Why the live port matters for the third test
 
    The guest branch is client-side routing and proved the same thing under either backend. The
-   signed-in branch did not: the mock version wrote `puneNestUser` into localStorage, which is a key
+   signed-in branch did not: the mock version wrote `draazyUser` into localStorage, which is a key
    the live app never reads. Against the real API that user does not exist — `AuthContext` stays
    loading, `/auth/me` answers 401, and "Post your requirement" would take the *guest* path to
    `/signin` while the spec claimed to be asserting the signed-in one. So the mock test could only

@@ -1,6 +1,6 @@
 # Flow: Rent & Tenancy Management
 
-> The recurring side of renting, minus the money. **No rent moves through PuneNest.** A tenant
+> The recurring side of renting, minus the money. **No rent moves through Draazy.** A tenant
 > records one rental of their own and the server derives their yearly and lifetime totals from it;
 > an owner keeps an auditable per-property rent ledger; both sides see a live tenancy. The
 > tenant-to-owner payment rail that once sat here — payments, autopay mandates, payout accounts and
@@ -12,12 +12,12 @@
 ## 1. Purpose & user problem
 - **Persona:** an active tenant who wants their yearly rent total and an HRA-ready figure without
   keeping a spreadsheet; the owner who wants an auditable rent ledger for a property they let.
-- **Job-to-be-done (tenant):** "Tell PuneNest what I pay, once, and let it do the arithmetic my
+- **Job-to-be-done (tenant):** "Tell Draazy what I pay, once, and let it do the arithmetic my
   employer's HRA form and my own budgeting need."
 - **Job-to-be-done (owner):** "See who my tenant is, what is due, and keep a ledger of received rent."
 - **Why it matters:** it keeps the *post*-deal relationship legible and closes the rent loop that
   [`./rent-agreement.md`](./rent-agreement.md) opens. It deliberately does **not** monetize that
-  relationship: PuneNest is not a payments business, and a dormant money path costs more to keep
+  relationship: Draazy is not a payments business, and a dormant money path costs more to keep
   honest than it earns.
 
 ## 2. Entry points
@@ -52,7 +52,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   `GET|POST /me/rentals` and `PATCH|DELETE /me/rentals/{rentalId}` (soft delete). Columns: `address`,
   `landlord_name`, `monthly_rent`, `deposit`, `lease_start`, `lease_end`, `status`
   (`active`/`ended`), plus soft-delete and audit. **No `property_id`, deliberately** — the home a
-  tenant rents is usually not a PuneNest listing. `address` and `landlord_name` are personal data,
+  tenant rents is usually not a Draazy listing. `address` and `landlord_name` are personal data,
   so the table is wired into DSAR export (`DataExportScope`) and account erasure (`ErasureService`).
 - **Tenancy** - `tenancies`, written cross-actor when a rent deal is finalized on this platform.
   A relationship, not a schedule: it carries no instalments.
@@ -61,7 +61,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **HRA receipt** - `generateSingle(...)` receipt doc (downloadable, `receiptId`).
 - **Tenant profile** - `tenant_profiles` (occupation/income/occupants/prior landlord/about). Read
   and written through `GET|PUT /me/tenant-profile`; the score is computed server-side from these
-  fields (section 5.5). The `pnTenantProfile:<mobile>` key is the mock provider's store only.
+  fields (section 5.5). The `dzTenantProfile:<mobile>` key is the mock provider's store only.
 - **Fees config** - `getFees()` -> `gstPercent` (18). There is no rent-payment percentage: the key
   `fees.rentPayPercent` was deleted with the rail.
 
@@ -102,7 +102,7 @@ The Passport is the portable document a tenant hands a prospective landlord, and
 **"Verified rent-payment record"**. It is therefore **not** generated from the self-declared rental,
 and must never be: every value on a rental is typed in by the person it flatters, and nothing checks
 any of it. Scoring a credential from it would make the platform the author of a forgery. It stays
-locked until rent PuneNest has actually seen move exists to build it from. The Wallet says so on the
+locked until rent Draazy has actually seen move exists to build it from. The Wallet says so on the
 card rather than hiding the section, because an absent panel and a withheld one read identically.
 
 ### 5.4 Tenancy status
@@ -187,7 +187,7 @@ Tenant rental:  (none) --POST /me/rentals--> active --PATCH status--> ended
 - **No rental recorded:** the Rent Wallet shows an honest empty state with the form to add one. This
   is the common case, not the exception — most tenants arrive with no `tenancy` row either.
 - **No active tenancy:** the rent surfaces show an honest empty state. This used to fall back to
-  `seedDemoTenancy` — fabricated data (`PN-RENT-DEMO`, owner Rahul Deshmukh 9820011234, rent 28000,
+  `seedDemoTenancy` — fabricated data (`DZ-RENT-DEMO`, owner Rahul Deshmukh 9820011234, rent 28000,
   two past payments and a partial tenant profile) written into the same localStorage keys a real
   tenancy used, with a "Load a demo rental" button on the panel. Against the API those keys are not
   read at all, so the affordance could only ever show a tenant a tenancy that does not exist while

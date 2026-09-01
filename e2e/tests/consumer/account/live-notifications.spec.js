@@ -2,7 +2,7 @@ import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 
 /*
- * The retired mock suite seeded `pnNotifications:<mobile>` and then asserted the
+ * The retired mock suite seeded `dzNotifications:<mobile>` and then asserted the
  * same local array after mark-all and dismiss. This file crosses the real boundary:
  * the page acts through `/notifications`, then a second API client reads the inbox
  * back outside the browser. The seeded buyer is deliberately read for the fixtures
@@ -20,14 +20,14 @@ const SEED_IDS = [
 ];
 const SEED_TITLES = [
   '3 new properties match your search',
-  'Welcome to PuneNest!',
+  'Welcome to Draazy!',
   'Price dropped on a saved property',
 ];
 
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
   });
@@ -106,7 +106,7 @@ test.describe('Notifications — live API', () => {
    * The demo inbox cannot reach a live account.
    *
    * Eight fabricated rows used to be held by `Notifications.jsx` and written to
-   * `pnNotifications:<mobile>` behind an `isHttpDomain('notification')` check. The check was
+   * `dzNotifications:<mobile>` behind an `isHttpDomain('notification')` check. The check was
    * correct, but it was a condition a page had to keep getting right; the seed now lives in
    * `providers/mock/notificationProvider.js`, so the http provider has no route to it at all.
    *
@@ -127,7 +127,7 @@ test.describe('Notifications — live API', () => {
     }
 
     const stored = await page.evaluate(() => {
-      const key = Object.keys(localStorage).find((k) => k.startsWith('pnNotifications:'));
+      const key = Object.keys(localStorage).find((k) => k.startsWith('dzNotifications:'));
       return key ? localStorage.getItem(key) : null;
     });
     const ids = stored ? JSON.parse(stored).map((row) => String(row.id)) : [];

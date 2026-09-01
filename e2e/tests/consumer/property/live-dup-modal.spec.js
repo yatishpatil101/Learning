@@ -3,7 +3,7 @@
  * checked against the real API.
  *
  * Converted from `dup-modal.spec.js`, which could only ever be a mock test: it seeded an existing
- * listing straight into `puneNestDB_v5` and then asked the mock provider whether that listing
+ * listing straight into `draazyDB_v5` and then asked the mock provider whether that listing
  * existed. The store answering the question was the store the test had just written, so the guard
  * was proved against itself. Here the listing the guard finds is a **seeded server row** owned by a
  * fixture account, and the answer comes from `POST /me/listings/duplicate-check`.
@@ -101,8 +101,8 @@ async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
   /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
      (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 /**

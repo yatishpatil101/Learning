@@ -5,7 +5,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  *
  * ## What the mock version was actually asserting
  *
- * `chat-owner.spec.js` wrote `puneNestContactReq:<ownerMobile>` into localStorage — a JSON array
+ * `chat-owner.spec.js` wrote `draazyContactReq:<ownerMobile>` into localStorage — a JSON array
  * holding a row with `status: 'approved'` — and then asserted the listing page offered "Chat with
  * Owner". The contact gate was read out of the same key the test had just written, so the test
  * proved that a value put into a browser store came back out of it. Nothing about who may reach an

@@ -27,7 +27,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  *
  * ## The second thing that got real
  *
- * Saving used to be proved by reading a `pnSavedProps:` localStorage bucket. Live, `SavedContext`
+ * Saving used to be proved by reading a `dzSavedProps:` localStorage bucket. Live, `SavedContext`
  * writes through `PUT /me/saved/{uuid}` and the shortlist is server state — so the save is checked
  * by asking the API, from outside the browser, whether the row exists. That is the difference
  * between "the page updated its own copy" and "the save happened".
@@ -65,7 +65,7 @@ const eligibleIn = (rows) => rows.filter(
    CTAs. Same reason the legal-pages and mobile-inbox specs do it. */
 async function seedConsent(page) {
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
     }));
   });

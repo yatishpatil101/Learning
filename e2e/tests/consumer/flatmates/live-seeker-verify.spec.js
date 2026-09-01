@@ -14,7 +14,7 @@
  *
  * ## Why the mock version could not have caught a regression here
  *
- * The mock established its unverified seeker with `addInitScript` writing `puneNestUser`, which is
+ * The mock established its unverified seeker with `addInitScript` writing `draazyUser`, which is
  * not a session - no token, nothing the server ever saw. `Hero.jsx` renders the CTA on
  * `user && !isVerified`, so a fabricated `user` object satisfied the left half and an absent
  * localStorage badge satisfied the right, and the CTA appeared because the fixture said so. The
@@ -32,7 +32,7 @@
  *
  * ## The absence assertion, and its anchor
  *
- * The old PuneNest-side Aadhaar OTP is gone (ADR-009a): the number and the OTP are entered on
+ * The old Draazy-side Aadhaar OTP is gone (ADR-009a): the number and the OTP are entered on
  * DigiLocker's own page and never on ours, so an OTP field appearing anywhere in this modal would
  * be a serious regression. But a `toHaveCount(0)` on an input that no longer exists in the codebase
  * is unfalsifiable on its own - the same trap the mock `no-gate` spec fell into, where four
@@ -90,7 +90,7 @@ test.describe('Flatmates seeker verification entry point (live)', () => {
     // The one door the modal offers. Proven present BEFORE the absence assertion below.
     await expect(badgeModal(page).getByRole('button', { name: /continue with digilocker/i })).toBeVisible();
 
-    // And no Aadhaar OTP on a PuneNest page - the thing ADR-009a moved off our surface entirely.
+    // And no Aadhaar OTP on a Draazy page - the thing ADR-009a moved off our surface entirely.
     await expect(page.getByLabel('OTP digit 1')).toHaveCount(0);
   });
 

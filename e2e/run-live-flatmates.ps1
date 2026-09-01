@@ -1,5 +1,5 @@
 # Runs the live Playwright suite for the FLATMATES lane: app on :5190, API on :8095,
-# database punenest_e2e_fm2. The backend for this lane must already be running with
+# database draazy_e2e_fm2. The backend for this lane must already be running with
 # -DbuildDirName=target-fm2 and --server.port=8095 under profiles dev,e2e.
 #
 # WHY A SCRIPT. The three settings below have to agree with the backend launcher, and a
@@ -21,12 +21,12 @@ Set-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 $env:BASE_URL = 'http://localhost:5190'
 $env:API_PORT = '8095'
-$env:PUNENEST_DEV_MACHINE = '1'
+$env:DRAAZY_DEV_MACHINE = '1'
 # The one that is easy to forget and expensive to miss. global-setup.live.js defaults to
-# 'punenest_e2e', so without this the run resets a database the backend on :8095 is not
+# 'draazy_e2e', so without this the run resets a database the backend on :8095 is not
 # serving: this lane is left un-reset and drifting, and ANOTHER lane's data is wiped.
 # Neither failure names itself - the suite reports assertion errors about rows.
-$env:E2E_DB_NAME = 'punenest_e2e_fm2'
+$env:E2E_DB_NAME = 'draazy_e2e_fm2'
 
 # Not $args: that is a PowerShell automatic variable, and assigning to it here makes the
 # splat expand to nothing, so `npx` is called bare and opens an interactive shell instead

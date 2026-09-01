@@ -19,7 +19,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  *
  * ## Why the mock version could not prove this
  *
- * It seeded `pnSavedSearches:<mobile>` into localStorage and then read the number back off the
+ * It seeded `dzSavedSearches:<mobile>` into localStorage and then read the number back off the
  * screen, so the mock provider counted, in the browser, over a catalogue the same process held in
  * memory. Every assertion was a statement about one JavaScript function agreeing with itself. The
  * claim being made, though, is about a page-size ceiling in a network fetch — precisely the part

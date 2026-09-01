@@ -2,7 +2,7 @@
  * Badge-not-gate (ADR-019), against an account the server genuinely has not verified.
  *
  * Converted from `no-gate.spec.js`. The mock version had a hole worth naming: it seeded
- * `puneNestAadhaar:<mobile>` — a *verified* Aadhaar record — and then asserted that the identity
+ * `draazyAadhaar:<mobile>` — a *verified* Aadhaar record — and then asserted that the identity
  * wall was absent. It was checking that a verified owner sees no gate, which is not the claim.
  * ADR-019 says an owner who has never touched DigiLocker can post. Here the account is registered
  * over HTTP seconds earlier and no badge is granted, so `GET /me` really does report an unverified

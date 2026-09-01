@@ -237,7 +237,7 @@ public class OwnerOutreachService {
         return users.findById(caller.userId())
                 .map(User::getName)
                 .filter(name -> name != null && !name.isBlank())
-                .orElse("PuneNest");
+                .orElse("Draazy");
     }
 
     private Property load(String propertyId) {
@@ -251,7 +251,7 @@ public class OwnerOutreachService {
      * @param status {@code prepared} on every row today. The tab must label it as such: this
      *     platform composes the message and hands it to a staff member's own WhatsApp, so it knows
      *     a chaser was written and cannot know one was delivered. See
-     *     {@link com.punenest.api.common.trust.MessageSender}.
+     *     {@link com.draazy.api.common.trust.MessageSender}.
      */
     public record OwnerOutreachEntry(
             String id,

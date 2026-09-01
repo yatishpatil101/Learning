@@ -1,6 +1,6 @@
-# PuneNest — Mobile App Plan (Pre‑React‑Native)
+# Draazy — Mobile App Plan (Pre‑React‑Native)
 
-> Goal: ship a real, store‑listed Android/iOS app for PuneNest by **reusing the existing React
+> Goal: ship a real, store‑listed Android/iOS app for Draazy by **reusing the existing React
 > codebase**, optimizing for **performance** and **usability**, without a native rewrite.
 >
 > Scope of this document: **everything up to (but not including) React Native.** That means two
@@ -202,7 +202,7 @@ Wrap the Phase‑1 web build in a native shell to produce real store apps with n
 
 ### Setup tasks
 1. `npm i @capacitor/core && npm i -D @capacitor/cli`; `npx cap init` (appId e.g.
-   `com.punenest.app`, appName "PuneNest"). Set Capacitor `webDir` to Vite's `dist`.
+   `com.draazy.app`, appName "Draazy"). Set Capacitor `webDir` to Vite's `dist`.
 2. `npm i @capacitor/android @capacitor/ios`; `npx cap add android` / `npx cap add ios`.
 3. Build + sync flow: `npm run build` → `npx cap sync` → `npx cap open android|ios`.
    (iOS build/signing requires macOS + Xcode; Android needs Android Studio + JDK.)
@@ -305,7 +305,7 @@ layer (`VITE_API_MODE`) is the seam that makes this safe and reversible.
 
 ## 12. Architecture decision — one repo, not a separate mobile app
 
-**Decision: Phase 1 and Phase 2 live in THIS `punenest-react` repo. Do not fork a separate mobile
+**Decision: Phase 1 and Phase 2 live in THIS `draazy-react` repo. Do not fork a separate mobile
 application.** The web app *is* the mobile app; `/android` and `/ios` are generated build output.
 
 ### Why one codebase

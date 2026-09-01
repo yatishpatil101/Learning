@@ -80,7 +80,7 @@ test('the FAQs tab lists the questions the server holds', async ({ page, login, 
 
   await openContent(page, login, 'faqs');
   await expect(page.getByRole('button', { name: 'Add FAQ' })).toBeVisible();
-  // A question taken from the API rather than the hardcoded "Is PuneNest really zero brokerage?"
+  // A question taken from the API rather than the hardcoded "Is Draazy really zero brokerage?"
   // the mock file used — that string is a fact about db.json and says nothing about this desk.
   await expect(page.getByText(faqs[0].title ?? faqs[0].question)).toBeVisible();
 });

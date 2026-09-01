@@ -43,14 +43,14 @@
 
 ## 4. Entities touched
 - [`contact_requests`](../../system/data-model.md) - created by the buyer, decided by the owner.
-  Runtime store, key `puneNestContactReq:<ownerDigits>` (shared with the HTML prototype).
+  Runtime store, key `draazyContactReq:<ownerDigits>` (shared with the HTML prototype).
 - [`aadhaar_verifications`](../../system/data-model.md) - read **only** as the opt-in Verified
   badge, and used solely by the owner "verified contacts only" path; written by `AadhaarVerifyModal`
-  on DigiLocker success (key `puneNestAadhaar:<mobile>`, `{ verified: true, source: 'digilocker', … }`).
+  on DigiLocker success (key `draazyAadhaar:<mobile>`, `{ verified: true, source: 'digilocker', … }`).
   It is **never** a prerequisite for the contact gate itself.
 - [`enquiries`](../../system/data-model.md) - the owner's "Enquiries" tab is **seed-only** today
   (`src/data/enquiries.json`); the buyer contact flow does **not** create rows here (see edge cases).
-- Owner privacy prefs (`pnOwnerPrefs:<mobile>`, `hideNumber`) and lead annotations
+- Owner privacy prefs (`dzOwnerPrefs:<mobile>`, `hideNumber`) and lead annotations
   (`leadNotes`, private note + follow-up date) are read/written on the owner side.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -67,7 +67,7 @@ Under **ADR-019 (badge-not-gate)** contact is **L1-only**: the sole floor is bei
 
 **Narrow exception - owner "verified contacts only" (opt-in badge, L2).**
 - If, and only if, the owner has opted into `verifiedContactOnly` (`ownerVerifiedOnly(ownerMobile)`)
-  **and** the requester lacks the Verified badge (`isViewerVerified` reads `puneNestAadhaar:<buyerDigits>`),
+  **and** the requester lacks the Verified badge (`isViewerVerified` reads `draazyAadhaar:<buyerDigits>`),
   `requestContact` returns `'verification_required'`.
 - The UI (`ContactBox.request` / `ContactOwnerModal.request`) then opens `AadhaarVerifyModal` — the
   **opt-in DigiLocker Verified-badge** flow ("Get your Verified badge" → "Continue with DigiLocker") —
@@ -121,7 +121,7 @@ unlimited (`plans.unlimited_contacts`, V91), and a qualified referral adds 15 mo
 
 ### Reveal rule (`ContactBox` / `ContactOwnerModal`)
 `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber(ownerMobile))`.
-- **Owner privacy override:** `ownerHidesNumber` (from `pnOwnerPrefs.hideNumber`) keeps the number
+- **Owner privacy override:** `ownerHidesNumber` (from `dzOwnerPrefs.hideNumber`) keeps the number
   masked even after approval; the buyer is routed to in-app chat/callback ("approved - prefers
   chat"). This sits on top of the always-on request gate, it does not replace it.
 
@@ -193,7 +193,7 @@ Contact request (per buyer+property):
   `src/data/enquiries.json`; those rows are **not** owner-scoped and are **not** produced by the live
   buyer contact/enquiry flow. Real buyer intent today materialises as **contact_requests** (and chat
   requests), not `enquiries`. This is a notable gap to close server-side.
-- **Cross-prototype storage:** the `puneNestContactReq:<ownerDigits>` key is shared with the HTML
+- **Cross-prototype storage:** the `draazyContactReq:<ownerDigits>` key is shared with the HTML
   prototype, so requests must stay compatible.
 - **`pn:store` event:** owner-pref changes dispatch a `pn:store` CustomEvent so open tabs re-render
   without reload (a lightweight in-app pub/sub the backend would replace with push).

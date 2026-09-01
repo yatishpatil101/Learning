@@ -23,7 +23,7 @@
   `src/pages/consumer/support/{TicketForm,TicketList,TicketThreadModal,Lightbox,ContactCard,FaqSection}.jsx`,
   `src/pages/consumer/support/constants.js` (status chips), and the service module
   `src/lib/data/support.js`.
-- **Scope note:** this is the **customer support** ticket system (`SUP-` ids, `puneNestSupport`
+- **Scope note:** this is the **customer support** ticket system (`SUP-` ids, `draazySupport`
   store). It is DISTINCT from the ops **service requests** queue (`src/data/tickets.json`, `T9###`
   ids, teams rental/legal/loans/interior/packers/valuation, statuses new/in_progress/done/cancelled,
   worked in `src/lib/data/tickets.js`) which fulfils paid home-services and is not this flow.
@@ -39,7 +39,7 @@
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `support_tickets` + `ticket_messages` (runtime `src/lib/data/support.js`, localStorage key
-  `puneNestSupport = { tickets: [], seq: 10000 }`) - created, replied-to, read-tracked. Ids
+  `draazySupport = { tickets: [], seq: 10000 }`) - created, replied-to, read-tracked. Ids
   `SUP-<seq>` where `seq` increments from 10000.
 - `faqs` (seed via `getFaqs()`) - read (self-serve FAQ section).
 - `users` - read for prefill (name/mobile/email); the ticket stores a mobile string that maps to a

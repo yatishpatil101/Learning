@@ -12,7 +12,7 @@ import { test, expect, MOBILE } from '../../../fixtures/live.js';
  *
  * ## Why the mock twin is not enough
  *
- * The mock version signed a user in by writing `puneNestUser` into localStorage, and the "no owner
+ * The mock version signed a user in by writing `draazyUser` into localStorage, and the "no owner
  * appears" assertion then held over a store the same process had populated. Live there is no store
  * to fall back to — an owner card can only be drawn from a fetch this page has no reason to make —
  * so a leak here would show up as a request, and asserting the absence against the real seam is
@@ -42,9 +42,9 @@ test('the generic support page shows no owner card and leaks no owner number', a
   await expect(support).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send enquiry', exact: true })).toBeVisible();
 
-  // And what it offers is PuneNest's own channels, which belong to the company and not to a person.
+  // And what it offers is Draazy's own channels, which belong to the company and not to a person.
   await expect(support.locator('a[href="tel:18002000000"]')).toBeVisible();
-  await expect(support.locator('a[href^="mailto:hello@punenest.com"]')).toBeVisible();
+  await expect(support.locator('a[href^="mailto:hello@draazy.com"]')).toBeVisible();
   await expect(support.locator('a[href^="https://wa.me/"]')).toBeVisible();
 
   // No owner card, under any name. `Contact owner directly` is the card's own heading, so its

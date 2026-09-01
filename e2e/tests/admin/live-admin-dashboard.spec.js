@@ -303,7 +303,7 @@ test.describe('/admin dashboard — the scorecard is the server\'s', () => {
 
     await openDashboard(page, login);
 
-    const card = page.locator('.pn-card').filter({ has: page.getByRole('heading', { name: 'Pending verification' }) });
+    const card = page.locator('.dz-card').filter({ has: page.getByRole('heading', { name: 'Pending verification' }) });
     await expect(card).toBeVisible();
 
     /* In order, not as a set. The card is a queue: which five it holds is the paging claim, and the

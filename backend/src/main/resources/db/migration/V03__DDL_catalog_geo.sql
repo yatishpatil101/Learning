@@ -120,7 +120,7 @@ CREATE INDEX idx_localities_city ON localities (city) WHERE active = true;
 -- WHY THIS EXISTS
 --
 -- A lister or a searcher who cannot find their society is offered "Add it". Until V105 that mint
--- wrote a record to `pnCommunitySocieties` in that one browser's localStorage and registered the
+-- wrote a record to `dzCommunitySocieties` in that one browser's localStorage and registered the
 -- slug into an in-memory lookup map. Three things followed from that, in ascending order of cost:
 --
 --   1. The society existed for exactly one person. Nobody else could find it, follow it, or list a
@@ -232,7 +232,7 @@ CREATE INDEX idx_localities_city ON localities (city) WHERE active = true;
 -- operator to use.
 --
 -- What shipped instead was `mergeSocieties()` in the browser, writing a `from -> to` map to
--- `pnSocietyMerges` in localStorage. That has the same shape of failure as every other society
+-- `dzSocietyMerges` in localStorage. That has the same shape of failure as every other society
 -- queue before it, and one worse consequence:
 --
 --   1. The merge was recorded in exactly one operator's browser. A second operator opening the
@@ -293,7 +293,7 @@ CREATE INDEX idx_localities_city ON localities (city) WHERE active = true;
 --
 -- The back office has always had a society editor. `AdminSocieties.jsx` opens a five-field form --
 -- registration, conveyance, maintenance per sq ft, claim status, and a free-text note -- and
--- `saveEdit` writes all five into `pnSocietyOverlay` in the operator's own localStorage. Four of
+-- `saveEdit` writes all five into `dzSocietyOverlay` in the operator's own localStorage. Four of
 -- those five are real columns on `societies` that the form has never been able to reach, and the
 -- fifth is this one, which had nowhere to be reached.
 --

@@ -1,7 +1,7 @@
 /**
  * The posting wizard's momentum meter, against the live backend.
  *
- * Converted from `progress.spec.js`, which wrote `puneNestUser` and an Aadhaar record into
+ * Converted from `progress.spec.js`, which wrote `draazyUser` and an Aadhaar record into
  * localStorage before the app booted. Every percentage asserted below comes out of
  * `list-property/progress.js`, which is a pure reduction over form state, so the arithmetic is the
  * same either way — but a meter is only worth reading if it sits above a wizard the owner can
@@ -41,13 +41,13 @@ const pctOf = async (page) => {
  * dropdown `waitForTimeout` in this file was waiting for that one frame.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 test('loads the gamified flow without JS errors', async ({ page, consoleErrors }) => {
@@ -109,18 +109,18 @@ test('filling only mandatory fields keeps the meter under 100% (optional left bl
 
   await page.locator('[data-err="locality"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.locator('input[data-err="price"]').fill('9500000');
   await page.locator('[data-err="ownership"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   /* The final `pctOf` read below does not retry, so the meter has to be known-settled first.
      `Select.jsx` drops `is-placeholder` from the trigger's value span only once a value is actually
      selected (Select.jsx:272), which is the closest thing to a commit signal this control has. */
-  await expect(page.locator('[data-err="ownership"] .pn-dropdown__value')).not.toHaveClass(/is-placeholder/);
+  await expect(page.locator('[data-err="ownership"] .dz-dropdown__value')).not.toHaveClass(/is-placeholder/);
 
   // Optional fields (built-up, floor, facing, video, description, amenities,
   // supporting documents…) are still blank, so the meter must stay short of 100%.

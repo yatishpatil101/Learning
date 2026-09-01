@@ -6,7 +6,7 @@ import { API, authHeaders, uniqueMobile } from '../../../helpers/liveAuth.js';
  *
  * ## What the mock version could not prove
  *
- * It wrote `puneNestDeals:<ownerId>` into localStorage and logged in as a buyer. That store is the
+ * It wrote `draazyDeals:<ownerId>` into localStorage and logged in as a buyer. That store is the
  * **owner-scoped** client deal store, and the whole point of D110 is that closed-ness stopped
  * living there: the property now carries a public `dealStatus` mirror so a buyer — who can never
  * read the owner's deal — has an honest answer. Seeding the owner's store and then reading the

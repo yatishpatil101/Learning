@@ -16,7 +16,7 @@
   who wants their property live.
 - **Job-to-be-done:** "Check every new listing against its ownership documents and only publish the
   genuine ones." For the owner: "Get my property verified and live."
-- **Why it matters:** listing verification is PuneNest's core **supply-quality** gate. A listing is
+- **Why it matters:** listing verification is Draazy's core **supply-quality** gate. A listing is
   invisible to buyers until a checker approves it, so this queue is the single choke point that
   decides platform supply quality. Note this gates the **listing** (its documents), not the owner's
   identity — posting itself is L1-only (ADR-019); the owner's opt-in Verified badge is a separate

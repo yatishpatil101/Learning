@@ -17,18 +17,18 @@ export async function pickDate(page, wrapperSelector, iso) {
   await field.scrollIntoViewIfNeeded();
   await field.click();
 
-  const cal = page.locator('.pn-cal');
+  const cal = page.locator('.dz-cal');
   await cal.waitFor({ state: 'visible' });
 
   // Year.
-  await cal.locator('.pn-cal__dd--year .pn-dropdown__trigger').click();
-  await page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: new RegExp(`^${y}$`) }).first().click();
+  await cal.locator('.dz-cal__dd--year .dz-dropdown__trigger').click();
+  await page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: new RegExp(`^${y}$`) }).first().click();
 
   // Month.
-  await cal.locator('.pn-cal__dd:not(.pn-cal__dd--year) .pn-dropdown__trigger').click();
-  await page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: new RegExp(`^${MONTHS[m - 1]}$`) }).first().click();
+  await cal.locator('.dz-cal__dd:not(.dz-cal__dd--year) .dz-dropdown__trigger').click();
+  await page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: new RegExp(`^${MONTHS[m - 1]}$`) }).first().click();
 
   // Day (the in-month cell for this exact date) — clicking it commits immediately.
-  await cal.locator(`.pn-cal__day[aria-label="${iso}"]:not(.is-muted)`).click();
+  await cal.locator(`.dz-cal__day[aria-label="${iso}"]:not(.is-muted)`).click();
   await cal.waitFor({ state: 'detached' });
 }

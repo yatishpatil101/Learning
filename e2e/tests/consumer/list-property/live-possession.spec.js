@@ -1,7 +1,7 @@
 /**
  * Sale Type and Possession Status on the posting wizard's second step, against the live backend.
  *
- * Converted from `possession.spec.js`, which wrote `puneNestUser` and an Aadhaar record straight
+ * Converted from `possession.spec.js`, which wrote `draazyUser` and an Aadhaar record straight
  * into localStorage. That shortcut is why the mock version could not have caught a step 2 that
  * never arrives for a real session: it only ever proved that the fields render in a browser that
  * had been told it was signed in, and the walk from step 1 to step 2 — the Next Step submit, the
@@ -35,8 +35,8 @@ async function gotoStep2(page) {
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -74,8 +74,8 @@ test('choosing "Available From" reveals a date picker', async ({ page }) => {
   await expect(dateField).toBeVisible();
   // The field opens the app's custom calendar dropdown (no native date input).
   await dateField.click();
-  await expect(page.locator('.pn-cal')).toBeVisible();
-  await expect(page.locator('.pn-cal__title')).toHaveText('Select Date');
+  await expect(page.locator('.dz-cal')).toBeVisible();
+  await expect(page.locator('.dz-cal__title')).toHaveText('Select Date');
 });
 
 test('selected date is displayed as DD/MM/YYYY', async ({ page }) => {
@@ -83,7 +83,7 @@ test('selected date is displayed as DD/MM/YYYY', async ({ page }) => {
   await page.locator('[data-err="possession"]').getByText('Available From', { exact: true }).click();
   const field = page.locator('[data-err="availableFrom"]');
   await pickDate(page, '[data-err="availableFrom"]', '2025-03-14');
-  await expect(field.locator('.pn-datefield__text')).toHaveText('14/03/2025');
+  await expect(field.locator('.dz-datefield__text')).toHaveText('14/03/2025');
 });
 
 test('"Available From" needs a date before the step can advance', async ({ page, consoleErrors }) => {
@@ -92,7 +92,7 @@ test('"Available From" needs a date before the step can advance', async ({ page,
   // Leave the date empty and try to proceed.
   await page.getByRole('button', { name: /Next Step/i }).click();
   // The date field is flagged invalid and we remain on Step 2 (map still shown).
-  await expect(page.locator('[data-err="availableFrom"]')).toHaveClass(/pn-invalid/);
+  await expect(page.locator('[data-err="availableFrom"]')).toHaveClass(/dz-invalid/);
   await expect(page.locator('.gm-style').first()).toBeVisible();
   expect(consoleErrors).toHaveLength(0);
 });

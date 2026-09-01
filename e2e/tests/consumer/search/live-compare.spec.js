@@ -3,13 +3,13 @@ import { test, expect } from '../../../fixtures/live.js';
 // Property comparison (/compare).
 //
 // Behaviour verified from: pages/consumer/Compare.jsx, context/CompareContext.jsx
-// (localStorage key `puneNestCompare`, capped at 4), property/CompareToggleBar.jsx
+// (localStorage key `draazyCompare`, capped at 4), property/CompareToggleBar.jsx
 // (the "Add to Compare" control on a property page), App.jsx (route is wrapped in
 // AppFlagRoute flag="compareProperties" -> redirects to / when the flag is off),
 // and i18n/locales/en/compare-saved.json for the visible labels.
 //
 // WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor turned the feature flag on by
-// editing `settings.flags` inside `puneNestDB_v5`. Under the live config `settings` is
+// editing `settings.flags` inside `draazyDB_v5`. Under the live config `settings` is
 // one of the VITE_API_DOMAINS, so the flag the app consults comes from `GET /flags` on
 // the server and that localStorage write is read by nobody — a silent no-op dressed up
 // as setup. Worse, it threw when the mock store was absent, which made the test's own
@@ -18,7 +18,7 @@ import { test, expect } from '../../../fixtures/live.js';
 // on teardown even when the test fails, so a flag flipped here cannot leak into the
 // specs that follow.
 //
-// `puneNestCompare` stays in localStorage on purpose: CompareContext genuinely keeps the
+// `draazyCompare` stays in localStorage on purpose: CompareContext genuinely keeps the
 // shortlist client-side, so seeding that key is a statement about the real storage the
 // feature uses, not a substitute for a server the test is avoiding.
 
@@ -31,7 +31,7 @@ const B = 'p5121'; // 2 BHK Flat, Wakad (rent) - seeded 2026-08-19
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
   });
@@ -41,7 +41,7 @@ async function seedConsent(page) {
 // init). This is the same state CompareToggleBar writes when a user taps "Compare".
 async function seedCompare(page, ids) {
   await page.addInitScript((list) => {
-    localStorage.setItem('puneNestCompare', JSON.stringify(list));
+    localStorage.setItem('draazyCompare', JSON.stringify(list));
   }, ids);
 }
 

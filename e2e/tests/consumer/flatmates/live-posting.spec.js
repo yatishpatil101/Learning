@@ -11,7 +11,7 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
    Every assertion here is about routing and modal state, so on the face of it the provider makes
    no difference and the mock twin was as good. It made one difference that mattered: the mock
-   spec established its user by writing `localStorage.puneNestUser`, which is not a session. The
+   spec established its user by writing `localStorage.draazyUser`, which is not a session. The
    two branches that depend on being signed in were therefore proving that the *fake* passed the
    guard, and the guest branch — the only one whose whole point is that the guard fires — was the
    only one being asked a real question. Under a real session the signed-in branches now traverse

@@ -2,7 +2,7 @@
  * The edit-policy banner and the free-plan paywall, driven by real listings.
  *
  * Converted from `edit-policy.spec.js`. The original had to build its own world twice over: a
- * `puneNestListings:<mobile>` mirror, then a second init script splicing the listing into the
+ * `draazyListings:<mobile>` mirror, then a second init script splicing the listing into the
  * browser catalogue after boot, with a long comment explaining that the first of those was already
  * dead weight. Both existed to answer one question the server now answers directly — how many
  * listings does this owner have, and is the one being edited live.

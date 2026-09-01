@@ -1,4 +1,4 @@
-/* Seed-coverage guard for `punenest_e2e`.
+/* Seed-coverage guard for `draazy_e2e`.
  *
  * ## The failure this exists to stop
  *
@@ -15,8 +15,8 @@
  *
  * The two databases have opposite invariants, and until now only one of them was enforced:
  *
- *   punenest_test  must be EMPTY      - guarded by TestDatabaseIsolationTest (126 exact counts)
- *   punenest_e2e   must be POPULATED  - guarded by this file
+ *   draazy_test  must be EMPTY      - guarded by TestDatabaseIsolationTest (126 exact counts)
+ *   draazy_e2e   must be POPULATED  - guarded by this file
  *
  * ## Why the third state exists
  *
@@ -36,7 +36,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const PSQL = process.env.PSQL || 'C:\\Program Files\\PostgreSQL\\13\\bin\\psql.exe';
-const DB = process.env.E2E_DB_NAME || 'punenest_e2e';
+const DB = process.env.E2E_DB_NAME || 'draazy_e2e';
 const USER = process.env.E2E_DB_USER || 'postgres';
 
 /* WAIVED - a spec CREATES these rows, so seeding them would be seeding the thing under test.

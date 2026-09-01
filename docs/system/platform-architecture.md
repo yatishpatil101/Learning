@@ -1,4 +1,4 @@
-# PuneNest — Platform & Solution Architecture (living doc)
+# Draazy — Platform & Solution Architecture (living doc)
 
 > **Status:** MVP architecture pass complete — 21 ADRs ratified (ADR-001..019 incl. ADR-009a/009b)
 > covering compute, database, auth/session, KYC, notifications/jobs, search, storage, payments,
@@ -15,7 +15,7 @@
 > - [`frontend-data-seam.md`](./frontend-data-seam.md) — the React app's `mock→http` seam.
 > - [`cross-cutting.md`](./cross-cutting.md) — auth/roles, contact + Aadhaar gate, maker-checker, audit.
 > - [`data-model.md`](./data-model.md) — ER map + persistence design.
-> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) — the REST contract (SSOT for wire shapes).
+> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) — the REST contract (SSOT for wire shapes).
 > - [`../roadmap/build-roadmap.md`](../roadmap/build-roadmap.md) — phased backend build order.
 >
 > **Design principles (early-stage):** decide every component on **Performance · Security · Cost ·
@@ -95,8 +95,8 @@ graph TB
         ADMIN[Platform Admin]
     end
 
-    SPA[PuneNest React SPA<br/>browser]
-    PLATFORM([PuneNest Platform<br/>backend + data + jobs])
+    SPA[Draazy React SPA<br/>browser]
+    PLATFORM([Draazy Platform<br/>backend + data + jobs])
 
     BUYER --> SPA
     OWNER --> SPA
@@ -548,7 +548,7 @@ graph LR
 
 #### 5.7.1 The UI and the API must share one registrable domain
 
-The session's long-lived half is an `HttpOnly`, `SameSite=Lax` cookie (`__Host-punenest_rt`), so the
+The session's long-lived half is an `HttpOnly`, `SameSite=Lax` cookie (`__Host-draazy_rt`), so the
 browser returns it to `POST /api/auth/refresh` only when the page making that call and this API are
 the same *site*. That makes hosting topology a load-bearing part of the auth design rather than an
 operational detail, and the failure mode is why it is written down here: a cross-site frontend gets
@@ -560,11 +560,11 @@ Two arrangements satisfy it, and the code supports both without modification:
 
 | Arrangement | Example | Cross-origin? | What it needs |
 | --- | --- | --- | --- |
-| **Path proxy** (simplest) | `punenest.com` serves the SPA and forwards `/api/*` to Cloud Run | No | Nothing. No CORS involved at all |
-| **Sibling subdomains** | `www.punenest.com` → `api.punenest.com` | Yes, but same-*site* | `WEB_ORIGINS` listing the UI origin exactly; `CorsConfig` already sets `allowCredentials` |
+| **Path proxy** (simplest) | `draazy.com` serves the SPA and forwards `/api/*` to Cloud Run | No | Nothing. No CORS involved at all |
+| **Sibling subdomains** | `www.draazy.com` → `api.draazy.com` | Yes, but same-*site* | `WEB_ORIGINS` listing the UI origin exactly; `CorsConfig` already sets `allowCredentials` |
 
 The two are not equivalent, and the path proxy is the one to choose. The readable
-`__Host-punenest_session` marker that drives the Safari-ITP session recovery is scoped by *host* —
+`__Host-draazy_session` marker that drives the Safari-ITP session recovery is scoped by *host* —
 `document.cookie` always is, and the `__Host-` prefix forbids the `Domain` attribute that would widen
 it — so on sibling subdomains a page on `www.` cannot see a marker set by `api.`. Refresh still works
 for everyone else; what is lost is the recovery for the Safari visitor who returns after seven days,
@@ -578,7 +578,7 @@ third-party SaaS, no wildcard DNS, and no dangling `CNAME` records. A host an at
 host that can write cookies into our jar.
 
 What breaks it is a frontend on its own registrable domain. `*.netlify.app` is the live risk: it is a
-Public Suffix List entry, so `punenest.netlify.app` and any `api.*` host are different sites, and
+Public Suffix List entry, so `draazy.netlify.app` and any `api.*` host are different sites, and
 `frontend/netlify.toml` currently declares no `/api` proxy. `SameSite=None` would restore delivery but
 is not a free repair — it deletes the argument for `/auth/refresh` carrying no CSRF token, so it would
 have to be paid for with a double-submit token or an Origin allow-list.
@@ -590,7 +590,7 @@ start. It additionally warns — without failing — on the same-site-but-not-sa
 only the ITP recovery is lost.
 
 One-off cost of the cookie rename: every already-signed-in user is signed out once on the deploy that
-introduces `__Host-punenest_rt`, because their existing `punenest_rt` cookie is no longer looked for.
+introduces `__Host-draazy_rt`, because their existing `draazy_rt` cookie is no longer looked for.
 No data is lost and the next sign-in is normal; it is worth a line in the release note rather than a
 support surprise.
 
@@ -690,7 +690,7 @@ support surprise.
   session list with "log out everywhere"; step-up auth for sensitive operations.
 - **Score - Performance 8 | Security 9 | Cost 9 | Ops simplicity 7.**
 - **As built (2026-08-31).** Half of C, and deliberately so: the **refresh** token is an `HttpOnly;
-  Secure; SameSite=Lax; Path=/` cookie (`__Host-punenest_rt`), while the **access** token is still a
+  Secure; SameSite=Lax; Path=/` cookie (`__Host-draazy_rt`), while the **access** token is still a
   `localStorage` Bearer. Splitting them this way took the month-long credential out of JavaScript's
   reach without rewriting every authenticated call. Be precise about the benefit, because the
   obvious phrasing is wrong: `HttpOnly` stops a payload *reading* the refresh token, not *using* it —
@@ -705,7 +705,7 @@ support surprise.
   with no cookie at all; every mutation still authenticates by a header no other origin can set. And
   the client lost its ability to break a refresh race by
   comparing the stored token, so the server forgives a replay landing within seconds of the rotation
-  it lost (`punenest.security.jwt.refresh-grace`).
+  it lost (`draazy.security.jwt.refresh-grace`).
   Finishing C — access token in memory, CSRF double-submit — remains open, and is now a change to the
   access token alone.
   **The `__Host-` prefix replaced the `/api/auth` path scoping, and that is a net gain.** Path
@@ -719,7 +719,7 @@ support surprise.
   runtime from `refresh-cookie.secure` (prefixed in production, bare over plain-HTTP dev where a
   browser would reject the prefix), and both shapes are pinned by test rather than left to whichever
   profile CI happens to run.
-  **A second, deliberately readable cookie rides beside it.** `__Host-punenest_session` (`Path=/`, not
+  **A second, deliberately readable cookie rides beside it.** `__Host-draazy_session` (`Path=/`, not
   `HttpOnly`, same `Max-Age`/`Secure`/`SameSite`, cleared by the same logout) exists because Safari's
   ITP evicts *script-writable* storage at seven days and spares server-set cookies. Without it a
   remembered Safari user reached day eight with an empty `localStorage` and a refresh cookie good for

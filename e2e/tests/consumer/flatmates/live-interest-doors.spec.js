@@ -35,7 +35,7 @@ import { trackErrors } from '../../../helpers/console.js';
  * belongs, since it is reachable only by a client that is not this UI.
  *
  * Dropped with them, for the same reason, is the mock's D183 pair about what a *second* device
- * writes to `pnPendingRequests` on a 409. The hand-off is still asserted here — test 2 — but on the
+ * writes to `dzPendingRequests` on a 409. The hand-off is still asserted here — test 2 — but on the
  * success path, which is the only path a browser can now take. It stays a localStorage claim
  * because Messages is still a localStorage reader; when Messages grows a server-side inbox the two
  * move together (D183).
@@ -137,7 +137,7 @@ const setSeats = (token, groupId, seatsOpen) =>
   });
 
 /* What the host was actually sent, by the name the seeker would recognise. This is the live
-   successor of the mock's ledger assertion (`pnMockFlatmateInterests` contains a composite key):
+   successor of the mock's ledger assertion (`dzMockFlatmateInterests` contains a composite key):
    the row exists because the door reached the server, and it is the row the feature exists to
    create, rather than a store the provider keeps for itself. */
 async function hostInboxTitles(token) {
@@ -159,14 +159,14 @@ const isErrorToast = async (page) => ((await toast(page).getAttribute('class')) 
  */
 async function forgetDevice(page) {
   await page.evaluate(() => {
-    ['puneNestFlatmateInterests', 'pnPendingRequests']
+    ['draazyFlatmateInterests', 'dzPendingRequests']
       .forEach((k) => localStorage.removeItem(k));
   });
   await page.reload();
 }
 
 const queuedFor = (page, propertyId) => page.evaluate(
-  (id) => JSON.parse(localStorage.getItem('pnPendingRequests') || '[]').filter((r) => r?.propertyId === id),
+  (id) => JSON.parse(localStorage.getItem('dzPendingRequests') || '[]').filter((r) => r?.propertyId === id),
   propertyId,
 );
 
@@ -177,7 +177,7 @@ const queuedFor = (page, propertyId) => page.evaluate(
  * device comes back still remembering. Wait for the durable write instead. */
 const rememberedAsk = (page, key) => expect.poll(
   () => page.evaluate(
-    (k) => Object.values(JSON.parse(localStorage.getItem('puneNestFlatmateInterests') || '{}')).some((m) => m?.[k]),
+    (k) => Object.values(JSON.parse(localStorage.getItem('draazyFlatmateInterests') || '{}')).some((m) => m?.[k]),
     key,
   ),
   { message: `the device should have recorded ${key} locally`, timeout: 15_000 },
@@ -250,12 +250,12 @@ test.describe('Flatmate interest doors (live)', () => {
     expect(await queuedFor(page, `room-${room.id}`), 'the ask should be queued for Messages').toHaveLength(1);
 
     /* A second assertion stood here: that the same ask was "announced in the bell", read back out
-       of a `puneNestNotifications` array. It was proving a write nobody reads — the live inbox is
+       of a `draazyNotifications` array. It was proving a write nobody reads — the live inbox is
        `GET /notifications` and never looked at that key, so the bell badge and the Notifications
        page could not have shown the row the test was finding. The client no longer mints it.
 
        And it arrives as something the seeker can see, not just a row in storage. The mock twin went
-       further and asserted the queue was drained into `pnConversations` on mount — that is not
+       further and asserted the queue was drained into `dzConversations` on mount — that is not
        converted, because it was never a claim about this feature: it is the mock conversation
        provider's own bookkeeping, and `conversation` is a live domain here, so Messages reads the
        server and leaves the queue alone. */
@@ -278,7 +278,7 @@ test.describe('Flatmate interest doors (live)', () => {
     await forgetDevice(page);
     /* Precondition, and what makes the assertion below mean anything: this device really is starting
        from nothing. If the reload ever leaked the old map across, the test would be vacuous. */
-    expect(await page.evaluate(() => localStorage.getItem('puneNestFlatmateInterests')), 'the device must have forgotten').toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('draazyFlatmateInterests')), 'the device must have forgotten').toBeNull();
 
     /* THE assertion, and the reason four of the mock twin's tests are not here. Point the
        `interests` effect back at `getAskedInterests(user.mobile)` — the localStorage map it used to

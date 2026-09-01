@@ -8,7 +8,7 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** a super-admin / platform owner configuring how PuneNest behaves and who can operate it.
+- **Persona:** a super-admin / platform owner configuring how Draazy behaves and who can operate it.
 - **Job-to-be-done:** "Edit site details and fees, flip features on/off safely, review the audit trail,
   and create internal accounts whose permissions map to exactly the API surface and service teams they need."
 - **Why it matters:** these settings drive money math ([`finance.md`](./finance.md)), consumer behaviour
@@ -189,5 +189,5 @@ for assignment, and the staff portal shows a member only their own desk — enfo
 - **Member validation:** required name, 10-digit mobile, duplicate-mobile rejection, last-admin protections (3 sites).
 - **Audit empty:** export/clear no-op with a toast when the log is empty; render shows "No changes logged yet."
 - **Fee coercion:** non-numeric fee input becomes `0`.
-- **Cross-tab sync:** `updateSettings` and role writes dispatch `punenest-settings-change` so nav/guards refresh in-tab.
+- **Cross-tab sync:** `updateSettings` and role writes dispatch `draazy-settings-change` so nav/guards refresh in-tab.
 - **Concurrency:** shared store; `updateSettings` merges by section, but two concurrent section saves can clobber each other (last write wins).

@@ -13,7 +13,7 @@ import { API, apiLogin, signedInAs, signedInAsNew, uniqueMobile } from '../../..
  *
  * ## Why the mock could not make these claims
  *
- * It read its results out of `localStorage['pnSavedSearches:' + mobile]`. Under a live
+ * It read its results out of `localStorage['dzSavedSearches:' + mobile]`. Under a live
  * `savedSearch` domain nothing ever writes that key: `FlatmateAlertCard` goes through
  * `useSavedSearches().create` to `POST /me/saved-searches`. So the mock was asserting against a
  * store the product had stopped using — it would stay green if the create 422'd, if the seam were

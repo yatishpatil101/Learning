@@ -1,5 +1,5 @@
 # Runs the live Playwright suite for the SERVICES lane: app on :5191, API on :8096,
-# database punenest_e2e_sv2. The backend for this lane must already be running via
+# database draazy_e2e_sv2. The backend for this lane must already be running via
 # backend/run-lane-services.ps1 (-DbuildDirName=target-sv2, --server.port=8096,
 # profiles dev,e2e).
 #
@@ -22,12 +22,12 @@ Set-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 $env:BASE_URL = 'http://localhost:5191'
 $env:API_PORT = '8096'
-$env:PUNENEST_DEV_MACHINE = '1'
+$env:DRAAZY_DEV_MACHINE = '1'
 # The one that is easy to forget and expensive to miss. global-setup.live.js defaults to
-# 'punenest_e2e', so without this the run resets a database the backend on :8096 is not
+# 'draazy_e2e', so without this the run resets a database the backend on :8096 is not
 # serving: this lane is left un-reset and drifting, and ANOTHER lane's data is wiped.
 # Neither failure names itself - the suite reports assertion errors about rows.
-$env:E2E_DB_NAME = 'punenest_e2e_sv2'
+$env:E2E_DB_NAME = 'draazy_e2e_sv2'
 
 # Not $args: that is a PowerShell automatic variable, and assigning to it here makes the
 # splat expand to nothing, so `npx` is called bare and opens an interactive shell instead

@@ -19,15 +19,15 @@ import { API, authHeaders, uniqueMobile, signedInAs, grantAadhaarBadge } from '.
  * ## Why this has to run live
  *
  * The mock version decided the gate in the browser — `lib/contact.js:143` reads the owner's
- * preference out of `pnOwnerPrefs:<mobile>` in localStorage and the caller's badge out of
- * `puneNestAadhaar:<mobile>`, both of which the test itself had written moments earlier. Every
+ * preference out of `dzOwnerPrefs:<mobile>` in localStorage and the caller's badge out of
+ * `draazyAadhaar:<mobile>`, both of which the test itself had written moments earlier. Every
  * outcome was therefore a statement about seed data the same process controlled. Live the decision
  * belongs to `ContactService`, the preference is a column on the owner's account, and the refusal
  * is a real `403 verification_required` — so these tests can be wrong, which is what makes them
  * worth running.
  *
  * The mock's fourth test is not carried over in its original form. It completed a fake DigiLocker
- * round-trip in the browser and then asserted `puneNestAadhaar:<buyer>` had been written — a test
+ * round-trip in the browser and then asserted `draazyAadhaar:<buyer>` had been written — a test
  * of the mock's own storage write. Live the badge is granted server-side and what matters is that
  * holding one changes the answer, which is what the third test asserts.
  */

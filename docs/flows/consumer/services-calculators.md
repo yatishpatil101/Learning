@@ -16,7 +16,7 @@
 - **Persona:** any consumer who, alongside buying/renting, needs the *adjacent* services -
   a home loan, legal/registration help, movers, interiors, a valuation report, or a rent agreement.
 - **Job-to-be-done:** "Estimate a cost instantly (EMI, stamp duty, moving cost, property value),
-  then hand off a lead to the right PuneNest ops team."
+  then hand off a lead to the right Draazy ops team."
 - **Why it matters:** the "everything under one roof, zero brokerage" promise. Calculators are the
   free, high-trust "customer touch" that converts a browser into a service lead; each page ends in a
   `createServiceRequest` into the ops queue. The calculators are pure functions today so they are
@@ -58,7 +58,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Service workflow request** - a server `service_requests` record for the customer tracker
   (valuation, rent agreement). See section 5 and [`./rent-agreement.md`](./rent-agreement.md).
 - **Service order** - `addServiceOrder({ type:'move-in-pack', items, total })`
-  (`pnServiceOrders:<mobile>`) for the Move-in Pack bundle.
+  (`dzServiceOrders:<mobile>`) for the Move-in Pack bundle.
 - **Fees config** - `getFees()` (`settings.fees`, admin-controlled) supplies `rentAgreementPlatform`
   and any dynamic charges; the Move-in Pack prices come from `settings.movePack.items`.
 - **Services catalog** - `src/data/services.json` (6 rows) drives the ops/admin service list.
@@ -133,7 +133,7 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
 ### 5.5 Services hub - Move-in Pack bundle (`Services.jsx`)
 - Prices come from admin config `settings.movePack.items` (fallback `DEFAULT_PACK_PRICES` = movers
   8000, clean 2500, agreement 1500, paint 6000, verify 999, internet 500) via `useMovePackConfig()`,
-  which live-reacts to `punenest-settings-change` and `storage` events.
+  which live-reacts to `draazy-settings-change` and `storage` events.
 - **Bundle math:**
   ```
   total = sum of selected item prices
@@ -179,7 +179,7 @@ conf   = clamp(72..95) of 92, minus 12 if area<400 or >3000, minus 3 if ageM<0.9
   keys to factor 1.
 - **Unknown locality (valuation):** falls back to city-average rate/YoY and drops confidence by 8.
 - **Sign-in gate on submit:** valuation `submit` and rent-agreement `generate` bounce to
-  `/signin?reason=service&next=...`; the autosaved draft (`pnDraft:*`, `useFormDraft`) is restored on
+  `/signin?reason=service&next=...`; the autosaved draft (`dzDraft:*`, `useFormDraft`) is restored on
   return. `bookPack`/`waitlist` also gate/limit appropriately.
 - **Field validation:** valuation lead requires name, valid mobile `^[6-9]\d{9}$`, and a purpose;
   Move-in waitlist requires a valid mobile (`isValidMobile`).

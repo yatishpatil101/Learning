@@ -1,7 +1,7 @@
 /**
  * The "Start over" control on the posting wizard, against the live backend.
  *
- * Converted from `reset.spec.js`. The draft this file reads and clears is `pnDraft:list-property`,
+ * Converted from `reset.spec.js`. The draft this file reads and clears is `dzDraft:list-property`,
  * a genuine browser-side draft rather than a stand-in for the server, so it stays exactly as it
  * was — the wizard is meant to hold a half-finished form across a refresh without ever telling the
  * backend about it, and that is the claim.
@@ -54,9 +54,9 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
      retry -- so this wait is load-bearing. Polling the draft waits for the write itself rather than
      for a duration somebody timed the debounce at once. */
   await expect
-    .poll(async () => page.evaluate(() => localStorage.getItem('pnDraft:list-property')))
+    .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:list-property')))
     .toContain('1050');
-  const draftBefore = await page.evaluate(() => localStorage.getItem('pnDraft:list-property'));
+  const draftBefore = await page.evaluate(() => localStorage.getItem('dzDraft:list-property'));
   expect(draftBefore).toContain('1050');
 
   // Open confirm and commit the reset (triggers a full reload).
@@ -64,7 +64,7 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
   /* `exact` matters here: Playwright matches accessible names by substring by default, and the
      modal's close button is labelled "Close Start over?" — which contains "Start over". Two
      matches, and the one that would have been clicked is a coin toss. */
-  await page.locator('.pn-modal-panel').getByRole('button', { name: 'Start over', exact: true }).click();
+  await page.locator('.dz-modal-panel').getByRole('button', { name: 'Start over', exact: true }).click();
 
   // Page reloads back into a fresh, still-signed-in flow.
   await page.waitForSelector('.lp-steps', { timeout: 20000 });
@@ -73,7 +73,7 @@ test('Confirming Start over clears the form and the saved draft', async ({ page,
   // The entered data is gone: a later refresh will now yield a blank form,
   // never the old draft. (A fresh, blank draft may be re-persisted — that's
   // the expected "hold on refresh" behaviour — but it must not carry old data.)
-  const draftAfter = await page.evaluate(() => localStorage.getItem('pnDraft:list-property'));
+  const draftAfter = await page.evaluate(() => localStorage.getItem('dzDraft:list-property'));
   expect(draftAfter ?? '').not.toContain('1050');
   expect(consoleErrors).toHaveLength(0);
 });
@@ -87,8 +87,8 @@ test('Start over control is present on the Location step header', async ({ page 
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();

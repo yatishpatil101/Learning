@@ -40,7 +40,7 @@
   `NearPlaceField`, `atoms.jsx`, `helpers.js`, `constants.js`. Shared:
   `components/auth/AadhaarVerifyModal.jsx`, `components/auth/OwnerConsentModal.jsx`,
   `components/ReportModal.jsx`. Core data: `src/lib/data/flatmates.js` and
-  `src/lib/data/flatSplit.js`; rooms in `src/lib/store/listings.js` (`puneNestRoomListings`).
+  `src/lib/data/flatSplit.js`; rooms in `src/lib/store/listings.js` (`draazyRoomListings`).
 
 ## 3. Actors & roles
 - **Seeker (demand):** browses, saves, and expresses interest / requests to join. Sign-in required to
@@ -56,24 +56,24 @@
   owner controls never appear on seed posts.
 
 ## 4. Entities touched
-- [`flatmate_requests` (seeker posts)](../../system/data-model.md) - `puneNestFlatmatePosts`,
+- [`flatmate_requests` (seeker posts)](../../system/data-model.md) - `draazyFlatmatePosts`,
   created/edited/deleted by `saveFlatmatePost` / `updateFlatmatePost` / `deleteFlatmatePost`. One
   live request per person (`getMyRequest`).
-- **Share groups** - `puneNestFlatmateGroups`, `saveFlatmateGroup` / `updateFlatmateGroup` /
+- **Share groups** - `draazyFlatmateGroups`, `saveFlatmateGroup` / `updateFlatmateGroup` /
   `deleteFlatmateGroup`. Seed groups (from `constants.js`) stay out of storage.
-- [`rooms`](../../system/data-model.md) - `puneNestRoomListings`, written by **two** paths:
+- [`rooms`](../../system/data-model.md) - `draazyRoomListings`, written by **two** paths:
   `persistFlatmate` (a host's single spare room; seat-based `seatsTotal`/`seatsOpen`) and `splitFlat`
   (an owner letting a whole flat room by room; occupancy-based `occupants`/`maxOccupants` with
   `priceBasis: 'room'`). Both carry `verificationTier` and start `status: 'pending'`.
-- **Host inbox requests** - `puneNestFlatmateReq:<hostDigits>` (`addFlatmateRequest` /
+- **Host inbox requests** - `draazyFlatmateReq:<hostDigits>` (`addFlatmateRequest` /
   `decideFlatmateRequest`) - the host-facing incoming requests shown in Dashboard -> Requests.
-- **Interests / saved / verified** - `puneNestFlatmateInterests` (per-seeker `hasInterest`/`addInterest`),
-  `puneNestFlatmateSaved`, `puneNestSeekerVerified` (legacy seeker badge, still read so anyone who
+- **Interests / saved / verified** - `draazyFlatmateInterests` (per-seeker `hasInterest`/`addInterest`),
+  `draazyFlatmateSaved`, `draazySeekerVerified` (legacy seeker badge, still read so anyone who
   earned it keeps it).
-- **Ops review queue** - `puneNestFlatmateReviews` (`enqueueFlatmateReview` / `decideFlatmateReview` /
-  `getFlatmateReviewStatusMap`). **Owner consent** - `puneNestOwnerConsent` (`hasOwnerConsent` /
-  `setOwnerConsent`). Also writes `pnPendingRequests` (chat handoff) — it used to write
-  `puneNestNotifications` too, a key the live inbox (`GET /notifications`) never read, so those rows
+- **Ops review queue** - `draazyFlatmateReviews` (`enqueueFlatmateReview` / `decideFlatmateReview` /
+  `getFlatmateReviewStatusMap`). **Owner consent** - `draazyOwnerConsent` (`hasOwnerConsent` /
+  `setOwnerConsent`). Also writes `dzPendingRequests` (chat handoff) — it used to write
+  `draazyNotifications` too, a key the live inbox (`GET /notifications`) never read, so those rows
   were invisible on every surface and the writes are **deleted** — saved searches via
   `store/search.js` (`addSavedSearch`) \u2014 that module has since been **deleted**
   and saved searches go through `services/savedSearchService.js` \u2014 and reports via the shared
@@ -201,7 +201,7 @@ Dashboard -> My Listings ("Let room by room"), and confirmed in `SplitFlatModal`
   consent record. `ownerConsent` is only true when `consentVerified`.
 - **Prefill helpers:** `prefillGroupFromListing` (attach an Ops-verified own listing - fills
   title/locality/rent only, never trust signals; rent is copied only from a **rent** listing, since a
-  sale price is not a monthly rent) and `prefillGroupFromTenancy` (a finalised PuneNest tenancy seeds
+  sale price is not a monthly rent) and `prefillGroupFromTenancy` (a finalised Draazy tenancy seeds
   the owner's number for the consent step, pre-filled but never pre-verified).
 - Draft persistence deliberately **excludes** the eligibility signals (`role`, `propertyId`,
   `agreement`, `agreementDoc`, `consentMobile`, `consentVerified`), so a stale badge claim can never
@@ -243,7 +243,7 @@ The single decision point every supply path calls - group create, single-room po
 
 ### Ops moderation queue (`enqueueFlatmateReview` / `decideFlatmateReview`)
 - Tenant-tier posts (self-attested agreement), any flagged address, and any split whose **parent
-  listing is not yet approved** land in `puneNestFlatmateReviews` with `status: 'pending'`. The
+  listing is not yet approved** land in `draazyFlatmateReviews` with `status: 'pending'`. The
   uploaded agreement is stored as metadata + inline data URL when under the 3 MB cap (else recorded
   present-but-not-stored). One review per group / per flat.
 - Ops `decideFlatmateReview(id, 'approved'|'rejected', reason)` -> the card shows Ops-verified /
@@ -295,7 +295,7 @@ The single decision point every supply path calls - group create, single-room po
   Blocked if already interested (`hasInterest`). If the seeker set `verifiedContactOnly` and the
   actor is **not** verified -> blocked + verify modal. On success: `addInterest`, record a
   **host-facing request** (`addFlatmateRequest(seekerMobile, {kind:'flatmate', action:'request'})`),
-  push a notification, and queue a chat handoff (`pnPendingRequests`).
+  push a notification, and queue a chat handoff (`dzPendingRequests`).
 - **Room interest (`onRoomInterest`)** carries a **share intent** - `solo` (alone), `bring` (with
   someone they already know, two people) or `match` (they want us to find them a room-sharer). Sharing
   is the tenant's call, not the owner's, so the choice is made at the point of enquiry and travels
@@ -356,7 +356,7 @@ is empty or filling, how many people have moved in, and that one joint agreement
 ## 6. Maker-checker / approval
 - **Two approval loops:**
   - **Ops share-review (host -> Ops):** tenant-tier posts, flagged addresses and splits of a
-    not-yet-approved listing enter `puneNestFlatmateReviews` `pending`; Ops decides
+    not-yet-approved listing enter `draazyFlatmateReviews` `pending`; Ops decides
     `approved`/`rejected` (reject requires a reason). Canonical maker-checker
     ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2; society-claim-style
     row).

@@ -40,13 +40,13 @@
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
 - `plans` (seed `plans.json`, `PL1..PL4`) - read (catalog metadata).
-- User plan (runtime `pnPlan:<mobile>`, ids `free`/`owner-free`/`owner2`/`owner5`) - read + written
+- User plan (runtime `dzPlan:<mobile>`, ids `free`/`owner-free`/`owner2`/`owner5`) - read + written
   by Checkout (`setPlan`).
 - Platform fees / `settings.fees` (admin DB, read via `getFees`) - read.
-- `service_orders` (runtime `pnServiceOrders:<mobile>`) - created by Checkout (`addServiceOrder`).
-- Owner boosts (runtime `pnBoosts:<mobile>`) - entitlement gate for featuring.
-- `referrals` (seed `referrals.json`, `RF3###`; runtime stats `pnReferralStats:<mobile>`) - read +
-  incremented; plus `pnReferralCode:<mobile>` and `pnReferredBy:<mobile>` capture.
+- `service_orders` (runtime `dzServiceOrders:<mobile>`) - created by Checkout (`addServiceOrder`).
+- Owner boosts (runtime `dzBoosts:<mobile>`) - entitlement gate for featuring.
+- `referrals` (seed `referrals.json`, `RF3###`; runtime stats `dzReferralStats:<mobile>`) - read +
+  incremented; plus `dzReferralCode:<mobile>` and `dzReferredBy:<mobile>` capture.
 - `BILLING_HISTORY` (static seed constant) - read for the payment-history table.
 
 ## 5. Business rules & logic  *(the meat)*
@@ -66,7 +66,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 
 ### Platform fees (`store/billing.js`)
 - Single source of truth = admin DB `settings.fees` (read via `rawDb()`), with a legacy
-  `puneNestAdminDB_v7` fallback, over `FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499,
+  `draazyAdminDB_v7` fallback, over `FEE_DEFAULTS = { ownerPlanYearly: 999, ownerProYearly: 2499,
   rentAgreementPlatform: 500, seekerPlusTopup: 199, featuredListing: 999, gstPercent: 18 }`.
   `fee(key)` formats as `Rs N` (`en-IN`).
 - (Note: `data-model.md` shows a different sample `ownerPlanYearly` value; the
@@ -104,7 +104,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   *ever*. There is no button for it yet; the endpoint is ahead of the UI.
 - **Featuring/boost:** `PAID_OWNER_PLANS = ['owner2', 'owner5']`; `isPaidOwnerPlan()` gates self-serve
   promotion. Free plans (`free`/`owner-free`) must upgrade first (MyListingsPanel "Feature" action).
-  `boostListing(id, days=7)` writes an expiry to `pnBoosts:<mobile>`; `isBoosted(id)` = expiry >
+  `boostListing(id, days=7)` writes an expiry to `dzBoosts:<mobile>`; `isBoosted(id)` = expiry >
   `Date.now()`.
 - **Owner-contact quota (server-side since D31b).** The free tier is 15 owner contacts
   (`settings.fees.freeContactLimit`), a "contact" is the right to open one `contact_requests` row,
@@ -112,7 +112,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   from `GET /me/entitlements`; the refusal is a **422 `contact_quota_exhausted`** from
   `POST /contacts/request`. `used` is `count(contact_requests where requester = me)` rather than a
   stored counter, so a repeat press on the same listing costs nothing and a refused press costs
-  nothing. This replaces the old `lib/store/contactQuota.js` — a `pnContactsUsed:<mobile>` counter
+  nothing. This replaces the old `lib/store/contactQuota.js` — a `dzContactsUsed:<mobile>` counter
   that the browser wrote, added a locally-minted referral bonus to, and enforced *before* making any
   request. Clearing site data restored it in full and a second device never knew about the first.
   The old module now lives at `services/providers/mock/contactQuota.js`, where it is the **mock
@@ -142,9 +142,9 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 > **Corrected 2026 (D233).** The two bullets below used to read, without qualification:
 >
 > > **Code:** `referralCode()` = up-to-4 uppercase letters from the user's name (else `PUNE`) + last
-> > 4 digits of mobile (or a random 4-digit number), persisted at `pnReferralCode:<mobile>`.
+> > 4 digits of mobile (or a random 4-digit number), persisted at `dzReferralCode:<mobile>`.
 > >
-> > **Stats:** `pnReferralStats:<mobile> = { invited, joined, listed }`.
+> > **Stats:** `dzReferralStats:<mobile> = { invited, joined, listed }`.
 >
 > That described the whole product, and it was the bug. The server mints its own permanent code in
 > `referral_codes` (V23), format `PUNE-AB12`, and `POST /referrals/redeem` resolves only that one —
@@ -154,7 +154,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 
 - **Code (mock build):** `referralCode()` = up-to-4 uppercase letters from the user's name (else
   `PUNE`) + last 4 digits of mobile (or a random 4-digit number), persisted at
-  `pnReferralCode:<mobile>`. Deliberately **not** reshaped to imitate the server's `PUNE-AB12`: on a
+  `dzReferralCode:<mobile>`. Deliberately **not** reshaped to imitate the server's `PUNE-AB12`: on a
   mock build there is no server to agree with, and a code that passes for real is worse than one
   that is visibly its own.
 - **Code (live build):** `GET /me/referrals` → `{ code, invited, converted, contactsEarned,
@@ -166,7 +166,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   self-referred or already used, none of which the new account holder chose or can fix.
 - **Stats:** the whole progress narrative is the server's since D234. `invited` is
   `ReferralSummaryDto.invited` (people who have redeemed the code), `listed` is `converted` (those
-  that qualified or were approved). `pnReferralStats:<mobile> = { invited, joined, listed }` survives
+  that qualified or were approved). `dzReferralStats:<mobile> = { invited, joined, listed }` survives
   only as the **mock provider's** own state — read by `providers/mock/{contactQuota,referralProvider}`
   and seeded directly by the e2e harness, written by nothing. Its incrementers are gone:
   `addReferralInvite` counted button presses under the name "You've invited N", and
@@ -198,7 +198,7 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
     `reward` reads `"+15 owner contacts"`. `settings.fees.referralReward` is gone; `freeContactLimit`
     and `referralContactBonus` replace it.
 - **Attribution honesty:** `setReferredBy(code)` records who referred a new signup
-  (`pnReferredBy:<mobile>`) and deliberately credits nobody. `POST /referrals/redeem` carries the
+  (`dzReferredBy:<mobile>`) and deliberately credits nobody. `POST /referrals/redeem` carries the
   attribution, and `ReferralQualification` credits the referrer when the referee's first listing
   passes ownership verification — "the only qualifying action a browser cannot fake". D234 removed
   the browser-side credit ledger that used to sit alongside it (`creditReferrerForJoin` on signup,
@@ -225,7 +225,7 @@ contact gate, which stay at L1 mobile (ADR-019).
 
 ## 7. State machine
 ```
-User plan:      free/owner-free  --Checkout pay (owner2/owner5)-->  paid (persists via pnPlan)
+User plan:      free/owner-free  --Checkout pay (owner2/owner5)-->  paid (persists via dzPlan)
                 seeker-plus: one-time top-up, no lasting plan state (re-purchasable)
 Checkout:       select plan -> (guard: alreadyOnThisPlan?) -> paying -> paid (order ref)
 Boost:          none --boostListing(days)--> boosted until expiry --(time)--> expired

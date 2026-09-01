@@ -10,7 +10,7 @@ import { ACTORS, STAFF } from '../../../fixtures/live.js';
  * `owner-split.spec.js` carried a header stating that none of its fourteen claims could go live,
  * and it was right about the code as it stood. `MyListingsPanel` called `lib/data/flatSplit.js`'s
  * `splitFlat()` directly and `ListingCard` read `isFlatSplit` / `roomsForProperty` /
- * `splitOccupants` from `puneNestRoomListings` — this browser's own localStorage, which no server
+ * `splitOccupants` from `draazyRoomListings` — this browser's own localStorage, which no server
  * has ever written to. The seam exported `splitProperty` and `unsplitProperty`, and **no screen
  * imported either one**.
  *

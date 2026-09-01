@@ -17,8 +17,8 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  *
  * ## Why the mock twin could not prove any of them
  *
- * It established its host by writing `localStorage.puneNestUser` and its group by writing
- * `puneNestFlatmateGroups`. Under those conditions "survives a reload" is a statement about
+ * It established its host by writing `localStorage.draazyUser` and its group by writing
+ * `draazyFlatmateGroups`. Under those conditions "survives a reload" is a statement about
  * `JSON.parse`, and "the host sees Your group" is a statement about two strings matching in the
  * same tab. Both are true of a build with no server at all. Here the host is a real session, the
  * group is a real row, and the reload genuinely re-fetches — so A is now a claim about

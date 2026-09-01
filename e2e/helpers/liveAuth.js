@@ -17,7 +17,7 @@ import { expect } from '@playwright/test';
  * bug. And one shared log cannot tell two concurrent logins whose code is whose, which is why the
  * live config pins `workers: 1`.
  *
- * Under the `e2e` profile the code is fixed (`punenest.otp.fixed-code`, see `OtpService`), so this
+ * Under the `e2e` profile the code is fixed (`draazy.otp.fixed-code`, see `OtpService`), so this
  * helper types a constant. Everything else about the flow is unchanged and still real: the code is
  * generated, hashed, stored, single-use, and expiring; a wrong code is still refused. See
  * `docs/migration/03-e2e-database-and-users.md`.
@@ -89,7 +89,7 @@ export async function signIn(page, mobile, { screen = 'consumer', role } = {}) {
      layout reserving its height (D189) — is asserted by `live-desktop-noleak-guardrails` and the
      mobile help-URL spec, neither of which signs in. */
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
     }));
   });
@@ -145,7 +145,7 @@ const SCREENS = {
  * the cost of being wrong is asymmetric: a needless re-sign-in costs a few seconds, while replaying
  * an expired token costs the *rest of the run* for that account. See {@link signedInAs}.
  *
- * **This must stay strictly below `accessTtl`.** The snapshot holds a copy of `punenest_rt`, which
+ * **This must stay strictly below `accessTtl`.** The snapshot holds a copy of `draazy_rt`, which
  * is single-use: the server rotates it on every refresh. Staying inside the access TTL means a
  * replayed session never 401s, so it never refreshes *on that route*, so the cached cookie is not
  * spent behind the cache's back. Raise this above `accessTtl` — or lower `accessTtl` beneath it —

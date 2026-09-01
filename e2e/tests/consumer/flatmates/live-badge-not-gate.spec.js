@@ -23,7 +23,7 @@ import { signedInAs, apiLogin, grantAadhaarBadge, uniqueMobile } from '../../../
  *
  * ## What makes "unverified" mean something
  *
- * The mock established its unverified user by writing `puneNestUser` and deliberately *not* writing
+ * The mock established its unverified user by writing `draazyUser` and deliberately *not* writing
  * an Aadhaar key - that is, it asserted a property of its own fixture. Live, the account is minted
  * fresh and its unverified state is read back from the server before the walk begins. Without that
  * anchor, "an unverified user reached the form" would still pass on a server that shipped every new

@@ -38,7 +38,7 @@
 
 > **Scope note (honest gap):** this desk moderates **seekers, groups and group applications only**.
 > **Rooms** - now the primary "Move in now" supply, including every owner flat-split room - live in
-> `localStorage` under `puneNestRoomListings` (`lib/store/listings.js`), not in the mock DB this page
+> `localStorage` under `draazyRoomListings` (`lib/store/listings.js`), not in the mock DB this page
 > reads, so they never appear here. Room-level verification happens in the Ops queue
 > ([`../ops/service-queues.md`](../ops/service-queues.md) section 5.3). Unifying the two stores is a
 > backend-to-build, called out in section 11.

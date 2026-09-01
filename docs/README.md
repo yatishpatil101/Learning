@@ -1,6 +1,6 @@
-# PuneNest — Documentation
+# Draazy — Documentation
 
-Written documentation for PuneNest (Pune-first real-estate marketplace).
+Written documentation for Draazy (Pune-first real-estate marketplace).
 
 These docs were originally the **API-build reference**: the React app held the business logic in a
 mock service layer, and the docs captured it so it could be re-implemented server-side. **That
@@ -13,7 +13,7 @@ purpose is now largely discharged** — the backend exists. So the rule changed:
 
 | Fact | Source of truth | What keeps it honest |
 |---|---|---|
-| Endpoint paths, params, status codes, schemas | [OpenAPI spec](../backend/src/main/resources/static/openapi/punenest-api.yaml) (Swagger UI at `/docs`) | `SpecCoverageTest` — fails the build on served-but-undeclared **and** declared-but-unhandled |
+| Endpoint paths, params, status codes, schemas | [OpenAPI spec](../backend/src/main/resources/static/openapi/draazy-api.yaml) (Swagger UI at `/docs`) | `SpecCoverageTest` — fails the build on served-but-undeclared **and** declared-but-unhandled |
 | Physical database schema | `backend/src/main/resources/db/migration/**` | Flyway `validate` on every boot |
 | What the mock layer does | `frontend/src/lib/mockApi/**` | the parity harnesses (`npm run parity:*`) |
 | Which domains are live | `VITE_API_DOMAINS` in `e2e/playwright.config.js` | the live e2e run |

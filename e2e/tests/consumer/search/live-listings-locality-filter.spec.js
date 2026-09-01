@@ -70,7 +70,7 @@ async function stubPlacesOff(page) {
 async function openLocalityFilter(page) {
   const aside = page.locator('aside');
   await aside.locator('button[aria-label="Localities"]').click();
-  await page.locator('.pn-dropdown__search input').waitFor({ timeout: 5000 });
+  await page.locator('.dz-dropdown__search input').waitFor({ timeout: 5000 });
   return aside;
 }
 
@@ -87,13 +87,13 @@ test('picking a street snaps the filter UP to its parent canonical locality (Wak
   await stubPlacesStreet(page);
 
   const aside = await openLocalityFilter(page);
-  await page.locator('.pn-dropdown__search input').fill('Datta');
-  const option = page.locator('.pn-dropdown__option', { hasText: 'Datta Mandir Road' }).first();
+  await page.locator('.dz-dropdown__search input').fill('Datta');
+  const option = page.locator('.dz-dropdown__option', { hasText: 'Datta Mandir Road' }).first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
 
   // The pick is a street, but the filter chip must resolve to the PARENT locality.
-  await expect(aside.locator('button[aria-label="Localities"] .pn-dropdown__value')).toHaveText(/Wakad/, { timeout: 8000 });
+  await expect(aside.locator('button[aria-label="Localities"] .dz-dropdown__value')).toHaveText(/Wakad/, { timeout: 8000 });
   expect(errors, errors.join('\n')).toHaveLength(0);
 });
 
@@ -107,11 +107,11 @@ test('with Google unavailable the filter falls back to the static canonical regi
 
   const aside = await openLocalityFilter(page);
   // Live search throws → filter the offline registry; "Wakad" is a curated locality.
-  await page.locator('.pn-dropdown__search input').fill('Wakad');
-  const option = page.locator('.pn-dropdown__option', { hasText: 'Wakad' }).first();
+  await page.locator('.dz-dropdown__search input').fill('Wakad');
+  const option = page.locator('.dz-dropdown__option', { hasText: 'Wakad' }).first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
 
-  await expect(aside.locator('button[aria-label="Localities"] .pn-dropdown__value')).toHaveText(/Wakad/, { timeout: 8000 });
+  await expect(aside.locator('button[aria-label="Localities"] .dz-dropdown__value')).toHaveText(/Wakad/, { timeout: 8000 });
   expect(errors, errors.join('\n')).toHaveLength(0);
 });

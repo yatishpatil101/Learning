@@ -2,7 +2,7 @@
  * The **settings console** — `/admin/settings`, General and Fees — against the live API.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-settings-console.spec.js --config=playwright.config.js
  *
@@ -161,8 +161,8 @@ test('admin opens the settings desk and the general form is filled from the serv
      reached the API, which matters more in live mode than anywhere else: `services/config.js` falls
      back to the mock provider with a `console.warn` rather than an error, so a console reading
      `settings.json` renders a perfectly plausible settings desk. The two documents disagree about
-     this exact field — the mock ships `hello@punenest.com`, the seed
-     `support@punenest.example.com` — so pinning the input to what `GET /admin/settings` just
+     this exact field — the mock ships `hello@draazy.com`, the seed
+     `support@draazy.example.com` — so pinning the input to what `GET /admin/settings` just
      answered is what makes the rest of this file mean anything. Compared against the fetched value
      rather than a literal, so re-pricing the seed does not break the test that is not about it. */
   await expect(page.getByRole('textbox', { name: 'Support email', exact: true }))
@@ -180,7 +180,7 @@ test('saving site details puts the new value in the document, not just in a toas
   const email = page.getByRole('textbox', { name: 'Support email', exact: true });
   await expect(email).toBeVisible();
   const before = await email.inputValue();
-  const next = `ops+${Date.now()}@punenest.example.com`;
+  const next = `ops+${Date.now()}@draazy.example.com`;
   expect(next).not.toBe(before);
 
   await email.fill(next);

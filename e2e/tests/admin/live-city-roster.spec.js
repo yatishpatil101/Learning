@@ -2,7 +2,7 @@
  * The **city roster** in the admin console — Settings ▸ Maps — against the live API.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-city-roster.spec.js --config=playwright.config.js
  *

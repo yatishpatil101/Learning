@@ -14,7 +14,7 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
    The WhatsApp copy used to be interpolated in three places - the mock, the server, and a private
    `interpolateWaTemplate` inside PropertyReviewModal - and the modal's copy disagreed with the
    other two on every value that mattered. `staff_name` was the literal string 'You', so the
-   preview read "- You, PuneNest" while the owner received the sender's real name; `claim_link`
+   preview read "- You, Draazy" while the owner received the sender's real name; `claim_link`
    pointed at /claim/{id}, a route this application has never had; `market_rate` was a hard-coded
    9,500 for every locality in Pune. A staff member read one message and a member of the public
    received another, and nothing anywhere compared them.
@@ -121,7 +121,7 @@ async function pickReason(page, optionText) {
   const trigger = page.getByRole('button', { name: 'Filter by reason' });
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-  await page.locator('.pn-dropdown__option', { hasText: optionText }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: optionText }).first().click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await expect(trigger).toContainText(optionText);
 }
@@ -175,7 +175,7 @@ test('the preview is the message, exactly', async ({ page, context, login }) => 
 
   /* The regression that started all of this. 'You' was what the old private copy substituted for
      {staff_name}, so the sign-off named nobody while the owner's message named the sender. */
-  expect(previewText).not.toContain('\u2014 You, PuneNest');
+  expect(previewText).not.toContain('\u2014 You, Draazy');
 
   const outreach = page.waitForResponse(
     (r) => /\/properties\/[^/]+\/outreach$/.test(r.url()) && r.request().method() === 'POST',

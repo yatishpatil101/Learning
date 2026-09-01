@@ -8,7 +8,7 @@
 
 ## 1. Purpose & user problem
 - **Persona:** a finance / growth lead who owns the platform P&L.
-- **Job-to-be-done:** "Show me what PuneNest earned this month, where it came from
+- **Job-to-be-done:** "Show me what Draazy earned this month, where it came from
   (subscriptions vs services vs featured), what GST we collected,
   and let me drill into individual transactions."
 - **Why it matters:** this is the money view of the marketplace. It rolls up the
@@ -171,8 +171,8 @@ a fact about which slices have shipped. Defaults are today's truth.
 
 | Property (`application.properties`) | Env override | Default | Turns off the disclosure for |
 | --- | --- | --- | --- |
-| `punenest.finance.refunds-measured` | `FINANCE_REFUNDS_MEASURED` | `false` | `refunds` / **Refunds (recent)** |
-| `punenest.finance.service-orders-counted` | `FINANCE_SERVICE_ORDERS_COUNTED` | `false` | services inside **revenue** / **Gross revenue** / **Services revenue** KPI |
+| `draazy.finance.refunds-measured` | `FINANCE_REFUNDS_MEASURED` | `false` | `refunds` / **Refunds (recent)** |
+| `draazy.finance.service-orders-counted` | `FINANCE_SERVICE_ORDERS_COUNTED` | `false` | services inside **revenue** / **Gross revenue** / **Services revenue** KPI |
 
 They are read in `AdminFinanceService`'s constructor via `@Value` and travel on the `AdminFinance`
 response as `refundsMeasured` and `serviceOrdersCounted`. Three tests hold the

@@ -63,11 +63,11 @@ test.describe('Locality insights', () => {
     // No comparison markers until a locality is picked.
     await expect(card.locator('.bg-indigo-400')).toHaveCount(0);
 
-    /* `NativeSelect` is a themed `.pn-dropdown`, not a real <select>, so
+    /* `NativeSelect` is a themed `.dz-dropdown`, not a real <select>, so
        selectOption never resolves here — open the trigger and click an option
        from the portaled menu (the pattern used by the listings filter specs). */
-    await card.locator('.pn-dropdown__trigger').click();
-    await page.locator('.pn-dropdown__menu--portal [role="option"]').first().click();
+    await card.locator('.dz-dropdown__trigger').click();
+    await page.locator('.dz-dropdown__menu--portal [role="option"]').first().click();
 
     // Picking a peer draws its marker on every sub-score bar.
     await expect(card.locator('.bg-indigo-400').first()).toBeVisible();

@@ -35,7 +35,7 @@ import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/li
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
   });

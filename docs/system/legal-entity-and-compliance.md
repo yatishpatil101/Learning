@@ -1,4 +1,4 @@
-# PuneNest — Legal Entity, Registration & Compliance (India)
+# Draazy — Legal Entity, Registration & Compliance (India)
 
 > **Status:** Advisory / launch-gate reference. Companion to
 > [`platform-architecture.md` §9](./platform-architecture.md#9-production-prerequisites--legal-dependencies-india),
@@ -13,7 +13,7 @@
 
 ## 1. Executive Summary
 
-**PuneNest** is a technology **marketplace / broking-services platform** (not a land-dealing
+**Draazy** is a technology **marketplace / broking-services platform** (not a land-dealing
 "real-estate business"), earning from **subscriptions, listing boosts / featured placement, and a
 platform fee on rent** — explicitly **fee-only, not holding customer funds** (a deliberate choice
 that keeps you out of RBI Payment-Aggregator licensing). You handle **PII + Aadhaar-derived KYC
@@ -35,7 +35,7 @@ elevated because you touch Aadhaar-linked identity data.
 
 ### Private Limited Company (Pvt Ltd) — under the Companies Act, 2013
 
-**Why it's the best fit for PuneNest:**
+**Why it's the best fit for Draazy:**
 - **Fundability:** Angels/VCs invest via equity/CCPS **only** into a company. Non-negotiable if you'll raise.
 - **ESOP:** Grant stock options to early hires (critical when cash-constrained) — LLP/OPC effectively cannot.
 - **Limited liability:** Founders' personal assets ring-fenced — important given data-breach / consumer-liability exposure.
@@ -76,7 +76,7 @@ Scores out of 10 (higher = better for *your* fundable-tech-startup profile).
 ## 4. Registration Roadmap (Pvt Ltd via MCA SPICe+)
 
 1. **Digital Signature Certificate (DSC)** for all directors — licensed CA (Class 3). *(1–2 days; ₹1,000–2,000/director.)*
-2. **Name reservation** — MCA **SPICe+ Part A** (check trademark + MCA name availability; keep "PuneNest" consistent with your TM filing). *(1–3 days.)*
+2. **Name reservation** — MCA **SPICe+ Part A** (check trademark + MCA name availability; keep "Draazy" consistent with your TM filing). *(1–3 days.)*
 3. **SPICe+ Part B (incorporation)** with linked forms:
    - **eMoA (INC-33)** + **eAoA (INC-34)** — charter documents.
    - **AGILE-PRO-S (INC-35)** — bundles **GST (optional here), EPFO, ESIC, Professional Tax (Maharashtra), bank account**.
@@ -151,12 +151,12 @@ on MoA/AoA and authorized capital; keep authorized capital modest, e.g., ₹1–
 
 | IP | Register? | What / Class | Indicative cost |
 | --- | --- | --- | --- |
-| **Trademark** ("PuneNest" wordmark + logo) | **Yes, priority** | File **TM-A**, **Class 36** (real-estate/financial services) + **Class 42** (SaaS/tech); consider **Class 35** (online marketplace/advertising) | **₹4,500/class** govt (startup/MSME rate) + professional ₹3–8k. **Udyam gets the reduced fee.** |
+| **Trademark** ("Draazy" wordmark + logo) | **Yes, priority** | File **TM-A**, **Class 36** (real-estate/financial services) + **Class 42** (SaaS/tech); consider **Class 35** (online marketplace/advertising) | **₹4,500/class** govt (startup/MSME rate) + professional ₹3–8k. **Udyam gets the reduced fee.** |
 | **Copyright** (source code, UI, content) | Optional | Auto-protected on creation; register for stronger evidentiary proof (Form XIV) | ₹500–2,000 govt + professional |
 | **Patent** | Usually skip | Software "per se" isn't patentable in India absent a technical effect; not worth it now | — |
-| **Domains** | Yes | Defensively register **punenest.com/.in/.co.in** + variants | ₹1–2k/yr each |
+| **Domains** | Yes | Defensively register **draazy.com/.in/.co.in** + variants | ₹1–2k/yr each |
 
-**Do first:** clear the **"PuneNest" trademark search *before* finalizing the MCA name** so the
+**Do first:** clear the **"Draazy" trademark search *before* finalizing the MCA name** so the
 company name and brand don't diverge.
 
 ---
@@ -182,7 +182,7 @@ company name and brand don't diverge.
 ## 9. Action Plan — Next 30 Days
 
 **Week 1**
-1. **Trademark availability search** for "PuneNest" (Class 36/42/35) — lock the brand before the MCA name.
+1. **Trademark availability search** for "Draazy" (Class 36/42/35) — lock the brand before the MCA name.
 2. Decide cap table + **founder shareholding + ESOP pool (~10–15%)**; draft a simple **Founders' Agreement**.
 3. Engage a **CA/CS** (many offer a fixed-fee incorporation package).
 
@@ -203,8 +203,8 @@ company name and brand don't diverge.
 
 ## 10. Final Recommendation
 
-**Incorporate PuneNest as a Private Limited Company now**, and immediately layer on **DPIIT
-recognition + Udyam** (free, high-value) and the **"PuneNest" trademark**. This structure is the
+**Incorporate Draazy as a Private Limited Company now**, and immediately layer on **DPIIT
+recognition + Udyam** (free, high-value) and the **"Draazy" trademark**. This structure is the
 **only** one that keeps every future door open — angel/VC funding, ESOPs for early hires, limited
 liability against your data/consumer risk, and the 80-IAC tax holiday — while your **fee-only,
 seam-based architecture already sidesteps the heaviest regulatory burden (RBI payment-aggregator

@@ -172,7 +172,7 @@ test('staff cannot read the record that exists to hold them to account', async (
    Turning the module off, from where it is actually turned off.
 
    `post-on-behalf.spec.js` owned this claim and reached it by writing
-   `settings.adminFlags.staffActivity.enabled = false` straight into `puneNestDB_v5`. That flag is
+   `settings.adminFlags.staffActivity.enabled = false` straight into `draazyDB_v5`. That flag is
    not browser state: `AdminFlagsContext` reads it out of `GET /admin/settings` and every admin in
    the company sees the same value. The mock version was editing a local copy of a shared server
    document, so it proved the *component* branches on a boolean it was handed, and nothing about

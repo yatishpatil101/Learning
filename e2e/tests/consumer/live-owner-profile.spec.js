@@ -403,7 +403,7 @@ test('the Verified Owner pill is shown only to owners the server calls verified'
 test('the About block claims only what the server states about this seller', async ({ page }) => {
   /* Two claims sat beside the badges and outlived the header gate.
    *
-   * The prose read "{{name}} is a verified property owner listing directly on PuneNest" — the
+   * The prose read "{{name}} is a verified property owner listing directly on Draazy" — the
    * pill's sentence, rendered for every seller in all three locales, so gating the badges alone
    * would have left the assertion standing in text two lines below them. The unverified variant
    * keeps what is still true (direct, no broker, no commission) and drops the one word.
@@ -420,7 +420,7 @@ test('the About block claims only what the server states about this seller', asy
   await page.goto(`/owner/${UNVERIFIED_OWNER_ID}`);
   await expect(about(page)).toBeVisible();
   await expect(about(page)).not.toContainText('verified property owner');
-  await expect(about(page)).toContainText('lists directly on PuneNest');
+  await expect(about(page)).toContainText('lists directly on Draazy');
   await expect(about(page).getByText('Ownership Verified', { exact: true })).toHaveCount(0);
   /* Number Protected stays on both, and is asserted so the two absences above cannot be satisfied
      by an About block that failed to render its badge row at all. */

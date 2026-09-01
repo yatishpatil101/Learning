@@ -8,7 +8,7 @@
  * listing is only fair if a human has a working screen to go and file it on. This file covers that
  * screen against the real API.
  *
- * The mock twin (`admin/localities.spec.js`) could not. It reached into `puneNestDB_v5`, deleted
+ * The mock twin (`admin/localities.spec.js`) could not. It reached into `draazyDB_v5`, deleted
  * `localitySlug` off the first seeded listing, and asserted the page re-read the object the test
  * had just written. That proves the component renders a shape; it cannot prove the shape is one the
  * server produces. Here the subject is created through the real owner route with free text no
@@ -76,18 +76,18 @@ async function discard(id) {
     { status: 'rejected', reason: 'Zztest cleanup — synthetic queue fixture' });
 }
 
-/* `Table.jsx` renders BOTH a desktop <table> and a stacked `.pn-card` list for phones, hiding one
+/* `Table.jsx` renders BOTH a desktop <table> and a stacked `.dz-card` list for phones, hiding one
    with CSS. An unscoped `getByText` therefore matches twice and trips strict mode, or resolves to
    the hidden copy and fails against correct markup. These specs run on desktop, so they scope to
    the table. */
 const table = (page) => page.getByRole('table');
 const row = (page, name) => table(page).locator('tr').filter({ hasText: name });
 
-/* The KPI tiles and the empty state are both `.pn-card`, and the empty state's copy repeats the
+/* The KPI tiles and the empty state are both `.dz-card`, and the empty state's copy repeats the
    tile's label on purpose — "Nothing awaiting a locality" is the sentence a curator wants to read.
-   So a filtered `.pn-card` matches both the moment the queue empties, which is exactly when these
+   So a filtered `.dz-card` matches both the moment the queue empties, which is exactly when these
    assertions run. `.first()` is the tile: it is rendered above the table. */
-const kpi = (page, label) => page.locator('.pn-card', { hasText: label }).first();
+const kpi = (page, label) => page.locator('.dz-card', { hasText: label }).first();
 
 /**
  * Open the console and wait for the queue response, rather than for the page to settle.

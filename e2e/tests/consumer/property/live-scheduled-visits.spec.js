@@ -6,7 +6,7 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
  *
  * ## What the mock version was actually asserting
  *
- * `scheduled-visits.spec.js` wrote `puneNestPropVisitReqs:U-TEST-OWNER` into localStorage: a JSON
+ * `scheduled-visits.spec.js` wrote `draazyPropVisitReqs:U-TEST-OWNER` into localStorage: a JSON
  * array of two rows it had authored itself, each already carrying `visitorName: 'Asha Kulkarni'`
  * and `visitorMobile: '9811111111'` in the clear. Every assertion below the surface was therefore
  * a round-trip through a browser store the test controlled. Two consequences worth naming, because

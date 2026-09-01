@@ -1007,7 +1007,7 @@ CREATE INDEX idx_pph_band3 ON property_photo_hashes (band3);
 -- "Request more photos" becomes a real demand signal, because until V117 it was not one at all.
 --
 -- The feature has shipped since the prototype and has never once reached an owner. `photoRequests.js`
--- wrote the request to `localStorage` under `puneNestPhotoReq:<ownerMobile>` -- the owner's key, in
+-- wrote the request to `localStorage` under `draazyPhotoReq:<ownerMobile>` -- the owner's key, in
 -- the BUYER's browser. The owner reads that same key from their own browser, which holds only the
 -- requests they themselves made against someone else. So the write and the read have always been in
 -- different storage, on different devices, and the only way an owner ever saw a photo request was an

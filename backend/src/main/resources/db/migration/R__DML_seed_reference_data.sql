@@ -77,7 +77,7 @@ INSERT INTO settings (key, value) VALUES
             "internet": 500
         }
     }'::jsonb),
-    ('site', '{ "brand": "PuneNest", "supportEmail": "support@punenest.example.com", "city": "Pune" }'::jsonb)
+    ('site', '{ "brand": "Draazy", "supportEmail": "support@draazy.example.com", "city": "Pune" }'::jsonb)
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
 -- Curated city roster. Pune launches first; the rest are waitlist targets until ops marks them live.
@@ -764,7 +764,7 @@ ON CONFLICT (id) DO UPDATE SET
 -- which is a change with a reviewer and a history"), so there is no operator edit that an update
 -- could overwrite -- and the two known wording bugs became fixable by editing this file, which is
 -- what "editing is a migration" was supposed to mean in the first place. One of them is now fixed:
--- `wa-live`, `wa-stale` and `wa-dormant` wrote `punenest.com/property/{listing_id}` out by hand, so
+-- `wa-live`, `wa-stale` and `wa-dormant` wrote `draazy.com/property/{listing_id}` out by hand, so
 -- a chaser sent from a staging box asked the owner to confirm availability on production, against a
 -- listing id that may not exist there. They now interpolate `{listing_link}`, which
 -- `OwnerOutreachService` builds from the same configured base URL as `claim_link` -- the deployment
@@ -790,25 +790,25 @@ ON CONFLICT (id) DO UPDATE SET
 -- ---------------------------------------------------------------------------
 insert into message_template (id, channel, category, name, body) values
 ('wa-onboard', 'whatsapp', 'onboarding', 'Onboarding welcome',
- E'Hi {owner_name}, welcome to PuneNest! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete Aadhaar verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, PuneNest Team'),
+ E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete Aadhaar verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),
 ('wa-photos', 'whatsapp', 'reminder', 'Photo upload reminder',
- E'Hi {owner_name},\n\nYour listing "{title}" is almost ready! We just need property photos to publish it.\n\n\U0001F4F8 Upload 4-6 clear photos showing:\n\u2022 Living room/bedrooms\n\u2022 Kitchen & bathrooms\n\u2022 Balcony/exterior\n\nListings with photos get 3x more enquiries!\n\nUpload here: {claim_link}\n\u2014 PuneNest Team'),
+ E'Hi {owner_name},\n\nYour listing "{title}" is almost ready! We just need property photos to publish it.\n\n\U0001F4F8 Upload 4-6 clear photos showing:\n\u2022 Living room/bedrooms\n\u2022 Kitchen & bathrooms\n\u2022 Balcony/exterior\n\nListings with photos get 3x more enquiries!\n\nUpload here: {claim_link}\n\u2014 Draazy Team'),
 ('wa-aadhaar', 'whatsapp', 'reminder', 'Aadhaar verification',
- E'Hi {owner_name},\n\nOne last step! Please complete Aadhaar verification for "{title}" to go live.\n\n\U0001F512 This is a one-time identity check to build trust with buyers.\n\nVerify here: {claim_link}\n\u2014 PuneNest Team'),
+ E'Hi {owner_name},\n\nOne last step! Please complete Aadhaar verification for "{title}" to go live.\n\n\U0001F512 This is a one-time identity check to build trust with buyers.\n\nVerify here: {claim_link}\n\u2014 Draazy Team'),
 ('wa-gentle', 'whatsapp', 'reminder', 'Gentle follow-up',
- E'Hi {owner_name},\n\nJust checking in on "{title}" in {locality}. We have interested buyers waiting!\n\nIs there anything blocking you from completing the listing? Happy to help over call.\n\n\u2014 {staff_name}, PuneNest'),
+ E'Hi {owner_name},\n\nJust checking in on "{title}" in {locality}. We have interested buyers waiting!\n\nIs there anything blocking you from completing the listing? Happy to help over call.\n\n\u2014 {staff_name}, Draazy'),
 ('wa-live', 'whatsapp', 'notification', 'Listing live notification',
- E'Great news, {owner_name}! \U0001F389\n\nYour property "{title}" is now LIVE on PuneNest!\n\n\U0001F517 View: {listing_link}\n\nBuyers can now see your listing and send enquiries. We\'ll notify you when someone is interested.\n\n\u2014 PuneNest Team'),
+ E'Great news, {owner_name}! \U0001F389\n\nYour property "{title}" is now LIVE on Draazy!\n\n\U0001F517 View: {listing_link}\n\nBuyers can now see your listing and send enquiries. We\'ll notify you when someone is interested.\n\n\u2014 Draazy Team'),
 ('wa-enquiry', 'whatsapp', 'notification', 'New enquiry alert',
- E'Hi {owner_name},\n\nYou have a new enquiry for "{title}"! \U0001F4E9\n\nA buyer is interested in your property. Please check your PuneNest dashboard to approve or decline the contact request.\n\n\u2014 PuneNest Team'),
+ E'Hi {owner_name},\n\nYou have a new enquiry for "{title}"! \U0001F4E9\n\nA buyer is interested in your property. Please check your Draazy dashboard to approve or decline the contact request.\n\n\u2014 Draazy Team'),
 ('wa-pricing', 'whatsapp', 'advice', 'Pricing suggestion',
- E'Hi {owner_name},\n\nQuick market update for {locality}:\n\n\U0001F4CA Avg rate: \u20B9{market_rate}/sqft\n\U0001F3F7\uFE0F Your listing: \u20B9{price}\n\nProperties priced within 10% of market rate get 2x more views. Would you like to adjust?\n\n\u2014 {staff_name}, PuneNest'),
+ E'Hi {owner_name},\n\nQuick market update for {locality}:\n\n\U0001F4CA Avg rate: \u20B9{market_rate}/sqft\n\U0001F3F7\uFE0F Your listing: \u20B9{price}\n\nProperties priced within 10% of market rate get 2x more views. Would you like to adjust?\n\n\u2014 {staff_name}, Draazy'),
 ('wa-docs', 'whatsapp', 'verification', 'Document request',
- E'Hi {owner_name},\n\nTo complete verification of "{title}", we need:\n\n\U0001F4C4 Property ownership proof (sale deed / society NOC)\n\U0001F4C4 Recent electricity bill\n\nPlease upload via your dashboard or share photos here.\n\n\u2014 {staff_name}, PuneNest Team'),
+ E'Hi {owner_name},\n\nTo complete verification of "{title}", we need:\n\n\U0001F4C4 Property ownership proof (sale deed / society NOC)\n\U0001F4C4 Recent electricity bill\n\nPlease upload via your dashboard or share photos here.\n\n\u2014 {staff_name}, Draazy Team'),
 ('wa-stale', 'whatsapp', 'reminder', 'Confirm still available (stale)',
- E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 {listing_link}\n\n\u2014 PuneNest Team'),
+ E'Hi {owner_name}, \U0001F44B\n\nQuick check on your listing "{title}" in {locality} \u2014 buyers are still finding it, but you haven\'t confirmed availability in a while.\n\nIs it still available?\n\u2705 Reply "YES" to confirm and keep it live & trusted\n\U0001F3E0 Reply "DONE" if it\'s already rented/sold and we\'ll close it\n\nConfirming takes one tap: \U0001F517 {listing_link}\n\n\u2014 Draazy Team'),
 ('wa-dormant', 'whatsapp', 'reminder', 'Dormant listing reactivation',
- E'Hi {owner_name}, \u23F0\n\nYour listing "{title}" in {locality} has been *paused* because it hasn\'t been confirmed as available in a while \u2014 so buyers can no longer see it.\n\nIf it is still available, reactivate it in one tap:\n\U0001F517 {listing_link}\n\nJust reply "YES" and we\'ll make it live again instantly. If it\'s already rented/sold, reply "DONE" and we\'ll close it for you.\n\n\u2014 PuneNest Team')
+ E'Hi {owner_name}, \u23F0\n\nYour listing "{title}" in {locality} has been *paused* because it hasn\'t been confirmed as available in a while \u2014 so buyers can no longer see it.\n\nIf it is still available, reactivate it in one tap:\n\U0001F517 {listing_link}\n\nJust reply "YES" and we\'ll make it live again instantly. If it\'s already rented/sold, reply "DONE" and we\'ll close it for you.\n\n\u2014 Draazy Team')
 ON CONFLICT (id) DO UPDATE SET
     channel  = EXCLUDED.channel,
     category = EXCLUDED.category,

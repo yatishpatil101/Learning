@@ -63,7 +63,7 @@ test.describe('Listings — mobile-only deal toggle', () => {
          sloppy. Its buttons draw under 44px and restore the finger target with
          .tap-extend, so the touch floor is asserted on the pseudo-element's reach
          rather than on the painted box. */
-      const sortH = (await page.locator('.pn-dropdown__trigger').first().boundingBox()).height;
+      const sortH = (await page.locator('.dz-dropdown__trigger').first().boundingBox()).height;
       expect(Math.abs(pill.height - sortH), `${width}px: pill matches the sort control`).toBeLessThan(2);
       const tapH = await page.locator('.deal-seg-btn').first().evaluate(
         (el) => parseFloat(getComputedStyle(el, '::before').height)

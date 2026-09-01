@@ -559,7 +559,7 @@ CREATE TABLE flatmate_requests (
 -- correction beside the index rather than editing V27, because `spring.flyway.validate-on-migrate`
 -- is not set anywhere in this repo, so Flyway's default applied and validation was ON: editing an
 -- applied migration -- even prose, even a comment -- moves its checksum, and both databases had V27
--- applied (`punenest`, the seeded dev database, and `punenest_test`). Every subsequent boot of
+-- applied (`draazy`, the seeded dev database, and `draazy_test`). Every subsequent boot of
 -- either would have failed validation, and the only ways out are `flyway repair` or rebuilding the
 -- database from empty. The dev database carries hand-made local state and the register itself says
 -- to do this "when the test DB is next rebuilt, never mid-wave"; that was mid-wave. Consolidating
@@ -712,7 +712,7 @@ COMMENT ON TABLE flatmate_reviews IS
 -- row is the auditable record that turns "the owner knows" from a claim into a fact.
 --
 -- Keyed on the owner's mobile rather than a user id because the owner very often has no account --
--- they are a landlord, not a PuneNest user, and requiring them to sign up to say "yes, I know"
+-- they are a landlord, not a Draazy user, and requiring them to sign up to say "yes, I know"
 -- would mean the consent never gets recorded at all.
 --
 -- The OTP side of this flow -- `otp_codes.purpose` learning 'owner-consent' (V29) -- lives in the
@@ -738,7 +738,7 @@ COMMENT ON TABLE flatmate_owner_consents IS
 -- The flatmate shortlist (V124)
 -- ---------------------------------------------------------------------------
 -- `saved_properties` has held the property half of "Saved" since V1. The flatmate half was never
--- given a table: it lived in `puneNestFlatmateSaved`, a localStorage key that also cached the card's
+-- given a table: it lived in `draazyFlatmateSaved`, a localStorage key that also cached the card's
 -- title, price and photo at save time. A save therefore belonged to a browser rather than to a
 -- person, and the cached card went stale the moment the room's rent changed.
 --

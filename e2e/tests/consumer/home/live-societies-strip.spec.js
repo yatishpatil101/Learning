@@ -58,7 +58,7 @@ test('every society the home strip shows is the server\'s row, badge included', 
     await expect(card).toHaveText(new RegExp(escapeRegExp(titleCase(row.localitySlug))));
 
     /* The badge is the assertion with consequences: a tick beside a society name on the home page
-       is PuneNest vouching for the building. It must be the server's registration and conveyance
+       is Draazy vouching for the building. It must be the server's registration and conveyance
        saying so, not the bundle's copy of them. */
     const shouldBeVerified = !!row.verifiedAt
       || (row.source !== 'community' && !!(row.registration && row.conveyance));

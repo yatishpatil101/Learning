@@ -148,7 +148,7 @@ test('the awaiting-owner tile counts what the server calls pending', async ({ pa
   await login.asAdmin();
   await openBoard(page);
 
-  const tile = page.locator('.pn-card').filter({ hasText: 'Awaiting owner' }).first();
+  const tile = page.locator('.dz-card').filter({ hasText: 'Awaiting owner' }).first();
   await expect(tile).toBeVisible();
   await expect(tile.locator('.text-2xl')).toHaveText(String(pending));
 });

@@ -8,7 +8,7 @@
 ---
 
 ## 1. Purpose & user problem
-- **Persona:** an operations lead (or team manager) running PuneNest's paid/assisted services.
+- **Persona:** an operations lead (or team manager) running Draazy's paid/assisted services.
 - **Job-to-be-done:** "Take incoming service requests, route each to the right vertical team,
   assign an owner, track age/SLA, and mark them resolved."
 - **Why it matters:** services are a direct revenue line (see [`finance.md`](./finance.md), where

@@ -1,4 +1,4 @@
-# Running PuneNest locally (frontend + backend + Postgres)
+# Running Draazy locally (frontend + backend + Postgres)
 
 How to run the full stack on one machine, and how to flip individual domains from mock data to the
 real API. **Mock mode is the default and always works with no backend running** — that is how the UI
@@ -12,21 +12,21 @@ Two databases, and they must stay separate:
 
 | Database | Used by | Contents |
 |---|---|---|
-| `punenest` | local dev / running the app | Flyway schema **+ demo data**, both built by Flyway |
-| `punenest_test` | `mvn verify` | Flyway schema only, **kept empty of demo data** |
+| `draazy` | local dev / running the app | Flyway schema **+ demo data**, both built by Flyway |
+| `draazy_test` | `mvn verify` | Flyway schema only, **kept empty of demo data** |
 
 The test suite asserts exact row counts against a schema Flyway built from empty. Pointing dev at
-`punenest_test` seeds it and breaks the suite with confusing `expected 2, got 18` failures.
+`draazy_test` seeds it and breaks the suite with confusing `expected 2, got 18` failures.
 
 ```powershell
 $env:PGPASSWORD = 'postgres'
 $psql = 'C:\Program Files\PostgreSQL\13\bin\psql.exe'
-& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE punenest;"
-& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE punenest_test;"
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy;"
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy_test;"
 ```
 
 Both are built entirely by Flyway on first boot. **The dev database is now reproducible**: boot the
-backend against an empty `punenest` and you get the schema *and* the 38-listing demo catalogue. That
+backend against an empty `draazy` and you get the schema *and* the 38-listing demo catalogue. That
 was not true before 2026-08-04 — the demo data existed only inside one database and no script could
 regenerate it (tech-debt D81, now closed).
 
@@ -94,16 +94,16 @@ Safe to do at any time, and now lossless:
 
 ```powershell
 # Optional but free: keep the old one until you are happy.
-& $psql -U postgres -h localhost -d postgres -c "ALTER DATABASE punenest RENAME TO punenest_old;"
-& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE punenest;"
+& $psql -U postgres -h localhost -d postgres -c "ALTER DATABASE draazy RENAME TO draazy_old;"
+& $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy;"
 cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=dev    # Flyway rebuilds schema + demo data
 ```
 
 If you have added data locally that you care about, dump it first — it is not in the seed:
 
 ```powershell
-& "C:\Program Files\PostgreSQL\13\bin\pg_dump.exe" -U postgres -h localhost -d punenest `
-    --data-only --column-inserts -f "$env:USERPROFILE\punenest-backup.sql"
+& "C:\Program Files\PostgreSQL\13\bin\pg_dump.exe" -U postgres -h localhost -d draazy `
+    --data-only --column-inserts -f "$env:USERPROFILE\draazy-backup.sql"
 ```
 
 For the fixture ids and sample data, see [`docs/system/fixture-registry.md`](system/fixture-registry.md).
@@ -115,7 +115,7 @@ found — the source-tree hygiene guard flagged it. The registry is tracked, so 
 
 Worth stating plainly, because the answer is not the usual one:
 
-- **The database is long-lived, not created per run.** `punenest_test` is created once by hand.
+- **The database is long-lived, not created per run.** `draazy_test` is created once by hand.
   `mvn verify` connects to it, lets Flyway bring the schema up to date, and Hibernate validates the
   entity mapping against it (`ddl-auto=validate`) — so a green boot is itself a check that entities
   and migrations still agree.
@@ -131,13 +131,13 @@ Worth stating plainly, because the answer is not the usual one:
   infrastructure to be up; the benefit is that it runs against the actual engine, so `CHECK`
   constraints, `ON CONFLICT` and native queries are genuinely exercised rather than approximated.
 - **Nothing verifies the chain replays from empty.** The suite only ever migrates *forward* from
-  whatever `punenest_test` already contains, so a migration that cannot build a database from
+  whatever `draazy_test` already contains, so a migration that cannot build a database from
   scratch stays green indefinitely — which is exactly how the duplicate `society_leads` in V7/V24
   survived. To check it, point the backend at a throwaway:
 
   ```powershell
-  & $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE punenest_replay;"
-  $env:DB_URL = 'jdbc:postgresql://localhost:5432/punenest_replay'
+  & $psql -U postgres -h localhost -d postgres -c "CREATE DATABASE draazy_replay;"
+  $env:DB_URL = 'jdbc:postgresql://localhost:5432/draazy_replay'
   cd backend; .\mvnw.cmd -o spring-boot:run -Dspring-boot.run.profiles=dev     # look for "Successfully applied N migrations"
   ```
 
@@ -145,12 +145,12 @@ Worth stating plainly, because the answer is not the usual one:
 
 ## 2. Backend
 
-### One-time setup: `PUNENEST_DEV_MACHINE`
+### One-time setup: `DRAAZY_DEV_MACHINE`
 
 Do this once per machine, before the first run:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
+[Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
 ```
 
 Then **open a new terminal** — and restart VS Code, so the `backend: spring boot` task inherits it.
@@ -158,9 +158,9 @@ Then **open a new terminal** — and restart VS Code, so the `backend: spring bo
 If you skip it, the backend refuses to start, and says so:
 
 ```
-The 'dev' profile is active but the PUNENEST_DEV_MACHINE environment variable is not set,
+The 'dev' profile is active but the DRAAZY_DEV_MACHINE environment variable is not set,
 so nothing here proves this JVM is a developer's machine.
-  On a developer machine: set PUNENEST_DEV_MACHINE=1 once in your user environment and start
+  On a developer machine: set DRAAZY_DEV_MACHINE=1 once in your user environment and start
   again — docs/LOCAL_DEV.md has the exact command. Nothing in the repository sets it for you:
   not run-local.ps1, not the VS Code task, not .env.local, because a control that a committed
   file can satisfy is not a control.
@@ -180,13 +180,13 @@ So the second signal is deliberately one that a file cannot carry. It is in no c
 `run-local.ps1` actively refuses to read it out of `.env.local` even though that file is
 git-ignored; a git-ignored file is still a file, and `.env` is the single most-copied artefact in a
 deployment. The backend reads it with `System.getenv` rather than through Spring's `Environment`,
-because Spring's relaxed binding would resolve `PUNENEST_DEV_MACHINE` from a `punenest.dev-machine`
+because Spring's relaxed binding would resolve `DRAAZY_DEV_MACHINE` from a `draazy.dev-machine`
 entry in `application-dev.properties` — which would put the whole thing straight back inside the
 repository. The one action left is a human typing it on the machine it describes, which is exactly
 the action a mis-provisioned deploy cannot perform by accident.
 
 The old check is still there as a second, independent tripwire: `dev` alongside `prod`, or `dev`
-with a load balancer configured in `punenest.security.trusted-proxies`, still kills the boot. It
+with a load balancer configured in `draazy.security.trusted-proxies`, still kills the boot. It
 catches the opposite mistake — someone who *has* exported the variable and then ships an image
 built from their shell profile.
 
@@ -227,7 +227,7 @@ Confirm Flyway actually ran — a healthy boot logs:
 
 ```
 o.f.core.internal.command.DbValidate : Successfully validated 17 migrations
-c.punenest.api.PunenestApiApplication : Started PunenestApiApplication
+c.draazy.api.DraazyApiApplication : Started DraazyApiApplication
 ```
 
 That count is 14 versioned `V__DDL_*` files plus the two `R__DML_*` reference seeds, and on the
@@ -244,7 +244,7 @@ Login is passwordless mobile + OTP. The dev `OtpSender` is a mock that prints th
 console rather than sending an SMS:
 
 ```
-c.punenest.api.provider.MockOtpSender : [MOCK OTP] mobile=9876500001 code=993399
+c.draazy.api.provider.MockOtpSender : [MOCK OTP] mobile=9876500001 code=993399
 ```
 
 ## 3. Frontend
@@ -320,7 +320,7 @@ written out here instead (tech-debt D75).
 ### What the parity harnesses leave behind
 
 There are eighteen `scripts/*-parity.mjs`. **They run against your real dev backend, so they write
-to `punenest`** — there is no way around that: the harness drives the *real* http provider over
+to `draazy`** — there is no way around that: the harness drives the *real* http provider over
 HTTP, and the backend, not the harness, chooses the database. Pointing a harness at a throwaway
 database would mean pointing the whole backend at one.
 
@@ -356,7 +356,7 @@ only database footprint is the login row.
 ## 5. Tests
 
 ```powershell
-cd backend; mvn verify        # requires punenest_test to exist and be free of demo data
+cd backend; mvn verify        # requires draazy_test to exist and be free of demo data
 cd e2e;     npx playwright test
 ```
 
@@ -377,7 +377,7 @@ cd e2e;     npx playwright test
   *different paths*, and a browser will not replace one with the other. Both are then sent to
   `/api/auth/refresh`, `RefreshCookie.presented()` correctly refuses to guess between two scopes,
   and the loop closes: the new cookie is written at `/` again, the stale one at `/api/auth` is never
-  touched by anything. Production is immune — the rename to `__Host-punenest_rt` means the two
+  touched by anything. Production is immune — the rename to `__Host-draazy_rt` means the two
   cannot collide — so this is a local-only trap. Fix it once with "Clear site data" in DevTools
   → Application, or delete the `/api/auth`-scoped cookie by hand. The backend logs a `WARN` naming
   the cookie when it happens, so check the console before assuming the session is broken.

@@ -89,7 +89,7 @@ test('a live staff sign-in takes its identity from the server, not from the scre
   expect(me.role).toBe('staff');
 
   const session = await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestUser') || sessionStorage.getItem('puneNestUser');
+    const raw = localStorage.getItem('draazyUser') || sessionStorage.getItem('draazyUser');
     return raw ? JSON.parse(raw) : null;
   });
   expect(session).not.toBeNull();

@@ -28,9 +28,9 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  * ## What is deliberately NOT asserted
  *
  * - **Saving a room renders a rich card on the Saved page.** Flatmate saves are localStorage-
- *   bound (`puneNestFlatmateSaved`), not backed by the API, so the rich-card claim is a browser
+ *   bound (`draazyFlatmateSaved`), not backed by the API, so the rich-card claim is a browser
  *   storage test. It stays in the mock file (`prefreeze.spec.js`) with a header explaining why.
- * - **The pending-chat entry in `pnPendingRequests`.** That is a localStorage artefact the mock
+ * - **The pending-chat entry in `dzPendingRequests`.** That is a localStorage artefact the mock
  *   tests. When Messages grows a server inbox (D183), the two move together.
  * - **Toast text.** `live-interest-doors.spec.js` already asserts toast tone (error vs. calm)
  *   structurally; duplicating the wording here would pin a label.

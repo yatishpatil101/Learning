@@ -13,8 +13,8 @@ import { trackErrors } from '../../../helpers/console.js';
  * `useFlatmates.jsx:250` reads the owner's inventory through `propertyService.myListings`, and
  * `:273` reads the tenant's through `rentService.myTenancies`, each with an http provider behind
  * it. What made the mock look unconvertible was its *seeding*, not its subject: it wrote
- * `puneNestListings:<mobile>` and `pnTenancies:<mobile>` into localStorage, and by the end it was
- * also reaching into `puneNestDB_v5` post-boot because the first key had stopped being the source
+ * `draazyListings:<mobile>` and `dzTenancies:<mobile>` into localStorage, and by the end it was
+ * also reaching into `draazyDB_v5` post-boot because the first key had stopped being the source
  * of truth. Three storage reaches to arrange two rows the seeded server already has.
  *
  * So nothing about the product had to change for this file to exist. It signs in as the seeded
@@ -152,7 +152,7 @@ test.describe('LIVE: group-form prefill', () => {
     await signedInAs(page, ACTORS.tenant);
     await openGroupModal(page);
     // "Current tenant" is the default role, so the tenancy picker is already on screen.
-    await page.getByRole('button', { name: /Prefill from your PuneNest tenancy/i }).click();
+    await page.getByRole('button', { name: /Prefill from your Draazy tenancy/i }).click();
     await page.getByRole('option', { name: flat.title, exact: true }).click();
 
     /* No bedroom count here, unlike the owner path — `prefillGroupFromTenancy` passes only the
@@ -162,7 +162,7 @@ test.describe('LIVE: group-form prefill', () => {
     await expect(rentField(page)).toHaveValue(String(tenancy.rent));
 
     /* The owner's number comes off the tenancy, which is the whole reason this path can shorten
-       consent: PuneNest brokered the lease, so it already knows who the landlord is. */
+       consent: Draazy brokered the lease, so it already knows who the landlord is. */
     const ownerMobile = String(tenancy.owner?.mobile || '').replace(/\D/g, '').slice(-10);
     expect(ownerMobile, 'the tenancy should name the landlord').toHaveLength(10);
     await expect(page.getByPlaceholder(/seeking a replacement/i)).toHaveValue(ownerMobile);
@@ -177,7 +177,7 @@ test.describe('LIVE: group-form prefill', () => {
   test('a tenant with no tenancy on record is not offered a prefill they cannot use', async ({ page }) => {
     await signedInAsNew(page);
     await openGroupModal(page);
-    await expect(page.getByRole('button', { name: /Prefill from your PuneNest tenancy/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Prefill from your Draazy tenancy/i })).toHaveCount(0);
     // The form itself is still there — this is a missing shortcut, not a blocked path.
     await expect(titleField(page)).toBeVisible();
   });

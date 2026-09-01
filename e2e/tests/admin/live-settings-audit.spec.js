@@ -22,7 +22,7 @@
  *
  * ## The seed has no audit rows, so the spec makes one
  *
- * `GET /admin/audit-log` on a freshly reset `punenest_e2e` returns `totalElements: 0`. That is not
+ * `GET /admin/audit-log` on a freshly reset `draazy_e2e` returns `totalElements: 0`. That is not
  * a gap to work around; it is the better test. A spec that read a seeded row would prove the page
  * can render a fixture. This one performs a real privileged action through the API — approving a
  * pending listing — and then asserts the screen shows the row the *server* chose to write about it,

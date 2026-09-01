@@ -69,7 +69,7 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
   `managed` seam domain (`/me/managed-properties`), not a browser store.
 - `users` (profile), `aadhaar_verification` - read (profile-completion meter + the opt-in Verified
   badge state; the badge is a trust signal, never a posting/contact gate — ADR-019).
-- `pnPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
+- `dzPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -111,7 +111,7 @@ A single triage list pinned to the top of Overview. Rows are only added when the
 - **Shared row (owner + seeker):** each `scheduledVisits` item still awaiting confirmation
   ("Visit to confirm", Review).
 - **Seeker/tenant row:** rent due on a tracked rental. The only action is "Coming soon" (to
-  `/pay-rent`): rent does not move through PuneNest, so any button promising to pay it would be a
+  `/pay-rent`): rent does not move through Draazy, so any button promising to pay it would be a
   promise the platform cannot keep.
 - **Sort:** stale-first. `STALE_MS = 2 * 86400000` (2 days); items older than that lead, then by
   oldest `at` ascending.

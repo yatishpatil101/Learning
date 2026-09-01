@@ -102,7 +102,7 @@ async function pick(page, filterLabel, optionText) {
 
 /** Read a KPI tile's number by its label. */
 async function tile(page, label) {
-  const value = page.locator('.pn-card', { hasText: label }).first().locator('.text-2xl');
+  const value = page.locator('.dz-card', { hasText: label }).first().locator('.text-2xl');
   return Number((await value.innerText()).replace(/[^\d]/g, ''));
 }
 

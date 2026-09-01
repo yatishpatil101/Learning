@@ -1,4 +1,4 @@
-# PuneNest — Open Questions
+# Draazy — Open Questions
 
 **Status:** living document. Companion to [`tech-debt.md`](./tech-debt.md).
 
@@ -415,7 +415,7 @@ be spent on) and now pays **owner contacts**, the unit the scheme has always adv
 `settings.fees.referralReward` is gone; `freeContactLimit` and `referralContactBonus` replace it, and
 `referrals.reward_amount` is a count.
 
-The quota moved with it. `lib/store/contactQuota.js` — a `pnContactsUsed:<mobile>` counter the browser
+The quota moved with it. `lib/store/contactQuota.js` — a `dzContactsUsed:<mobile>` counter the browser
 wrote, a referral bonus the same browser minted, and a limit the same browser enforced *before* making
 any request — is retired. `GET /me/entitlements` reports the allowance and `POST /contacts/request`
 refuses with a 422 `contact_quota_exhausted`. Both numbers are **derived**: `used` is a count of

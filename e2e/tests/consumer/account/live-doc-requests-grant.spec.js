@@ -14,7 +14,7 @@ import { API, authHeaders, signedInAs, signedInAsNew } from '../../../helpers/li
  *
  * ## What the mock version could not do
  *
- * Its closing assertion read `puneNestDocReq:<owner>` out of the browser it had just written it in,
+ * Its closing assertion read `draazyDocReq:<owner>` out of the browser it had just written it in,
  * and checked `sharedDocIds` against two file ids the spec itself had invented. Here the grant is
  * read back through `GET /me/documents/requests` **outside the browser**, so "the seam wrote
  * through" is a statement about Postgres rather than about localStorage.

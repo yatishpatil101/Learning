@@ -179,7 +179,7 @@ test('the activity timeline is a real history, not a phone-number guess', async 
   /* Every account has exactly one event it cannot avoid having. If this is missing, the union is
      broken rather than the person being new — which is the failure the empty state would otherwise
      disguise. */
-  await expect(page.getByText('Joined PuneNest')).toBeVisible();
+  await expect(page.getByText('Joined Draazy')).toBeVisible();
   /* Four listings, joined on `owner_id`. The mock joined them by phone number and gated them on
      `role === 'owner'`, so an owner who had since been re-roled lost their whole history and two
      people sharing a handset saw each other's. */

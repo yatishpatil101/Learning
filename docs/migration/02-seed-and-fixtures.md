@@ -28,7 +28,7 @@ Load-bearing facts (do not break):
 - Reference data lives in `db/migration` (not `db/seed`) **on purpose** — it is schema meaning, not
   demo content, and `TestDatabaseIsolationTest` asserts `localities` is present while the demo seed
   is absent. Do not move it to `db/seed`.
-- The demo seed is kept out of `punenest_test` by `spring.flyway.locations=classpath:db/migration`
+- The demo seed is kept out of `draazy_test` by `spring.flyway.locations=classpath:db/migration`
   in `src/test/resources/application.properties`. That one line is doing real work.
 - Several seed files carry a UTF-8 BOM (flagged by `SourceTreeHygieneTest`). Edit seed **only**
   with `replace_string_in_file` — never PowerShell `>` / `-replace` / `Set-Content` (BOM/UTF-16
@@ -87,7 +87,7 @@ global count that drifts.
 2. **Transactional demo (listings, users, and everything created at runtime).** Most user-generated
    domains (deals, offers, contacts, reviews, conversations, support tickets, visits, saved,
    savedSearch) seed at **0 rows** today — they are created during use. For e2e we must seed a
-   **minimal named baseline** for each so a fresh `punenest_e2e` has something to assert against
+   **minimal named baseline** for each so a fresh `draazy_e2e` has something to assert against
    before any spec mutates state.
 
 ## Decision: seed photos — keep-URL vs re-host to R2
@@ -110,13 +110,13 @@ for the first cut.
 - [x] Write the fixture registry (named actors + invariants), one row per domain in
       [04-modules.md](04-modules.md). → [`docs/system/fixture-registry.md`](../system/fixture-registry.md)
 - [x] Grow `R__zz_DML_dev_demo_data.sql` to guarantee those invariants — **idempotent upserts**, so
-      re-running against `punenest_e2e` is safe.
+      re-running against `draazy_e2e` is safe.
       *Idempotent, but INSERTs not upserts: the file uses bare `ON CONFLICT DO NOTHING` with no
       conflict target (scoping it to `(id)` breaks on `users_mobile_key`). Re-running is safe; it
       just never **updates** an existing row, so changing a fixture value needs a DELETE first.
-      Verified by applying the file twice against `punenest` — `EXIT=0` both passes — then asserting
+      Verified by applying the file twice against `draazy` — `EXIT=0` both passes — then asserting
       all 10 registry invariants against the database.*
-- [x] Keep the demo seed out of `punenest_test` (verify `TestDatabaseIsolationTest` still passes).
+- [x] Keep the demo seed out of `draazy_test` (verify `TestDatabaseIsolationTest` still passes).
       *`TestDatabaseIsolationTest` + `SourceTreeHygieneTest`: 4 tests, 0 failures.*
 - [x] Confirm localities/societies still generated from the frontend catalogue, not hand-edited.
       *Untouched — the fixture block adds no reference data.*

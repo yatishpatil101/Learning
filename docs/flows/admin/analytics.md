@@ -91,14 +91,14 @@ Per-locality supply vs weighted demand, sorted by `gap` desc:
   Property views 30d (sum `views`), Hot demand users (sum `hot`). Priority chip: High if `gap>=5 || hot>=2`, Medium if `gap>0`, else OK.
 - **Demand Alerts by locality** (`alertsByLocality()`): groups `demandAlerts` by locality -> `{count, lastAt, rent, buy, topType}`, sorted by count.
 - **City Expansion Requests** (`GET /admin/cities/waitlist` via `cityService.listCityWaitlist()`):
-  where people want PuneNest to launch **next** — a different question from the rest of this tab,
+  where people want Draazy to launch **next** — a different question from the rest of this tab,
   which compares supply and demand *inside* a city already served. Rows are
   `{ city, requests, lastRequestedAt }`, grouped in SQL by `lower(city)` and ordered by `requests`
   desc then recency; displayed spelling is `min(city)`, a real one somebody typed. The panel is
   **counts-only by design** — `city_waitlist` holds unverified public mobiles and emails, and the
   aggregation happens in the database so no contact detail reaches the JVM, let alone this screen.
   There is no `?days=` window: wanting a city does not decay.
-  It previously aggregated a `pnCityRequests` array in localStorage, so it showed the reading
+  It previously aggregated a `dzCityRequests` array in localStorage, so it showed the reading
   operator only the asks made from *their own* browser — always none on a fresh profile, while
   `POST /cities/waitlist` had been recording the real ones all along.
   The waitlist is held as `null`-until-loaded rather than `[]`: a failed read renders

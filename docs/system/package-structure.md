@@ -1,11 +1,11 @@
 # Package structure — decision record
 
-> **Status:** Accepted · **Scope:** backend (`com.punenest.api`) · **Companion of:**
+> **Status:** Accepted · **Scope:** backend (`com.draazy.api`) · **Companion of:**
 > [`api-standards.md`](./api-standards.md) §7 ·
 > [`platform-architecture.md`](./platform-architecture.md) (modular-monolith ADRs).
 > §3 below owns the 11 bounded contexts.
 
-This fixes the definitive physical layout for the PuneNest modular monolith so every future slice has
+This fixes the definitive physical layout for the Draazy modular monolith so every future slice has
 **one obvious, low-friction home** and a later service extraction is **mechanical, not a rewrite**.
 It reflects the tree as it exists today (auth+users is the only shipped slice), not a textbook ideal.
 
@@ -17,8 +17,8 @@ Adopt **package-by-bounded-context**, with **feature/aggregate sub-packages that
 (no `controller/`, `service/`, `repository/` layer packages). Shared machinery stays top-level.
 
 ```
-com.punenest.api
-├─ PunenestApiApplication.java          # single @SpringBootApplication root
+com.draazy.api
+├─ DraazyApiApplication.java          # single @SpringBootApplication root
 │
 ├─ identity/                            # ── CONTEXT 1: Identity & Access (SHIPPED) ──
 │  ├─ auth/                             #   aggregate: login/OTP/refresh/logout
@@ -51,7 +51,7 @@ com.punenest.api
 
 A **single business slice is laid out end-to-end inside its aggregate package**:
 `entity → repository → service → controller → DTO/mapper`, with the test package mirroring it
-(`src/test/java/com/punenest/api/<context>/<aggregate>/`). No type for a slice lives outside its
+(`src/test/java/com/draazy/api/<context>/<aggregate>/`). No type for a slice lives outside its
 package except the shared kernel it *depends on*.
 
 ---

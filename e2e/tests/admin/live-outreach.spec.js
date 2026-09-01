@@ -143,7 +143,7 @@ test('the pricing chaser quotes the locality rate the buyers are already shown',
 
 test('the link an owner is asked to tap belongs to the box that sent it', async () => {
   /* `wa-live`, `wa-stale` and `wa-dormant` wrote the URL out by hand as
-     `punenest.com/property/{listing_id}`. Nothing failed and nothing looked wrong: the message
+     `draazy.com/property/{listing_id}`. Nothing failed and nothing looked wrong: the message
      rendered, the handoff link opened, and the sentence read correctly -- while every chaser sent
      from a staging box asked an owner to confirm availability on *production*, against a listing id
      that only exists here. The owner taps it, gets a 404 or somebody else's flat, and what the
@@ -162,7 +162,7 @@ test('the link an owner is asked to tap belongs to the box that sent it', async 
 
     const { body } = await res.json();
     expect(body).toContain(`${BASE_URL}/property/${LISTING}`);
-    expect(body).not.toContain('punenest.com');
+    expect(body).not.toContain('draazy.com');
     expect(body).not.toContain('{listing_link}');
   }
 });

@@ -29,7 +29,7 @@ import { test, expect } from '../../../fixtures/live.js';
 import { API } from '../../../helpers/liveAuth.js';
 
 /** The fully-translated row. English is what an untranslated reader sees. */
-const F1_EN_Q = 'Is PuneNest really zero brokerage?';
+const F1_EN_Q = 'Is Draazy really zero brokerage?';
 const F1_MR_Q = 'पुणेनेस्ट खरंच शून्य दलाली आहे का?';
 const F1_MR_CAT = 'सर्वसाधारण';
 

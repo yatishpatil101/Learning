@@ -14,7 +14,7 @@
 > deleted with the mock provider. The current flow is server-owned: the client creates and reads
 > requests, creates/claims/accepts co-fill invitations, records identity numbers, withdraws an
 > unanswered invite, and records read receipts through `/service-requests`. Historical sections
-> that name `puneNestServiceReq:*`, `puneNestRAInvite:*`, or `serviceFlow` explain the migration
+> that name `draazyServiceReq:*`, `draazyRAInvite:*`, or `serviceFlow` explain the migration
 > starting point, not an active storage or security boundary.
 
 ---
@@ -75,10 +75,10 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   it is claimed at sign-in, then accepted or declined through the invite endpoint.
 - **Admin service ticket** - none for a rent agreement. The server request itself is the drafting
   desk record; the browser does not maintain a ticket mirror.
-- **Owner KYC** - `puneNestOwnerKYC:<mobile>` (autofill + persist on submit).
+- **Owner KYC** - `draazyOwnerKYC:<mobile>` (autofill + persist on submit).
 - **Document vault** - `getDocsForProp(mobile, 'personal')` / `addDocument`: owner PAN/Aadhaar/photo/
   ownership proof reused across the wizard and dashboard (`OWNER_VAULT_CAT`).
-- **Draft (`pnDraft:rentAgreement`)** - autosave/restore of the whole wizard *except* PAN and
+- **Draft (`dzDraft:rentAgreement`)** - autosave/restore of the whole wizard *except* PAN and
   Aadhaar. Those are stripped before the draft is written (the same redaction the co-fill payload
   uses), and a draft written before that rule is redacted in place the next time the wizard opens.
   A mid-fill refresh therefore brings back every answer with those two blank, and the restored-draft
@@ -86,7 +86,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Identity numbers (D151)** - `PUT /service-requests/{id}/identities`, once, immediately after the
   live create and before the checkout modal opens. This is the *only* place PAN and Aadhaar leave the
   tab: not in `details` (plaintext `jsonb`, echoed to every staff read), not in the draft, not in the
-  co-fill payload, not in `puneNestOwnerKYC`. Built by `identityParties(owner, tenants)` from live
+  co-fill payload, not in `draazyOwnerKYC`. Built by `identityParties(owner, tenants)` from live
   component state, sent, and not retained; the server answers 204 so there is nothing to echo back.
   On the desk's side only the operator the request is **assigned to** can read them back — an admin
   is refused until they take the request — every read and every refusal is written to `audit_log`,
@@ -105,7 +105,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   locality, city (default Pune), pincode, area. Pre-filled from `?listing=` (furnish map
   unfurnished/semi/furnished; rent/deposit from listing).
 - **Step 1 Owner:** name, age, gender, PAN, Aadhaar, mobile, email, address. Autofilled from
-  `puneNestOwnerKYC:<mobile>` or the session user.
+  `draazyOwnerKYC:<mobile>` or the session user.
 - **Step 2 Tenant:** `tenantMode` = `fill` (one or more tenants, `addTenant`/`removeTenant`) or
   `invite` (send a co-fill link). Tenant fields mirror owner KYC.
 - **Step 3 Terms:** startDate, months (default 11), rent, deposit, non-refundable deposit,
@@ -128,7 +128,7 @@ total   = stamp + reg + service
 ```
 - The FAQ states the same rule in words: stamp duty = 0.25% of (rent for the full period +
   non-refundable deposit + 10% of the refundable deposit per year of term); registration Rs 1,000
-  urban / Rs 500 rural. `service` is admin-controlled and is the only PuneNest revenue line here.
+  urban / Rs 500 rural. `service` is admin-controlled and is the only Draazy revenue line here.
 - The admin **ticket value** uses `cost.total`.
 
 ### 5.3 Validation (`stepErrors`)

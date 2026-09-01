@@ -39,13 +39,13 @@ const ADMIN_MOBILE = '9000000000';
  *
  * This spec creates real rows it cannot delete - there is no DELETE endpoint for a user, archiving
  * is the strongest thing available - so a fixed literal would collide with its own previous run and
- * fail forever, which is the D100 trap. The live run now resets `punenest_e2e` to baseline first,
+ * fail forever, which is the D100 trap. The live run now resets `draazy_e2e` to baseline first,
  * which would also solve it; the per-run suffix stays because it is what keeps this spec honest
  * when someone debugs it with `E2E_SKIP_RESET=1`, and because a spec that silently depends on a
  * clean database is a spec that fails mysteriously the one time it does not get one.
  */
 const RUN = Date.now().toString().slice(-8);
-const ADDRESS = `restore.collision.${RUN}@punenest.test`;
+const ADDRESS = `restore.collision.${RUN}@draazy.test`;
 const mobile = (n) => `9${String(RUN).padStart(9, '0').slice(0, 8)}${n}`;
 
 /**
@@ -153,7 +153,7 @@ test.describe('restoring onto a taken email address', () => {
     const lonely = await createStaff(request, {
       name: 'Collision Lonely',
       mobile: mobile('3'),
-      email: `restore.lonely.${RUN}@punenest.test`,
+      email: `restore.lonely.${RUN}@draazy.test`,
       password: 'Probe-pass-3!',
     });
     expect((await request.patch(`/api/users/${lonely}/archive`, {

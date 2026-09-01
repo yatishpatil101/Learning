@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * PuneNest E2E configuration — the default suite, against a real backend.
+ * Draazy E2E configuration — the default suite, against a real backend.
  *
  * This was `playwright.live.config.js` until the mock was deleted. While the app had two data
  * providers there were two suites, and the *default* was the mock one: it had to pass with no
@@ -11,26 +11,26 @@ import { defineConfig, devices } from '@playwright/test';
  * `playwright.nobackend.config.js`, three specs whose subject genuinely is the absence of a server.
  *
  * **This config resets a database.** `globalSetup` drops and reseeds `E2E_DB_NAME`, defaulting to
- * the shared `punenest_e2e` lane, so a bare run here will wipe whatever a concurrent session was
+ * the shared `draazy_e2e` lane, so a bare run here will wipe whatever a concurrent session was
  * using. That was survivable while this was the opt-in config nobody invoked by accident; as the
  * default it is a live footgun. Prefer the lane scripts — `run-live-flatmates.ps1`,
  * `run-live-admin.ps1`, `run-live-services.ps1` — which pin the port, the database and the app URL
  * together. Set `E2E_DB_NAME` yourself if you are running specs directly alongside another lane.
  *
  * Prerequisites:
- *   1. Postgres up, with the `punenest_e2e` database created once:
- *        psql -U postgres -c "create database punenest_e2e"
+ *   1. Postgres up, with the `draazy_e2e` database created once:
+ *        psql -U postgres -c "create database draazy_e2e"
  *      This suite owns that database and resets it to the seeded baseline at the start of every
- *      run (globalSetup below). It is deliberately **not** `punenest` - a run would otherwise wipe
- *      whatever a developer had been doing by hand - and deliberately **not** `punenest_test`,
+ *      run (globalSetup below). It is deliberately **not** `draazy` - a run would otherwise wipe
+ *      whatever a developer had been doing by hand - and deliberately **not** `draazy_test`,
  *      which the Java suite requires to stay empty. See docs/migration/03-e2e-database-and-users.md.
- *   2. `PUNENEST_DEV_MACHINE` set in the environment the **backend** is launched from. Since
+ *   2. `DRAAZY_DEV_MACHINE` set in the environment the **backend** is launched from. Since
  *      2026-08-09 the `dev` profile alone does not enable the dev stubs: `DevProfileGuard` also
  *      requires this variable, as positive proof that the JVM is on a developer's machine rather
  *      than a container that inherited `dev` from a copied environment file. It is in no committed
  *      file on purpose, so set it once per machine and never in the repo:
  *
- *        [Environment]::SetEnvironmentVariable('PUNENEST_DEV_MACHINE', '1', 'User')
+ *        [Environment]::SetEnvironmentVariable('DRAAZY_DEV_MACHINE', '1', 'User')
  *
  *      Without it the backend refuses to start, and this suite fails at step 3 below with a login
  *      timeout rather than anything that names the cause - so check the backend console first.
@@ -38,7 +38,7 @@ import { defineConfig, devices } from '@playwright/test';
  *        cd backend; ./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev,e2e" "-Dspring-boot.run.arguments=--server.port=8081"
  *      Order matters and so does having both. `dev` binds the mock OTP sender (without it the
  *      backend boots the SMS sender, which throws, and no login can succeed); `e2e` points the
- *      datasource at `punenest_e2e` and fixes the OTP to a constant. Listing `e2e` last is what
+ *      datasource at `draazy_e2e` and fixes the OTP to a constant. Listing `e2e` last is what
  *      makes its datasource win.
  *
  * Logins no longer scrape the backend log: under the `e2e` profile the OTP is fixed, so
@@ -63,9 +63,9 @@ const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
 // backend is started by hand (possibly from another terminal), so its absence here is suggestive,
 // not conclusive. Worth saying out loud all the same — the symptom of a backend that refused to
 // boot is a login timeout thirty seconds into the first spec, which reads like a flaky test.
-if (!process.env.PUNENEST_DEV_MACHINE) {
+if (!process.env.DRAAZY_DEV_MACHINE) {
   console.warn(
-    '[live] PUNENEST_DEV_MACHINE is not set in this shell. If the backend was started without it, ' +
+    '[live] DRAAZY_DEV_MACHINE is not set in this shell. If the backend was started without it, ' +
       'it refused to boot under the `dev` profile and every login below will time out. ' +
       'See docs/LOCAL_DEV.md.',
   );

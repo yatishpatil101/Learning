@@ -18,7 +18,7 @@
 > is called today. Left as written rather than back-dated: a migration log that is edited to match
 > the destination stops being evidence of the route. Added 2026-08-28.
 
-This folder is the module-wise plan to move the **entire** PuneNest app — the React
+This folder is the module-wise plan to move the **entire** Draazy app — the React
 frontend **and** the Playwright e2e suite — off the in-browser mock and onto the live
 Spring Boot API backed by PostgreSQL, with permanent seed data, real file storage
 (Cloudflare R2), and persistent real users in a dedicated test database.
@@ -32,7 +32,7 @@ minimal (ponytail), cleans up comments, and stands up static analysis.
 |-----|-----------------|
 | [01-storage-r2.md](01-storage-r2.md) | How photos and documents get **permanently stored** (Cloudflare R2 — already built, one flag away). |
 | [02-seed-and-fixtures.md](02-seed-and-fixtures.md) | The **permanent seed** as a named-fixture contract so the app displays exactly as today (photos, localities, societies). |
-| [03-e2e-database-and-users.md](03-e2e-database-and-users.md) | The persistent **`punenest_e2e`** database, **real user management that survives restarts**, OTP handling, and drift control. |
+| [03-e2e-database-and-users.md](03-e2e-database-and-users.md) | The persistent **`draazy_e2e`** database, **real user management that survives restarts**, OTP handling, and drift control. |
 | [04-modules.md](04-modules.md) | The **per-domain migration matrix** — all 22 service domains: live status, what self-seeds, what must be rewritten. |
 | [05-logic-to-backend.md](05-logic-to-backend.md) | **Business logic moves to the backend; the UI stays thin.** Full `frontend/src/lib/` inventory classified move / stay / delete. |
 | [06-code-quality.md](06-code-quality.md) | **Ponytail discipline, comment hygiene, and Sonar/Checkmarx** — including the fact that neither scanner is configured today. |
@@ -44,7 +44,7 @@ Flipping the frontend to the live API is **two lines of `.env.local`** (already 
 the live e2e config works today). The expensive work is **not** wiring; it is the e2e
 suite:
 
-> Mock specs **self-seed `localStorage`** (`puneNestUser`, `puneNestDB_v5`, …) via
+> Mock specs **self-seed `localStorage`** (`draazyUser`, `draazyDB_v5`, …) via
 > `addInitScript`. The `http` providers **ignore `localStorage`** and call the API. So
 > every self-seeding spec asserts against data the backend does not have. **The dominant
 > cost of this migration is rewriting self-seeding specs into seed-reliant / create-via-API
@@ -59,7 +59,7 @@ sizes everything downstream.
    and the computational stand-ins in `frontend/src/lib/*` (`qualityScore`, `featured`,
    `freshness`, …) are deleted **only after** the live e2e suite is green — not before. Until then
    they remain the safety net.
-2. **The API contract is law.** `backend/src/main/resources/static/openapi/punenest-api.yaml`
+2. **The API contract is law.** `backend/src/main/resources/static/openapi/draazy-api.yaml`
    is the source of truth. Mappers conform to it; we do not bend
    the contract to match the mock. The operation count moves with every route, so the number is
    not repeated here — `SpecCoverageTest.IMPLEMENTED_FLOOR` is the figure that is actually
@@ -82,12 +82,12 @@ sizes everything downstream.
 
 | DB | Job | Seed | Isolation | Persists across restart |
 |----|-----|------|-----------|-------------------------|
-| `punenest` | Local dev driver | Full demo seed (`R__zz_DML_dev_demo_data.sql`) | none | yes |
-| `punenest_test` | Java unit/integration suite | **schema only** (guarded by `TestDatabaseIsolationTest`) | `@Transactional` rollback per test | no (rolled back) |
-| **`punenest_e2e`** (new) | Playwright browser suite | Named-fixture baseline seed | **no rollback** — reset-to-baseline at run **start** | **yes** (this is the requirement) |
+| `draazy` | Local dev driver | Full demo seed (`R__zz_DML_dev_demo_data.sql`) | none | yes |
+| `draazy_test` | Java unit/integration suite | **schema only** (guarded by `TestDatabaseIsolationTest`) | `@Transactional` rollback per test | no (rolled back) |
+| **`draazy_e2e`** (new) | Playwright browser suite | Named-fixture baseline seed | **no rollback** — reset-to-baseline at run **start** | **yes** (this is the requirement) |
 
-`punenest_test` **must stay empty** — 126 exact-count assertions depend on it. The persistent
-real users the owner wants live in the **new** `punenest_e2e`, never in `punenest_test`.
+`draazy_test` **must stay empty** — 126 exact-count assertions depend on it. The persistent
+real users the owner wants live in the **new** `draazy_e2e`, never in `draazy_test`.
 
 ## Phased sequencing
 
@@ -109,7 +109,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   returns the bytes, the unsigned URL is refused). All three frontend-side risks the plan listed
   turned out to need no code change; see the Risks section there. Dev without keys still works via
   the existing local `DevObjectStore`.
-- **Phase 3 — `punenest_e2e` + persistent users.** Stand up the third DB, its baseline seed, the
+- **Phase 3 — `draazy_e2e` + persistent users.** Stand up the third DB, its baseline seed, the
   reset-at-start hook, and the e2e OTP affordance ([03](03-e2e-database-and-users.md)).
 - **Phase 3.5 — ~~Authorisation logic to the server~~ — CLOSED 2026-08-13, no work needed.**
   Audited before writing any Java, per [05](05-logic-to-backend.md)'s own first checklist item.
@@ -180,7 +180,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   same keys still read `rawDb()` — `ConsumerLayout.jsx:37` (`flags.maintenanceMode`, "block all
   consumer access"), `AppFlagsContext.jsx:7` (`flags`, including `signupsEnabled`) and
   `geoConfig.js:72` (the Places blacklist and city limit). The http provider raises
-  `punenest-settings-change` and those listeners dutifully re-read localStorage, where nothing has
+  `draazy-settings-change` and those listeners dutifully re-read localStorage, where nothing has
   changed. This was **not** a regression in real enforcement — the controls were always browser-local,
   so they never protected anyone but the operator's own tab — but it did mean an abuse-response
   switch reported success and did nothing at all.
@@ -257,7 +257,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   `fixtures/live.js` is the conversion lever: it re-exports Playwright's `test` with the *same two
   fixtures under the same names* as `fixtures/base.js` (`consoleErrors`, `login.asBuyer/asOwner/…`),
   so a session-only spec converts by changing one import line. Underneath, `login` completes the real
-  OTP form instead of writing `puneNestUser` into localStorage. Keeping the call sites identical is
+  OTP form instead of writing `draazyUser` into localStorage. Keeping the call sites identical is
   deliberate: 220 files is 220 chances to change behaviour while claiming to be porting it.
 
   Two things the conversion is *not* allowed to paper over:
@@ -279,7 +279,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   had been silently `test.skip`-ing themselves behind an auth gate on the mock suite —
   "wizard step actions are not sticky" and "saved tabs are a flex row" — now sign in and assert,
   because the live suite can actually log in. `live-flow`'s registration assertion moved off
-  `localStorage.puneNestUsers` (the mock's own registry, which the form wrote itself, so the check
+  `localStorage.draazyUsers` (the mock's own registry, which the form wrote itself, so the check
   only ever proved the page could talk to its own tab) onto `POST /auth/login`, which fails if the
   account never reached the server.
 
@@ -357,7 +357,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
     paying for an ordering the test could choose: set the flag on the server, *then* navigate, and
     the page's first read is already the value under test.
   - **Two tests were asserting nothing.** The "no page errors with all flags disabled" pair read
-    `puneNestDB_v1` — a store key three versions stale — so `db` was null, the guard returned, and
+    `draazyDB_v1` — a store key three versions stale — so `db` was null, the guard returned, and
     both had spent their lives asserting that a page with *all flags enabled* renders cleanly, under
     a name claiming the opposite. Converting fixed them by construction; they now disable the whole
     26-flag vocabulary through one PUT. Consistent with the D203 lesson: a coverage regression that
@@ -424,7 +424,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   Three seams in `auth/improvements` were genuinely different rather than re-plumbed, and each is a
   place the live design is deliberate:
 
-  - **User existence is gone.** The seeded spec pre-loaded `puneNestUsers` so a number could be
+  - **User existence is gone.** The seeded spec pre-loaded `draazyUsers` so a number could be
     "known", and asserted that an unknown number bounces to `/signup`. The live API has no such
     endpoint on purpose — "does this mobile exist?" answered publicly is a user-enumeration oracle —
     and provisions on first verified login. The converted spec asserts the live behaviour instead:
@@ -475,7 +475,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   component (`OpsServiceQueue`) rendered five times over `serviceFlow`'s `localStorage` engine.
   **Defect found while sizing them: in live mode all five were blind.** Consumers had already moved
   onto the seam, so requests were landing in Postgres while the desks scanned
-  `puneNestServiceReq:<mobile>` keys that nothing was writing any more. They did not error — they
+  `draazyServiceReq:<mobile>` keys that nothing was writing any more. They did not error — they
   rendered an empty, healthy-looking queue, which is the worst way for a work surface to fail.
 
   A Ponytail check before porting anything, against the contract rather than against the mock: of
@@ -775,11 +775,11 @@ Each phase ends green before the next starts. UI instability on this branch is a
   the API on Tuesday, with no single run that had seen all of it.
 
   **What the mock was hiding.** Almost nothing about layout, and quite a lot about identity.
-  Six specs signed themselves in by writing a `puneNestUser` object into `localStorage`. That
+  Six specs signed themselves in by writing a `draazyUser` object into `localStorage`. That
   satisfied the mock's auth check, which only ever asked whether the key was there. It carries no
   token, so against the API every panel behind it renders its signed-out state — the specs would
   have gone on passing while measuring the wrong page. They now take the `login` fixture and sign
-  in for real. `auth-keyboard` was the same trick one layer down: it seeded a `puneNestUsers`
+  in for real. `auth-keyboard` was the same trick one layer down: it seeded a `draazyUsers`
   registry so that "Send OTP" would not bounce its number to `/signup`. It now uses a seeded
   account, which means the OTP step it asserts is the real one.
 
@@ -788,7 +788,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
     slug exactly, so on the live API those routes rendered a not-found page — and a not-found page
     has no five-stat band, no sticky CTA and no gallery rail, which is to say the sweeps would have
     passed by finding nothing to measure. Lower-cased to `p5000`.
-  - **`property-contact` reached into `puneNestDB_v5`** to turn `inAppMessaging` off, because with
+  - **`property-contact` reached into `draazyDB_v5`** to turn `inAppMessaging` off, because with
     it on the Contact button opens a chat instead of the enquiry sheet the spec is about. That is a
     settings row now, not a localStorage key, so it goes through the `flags` fixture — which also
     restores it afterwards.
@@ -900,7 +900,7 @@ Nothing about a decision is restated here or in `tasks/todo.md` — cite the num
 
 Two items are decided but not yet built; the ledger lists them in the order they should be
 worked. Five entries remain genuinely undecided (Checkmarx vs CodeQL, a caching layer, the
-first-verification Featured perk, the "Posted by PuneNest" badge, and who owns the concierge
+first-verification Featured perk, the "Posted by Draazy" badge, and who owns the concierge
 fixtures), and none of them block a port.
 
 One contract seam is worth recording here because it needs no decision: outreach may be written for

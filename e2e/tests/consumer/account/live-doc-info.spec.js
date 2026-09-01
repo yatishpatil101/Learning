@@ -3,7 +3,7 @@ import { signedInAs } from '../../../helpers/liveAuth.js';
 
 async function seedConsent(page) {
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true,
       functional: true,
       analytics: true,
@@ -44,7 +44,7 @@ test.describe('Document Vault information — live APIs', () => {
     await center(page, dot);
     await dot.hover();
 
-    const tooltip = page.locator('.pn-tip[role="tooltip"]');
+    const tooltip = page.locator('.dz-tip[role="tooltip"]');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText(/ownership was transferred/i);
     await expect(page.locator('[data-tip][aria-describedby]').first()).toBeVisible();
@@ -70,7 +70,7 @@ test.describe('Document Vault information — live APIs', () => {
     await center(page, dot);
     await dot.tap();
 
-    const tooltip = page.locator('.pn-tip[role="tooltip"]');
+    const tooltip = page.locator('.dz-tip[role="tooltip"]');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('Sale Deed');
 

@@ -1,6 +1,6 @@
 # Cross-cutting Patterns
 
-This is the foundation document for PuneNest. It defines the patterns that are reused across
+This is the foundation document for Draazy. It defines the patterns that are reused across
 every feature so that individual flow docs can link here instead of re-explaining them. Whenever
 a flow doc mentions auth, an approval/verification step, the contact or Aadhaar gate, soft-delete,
 audit, pagination, the provider seam, or notifications, it points back to the relevant section
@@ -16,7 +16,7 @@ Two hard truths frame everything here (see [`./platform-architecture.md`](./plat
 
 Related docs:
 - [`./data-model.md`](./data-model.md) - ER map + persistence design (field shapes → OpenAPI schemas).
-- [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API contract the future backend must expose.
+- [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) - the REST API contract the future backend must expose.
 - [`./platform-architecture.md`](./platform-architecture.md) - overall system shape and the provider seam.
 
 ---
@@ -26,7 +26,7 @@ Related docs:
 ### Roles
 
 The session user carries a `role`. The **canonical auth roles are defined by the `Role` schema in the
-[OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)**: `buyer`,
+[OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)**: `buyer`,
 `owner`, `staff`, `admin`. This section only explains how they behave; it does not redefine the enum.
 
 - `buyer` - property seekers (the default; also covers tenants — "Buyer / Tenant").
@@ -41,8 +41,8 @@ The session user carries a `role`. The **canonical auth roles are defined by the
 
 ### Session storage and the two login doors
 
-Session state lives in `localStorage`/`sessionStorage` under the keys `puneNestUser` (the cached
-profile) and `puneNestTokens` (the 15-minute access token), managed by `src/lib/auth.js`:
+Session state lives in `localStorage`/`sessionStorage` under the keys `draazyUser` (the cached
+profile) and `draazyTokens` (the 15-minute access token), managed by `src/lib/auth.js`:
 
 - `writeUser(user, remember)` - persists to `localStorage` when "remember this device" is on,
   otherwise `sessionStorage` (tab-scoped). Exactly one tier holds the session at a time.
@@ -66,7 +66,7 @@ profile) and `puneNestTokens` (the 15-minute access token), managed by `src/lib/
   and the next cold boot would sign the user back in.
 
 The rotating refresh token is deliberately absent from all of this: the server sets it as an
-`HttpOnly; Secure; SameSite=Lax` cookie named `__Host-punenest_rt` at path `/`, so it is unreadable
+`HttpOnly; Secure; SameSite=Lax` cookie named `__Host-draazy_rt` at path `/`, so it is unreadable
 from JavaScript. `services/http.js` sends every request with `credentials: 'include'`.
 Clearing it is the server's job, on `POST /auth/logout`.
 
@@ -77,7 +77,7 @@ something we cannot otherwise stop: a browser refuses to store a cookie of that 
 `Secure`, has no `Domain` and sits at `Path=/`, which is the only mechanism that makes host-only
 scoping *enforced* rather than merely intended. Without it, any other host under the registrable
 domain - a marketing subdomain, a third-party SaaS on a CNAME, anything a dangling DNS record can be
-claimed by - can put a `Domain=.punenest.in` cookie of the same name in the jar, and neither our
+claimed by - can put a `Domain=.draazy.in` cookie of the same name in the jar, and neither our
 clear nor the client's can remove it. That is session fixation: the victim's next cold boot restores
 the *attacker's* session. Giving up path scoping to buy that is a bargain.
 
@@ -88,7 +88,7 @@ would reject a prefixed cookie without `Secure` outright. Nothing hardcodes eith
 `RefreshCookieNamingTest` pins both shapes so the production one is not left untested by the
 profile every suite happens to run on.
 
-A second cookie rides beside it and is deliberately **not** `HttpOnly`: `__Host-punenest_session`
+A second cookie rides beside it and is deliberately **not** `HttpOnly`: `__Host-draazy_session`
 (path `/`, value `1` for a remembered session and `0` for a tab-scoped one, same lifetime, `Secure`
 and `SameSite` as the refresh cookie). Safari's Intelligent Tracking Prevention evicts
 script-writable storage - `localStorage`, `sessionStorage`, IndexedDB, `document.cookie` writes -
@@ -161,7 +161,7 @@ chose the error message. What replaced its *user-visible* role is the desk picke
 staffer their own desk and nothing else — an empty queue and a forbidden queue must not look alike.
 
 > **MUST be server-enforced later.** Every guard above is cosmetic. The future backend must
-> authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)) and authorize every
+> authenticate via Bearer JWT (see the [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)) and authorize every
 > request by role and team server-side. The client role/team is a hint, never a grant.
 
 ### Where a permission atom is deliberately *not* the guard
@@ -192,7 +192,7 @@ documented here rather than left to be rediscovered from the code.
 
 **This is the canonical definition. All flow docs reference this section instead of restating it.**
 
-Many PuneNest features share one shape: one party *proposes* a change, and a second party
+Many Draazy features share one shape: one party *proposes* a change, and a second party
 *approves or rejects* it before it takes effect. This is the maker-checker (proposer-approver)
 pattern. Documenting it once keeps every approval flow consistent.
 
@@ -279,7 +279,7 @@ layers, implemented in `src/lib/contact.js` and consumed by
 ### Layer 1 - Aadhaar identity gate (before a buyer may even ask)
 
 `requestContact(ownerMobile, propId)` refuses to create a request unless the signed-in buyer has a
-verified Aadhaar record in `localStorage` under `puneNestAadhaar:<mobile>` with `verified: true`.
+verified Aadhaar record in `localStorage` under `draazyAadhaar:<mobile>` with `verified: true`.
 Return values:
 
 - `'login'` - no signed-in user.
@@ -306,13 +306,13 @@ number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`). Status pr
   (`getOwnerPrefs` / `ownerHidesNumber` in `src/lib/contact.js`) keeps the raw number masked;
   approved buyers are routed to in-app chat / callback instead. This sits on top of the always-on
   request gate, it does not replace it.
-- **Storage keys are shared with the HTML prototype** (`puneNestContactReq:<ownerDigits>`), so the
+- **Storage keys are shared with the HTML prototype** (`draazyContactReq:<ownerDigits>`), so the
   two prototypes stay compatible.
 
 > **MUST be server-enforced later.** The Aadhaar verification, the mask, and the approval check all
 > run client-side today. The backend must own KYC/Aadhaar verification, return the number **only**
 > after it confirms an approved request (see `POST /contacts/request` returning
-> `403 { "error": "aadhaar_required" }` in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)), and never
+> `403 { "error": "aadhaar_required" }` in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)), and never
 > ship the raw number to an unapproved client.
 
 ---
@@ -321,7 +321,7 @@ number stays **masked** (`maskPhone`, for example `+91 98xxx xxxx02`). Status pr
 
 ### Soft-delete (status flags and archive, not hard delete)
 
-PuneNest prefers reversible archival over destructive deletes. The generic helpers live in
+Draazy prefers reversible archival over destructive deletes. The generic helpers live in
 `src/lib/mockApi/core.js`:
 
 - `archiveRecord(collection, id, reason)` sets `archived: true`, `archivedAt` (ISO-8601), and
@@ -372,7 +372,7 @@ edit, bulk approve/reject, pipeline move) - see `src/pages/admin/AdminProperties
 ## 5. Pagination, sorting, and filtering
 
 The exact query params, the `PageEnvelope` wrapper, and the `?sort=`/`?page=&size=` conventions are
-defined in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml)
+defined in the [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml)
 (`info.description` + `PageEnvelope`/parameter schemas). This section only notes the *behaviour* the
 mock layer approximates today.
 
@@ -419,7 +419,7 @@ Domains wired today: `property`, `auth`, `deal`, `contact`, `finance` (barrel:
 ### Error shape
 
 The HTTP provider must surface failures in the canonical shape defined by the `Error` schema in the
-[OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml): a stable machine
+[OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml): a stable machine
 `error` code (for example `aadhaar_required`), a user-facing `message`, and the HTTP `status`.
 Callers branch on `error`; UIs show `message`.
 
@@ -446,7 +446,7 @@ In-app notifications are read from the server through `src/services/notification
 > both the page and the bell badge) is still the shape the server returns, and because the seed-once
 > rule explains why a revisit never duplicated entries in the old demo build.
 
-- Stored under `pnNotifications:<mobile>` (falls back to `anon`).
+- Stored under `dzNotifications:<mobile>` (falls back to `anon`).
 - `getNotifications()` returns the list; `seedNotifsIfEmpty(defaults)` stamps a stable `id`, an
   unread flag (`read: false`), and an `at` timestamp exactly once, so a revisit never duplicates
   seed entries.

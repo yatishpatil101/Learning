@@ -196,7 +196,7 @@ test('the owner step warns about listings the server is already holding', async 
 /*
    The two wizard fields whose only proof was a read of the mock store.
 
-   `post-on-behalf-fixes.spec.js` walked the six steps and then opened `puneNestDB_v5` to check
+   `post-on-behalf-fixes.spec.js` walked the six steps and then opened `draazyDB_v5` to check
    what had been written. That is a real claim about a real bug -- a deposit typed while the deal
    said rent used to survive a flip to sale, and be filed against a listing that has no such thing
    -- but the mock provider stores the object the wizard hands it, verbatim. So the assertion was
@@ -630,7 +630,7 @@ test('the deal toggle and the land cascade decide what the operator may type, an
 /*
  * The autosaved draft.
  *
- * `pn_pob_draft_v1` is a `localStorage` key and stays one on a live build: it is the operator's own
+ * `dz_pob_draft_v1` is a `localStorage` key and stays one on a live build: it is the operator's own
  * browser holding a half-typed form across a refresh, not a stand-in for a server. Flagged
  * explicitly because a `live-` spec that touches `localStorage` is normally a conversion that did
  * not finish — this one reads the key and clears it, and never seeds a record through it.
@@ -638,7 +638,7 @@ test('the deal toggle and the land cascade decide what the operator may type, an
 test('a half-typed wizard survives a refresh, out of the operator’s own browser', async ({ page, login }) => {
   await login.asAdmin();
   await page.goto('/admin/post-on-behalf');
-  await page.evaluate(() => localStorage.removeItem('pn_pob_draft_v1'));
+  await page.evaluate(() => localStorage.removeItem('dz_pob_draft_v1'));
   await page.reload();
 
   await page.getByPlaceholder('Full name of the property owner').fill('Draft Owner');
@@ -647,7 +647,7 @@ test('a half-typed wizard survives a refresh, out of the operator’s own browse
      were removed entirely — the reload would find no draft and the test would fail for a confusing
      reason, or pass because an older draft was still sitting in storage. */
   await expect.poll(async () =>
-    await page.evaluate(() => localStorage.getItem('pn_pob_draft_v1') !== null)).toBe(true);
+    await page.evaluate(() => localStorage.getItem('dz_pob_draft_v1') !== null)).toBe(true);
 
   await page.reload();
   await expect(page.getByText(/unsaved draft/i)).toBeVisible();

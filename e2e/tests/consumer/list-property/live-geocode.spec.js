@@ -7,7 +7,7 @@
  * everything underneath: the wizard is mounted for an account the server registered, and the
  * locality dropdown these tests assert on is populated by the API rather than by a fixture.
  *
- * The draft-restore test keeps its `pnDraft:list-property` seed. That key is a real browser-side
+ * The draft-restore test keeps its `dzDraft:list-property` seed. That key is a real browser-side
  * draft, not a stand-in for the server, and the bug it reproduces — a returning owner whose stale
  * address refuses to refresh — only exists because the draft is client-owned.
  */
@@ -99,8 +99,8 @@ async function gotoStep2(page) {
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -199,7 +199,7 @@ test('a search updates address fields restored from a saved draft (not just fres
   // saw the pre-filled fields as "not ours" and refused to touch them → the exact bug.
   await signedInAsNew(page);
   await page.addInitScript(() => {
-    localStorage.setItem('pnDraft:list-property', JSON.stringify({
+    localStorage.setItem('dzDraft:list-property', JSON.stringify({
       carpetArea: '1050', propertyType: 'flat',
       locality: 'Hinjawadi', society: 'Aspiria', pincode: '411057', street: 'Nirmitee Road',
     }));
@@ -238,7 +238,7 @@ test('typing shows live autocomplete suggestions and picking one pins + fills th
   await stubGeo(page, { lat: 18.5938, lng: 73.7416 });
   await page.locator('input[placeholder*="Search a locality"]').fill('Aspiria');
   // Dropdown of predictions appears as you type (google.com/maps style).
-  const option = page.locator('.pn-ac-item').first();
+  const option = page.locator('.dz-ac-item').first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
   // Selecting resolves the place: pin set + address fields filled from its components.

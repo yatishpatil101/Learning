@@ -67,18 +67,18 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
 - **Society** - curated static catalogue (`src/data/societies.js`, 28 rows `S01..S28`) + MahaRERA
   bulk import (`societies-rera.js`) + user-minted **community** societies (localStorage). **Read**
   everywhere; **created** by `mintDemandSociety` / supply-side auto-mint; **updated** via an overlay
-  (`pnSocietyOverlay`) on ops verify / applied suggestion / claim decision.
+  (`dzSocietyOverlay`) on ops verify / applied suggestion / claim decision.
 - **Locality** - canonical registry (`src/data/localities.js`, `LOCALITIES`) + curated intelligence
   (`src/data/localityIntel.js`, `LOC`, 10 fully-covered localities). **Read** only in these pages
   (community localities are minted elsewhere).
 - **Society overlay / claim / resident / suggestion / merge** - localStorage records written by
-  `src/lib/store/societyAdmin.js` (`pnSocietyOverlay`, `pnSocietyClaims`, `pnSocietyResidents`,
-  `pnSocietySuggestions`, `pnSocietyMerges`). Created/updated here (maker side), decided by ops.
+  `src/lib/store/societyAdmin.js` (`dzSocietyOverlay`, `dzSocietyClaims`, `dzSocietyResidents`,
+  `dzSocietySuggestions`, `dzSocietyMerges`). Created/updated here (maker side), decided by ops.
 - **Reviews & Q&A** - `getEntityReviews/addEntityReview('society'|'locality', id)`, `getSocietyQA` /
   `addSocietyQuestion` / `addSocietyAnswer`.
 - **Follows** - `context/FollowContext.jsx`, over `societyService.listFollowedSocieties` /
   `followSociety` / `unfollowSociety`. Server-backed since **D227**: `PUT`/`DELETE
-  /me/societies/{slug}/follow` and `GET /me/societies/following`, with `pnFollowedSocieties` now
+  /me/societies/{slug}/follow` and `GET /me/societies/following`, with `dzFollowedSocieties` now
   only the mock provider's backing store.
 
   Before D227 this was that localStorage array read directly by five surfaces, so following on a
@@ -93,7 +93,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   Writes are optimistic and roll back on failure, and `toggle` returns the state it **settled** on,
   so a toast reports what happened rather than what was attempted.
 
-  Follows on societies **this browser minted** stay local (`pnLocalSocietyFollows`): the server
+  Follows on societies **this browser minted** stay local (`dzLocalSocietyFollows`): the server
   refuses a follow on a slug it has never heard of, correctly, since it will not write a dangling
   foreign key. The context retries them on every load, so the follow lands by itself the day ops
   promote the slug.
@@ -114,7 +114,7 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   not `community`. Curated rows ship `registration:true, conveyance:true`. Community rows start
   unverified; ops `verifyCommunitySociety` flips tier to `verified` and writes an overlay with
   `registration:true, conveyance:true`.
-- **`managed` / claimed:** `claimStatus === 'claimed'` (a "Managed on PuneNest" badge). Derived in
+- **`managed` / claimed:** `claimStatus === 'claimed'` (a "Managed on Draazy" badge). Derived in
   `resolveSociety`: an approved claim -> `claimed`, a pending claim -> `pending`, else overlay/base.
 - **`_thin`** = a community/demand row with no `units` and no `builder`: the hub must NOT fabricate
   specs; it shows an honest "add details" / "help verify" panel instead.

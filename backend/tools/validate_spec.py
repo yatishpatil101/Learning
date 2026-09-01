@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 SPEC = (Path(__file__).resolve().parent.parent
-        / 'src' / 'main' / 'resources' / 'static' / 'openapi' / 'punenest-api.yaml')
+        / 'src' / 'main' / 'resources' / 'static' / 'openapi' / 'draazy-api.yaml')
 
 try:
     import yaml

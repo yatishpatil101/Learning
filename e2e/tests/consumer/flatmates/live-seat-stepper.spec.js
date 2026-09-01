@@ -38,7 +38,7 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  * ## Two claims of the mock twin that are not carried over
  *
  * Its fourth test — reopening a seat keeps the group's Tenant-verified badge, so a re-list needs no
- * re-verification — seeded `puneNestFlatmateReviews` to get there. The badge is gated by
+ * re-verification — seeded `draazyFlatmateReviews` to get there. The badge is gated by
  * `showHostBadge`, which for tenant tier returns `reviewStatus === 'approved'`, and `reviewStatus`
  * comes from `getFlatmateReviewStatusMap()` in `lib/data/flatmates.js`: localStorage. There is no
  * live route that grants it, so a live version of that test could only pass by seeding the same key

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/* D190 — the Ownership Verified card must describe the check PuneNest actually performs.
+/* D190 — the Ownership Verified card must describe the check Draazy actually performs.
  *
  * The buy-side copy used to read "Matched against the Index II registration record for this
  * property", which claimed a search of the land registry. Nothing in the product has ever done

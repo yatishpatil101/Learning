@@ -6,7 +6,7 @@ import { API, authHeaders, uniqueMobile } from '../../../helpers/liveAuth.js';
  *
  * ## What the mock version could not prove
  *
- * It wrote a fully-formed record into `puneNestManagedProps:<mobile>` and then read the screen
+ * It wrote a fully-formed record into `draazyManagedProps:<mobile>` and then read the screen
  * back. Every field the page rendered was a field the spec had just typed, in the same process,
  * under the client's own vocabulary — so the assertions were a statement about `localStorage`
  * agreeing with itself. In particular the seeded record carried `bhkNum: 2`, `type: 'Flat'` and

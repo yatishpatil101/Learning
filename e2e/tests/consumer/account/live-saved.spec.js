@@ -5,7 +5,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  *
  * ## What the mock version could not ask
  *
- * The retired twin wrote `pnSavedProps:9876500001` into localStorage to seed the shortlist and
+ * The retired twin wrote `dzSavedProps:9876500001` into localStorage to seed the shortlist and
  * then read the same key back to prove the page had changed it. Both halves are gone in
  * production: `SavedContext` fills from `GET /me/saved` and writes through
  * `PUT|DELETE /me/saved/{propId}`. So the old spec seeded through a door that does not exist and
@@ -84,7 +84,7 @@ async function actor() {
 
 async function seedConsent(page) {
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
     }));
   });

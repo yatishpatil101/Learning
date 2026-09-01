@@ -19,7 +19,7 @@ import { API, apiLogin, uniqueMobile } from '../../../helpers/liveAuth.js';
  *
  * ## Every subject here is minted, never seeded
  *
- * `punenest_e2e` seeds five flatmate supply rows and other specs assert on them. A test that
+ * `draazy_e2e` seeds five flatmate supply rows and other specs assert on them. A test that
  * archived one would be deleting another spec's fixture, so every room this file touches is posted
  * by a throwaway account inside the test that reads it. That also makes the ownership assertions
  * real: the 403 case needs two genuinely different people, not two roles on one.

@@ -73,7 +73,7 @@ async function openDirectory(page) {
 
 const rows = (page) => page.locator('table tbody tr');
 /** The number inside a KPI tile, so `20` cannot be satisfied by a `20` elsewhere in the card. */
-const kpi = (page, label) => page.locator('.pn-card').filter({ hasText: label }).first().locator('.text-2xl');
+const kpi = (page, label) => page.locator('.dz-card').filter({ hasText: label }).first().locator('.text-2xl');
 
 // ─── The desk itself ───
 
@@ -101,7 +101,7 @@ test('the desk counts the whole catalogue, not the page it is showing', async ({
   }
   // The other four KPI tiles. Values belong to the queues, and to the specs that own those queues.
   for (const label of ['Pending claims', 'Pending residents', 'Candidates', 'Open reports']) {
-    await expect(page.locator('.pn-card').filter({ hasText: label }).first()).toBeVisible();
+    await expect(page.locator('.dz-card').filter({ hasText: label }).first()).toBeVisible();
   }
 
   /* The disclosure banner renders only when a queue failed to load. Its absence is what makes the

@@ -43,7 +43,7 @@ There are **two parallel visit stores** (a known duplication - see section 8):
   `src/lib/mockApi/staff.js`. This feeds the owner dashboard calendar and the admin visits view.
   Statuses: `scheduled | confirmed | completed | cancelled | no-show`. **Created** on booking,
   **updated** on owner actions.
-- `property_visit_requests` - owner-mobile-keyed store `puneNestPropVisitReqs:<ownerDigits>` in
+- `property_visit_requests` - owner-mobile-keyed store `draazyPropVisitReqs:<ownerDigits>` in
   `src/lib/store/visits.js` (**deleted** with the mock provider lane; visits are now served by
   `services/visitService.js`). Statuses: `requested | completed` (plus whatever `setVisitStatus`
   writes). **Created** by `addVisitRequest`, read by the review-eligibility gate. This is what
@@ -72,8 +72,8 @@ There are **two parallel visit stores** (a known duplication - see section 8):
      appends a `{ id: 'V'+Date.now(), status: 'scheduled', ... }` row to `db.visits`.
    - If an `ownerMobile` is known, **also** `addVisitRequest(ownerMobile, { propId, propTitle,
      visitorName, phone, date, time, mode, note })` -> appends a `requested` row to
-     `puneNestPropVisitReqs:<owner>`.
-3. Clears the autosaved draft (`pnDraft:schedule-visit`), shows the booked confirmation, offers a
+     `draazyPropVisitReqs:<owner>`.
+3. Clears the autosaved draft (`dzDraft:schedule-visit`), shows the booked confirmation, offers a
    pre-filled WhatsApp handoff to the owner and a "track on dashboard" link.
 
 ### `addVisitRequest` idempotency (`src/lib/store/visits.js`)
@@ -98,7 +98,7 @@ There are **two parallel visit stores** (a known duplication - see section 8):
 
 ### The review-eligibility gate (`src/pages/consumer/property/ReviewsSection.jsx`)
 - A buyer may leave a review only if `hasCompletedVisit(owner, propId)` (a `completed` row exists in
-  `puneNestPropVisitReqs` for their mobile) **or** they have a tenancy for the property.
+  `draazyPropVisitReqs` for their mobile) **or** they have a tenancy for the property.
 - `myVisitStatus(owner, propId)` returns `completed` / `requested` / first status / `none`; a buyer
   who only has a `requested` visit is told "your visit is booked, review unlocks after it's done".
 - This is why the second store exists: it records that the owner **confirmed the visit actually
@@ -163,7 +163,7 @@ property_visit_requests (review gate):
 - **Inline modal does NOT persist (inconsistency):** `property/ScheduleVisitModal.jsx` validates and
   shows a success toast but **never calls** `scheduleVisit` / `addVisitRequest`. Only the full
   `/schedule-visit` page persists. A backend must make the modal path write a real request too.
-- **Two stores, no shared id (inconsistency):** `db.visits` (V8###) and `puneNestPropVisitReqs`
+- **Two stores, no shared id (inconsistency):** `db.visits` (V8###) and `draazyPropVisitReqs`
   ('v'+timestamp) are written separately with no cross-reference, so a visit can be `completed` in
   one and `requested` in the other. The backend should unify them into one `visit_requests` table.
 - **Owner not resolvable:** if `ownerMobile` is empty (no `o` param and listing has no

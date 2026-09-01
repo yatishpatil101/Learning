@@ -1,7 +1,7 @@
 /**
  * The posting wizard's property-type branching, against the live backend.
  *
- * Converted from `types.spec.js`. That version signed in by writing `puneNestUser` and an Aadhaar
+ * Converted from `types.spec.js`. That version signed in by writing `draazyUser` and an Aadhaar
  * record straight into localStorage, which is why it could only ever prove that the *renderer*
  * branches correctly: the browser had been told it was signed in, so nothing the wizard asked the
  * server for was ever really asked. Here the account is registered over HTTP and carries a genuine
@@ -33,19 +33,19 @@ async function gotoForm(page) {
  *
  * `Select.jsx` renders its menu through `createPortal` and only sets `portalOpen` one
  * `requestAnimationFrame` after the open (Select.jsx:178). Until that flips, the menu carries
- * `.pn-dropdown__menu--portal` with `opacity: 0; pointer-events: none` (dropdown.css:198) and gains
+ * `.dz-dropdown__menu--portal` with `opacity: 0; pointer-events: none` (dropdown.css:198) and gains
  * `.is-portal-open` afterwards. That one-frame gap is what every `waitForTimeout(200)` in this file
  * used to paper over. Waiting on the class is both exact and self-documenting -- and unlike a
  * sleep it fails loudly if the menu never opens, instead of letting the next line miss silently.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 test('property-type dropdown lists the canonical types in the new order', async ({ page }) => {
@@ -54,7 +54,7 @@ test('property-type dropdown lists the canonical types in the new order', async 
   // Load-bearing, not decorative: `allInnerTexts()` does not retry, so against an unopened menu it
   // returns `[]` and the comparison below would fail with a confusing empty-array diff.
   await menuOpen(page);
-  const options = await page.locator('.pn-dropdown__option').allInnerTexts();
+  const options = await page.locator('.dz-dropdown__option').allInnerTexts();
   const cleaned = options.map((o) => o.trim());
   expect(cleaned).toEqual([
     'Flat / Apartment',
@@ -78,12 +78,12 @@ test('Commercial reveals a required sub-type selector and hides BHK', async ({ p
   // Sub-type is required: advancing without it flags the field.
   await page.locator('input[data-err="carpetArea"]').fill('1200');
   await page.getByRole('button', { name: /Next Step/i }).click();
-  await expect(page.locator('[data-err="commercialType"] .pn-dropdown__trigger.pn-invalid')).toBeVisible();
+  await expect(page.locator('[data-err="commercialType"] .dz-dropdown__trigger.dz-invalid')).toBeVisible();
 
   // Choosing a sub-type clears the error and reveals commercial-only fields.
-  await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
+  await page.locator('[data-err="commercialType"] .dz-dropdown__trigger').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: 'Warehouse / Godown' }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: 'Warehouse / Godown' }).first().click();
   await expect(page.getByText('Fit-out Status')).toBeVisible();
   await expect(page.getByText('Suitable For')).toBeVisible();
 });
@@ -102,21 +102,21 @@ test('Commercial Type dropdown shares the Property Type row and Suitable For is 
   expect(paired).toBe(true);
 
   // Commercial Type is now a dropdown (no radio pills inside it).
-  await expect(page.locator('[data-err="commercialType"] .pn-dropdown__trigger')).toBeVisible();
+  await expect(page.locator('[data-err="commercialType"] .dz-dropdown__trigger')).toBeVisible();
   await expect(page.locator('[data-err="commercialType"] .radio-pill')).toHaveCount(0);
 
   // Suitable For is a multi-select dropdown that keeps multiple choices.
-  await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
+  await page.locator('[data-err="commercialType"] .dz-dropdown__trigger').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: 'Office Space' }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: 'Office Space' }).first().click();
 
-  const suitable = page.locator('.pn-dropdown', { has: page.locator('.pn-dropdown__trigger', { hasText: 'Select suitable businesses' }) });
-  await suitable.locator('.pn-dropdown__trigger').click();
+  const suitable = page.locator('.dz-dropdown', { has: page.locator('.dz-dropdown__trigger', { hasText: 'Select suitable businesses' }) });
+  await suitable.locator('.dz-dropdown__trigger').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: 'Office' }).first().click();
-  await page.locator('.pn-dropdown__option', { hasText: 'Retail' }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: 'Office' }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: 'Retail' }).first().click();
   // Menu stays open for multi-select; both options are marked selected.
-  await expect(page.locator('.pn-dropdown__option[aria-selected="true"]')).toHaveCount(2);
+  await expect(page.locator('.dz-dropdown__option[aria-selected="true"]')).toHaveCount(2);
 });
 
 test('RENT flatmate sub-mode is hidden for Commercial but shown for a flat', async ({ page }) => {
@@ -161,9 +161,9 @@ async function toStep2(page, typeLabel, { deal = 'buy', commercialSubtype } = {}
   if (deal === 'rent') await page.locator('.lp-step').getByText('Rent', { exact: true }).first().click();
   await pickType(page, typeLabel);
   if (commercialSubtype) {
-    await page.locator('[data-err="commercialType"] .pn-dropdown__trigger').click();
+    await page.locator('[data-err="commercialType"] .dz-dropdown__trigger').click();
     await menuOpen(page);
-    await page.locator('.pn-dropdown__option', { hasText: commercialSubtype }).first().click();
+    await page.locator('.dz-dropdown__option', { hasText: commercialSubtype }).first().click();
   }
   await page.locator('input[data-err="carpetArea"]').fill('1200');
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -196,16 +196,16 @@ test('Commercial rent hides tenant/pets fields but keeps lease terms', async ({ 
 test('Commercial rent offers year-scale lease terms; residential does not', async ({ page }) => {
   await toStep2(page, 'Commercial', { deal: 'rent', commercialSubtype: 'Office Space' });
   // Agreement duration for commercial runs in years, e.g. 5 years / 9 years.
-  await page.getByText('Agreement Duration').locator('..').locator('.pn-dropdown__trigger').click();
-  await expect(page.locator('.pn-dropdown__option', { hasText: '5 years' })).toBeVisible();
-  await expect(page.locator('.pn-dropdown__option', { hasText: '9 years' })).toBeVisible();
+  await page.getByText('Agreement Duration').locator('..').locator('.dz-dropdown__trigger').click();
+  await expect(page.locator('.dz-dropdown__option', { hasText: '5 years' })).toBeVisible();
+  await expect(page.locator('.dz-dropdown__option', { hasText: '9 years' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   // A residential rental keeps the short, month-scale terms.
   await toStep2(page, 'Flat / Apartment', { deal: 'rent' });
-  await page.getByText('Agreement Duration').locator('..').locator('.pn-dropdown__trigger').click();
-  await expect(page.locator('.pn-dropdown__option', { hasText: '11 months' })).toBeVisible();
-  await expect(page.locator('.pn-dropdown__option', { hasText: '9 years' })).toHaveCount(0);
+  await page.getByText('Agreement Duration').locator('..').locator('.dz-dropdown__trigger').click();
+  await expect(page.locator('.dz-dropdown__option', { hasText: '11 months' })).toBeVisible();
+  await expect(page.locator('.dz-dropdown__option', { hasText: '9 years' })).toHaveCount(0);
 });
 
 test('Commercial Step 2 uses business address labels, not flat/society', async ({ page }) => {
@@ -225,7 +225,7 @@ async function toStep3Buy(page, typeLabel, { commercialSubtype } = {}) {
   const land = typeLabel === 'Open Plot' || typeLabel === 'Farm Land';
   await page.locator('[data-err="locality"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   if (!land) {
     await page.locator('input[data-err="flatNumber"]').fill('B-1204');
     await page.locator('input[data-err="society"]').fill('Test Project');
@@ -234,7 +234,7 @@ async function toStep3Buy(page, typeLabel, { commercialSubtype } = {}) {
   await page.locator('input[data-err="price"]').fill('5000000');
   await page.locator('[data-err="ownership"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByText('Photos & documents').waitFor({ timeout: 10000 });
 }

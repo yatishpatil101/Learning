@@ -9,7 +9,7 @@ serve flow for both buckets. Turning it on is one flag plus six properties.
 | Class | Role |
 |-------|------|
 | `provider/FileStorage.java` | The seam. `store` / `signedUploadUrl` / `signedDownloadUrl` (private) + `storePublic` (public). |
-| `provider/storage/R2FileStorage.java` | **Complete** R2 impl — S3 SDK v2, path-style, region `auto`, 15-min presigned PUT/GET, separate public+private buckets. Gated on `punenest.providers.storage.enabled=true`. |
+| `provider/storage/R2FileStorage.java` | **Complete** R2 impl — S3 SDK v2, path-style, region `auto`, 15-min presigned PUT/GET, separate public+private buckets. Gated on `draazy.providers.storage.enabled=true`. |
 | `provider/storage/R2Properties.java` | The six config values it needs. |
 | `provider/storage/DevObjectStore.java` | Dev fallback — writes bytes to a local dir, serves them back via HMAC-signed, expiring `/dev/storage/...` URLs (D120 fix). Active when the flag is **off**. |
 | `provider/FileStorage.java` → `MockFileStorage` | Dev bean that delegates to `DevObjectStore`. Flag off. |
@@ -17,7 +17,7 @@ serve flow for both buckets. Turning it on is one flag plus six properties.
 
 Bean selection is by `@ConditionalOnProperty`:
 
-- `punenest.providers.storage.enabled=true` → **`R2FileStorage`** (real R2).
+- `draazy.providers.storage.enabled=true` → **`R2FileStorage`** (real R2).
 - flag off, `dev` profile → **`MockFileStorage` + `DevObjectStore`** (local disk, resolvable URLs).
 - flag off, non-dev → **`ObjectStoreFileStorage`** (throws — deliberately, so an unconfigured
   prod cannot silently drop uploads).
@@ -50,13 +50,13 @@ The owner's requirement splits cleanly:
 Put real values in a **git-ignored** `backend/.env.local` (or profile props); never commit keys.
 
 ```properties
-punenest.providers.storage.enabled=true
-punenest.providers.storage.endpoint=https://<accountid>.r2.cloudflarestorage.com
-punenest.providers.storage.access-key-id=<r2-access-key-id>
-punenest.providers.storage.secret-access-key=<r2-secret>
-punenest.providers.storage.private-bucket=punenest-docs-sandbox
-punenest.providers.storage.public-bucket=punenest-photos-sandbox
-punenest.providers.storage.public-base-url=https://<public-bucket-custom-domain>
+draazy.providers.storage.enabled=true
+draazy.providers.storage.endpoint=https://<accountid>.r2.cloudflarestorage.com
+draazy.providers.storage.access-key-id=<r2-access-key-id>
+draazy.providers.storage.secret-access-key=<r2-secret>
+draazy.providers.storage.private-bucket=draazy-docs-sandbox
+draazy.providers.storage.public-bucket=draazy-photos-sandbox
+draazy.providers.storage.public-base-url=https://<public-bucket-custom-domain>
 ```
 
 `R2FileStorage` **refuses to start** if any of the six is blank — by design. Verify the exact
@@ -72,7 +72,7 @@ property names against `R2Properties.java` before wiring (do not guess the prefi
 ## Dev-without-keys stays working
 
 A developer with **no** R2 keys keeps the flag **off** and gets `DevObjectStore`: uploads write to
-`${java.io.tmpdir}/punenest-storage`, downloads resolve via signed `/dev/storage/...` URLs that
+`${java.io.tmpdir}/draazy-storage`, downloads resolve via signed `/dev/storage/...` URLs that
 expire in 30 min and die on restart. This is the correct local default; only the person exercising
 real R2 flips the flag.
 
@@ -80,13 +80,13 @@ real R2 flips the flag.
 
 - [x] Provision an R2 sandbox: two buckets (public + private), an API token, a public base URL
       (custom domain or `r2.dev`) for the public bucket.
-      → `punenest-sandbox-public` / `punenest-sandbox-private`, served at a `pub-….r2.dev` base URL.
+      → `draazy-sandbox-public` / `draazy-sandbox-private`, served at a `pub-….r2.dev` base URL.
 - [x] Read `R2Properties.java` and set the six properties in `backend/.env.local` (git-ignored).
-      The prefix is `punenest.providers.storage`; `application.properties` already binds all six
+      The prefix is `draazy.providers.storage`; `application.properties` already binds all six
       from `${R2_*}` env vars with blank defaults, so `.env.local` sets the `R2_*` names and
       nothing in the property files needed editing.
 - [x] Confirm `backend/.env.local` is in `.gitignore`. → matched by `.gitignore:26` (`.env.*`).
-- [x] Flip `punenest.providers.storage.enabled=true`; boot; confirm the log line
+- [x] Flip `draazy.providers.storage.enabled=true`; boot; confirm the log line
       `R2 object storage enabled (private bucket '…', public bucket '…')`.
       Confirmed on a full Spring context boot with `STORAGE_ENABLED=true`.
 - [x] Exercise `R2FileStorageLiveTest` against the sandbox (it already exists). → 2/2 green.

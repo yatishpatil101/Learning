@@ -25,7 +25,7 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
  * to carry around a dropdown was waiting for that single frame.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function gotoStep2(page) {
@@ -40,7 +40,7 @@ async function gotoStep2(page) {
      necessary. `count()` does not retry, so against a menu that had not finished opening it
      returned 0, the click was skipped, and the property type was silently never chosen -- the
      wizard then carried its default all the way through a test that looked like it had set one. */
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -50,7 +50,7 @@ async function gotoStep2(page) {
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 async function gotoStep3Buy(page) {
@@ -129,7 +129,7 @@ test('ownership proof is optional to post — it earns a badge rather than gatin
      yet -- which is the state the page is in at the moment of the click. Waiting for the *photos*
      error to appear is proof the validation pass actually ran, so the absence of a document error
      below is a decision the form made rather than a race the test won. */
-  await expect(page.locator('[data-err="photos"] label.upload-zone')).toHaveClass(/pn-invalid/);
+  await expect(page.locator('[data-err="photos"] label.upload-zone')).toHaveClass(/dz-invalid/);
   await expect(page.locator('[data-err="documents"]')).toHaveCount(0);
 });
 
@@ -144,8 +144,8 @@ test('photo upload is compulsory: submitting with no photo flags the upload zone
   await page.getByRole('button', { name: /Submit Property/i }).click();
   const zone = page.locator('[data-err="photos"]');
   await expect(zone).toHaveCount(1);
-  await expect(zone.locator('label.upload-zone')).toHaveClass(/pn-invalid/);
-  await expect(zone.locator('p.pn-field-error')).toBeVisible();
+  await expect(zone.locator('label.upload-zone')).toHaveClass(/dz-invalid/);
+  await expect(zone.locator('p.dz-field-error')).toBeVisible();
   // Required marker present on the label.
   await expect(zone.getByText('Property Photos *')).toBeVisible();
 });
@@ -154,7 +154,7 @@ test('uploading a photo clears the compulsory-photo error', async ({ page }) => 
   await gotoStep3Buy(page);
   await page.getByRole('button', { name: /Submit Property/i }).click();
   const zone = page.locator('[data-err="photos"]');
-  await expect(zone.locator('label.upload-zone')).toHaveClass(/pn-invalid/);
+  await expect(zone.locator('label.upload-zone')).toHaveClass(/dz-invalid/);
   /* Scoped to the drop zone's own input. The uploader now offers a second file input beside it —
      a mobile-only "Take photo" control carrying `capture="environment"`, which asks the OS for the
      camera rather than the gallery — so an unscoped `input[type="file"]` matches two elements.
@@ -169,5 +169,5 @@ test('uploading a photo clears the compulsory-photo error', async ({ page }) => 
      `photos.length > 0`, so it is positive proof the file landed in state; "the error class is
      gone" is also true of a page that never processed the upload at all. */
   await expect(zone.locator('.grid img')).toHaveCount(1);
-  await expect(zone.locator('label.upload-zone')).not.toHaveClass(/pn-invalid/);
+  await expect(zone.locator('label.upload-zone')).not.toHaveClass(/dz-invalid/);
 });

@@ -4,7 +4,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
 /**
  * "Request more photos", end to end against the real API.
  *
- * The retired mock twin read `puneNestPhotoReq:<ownerDigits>` straight out of `localStorage` after
+ * The retired mock twin read `draazyPhotoReq:<ownerDigits>` straight out of `localStorage` after
  * the click, so it proved the buyer's own browser remembered the buyer's own tap. The owner half of
  * it seeded that same key by hand and asserted a card rendered from it — meaning the two tests
  * shared no state at all, and the thing this feature exists to do (carry a signal from one person

@@ -2,7 +2,7 @@
  * The **Maps & Geo console's own write path**, against the live API — Settings ▸ Maps.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-maps-geo-console.spec.js --config=playwright.config.js
  *
@@ -23,7 +23,7 @@
  * ## What the mock twin could not prove
  *
  * `tests/admin/maps-geo.spec.js` covered the same three controls, and its `readGeo` helper read
- * `puneNestDB_v5` out of `localStorage` — the very store the mock provider wrote to. It passed on
+ * `draazyDB_v5` out of `localStorage` — the very store the mock provider wrote to. It passed on
  * an app whose console never talks to a server at all. That failure mode is not hypothetical: the
  * entire `GET /geo` route exists because the console's writes were reaching Postgres while every
  * consumer read the browser's own copy, so an operator could blacklist a society, be told it saved,

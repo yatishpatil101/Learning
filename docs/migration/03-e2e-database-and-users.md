@@ -4,21 +4,21 @@
 is created it should be reused in new session/after restart also. if needed we can have separate
 schema for e2e suite."*
 
-**Answer:** yes — a **separate, persistent `punenest_e2e` database** (not a schema inside the Java
+**Answer:** yes — a **separate, persistent `draazy_e2e` database** (not a schema inside the Java
 test DB). The Java suite's DB and the browser suite's DB have opposite isolation needs and must not
 share.
 
-## Why the e2e DB must be separate from `punenest_test`
+## Why the e2e DB must be separate from `draazy_test`
 
-| | `punenest_test` (Java suite) | `punenest_e2e` (Playwright) |
+| | `draazy_test` (Java suite) | `draazy_e2e` (Playwright) |
 |-|------------------------------|-----------------------------|
 | Isolation | `@Transactional` — **every row rolls back** after each test (`AbstractApiTest`) | **No rollback** — rows commit and persist |
 | Seed | **Schema only** — must be empty (`TestDatabaseIsolationTest` asserts `properties == 0`) | Named-fixture baseline seed |
 | Users survive restart? | **No** (rolled back) | **Yes** — this is the requirement |
 | Count assertions | 126 exact global counts depend on emptiness | Assert against fixture invariants, not global counts |
 
-Putting persistent users in `punenest_test` would immediately break the Java suite. They belong in
-a database that is *designed* to keep committed rows — the new `punenest_e2e`.
+Putting persistent users in `draazy_test` would immediately break the Java suite. They belong in
+a database that is *designed* to keep committed rows — the new `draazy_e2e`.
 
 > **Schema vs database:** a separate *schema* inside the same DB would work technically, but a
 > separate *database* is cleaner — independent Flyway history, independent connection string, no
@@ -48,7 +48,7 @@ code is SHA-256 hashed in `otp_codes` (unreadable from the DB). The existing `li
 code from `BACKEND_LOG`. That works but is brittle for a broad suite.
 
 **Recommended e2e affordance:** a deterministic OTP under an `e2e` profile (or a
-`punenest.otp.e2e-fixed-code` property) so `MockOtpSender` accepts a fixed code (e.g. `000000`) for
+`draazy.otp.e2e-fixed-code` property) so `MockOtpSender` accepts a fixed code (e.g. `000000`) for
 **e2e only**. This keeps OTP real in shape but removes log-scraping from every login. Guard it hard:
 
 - Active **only** under the `e2e` profile / property — never `dev`, never prod.
@@ -70,33 +70,33 @@ with three rules:
 2. **Specs assert against fixture invariants, never global counts.** "Meera owns 4 listings" (scoped
    to Meera), not "there are N listings total." Scoped assertions are drift-proof.
 3. **Mutating specs create their own uniquely-named data** (unique mobile/slug per run) and assert
-   on *that*, so parallel/repeat runs never collide. `punenest_e2e` runs `workers:1` today, which
+   on *that*, so parallel/repeat runs never collide. `draazy_e2e` runs `workers:1` today, which
    also helps.
 
-For a **hard reset** when needed (schema/seed change), drop+recreate `punenest_e2e` and re-migrate —
+For a **hard reset** when needed (schema/seed change), drop+recreate `draazy_e2e` and re-migrate —
 cheap, and the only time persistent users are intentionally cleared.
 
 ## Wiring
 
-- New connection string (e.g. `E2E_DB_URL=jdbc:postgresql://localhost:5432/punenest_e2e`).
-- The Playwright live config boots the backend against `punenest_e2e` (extend
+- New connection string (e.g. `E2E_DB_URL=jdbc:postgresql://localhost:5432/draazy_e2e`).
+- The Playwright live config boots the backend against `draazy_e2e` (extend
   `playwright.config.js`, which already sets `VITE_API_DOMAINS`, proxy, and reads
   `BACKEND_LOG`).
 - Flyway runs `db/migration` **+** the e2e baseline seed (a dedicated seed location, so it does not
-  leak into `punenest` or `punenest_test`).
+  leak into `draazy` or `draazy_test`).
 - Postgres 13 at `C:\Program Files\PostgreSQL\13\bin\psql.exe` (not on PATH), postgres/postgres.
 
 ## Migration checklist
 
-- [x] `createdb punenest_e2e`; add `E2E_DB_URL`.
+- [x] `createdb draazy_e2e`; add `E2E_DB_URL`.
 - [x] Define the e2e baseline seed location (idempotent upserts of the fixture registry).
 - [x] Add the `e2e` profile + fixed-OTP affordance; guard it out of dev/prod; keep log-scrape
       fallback.
 - [x] ~~Rewrite~~ **Bypass** `e2e/helpers/auth.js` + `seed.js` — see the deviation below.
 - [x] Add reset-to-baseline at run start (not teardown).
-- [x] Point the live/default Playwright backend at `punenest_e2e`.
+- [x] Point the live/default Playwright backend at `draazy_e2e`.
 - [x] Prove: register a user in a spec → restart backend → same user logs in.
-- [x] Keep `punenest_test` empty (re-run Java suite; `TestDatabaseIsolationTest` green) — **and it
+- [x] Keep `draazy_test` empty (re-run Java suite; `TestDatabaseIsolationTest` green) — **and it
   was not.** The re-run passed 1483/0/0, but a direct count found the database holding four `users`
   rows and 12,267 `audit_log` rows, both from writes that commit in their own `REQUIRES_NEW`
   transaction and therefore outlive the class-level `@Transactional` rollback. The `users` half is
@@ -112,9 +112,9 @@ cheap, and the only time persistent users are intentionally cleared.
 ## What was actually built, and where it departs from the plan above
 
 **The seed location is `db/seed`, which already existed.** The plan says "a dedicated seed location,
-so it does not leak into `punenest` or `punenest_test`" — that location was already there and
+so it does not leak into `draazy` or `draazy_test`" — that location was already there and
 already had exactly that property. `spring.flyway.locations` lists `db/migration` everywhere and
-appends `classpath:db/seed` only under `dev` and `e2e`, so `punenest_test` never sees the fixtures.
+appends `classpath:db/seed` only under `dev` and `e2e`, so `draazy_test` never sees the fixtures.
 A second location would have meant two seeds to keep in step for no gain, and the e2e suite asserting
 against fixtures the dev database does not have.
 
@@ -127,7 +127,7 @@ a file the live specs never called. So the change is additive, and the two mock 
 their own schedule with the mock provider in Phase 5.
 
 **The fixed OTP has three independent guards, not one.** The plan said "guard it hard"; concretely
-that is (1) `punenest.otp.fixed-code` defaults to empty, so absent configuration means no affordance
+that is (1) `draazy.otp.fixed-code` defaults to empty, so absent configuration means no affordance
 rather than a default code, (2) `application-prod.properties` pins it empty explicitly so a stray
 environment variable cannot supply one, and (3) `@PostConstruct rejectFixedCodeInProduction()`
 refuses to start the context if a non-empty code survives into a production profile. Any single guard
@@ -152,7 +152,7 @@ evidence, a teardown is also what destroys it.
 
 - Reset is idempotent: two consecutive runs both settle at `81 users` / `38 properties`, and a stray
   row written by the previous run was confirmed gone. Observed:
-  `[live] punenest_e2e reset to baseline in 5040ms (81 users).`
+  `[live] draazy_e2e reset to baseline in 5040ms (81 users).`
 - Persistence across restart: `9700009911` registered as
   `a768c4d0-2819-4217-b7e0-b6fedfec499e`, JVM killed and restarted, same id returned. This is the
   owner requirement, proven directly.

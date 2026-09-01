@@ -41,7 +41,7 @@
 -- It is NOT in `db/migration`. It lives in `db/seed`, and only the `dev` profile lists that
 -- location (`spring.flyway.locations` in application-dev.properties). This is load-bearing:
 --
---   * `mvn verify` runs 733 tests against `punenest_test`, and 126 of those assertions are exact
+--   * `mvn verify` runs 733 tests against `draazy_test`, and 126 of those assertions are exact
 --     counts — a test inserts four listings and asserts `totalElements == 2` after the
 --     approved/archived filter. Seeding 38 more listings turns every one of those into
 --     `expected 2, got 21`. The suite's isolation model is transaction rollback, which protects it
@@ -83,7 +83,7 @@
 -- until someone sets a password deliberately.
 --
 -- Generated 2026-08-04 by `pg_dump --data-only --column-inserts` from the pre-rebuild dev database,
--- then made idempotent. Backup of the original kept at ~/punenest-db-backup.
+-- then made idempotent. Backup of the original kept at ~/draazy-db-backup.
 --
 -- ONE ROW WAS REPAIRED ON THE WAY OUT, and it is worth knowing why.
 -- --------------------------------------------------------------
@@ -243,7 +243,7 @@ INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, st
     ON CONFLICT DO NOTHING;
 INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, status, city, mobile_verified, verified, aadhaar_verified, verified_contact_only, listings_count, avatar, joined_at, last_active, archived, archived_at, archive_reason, created_at, updated_at) VALUES ('c06d8be2-459c-4f9e-b4da-48266130be42', 'Rahul Verma', '9876500001', NULL, NULL, 'buyer', NULL, 'active', NULL, true, false, false, false, 0, NULL, '2026-07-29 22:46:44.312922+05:30', '2026-07-29 22:46:44.311914+05:30', false, NULL, NULL, '2026-07-29 22:46:44.312922+05:30', '2026-07-29 22:46:44.312922+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, status, city, mobile_verified, verified, aadhaar_verified, verified_contact_only, listings_count, avatar, joined_at, last_active, archived, archived_at, archive_reason, created_at, updated_at) VALUES ('654410e5-02db-49cb-a9b8-9c7807ed69b9', 'Integration Test', '9876500002', 'it@punenest.local', NULL, 'buyer', NULL, 'active', NULL, true, false, false, false, 0, NULL, '2026-07-29 22:47:00.370325+05:30', '2026-07-29 22:47:00.370326+05:30', false, NULL, NULL, '2026-07-29 22:47:00.370325+05:30', '2026-07-29 22:47:00.401955+05:30')
+INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, status, city, mobile_verified, verified, aadhaar_verified, verified_contact_only, listings_count, avatar, joined_at, last_active, archived, archived_at, archive_reason, created_at, updated_at) VALUES ('654410e5-02db-49cb-a9b8-9c7807ed69b9', 'Integration Test', '9876500002', 'it@draazy.local', NULL, 'buyer', NULL, 'active', NULL, true, false, false, false, 0, NULL, '2026-07-29 22:47:00.370325+05:30', '2026-07-29 22:47:00.370326+05:30', false, NULL, NULL, '2026-07-29 22:47:00.370325+05:30', '2026-07-29 22:47:00.401955+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.users (id, name, mobile, email, password_hash, role, team, status, city, mobile_verified, verified, aadhaar_verified, verified_contact_only, listings_count, avatar, joined_at, last_active, archived, archived_at, archive_reason, created_at, updated_at) VALUES ('5a6aac62-45c2-4681-a9ef-bb413d998a89', 'Parity Renamed', '9876551140', NULL, NULL, 'buyer', NULL, 'active', NULL, true, false, false, false, 0, NULL, '2026-07-29 22:50:51.92822+05:30', '2026-07-29 22:50:51.92822+05:30', false, NULL, NULL, '2026-07-29 22:50:51.92822+05:30', '2026-07-29 22:50:51.949333+05:30')
     ON CONFLICT DO NOTHING;
@@ -355,7 +355,7 @@ INSERT INTO public.conversations (id, user_a_id, user_b_id, property_id, last_me
     ON CONFLICT DO NOTHING;
 INSERT INTO public.conversations (id, user_a_id, user_b_id, property_id, last_message, created_at, updated_at) VALUES ('bb010b61-0294-5b19-954f-23a4e5bcaef1', '19bdc371-5496-5930-af29-5ef3d8e6bb8b', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', '3b7a0839-a64a-5686-b459-6589e78fbd8e', 'Sure, evening works. See you then.', '2026-07-29 22:33:54.213947+05:30', '2026-08-04 18:59:18.151657+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('7e14d00b-af31-54a4-8f43-5945ab1a2f27', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'buyer', 'Hi, I saw your listing on PuneNest. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('7e14d00b-af31-54a4-8f43-5945ab1a2f27', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '569a14d9-004f-5c1a-b2b5-bc1e35d657e8', 'buyer', 'Hi, I saw your listing on Draazy. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('85bc4b3e-0f25-5725-aef1-f766f3619484', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '19bdc371-5496-5930-af29-5ef3d8e6bb8b', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -363,7 +363,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('63a30090-835e-59b7-934f-7457cdfcafdb', 'bb010b61-0294-5b19-954f-23a4e5bcaef1', '19bdc371-5496-5930-af29-5ef3d8e6bb8b', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('b0b286fb-f5fb-5a46-aeff-b272114b4cf4', '60547b23-b982-53e5-a5de-625bd964aa20', '74feff4f-f669-5adc-93d5-bd1ad0d0e2a9', 'buyer', 'Hi, I saw your listing on PuneNest. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('b0b286fb-f5fb-5a46-aeff-b272114b4cf4', '60547b23-b982-53e5-a5de-625bd964aa20', '74feff4f-f669-5adc-93d5-bd1ad0d0e2a9', 'buyer', 'Hi, I saw your listing on Draazy. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('f625e133-7909-5808-b9dc-d08d18fe0378', '60547b23-b982-53e5-a5de-625bd964aa20', 'de87779e-383b-5916-bc80-b3ee85c4fcab', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -371,7 +371,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('39b678e9-eff9-5114-b11d-b41f1e6d2561', '60547b23-b982-53e5-a5de-625bd964aa20', 'de87779e-383b-5916-bc80-b3ee85c4fcab', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('b0d7686a-61a4-5912-931e-421509a411fd', '0c9cdc1b-0793-56b8-801e-831a15348a28', '24daef28-5a4d-58af-af85-ec1cdde8540d', 'buyer', 'Hi, I saw your listing on PuneNest. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('b0d7686a-61a4-5912-931e-421509a411fd', '0c9cdc1b-0793-56b8-801e-831a15348a28', '24daef28-5a4d-58af-af85-ec1cdde8540d', 'buyer', 'Hi, I saw your listing on Draazy. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('800921a2-b927-53ec-85f9-94e131fa074a', '0c9cdc1b-0793-56b8-801e-831a15348a28', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -379,7 +379,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('97382100-5d1d-5377-a96c-ddffb69e6c39', '0c9cdc1b-0793-56b8-801e-831a15348a28', 'f619aa88-84ed-50ce-9a07-abb7712afa9d', 'owner', 'Sure, evening works. See you then.', '[]', false, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
-INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('76b233d4-c176-5ddb-a94f-11699295e869', 'fdff056a-eb12-5caa-a37d-220a639bf365', '65e66346-62d0-525f-be12-81d3f1868f06', 'buyer', 'Hi, I saw your listing on PuneNest. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
+INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('76b233d4-c176-5ddb-a94f-11699295e869', 'fdff056a-eb12-5caa-a37d-220a639bf365', '65e66346-62d0-525f-be12-81d3f1868f06', 'buyer', 'Hi, I saw your listing on Draazy. Is it available?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
 INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, attachments, read, created_at) VALUES ('850a8e4c-d484-505e-8325-f3a48f83306a', 'fdff056a-eb12-5caa-a37d-220a639bf365', '6e0d6446-90ad-5b90-89aa-617a89f387a0', 'owner', 'Yes it is. Would you like to schedule a visit?', '[]', true, '2026-07-29 22:33:54.213947+05:30')
     ON CONFLICT DO NOTHING;
@@ -581,7 +581,7 @@ INSERT INTO public.messages (id, conversation_id, author_id, author_role, body, 
 
 -- --- tenancy: Priya is the active tenant of p5015 ----------------------------------------
 -- Rent and deposit mirror the listing's own seeded price (38000), so the tenancy does not
--- contradict the listing it belongs to. There is no instalment ledger beside it: PuneNest does not
+-- contradict the listing it belongs to. There is no instalment ledger beside it: Draazy does not
 -- collect rent, so the only record of a payment is the owner's own receipt log on a managed
 -- property.
 INSERT INTO public.tenancies (id, property_id, tenant_id, owner_id, rent, deposit, start_date, end_date, status, created_at, updated_at) VALUES ('f1c70008-0000-4000-8000-000000000001', '1078d711-d3eb-5961-ab3c-30d4bdc5f377', 'f1c70000-0000-4000-8000-000000000002', '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 38000, 76000, '2026-06-01', '2027-05-31', 'active', '2026-05-25 10:00:00+05:30', '2026-05-25 10:00:00+05:30')
@@ -707,7 +707,7 @@ UPDATE public.properties p
 -- NOTHING` for the reason stated at the top of this file.
 INSERT INTO public.faqs (id, question, answer, category) VALUES
   ('fa900001-0000-4000-8000-00000000f001',
-   'Is PuneNest really zero brokerage?',
+   'Is Draazy really zero brokerage?',
    'Yes — always. You connect directly with verified owners and pay zero brokerage on any rent or resale deal. We earn only from optional owner plans and add-on services like rent agreements, never a cut of your rent or deposit.',
    'General'),
   ('fa900001-0000-4000-8000-00000000f002',
@@ -724,7 +724,7 @@ INSERT INTO public.faqs (id, question, answer, category) VALUES
    'Owners'),
   ('fa900001-0000-4000-8000-00000000f005',
    'Is my payment and deposit safe?',
-   'Pay a deposit or rent only after you''ve visited the property and signed an agreement. PuneNest never asks you to transfer a token to ''block'' a flat before a visit — treat any such request as a red flag and report it.',
+   'Pay a deposit or rent only after you''ve visited the property and signed an agreement. Draazy never asks you to transfer a token to ''block'' a flat before a visit — treat any such request as a red flag and report it.',
    'Payments'),
   ('fa900001-0000-4000-8000-00000000f006',
    'Do you offer rent agreements?',
@@ -1179,7 +1179,7 @@ WHERE slug IN ('p5104', 'p5105', 'p5110', 'p5111');
 --
 -- `reviews` held exactly one row, against a property nothing asserts on, so the ratings
 -- summary on the property page had no fixture at all. The mock suite worked around this by
--- writing `puneNestPropReviews` into localStorage, which the live app never reads - the
+-- writing `draazyPropReviews` into localStorage, which the live app never reads - the
 -- aggregate there comes from the server. So the summary block, its star distribution and its
 -- per-aspect averages were all unverified against the real seam.
 --
@@ -1303,7 +1303,7 @@ ON CONFLICT (id) DO NOTHING;
 -- only three of them: there was no Independent House and no Farm Land anywhere in the
 -- seed, and the only plots were 'Plot' (the legacy string). A filter option that can never
 -- return a row is indistinguishable from a filter option that is broken, so
--- live-search-property-types.spec.js had been faking its stock into puneNestDB_v5 - the
+-- live-search-property-types.spec.js had been faking its stock into draazyDB_v5 - the
 -- mock store the live app does not read - and passing while proving nothing.
 --
 -- All four are featured=true. That has no visual effect on a tile; it only pins them to
@@ -1532,7 +1532,7 @@ UPDATE public.properties SET boosted_until = now() + interval '7 days' WHERE slu
 -- SOCIETY RESIDENTS AND CLAIMS  (added 2026-08-22, Wave C slice 1)
 -- ============================================================================================
 -- Until D240 a resident's verified flat and a committee's claim lived in the claimant's own
--- browser: `pnSocietyResidents` and `pnSocietyClaims`. Two tables now hold them, and this section
+-- browser: `dzSocietyResidents` and `dzSocietyClaims`. Two tables now hold them, and this section
 -- gives the live suite the two states a spec can only READ, never create for itself.
 --
 -- WHY SEED THESE AT ALL, WHEN A SPEC CREATES THEM
@@ -1760,7 +1760,7 @@ cross join (values
      '758f8534-ee2d-5075-ab65-8e89bb294047'::uuid,
      'photo', 'common areas',
      'The clubhouse lawn on a weekday morning.',
-     null::text, null::text, 'https://cdn.punenest.example/society/blue-ridge-lawn.jpg',
+     null::text, null::text, 'https://cdn.draazy.example/society/blue-ridge-lawn.jpg',
      now() - interval '4 days')
 ) as v(id, author_id, kind, category, body, referral_name, referral_contact, photo_url, created_at)
 where s.slug = 'blue-ridge-towers-hinjawadi'

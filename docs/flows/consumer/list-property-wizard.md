@@ -10,7 +10,7 @@
 
 ## 1. Purpose & user problem
 - **Persona:** a property owner (or a sitting tenant listing a room) who wants their unit live on
-  PuneNest.
+  Draazy.
 - **Job-to-be-done:** "Describe my property, price it, add photos/documents, and publish it."
 - **Why it matters:** this is the **supply side** of the marketplace. Listing quality and the
   admin listing-verification maker-checker are what make the "zero brokerage" promise real. Every
@@ -49,9 +49,9 @@
 ## 4. Entities touched
 - [`listings` / `properties`](../../system/data-model.md) - **created** as `status: 'pending'` in
   both the mock DB (`db.listings`, via `mutateDb`) and the per-user store
-  (`puneNestListings:<mobile>`, via `addListing`). Edited in place via `updateListing` + `mutateDb`.
+  (`draazyListings:<mobile>`, via `addListing`). Edited in place via `updateListing` + `mutateDb`.
 - [`rooms` / `flatmate_requests`](../../system/data-model.md) - the flatmate track **creates** a
-  room in `puneNestRoomListings` via `addRoom` (`status: 'pending'`).
+  room in `draazyRoomListings` via `addRoom` (`status: 'pending'`).
 - [`aadhaar_verifications`](../../system/data-model.md) - **read** only for the **optional** Verified
   badge (post-success nudge); **not** a prerequisite to post.
 - [`property_reviews`](../../system/data-model.md) - `ensureOwnerReview` opens a review thread on a
@@ -119,7 +119,7 @@ advance on any error (scrolling to the first error via `scrollToError`).
   Consent / Factory License).
 
 ### Draft vs submit
-- **Autosave draft:** the whole form autosaves to `pnDraft:list-property` (`useFormDraft`); a
+- **Autosave draft:** the whole form autosaves to `dzDraft:list-property` (`useFormDraft`); a
   restore banner + "start fresh" let the owner resume or wipe. There is **no explicit "save draft"
   status** - a listing only exists once submitted; the draft is client-only.
 - **Submit (`submitProperty` -> `finalizeListing` -> `persistListing`):**
@@ -167,7 +167,7 @@ issued. Only asked on a create; an edit is by definition already the listing it 
 - **Hard block:** `{ found: true, existingId }` -> `persistListing` returns
   `{ ok:false, blocked:true, existingId }` and the wizard shows the duplicate guard. The CTA opens
   the editor only when `getListing(existingId)` resolves locally, because the edit route prefills
-  from `puneNestListings:<mobile>` and a server id this browser has never held renders an empty form
+  from `draazyListings:<mobile>` and a server id this browser has never held renders an empty form
   under the words "here is the one you already have". Otherwise it goes to `/dashboard`.
 
 **"Is somebody else claiming this?" stays local and stays on the write.**

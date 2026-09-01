@@ -44,10 +44,10 @@ async function openBoard(page, tab) {
 /** The themed `<Select>` is not a native one — `selectOption` does not apply to it. */
 async function pickStatus(page, label) {
   await page.locator('[aria-label="Filter by status"]').click();
-  const option = page.locator('.pn-dropdown__option', { hasText: label }).first();
+  const option = page.locator('.dz-dropdown__option', { hasText: label }).first();
   await expect(option).toBeVisible();
   await option.click();
-  await expect(page.locator('.pn-dropdown__option')).toHaveCount(0);
+  await expect(page.locator('.dz-dropdown__option')).toHaveCount(0);
 }
 
 test('deep-linking ?tab=deals opens the Deals tab with the deal columns, not the enquiry ones', async ({ page, login, consoleErrors }) => {

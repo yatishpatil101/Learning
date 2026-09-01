@@ -47,7 +47,7 @@ const COUNT_UNAVAILABLE = 'Results unavailable';
 /** The always-mounted live region from `components/ConnectivityBanner.jsx`. */
 const region = (page) => page.locator('div[role="status"][aria-live="polite"][aria-atomic="true"]');
 /** The card inside it, present only when there is something to say. */
-const banner = (page) => page.locator('.pn-connectivity-card');
+const banner = (page) => page.locator('.dz-connectivity-card');
 /** The list's failure affordance from `components/LoadError.jsx`. */
 const retryButton = (page) => page.getByRole('button', { name: 'Retry' });
 /* ResultsArea renders the count line twice — a `sm:hidden` phone copy and a desktop one — so both

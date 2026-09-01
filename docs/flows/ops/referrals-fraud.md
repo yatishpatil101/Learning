@@ -88,7 +88,7 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
   settings.fees.referralContactBonus`). There is no balance column and no grant ledger, which is
   precisely what makes **clawback** whole: reversing the referral reverses the contacts, with nothing
   to un-increment by hand. The mock's device-local perk counters
-  (`services/providers/mock/contactQuota.js`, `pnContactsUsed:<mobile>`) are the *mock server's*
+  (`services/providers/mock/contactQuota.js`, `dzContactsUsed:<mobile>`) are the *mock server's*
   equivalent of the same arithmetic; see §5.5.
 - **Audit log** - decisions are audited server-side (`referral.approve` / `.reject` / `.clawback`).
 
@@ -186,7 +186,7 @@ at the reward/deal layer where money is at risk.
 
 ### 5.6 Export
 CSV of the current tab's rows including all six signals, the reward amount and the redeemed date
-(`punenest-referrals.csv`).
+(`draazy-referrals.csv`).
 
 ### 5.7 What the mock disagreed about
 Three disagreements, not three formatting differences — which is why this desk is live-only:

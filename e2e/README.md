@@ -1,6 +1,6 @@
-# PuneNest E2E
+# Draazy E2E
 
-Playwright end-to-end tests for the PuneNest React app (`../frontend`).
+Playwright end-to-end tests for the Draazy React app (`../frontend`).
 
 ## Quick start
 
@@ -34,7 +34,7 @@ cannot assert anything about the product. The files swapped names.
 | `playwright.nobackend.config.js` | Three specs whose subject *is* the absence of a server: `consumer/connectivity` (fault-injected HTTP and offline transitions), `contact-identity-masking` and `consumer/services/rent-agreement` (client-side identity and draft rules that never cross the wire). One `chromium` project. |
 
 > **`npm test` resets a database.** `globalSetup` drops and reseeds `E2E_DB_NAME`, which defaults
-> to the shared `punenest_e2e` lane, so a bare run wipes whichever database a concurrent session is
+> to the shared `draazy_e2e` lane, so a bare run wipes whichever database a concurrent session is
 > using. This was tolerable while the live config was opt-in; as the default it is a footgun worth
 > naming. Prefer the lane scripts — `run-live-flatmates.ps1`, `run-live-admin.ps1`,
 > `run-live-services.ps1` — which pin the port, the database and the app URL together. If you run
@@ -155,13 +155,13 @@ Each of these cost a debugging round; `COVERAGE.md` records the rest.
   so Playwright calls them invisible — and `scrollIntoViewIfNeeded()` deadlocks,
   because scrolling requires visibility. Force the end state instead:
   `page.evaluate(() => document.querySelectorAll('.reveal').forEach(el => el.classList.add('visible')))`.
-- **`NativeSelect` is not a `<select>`.** It renders a themed `.pn-dropdown`, so
-  `selectOption()` never resolves. Click `.pn-dropdown__trigger`, then a
-  `[role="option"]` in `.pn-dropdown__menu--portal`.
-- **`Table` renders twice.** A desktop `<table>` *and* a `.pn-card` stack for
+- **`NativeSelect` is not a `<select>`.** It renders a themed `.dz-dropdown`, so
+  `selectOption()` never resolves. Click `.dz-dropdown__trigger`, then a
+  `[role="option"]` in `.dz-dropdown__menu--portal`.
+- **`Table` renders twice.** A desktop `<table>` *and* a `.dz-card` stack for
   phones, one hidden by CSS. Scope assertions to `getByRole('table')` on desktop,
   or strict mode trips on the duplicate.
-- **`puneNestDB_v5` cannot be seeded before boot.** mockApi migrates and merges it
+- **`draazyDB_v5` cannot be seeded before boot.** mockApi migrates and merges it
   at module load, so a partial object written in `addInitScript` leaves the app
   with no settings and a blank page. Load once, mutate the real DB in `evaluate()`,
-  then navigate. Per-user keys (`pnTenancies:<mobile>`) *are* safe to pre-seed.
+  then navigate. Per-user keys (`dzTenancies:<mobile>`) *are* safe to pre-seed.

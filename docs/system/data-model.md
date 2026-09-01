@@ -1,4 +1,4 @@
-# PuneNest - Data Model & Persistence (ADR)
+# Draazy - Data Model & Persistence (ADR)
 
 > **Status:** accepted. **Supersedes:** the old `domain-model.md` entity dump.
 >
@@ -8,8 +8,8 @@
 >
 > **What this doc is NOT.** It does not define API request/response field shapes. Every entity's
 > concrete fields, types and enum values now live in the
-> [OpenAPI spec](../../backend/src/main/resources/static/openapi/punenest-api.yaml) (served at
-> `/openapi/punenest-api.yaml`, Swagger UI at `/docs`) as component **schemas** - that is the SSOT
+> [OpenAPI spec](../../backend/src/main/resources/static/openapi/draazy-api.yaml) (served at
+> `/openapi/draazy-api.yaml`, Swagger UI at `/docs`) as component **schemas** - that is the SSOT
 > for wire shapes. Use the map below to jump from a domain entity to its schema.
 
 ## Entity -> OpenAPI schema map
@@ -130,7 +130,7 @@ do: through a broker, a noticeboard, or a relative. `tenant_rentals` is that ten
 `id`, `tenant_id` (FK `users`), `address`, `landlord_name`, `monthly_rent`, `deposit`, `lease_start`,
 `lease_end`, `status` (`active` / `ended`), plus the standard soft-delete (`archived`, `archived_at`,
 `archive_reason`) and audit (`created_at`, `updated_at`) columns. The home being described is
-usually **not** a PuneNest listing, so a nullable foreign key would be populated only in the
+usually **not** a Draazy listing, so a nullable foreign key would be populated only in the
 minority case while every reader had to handle its absence — the address already identifies the home
 to the only person who reads it. It is written **once**: months paid, lifetime total and the
 financial-year total are derived server-side from instalments elapsed since `lease_start`, so there
@@ -148,7 +148,7 @@ traffic.
 **Mobile-keying note (Phase 1 -> Phase 2):** In the current localStorage prototype, owner-scoped
 collections (contact requests, deals, offers, finalization requests, documents, finances, rent
 ledger, tenancies) are **keyed by the owner's/actor's 10-digit mobile number** (e.g.
-`puneNestDeals:<ownerDigits>`, `pnOffers:<ownerDigits>`), and the counterparty is stored as a
+`draazyDeals:<ownerDigits>`, `dzOffers:<ownerDigits>`), and the counterparty is stored as a
 `buyerMobile` / `tenantMobile` string. In PostgreSQL these become proper foreign keys to
 `users.id`. Treat every `*Mobile` field as a natural key that maps to a `users` row.
 

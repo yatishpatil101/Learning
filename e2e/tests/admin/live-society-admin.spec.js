@@ -2,7 +2,7 @@
  * The society **overlay editor** — the Directory tab's Edit dialog — against the live API.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/admin/live-society-admin.spec.js --config=playwright.config.js
  *
@@ -15,7 +15,7 @@
  *
  * ## What was actually wrong, and why a live spec is the only thing that could have caught it
  *
- * Until this slice the dialog wrote `pnSocietyOverlay` in `localStorage`. Five fields — registration
+ * Until this slice the dialog wrote `dzSocietyOverlay` in `localStorage`. Five fields — registration
  * verified, conveyance done, claim status, maintenance per sqft, and an internal note — saved to the
  * browser that typed them and nowhere else. Four of those five are exactly what a buyer reads to
  * judge whether a building's paperwork is in order, so an operator who ticked "conveyance done"

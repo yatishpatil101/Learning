@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
    This exists because the copy drifted: P5000's ownerMobile changed to
    9999047855, but five specs still carried the old 9530047855. They kept
-   "passing" their setup and then asserted against `puneNestContactReq:<old>` —
+   "passing" their setup and then asserted against `draazyContactReq:<old>` —
    a key nothing ever writes — so the failure surfaced as a confusing empty
    array rather than "your constant is stale". Deriving it means the next data
    change can't silently rot the suite. */
@@ -27,10 +27,10 @@ export const seedProperty = (id) => {
   if (!p) throw new Error(`seedProperty: no listing ${id} in properties.json`);
   return p;
 };
-/** Owner mobile for a seed listing — the suffix of `puneNestContactReq:` etc. */
+/** Owner mobile for a seed listing — the suffix of `draazyContactReq:` etc. */
 export const ownerMobileOf = (id) => seedProperty(id).ownerMobile;
 /** Owner *account id* for a seed listing — the suffix of the owner-scoped deal/visit buckets
- *  (`puneNestDeals:`, `pnOffers:`, `puneNestPropVisitReqs:`). Those moved off the mobile in D30,
+ *  (`draazyDeals:`, `dzOffers:`, `draazyPropVisitReqs:`). Those moved off the mobile in D30,
  *  because a masked number strips to a short string several owners share. */
 export const ownerIdOf = (id) => seedProperty(id).ownerId;
 
@@ -44,17 +44,17 @@ export const OTHER = { name: 'Other Person', mobile: '9800000003', role: 'owner'
    which is the point — `helpers/auth.js` seeds consumers only. */
 
 const KEYS = {
-  user: 'puneNestUser',
-  rooms: 'puneNestRoomListings',
-  posts: 'puneNestFlatmatePosts',
-  groups: 'puneNestFlatmateGroups',
-  reviews: 'puneNestFlatmateReviews',
-  interests: 'puneNestFlatmateInterests',
+  user: 'draazyUser',
+  rooms: 'draazyRoomListings',
+  posts: 'draazyFlatmatePosts',
+  groups: 'draazyFlatmateGroups',
+  reviews: 'draazyFlatmateReviews',
+  interests: 'draazyFlatmateInterests',
   // The mock provider's own interest ledger — its stand-in for the API's unique index (D181).
   // Distinct from `interests`, which is only what this browser remembers asking. Both are cleared
   // so a spec that asks twice gets the real 409 rather than a leftover from the previous test.
-  mockInterests: 'pnMockFlatmateInterests',
-  saved: 'puneNestFlatmateSaved',
+  mockInterests: 'dzMockFlatmateInterests',
+  saved: 'draazyFlatmateSaved',
 };
 
 /** A rent listing in the shape `getListings()` returns. */
@@ -148,23 +148,23 @@ export async function seed(page, {
     // A previous spec's state must never leak into this one.
     Object.values(k).forEach((key) => localStorage.removeItem(key));
     Object.keys(localStorage)
-      .filter((key) => key.startsWith('puneNestListings:') || key.startsWith('puneNestAadhaar:')
-        || key.startsWith('pnContactsUsed:') || key.startsWith('pnReferralStats:')
-        || key.startsWith('pnReferredBy:') || key.startsWith('pnPlan:'))
+      .filter((key) => key.startsWith('draazyListings:') || key.startsWith('draazyAadhaar:')
+        || key.startsWith('dzContactsUsed:') || key.startsWith('dzReferralStats:')
+        || key.startsWith('dzReferredBy:') || key.startsWith('dzPlan:'))
       .forEach((key) => localStorage.removeItem(key));
 
     if (data.user) {
       localStorage.setItem(k.user, JSON.stringify(data.user));
-      localStorage.setItem('puneNestListings:' + data.user.mobile, JSON.stringify(data.listings));
+      localStorage.setItem('draazyListings:' + data.user.mobile, JSON.stringify(data.listings));
       if (data.aadhaar) {
-        localStorage.setItem('puneNestAadhaar:' + data.user.mobile, JSON.stringify({
+        localStorage.setItem('draazyAadhaar:' + data.user.mobile, JSON.stringify({
           verified: true, source: 'digilocker', at: Date.now(),
         }));
       }
-      if (data.contactsUsed != null) localStorage.setItem('pnContactsUsed:' + data.user.mobile, JSON.stringify(data.contactsUsed));
-      if (data.referralStats) localStorage.setItem('pnReferralStats:' + data.user.mobile, JSON.stringify(data.referralStats));
-      if (data.plan) localStorage.setItem('pnPlan:' + data.user.mobile, JSON.stringify(data.plan));
-      if (data.referredBy) localStorage.setItem('pnReferredBy:' + data.user.mobile, JSON.stringify(data.referredBy));
+      if (data.contactsUsed != null) localStorage.setItem('dzContactsUsed:' + data.user.mobile, JSON.stringify(data.contactsUsed));
+      if (data.referralStats) localStorage.setItem('dzReferralStats:' + data.user.mobile, JSON.stringify(data.referralStats));
+      if (data.plan) localStorage.setItem('dzPlan:' + data.user.mobile, JSON.stringify(data.plan));
+      if (data.referredBy) localStorage.setItem('dzReferredBy:' + data.user.mobile, JSON.stringify(data.referredBy));
     }
     if (data.rooms.length) localStorage.setItem(k.rooms, JSON.stringify(data.rooms));
     if (data.posts.length) localStorage.setItem(k.posts, JSON.stringify(data.posts));
@@ -182,10 +182,10 @@ export async function seed(page, {
  * last response lands about a second before `main.jsx` runs — `networkidle` resolves
  * against an empty document.
  *
- * `data-pn-boot="ready"` is set on the last statement of `main.jsx` before
+ * `data-dz-boot="ready"` is set on the last statement of `main.jsx` before
  * `createRoot(...).render(...)`, so it marks the point where the module graph has finished
  * evaluating. It used to promise more — that a browser database had finished seeding — and
- * specs once waited on `localStorage['puneNestDB_v5']` instead, which was worse: the dev-only
+ * specs once waited on `localStorage['draazyDB_v5']` instead, which was worse: the dev-only
  * disk hydration wrote that key *before* the one-shot migrations ran, so it could be present
  * and stale. The store and that race are both gone (P5c). The flag stays because the
  * `networkidle` problem above did not go with them.
@@ -193,7 +193,7 @@ export async function seed(page, {
  * @param {import('@playwright/test').Page} page
  */
 export const appReady = (page) => page.waitForFunction(
-  () => document.documentElement.dataset.pnBoot === 'ready',
+  () => document.documentElement.dataset.dzBoot === 'ready',
   null,
   { timeout: 30_000 },
 );
@@ -204,7 +204,7 @@ export const readStore = (page, key) =>
 
 /* `publishListing`, `approveListing` and `setFlags` stood here, and `readRooms`,
    `readReviews` and `readReferralStats` with them. Every one of them reached into
-   `puneNestDB_v5` — the mock marketplace store — to fabricate a listing, moderate it, patch
+   `draazyDB_v5` — the mock marketplace store — to fabricate a listing, moderate it, patch
    `settings.flags`, or read back what the browser had written. That store is gone (P5c), so
    the first `JSON.parse(localStorage.getItem(...))` in each would now yield `null` and throw
    on the property access one line later. None of them had a caller left: a spec that needs a
@@ -215,7 +215,7 @@ export const readStore = (page, key) =>
    below `propertyMapper`. Flags are server state now and belong to the admin settings API. */
 
 /** Free owner contacts the signed-in seeker has spent. */
-export const readContactsUsed = (page, mobile) => readStore(page, 'pnContactsUsed:' + mobile);
+export const readContactsUsed = (page, mobile) => readStore(page, 'dzContactsUsed:' + mobile);
 /* `readReferralCredits` was here. The browser-side referral credit ledger it read is gone (D234):
    the grant now happens on the server, derived from the qualified referrals that justify it, so
    there is no local queue of unclaimed rewards left to inspect. */
@@ -283,9 +283,9 @@ export async function postAsGroup(page) {
    in one named line. Specs that test the gate itself live in
    `moderate-before-public.spec.js` and deliberately do NOT call this. */
 export const FLATMATE_STORES = {
-  posts: 'puneNestFlatmatePosts',
-  groups: 'puneNestFlatmateGroups',
-  rooms: 'puneNestRoomListings',
+  posts: 'draazyFlatmatePosts',
+  groups: 'draazyFlatmateGroups',
+  rooms: 'draazyRoomListings',
 };
 
 /**

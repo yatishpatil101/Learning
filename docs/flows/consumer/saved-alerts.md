@@ -48,23 +48,23 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 > `services/notificationService.js`. The keys and rules are kept because they document the shape and
 > the edge cases the server behaviour still has to satisfy.
 
-- `saved_properties` (was `src/lib/store/notifications.js`, key `pnSavedProps:<mobile|anon>`) -
+- `saved_properties` (was `src/lib/store/notifications.js`, key `dzSavedProps:<mobile|anon>`) -
   created/removed by heart toggle. Just an array of property ids.
-- `saved_searches` (was `src/lib/store/search.js`, key `pnSavedSearches:<mobile|anon>`) -
+- `saved_searches` (was `src/lib/store/search.js`, key `dzSavedSearches:<mobile|anon>`) -
   created, removed, alert-toggled. Also holds Flatmates alerts (`kind: 'flatmates'`).
-- `notifications` (was `src/lib/store/notifications.js`, key `pnNotifications:<mobile>`) - read +
+- `notifications` (was `src/lib/store/notifications.js`, key `dzNotifications:<mobile>`) - read +
   merged: live match/price notifications are derived from the two stores above.
-- Notification/comm preferences (`pnNotifPrefs:<mobile>`) - read to gate live alerts.
-- Flatmate saved items also use a separate `puneNestFlatmateSaved` localStorage map (kind/title/loc).
+- Notification/comm preferences (`dzNotifPrefs:<mobile>`) - read to gate live alerts.
+- Flatmate saved items also use a separate `draazyFlatmateSaved` localStorage map (kind/title/loc).
 
 ## 5. Business rules & logic  *(the meat)*
 
 ### Saving a property (was `store/notifications.js`, deleted)
-- `savedPropsKey() = 'pnSavedProps:' + (myMobile() || 'anon')`.
+- `savedPropsKey() = 'dzSavedProps:' + (myMobile() || 'anon')`.
 - `getSavedProps()` -> array of ids; `isSavedProp(id)` -> membership; `toggleSavedProp(id)` pushes or
   splices and **returns `true` if now saved**. Idempotent per id (no duplicates).
 - The Saved page resolves ids against the live catalog (`listProperties`) and classifies each into
-  `buy` vs `rent` by `p.deal === 'rent'`; flatmate saves come from `puneNestFlatmateSaved` and are
+  `buy` vs `rent` by `p.deal === 'rent'`; flatmate saves come from `draazyFlatmateSaved` and are
   category `flatmates` ("Flatmates & Rooms"). Counts per category drive the tab badges; sort options:
   `newest` (by `createdAt`), `price-desc`, `price-asc` (by `priceNum`).
 - **Swipe to remove (mobile only):** a saved card can be swiped left to remove (`useSwipeDismiss`,

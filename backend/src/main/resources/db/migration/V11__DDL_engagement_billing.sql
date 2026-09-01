@@ -149,7 +149,7 @@ COMMENT ON COLUMN saved_searches.last_alerted_at IS
 -- ---------------------------------------------------------------------------------------------
 -- Recent searches for a signed-in account: the "Resume your search" rail on Home and Dashboard.
 --
--- These have lived in `localStorage` under `pnRecentSearches:<mobile>` since the prototype, and
+-- These have lived in `localStorage` under `dzRecentSearches:<mobile>` since the prototype, and
 -- `lib/localPrefs.js` argues at length that they belong there -- that a browsing trail is a fact
 -- about a browser, not an account, and that collecting it server-side buys a small convenience at
 -- the cost of a permanent record of what one person looked for. That argument is still right about
@@ -162,7 +162,7 @@ COMMENT ON COLUMN saved_searches.last_alerted_at IS
 -- What that costs is bounded here rather than left to a retention policy nobody re-reads. Six rows
 -- per user, hard-enforced on write, holding a label the user already saw on screen and a relative
 -- URL of our own search pages. No IP, no user agent, no timestamps of anything but the search
--- itself, and nothing about which listings were opened -- `pnRecentProps` stays in the browser,
+-- itself, and nothing about which listings were opened -- `dzRecentProps` stays in the browser,
 -- because a list of the individual homes a person looked at is exactly the sensitive artefact
 -- `localPrefs.js` refused to create, and moving it here would create it.
 --
@@ -259,7 +259,7 @@ CREATE TABLE plans (
     --
     -- Two things were wrong at once, and they were the same thing.
     --
-    -- 1. The server paid a referral in rupees ("₹500 PuneNest credit") while every screen the
+    -- 1. The server paid a referral in rupees ("₹500 Draazy credit") while every screen the
     --    referrer could see promised "+15 owner contacts". `ReferralSummary.rewardsEarned` and
     --    `rewardsPending` were fetched by the frontend and rendered by nothing, because there was no
     --    rupee anywhere in the product to spend them on. The contract had it right all along --
@@ -267,8 +267,8 @@ CREATE TABLE plans (
     --    -- and the implementation drifted. This settles it in favour of the contract and the
     --    screens.
     --
-    -- 2. The "+15" itself was `localStorage`: `pnContactsUsed:<mobile>` plus an allowance derived
-    --    from `pnReferralStats:<mobile>`. A user who changed device lost every contact they had
+    -- 2. The "+15" itself was `localStorage`: `dzContactsUsed:<mobile>` plus an allowance derived
+    --    from `dzReferralStats:<mobile>`. A user who changed device lost every contact they had
     --    earned, and a user who opened devtools had as many as they liked. The frontend's own
     --    comment said so: "Prototype only -- the counter lives in localStorage and is NOT real
     --    security."
@@ -1020,7 +1020,7 @@ CREATE TABLE referrals (
     --
     -- WHAT IS STORED. A salted SHA-256 hex digest of the client address, and a salted SHA-256 hex
     -- digest of the User-Agent header. NEVER the raw address and NEVER the raw header. The salt is a
-    -- deployment secret (`punenest.security.referral-signal-salt`); without it these are 64 hex
+    -- deployment secret (`draazy.security.referral-signal-salt`); without it these are 64 hex
     -- characters that cannot be walked back to an address, which matters because the IPv4 space is
     -- 2^32 and an unsalted digest of it is reversible by anybody with a laptop and an afternoon.
     --

@@ -29,9 +29,9 @@
   `reviews.js`), `CompareToggleBar.jsx`, `ScheduleVisitModal.jsx`,
   `ReportModal.jsx` (a thin property adapter over the shared `src/components/ReportModal.jsx`),
   `DealPanel.jsx`, `derivations.js`.
-- **Mobile chrome:** below `lg` the page carries a fixed bottom action bar (`pn-sticky-cta`) holding
+- **Mobile chrome:** below `lg` the page carries a fixed bottom action bar (`dz-sticky-cta`) holding
   the primary conversion actions, and the tab rail docks under the nav
-  (`pn-docks-under-nav`, `top: var(--pn-nav-h)`). Actions the sticky bar already exposes are hidden
+  (`dz-docks-under-nav`, `top: var(--dz-nav-h)`). Actions the sticky bar already exposes are hidden
   from the in-page header on mobile rather than duplicated.
 
 ## 3. Actors & roles

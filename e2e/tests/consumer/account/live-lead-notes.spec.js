@@ -5,7 +5,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  * Owner-private lead notes, against the real API.
  *
  * These two fields — a free-text note and a follow-up date — used to live in
- * `localStorage` under `puneNestLeadNotes:<ownerDigits>`, which meant they were per-browser: an
+ * `localStorage` under `draazyLeadNotes:<ownerDigits>`, which meant they were per-browser: an
  * owner who took a note on their phone opened the laptop to an empty CRM. No spec could catch
  * that, because a single browser context is exactly the one place where the old storage looked
  * correct.

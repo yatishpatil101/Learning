@@ -47,7 +47,7 @@
 ## 4. Entities touched
 - [`users`](../../system/data-model.md) - the session user object
   (`{ name, mobile, role, loginAt }`) written to storage; on sign-up also appended to the local
-  account registry (`puneNestUsers`).
+  account registry (`draazyUsers`).
 - [`aadhaar_verifications`](../../system/data-model.md) - not written here. The DigiLocker Verified
   badge (L2) is an **opt-in trust signal** that layers on top of auth — it is **not** a gate for
   posting or contacting (mobile-OTP sign-in / L1 is the only floor; see
@@ -106,11 +106,11 @@
   `/dashboard`.
 
 ### Session persistence (`src/lib/auth.js`)
-- **Keys:** `puneNestUser` (the cached profile) and `puneNestTokens` (the 15-minute access token).
-  A third key, `puneNestUsers`, held the mock's array of completed sign-ups and is gone with it —
+- **Keys:** `draazyUser` (the cached profile) and `draazyTokens` (the 15-minute access token).
+  A third key, `draazyUsers`, held the mock's array of completed sign-ups and is gone with it —
   registration is server-side now, on first verified login.
 - **The refresh token is not here.** It is set by the server as an `HttpOnly; Secure; SameSite=Lax`
-  cookie named `__Host-punenest_rt` at `Path=/`, so no script on the page can read it. The `__Host-`
+  cookie named `__Host-draazy_rt` at `Path=/`, so no script on the page can read it. The `__Host-`
   prefix is load-bearing: it is what makes the browser *enforce* host-only scoping, so no other host
   under the registrable domain can plant a same-named cookie and choose which session we see. The
   client asks for the cookie implicitly — every `fetch` in
@@ -135,7 +135,7 @@
   clear, a sign-out on a flaky connection would leave the marker in the jar beside an unrevoked
   refresh cookie, and the next cold boot would spend it and sign the user back in — on a shared
   machine, into the previous user's account.
-- **The session hint** (`__Host-punenest_session`, or `punenest_session` on plain-http dev) is a
+- **The session hint** (`__Host-draazy_session`, or `draazy_session` on plain-http dev) is a
   server-set, deliberately readable cookie carrying `1` or `0` — remembered or tab-scoped — and no
   identity. It exists for Safari's ITP, which wipes script-writable storage after seven days without
   first-party interaction while leaving server-set cookies alone: without it, an empty `localStorage`

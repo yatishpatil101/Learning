@@ -1,18 +1,18 @@
-# PuneNest - Backend Build Roadmap
+# Draazy - Backend Build Roadmap
 
-> A phased, dependency-ordered build order for the PuneNest backend (Spring Boot 4.1.0 / Java 21 + PostgreSQL)
+> A phased, dependency-ordered build order for the Draazy backend (Spring Boot 4.1.0 / Java 21 + PostgreSQL)
 > that replaces the current localStorage mock. Each phase is executable by a small team and ends
 > with concrete exit criteria.
 >
 > Read alongside:
-> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/punenest-api.yaml) - the REST API
+> - [`OpenAPI spec`](../../backend/src/main/resources/static/openapi/draazy-api.yaml) - the REST API
 >   contract this plan sequences (single source of truth).
 > - [`../system/data-model.md`](../system/data-model.md) - ER map + PostgreSQL persistence design.
 > - [`../system/cross-cutting.md`](../system/cross-cutting.md) - auth, maker-checker, contact/Aadhaar
 >   gate, soft-delete/audit, pagination, provider seam, notifications.
 >
 > **Note on inputs:** the local backend skill at
-> `C:\Users\E159518\.copilot\skills\punenest-backend\SKILL.md` (and its `references/*.md`) could not
+> `C:\Users\E159518\.copilot\skills\draazy-backend\SKILL.md` (and its `references/*.md`) could not
 > be read in this environment (permission denied), so it was not incorporated. If that skill becomes
 > available it may add framework-specific conventions on top of this plan; nothing here should
 > conflict with it.
@@ -49,7 +49,7 @@
    later phase reuses. Establish them once (Phase 0-1) and apply them everywhere.
 
 5. **Natural keys become foreign keys.** The prototype keys owner-scoped collections by 10-digit
-   mobile (`puneNestDeals:<ownerDigits>`, `pnOffers:<ownerDigits>`, `buyerMobile`, ...). During
+   mobile (`draazyDeals:<ownerDigits>`, `dzOffers:<ownerDigits>`, `buyerMobile`, ...). During
    migration every `*Mobile` field resolves to a `users.id` foreign key (see the mobile-keying note
    in the domain model). Do this at the boundary of the phase that first owns the entity.
 
@@ -168,7 +168,7 @@
 fee and GST computed server-side from Phase 0 config and posted to the owner's ledger. The money
 rule behind it still stands and still applies to every other charge: a fee the client computes is a
 fee the client can change, so it is computed once, on the server, from configuration the client
-never supplies. The rail itself was withdrawn in **V127** because PuneNest is not a payments
+never supplies. The rail itself was withdrawn in **V127** because Draazy is not a payments
 business and a dormant money path costs more to keep honest than it earns. **V128** replaced it with
 `tenant_rentals`: one self-declared record per tenant, from which the server derives months paid,
 lifetime total and the financial-year total. Nothing on it moves money, and nothing on it is

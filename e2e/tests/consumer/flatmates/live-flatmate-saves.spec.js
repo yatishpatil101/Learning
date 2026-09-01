@@ -11,7 +11,7 @@ import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
  * `prefreeze.spec.js` owned one claim — a saved room renders a real card on `/saved` rather than
  * the raw storage key — and its header explained that it could never be a live test:
  *
- * > Flatmate saves are localStorage-bound (`puneNestFlatmateSaved` in `useFlatmates.jsx`), not
+ * > Flatmate saves are localStorage-bound (`draazyFlatmateSaved` in `useFlatmates.jsx`), not
  * > backed by the API [...] There is no server endpoint to read this save back from, so there is
  * > no live assertion to make.
  *

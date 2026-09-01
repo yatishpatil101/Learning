@@ -28,7 +28,7 @@ const PROP = 'p5013';
 const UNREVIEWED = 'p5124';
 
 /* The fixture lives in the seed (`reviews`, three rows against p5013), not in localStorage:
-   `puneNestPropReviews` is a mock-provider store the live app never reads, so seeding it here
+   `draazyPropReviews` is a mock-provider store the live app never reads, so seeding it here
    would leave the server aggregate - the thing this spec exists to check - unasserted.
    Ratings 5/4/3 -> avg 4.0, one review on each of the top three bars, none on 1* or 2*.
    Author names are the seeded users, so a rename in the seed surfaces here rather than silently

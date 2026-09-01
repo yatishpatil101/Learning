@@ -1,7 +1,7 @@
 /**
  * Custom furniture and custom amenity entry in the posting wizard, against the live backend.
  *
- * Converted from `custom-features.spec.js`, which wrote `puneNestUser` and an Aadhaar record
+ * Converted from `custom-features.spec.js`, which wrote `draazyUser` and an Aadhaar record
  * straight into localStorage so the whole-place flow would render into the form. The de-dupe rules
  * and the tile behaviour are client-side either way, so what the live version adds is everything
  * around them: the form now has to mount for an account the server issued a token for, and the
@@ -33,13 +33,13 @@ async function gotoForm(page) {
  * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 async function toStep3Flat(page) {
@@ -50,14 +50,14 @@ async function toStep3Flat(page) {
   await page.getByText('Location & pricing').waitFor({ timeout: 10000 });
   await page.locator('[data-err="locality"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Test Project');
   await page.locator('input[data-err="pincode"]').fill('411045');
   await page.locator('input[data-err="price"]').fill('5000000');
   await page.locator('[data-err="ownership"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
   await page.getByText('Photos & documents').waitFor({ timeout: 10000 });
 }

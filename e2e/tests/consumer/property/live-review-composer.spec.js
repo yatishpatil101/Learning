@@ -21,7 +21,7 @@ import { API, authHeaders, uniqueMobile, signedInAs } from '../../../helpers/liv
  * Not because the claim is about the seam — an accessible name is the same string whichever provider
  * fed the page. Because the *precondition* was. The composer only opens for a signed-in non-owner
  * with a completed visit or a confirmed tenancy, and the mock version bought that eligibility by
- * writing a `pnTenancies:<mobile>` bucket into localStorage. Nothing on the live path writes that
+ * writing a `dzTenancies:<mobile>` bucket into localStorage. Nothing on the live path writes that
  * bucket; it is the very bucket whose dead read was D194. So the spec asserted thirty labels inside
  * a dialog it opened through a door that does not exist in production, and it would have gone on
  * passing after that door was bricked up — the dialog would simply never open live, and a spec whose

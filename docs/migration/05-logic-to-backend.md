@@ -94,7 +94,7 @@ security purpose it moves_.
 ## Backend-side consequences
 
 - **DTO growth, not endpoint growth.** Most of column A becomes extra fields on DTOs that already
-  exist. Update `punenest-api.yaml` in the same change — the contract is law, and
+  exist. Update `draazy-api.yaml` in the same change — the contract is law, and
   `SpecSchemaParityTest` will catch drift.
 - **Ranking moves into the query.** `featured` / `freshness` / `qualityScore` becoming server-side
   means search ordering becomes a SQL concern, not a post-fetch client sort. This is what makes
@@ -117,7 +117,7 @@ headroom during wave 14, and the bundle sits at ~437.6 KB after the async provid
 
 1. Grep every consumer of the file (`vscode_listCodeUsages` / `grep_search`).
 2. Check the OpenAPI contract for an existing field that already answers it. **Stop here if found.**
-3. If absent: add the field to the owning DTO + service; update `punenest-api.yaml`; add the one
+3. If absent: add the field to the owning DTO + service; update `draazy-api.yaml`; add the one
    check that fails if the logic breaks (ponytail: one runnable check, not a suite).
 4. Replace consumers with the field. Delete the `lib/` file.
 5. Update the domain's e2e spec to assert the rendered field ([04-modules.md](04-modules.md)).

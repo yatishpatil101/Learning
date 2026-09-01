@@ -18,7 +18,7 @@ import { trackErrors } from '../../../helpers/console.js';
  *
  * ## And the claim got stronger in the move
  *
- * The mock asserted that four controls were *on screen*: two `pn-dropdown` triggers instead of the
+ * The mock asserted that four controls were *on screen*: two `dz-dropdown` triggers instead of the
  * chip rows the redesign replaced, and the two P0 matching selects. A form can render all four and
  * still drop every value on submit — the redesign changed how these fields are collected, which is
  * exactly the kind of change that loses a binding, and rendering is the half that cannot catch it.
@@ -43,7 +43,7 @@ const track = flatmateCleanup(test);
 async function pickFrom(page, trigger, options) {
   await page.getByRole('button', { name: trigger }).click();
   for (const option of options) {
-    await page.locator('.pn-dropdown__option', { hasText: option }).first().click();
+    await page.locator('.dz-dropdown__option', { hasText: option }).first().click();
   }
   await page.keyboard.press('Escape');
 }

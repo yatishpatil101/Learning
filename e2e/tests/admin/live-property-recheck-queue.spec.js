@@ -15,7 +15,7 @@
  * ## Why this replaces the mock spec rather than joining it
  *
  * `property-recheck-queue.spec.js` covered the same screen and is deleted. Its seed wrote
- * `recheckPending`, `recheckReason` and `recheckRequestedAt` straight into `puneNestDB_v5` and then
+ * `recheckPending`, `recheckReason` and `recheckRequestedAt` straight into `draazyDB_v5` and then
  * asserted the screen rendered them — which is a test of `AdminPropertyCard`'s JSX and nothing else.
  * Three things it could not reach, all of them the actual subject:
  *

@@ -18,7 +18,7 @@
 --
 --   Withdraw the online rent-collection rail.
 --
---   PuneNest never shipped rent collection: there is no gateway account configured to receive a
+--   Draazy never shipped rent collection: there is no gateway account configured to receive a
 --   tenant's rent, no payout mechanism to remit it to the landlord, and no reconciliation. What
 --   existed was scaffolding — three tables, four endpoints and a webhook branch — kept alive by
 --   fixtures and by nothing else. `/pay-rent` is now a static "coming soon" page with no server
@@ -345,7 +345,7 @@ CREATE INDEX idx_tenant_profiles_screening ON tenant_profiles (verified DESC, sc
 -- change than adding a table.
 --
 -- NOT LINKED TO A LISTING. There is no `property_id`. The whole point is the home that is not on
--- PuneNest, and a nullable FK that only the minority case would populate would have to be read
+-- Draazy, and a nullable FK that only the minority case would populate would have to be read
 -- defensively everywhere while earning nothing -- the address below already identifies the home to
 -- the only person who reads it. If linking a self-declared rental to a live listing ever becomes a
 -- feature, it can be added then, with whatever the feature actually needs.
@@ -546,7 +546,7 @@ CREATE INDEX idx_rent_agreements_owner ON rent_agreements (owner_id, created_at 
 -- A managed property is one an owner registers for their OWN benefit — valuation, a document
 -- passport, rent tracking — BEFORE, or entirely WITHOUT, advertising it publicly. It is private by
 -- default and never appears in buyer search. The front end has always kept these in a per-user
--- localStorage store (`puneNestManagedProps:<mobile>`); slice B gives that store a server so the
+-- localStorage store (`draazyManagedProps:<mobile>`); slice B gives that store a server so the
 -- Owner Hub, Property Passport and rent tracker can run against real data.
 --
 -- WHY A SEPARATE TABLE, NOT A ROW IN `properties`
@@ -707,9 +707,9 @@ COMMENT ON TABLE managed_property_documents IS
 -- managed_property_rent_receipts
 -- =========================================================================================
 
--- Manual rent receipts: the months an owner recorded rent for, outside PuneNest's payment rail.
+-- Manual rent receipts: the months an owner recorded rent for, outside Draazy's payment rail.
 --
--- `lib/data/rentReminders.js` has held these in `localStorage` under `puneNestRentLog:<mobile>`
+-- `lib/data/rentReminders.js` has held these in `localStorage` under `draazyRentLog:<mobile>`
 -- since the prototype, and its own header admitted it ("Prototype only (localStorage)"). The defect
 -- is the same one V119 closed for lead notes and V117 closed for photo requests, and it is total: an
 -- owner who marks August received on their phone opens the laptop to an unpaid August, the ledger is

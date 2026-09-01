@@ -21,8 +21,8 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
  *
  * **My Listings is caller-scoped through the seam.** `lib/data/myListings.js` builds the panel from
  * `myFlatmatePosts` / `myFlatmateGroups` / `myFlatmateRooms`, all three of which the http provider
- * implements, so this whole surface is live-capable. The mock specs seeded `puneNestRoomListings` and
- * `puneNestFlatmateGroups` directly — keys the panel no longer reads in either mode.
+ * implements, so this whole surface is live-capable. The mock specs seeded `draazyRoomListings` and
+ * `draazyFlatmateGroups` directly — keys the panel no longer reads in either mode.
  *
  * ## What is asserted, and what is deliberately not
  *
@@ -127,7 +127,7 @@ test.describe('LIVE: my flatmate listings', () => {
     await page.getByPlaceholder('e.g. Riya').fill('Form Seeker');
     await page.locator('input[placeholder="₹ e.g. 15000"]').fill('16000');
     await page.getByRole('button', { name: 'Preferred localities' }).click();
-    await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
+    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Preferred localities' })).toContainText('Baner');
 
@@ -188,8 +188,8 @@ test.describe('LIVE: my flatmate listings', () => {
     await filter.click();
     /* `Select` portals its menu and only flips `portalOpen` one frame after opening (Select.jsx),
        until when it is `opacity: 0; pointer-events: none`. */
-    await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-    await page.locator('.pn-dropdown__option', { hasText: 'Flatmate requests' }).first().click();
+    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+    await page.locator('.dz-dropdown__option', { hasText: 'Flatmate requests' }).first().click();
 
     await expect(group, 'the group should be filtered out').toBeHidden();
     await expect(request, 'the request should survive its own filter').toBeVisible();
@@ -231,8 +231,8 @@ test.describe('LIVE: my flatmate listings', () => {
     await page.getByRole('button', { name: /Next Step/i }).click();
 
     await page.locator('[data-err="locality"]').click();
-    await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-    await page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first().click();
+    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+    await page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first().click();
     await page.locator('input[data-err="society"]').fill(society);
     await page.locator('input[data-err="rentShare"]').fill('13500');
     await pickDate(page, '[data-err="availableFrom"]', '2026-12-01');
@@ -266,7 +266,7 @@ test.describe('LIVE: my flatmate listings', () => {
 
     /* And the wizard kept no copy of its own. Until this commit the room post ran through a fork in
        product code — `isHttpDomain('flatmate') ? createRoom(...) : persistFlatmate(...)` — whose
-       else-branch wrote `puneNestRoomListings` directly, the very key the mock provider writes. Both
+       else-branch wrote `draazyRoomListings` directly, the very key the mock provider writes. Both
        arms are one provider now and the fork is gone, so a browser-side room store appearing here
        again means the seam has been stepped around a second time.
 
@@ -274,7 +274,7 @@ test.describe('LIVE: my flatmate listings', () => {
        purpose, by the provider — there the presence of a row proves nothing either way. Live, the
        only thing that could have written it is product code that should not have. */
     const stored = await page.evaluate(() => {
-      try { return JSON.parse(localStorage.getItem('puneNestRoomListings') || '[]') || []; }
+      try { return JSON.parse(localStorage.getItem('draazyRoomListings') || '[]') || []; }
       catch { return []; }
     });
     expect(stored, 'the wizard kept a browser-side copy of a server room').toEqual([]);

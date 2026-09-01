@@ -598,7 +598,7 @@ COMMENT ON COLUMN service_request_identities.purged_at IS
 -- V75 built this table around the deliberate refusal stated immediately above, in as many words:
 -- "you cannot invite somebody who has not signed up. That is the correct trade." Six weeks of the
 -- flow existing says it is not. The owner raising a Leave & License agreement is, overwhelmingly,
--- the party who has heard of PuneNest; the tenant is somebody they met last week. Requiring the
+-- the party who has heard of Draazy; the tenant is somebody they met last week. Requiring the
 -- tenant to have registered *before* the owner can even name them puts a third party's sign-up in
 -- the middle of the owner's checkout, and the owner is the one who abandons.
 --
@@ -756,7 +756,7 @@ COMMENT ON COLUMN service_request_parties.user_id IS
 --
 -- The society hub carries six kinds of user-written content -- recommendations,
 -- replies, questions, answers, noticeboard items and reviews -- and offers a
--- "Report" control on every one of them. That control wrote to `pnSocietyReports`
+-- "Report" control on every one of them. That control wrote to `dzSocietyReports`
 -- in the reporting member's own browser, and the ops queue that was supposed to
 -- read it read the *moderator's* browser. So a defamatory recommendation naming a
 -- real tradesman with his real phone number could be reported by fifty neighbours
@@ -909,7 +909,7 @@ CREATE INDEX idx_internal_notes_entity
 
 -- Owner-private lead annotations: the note and follow-up date an owner keeps against one request.
 --
--- `leadNotes.js` has held these in `localStorage` under `puneNestLeadNotes:<ownerDigits>` since the
+-- `leadNotes.js` has held these in `localStorage` under `draazyLeadNotes:<ownerDigits>` since the
 -- prototype, and its own header called that a placeholder ("there is no backend yet ... the shapes
 -- are intentionally minimal so a future backend can adopt them 1:1"). This is that adoption. The
 -- practical failure it fixes is mundane and total: an owner who works leads on their phone and then

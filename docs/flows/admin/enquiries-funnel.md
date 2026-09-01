@@ -114,7 +114,7 @@ with the one contact number readable and writes an `audit_log` entry **before** 
   not routed to a named owner within this page. This is an honest gap to close server-side.
 - The nearest existing "assignment"-like feature is the **owner-side** lead desk
   (`src/lib/leadNotes.js`): per-lead private `note` + `followUpAt`, keyed by owner digits in
-  `puneNestLeadNotes:<ownerDigits>`. That is a consumer/owner CRM affordance, not admin routing.
+  `draazyLeadNotes:<ownerDigits>`. That is a consumer/owner CRM affordance, not admin routing.
 - Service tickets (a different flow) carry a `team`; enquiries do not. A future backend should add
   `assignedTo` / `owner` to enquiries for a real lead-assignment funnel.
 

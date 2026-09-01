@@ -334,7 +334,7 @@ test.describe('LIVE: the duplicates desk (D255)', () => {
 
     /* Located by the fixture's own title, never by position: this catalogue is shared, and other
        sessions' collisions may well be on screen at the same time. */
-    const card = page.locator('.pn-card').filter({ hasText: `${title} — A` }).first();
+    const card = page.locator('.dz-card').filter({ hasText: `${title} — A` }).first();
     await expect(card).toBeVisible({ timeout: 15_000 });
 
     /* Both members on screen. An operator choosing which listing survives needs to see the thing

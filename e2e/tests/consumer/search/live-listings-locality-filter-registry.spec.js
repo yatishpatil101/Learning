@@ -20,18 +20,18 @@ test('registry-only localities are searchable and selectable in the filter', asy
   await filters(page).first().waitFor();
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Localities"))').first();
-  await group.locator('.pn-dropdown__trigger').first().click();
-  await expect(page.locator('.pn-dropdown__menu--portal')).toBeVisible();
+  await group.locator('.dz-dropdown__trigger').first().click();
+  await expect(page.locator('.dz-dropdown__menu--portal')).toBeVisible();
 
   // "Kalyani Nagar" is in the canonical registry but NOT in the seed collection
   // — before the fix this yielded "No matches".
-  await page.locator('.pn-dropdown__menu--portal input').first().fill('Kalyani');
-  const option = page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: 'Kalyani Nagar' }).first();
+  await page.locator('.dz-dropdown__menu--portal input').first().fill('Kalyani');
+  const option = page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: 'Kalyani Nagar' }).first();
   await expect(option).toBeVisible();
   await option.click();
 
   // Selection applies; the chip shows the friendly name (not a raw slug).
-  await expect(group.locator('.pn-dropdown__trigger')).toContainText('Kalyani Nagar');
+  await expect(group.locator('.dz-dropdown__trigger')).toContainText('Kalyani Nagar');
   await expect(page.locator('.af-chip', { hasText: 'Kalyani Nagar' }).first()).toBeVisible();
 
   const relevant = errors.filter((e) => !/favicon|leaflet|CDN|net::ERR|Download the React DevTools/i.test(e));

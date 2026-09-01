@@ -8,7 +8,7 @@
  * the definition of PG_SHARING, calling the single→dormitory model "deliberately
  * separate from Flatmates's Private/Shared roommate concept".
  *
- * The mock signed in by writing `puneNestUser` and an Aadhaar record straight into
+ * The mock signed in by writing `draazyUser` and an Aadhaar record straight into
  * localStorage, so it could only ever prove that the renderer branches correctly:
  * the browser had been told it was signed in, and nothing the wizard asked the
  * server for was ever really asked. Here the account is registered over HTTP and
@@ -38,13 +38,13 @@ async function gotoForm(page) {
    (dropdown.css:198). Waiting on the class fails loudly if the menu never opens,
    which a fixed sleep does not. */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 const label = (page, text) => page.getByText(text, { exact: true });

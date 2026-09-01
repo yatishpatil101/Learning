@@ -64,8 +64,8 @@ async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
   /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
      (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 /* The floor Select carries no `data-err` (it is optional, so nothing ever binds an error to it),
@@ -73,8 +73,8 @@ async function pickOption(page, dataErr, label) {
    rather than the grid or the step around it. */
 async function pickFloor(page, value) {
   const field = page.locator('div').filter({ has: page.locator('label:text-is("Floor No.")') }).last();
-  await field.locator('.pn-dropdown__trigger').click();
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await field.locator('.dz-dropdown__trigger').click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
   await page.getByRole('option', { name: value, exact: true }).click();
 }
 

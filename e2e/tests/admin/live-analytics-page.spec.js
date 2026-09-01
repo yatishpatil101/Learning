@@ -170,7 +170,7 @@ test('Supply Gap tab renders KPI cards and the table', async ({ page, login }) =
 
 test('City Expansion Requests counts the asks the server holds, not the ones this browser made', async ({ page, login, request }) => {
   /* The panel's whole history is why the count is asserted rather than the heading.
-     It used to aggregate a `pnCityRequests` array in localStorage, so it showed the operator the
+     It used to aggregate a `dzCityRequests` array in localStorage, so it showed the operator the
      asks the *operator* had made while browsing — on a fresh profile, always none. A heading-only
      assertion (which is what stood here before) passed identically against that version and against
      `GET /admin/cities/waitlist`, because both render the panel. So the discriminator has to be a

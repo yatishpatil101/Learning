@@ -1,6 +1,6 @@
 # Phase 3 verification, part 1 of 2: create a user through the real API.
 #
-# The owner requirement for `punenest_e2e` is that a user created by a spec survives a backend
+# The owner requirement for `draazy_e2e` is that a user created by a spec survives a backend
 # restart. This half creates one; check-e2e-persistence-after.ps1 is run after the restart and
 # proves the same account still logs in. Splitting them is the point - a single script could not
 # tell a durable row apart from one that merely lived in the same JVM.

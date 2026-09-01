@@ -1,22 +1,22 @@
 // localStorage seeding helpers.
 //
 // These no longer seed a backend — that is Postgres now. What survives here is the browser's
-// own session and per-user UI state (`puneNest*` / `pn*` keys), which the live app still reads
+// own session and per-user UI state (`draazy*` / `pn*` keys), which the live app still reads
 // on boot: who is signed in, which searches they saved, which recent queries to offer. Setting
 // them *before* the app boots via `addInitScript` lets a spec start from a known session
 // without driving the OTP flow.
 //
-// A `db: 'puneNestDB_v5'` entry stood in the map below and pointed at the mock marketplace
+// A `db: 'draazyDB_v5'` entry stood in the map below and pointed at the mock marketplace
 // store. That store is gone (P5c) and nothing referenced the entry, so it went with it. A
-// `users: 'puneNestUsers'` entry went the same way: it fed the mock's own sign-up registry,
+// `users: 'draazyUsers'` entry went the same way: it fed the mock's own sign-up registry,
 // which the live app replaced with server-side provisioning on `POST /auth/login`.
 
 export const STORAGE_KEYS = {
-  user: 'puneNestUser',        // current logged-in user
-  listingsFor: (mobile) => `puneNestListings:${mobile}`,
-  aadhaarFor: (mobile) => `puneNestAadhaar:${mobile}`,
-  savedSearchesFor: (mobile) => `pnSavedSearches:${mobile}`,
-  recentSearchesFor: (mobile) => `pnRecentSearches:${mobile}`,
+  user: 'draazyUser',        // current logged-in user
+  listingsFor: (mobile) => `draazyListings:${mobile}`,
+  aadhaarFor: (mobile) => `draazyAadhaar:${mobile}`,
+  savedSearchesFor: (mobile) => `dzSavedSearches:${mobile}`,
+  recentSearchesFor: (mobile) => `dzRecentSearches:${mobile}`,
 };
 
 /** Canonical demo users by role. Override any field via the spread argument. */
@@ -39,7 +39,7 @@ export const USERS = {
  * So each key is only written when it is currently absent. Effects:
  *  - first document: identical to the old behaviour (nothing is there yet);
  *  - later documents: the value the app persisted survives the navigation;
- *  - a key the app *deletes* (e.g. sign-out clearing `puneNestUser`) is absent
+ *  - a key the app *deletes* (e.g. sign-out clearing `draazyUser`) is absent
  *    again, so it is re-seeded exactly as before — sign-out semantics unchanged.
  * The check is `!== null` rather than a falsy test so a legitimately empty-string
  * value still counts as present.

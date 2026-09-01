@@ -104,7 +104,7 @@ For each domain, in this order:
 3. **Move this domain's business logic to the backend** ([05](05-logic-to-backend.md)). First check
    whether the API **already returns** the value — if so, bind the field and `git rm` the client
    calculation. Only if absent: add the field to the existing DTO + service, update
-   `punenest-api.yaml`, then delete. No new endpoint, no new abstraction.
+   `draazy-api.yaml`, then delete. No new endpoint, no new abstraction.
 4. **Rewrite the spec**: remove `addInitScript` `localStorage` seeding; either rely on the seeded
    fixture or create data via the API; assert **scoped**, not global. Assert the **server-computed**
    field so the client copy cannot be silently resurrected.
@@ -112,7 +112,7 @@ For each domain, in this order:
    the whole 272-row matrix).
 6. **Review the comments** in every file touched ([06](06-code-quality.md)). A comment that is now
    false is a defect. Keep rationale; delete stale mock-era narration.
-7. **Run** the relevant spec against `punenest_e2e`; green before moving on. Then `npm run check`
+7. **Run** the relevant spec against `draazy_e2e`; green before moving on. Then `npm run check`
    and `npm run check:size` — each `lib/` deletion should buy bundle headroom back.
 8. **Post-change verification** (AGENTS.md): `react-reviewer` → `code-reviewer` →
    `security-reviewer` for any user-data domain (`contact`, `auth`, `document`, `verification`).

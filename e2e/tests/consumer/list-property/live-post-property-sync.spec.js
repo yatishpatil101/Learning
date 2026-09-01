@@ -97,7 +97,7 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
    */
   async function pick(page, opener, option) {
     await opener.click();
-    await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+    await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
     await page.getByRole('option', { name: option }).click();
   }
 

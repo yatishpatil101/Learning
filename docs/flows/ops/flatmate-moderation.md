@@ -203,5 +203,5 @@ This is an **intentional extension**, not drift. Recorded here and in
   real Ops decision rather than seeded.
 - `e2e/tests/consumer/flatmates/live-group-apply.spec.js` - 2 tests, the consumer loop that fills
   the third board.
-- `backend/src/test/java/com/punenest/api/engagement/flatmate/FlatmateApplicationEndpointsTest.java` -
+- `backend/src/test/java/com/draazy/api/engagement/flatmate/FlatmateApplicationEndpointsTest.java` -
   13 tests over the apply / inbox / decide rules.

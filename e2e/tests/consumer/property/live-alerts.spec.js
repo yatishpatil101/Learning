@@ -7,7 +7,7 @@ import { API, authHeaders, signedInAs, signedInAsNew, uniqueMobile } from '../..
  * ## What the mock version was actually asserting
  *
  * Three of its four tests wrote the answer before asking the question. The dashboard test seeded
- * `pnSavedSearches:9876500088` into `localStorage`, changed the cadence picker, and then read the
+ * `dzSavedSearches:9876500088` into `localStorage`, changed the cadence picker, and then read the
  * cadence back **out of that same `localStorage` key** — so the round trip it proved was one
  * browser tab agreeing with itself. The claim being made is that `instant` and `weekly` survive an
  * off→on cycle *in stored state* (D84), and the store is a Postgres column reached over
@@ -139,7 +139,7 @@ test.describe('Property alerts (live)', () => {
     const row = await demandRow(slug);
     expect(row.views, 'a submit is not a view').toBe(0);
     // A demand row against zero supply is the shape of row the Supply Gap report exists to surface.
-    expect(row.supply, 'nowhere PuneNest covers should have listings').toBe(0);
+    expect(row.supply, 'nowhere Draazy covers should have listings').toBe(0);
   });
 
   test('a signed-in alert submit writes a real saved search and confirms with a link to manage it', async ({ page }) => {
@@ -161,7 +161,7 @@ test.describe('Property alerts (live)', () => {
     await expect(page.getByRole('link', { name: /Manage my alerts/i })).toBeVisible();
 
     /* The claim under the confirmation: a record the dashboard can later load. The mock wrote this
-       to `pnSavedSearches:<mobile>`, which no live read has ever looked at, so a build in which the
+       to `dzSavedSearches:<mobile>`, which no live read has ever looked at, so a build in which the
        create never left the browser would have shown the same green screen and the same green test.
        Read back through a second token for this account, so the assertion cannot be satisfied by
        anything the page is holding in memory. */

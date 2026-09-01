@@ -1,7 +1,7 @@
 /**
  * The posting wizard's step rail, against the live backend.
  *
- * Converted from `stepnav.spec.js`, which seeded `puneNestUser` and an Aadhaar record straight into
+ * Converted from `stepnav.spec.js`, which seeded `draazyUser` and an Aadhaar record straight into
  * localStorage. That shortcut is the reason the mock version could never have caught a wizard that
  * fails to mount for a real session: it asserted the rail's markup against a browser that had simply
  * been told it was signed in. Here the account is registered over HTTP and carries a real JWT, so
@@ -29,8 +29,8 @@ async function advanceToStep2(page) {
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();

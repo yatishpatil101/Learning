@@ -1,4 +1,4 @@
-# PuneNest Design System
+# Draazy Design System
 
 ## Control Sizing Scale
 
@@ -39,13 +39,13 @@ Everything below derives from `--control-h` / `--btn-h`, so all of them are 40px
 
 | Element | Height | Class/Token | Example |
 |---------|--------|-------------|---------|
-| Dropdown trigger | `--control-h` | `.pn-dropdown__trigger` | "Any locality" pill |
-| Dropdown option | `--control-h` | `.pn-dropdown__option` | Menu item row |
-| Filter pill | `--control-h` | `.seg` or `.pn-control` | "Everyone", "Women", "Verified only" |
-| Text / search input | `--control-h` | `.pn-input`, `input.form-input` | Smart search bar |
+| Dropdown trigger | `--control-h` | `.dz-dropdown__trigger` | "Any locality" pill |
+| Dropdown option | `--control-h` | `.dz-dropdown__option` | Menu item row |
+| Filter pill | `--control-h` | `.seg` or `.dz-control` | "Everyone", "Women", "Verified only" |
+| Text / search input | `--control-h` | `.dz-input`, `input.form-input` | Smart search bar |
 | Button (default) | `--btn-h` | `.btn` / `<Button>` | "Post", "Save search" |
 | Button (small / large) | `--btn-h-sm` / `--btn-h-lg` | `.btn-sm` / `.btn-lg` | Inline action / hero CTA |
-| Navbar pills | `--pn-nav-pill-h` | `.pn-topbar__pill` + `.tap-extend` | "Post Property", "Sign In" |
+| Navbar pills | `--dz-nav-pill-h` | `.dz-topbar__pill` + `.tap-extend` | "Post Property", "Sign In" |
 | Range slider | grows on touch | `.rng-wrap` / `.rng` | Budget slider (thumb 16px -> 28px) |
 
 ### Utility Classes
@@ -58,15 +58,15 @@ Buttons (canonical — use <Button/> from components/ui/Button.jsx)
 .btn-icon           — tier 3, square icon-only (width = height)
 .btn-sm / .btn-lg   — 32px / 48px (36px / 48px below 640px)
 .btn-success / .btn-danger — colour modifiers on primary
-.btn-teal / .btn-outline / .pn-btn* — legacy aliases, folded into the above
+.btn-teal / .btn-outline / .dz-btn* — legacy aliases, folded into the above
 
 Non-button controls
-.pn-control{,.active,--action,--ghost} — legacy control shell, still used in the dashboard
+.dz-control{,.active,--action,--ghost} — legacy control shell, still used in the dashboard
 .seg / .seg.active  — toggle/filter pill shell (height + border only)
-.pn-input           — single-line text input
+.dz-input           — single-line text input
 ```
 
-The button system in `index.css` declares itself the single source of truth for buttons; `.pn-control*`
+The button system in `index.css` declares itself the single source of truth for buttons; `.dz-control*`
 is now the minority pattern and should not be used in new code.
 
 ### Usage in JSX
@@ -112,8 +112,8 @@ is now the minority pattern and should not be used in new code.
 
 | Element | Radius | Token |
 |---------|--------|-------|
-| Controls (`.pn-control`, `.seg`, `.btn*`) | `10px` | `--control-radius` |
-| Text inputs (`.pn-input`) | `0.75rem` | — (literal) |
+| Controls (`.dz-control`, `.seg`, `.btn*`) | `10px` | `--control-radius` |
+| Text inputs (`.dz-input`) | `0.75rem` | — (literal) |
 | Dropdown trigger | `999px` (pill) | `--dd-trigger-radius` |
 | Pill-only exceptions (search tabs, locality chips, BHK pills) | `9999px` | `--control-radius-pill` |
 | Cards | `1rem` (16px) | `--radius` / `rounded-2xl` |
@@ -129,7 +129,7 @@ is now the minority pattern and should not be used in new code.
   just an `aria-label` — stock a seeker cannot see is stock they never switch tabs for.
 - **Prominent / hero CTAs:** use `size="lg"` (`--btn-h-lg`, 48px), never a hand-rolled `py-*`.
 - **Compact inline actions:** `.btn-sm` (`--btn-h-sm`).
-- Modal footers add `pb-[calc(0.75rem + var(--pn-safe-b))]` on mobile so the primary action clears
+- Modal footers add `pb-[calc(0.75rem + var(--dz-safe-b))]` on mobile so the primary action clears
   the home indicator.
 
 
@@ -175,20 +175,20 @@ Practical consequences:
 - If a desk admin route starts being used in the field, move it into the list above *first* and then
   fix it — the list is what makes the expectation reviewable.
 
-### Bottom chrome: `--pn-bottom-inset` and the z-index ladder
-Nothing bottom-anchored may hardcode a `bottom-*` value. `--pn-bottom-inset` reports how much of the
+### Bottom chrome: `--dz-bottom-inset` and the z-index ladder
+Nothing bottom-anchored may hardcode a `bottom-*` value. `--dz-bottom-inset` reports how much of the
 viewport bottom is already claimed by fixed chrome; `ConsumerLayout` sets `.has-bottom-nav` on routes
 that mount the mobile tab bar, which expands the inset to
-`--pn-bottom-nav-h + --pn-bottom-nav-offset`. Above `lg` the variable collapses back to the
+`--dz-bottom-nav-h + --dz-bottom-nav-offset`. Above `lg` the variable collapses back to the
 safe-area inset alone, so every `calc()` built on it resolves to the literal offset it had before the
 system existed — desktop safety is structural, not a promise.
 
-`--pn-bottom-nav-offset` is `max(--pn-bottom-nav-gap, --pn-safe-b)`, **not** a sum. The capsule's
+`--dz-bottom-nav-offset` is `max(--dz-bottom-nav-gap, --dz-safe-b)`, **not** a sum. The capsule's
 float gap and the home-indicator inset are the same thing — breathing room at the bottom edge — so
-adding them double-counts. That shipped: in an installed iOS app `--pn-safe-b` is 34px, and
+adding them double-counts. That shipped: in an installed iOS app `--dz-safe-b` is 34px, and
 `gap + safe-b` parked the bar 46px above the screen edge (5.5% of the viewport) while an in-browser
 visit showed the intended 12px, because in a browser tab the inset is 0. It is one token because the
-bar's own `bottom` and `--pn-bottom-inset` must agree; they were two hand-synced `calc()`s, which is
+bar's own `bottom` and `--dz-bottom-inset` must agree; they were two hand-synced `calc()`s, which is
 precisely how they drifted apart.
 
 The ladder is written down once so bottom chrome never re-negotiates it:
@@ -214,14 +214,14 @@ is recorded here so nobody assumes 1600 is the ceiling:
 
 | Layer | Value | Why it is up there |
 | --- | --- | --- |
-| `.pn-lightbox`, `.pn-dropdown__scrim` | 9998 | Must cover page chrome including the sticky nav |
-| `.pn-dropdown__menu--sheet`, `.pn-action-sheet` | 9999 | Paired with the scrim directly beneath them |
-| `.pn-cal` (date picker) | 2000 | Anchored dropdown that has to clear the sheet it opens inside |
+| `.dz-lightbox`, `.dz-dropdown__scrim` | 9998 | Must cover page chrome including the sticky nav |
+| `.dz-dropdown__menu--sheet`, `.dz-action-sheet` | 9999 | Paired with the scrim directly beneath them |
+| `.dz-cal` (date picker) | 2000 | Anchored dropdown that has to clear the sheet it opens inside |
 | Skip-to-content link | 9999 | WCAG 2.4.1 — on focus it must beat everything |
 | Maintenance overlay | 99999 | Blocks the entire consumer app by design |
 
 The skip link and the maintenance overlay genuinely belong at the ceiling. The sheet/picker cluster
-is the **known inconsistency**: `.pn-action-sheet` at 9999 outranks the toast layer at 1600, so a
+is the **known inconsistency**: `.dz-action-sheet` at 9999 outranks the toast layer at 1600, so a
 confirmation fired from inside an action sheet paints behind it. Consolidating that cluster onto the
 1000 "sheets" rung is the next change here; it is called out rather than done silently because
 restacking live surfaces changes real tap and focus behaviour and needs its own measurement pass.
@@ -229,23 +229,23 @@ restacking live surfaces changes real tap and focus behaviour and needs its own 
 Every `position: fixed` addition gets a rung — from this page, not invented — before it ships. A
 value picked to "just be on top" is how 2000 happened, twice.
 
-The autosave flash (`.pn-autosave-flash`) sits *just above* the tab bar rather than near the top:
+The autosave flash (`.dz-autosave-flash`) sits *just above* the tab bar rather than near the top:
 it reports state and never needs to outrank a dialog. It is also the one piece of bottom chrome
 appended to `<body>` rather than rendered inside the layout, so it cannot read the
-`--pn-bottom-inset` that `.has-bottom-nav` sets on ConsumerLayout's wrapper — it rebuilds the
-offset from `--pn-bottom-nav-h` + `--pn-bottom-nav-offset` inside the bar's own breakpoint
+`--dz-bottom-inset` that `.has-bottom-nav` sets on ConsumerLayout's wrapper — it rebuilds the
+offset from `--dz-bottom-nav-h` + `--dz-bottom-nav-offset` inside the bar's own breakpoint
 instead. Anything else appended to `<body>` has the same blind spot.
 
 A new `position: fixed` element must be checked against the existing bottom-chrome inventory (bottom
 nav, assistant FAB, install prompt, cookie bar, CityChrome, sticky CTA), not just against z-index — two
 floating controls on the same corner intercept each other's taps.
 
-### Top chrome: `--pn-nav-h`, `--pn-top-inset`, hide-on-scroll
-`--pn-nav-h` is the only place the top bar's height is written down: the row, every page's top
+### Top chrome: `--dz-nav-h`, `--dz-top-inset`, hide-on-scroll
+`--dz-nav-h` is the only place the top bar's height is written down: the row, every page's top
 padding, sticky sub-headers and full-height routes all derive from it (58px on phones, 72px from
-768px up). `--pn-top-inset` is where a sticky sub-header docks; below `lg` the navbar slides away on
-scroll-down (`.pn-nav-hidden` on `<html>`) and the inset drops to 0 so the sub-header rises to the
-screen edge instead of leaving a hole. Opt a sub-header in with `.pn-docks-under-nav`. Every rule
+768px up). `--dz-top-inset` is where a sticky sub-header docks; below `lg` the navbar slides away on
+scroll-down (`.dz-nav-hidden` on `<html>`) and the inset drops to 0 so the sub-header rises to the
+screen edge instead of leaving a hole. Opt a sub-header in with `.dz-docks-under-nav`. Every rule
 that reacts to the class lives inside a `max-width: 1023.98px` block, so the class is inert on
 desktop.
 
@@ -253,15 +253,15 @@ desktop.
 Below 640px a centred dialog is the wrong shape: with the keyboard open the usable viewport is ~300px,
 so a form modal's submit button leaves the screen. Every centred overlay therefore docks to the bottom
 edge as a sheet — squared bottom corners, `1.25rem` top corners, `max-height` in `dvh`, a slide-in, a
-36x4px grab handle, and bottom padding that adds `--pn-safe-b`. Four shells implement it and must not
+36x4px grab handle, and bottom padding that adds `--dz-safe-b`. Four shells implement it and must not
 diverge:
 
-- `.pn-modal` / `.pn-modal-backdrop` — all legacy consumer overlays, converted by **one media query
+- `.dz-modal` / `.dz-modal-backdrop` — all legacy consumer overlays, converted by **one media query
   with zero markup edits**. Look for the shared class before editing a component.
-- `.pn-modal-sheet` — the shared `<Modal>`.
-- `.pn-dropdown__menu--sheet` + `.pn-dropdown__scrim` — `Select`/`MultiSelect` stop writing inline
+- `.dz-modal-sheet` — the shared `<Modal>`.
+- `.dz-dropdown__menu--sheet` + `.dz-dropdown__scrim` — `Select`/`MultiSelect` stop writing inline
   anchor geometry below `sm`.
-- `.pn-action-sheet` — overflow menus.
+- `.dz-action-sheet` — overflow menus.
 
 `useSwipeDismiss` adds drag-to-dismiss; it arms only on the mobile media query, only inside the top
 40px handle zone, and takes pointer capture on the first qualifying *move* — capturing on
@@ -272,7 +272,7 @@ Two classes, one rule (WCAG 2.5.8 / 44px). `.tap-target` grows the box
 (`min-width`/`min-height: 44px`) and is for icon-only controls whose box is invisible chrome anyway.
 `.tap-extend` keeps the drawn size and lays a transparent 44px `::before` under the finger — use it
 wherever the *drawn* size is load-bearing (a close pill on a small bubble; the top-bar pills, which
-drop to `--pn-nav-pill-h` / `--pn-nav-icon-box` below `sm` so four painted 44px boxes don't overflow a
+drop to `--dz-nav-pill-h` / `--dz-nav-icon-box` below `sm` so four painted 44px boxes don't overflow a
 360px bar). **Never pair the two on one element:** they set the same property and `.tap-target` is
 declared later, so pairing silently reinstates the 44px box. A 32px box plus the row's 12px gap puts
 adjacent centres exactly 44px apart — do not shrink the gap without shrinking the target.
@@ -296,9 +296,9 @@ broken.
 In-flow action rows use `sticky`: the row keeps its place in the flow, so it reserves its own space
 and can never cover the last field — no per-step `padding-bottom` bookkeeping. Three consumers:
 `.lp-step-actions` (listing wizard, below `lg`, primary flexed 1.6x so the target is unambiguous
-under a thumb), `.pn-auth-submit` (sign-in/sign-up, where the keyboard would otherwise push the
-primary action below the fold), and `.pn-sticky-cta`, which is genuinely `fixed` and docks at
-`--pn-bottom-inset`.
+under a thumb), `.dz-auth-submit` (sign-in/sign-up, where the keyboard would otherwise push the
+primary action below the fold), and `.dz-sticky-cta`, which is genuinely `fixed` and docks at
+`--dz-bottom-inset`.
 
 ### Mobile bottom nav + the floating-glass material
 The primary wayfinding surface on phones is a floating capsule, not an edge-to-edge bar: an
@@ -306,13 +306,13 @@ edge-to-edge bar reads as a wall, a detached capsule reads as a control sitting 
 material is one blur + one saturation boost + a light inset top edge, tinted with the app's own
 indigo/teal — `saturate()` is what stops the blur turning the brand teal into grey mud. Alphas are set
 by the worst case (near-white gallery imagery behind the bar), not the pretty one. Both users of the
-material (`.pn-bottom-nav`, `.filter-fab`) share the same `left` inset so they sit on one vertical
+material (`.dz-bottom-nav`, `.filter-fab`) share the same `left` inset so they sit on one vertical
 edge, and both carry an opaque `@supports not (backdrop-filter)` fallback for Firefox Android and old
-WebViews. Height is owned by `--pn-bottom-nav-h` **only** — an inline `style` on the element would
-desync every widget that positions against `--pn-bottom-inset`.
+WebViews. Height is owned by `--dz-bottom-nav-h` **only** — an inline `style` on the element would
+desync every widget that positions against `--dz-bottom-inset`.
 
 ### Home-screen install nudge is two mechanisms, not one
-`InstallPrompt.jsx` promotes adding PuneNest to the home screen, and the platform split is real
+`InstallPrompt.jsx` promotes adding Draazy to the home screen, and the platform split is real
 rather than an implementation detail worth hiding:
 
 - **Chromium** (Android Chrome, Samsung Internet, Edge) fires `beforeinstallprompt`. We
@@ -328,7 +328,7 @@ rather than an implementation detail worth hiding:
 
 **The gate is engagement, not time.** The nudge appears after 3 page views, not after N seconds: a
 timer measures patience, whereas three pages in is someone who came here to look at homes. The count
-persists in `localStorage` (`pn_install_prompt_v1`), so it accumulates across visits.
+persists in `localStorage` (`dz_install_prompt_v1`), so it accumulates across visits.
 
 **Silence escalates and is terminal:** 1st dismissal → 1 week, 2nd → 2 weeks, 3rd → never again.
 Declining the browser's own dialog counts as a dismissal; treating it as neutral would re-ask someone
@@ -345,13 +345,13 @@ A rotated handset is ~915x412, so a `min-width: 768px` breakpoint cannot tell it
 serving it desktop chrome on a 412px-tall screen. When a rule is really about available *height*, key
 it off height and orientation. The landscape block is guarded three ways — `orientation: landscape`
 **and** `max-height: 500px` **and** `max-width: 1023.98px` — so a 1440x900 desktop and a 1024x768
-landscape tablet both fail it structurally. Inside it `--pn-nav-h` drops to 47px,
-`--pn-bottom-nav-h` to 44px, and tab labels are hidden (the `aria-label` keeps the tab named).
+landscape tablet both fail it structurally. Inside it `--dz-nav-h` drops to 47px,
+`--dz-bottom-nav-h` to 44px, and tab labels are hidden (the `aria-label` keeps the tab named).
 
 ### Safe areas and `dvh`
 `viewport-fit=cover` is set on the document — the only thing that makes `env(safe-area-inset-*)`
-resolve to real values. Bottom insets flow through `--pn-safe-b`, never through raw `env()` at call
-sites. Horizontal insets are handled by `.pn-safe-x` (positioning, not padding, so the element's own
+resolve to real values. Bottom insets flow through `--dz-safe-b`, never through raw `env()` at call
+sites. Horizontal insets are handled by `.dz-safe-x` (positioning, not padding, so the element's own
 padding utilities survive); `env()` is `0px` everywhere else including desktop, so the class is inert
 off-device.
 
@@ -459,7 +459,7 @@ Before shipping a form, confirm:
 - [ ] No control drops below 44px at <640px; verify at **360px**, not just at desktop width.
 - [ ] Grid-paired controls share the row evenly (`sm:grid-cols-2`), no lone stretched cell.
 - [ ] Every icon-only control has an `aria-label` (a `title` is not a label on touch).
-- [ ] Nothing bottom-anchored hardcodes a `bottom-*` value — it docks at `--pn-bottom-inset` and was
+- [ ] Nothing bottom-anchored hardcodes a `bottom-*` value — it docks at `--dz-bottom-inset` and was
       checked against the existing bottom-chrome inventory.
 - [ ] Any new overlay uses one of the four sheet shells rather than a fifth.
 - [ ] No `vh` — viewport heights are `dvh`.
@@ -473,7 +473,7 @@ Before shipping a form, confirm:
 2. Use `<NativeSelect>` or `<Select>` for dropdowns — they take their height from `--control-h` and
    become bottom sheets below 640px automatically.
 3. Use the `seg()` helper or `.seg` for toggle/filter pills.
-4. Use `.pn-input` or `input.form-input` for text/search inputs — both take their height from
+4. Use `.dz-input` or `input.form-input` for text/search inputs — both take their height from
    `--control-h`. Do not hand-tune vertical padding (`py-[9px]`); it desyncs from the mobile 44px ramp.
 5. Wrap sliders in `.rng-wrap` / `.rng` rather than a bare `h-10` row. On `pointer: coarse` the thumb
    grows 16px -> 28px and the row grows with it, so a fixed `h-10` wrapper clips it.

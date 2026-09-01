@@ -23,7 +23,7 @@
  * A shared registry across workers would need a file or a lock, and it would still be rationing a
  * fixed pool of seeded rows: the suite would start failing the day it grew past the seed. Minting
  * removes the contention rather than arbitrating it. `POST /societies` is a first-class consumer
- * route — a member adding a building PuneNest does not have — so a test society is created the same
+ * route — a member adding a building Draazy does not have — so a test society is created the same
  * way a real one is, and arrives in exactly the state these specs want: unclaimed, so residency
  * decisions go through the ops queue rather than needing a committee the test has not created; and
  * empty, so a spec that counts rows before and after a removal is counting only its own.

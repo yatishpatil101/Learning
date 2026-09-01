@@ -37,13 +37,13 @@
   [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`deals` (owner deal-state)](../../system/data-model.md) - `puneNestDeals:<ownerDigits>`, one
+- [`deals` (owner deal-state)](../../system/data-model.md) - `draazyDeals:<ownerDigits>`, one
   record per property: `{ status: active|reserved|closed, deal, at, parties[], closedWith }`.
-- [`offers`](../../system/data-model.md) - `pnOffers:<ownerDigits>`: `{ id, propId, buyerName,
+- [`offers`](../../system/data-model.md) - `dzOffers:<ownerDigits>`: `{ id, propId, buyerName,
   buyerMobile, amount, status, from, at, updatedAt, history[] }`.
-- [`finalization_requests`](../../system/data-model.md) - `puneNestDealReq:<ownerDigits>`: `{ id,
+- [`finalization_requests`](../../system/data-model.md) - `draazyDealReq:<ownerDigits>`: `{ id,
   propId, deal, buyerName, buyerMobile, status, at }`.
-- [`tenancies`](../../system/data-model.md) - `pnTenancies:<tenantMobile>`, **created** cross-actor
+- [`tenancies`](../../system/data-model.md) - `dzTenancies:<tenantMobile>`, **created** cross-actor
   when an owner accepts a **rent** finalization.
 - [`deals` (analytics seed)](../../system/data-model.md) - `src/data/deals.json` (ids `D6###`),
   a separate closed/in-progress feed for admin analytics (not written by this flow).

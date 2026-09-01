@@ -97,7 +97,7 @@ import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ROUTES_JAVA = join(REPO, 'backend/src/main/java/com/punenest/api/common/web/Routes.java');
+const ROUTES_JAVA = join(REPO, 'backend/src/main/java/com/draazy/api/common/web/Routes.java');
 const FRONTEND_SRC = join(REPO, 'frontend/src');
 
 /**

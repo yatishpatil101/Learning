@@ -4,7 +4,7 @@
  * Converted from `consumer-fixes.spec.js`, and one test is deliberately narrower than its source.
  *
  * The original built its world by reading `db.json` off disk, splicing two hand-written listing
- * objects into it and writing the whole catalogue to `puneNestDB_v5`. Those objects carried keys the
+ * objects into it and writing the whole catalogue to `draazyDB_v5`. Those objects carried keys the
  * browser store accepts and the contract does not, and that is the finding this conversion turned
  * up rather than a detail of the port: `propertyMapper.js:417` names bathrooms, balconies, lock-in,
  * ownership type and preferred tenants as fields **the server never stores**, and `ListingCreate`
@@ -82,8 +82,8 @@ async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   /* `Select` portals its menu and only flips `portalOpen` one requestAnimationFrame after the open
      (Select.jsx:178); until then it is `opacity: 0; pointer-events: none` (dropdown.css:198). */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 test('switching property type clears the previous type-specific answers (cascade reset)', async ({ page }) => {

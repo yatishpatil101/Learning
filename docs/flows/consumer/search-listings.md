@@ -39,7 +39,7 @@
   from a page directory.
 - **Mobile filter FAB:** filtering is the most-repeated action in the search journey, but the
   controls bar is pinned to the top of the page - the hardest place to reach one-handed. A `lg:hidden`
-  fixed pill duplicates the action into the thumb arc, docked above `--pn-bottom-inset` so it clears
+  fixed pill duplicates the action into the thumb arc, docked above `--dz-bottom-inset` so it clears
   the bottom nav, and carries a count badge when filters are active. It is anchored **bottom-left**
   because the Nestor assistant FAB owns bottom-right and was literally intercepting taps there.
 

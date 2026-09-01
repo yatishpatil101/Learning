@@ -21,19 +21,19 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
  * gains `.is-portal-open` afterwards. That single frame is what the dropdown sleeps here were for.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 /* `.lp-steps` rather than the mock's `.lp-meter`: the meter renders on both the wizard and the

@@ -2,13 +2,13 @@
  * The posting wizard's field layout - pairing, width caps, and the type-specific controls - against
  * the live backend.
  *
- * Converted from `layout.spec.js`, which faked its session by writing `puneNestUser` and an Aadhaar
+ * Converted from `layout.spec.js`, which faked its session by writing `draazyUser` and an Aadhaar
  * record into localStorage before the first navigation. Layout assertions are the ones that suffer
  * most from that shortcut, because a measurement is only meaningful if the thing being measured is
  * the screen a real session gets. A seeded browser renders whatever the client will render for a
  * token nobody checked; if the wizard were to fail to mount for an account the server recognises,
  * or if a type-specific block were gated on data that only arrives over HTTP, the mock version
- * would still have found its grids and its `.pn-dropdown__trigger` and reported the ratios as
+ * would still have found its grids and its `.dz-dropdown__trigger` and reported the ratios as
  * healthy. Here the account is registered over HTTP and carries a real JWT, so "Property Type and
  * BHK share a row" now also carries "and they do so on the page a genuine session loads".
  *
@@ -40,7 +40,7 @@ test('Property Type and BHK share one compact row (dropdown is not full-width)',
 
   // The Property Type trigger is meaningfully narrower than the form card.
   const ratio = await page.evaluate(() => {
-    const trigger = document.querySelector('[data-err="propertyType"] .pn-dropdown__trigger');
+    const trigger = document.querySelector('[data-err="propertyType"] .dz-dropdown__trigger');
     const card = trigger && trigger.closest('.lp-step');
     if (!trigger || !card) return 1;
     return trigger.getBoundingClientRect().width / card.getBoundingClientRect().width;
@@ -63,7 +63,7 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
      made it necessary: `count()` does not retry, so against a menu still one frame from open it
      returned 0, the click was skipped, and the wizard carried its default type through a test that
      appeared to have chosen one. */
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -78,12 +78,12 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
   expect(paired).toBe(true);
 
   // Locality still selects correctly after being moved into the grid.
-  await page.locator('[data-err="locality"] .pn-dropdown__trigger').click();
+  await page.locator('[data-err="locality"] .dz-dropdown__trigger').click();
   await menuOpen(page);
-  const first = page.locator('.pn-dropdown__option').first();
+  const first = page.locator('.dz-dropdown__option').first();
   const chosen = (await first.innerText()).trim();
   await first.click();
-  await expect(page.locator('[data-err="locality"] .pn-dropdown__value')).toHaveText(chosen);
+  await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(chosen);
 });
 
 /**
@@ -94,13 +94,13 @@ test('Locality dropdown is folded into the compact address grid on step 2', asyn
  * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 // Design rule (DESIGN_SYSTEM.md → Control Width): a standalone dropdown with a
@@ -108,7 +108,7 @@ async function pickType(page, label) {
 const soloRatio = (page, labelText) => page.evaluate((text) => {
   const label = [...document.querySelectorAll('.lp-step label')].find((l) => l.textContent.trim().startsWith(text));
   const cell = label && label.parentElement;
-  const control = cell && cell.querySelector('.pn-dropdown__trigger, input, textarea, select');
+  const control = cell && cell.querySelector('.dz-dropdown__trigger, input, textarea, select');
   const card = control && control.closest('.lp-step');
   if (!control || !card) return 1;
   return control.getBoundingClientRect().width / card.getBoundingClientRect().width;

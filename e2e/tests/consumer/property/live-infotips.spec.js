@@ -49,7 +49,7 @@ function relevant(errors) {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
     const noSmoothScroll = () => {
@@ -71,7 +71,7 @@ async function expectTip(page, locator, expectSub) {
   const el = locator.first();
   await el.scrollIntoViewIfNeeded();
   await el.hover();
-  const tip = page.locator('.pn-tip[role="tooltip"]');
+  const tip = page.locator('.dz-tip[role="tooltip"]');
   await expect(tip).toBeVisible({ timeout: 3000 });
   const txt = (await tip.innerText()).toLowerCase();
   if (expectSub) expect(txt, `tip copy for "${expectSub}"`).toContain(expectSub.toLowerCase());

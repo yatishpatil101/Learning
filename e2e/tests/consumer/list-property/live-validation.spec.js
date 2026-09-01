@@ -1,7 +1,7 @@
 /**
  * Field-level validation in the posting wizard, against the live backend.
  *
- * Converted from `validation.spec.js`, which seeded `puneNestUser` and an Aadhaar record into
+ * Converted from `validation.spec.js`, which seeded `draazyUser` and an Aadhaar record into
  * localStorage so the form would render. The rules asserted here — numeric stripping, an area of
  * zero being refused, whitespace collapsing to empty, `000000` failing the pincode check — all live
  * in `sanitize.js` and `validation.js` and run in the browser, so they behave identically in either
@@ -35,13 +35,13 @@ async function gotoForm(page) {
  * `.is-portal-open` afterwards. That one frame is what the dropdown sleeps here were waiting out.
  */
 async function menuOpen(page) {
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
 }
 
 async function pickType(page, label) {
   await page.locator('[data-err="propertyType"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 // Fill a valid Details step for a flat and advance to Location & pricing.
@@ -69,7 +69,7 @@ test('a zero or empty area cannot pass the Details step', async ({ page }) => {
   await page.getByRole('button', { name: /Next Step/i }).click();
   // Rejected: we stay on Details and the area field is flagged.
   await expect(page.getByText('Location & pricing')).toHaveCount(0);
-  await expect(page.locator('input[data-err="carpetArea"]')).toHaveClass(/pn-invalid/);
+  await expect(page.locator('input[data-err="carpetArea"]')).toHaveClass(/dz-invalid/);
 });
 
 test('an all-spaces society name is treated as empty and rejected', async ({ page }) => {
@@ -84,16 +84,16 @@ test('pincode must be a real six-digit code, not 000000', async ({ page }) => {
   await toStep2Flat(page);
   await page.locator('[data-err="locality"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="flatNumber"]').fill('B-1204');
   await page.locator('input[data-err="society"]').fill('Skyline Heights');
   await page.locator('input[data-err="price"]').fill('5000000');
   await page.locator('[data-err="ownership"]').click();
   await menuOpen(page);
-  await page.locator('.pn-dropdown__option').first().click();
+  await page.locator('.dz-dropdown__option').first().click();
   await page.locator('input[data-err="pincode"]').fill('000000');
   await page.getByRole('button', { name: /Next Step/i }).click();
   // Rejected: never reaches Photos & documents; pincode is flagged.
   await expect(page.getByText('Photos & documents')).toHaveCount(0);
-  await expect(page.locator('input[data-err="pincode"]')).toHaveClass(/pn-invalid/);
+  await expect(page.locator('input[data-err="pincode"]')).toHaveClass(/dz-invalid/);
 });

@@ -276,7 +276,7 @@ COMMENT ON TABLE society_residents IS
 -- ---------------------------------------------------------------------------------------------
 -- The society hub carries six kinds of user-written content -- recommendations,
 -- replies, questions, answers, noticeboard items and reviews -- and offers a
--- "Report" control on every one of them. That control wrote to `pnSocietyReports`
+-- "Report" control on every one of them. That control wrote to `dzSocietyReports`
 -- in the reporting member's own browser, and the ops queue that was supposed to
 -- read it read the *moderator's* browser. So a defamatory recommendation naming a
 -- real tradesman with his real phone number could be reported by fifty neighbours
@@ -319,8 +319,8 @@ COMMENT ON TABLE society_residents IS
 -- Society Q&A and the notices board
 --
 -- The two community surfaces the hub has always drawn and never persisted. Until these tables a
--- question asked on a society page lived in `pnSocietyQA` and a maintenance-shutdown notice lived in
--- `pnSocietyBoard`, both in the asker's own browser: the committee posted an AGM notice that
+-- question asked on a society page lived in `dzSocietyQA` and a maintenance-shutdown notice lived in
+-- `dzSocietyBoard`, both in the asker's own browser: the committee posted an AGM notice that
 -- literally nobody else could see, and every answer to a neighbour's question was written to an
 -- audience of one.
 --
@@ -427,7 +427,7 @@ CREATE INDEX idx_society_board_events
 -- The third and last thing the society hub kept in `localStorage`: the community tab.
 -- Tips ("the 6am water pressure is fine on the lower floors"), trusted picks (a plumber
 -- the building actually uses, with a number) and photos of the place as it really looks.
--- Every one of them was written into `pnSocietyContributions` in the author's own browser,
+-- Every one of them was written into `dzSocietyContributions` in the author's own browser,
 -- so the "community" tab showed each visitor a community of one — and the most useful
 -- thing on the page, a neighbour's phone number for a reliable electrician, was known only
 -- to the person who already had it.

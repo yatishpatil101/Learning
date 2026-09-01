@@ -2,7 +2,7 @@
  * The Step 2 location picker — the map itself, its branded pin, and the chrome it deliberately does
  * not show — against the live backend.
  *
- * Converted from `map.spec.js`, which wrote `puneNestUser` and an Aadhaar record into localStorage
+ * Converted from `map.spec.js`, which wrote `draazyUser` and an Aadhaar record into localStorage
  * before the first navigation. That shortcut is why the mock version could not have caught the map
  * failing to mount for a real session: the browser had been told it was signed in, so the wizard
  * rendered regardless of whether the server would have recognised the account, and the step-2
@@ -33,8 +33,8 @@ async function gotoStep2(page) {
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();

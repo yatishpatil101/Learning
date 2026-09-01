@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 
 const BASE = process.argv[2] || 'http://localhost:8098/api';
-const LOG = process.argv[3] || `${process.env.TEMP}\\pn-probe.log`;
+const LOG = process.argv[3] || `${process.env.TEMP}\\dz-probe.log`;
 const MOBILE = '9876500123';
 const STAFF_MOBILE = '9711827190'; // seeded `staff` on the rental team
 

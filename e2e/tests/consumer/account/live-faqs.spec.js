@@ -26,7 +26,7 @@ import { test, expect } from '../../../fixtures/live.js';
 import { API } from '../../../helpers/liveAuth.js';
 
 /** One seeded question, quoted exactly. Chosen because its answer is the platform's core claim. */
-const ANCHOR_Q = 'Is PuneNest really zero brokerage?';
+const ANCHOR_Q = 'Is Draazy really zero brokerage?';
 
 /** A second, from a different category, so the assertion is not about one lucky row. */
 const OTHER_Q = 'How do I report a suspicious listing or user?';

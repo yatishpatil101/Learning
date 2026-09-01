@@ -1,6 +1,6 @@
 # Free AI/ML Libraries for React Real Estate Platform
 
-> Comprehensive guide to open-source, no-API-key-required AI/ML libraries suitable for a React-based real estate web application (PuneNest). All libraries listed are truly free -- no paid tiers, no cloud API keys needed.
+> Comprehensive guide to open-source, no-API-key-required AI/ML libraries suitable for a React-based real estate web application (Draazy). All libraries listed are truly free -- no paid tiers, no cloud API keys needed.
 
 ---
 
@@ -12,7 +12,7 @@
 4. [Chatbot / Conversational AI](#4-chatbot--conversational-ai)
 5. [OCR & Document Processing](#5-ocr--document-processing)
 6. [Foundation / Runtime Libraries](#6-foundation--runtime-libraries)
-7. [Recommended Architecture for PuneNest](#7-recommended-architecture-for-punenest)
+7. [Recommended Architecture for Draazy](#7-recommended-architecture-for-draazy)
 
 ---
 
@@ -288,7 +288,7 @@
 
 ---
 
-## 7. Recommended Architecture for PuneNest
+## 7. Recommended Architecture for Draazy
 
 ### Tier 1: Immediate Value (Easy Integration, High Impact)
 

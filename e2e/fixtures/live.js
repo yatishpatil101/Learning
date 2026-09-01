@@ -7,7 +7,7 @@
 // legacy suite is 220 files, and a conversion that also rewrites every call site would be 220
 // opportunities to change behaviour by accident while claiming to be a port.
 //
-// What differs is underneath. `base.js`'s `login` writes `puneNestUser` into localStorage; this one
+// What differs is underneath. `base.js`'s `login` writes `draazyUser` into localStorage; this one
 // completes the real OTP form against the backend, so the session is a genuine JWT and every
 // request the page makes afterwards is authorised the way production authorises it. A spec that
 // passes here has proved something the seeded version never could.
