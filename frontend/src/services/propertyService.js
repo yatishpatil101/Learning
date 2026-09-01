@@ -84,6 +84,17 @@ export const listForModeration = async (filters, sort) => (await provider()).lis
  */
 export const myListings = async (user) => (await provider()).myListings(user);
 
+/**
+ * One of the signed-in owner's own listings, at any status.
+ *
+ * Distinct from `getProperty` for the same reason `myListings` is distinct from `listProperties`: a
+ * listing under moderation is not on the public endpoint at all, and the public view model is built
+ * for buyers, so it omits the fields the edit form needs to put back. Resolves `null` when the
+ * listing is not the caller's — the server answers 404 there, because whether a listing exists is
+ * itself something only its owner is entitled to learn.
+ */
+export const myListing = async (id, user) => (await provider()).myListing(id, user);
+
 // Owner: create listing (goes to global DB as pending)
 export const addListing = async (listing) => (await provider()).addListing(listing);
 
@@ -123,6 +134,25 @@ export const checkOwnDuplicate = async (fields) => (await provider()).checkOwnDu
  */
 export const createListingOnBehalf = async (ownerMobile, ownerName, listing) =>
   (await provider()).createListingOnBehalf(ownerMobile, ownerName, listing);
+
+/**
+ * Staff: how much of their listing ceiling one owner is already using.
+ *
+ * Only exists because `createListingOnBehalf` stopped being refused by that ceiling. The desk used
+ * to inherit the owner's freemium cap, so an operator on a call with somebody who owns three flats
+ * could record one of them and was refused the rest — with the owner's own wizard copy, addressed
+ * to a member of staff, about an account that is not theirs. Exempting the desk fixed that; this is
+ * how the operator still gets told, so they can raise the upgrade on the call they are already on.
+ *
+ * Advisory, and the caller must treat it that way. Nothing here blocks the form: a desk that cannot
+ * take a listing because a count did not load is worse than one that takes it without the note.
+ *
+ * Resolves `{ mobile, known, allowance, held, overAllowance }`. `known: false` is the ordinary
+ * answer on a first call, not a failure — most people the desk speaks to have never signed in.
+ * `mobile` is echoed back so a caller can drop a response that arrived after the field moved on.
+ */
+export const ownerListingStanding = async (mobile) =>
+  (await provider()).ownerListingStanding(mobile);
 
 // Admin: moderation.
 //
@@ -180,6 +210,19 @@ export const setPipelineStage = async (id, stage) => (await provider()).setPipel
 
 export const deleteListing = async (id) => (await provider()).deleteListing(id);
 export const updateListingFields = async (id, patch) => (await provider()).updateListingFields(id, patch);
+
+/**
+ * The signed-in owner withdraws their own listing.
+ *
+ * Distinct from {@link archiveListing}, which is the moderator's route and takes a reason: staff
+ * pulling a listing owe its owner an explanation, and an owner withdrawing their own owes nobody
+ * one. Soft on both providers — the row survives for the enquiries and deals that point at it,
+ * because a listing is not only the owner's once buyers have contacted it.
+ *
+ * This is the exit from the listing quota. The free tier is one listing *at a time*, and until
+ * there was a way to let go of one, "at a time" meant "ever". Resolves with the withdrawn listing.
+ */
+export const takeListingDown = async (id, user) => (await provider()).takeListingDown(id, user);
 
 /**
  * Staff/admin: correct **somebody else's** listing in place.

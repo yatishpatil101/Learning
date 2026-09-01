@@ -77,8 +77,26 @@ function seedListing(mobile, listing) {
 }
 
 test('the reissue CTA (?flat=<id>&reissue=1) prefills the property and confirms with a toast', async ({ page }) => {
-  const listing = { id: 'reissue-flat', title: 'My 2BHK, Baner', loc: 'Baner, Pune', price: 25000, deposit: 50000, furnishing: 'furnished', deal: 'rent', status: 'verified' };
+  const today = new Date().toISOString().slice(0, 10);
+  // `real` + a fresh `freshenedAt` so the catalogue does not filter it out as a dormant user post.
+  const listing = { id: 'reissue-flat', title: 'My 2BHK, Baner', loc: 'Baner, Pune', price: 25000, deposit: 50000, furnishing: 'furnished', deal: 'rent', status: 'verified', ownerMobile: MOBILE, real: true, createdAt: today, freshenedAt: today };
   await page.addInitScript(seedListing(MOBILE, listing), [MOBILE, listing]);
+
+  /* The wizard resolves `?flat=` through `propertyService.myListings`, which reads the catalogue —
+     `puneNestDB_v5` — and not the per-owner `puneNestListings:` mirror. Seeding only the mirror was
+     enough while the wizard called `getListings()` directly; it is not now, and it should not be:
+     the mirror is a browser-only artefact with no counterpart on the server, so a fixture that lives
+     only there is a fixture the live build cannot have. The catalogue is written after the first
+     load rather than in the init script, because the app seeds it on boot and would overwrite an
+     entry that arrived first. */
+  await page.goto(`${BASE}/`);
+  await page.waitForFunction(() => !!localStorage.getItem('puneNestDB_v5'));
+  await page.evaluate((l) => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
+    db.listings = [l, ...db.listings.filter((p) => p.id !== l.id)];
+    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+  }, listing);
+
   await page.goto(`${BASE}/services/rent-agreement?flat=reissue-flat&reissue=1`);
 
   // The reissue toast only fires when `flat` resolves a listing AND reissue=1 —

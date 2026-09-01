@@ -203,6 +203,23 @@ export function toViewModel(dto) {
         : null,
     messages,
     timeline,
+    // The co-fill counterparties, passed through with the two V107 fields the wizard branches on:
+    // `pending` (the invitation names a number nobody has registered) and the masked `mobile` that
+    // stands in for the name there is no account to take one from. Passed through rather than
+    // reshaped — `ServiceRequestPartyDto` is already the shape both readers want, and the second
+    // reader is `GET /me/service-request-invites`, which returns these rows bare. Two mappings of
+    // one schema would drift.
+    parties: (Array.isArray(dto.parties) ? dto.parties : []).map((p) => ({
+      id: p?.id || '',
+      requestId: p?.requestId || dto.id,
+      role: p?.role || '',
+      status: p?.status || '',
+      party: p?.party || '',
+      mobile: p?.mobile || null,
+      pending: !!p?.pending,
+      invitedBy: p?.invitedBy || '',
+      createdAt: epoch(p?.createdAt),
+    })),
     assignedTo: dto.assignee || null,
     createdAt: created,
     amount: dto.amount ?? null,

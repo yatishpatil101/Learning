@@ -189,10 +189,14 @@ public class ErasureService {
      * remaining route to it. Every statement below either commits together or none of them does.
      *
      * <p>The sweep is written as native statements rather than through entities on purpose. Six of
-     * these seven tables have no JPA entity in this codebase at all, and giving them one so that
+     * these eight tables have no JPA entity in this codebase at all, and giving them one so that
      * erasure could reach them would create six new mapped types whose only reader is this method —
      * each one an extra thing that has to stay in step with the schema forever. A named-column
      * {@code UPDATE} is also the form in which a reviewer can see exactly which columns survive.
+     *
+     * <p>{@code service_request_parties} is one of the two that <em>does</em> have an entity, and is
+     * still swept natively: the statement deletes by mobile across every request on the platform,
+     * which is a set the repository has no business being able to name.
      */
     private ErasureRequest execute(AuthPrincipal admin, ErasureRequest request, String note) {
         UUID subjectId = request.getSubjectId();
@@ -295,7 +299,49 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 5. Page view telemetry. Nulled rather than deleted, which is the one place in this sweep
+        // 5. Co-fill invitations addressed to the subject's number but never claimed (V107). The
+        //    row is deleted rather than blanked, and this is the one table in the sweep where that
+        //    is forced by the schema rather than chosen: a pending party row carries the mobile
+        //    *instead* of a user id, under a CHECK that exactly one of the two is set, so there is
+        //    nothing to null it to. Nulling the mobile would violate the constraint; filling in a
+        //    user id would bind an invitation to an account that is being erased.
+        //
+        //    Keyed on the old mobile, like otp_codes, and for the same reason it must run before
+        //    step 8 replaces it. Claimed rows are untouched and want to be: once claimed the row
+        //    holds a user id and no mobile, it is a participant in an agreement somebody else is
+        //    also party to, and the identity in it is already erased by the users sweep.
+        erased.put("service_request_parties", entityManager
+                .createNativeQuery("delete from service_request_parties where mobile = :mobile")
+                .setParameter("mobile", oldMobile)
+                .executeUpdate());
+
+        // 6. The contact details somebody typed when claiming a society hub (V101). Two columns,
+        //    not the row: a claim is the reason a society reads as claimed, pending or rejected to
+        //    every other resident on the hub, and deleting it would silently hand a claimed society
+        //    back to whoever asked next -- one person's erasure changing a shared fact about a
+        //    building. So the row stays and the two things the subject typed into the form go.
+        //
+        //    They are typed separately from the account profile and that is the whole point of
+        //    sweeping them here: the claim form asks who on the committee is claiming this, so the
+        //    answer is routinely a fuller name than `users.name` and a personal address that is not
+        //    `users.email`. Clearing the profile and leaving this behind would have left the better
+        //    copy of the subject's identity sitting in a table nobody thinks of as identity.
+        //
+        //    `name` is NOT NULL, so it is substituted rather than blanked -- same treatment, and
+        //    for the same schema reason, as `users.mobile`. The substitute is deliberately not a
+        //    pseudonym anybody could resolve: it reads as what it is to the ops reviewer who opens
+        //    the queue row afterwards.
+        erased.put("society_claims", entityManager
+                .createNativeQuery("""
+                        update society_claims
+                           set name = 'Erased account',
+                               email = null
+                         where claimed_by = :id
+                        """)
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
+        // 7. Page view telemetry. Nulled rather than deleted, which is the one place in this sweep
         //    where keeping the row is the stronger answer rather than the weaker one: the view
         //    happened, it is already counted in a daily aggregate that names nobody, and deleting it
         //    would falsify settled traffic history in order to erase an identity that nulling
@@ -311,8 +357,9 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 6. The identity root, last. Everything above keys off `mobile` or off the row existing, so
-        //    replacing the number first would have orphaned the OTP delete.
+        // 8. The identity root, last. Everything above keys off `mobile` or off the row existing, so
+        //    replacing the number first would have orphaned the OTP delete and the pending-invite
+        //    delete alike.
         subject.erasePersonalData(pseudonymMobile(subjectId));
         erased.put("users", 1);
 

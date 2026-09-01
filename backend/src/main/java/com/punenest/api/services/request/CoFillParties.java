@@ -5,10 +5,13 @@ import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.validation.Formats;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.security.AuthPrincipal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,15 +42,23 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The mock minted a random {@code inviteId}, put it in a WhatsApp deep link, and let anybody
  * holding that link open the invitation ({@code findInviteById} scans every bucket precisely so an
  * unauthenticated recipient can). That is a bearer token for a rent, a deposit and two sets of
- * identity documents, delivered over a channel we do not control and cannot revoke. Here the invite
- * is addressed to an <em>account</em>: the mobile is resolved against {@code users} at write time,
- * stored as a foreign key, and then discarded. An invitation is consequently only ever visible to
- * the person it names, once they have signed in as themselves.
+ * identity documents, delivered over a channel we do not control and cannot revoke. There is no
+ * token here and there never will be. An invitation is only ever readable by the person it names,
+ * signed in as themselves.
  *
- * <p>The price is that an unregistered counterparty cannot be invited — {@link #NOT_REGISTERED}. It
- * is worth paying: that person has to hold an account to fill their half and to upload their Aadhaar
- * anyway, so the requirement is not new, only earlier, and moving it earlier is what closes the
- * unauthenticated window.
+ * <p><strong>What V107 did give back is the ability to name somebody who has not signed up.</strong>
+ * V75 resolved the mobile against {@code users} at write time and refused if it matched nobody,
+ * which put a stranger's registration in the middle of the requester's checkout. The invitation may
+ * now be addressed to a number instead: {@link #invite} writes a pending row,
+ * {@link #claimPendingFor} binds it to the account the moment that number registers and proves
+ * itself by OTP, and the number is discarded in the same statement. This is a weaker claim about
+ * who the invitee is than V75 made, and exactly as strong as every sign-in on the platform — see
+ * V107's header for why that is the same trust rather than a new one, and for the recycled-number
+ * expiry that bounds it.
+ *
+ * <p><strong>Claiming is not accepting.</strong> The claimed row is still {@code invited}. Proving
+ * control of a number says who you are; it does not say you consent to be on somebody's rent
+ * agreement, and {@link #decide} still has to be called by the person themselves.
  */
 @Component
 class CoFillParties {
@@ -61,17 +72,15 @@ class CoFillParties {
     static final String DECLINED = "declined";
 
     /**
-     * The 409 for a mobile that belongs to nobody.
+     * How long an invitation may sit unclaimed before the sweep deletes it.
      *
-     * <p>A {@code 409} and not a {@code 404}: the request the caller named exists and is theirs, and
-     * nothing about it is missing — what is missing is a precondition on the other side, which is
-     * the distinction {@code api-standards.md} draws between the two. It also says nothing about
-     * <em>which</em> numbers hold accounts beyond the one the caller typed, so it cannot be turned
-     * into a membership oracle any faster than the sign-up form already can.
+     * <p>Ninety days, matching V64's referral signals — the other place this codebase holds personal
+     * data about somebody who never handed it over. It is not a tidiness window: TRAI releases a
+     * disconnected mobile back into the pool after ninety days, so an invitation older than this one
+     * could be claimed by a stranger who simply inherited the number. The clock is the answer to
+     * that, and V107 makes it a CHECK so no pending row can exist without one.
      */
-    private static final String NOT_REGISTERED =
-            "That mobile has no PuneNest account yet. Ask them to sign up, then invite them — they "
-                    + "will need to sign in to fill their half of the agreement in any case.";
+    static final Duration PENDING_INVITE_TTL = Duration.ofDays(90);
 
     private final ServiceRequestPartyRepository parties;
     private final ServiceRequestRepository requests;
@@ -101,9 +110,10 @@ class CoFillParties {
      * to people who are not on them.
      *
      * @throws NotFoundException   if there is no such request, or it is not the caller's
-     * @throws BadRequestException if the role is not one of {@link #ROLES}
-     * @throws ConflictException   if the mobile has no account, names the requester, or the side is
-     *                             already taken
+     * @throws BadRequestException if the role is not one of {@link #ROLES}, or the mobile is not a
+     *                             ten-digit Indian number
+     * @throws ConflictException   if the mobile names the requester, the side is already taken, or
+     *                             the request is already terminal
      */
     @Transactional
     ServiceRequestPartyDto invite(AuthPrincipal caller, String requestId, String role, String mobile) {
@@ -122,11 +132,12 @@ class CoFillParties {
                     + " — there is nothing left for a second party to fill.");
         }
         String normalised = MobileMask.normalise(mobile);
-        User invitee = normalised == null
-                ? null
-                : users.findByMobileAndArchivedFalse(normalised).orElse(null);
+        if (normalised == null) {
+            throw new BadRequestException(Formats.MOBILE_MESSAGE);
+        }
+        User invitee = users.findByMobileAndArchivedFalse(normalised).orElse(null);
         if (invitee == null) {
-            throw new ConflictException(NOT_REGISTERED);
+            return inviteByMobile(caller, request, side, normalised);
         }
         if (invitee.getId().equals(request.getRequesterId())) {
             throw new ConflictException("You are already on this request — invite the other party.");
@@ -139,6 +150,133 @@ class CoFillParties {
         audit.record(caller, "service-request.party-invited", "service_request",
                 request.getId().toString(), "role", side, "party", invitee.getId().toString());
         return toDto(saved, request.getType(), invitee.getName(), displayName(caller.userId()));
+    }
+
+    /**
+     * The invitation nobody can answer yet — addressed to a number with no account behind it (V107).
+     *
+     * <p>The requester cannot be reached down this path: they hold an account by definition, so
+     * their own number would have resolved above. That is why there is no self-invite check here and
+     * one directly above.
+     *
+     * <p>The audit entry names the <em>masked</em> number rather than the whole of it. An audit log
+     * has no retention window — {@code ErasureRetention} says so to the subject in as many words —
+     * so writing the number here would outlive both the expiry sweep and the erasure statement that
+     * exist to bound it, and would do it in the one table neither can reach.
+     */
+    private ServiceRequestPartyDto inviteByMobile(AuthPrincipal caller, ServiceRequest request,
+            String side, String normalised) {
+        if (parties.existsByRequestIdAndMobile(request.getId(), normalised)) {
+            throw new ConflictException("That number has already been invited to this request.");
+        }
+        ServiceRequestParty saved = parties.saveAndFlush(new ServiceRequestParty(
+                request.getId(), normalised, Instant.now().plus(PENDING_INVITE_TTL), side,
+                caller.userId()));
+        audit.record(caller, "service-request.party-invited", "service_request",
+                request.getId().toString(), "role", side, "party", MobileMask.mask(normalised));
+        return toDto(saved, request.getType(), null, displayName(caller.userId()));
+    }
+
+    /**
+     * Bind this person to any invitation that was addressed to their number before they had an
+     * account (V107). Called on the customer-facing reads, not on sign-up.
+     *
+     * <p><strong>Why a lazy claim rather than an event on registration.</strong> {@code identity}
+     * sits at rank 0 of {@code ArchitectureBoundaryTest} and {@code services} at rank 3, so the
+     * sign-up path cannot call into this package, and there is no application-event bus in this
+     * codebase to invert it with — introducing one for a single listener would be a new mechanism
+     * carrying one message. Claiming on read needs neither, and it is strictly more robust: it also
+     * catches the person who already held an account under a number they added later, and it
+     * self-heals if a claim is ever missed, which an event fired once cannot.
+     *
+     * <p>Cheap on the answer it almost always gives. The lookup is a partial index over pending rows
+     * only ({@code idx_service_request_parties_pending}), and a claimed row leaves that index for
+     * good, so the common "nothing waiting for this number" costs one index probe returning nothing.
+     *
+     * <p>Expired rows are skipped rather than claimed. The sweep will delete them; until it runs,
+     * an invitation past its clock must not become a party — that clock is the recycled-number
+     * defence, and honouring it only when the sweep happens to have run would make the defence a
+     * matter of scheduling.
+     */
+    @Transactional
+    void claimPendingFor(AuthPrincipal caller) {
+        User self = users.findById(caller.userId()).orElse(null);
+        if (self == null || self.getMobile() == null) {
+            return;
+        }
+        List<ServiceRequestParty> waiting = parties.findByMobile(self.getMobile());
+        if (waiting.isEmpty()) {
+            return;
+        }
+        Instant now = Instant.now();
+        for (ServiceRequestParty party : waiting) {
+            if (party.getInviteExpiresAt() != null && party.getInviteExpiresAt().isBefore(now)) {
+                continue;
+            }
+            // The invitation was addressed to a number that turns out to be the requester's own, or
+            // to somebody already on the matter. Claiming would breach uq_service_request_parties_user
+            // and, more to the point, would put one person on both sides of their own agreement.
+            // Drop it: an invitation that cannot be answered is not one worth keeping a number for.
+            boolean wouldDuplicate = parties.existsByRequestIdAndUserId(party.getRequestId(),
+                    caller.userId())
+                    || requests.findById(party.getRequestId())
+                            .map(r -> caller.userId().equals(r.getRequesterId()))
+                            .orElse(true);
+            if (wouldDuplicate) {
+                parties.delete(party);
+                continue;
+            }
+            party.claim(caller.userId());
+            parties.save(party);
+            audit.record(caller, "service-request.party-claimed", "service_request",
+                    party.getRequestId().toString(), "role", party.getRole());
+        }
+        parties.flush();
+    }
+
+    /**
+     * Contract {@code withdrawServiceRequestParty} — 204. <strong>The requester, and nobody else.</strong>
+     *
+     * <p>The invitation that has to be takeable back. A mistyped mobile is not a rare event, and
+     * without this it is unrecoverable: {@code uq_service_request_parties_role} means the side is
+     * spoken for, so the requester can neither invite the person they meant nor open checkout —
+     * {@code openDeferredCheckout} refuses while an invitation is outstanding. Before V107 that
+     * stranger would at least eventually decline; a pending row addressed to a number belonging to
+     * nobody has no one who can, so the requester would have been stuck until the ninety-day sweep.
+     *
+     * <p><strong>Only while unanswered.</strong> An accepted party is on the matter and has been
+     * shown it; removing them is not an edit to a form, and it is not something the other side gets
+     * to do quietly. A declined row stays for the same reason it always did — so the requester can
+     * see they were turned down rather than watching the invitation evaporate.
+     *
+     * <p>The row is deleted rather than marked, because a withdrawn invitation has to release the
+     * side, and that release is exactly what the unique index keys on. The act survives in the audit
+     * log and in the request's timeline.
+     *
+     * @throws NotFoundException if there is no such invitation, or it is not on a request of the
+     *                           caller's — the same silence every customer-scoped read keeps
+     * @throws ConflictException if it has already been answered
+     */
+    @Transactional
+    void withdraw(AuthPrincipal caller, String requestId, String partyId) {
+        ServiceRequest request = Ids.parseUuid(requestId)
+                .flatMap(requests::findById)
+                .orElseThrow(() -> NotFoundException.of("Service request"));
+        if (!caller.userId().equals(request.getRequesterId())) {
+            throw NotFoundException.of("Service request");
+        }
+        ServiceRequestParty party = Ids.parseUuid(partyId)
+                .flatMap(parties::findById)
+                .filter(p -> p.getRequestId().equals(request.getId()))
+                .orElseThrow(() -> NotFoundException.of("Invitation"));
+        if (!INVITED.equals(party.getStatus())) {
+            throw new ConflictException("That invitation has already been " + party.getStatus()
+                    + " — it can no longer be withdrawn.");
+        }
+        parties.delete(party);
+        parties.flush();
+        audit.record(caller, "service-request.party-withdrawn", "service_request",
+                request.getId().toString(), "role", party.getRole());
     }
 
     /**
@@ -221,6 +359,8 @@ class CoFillParties {
                 party.getRole(),
                 party.getStatus(),
                 partyName,
+                MobileMask.mask(party.getMobile()),
+                party.isPending(),
                 invitedByName,
                 party.getCreatedAt());
     }

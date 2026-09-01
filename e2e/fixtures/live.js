@@ -17,7 +17,7 @@
 
 import { test as base, expect } from '@playwright/test';
 import { trackErrors } from '../helpers/console.js';
-import { API, authHeaders, signedInAs, signIn } from '../helpers/liveAuth.js';
+import { API, authHeaders, signedInAs, signedInAsNew, signIn } from '../helpers/liveAuth.js';
 
 /**
  * The seeded people the role helpers sign in as.
@@ -196,6 +196,19 @@ export const test = base.extend({
       asBuyer: () => signedInAs(page, ACTORS.buyer),
       asOwner: () => signedInAs(page, ACTORS.owner),
       asTenant: () => signedInAs(page, ACTORS.tenant),
+      /**
+       * A brand-new owner, registered on the spot.
+       *
+       * For screens behind the listing paywall. `ACTORS.owner` holds four listings against a
+       * free-tier allowance of one — deliberately, because `live-listing-quota.spec.js` is built on
+       * that fixture to prove the paywall works — so `/list-property` renders the upgrade prompt for
+       * her rather than the wizard. A spec that only needs the wizard to exist wants somebody who
+       * has not spent their allowance, and no seeded actor can be that permanently: the first spec
+       * to post one listing as them would spend it.
+       *
+       * Resolves the new mobile, in case the spec needs to talk to the API as the same person.
+       */
+      asNewOwner: () => signedInAsNew(page),
       // Back-office sign-ins go through `/staff-login` rather than the session cache, because the
       // screen decides where you land and that redirect is part of what the spec is asserting.
       asAdmin: () => signIn(page, ACTORS.admin, { screen: 'staff', role: /Administrator/ }),

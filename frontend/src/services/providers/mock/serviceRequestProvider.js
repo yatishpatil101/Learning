@@ -30,6 +30,10 @@ import {
   list as _list,
   get as _get,
   create as _create,
+  update as _update,
+  createCoFill as _createCoFill,
+  pendingInvites as _pendingInvites,
+  declineInvite as _declineInvite,
   addMessage as _addMessage,
   decideDraft as _decideDraft,
   markRead as _markRead,
@@ -60,6 +64,93 @@ export async function createServiceRequest(data) {
   // Identity keys on the session mobile (the asymmetry the seam exists for); the form's name is
   // preserved rather than overwritten.
   return _create(myMobile(), { ...data, customer: { ...customer, mobile: myMobile() } });
+}
+
+export async function createCoFillServiceRequest({ request, role, mobile }) {
+  const u = readUser();
+  const ownerMobile = myMobile();
+  const details = request?.details || {};
+  const fromName = request?.customer?.name || u?.name || 'Owner';
+  const created = _createCoFill(ownerMobile, {
+    type: request?.type || 'rental',
+    service: request?.service || 'Rent Agreement',
+    customer: { name: fromName },
+    details,
+    initiatorRole: 'owner',
+    initiatorName: fromName,
+    invite: {
+      toMobile: mobile,
+      toRole: role || 'tenant',
+      fromName,
+      fromRole: 'owner',
+      sections: [role || 'tenant'],
+    },
+  });
+  return created?.req || null;
+}
+
+export async function listMyServiceRequestInvites() {
+  return _pendingInvites(myMobile()).map((inv) => ({
+    id: inv.inviteId,
+    requestId: inv.reqId,
+    requestType: 'rental',
+    role: inv.toRole,
+    status: inv.status === 'pending' ? 'invited' : inv.status,
+    invitedBy: inv.fromName,
+    createdAt: new Date(inv.createdAt || Date.now()).toISOString(),
+  }));
+}
+
+export async function decideServiceRequestInvite(partyId, decision) {
+  if (decision === 'decline') {
+    _declineInvite(myMobile(), partyId);
+    return { id: partyId, status: 'declined' };
+  }
+  return { id: partyId, status: 'accepted' };
+}
+
+export async function submitServiceRequestPartyDetails(id, details) {
+  const owner = ownerOf(id);
+  const current = _get(owner, id) || {};
+  _update(owner, id, { details: { ...(current.details || {}), ...(details || {}) } });
+  return getServiceRequest(id);
+}
+
+export async function openServiceRequestCheckout(id) {
+  return getServiceRequest(id);
+}
+
+/**
+ * Withdraw an unanswered invitation — <strong>a no-op read in mock mode</strong>.
+ *
+ * The mock's invite lives in the *invitee's* `localStorage`, not the requester's, so the requester's
+ * browser has nothing to withdraw: the row it would delete is in a storage key it cannot reach. That
+ * is the same one-browser limit that made the whole co-fill flow a live-only feature, so this
+ * reports the request unchanged rather than pretending. The live provider deletes the party row and
+ * frees the role.
+ */
+export async function withdrawServiceRequestParty(id) {
+  return getServiceRequest(id);
+}
+
+export async function addServiceRequestDoc(id, doc) {
+  const owner = ownerOf(id);
+  const current = _get(owner, id) || {};
+  const docs = Array.isArray(current.docs) ? current.docs.slice() : [];
+  if (doc?.fileName) {
+    docs.push({
+      id: `d_${Date.now()}`,
+      name: doc.fileName,
+      status: 'submitted',
+      file: {
+        fileName: doc.fileName,
+        dataUrl: doc.dataUrl || null,
+        mime: doc.mime || 'application/octet-stream',
+      },
+    });
+  }
+  _update(owner, id, { docs });
+  return getServiceRequest(id);
 }
 
 /**

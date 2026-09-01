@@ -198,12 +198,37 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("tenant_profiles.occupants", Outcome.CLEARED);
         map.put("tenant_profiles.move_in", Outcome.CLEARED);
         map.put("tenant_profiles.prior_landlord", Outcome.CLEARED);
+
         map.put("tenant_profiles.about", Outcome.CLEARED);
+
+        // The contact details somebody typed when claiming a society hub (V101, D240 C1). The row
+        // is deliberately not removed: a claim is the reason a society reads as claimed, pending or
+        // rejected to every other resident, so deleting it would let one person's erasure change a
+        // shared fact about a building and hand a claimed society to whoever asked next.
+        //
+        // Swept rather than left to `users` because the claim form asks a different question — who
+        // on the committee is claiming this — and routinely gets a fuller name than the profile
+        // holds and a personal address that is not `users.email`. Clearing the profile and leaving
+        // these would have kept the better copy of the subject's identity in a table nobody thinks
+        // of as identity.
+        //
+        // `name` is NOT NULL and so is substituted rather than blanked, for the same schema reason
+        // `users.mobile` is.
+        map.put("society_claims.name", Outcome.REPLACED);
+        map.put("society_claims.email", Outcome.CLEARED);
 
         // Government numbers collected for a rent-agreement draft (V47).
         map.put("service_request_identities.party_name", Outcome.CLEARED);
         map.put("service_request_identities.pan", Outcome.CLEARED);
         map.put("service_request_identities.aadhaar", Outcome.CLEARED);
+
+        // A co-fill invitation sent to a number that never signed up (V107). ROW_REMOVED rather
+        // than CLEARED because the schema leaves no third option: a pending row carries the mobile
+        // *instead* of a user id under a CHECK that exactly one of the two is set, so blanking the
+        // column would violate the constraint and filling in a user id would bind an agreement to
+        // the account being erased. Claimed rows hold no mobile at all and are out of scope by
+        // construction — which is the property the pending/claimed split was designed to give.
+        map.put("service_request_parties.mobile", Outcome.ROW_REMOVED);
 
         // Page view telemetry (V96). Listed here even though the vocabulary does not match
         // `user_id` and so nothing would have forced the entry — which is the reason to write it
@@ -343,6 +368,43 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "The area the poster is searching in, not where they live. No identity on its own.");
         map.put("flatmate_seeker_posts.lng",
                 "The area the poster is searching in, not where they live. No identity on its own.");
+
+        // --- the society hub: a building's facts, and a neighbour's words about it ---------------
+        map.put("society_proposals.lat",
+                "A corrected pin for a society's front gate, proposed by a resident who walked to it "
+                        + "(V104, D241 C4). The coordinates of a building, on the same limb as "
+                        + "properties.lat: they say where a block of flats stands, which is a "
+                        + "published fact about the block and not a fact about the person who "
+                        + "reported it. The proposer de-identifies through author_id -> users.name, "
+                        + "which erasure clears, and once ops apply the fix the pin is the "
+                        + "society's own anyway.");
+        map.put("society_proposals.lng", "As society_proposals.lat — the same pin, second half.");
+        map.put("society_contributions.photo_url",
+                "A photograph shared on a society's community tab — the lobby after the monsoon, the "
+                        + "new gate, the garden (V103, D240 C3). Matched on the 'photo' token, which "
+                        + "is warning about a likeness; this is a picture of a place, on a post whose "
+                        + "byline is users.name and therefore goes anonymous with the account. Where "
+                        + "a photograph does capture somebody who did not agree to it, the remedy is "
+                        + "not this sweep — it is the moderation route added in D242 C6, which any "
+                        + "reader can trigger with the 'personal' reason and which stamps removed_at "
+                        + "on the post itself. Erasing the photographer would have left such a "
+                        + "photograph up.");
+        map.put("society_contributions.referral_name",
+                "The name of a plumber, a maid or an electrician a neighbour recommends (V103, D240 "
+                        + "C3). Personal data — and not the subject's. It describes a third party who "
+                        + "never had an account, so erasing the neighbour who wrote it neither "
+                        + "removes the tradesman's interest in it nor is the mechanism by which he "
+                        + "would assert one. That mechanism is the report queue added in D242 C6: "
+                        + "'personal' is a reason code that exists for exactly this row, and "
+                        + "upholding it stamps removed_at on the recommendation. Sweeping it with "
+                        + "the author instead would have made a tradesman's takedown depend on "
+                        + "whoever happened to post about him closing their account.");
+        map.put("society_contributions.referral_contact",
+                "The tradesman's phone number on the same recommendation. As "
+                        + "society_contributions.referral_name — a third party's contact detail, "
+                        + "removable through the C6 report route and not through the account "
+                        + "holder's erasure. It is already withheld from readers who are not signed "
+                        + "in, which is the narrower protection the open web needs.");
 
         // --- preference and counter columns the vocabulary caught -------------------------------
         map.put("flatmate_rooms.gender",
@@ -814,22 +876,29 @@ class ErasureCoverageTest extends AbstractApiTest {
     /**
      * How to find the subject's row in each swept table after the sweep has run.
      *
-     * <p>{@code otp_codes} is the odd one: it has no {@code user_id}, it keys on the number itself,
-     * which is precisely why erasure has to delete from it before substituting the mobile.
+     * <p>{@code otp_codes} and {@code service_request_parties} are the odd two: neither is found by
+     * the subject's user id — the first has no {@code user_id} column at all and the second holds
+     * one only once the invitation has been claimed — so both key on the number itself, which is
+     * precisely why erasure has to reach them before it substitutes the mobile.
+     *
+     * <p>{@link Map#of} caps at ten pairs, hence {@link Map#ofEntries}.
      */
-    private static final Map<String, String> SWEPT_ROW = Map.of(
-            "users", "id = ?",
-            "tenant_profiles", "user_id = ?",
-            "owner_kyc", "user_id = ?",
-            "identity_verifications", "user_id = ?",
-            "refresh_tokens", "user_id = ?",
-            "otp_codes", "mobile = ?",
-            "outbound_message", "recipient_id = ?",
-            "page_views", "user_id = ?",
-            "service_request_identities",
-            "service_request_id in (select id from service_requests where requester_id = ?)");
+    private static final Map<String, String> SWEPT_ROW = Map.ofEntries(
+            Map.entry("users", "id = ?"),
+            Map.entry("tenant_profiles", "user_id = ?"),
+            Map.entry("owner_kyc", "user_id = ?"),
+            Map.entry("identity_verifications", "user_id = ?"),
+            Map.entry("refresh_tokens", "user_id = ?"),
+            Map.entry("otp_codes", "mobile = ?"),
+            Map.entry("outbound_message", "recipient_id = ?"),
+            Map.entry("page_views", "user_id = ?"),
+            Map.entry("society_claims", "claimed_by = ?"),
+            Map.entry("service_request_parties", "mobile = ?"),
+            Map.entry("service_request_identities",
+                    "service_request_id in (select id from service_requests where requester_id = ?)"));
 
-    private static final Set<String> KEYED_ON_OLD_MOBILE = Set.of("otp_codes");
+    private static final Set<String> KEYED_ON_OLD_MOBILE =
+            Set.of("otp_codes", "service_request_parties");
 
     private Object key(String table, UUID subjectId, String oldMobile) {
         return KEYED_ON_OLD_MOBILE.contains(table) ? oldMobile : subjectId;
@@ -924,6 +993,17 @@ class ErasureCoverageTest extends AbstractApiTest {
                 values (?, 'tenant', 0, ?, ?, ?)
                 """, serviceRequestId, "Erasable Person", "ABCDE1234F", "123412341234");
 
+        // A co-fill invitation sent to this number before it had an account (V107). Deliberately
+        // pending — `user_id` null, `mobile` set — because that is the only shape of this row that
+        // holds personal data and so the only shape erasure has anything to say about. `invited_by`
+        // is the subject for want of a second account in this fixture; the sweep keys off `mobile`
+        // and never looks at it.
+        jdbc.update("""
+                insert into service_request_parties
+                       (request_id, mobile, invite_expires_at, role, status, invited_by)
+                values (?, ?, now() + interval '90 days', 'owner', 'invited', ?)
+                """, serviceRequestId, mobile, subjectId);
+
         // An outreach message prepared to this person (D216). `prepared_by` is the subject only
         // because the seed has no second account to hand and the sweep keys off `recipient_id`;
         // nothing here depends on who sent it. `template_id` points at a row the migration seeds,
@@ -944,6 +1024,20 @@ class ErasureCoverageTest extends AbstractApiTest {
                 values ('erasure-seed-session', ?, '/listings', 'google.com', 'mobile'),
                        ('erasure-seed-session', ?, '/property/:id', null, 'mobile')
                 """, subjectId, subjectId);
+        // A society claim. The society is read out of the table rather than created, because the
+        // reference societies arrive with the schema and inserting one here would need a locality
+        // row too — and a claim against a society that does not exist would not exercise the FK the
+        // sweep's `where claimed_by` runs against. Taken from the far end of the slug ordering:
+        // only one live claim per society is allowed, and the society fixtures in the engagement
+        // tests count up from the near end.
+        jdbc.update("""
+                insert into society_claims (society_id, claimed_by, name, role, email, status)
+                select id, ?, 'Committee Secretary Erasable Person', 'secretary',
+                       'secretary.personal@example.com', 'pending'
+                  from societies
+                 order by slug desc
+                 limit 1
+                """, subjectId);
     }
 
     private String fileRequest(User subject) throws Exception {

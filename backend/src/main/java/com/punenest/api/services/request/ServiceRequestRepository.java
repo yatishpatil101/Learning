@@ -8,8 +8,10 @@ import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 /**
  * Service-request reads.
@@ -76,6 +78,14 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
                                 and p.status = 'accepted'))
             """)
     boolean isParticipant(@Param("id") UUID id, @Param("userId") UUID userId);
+
+    /** Same row fetch as {@link #findById}, but write-locked for checkout-open serialization. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r from ServiceRequest r
+            where r.id = :id
+            """)
+    Optional<ServiceRequest> findByIdForUpdate(@Param("id") UUID id);
 
     /**
      * The staff queue — every request on the given desk that has entered it, newest first. A request

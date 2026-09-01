@@ -6,11 +6,22 @@ import OtpBoxes from '../../../components/auth/OtpBoxes.jsx';
 import SocietyLocationModal from '../../../components/society/SocietyLocationModal.jsx';
 import { PROOF_TYPES, SOC_AMEN, CONTRIB_META, BOARD_META } from './constants.js';
 
-/** Stored report target ids → their label key. */
+/**
+ * Report target ids → their label key.
+ *
+ * All six kinds, not three. The map used to name only `review`, `question` and `answer`, and the
+ * lookup fell back to `society.targetReview` for anything missing — so reporting a neighbour's
+ * recommendation, a reply to one, or a noticeboard post opened a dialog headed "Report this
+ * review". The reader was being asked to confirm a complaint about something other than the thing
+ * they had clicked.
+ */
 const REPORT_TARGET_KEYS = {
   review: 'society.targetReview',
   question: 'society.targetQuestion',
   answer: 'society.targetAnswer',
+  contribution: 'society.targetContribution',
+  reply: 'society.targetReply',
+  board: 'society.targetBoard',
 };
 
 export default function SocietyModals({ ctx }) {
@@ -23,7 +34,8 @@ export default function SocietyModals({ ctx }) {
     contribOpen, setContribOpen, cKind, setCKind, cForm, setCForm, submitContribution,
     boardOpen, setBoardOpen, bKind, setBKind, bForm, setBForm, submitBoard,
     waOpen, setWaOpen, waUrl, setWaUrl, submitWa,
-    reportFor, setReportFor, reportReason, setReportReason, submitReport,
+    reportFor, setReportFor, reportReason, setReportReason, reportDetails, setReportDetails,
+    reportBusy, reportReasons, submitReport,
     locOpen, soc, hasCoords, submitLocation, setLocOpen,
   } = ctx;
   return (
@@ -240,8 +252,21 @@ export default function SocietyModals({ ctx }) {
             <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><Icon name="flag" className="w-5 h-5 text-amber-300" /> {t('society.reportThis', { type: t(REPORT_TARGET_KEYS[reportFor.targetType] || 'society.targetReview') })}</h3>
             <p className="text-gray-400 text-sm mb-4">{t('society.reportSub')}</p>
             {reportFor.snapshot ? <p className="text-xs text-gray-400 rounded-lg bg-white/5 border border-white/10 p-2.5 mb-3 line-clamp-3">“{reportFor.snapshot}”</p> : null}
-            <textarea value={reportReason} onChange={(e) => setReportReason(e.target.value)} rows={3} maxLength={200} placeholder={t('society.reasonPlaceholder')} className={inp} />
-            <div className="flex gap-2 mt-5"><button onClick={() => setReportFor(null)} className="btn-outline flex-1">{t('society.cancel')}</button><button onClick={submitReport} className="btn-teal flex-1">{t('society.submitReport')}</button></div>
+            {/* A reason *code*, then the prose.
+                This was one free-text box, and its contents were the whole complaint. A queue of
+                sentences cannot be counted or filtered — "he put my number on here" and "this is
+                spam" arrived as the same shapeless field — and the server refuses a report with no
+                recognised reason, so the box on its own could not have submitted anything at all.
+                The picker is what ops filter on; the textarea, still here, is what they read. */}
+            <Select
+              value={reportReason}
+              onChange={setReportReason}
+              options={reportReasons.map(([value, label]) => ({ value, label }))}
+              ariaLabel={t('society.reasonLabel')}
+              className="mb-2.5"
+            />
+            <textarea value={reportDetails} onChange={(e) => setReportDetails(e.target.value)} rows={3} maxLength={200} placeholder={t('society.detailsPlaceholder')} className={inp} />
+            <div className="flex gap-2 mt-5"><button onClick={() => setReportFor(null)} className="btn-outline flex-1">{t('society.cancel')}</button><button onClick={submitReport} disabled={reportBusy} className="btn-teal flex-1 disabled:opacity-60">{t('society.submitReport')}</button></div>
           </div>
         </div>
       )}

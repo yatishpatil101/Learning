@@ -29,6 +29,11 @@ import java.util.UUID;
  * @param source             {@code curated} / {@code rera} / {@code community} — provenance travels
  *                           with the record so a reader can weigh it
  * @param claimStatus        {@link SocietyClaimStatus}
+ * @param verifiedAt         when ops confirmed a community-minted society is real; null while it is
+ *                           still a candidate, and null forever for curated and RERA rows, which
+ *                           are verified by construction. Read together with {@code source}: a
+ *                           {@code community} row with no {@code verifiedAt} is the one a reader
+ *                           should weigh as "somebody typed this in"
  * @param listingCount       live listings in this society, computed on read (decision D7.2)
  * @param followerCount      followers, computed from {@code society_follows} — never the stored
  *                           {@code follower_count} column
@@ -66,6 +71,7 @@ public record SocietyResponse(
         boolean conveyance,
         List<String> amenities,
         String source,
+        java.time.Instant verifiedAt,
         String claimStatus,
         long listingCount,
         long followerCount,

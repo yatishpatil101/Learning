@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useFormDraft } from '../../../lib/hooks';
-import { getListing, parseAmount } from '../../../lib/store';
+import { parseAmount } from '../../../lib/store';
+import { myListing } from '../../../services/propertyService.js';
 import { loadListingQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
@@ -122,10 +123,25 @@ export default function useListProperty() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* The listing being edited, read through the seam.
+
+     This used to be a synchronous `getListing(editId)` out of localStorage, and that is the worst
+     shape a stale read can take: not "the screen renders empty", but "the screen renders empty and
+     then saves". An owner reaching the editor on a second device, after clearing site data, or
+     through the "Add photos" link on an enquiry — which is built from a server-side id and so never
+     matched this browser at all — got the blank default form, and submitting it would have PATCHed
+     those defaults over a listing that was not blank.
+
+     Kept in state as well as in the diff ref because `persistListing` needs the *opened* record to
+     classify the edit, and it can no longer fetch it for itself. */
+  const [editListing, setEditListing] = useState(null);
   useEffect(() => {
-    if (editId) {
-      const listing = getListing(editId);
-      if (listing) {
+    if (!editId) { setEditListing(null); return undefined; }
+    let alive = true;
+    myListing(editId, user)
+      .then((listing) => {
+        if (!alive || !listing) return;
+        setEditListing(listing);
         const snap = listing.form || listing;
         setForm((prev) => ({ ...prev, ...snap }));
         const imgs = listing.images || listing.gallery || [];
@@ -137,9 +153,10 @@ export default function useListProperty() {
         // Snapshot the opened state for tier diffing + remember if it's live.
         editOrigRef.current = { form: { ...initialForm, ...snap }, photoUrls: imgs.filter(Boolean) };
         setEditApproved(/approved|verified|live/i.test(String(listing.status || '')));
-      }
-    }
-  }, [editId]);
+      })
+      .catch(() => { /* the form stays on its defaults; the submit guard below refuses to save. */ });
+    return () => { alive = false; };
+  }, [editId, user]);
 
   /* Live tier classification of the owner's in-progress edit (P1). */
   const editChanges = useMemo(() => {
@@ -265,12 +282,19 @@ export default function useListProperty() {
   const confirmReset = useCallback(() => startFresh(), [startFresh]);
 
   const finalizeListing = async () => {
+    /* An edit that never loaded its listing must not save. The form is on its defaults at this
+       point, so a PATCH would put those defaults over the owner's real record — the failure mode
+       the seam read above exists to close, and the one place where being permissive costs data. */
+    if (editId && !editListing) {
+      toast(t('listProperty.editLoadFailed', 'We could not load that listing. Reload the page and try again.'), 'error');
+      return;
+    }
     // Perceptual hashes of the uploaded photos let Ops catch a re-list that reuses
     // the same photos under a different typed address. Computed here (browser) so
     // the store stays synchronous; failures degrade to no image signal.
     let photoHashes = [];
     try { photoHashes = await hashPhotos(photos); } catch { photoHashes = []; }
-    const res = await persistListing({ form, user, editId, documents, photos, photoHashes });
+    const res = await persistListing({ form, user, editId, editListing, documents, photos, photoHashes });
     // Same owner already has this exact property live → stop and point them to it.
     if (res && res.ok === false && res.blocked) {
       setDupExistingId(res.existingId || '');

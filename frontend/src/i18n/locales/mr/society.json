@@ -240,11 +240,15 @@
     "waOnlyGenuine": "फक्त खरे <1>chat.whatsapp.com</1> निमंत्रण दुवे स्वीकारले जातात.",
     "reportThis": "या {{type}} ची तक्रार करा",
     "reportSub": "काय चुकीचे आहे ते सांगा — स्पॅम, फसवणूक, अपमानास्पद किंवा चुकीची माहिती. आमची टीम प्रत्येक तक्रार पाहते.",
-    "reasonPlaceholder": "कारण (ऐच्छिक)",
+    "reasonLabel": "कारण",
+  "detailsPlaceholder": "टीमला आणखी काही सांगायचे असल्यास लिहा (ऐच्छिक)",
     "submitReport": "तक्रार पाठवा",
     "targetReview": "पुनरावलोकना",
     "targetQuestion": "प्रश्ना",
     "targetAnswer": "उत्तरा",
+    "targetContribution": "योगदाना",
+    "targetReply": "उत्तरा",
+    "targetBoard": "पोस्टी",
     "filterAll": "सर्व",
     "filterTips": "टिप्स",
     "filterPicks": "स्थानिक शिफारसी",
@@ -322,7 +326,9 @@
     "viewHub": "हब पाहा",
     "followToast": "फॉलो केले — नवीन नोंदी कळवू",
     "unfollowToast": "अनफॉलो केले",
-    "addedToast": "जोडले — घर नोंदले की लगेच कळवू"
+    "addedToast": "जोडले — घर नोंदले की लगेच कळवू",
+    "alreadyListedToast": "ही सोसायटी आधीच PuneNest वर आहे — नेत आहोत",
+    "addFailed": "सोसायटी जोडता आली नाही. कृपया पुन्हा प्रयत्न करा."
   },
   "societyLoc": {
     "dialogAria": "सोसायटीचे स्थान सुचवा",

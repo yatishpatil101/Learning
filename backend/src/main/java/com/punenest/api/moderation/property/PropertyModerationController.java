@@ -270,6 +270,27 @@ public class PropertyModerationController {
     }
 
     /**
+     * {@code GET /admin/properties/owner-standing} — how much of their listing ceiling this owner is
+     * already using; 200 even for a number with no account.
+     *
+     * <p>Guarded by {@link #POST_ON_BEHALF_WRITE}, not {@code properties:read}. This is the one read
+     * on the controller that discloses a fact about a named individual's plan rather than about
+     * supply, and its only audience is the desk that is about to post past that plan. Guarding a
+     * read with a write atom is unusual, and the alternative was worse: a {@code postOnBehalf:read}
+     * would add a row to the permission grid that exists solely to be ticked alongside the row above
+     * it, and {@code BackOfficePermissions} is explicit that it does not hold names which guard
+     * nothing anybody reasons about separately.
+     *
+     * <p>The number is normalised in the service, the same way the console holds it. An operator
+     * types what the caller reads out.
+     */
+    @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_OWNER_STANDING)
+    @PreAuthorize(POST_ON_BEHALF_WRITE)
+    public OnBehalfListingService.OwnerListingStanding ownerStanding(@RequestParam String mobile) {
+        return onBehalf.standingFor(mobile);
+    }
+
+    /**
      * {@code POST /properties/{id}/pipeline} — move a staff-posted listing along the owner
      * hand-back funnel.
      *

@@ -3,8 +3,8 @@ import { digits } from '../contact.js';
 import { getActiveCityGeo, withinBounds } from '../geoConfig.js';
 import { get, set } from './internals.js';
 import { ENTITY_KEY, allEntityReviews } from './reviews.js';
-import { BOARD_KEY, CONTRIB_KEY, QA_KEY, allSocietyBoard, allSocietyContributions, allSocietyQA, isOps, isResidentOrAdmin, uid } from './society.js';
-import { resolveSociety, setSocietyOverlay } from './societyAdmin.js';
+import { BOARD_KEY, CONTRIB_KEY, QA_KEY, allSocietyBoard, allSocietyContributions, allSocietyQA, isOps, isResidentOrAdmin } from './society.js';
+import { setSocietyOverlay } from './societyAdmin.js';
 
 /* =========================================================================
    Society Hub — resident WhatsApp group link (proposed → ops-approved)
@@ -91,30 +91,24 @@ export const pendingSocietyWhatsapps = () =>
      snapshot, by, mobile, at, status:'open'|'removed'|'kept' }
    ========================================================================= */
 const REPORT_KEY = 'pnSocietyReports';
-const REPORT_TYPES = ['contribution', 'reply', 'review', 'question', 'answer', 'board'];
 const allReports = () => { const v = get(REPORT_KEY, []); return Array.isArray(v) ? v : []; };
+/**
+ * The report *writer* is gone; this queue is now historical only.
+ *
+ * `reportSocietyContent` used to append to `pnSocietyReports` — in the reporting member's own
+ * browser — while the ops console read the same key from the *moderator's* browser. The two were
+ * never the same storage, so the queue was empty by construction: every "Report" press on a
+ * society hub wrote a row nobody could ever read. Reporting now goes to `POST /reports` and the
+ * complaints land in the platform queue with everything else.
+ *
+ * What is left here is the reader, and only because a browser that filed reports before the
+ * migration still holds them. `AdminSocieties.jsx` is the last consumer and moves with the rest of
+ * the back office; when it does, this whole block goes with it.
+ */
 export const getSocietyReports = (status) => {
+
   const list = allReports();
   return (status ? list.filter((r) => r.status === status) : list).slice().sort((a, b) => b.at - a.at);
-};
-export const reportSocietyContent = (o = {}) => {
-  const u = readUser();
-  if (!u) return 'login';
-  if (!REPORT_TYPES.includes(o.targetType) || !o.targetId) return null;
-  const mob = digits(u.mobile);
-  const list = allReports();
-  // One open report per user per target.
-  if (list.some((r) => r.status === 'open' && r.targetType === o.targetType && r.targetId === o.targetId && r.mobile === mob)) return 'dup';
-  const rec = {
-    id: uid('rep'), slug: o.slug || '', targetType: o.targetType, targetId: o.targetId,
-    parentId: o.parentId || null, entityId: o.entityId || null,
-    reason: String(o.reason || '').trim().slice(0, 200),
-    snapshot: String(o.snapshot || '').trim().slice(0, 240),
-    by: u.name || 'User', mobile: mob, at: Date.now(), status: 'open',
-  };
-  list.unshift(rec);
-  set(REPORT_KEY, list);
-  return rec;
 };
 // Delete the reported target from its own store. Best-effort — returns true even
 // if already gone (author may have deleted it first).

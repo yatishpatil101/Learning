@@ -133,6 +133,16 @@ public class ServiceRequest extends VersionedEntity {
     }
 
     /**
+     * Replace the structured form payload while the request is still pre-payment.
+     *
+     * <p>Package-private like the workflow mutators: only {@code CoFillServiceRequests} composes
+     * this into an authorised flow, and only for a party who was invited onto the matter.
+     */
+    void replaceDetails(Map<String, Object> details) {
+        this.details = details;
+    }
+
+    /**
      * Hold this request behind a gateway order until it is paid for.
      *
      * <p>Sets the initial state to {@link ServiceRequestStatus#AWAITING_PAYMENT} — not a

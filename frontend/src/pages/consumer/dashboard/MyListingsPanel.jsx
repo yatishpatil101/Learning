@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import Select from '../../../components/ui/Select.jsx';
-import { setListingStatus, toggleFeatured, confirmListingFresh } from '../../../services/propertyService.js';
+import { setListingStatus, toggleFeatured, confirmListingFresh, takeListingDown } from '../../../services/propertyService.js';
 import { deleteRoom } from '../../../services/flatmateService.js';
 import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
@@ -296,22 +296,34 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   /* The branches are not interchangeable: a room is withdrawn through its own endpoint, which can
      refuse. A split flat's rooms share one occupancy ledger and one joint agreement, so the server
      answers 409 rather than half-dismantling the arrangement — that refusal has to reach the owner
-     as words, not as a toast that says the room was deleted while it is still on the board. */
+     as words, not as a toast that says the room was deleted while it is still on the board.
+
+     The property branch was three defects stacked on one line: `setListingStatus(l.id, 'deleted')`.
+     It is the *moderator's* route (`PATCH /properties/{id}/status`), so an owner is not authorised
+     for it; `deleted` is not one of the three statuses that route accepts, so it is a 400 even for
+     staff; and it was not awaited, so both failures were swallowed and the owner was told their
+     listing was deleted, after which `refreshListings()` put it straight back on screen.
+
+     That mattered more than a cosmetic bug, because the listing quota is enforced on the server now
+     (D235): the free tier is one listing at a time, and this was the only way to let go of one. A
+     ceiling whose exit silently does nothing is a ceiling with no exit. `takeListingDown` is
+     `DELETE /me/listings/{id}` — owner-scoped, and soft, because the enquiries and deals that point
+     at the listing outlive the owner's interest in it. */
   const handleDelete = async (l) => {
-    if (!window.confirm(`Delete "${l.title}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Take "${l.title}" down? Buyers will stop seeing it.`)) return;
 
     try {
       if (l.private) await deleteManaged(l.managedId);
       else if (l.flatmateGroup) deleteFlatmateGroup(l.id);
       else if (l.flatmatePost) deleteFlatmatePost(l.id);
       else if (l.flatmate) await deleteRoom(l.id);
-      else setListingStatus(l.id, 'deleted');
+      else await takeListingDown(l.uuid || l.id, user);
     } catch (e) {
-      toast(e?.message || `Could not delete ${l.title}. Please try again.`, 'error');
+      toast(e?.message || `Could not take ${l.title} down. Please try again.`, 'error');
       return;
     }
 
-    toast(`${l.title} deleted`, 'info');
+    toast(`${l.title} taken down`, 'info');
     refreshListings();
   };
 

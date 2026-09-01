@@ -309,26 +309,8 @@ paths:
           in: query
           description: >
             Property types, OR'd, case-insensitive. One list rather than the UI's separate
-            residential and commercial chip groups — which drawer a chip was in is not the server's
-            concern.
-
-            `pg` and `flatmates` name a share rather than a kind of building, so they match on
-            share type; every other value matches the building type **and** requires the listing not
-            to be a share. A PG posted as a "Flat" is therefore returned by `pg` and not by `flat`.
-            Combining the two kinds is a union as you would expect: `types=flat,pg` returns whole
-            flats plus PGs.
-          schema: { type: array, items: { type: string } }
-        - name: commercialUses
-          in: query
-          description: >
-            Commercial subtypes, OR'd, case-insensitive: `office`, `coworking`, `shop`, `retail`,
-            `warehouse`, `industrial`.
-
-
-            A separate facet from `types` because `types` collapses every commercial listing to the
-            single key `commercial` — right for the top-level chip, and unable to express "warehouse
-            but not office". Only ever narrows within commercial, since nothing else carries a
-            subtype.
+            residential and commercial chip groups — both narrow the same column, and which drawer
+            a chip was in is not the server's concern.
           schema: { type: array, items: { type: string } }
         - name: bhks
           in: query
@@ -480,15 +462,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/PropertySummary' }
-                      verifiedElements:
-                        type: integer
-                        format: int64
-                        description: >-
-                          Listings in the whole match carrying a verified-owner or live
-                          ownership-verification badge. About the entire result set, not the page:
-                          the listings header reads "N properties, M verified", and once the server
-                          pages, a count derived from `content` would describe the page while the
-                          total beside it described the match.
   /properties/featured:
     get:
       tags: [Catalog & Search]
@@ -635,6 +608,50 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/Society' }
+    post:
+      tags: [Catalog & Search]
+      summary: Add a society the catalogue does not have
+      operationId: mintSociety
+      description: >
+        The escape hatch behind every society picker on the platform. A curated directory is always
+        behind the city: somebody is listing a flat in a building that finished last quarter, and a
+        picker that cannot admit that is a picker that stops the listing.
+
+
+        **Two success codes, and the difference is the point.** `201` for a society that did not
+        exist, `200` when the name already resolves to one -- both hand back the same canonical row,
+        so a client that ignores the distinction still behaves correctly. But collapsing them would
+        make the screen say "Added" to somebody who has just re-found a society that has been on
+        PuneNest for two years, which is both wrong and quietly alarming: it suggests the catalogue
+        is empty.
+
+
+        Signing in is required, and not as a formality. The row records who added it, which is what
+        an operator reviewing `/admin/society-candidates` needs in order to ask a question about it,
+        and what makes one account minting fifty societies a visible pattern rather than a suspicion.
+
+
+        What arrives here is a *candidate*, not a verified building: it carries `source` marking its
+        provenance and no `verifiedAt` until an operator confirms it. Everything downstream that
+        cares -- the hub's trust badge, the directory's ordering -- reads those two fields rather
+        than assuming a row's existence means somebody checked it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyCreate' }
+      responses:
+        '200':
+          description: Already on PuneNest -- the existing canonical row, unmodified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Society' }
+        '201':
+          description: Added as a candidate, awaiting an operator's check
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Society' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /societies/{slug}:
     get:
       tags: [Catalog & Search]
@@ -650,6 +667,690 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SocietyDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /societies/{slug}/membership:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: Where the caller stands in this society
+      security: []
+      operationId: getSocietyMembership
+      description: >
+        One read for four facts the hub needs before it can draw a single control: this reader's own
+        residency, whether they are the committee, the society's live claim, and how many residents
+        are verified.
+
+
+        Public and caller-aware, the same shape `getSociety` uses. `permitAll` does not reject a
+        bearer token, so a signed-in reader gets their standing and an anonymous one gets the
+        society's public facts with the personal parts null. The alternative -- a `401` for the
+        signed-out case -- would force the hub to guess who is looking before it asks, and the
+        client cannot know that before the token round-trips.
+
+
+        Four facts in one response rather than four reads, because they are drawn together and a
+        page that renders them as they arrive flickers a "Verify your flat" prompt in front of a
+        resident who verified theirs last year.
+      responses:
+        '200':
+          description: >
+            The caller's standing. `resident` and `claim` are null for a signed-out reader and for a
+            signed-in one who has never asked; `verifiedResidents` is public either way, because it
+            is the number that tells a prospective buyer whether this hub is alive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyMembership' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /societies/{slug}/residents:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: The residency review queue (committee or staff)
+      operationId: listSocietyResidents
+      description: >
+        What the committee works through: everybody who has asked to be recognised as living here.
+
+
+        The reviewer is "platform staff, **or** the person whose claim on this society was
+        approved", and the second half of that cannot be written as a role -- it is a fact about a
+        row in `society_claims`. So this is not an `x-roles` route, and a staff token is sufficient
+        but not necessary.
+
+
+        Sort is fixed to newest-first in the query and a client `sort` is ignored rather than
+        honoured, because the underlying projection cannot satisfy an arbitrary order and a second
+        `order by` would fail at the database rather than at the boundary.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, verified, rejected] }, description: Narrow the queue; omit for everything }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: The queue, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyResident' }
+        '403':
+          description: Signed in, but neither staff nor this society's committee
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Engagement]
+      summary: Ask to be recognised as a resident of one flat
+      operationId: requestSocietyResidency
+      description: >
+        The request that turns an account into a verified neighbour -- which is what the noticeboard
+        gate, the WhatsApp invite and the `authorIsResident` badge all read.
+
+
+        **200, not 201, and deliberately so.** A person has at most one standing request per
+        society, so a second call amends the first rather than creating a second row. A `201` with a
+        `Location` would be a lie the second time and would teach a client to expect two rows where
+        the unique index guarantees one. Correcting a mistyped flat number is the common case, not
+        the exception.
+
+
+        The resource is created under the society rather than under `/me` because it belongs to the
+        society's register, not to the caller's account: the committee reads it, the committee
+        decides it, and its uniqueness rule is scoped to the building.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyResidentRequest' }
+      responses:
+        '200':
+          description: >
+            The caller's standing request, created or amended. `status` is `pending` until the
+            committee decides; `mobile` is the caller's own, so it is not masked back to them.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyResident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/residents/{residentId}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: residentId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Engagement]
+      summary: Verify or reject one residency request (committee or staff)
+      operationId: decideSocietyResidency
+      description: >
+        The decision that grants or withholds resident standing in this building.
+
+
+        `PATCH` rather than two verbs (`.../verify`, `.../reject`) because approve and reject are one
+        field's value, and splitting them would put the vocabulary in the URL where it cannot be
+        enumerated or extended without a new route. The same reasoning the moderation queues use.
+
+
+        Guarded by the same "staff or this society's approved claimant" rule as the queue read, and
+        for the same reason it is not an `x-roles`: half of it is a row, not a role. The decision
+        records who made it, so a committee's own moderation is attributable rather than anonymous.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyResidentDecision' }
+      responses:
+        '200':
+          description: The decided row, with `status`, `assignedTo` and `decidedAt` filled in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyResident' }
+        '403':
+          description: Signed in, but neither staff nor this society's committee
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/claim:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Engagement]
+      summary: Claim this society on behalf of its committee
+      operationId: claimSociety
+      description: >
+        How a managing committee asks for the power to run their own society page -- to review
+        residency requests, take down a notice and moderate the community tab.
+
+
+        **200 for the same reason `requestSocietyResidency` answers 200**: one claim per person per
+        society, so a second call amends the first. Somebody who typed the wrong committee role or
+        left the note blank should be able to correct it without an operator first rejecting the
+        original.
+
+
+        Nothing is granted here. The claim lands `pending` on `/admin/society-claims`, and until an
+        operator approves it the claimant is an ordinary member. That is the whole point: a route
+        that let a signed-in stranger assert committee status over a building would hand them the
+        residency register of everybody who lives in it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyClaimCreate' }
+      responses:
+        '200':
+          description: 'The claim, created or amended, `status: pending`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyClaim' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/questions:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: Questions asked about this society
+      security: []
+      operationId: listSocietyQuestions
+      description: >
+        Public, newest first, with each question's answers attached rather than fetched per row --
+        a Q&A tab that needed a second call per question would issue twenty requests to draw one
+        screen.
+
+
+        **Deliberately not gated on residency, on either side.** The person with the most to ask has
+        not moved in yet, and refusing them the question would leave the tab full of residents
+        talking to each other about a building they already understand. The reader is protected by
+        the `authorIsResident` badge instead, which says who is answering from inside the building
+        and who is not, and lets them weigh it themselves.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Questions, newest first, answers nested
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyQuestion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Engagement]
+      summary: Ask a question about this society
+      operationId: askSocietyQuestion
+      description: >
+        Any signed-in caller. **201**, unlike the residency and claim writes next door, because this
+        genuinely creates a new row every time: a second question is a second question, and nothing
+        about it amends the first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyPost' }
+      responses:
+        '201':
+          description: The question, with an empty `answers` array
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyQuestion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/questions/{questionId}/answers:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: questionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Engagement]
+      summary: Answer a question about this society
+      operationId: answerSocietyQuestion
+      description: >
+        Any signed-in caller, on the same reasoning as the question: a prospective buyer who viewed
+        three flats here knows things the residents have stopped noticing.
+
+
+        The answer is returned on its own rather than as the re-read question, so a client that has
+        the thread in hand appends one row instead of replacing the list and losing the reader's
+        scroll position. `authorIsResident` travels with it, which is the field that lets a reader
+        weigh "the lift works fine" against who said it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyPost' }
+      responses:
+        '201':
+          description: The answer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyAnswer' }
+        '404':
+          description: No such society, or no such question on it
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/board:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: The society noticeboard
+      security: []
+      operationId: listSocietyBoard
+      description: >
+        Public to read, because an active noticeboard is the most honest signal a society hub can
+        give a prospective buyer -- a building where somebody posted about the water tank cleaning
+        last Tuesday is a building somebody is looking after.
+
+
+        **Caller-aware for exactly one field.** The rows are identical for everyone; whether a
+        delete control is drawn is not. Working that out on the client from a display name would get
+        it wrong the moment two residents share one, so `canRemove` is computed server-side against
+        the actual rule -- author, committee, or staff.
+      parameters:
+        - { name: kind, in: query, schema: { type: string }, description: Narrow to one notice kind; omit for all }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Notices, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyBoardItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Engagement]
+      summary: Post a notice (verified resident, committee or staff)
+      operationId: postSocietyBoardItem
+      description: >
+        **The one write on the society hub that needs a verified flat**, and the reason this
+        controller's gate is not a role. A notice asserts something about the building -- that the
+        lift is out, that the AGM is on Sunday -- and a stranger asserting it is misinformation with
+        the society's name on it. Asking a question needs only an account; posting a notice needs a
+        row in `society_residents` saying the committee recognised you.
+
+
+        That rule cannot be a `@PreAuthorize`, so it is not in `x-roles` either: a `403` here means
+        "verify your flat first", not "you are the wrong kind of user".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyBoardItemCreate' }
+      responses:
+        '201':
+          description: The notice, with `canRemove` true for its author
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyBoardItem' }
+        '403':
+          description: Signed in, but not a verified resident of this society
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/board/{itemId}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Engagement]
+      summary: Take one notice down (author, committee or staff)
+      operationId: removeSocietyBoardItem
+      description: >
+        Three parties may remove a notice and the reasons differ: the author because they posted it,
+        the committee because they answer for what the building says about itself, and staff because
+        the platform answers for it publicly. That set is exactly what `canRemove` reports on the
+        read, so a client never has to draw a control it will then be told it cannot use.
+
+
+        204 with no body, because the row is gone and the list the caller is holding is the one they
+        already have minus this item.
+      responses:
+        '204':
+          description: Removed
+        '403':
+          description: Signed in, but not the author, the committee or staff
+        '404':
+          description: No such society, or no such notice on it
+  /societies/{slug}/contributions:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: The community tab -- tips, trusted picks and photos
+      security: []
+      operationId: listSocietyContributions
+      description: >
+        Deliberately **unfiltered**. The tab's chips carry a count for every bucket including the
+        ones you are not looking at, so the page is drawn from one read and filtered in the browser;
+        a `kind` parameter would mean either a request per chip or counts that lag the list.
+
+
+        **Caller-aware for three things a client cannot work out for itself**: whether this reader
+        has already voted (`helpfulByMe`), whether a delete control would actually work
+        (`canRemove`), and whether they are entitled to see a recommended person's phone number.
+        That last one is the load-bearing case -- an electrician somebody recommended never agreed
+        to be on the open web, so `referralContact` is withheld from a signed-out reader.
+
+
+        Page size defaults to 50, higher than the platform's usual 20: this is a scroll-through
+        feed, not a work queue, and the chip counts are only honest if the rows behind them are
+        actually loaded.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Contributions, newest first, replies nested
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyContribution' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Engagement]
+      summary: Add a tip, a trusted pick or a photo
+      operationId: addSocietyContribution
+      description: >
+        Any signed-in caller -- a lower bar than the noticeboard next door, and on purpose. A notice
+        speaks for the building; a contribution speaks for one person, and is labelled as such by
+        `authorName` and `authorIsResident`. Requiring a verified flat here would have emptied the
+        tab of exactly the people most willing to fill it.
+
+
+        `referralContact` is somebody else's phone number. It is accepted here because a
+        recommendation without a way to reach the person is not a recommendation, and withheld on
+        the public read for the same reason it was accepted: it belongs to a third party who is not
+        on the platform.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyContributionCreate' }
+      responses:
+        '201':
+          description: The contribution, with `canRemove` true and an empty `replies` array
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyContribution' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/contributions/{contributionId}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Engagement]
+      summary: Remove one contribution (author, committee or staff)
+      operationId: removeSocietyContribution
+      description: >
+        The same three parties as the noticeboard, for the same three reasons, reported in advance
+        by `canRemove` on the read.
+      responses:
+        '204':
+          description: Removed, along with its replies
+        '403':
+          description: Signed in, but not the author, the committee or staff
+        '404':
+          description: No such society, or no such contribution on it
+  /societies/{slug}/contributions/{contributionId}/helpful:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Engagement]
+      summary: Mark a contribution helpful
+      operationId: markSocietyContributionHelpful
+      description: >
+        **`PUT` to set and `DELETE` to clear, rather than one toggle endpoint**, and this is the
+        detail worth reading twice. Both verbs are idempotent, so a request retried after a timeout
+        on a train produces the state the tap intended. A toggle would produce the opposite one --
+        the user taps, the response is lost, the client retries, and the vote it just cast is
+        silently withdrawn.
+
+
+        Answers with the new count and the caller's own state rather than 204, because that is
+        exactly what the button draws and re-reading the whole page to colour one icon would be
+        absurd.
+      responses:
+        '200':
+          description: The contribution's vote state after the write
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyHelpful' }
+        '404':
+          description: No such society, or no such contribution on it
+    delete:
+      tags: [Engagement]
+      summary: Withdraw a helpful vote
+      operationId: clearSocietyContributionHelpful
+      description: >
+        The idempotent partner of the `PUT`. Clearing a vote that was never cast is a `200` with the
+        unchanged count, not a `404` -- the caller asked for a state and that state is what they now
+        have.
+      responses:
+        '200':
+          description: The contribution's vote state after the write
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyHelpful' }
+        '404':
+          description: No such society, or no such contribution on it
+  /societies/{slug}/contributions/{contributionId}/replies:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Engagement]
+      summary: Reply in the thread under a contribution
+      operationId: replyToSocietyContribution
+      description: >
+        Any signed-in caller. One level of nesting and no more: a reply has no replies of its own,
+        because a society tab is not a forum and a three-deep thread on a tip about the milkman is a
+        moderation problem nobody asked for.
+
+
+        Returned on its own rather than as the re-read contribution, so a client appends instead of
+        replacing the list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyPost' }
+      responses:
+        '201':
+          description: The reply
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyContributionReply' }
+        '404':
+          description: No such society, or no such contribution on it
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /societies/{slug}/contributions/{contributionId}/replies/{replyId}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: contributionId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: replyId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Engagement]
+      summary: Remove one reply (its author, the committee or staff)
+      operationId: removeSocietyContributionReply
+      description: >
+        The reply's **own** author, not the contribution's -- somebody who posted a tip does not
+        thereby get to delete a correction to it. That distinction is why this is its own route and
+        its own `canRemove` on the reply rather than an inherited one.
+      responses:
+        '204':
+          description: Removed
+        '403':
+          description: Signed in, but not the reply's author, the committee or staff
+        '404':
+          description: No such society, contribution, or reply
+  /societies/{slug}/proposals:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Engagement]
+      summary: What the community says this society is
+      security: []
+      operationId: listSocietyProposals
+      description: >
+        One resource for three things the hub used to keep in three `localStorage` keys: missing
+        details, the resident WhatsApp group, and a corrected map pin. They share one lifecycle --
+        propose, ops screen, apply -- and a client that has to know which of three URLs a form posts
+        to has been handed a decision the server is better placed to make.
+
+
+        **One read rather than three, so the page cannot render half a state**: a banner saying your
+        pin correction is pending beside a map that has already been corrected.
+
+
+        Public because the hub calls it before it knows who is looking; what it publishes is not.
+        A signed-out reader is told a resident group exists (`whatsappAvailable`) and is nudged to
+        verify their flat, and never sees `whatsappJoinUrl` -- an invite link is a door into a group
+        of people who live somewhere, and it reaches a verified resident or nobody.
+      responses:
+        '200':
+          description: >
+            Every pending proposal plus the resident group's status. `whatsappJoinUrl` is null for
+            anyone who is not a verified resident of this society, whatever `whatsappAvailable` says.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyProposals' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Engagement]
+      summary: Propose a detail, the resident group link, or a corrected pin
+      operationId: proposeSocietyChange
+      description: >
+        **Two gates behind one route.** A missing detail -- the builder, the year, the maintenance
+        rate -- is open to anyone signed in, because it is a fact about a building that a visitor
+        can read off the gate. The group link and the map pin need a verified flat: one is an
+        invitation into a residents' group and the other moves where the building *is*, and neither
+        should be settable by somebody who has never been there. The service names which rule
+        stopped you in the `403`.
+
+
+        **201 even though a re-submission overwrites this author's own pending row.** From the
+        caller's side a proposal has been lodged either way, and the distinction between "created"
+        and "corrected" is one the composer does not draw and the author does not care about.
+
+
+        Nothing is applied here. The proposal lands `pending` on `/admin/society-proposals`, and
+        approval is what writes the value onto the society.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyProposalCreate' }
+      responses:
+        '201':
+          description: 'The proposal, `status: pending`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyProposal' }
+        '403':
+          description: >
+            A group-link or pin proposal from somebody who is not a verified resident of this
+            society. A detail proposal never reaches this.
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /page-views:
+    post:
+      tags: [Engagement]
+      summary: Report a batch of page views
+      security: []
+      operationId: recordPageViews
+      description: >
+        PuneNest's entire analytics intake. There is no third-party tag on the site, so everything
+        `/admin/analytics/*` reports is built from what this endpoint was told -- which is the
+        deliberate trade: the platform sees less than a commercial analytics product would, and no
+        ad network sees Indian house-hunters' browsing at all.
+
+
+        **202, and empty.** The client is reporting something that already happened; it is not
+        asking a question and there is nothing useful to hand back. Answering `200` with a body
+        would invite a client to wait for it, and a beacon that blocks a page transition on an
+        analytics write is a beacon that costs the user the thing being measured.
+
+
+        **Batched by design.** Up to 50 events per call, so a session posts a handful of times
+        rather than once per navigation. Every field is a shape, not an identity: `path` is the
+        route, `referrerHost` is a host and never a full URL with its query string, `device` is one
+        of three buckets. No IP address, no fingerprint, no user agent.
+
+
+        Unauthenticated, and it accepts a token if one is present. That is what makes the
+        anonymous-to-signed-in funnel measurable at all -- refusing anonymous events would leave the
+        platform able to count only the people who already converted. `sessionId` is generated by
+        the client and is the only thread between two events; it is pattern-constrained rather than
+        free text so it cannot be used to smuggle a payload into the analytics tables.
+
+
+        Best-effort by nature: a blocked or failed beacon means the visit is simply absent from the
+        reports rather than estimated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PageViewBatchCreate' }
+      responses:
+        '202':
+          description: Accepted for recording. No body.
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/data-export:
+    get:
+      tags: [Identity & Access]
+      summary: Everything PuneNest holds about me
+      operationId: exportMyData
+      description: >
+        The subject-access request, answered in one call rather than by an email to support that
+        somebody has to remember to action.
+
+
+        The response describes itself. Each dataset carries a `describes` sentence saying in plain
+        words what the rows are, a `rowCount`, a `truncated` flag, and a `withheld` map naming any
+        column removed and why. `excluded` names the tables left out entirely, with reasons. A
+        person exercising this right should not have to reverse-engineer a database schema to
+        understand the answer, and an export that silently omitted a column would be a worse answer
+        than one that says which column it omitted.
+
+
+        **Redaction is stated, not implied.** `redactionRule` says how other people's identifiers
+        were handled -- an export of your enquiries necessarily touches the owners you contacted,
+        and their phone numbers are not yours to receive. `rowLimit` and `truncated` say the same
+        thing about volume: a capped export is honest about being capped.
+
+
+        `schemaVersion` exists so a person who exports twice a year apart can tell whether the shape
+        changed underneath them.
+
+
+        Rate-limited alongside the platform's other writes despite being a read -- it assembles many
+        tables per call, and it is a request nobody legitimately makes twice a minute.
+      responses:
+        '200':
+          description: The full export
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataExport' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /me/societies/following:
     get:
       tags: [Engagement]
@@ -901,13 +1602,6 @@ paths:
       tags: [Listings]
       summary: Create new listing
       operationId: createListing
-      description: >-
-        Refuses with `422 listing_quota_exhausted` when the caller already holds every live listing
-        their plan and referrals allow — see `listings.allowance` on `GET /me/entitlements`.
-
-
-        The count is of listings occupying a slot, not of listings ever posted: archiving one frees
-        it, and a rejected listing never held one. The free tier is one listing at a time.
       requestBody:
         required: true
         content:
@@ -920,12 +1614,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '422':
-          description: Validation failure, or the caller is at their listing ceiling
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-              example: { error: listing_quota_exhausted, message: You already have 1 of 1 listings live. Take one down, upgrade your plan, or refer an owner to earn another slot. }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /me/listings/duplicate-check:
     post:
       tags: [Listings]
@@ -1028,29 +1717,33 @@ paths:
     delete:
       tags: [Listings]
       summary: Take a listing down
-      description: >-
-        A **soft** archive, not a deletion: the row survives for the enquiries, deals and moderation
-        history that point at it, and the catalogue already filters archived rows out of every public
-        read. Idempotent — taking down an already-archived listing returns the same 200, because the
-        caller asked for a state rather than an event.
-
-
-        This is also the exit from the freemium ceiling. `createListing` counts the listings an owner
-        currently holds, so without a take-down "one listing at a time" would have meant "one listing
-        ever", and the only remedy for a typo would have been to buy a plan.
-
-
-        `DELETE` rather than a `status` on the PATCH body, because `ListingUpdate` deliberately omits
-        `status` so an edit cannot self-escalate; re-admitting one privileged value would re-open
-        that door for the sake of an act the path can say on its own.
       operationId: archiveListing
+      description: >
+        **A soft archive, not a delete**, and the response is what says so: this hands back the
+        listing it just archived rather than a `204`. The row survives with `archived: true`, drops
+        out of search and off the public detail page, and stays reachable to its owner and to
+        moderation.
+
+
+        Returning the body is the point. The owner's dashboard needs to redraw the card in its
+        archived state immediately, and a `204` would force a re-read of a listing that public
+        search can no longer return. It is also the honest shape: nothing was destroyed, so claiming
+        "no content" would misdescribe what happened.
+
+
+        Enquiries, visits and moderation history that already reference this listing keep pointing
+        at a real row. That is the reason for the archive rather than a hard delete -- a buyer's
+        past conversation should not lose the flat it was about because the owner rented it out.
+
+
+        A listing the caller does not own is a `404`, not a `403`: whether a stranger's listing id
+        exists is not information this route owes an unrelated caller.
       responses:
         '200':
-          description: The archived listing
+          description: 'The archived listing, `archived: true`'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /me/listings/{id}/confirm-available:
     parameters:
@@ -2696,6 +3389,41 @@ paths:
               schema: { $ref: '#/components/schemas/PropertyModerationSummary' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /admin/properties/owner-standing:
+    get:
+      tags: [Moderation]
+      summary: How much listing allowance one owner has left
+      operationId: getOwnerStanding
+      description: >
+        The lookup an operator does **before** posting a listing on somebody's behalf, keyed by the
+        owner's mobile number rather than by a user id -- because at the moment the question is
+        asked, the owner may not have an account at all. That is the ordinary case for a
+        post-on-behalf: somebody rang the office.
+
+
+        Guarded by the post-on-behalf **write** permission even though it only reads, and that is
+        deliberate rather than an oversight. The number an operator types is the whole input, so a
+        read permission here would let anyone holding it probe arbitrary phone numbers for whether
+        they belong to a PuneNest owner and how many flats they list. The only people who need the
+        answer are the people already allowed to act on it.
+
+
+        **200 even for a number with no account**, carrying `known: false` and the default
+        allowance. A `404` would answer the probing question just as clearly as a `200` would, and
+        the operator's real question -- "may I post this one?" -- has an answer either way.
+      parameters:
+        - { name: mobile, in: query, required: true, schema: { type: string }, description: "The owner's mobile number, as given over the phone" }
+      responses:
+        '200':
+          description: >
+            Where this number stands. `overAllowance` is the single field the composer branches on;
+            `held` and `allowance` are there so the operator can explain the answer to the person
+            on the call.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerListingStanding' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /admin/properties:
     get:
       tags: [Moderation]
@@ -3488,45 +4216,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/ErasureRequest' }
-  /me/data-export:
-    get:
-      tags: [Account]
-      summary: Export my data (DPDP right to access)
-      description: >
-        The read-side counterpart of `/me/erasure`. Returns, to the caller and only the caller, a
-        machine-readable document of the personal data the platform holds about them.
-
-
-        **Its scope is derived from the erasure coverage map, and the derivation is tested.** If the
-        platform is willing to erase a table's rows for a subject, it must be willing to show the
-        subject those rows; adding a table to the erasure map now fails the build until this export
-        either queries it or names it in `excluded` with a reason. That is why `excluded` is part of
-        the response rather than a doc page — a document that silently omits things is worse than
-        one that states its own limits.
-
-
-        **The counterparty is never joined.** Where a record involves a second person, they appear
-        as `partyRef`, an opaque digest salted with the subject's own id: stable within one document
-        so the subject can tell two records apart, and unrelated across two subjects' documents. No
-        counterparty name, number, document or verification state is ever exported. The rule is
-        enforced three ways — named select lists rather than `select *`, redaction keyed on a SQL
-        alias so a forgotten alias fails visibly, and a structural test that fails if any dataset
-        other than the subject's own names the `users` table.
-
-
-        Rate limited, and for the opposite reason to most reads: not because each request is cheap
-        but because none are — roughly seventy queries across the whole schema — and it cannot be
-        cached, because a stale access-request document is a false statement about what the platform
-        holds. A per-dataset row cap bounds one request and reports itself through `truncated`
-        rather than being applied silently.
-      operationId: exportMyData
-      responses:
-        '200':
-          description: The subject's data
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DataExport' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
   /admin/erasure-requests:
     get:
       tags: [Admin]
@@ -5294,58 +5983,6 @@ paths:
         '202': { description: Accepted. No body, and no id - there is nothing to address later. }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-  /page-views:
-    post:
-      tags: [Services & Support]
-      summary: Flush the page views one browser tab has seen since the last flush
-      description: >
-        First-party traffic measurement. This is the only write behind the Traffic, Engagement and
-        Surfers reports, and it replaces a console that generated every figure on those tabs from a
-        seeded random number generator.
-
-
-        **A batch, not a request per view.** A beacon firing on every route change would spend a
-        visitor's entire write budget on telemetry - `WriteRateLimitFilter` allows 120 mutating
-        requests a minute per caller, shared with everything real they do. The first casualty would
-        not be the telemetry, it would be the enquiry they sent afterwards, refused with a 429
-        because a beacon had already spent the allowance.
-
-
-        **`agoMs` is a relative offset, not a timestamp, and that is the point.** A browser's clock
-        is routinely minutes out and occasionally years out. Day buckets are cut on IST, so a skewed
-        clock does not degrade gracefully - it files a view under the wrong day, and a hostile
-        client could backdate a flood into any month it chose. The offset is anchored to the
-        server's clock on arrival.
-
-
-        **What is deliberately not collected.** The path is a matched route *pattern*
-        (`/property/:id`), never a real URL, so no identifier of a viewed record is stored. The
-        query string is stripped before anything is stored, which is also why no paid-advertising
-        channel exists or can exist in the reports - `utm_source` never arrives. Back-office
-        surfaces (`/admin*`, `/ops*`) are not collected at all. Only the referrer's **host** is
-        kept, never the full referring URL.
-
-
-        Anonymous by default and unauthenticated, because the visitors these reports exist to
-        describe are precisely the ones who have not signed in. A `user_id` is attached when a
-        session exists, is classified as personal data, and is erased with the account. Raw rows are
-        deleted after **90 days**; the identity-free daily aggregates derived from them are kept
-        indefinitely, which is why a 180-day report still answers.
-
-
-        Answers 202 with no body. Nothing is created the caller can address later, and a failed
-        telemetry write must never break the page the visitor was reading.
-      security: []
-      operationId: recordPageViews
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PageViewBatchCreate' }
-      responses:
-        '202': { description: Accepted. No body, and no id - there is nothing to address later. }
-        '422': { $ref: '#/components/responses/ValidationError' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
   /service-requests:
     # Slice-11 spec fix S40. Two changes, one cause: without a list a staff member cannot find the
     # requests the five staff-only operations below act on, and "every service request on the
@@ -5402,6 +6039,59 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServiceRequest' }
+  /service-requests/co-fill:
+    post:
+      tags: [Services & Support]
+      summary: Create a co-filled request and invite the second party (requester only)
+      operationId: createCoFillServiceRequest
+      description: >
+        `createServiceRequest` and `inviteServiceRequestParty` in one call, and deliberately not the
+        same thing as calling them in sequence.
+
+
+        The plain create opens a gateway order in the same transaction, because for a single-party
+        service there is nothing to wait for. A rent agreement is two people's paperwork, and the
+        requester paying before the tenant has even agreed to be on it is the wrong order of events:
+        the money is committed against a matter that the other side may decline, and the customer's
+        only exit from an abandoned order is `cancelServiceRequest`. So this route stops one step
+        short. The request is priced and committed as `awaiting-payment` with **no** `payment_ref`
+        -- invisible to the ops queue on exactly the same rule as any other unpaid rent agreement,
+        but not yet bound to a gateway order -- and the invitation is recorded against it. Checkout
+        is opened later, by the requester, through `openServiceRequestCheckout`.
+
+
+        Only for priced services. If the type resolves to a free one there is no deferred checkout to
+        defer and the composition has no meaning, so it is a `400` rather than a silently completed
+        request that the invitee then finds already finished.
+
+
+        The invitation half behaves exactly as `inviteServiceRequestParty` does, including V107's
+        pending row: the counterparty does not need an account yet, and the invitation binds itself
+        to theirs the first time they sign in on that number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoFillServiceRequestCreate' }
+      responses:
+        '201':
+          description: >
+            Created and awaiting payment, with the invitation recorded. `parties` carries the
+            invited side; while the number belongs to nobody yet it reads `pending: true` with a
+            masked `mobile` and no `party` name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '400':
+          description: >
+            Not a priced service type, or the role or mobile is not one this request can take. Also
+            the answer if `request.details` carries identity numbers, on the same terms as the plain
+            create.
+        '409':
+          description: >
+            The number is the requester's own, or the side is already spoken for. Reported against
+            the whole call: the request is rolled back with the invitation, so a co-fill that could
+            not name its counterparty does not leave an orphaned unpaid row behind.
   /service-requests/{id}:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     get:
@@ -5640,6 +6330,112 @@ paths:
           description: No such request for this caller -- another requester's row is invisible, not forbidden
         '409':
           description: The request is not awaiting payment, so there is nothing to release
+  /service-requests/{id}/party-details:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    put:
+      tags: [Services & Support]
+      summary: Submit the invited party's half of the details (accepted invitee only)
+      operationId: submitServiceRequestPartyDetails
+      description: >
+        The counterparty's one write on the agreement, and the reason co-fill is called co-fill.
+
+
+        Before this route the invitee could read the matter and answer the invitation and nothing
+        else, so a tenant's own particulars reached the desk by the requester typing them in on
+        their behalf -- which is the same defect `putServiceRequestIdentities` exists to close on the
+        identity numbers, one level up.
+
+
+        **The guard is neither a role nor the requester, and it excludes both.** Staff are refused
+        because a desk filling in a party's details makes a support action indistinguishable from
+        that party's own statement. The requester is refused for the same reason from the other
+        direction: they have `createServiceRequest` and their own `details`, and letting them post
+        here would let one side of an agreement author the other side's half of it. Only somebody
+        who holds an `accepted` invitation on this request may call it; a `pending` or merely
+        `invited` party is refused, because accepting is the consent that makes them a party at all.
+
+
+        `PUT`, and the body is merged rather than replacing the request's `details` wholesale --
+        the two sides are filling different keys of one object and a replace would let whoever
+        submits second erase the first. Within one side's own keys the last write wins, which is
+        what a form being corrected needs.
+
+
+        Only before checkout. Once `payment_ref` exists the priced matter is bound to a gateway
+        order and the details it was priced from must stop moving; the requester reopens it by
+        cancelling and starting again, which is a visible act rather than a silent edit under a
+        pending payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PartyDetailsUpdate' }
+      responses:
+        '200':
+          description: >
+            Merged. The whole request is returned rather than the details alone, so the submitting
+            party sees the combined object they have just contributed to -- including the half the
+            other side wrote.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '403':
+          description: >
+            The caller is the requester, or has not accepted the invitation. Deliberately `403` and
+            not `404`: the caller can see this request, so pretending it does not exist would be
+            both false and useless -- what they need to be told is that accepting comes first.
+        '404':
+          description: No such request for this caller
+        '409':
+          description: >
+            The request is no longer awaiting payment, or checkout is already open. The details it
+            was priced from are settled at that point.
+  /service-requests/{id}/checkout:
+    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
+    post:
+      tags: [Services & Support]
+      summary: Open checkout on a deferred co-fill request (requester only)
+      operationId: openServiceRequestCheckout
+      description: >
+        The second half of `createCoFillServiceRequest`: binds the gateway order that route
+        deliberately did not open, once there is something to pay for.
+
+
+        The requester's alone. Not ops -- they have no business starting a customer's payment -- and
+        not the invited party, who did not agree to the price and is not the one being charged.
+        Anyone else on the request is refused `403`; anyone not on it at all is refused `404`, on the
+        same silence every customer-scoped read on this resource keeps.
+
+
+        **Every invitation must be answered first.** At least one party has to have accepted -- there
+        is no co-fill to pay for otherwise -- and none may still be outstanding. That second rule is
+        the point of the whole deferral: paying while an invitation is unanswered is exactly the
+        premature commitment the plain create makes, and it would leave the requester holding an
+        order for a matter the other side can still decline. A requester who is tired of waiting
+        withdraws the invitation (`withdrawServiceRequestParty`) and then opens checkout, which
+        makes abandoning the counterparty a deliberate act rather than a timeout.
+
+
+        Idempotent only in the sense that a second call while an order is already open is a `409`
+        rather than a second order: the one-open-order rule is what stops a customer being charged
+        twice for one agreement.
+      responses:
+        '200':
+          description: >
+            Checkout opened. The returned request carries the gateway reference the client hands to
+            the payment sheet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '403':
+          description: The caller is on this request but did not raise it
+        '404':
+          description: No such request for this caller
+        '409':
+          description: >
+            Not awaiting payment, checkout already open, nothing payable, nobody has accepted yet,
+            or an invitation is still outstanding. All five are "the request is not in a state where
+            opening checkout means anything", which is what this file uses `409` for throughout.
   /service-requests/{id}/final-doc:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
@@ -5696,6 +6492,56 @@ paths:
             No account holds that mobile, or the role is already taken, or that person is already on
             this request, or the request is finished. Deliberately not 404: the request exists and
             the caller can see it, so the thing that is missing is the invitee's account.
+  /service-requests/{id}/parties/{partyId}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+      - name: partyId
+        in: path
+        required: true
+        description: The invitation's own id, as returned by `inviteServiceRequestParty`.
+        schema: { type: string }
+    delete:
+      tags: [Services & Support]
+      summary: Withdraw an unanswered invitation (requester only)
+      operationId: withdrawServiceRequestParty
+      description: >
+        Takes back an invitation nobody has answered, releasing the side so a mistyped number can be
+        corrected.
+
+
+        Not a convenience. `uq_service_request_parties_role` means one invitation spoken for the
+        owner side is the owner side, so a wrong number leaves the requester unable to invite the
+        person they meant *and* unable to open checkout, since `openServiceRequestCheckout` refuses
+        while an invitation is outstanding. Before V107 a stranger would at least eventually decline
+        their way out of it; a pending row addressed to a number belonging to nobody has no one who
+        *can* answer, so without this route the requester would have been stuck behind the ninety-day
+        expiry sweep.
+
+
+        **Only while unanswered**, and only by the requester. An accepted party is on the matter and
+        has been shown it -- removing them is not an edit to a form, and it is not something the
+        other side gets to do quietly. A declined row stays for the reason it always has: so the
+        requester can see they were turned down, rather than watching the invitation evaporate and
+        wondering whether it was ever sent.
+
+
+        The row is deleted rather than flagged, because releasing the side is the whole point and the
+        unique index keys on the row's existence. The act is not lost: it is written to `audit_log`
+        and appears on the request's own timeline.
+      responses:
+        '204':
+          description: >
+            Withdrawn. No body, for the reason `markServiceRequestRead` returns none -- the caller is
+            undoing something, not reading. The remaining parties are on the request itself.
+        '404':
+          description: >
+            No such request for this caller, or no such invitation on it. A stranger's request is
+            invisible rather than forbidden, on the same terms as every other customer-scoped read
+            here.
+        '409':
+          description: >
+            The invitation has already been accepted or declined, so there is nothing left to take
+            back.
   /service-requests/{id}/read:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     post:
@@ -5767,13 +6613,6 @@ paths:
     get:
       tags: [Services & Support]
       summary: My rent agreements
-      description: >-
-        Every agreement the caller is a party to, newest first: the ones they filed as landlord
-        and the ones filed against them as tenant. Both sides arrive in one list because an
-        agreement is a single document with two signatories, and the pages that read it already
-        scope what they show by property. The tenant side is matched on mobile, not user id,
-        because that is the only identifier the record carries for them -- a landlord may file an
-        agreement before the tenant has an account at all.
       operationId: myRentAgreements
       responses:
         '200':
@@ -6607,6 +7446,63 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /me/flatmate-rooms:
+    get:
+      tags: [Engagement]
+      summary: Rooms I am hosting
+      operationId: listMyFlatmateRooms
+      description: >
+        The host's own rooms, newest first -- the counterpart of the public feed, and the list the
+        host dashboard is built from.
+
+
+        Under `/me` rather than as a filter on `/flatmates/rooms`, because it is not the same
+        resource narrowed: the public feed shows live rooms, and a host needs to see the ones they
+        have withdrawn or filled as well. A `hostedByMe=true` parameter would have quietly changed
+        what the feed's other filters mean.
+
+
+        Paged, because nothing caps how many rooms one host may list.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: The caller's rooms, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateRoom' }
+  /flatmates/rooms/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    delete:
+      tags: [Engagement]
+      summary: Withdraw a room I am hosting
+      operationId: withdrawFlatmateRoom
+      description: >
+        The host's own exit. 204 and no body, unlike `archiveListing` next door -- a withdrawn room
+        leaves the host's dashboard entirely rather than reappearing on it in a different state, so
+        there is nothing for the client to redraw.
+
+
+        Only the host may do this, and a room belonging to somebody else is a `404` rather than a
+        `403` for the same reason it is on listings: an id's existence is not something this route
+        confirms to a caller with no relationship to it.
+
+
+        Seats already taken and interest already expressed keep their references; what changes is
+        that the room stops being offered.
+      responses:
+        '204':
+          description: Withdrawn
+        '404': { $ref: '#/components/responses/NotFound' }
   /flatmates/rooms:
     get:
       tags: [Engagement]
@@ -6680,31 +7576,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/HostEligibility' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /flatmates/rooms/{id}:
-    parameters: [ { $ref: '#/components/parameters/GenericId' } ]
-    delete:
-      tags: [Engagement]
-      summary: Withdraw a room I posted
-      description: >
-        The host takes the room down. A soft archive rather than a hard delete, and it deliberately
-        leaves `modStatus` alone: that column is Ops's record of what they decided, and a host
-        withdrawing a room does not un-decide it.
-
-
-        Distinct from closing the last seat. A room with no seats open is taken; a withdrawn room was
-        never really on offer, and conflating the two would leave it scoring in the feed's freshness
-        ordering. Withdrawing frees the host's anti-broker cap slot.
-
-
-        `409` only for a split room (`split_room`): its siblings share one occupancy ledger and one
-        joint agreement, and `DELETE /properties/{id}/split` already refuses once anyone has moved
-        in. Allowing per-room withdrawal would walk around that check one room at a time.
-      operationId: deleteFlatmateRoom
-      responses:
-        '204': { description: Withdrawn }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: This room is part of a flat split (`split_room`) }
   /flatmates/rooms/{id}/seats:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -6974,42 +7845,6 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateGroup' }
-  /me/flatmate-rooms:
-    get:
-      tags: [Engagement]
-      summary: My flatmate rooms
-      operationId: listMyFlatmateRooms
-      description: >
-        Rooms the caller posted, newest first, paged, **including their moderation state** — the
-        room twin of `listMyFlatmateGroups`, and separate from the public `GET /flatmates/rooms` for
-        the same reason. The public feed is hard-floored to approved posts, so a host's pending or
-        rejected room is invisible to it, and a host who cannot see their own rejected post simply
-        posts it again.
-
-
-        Withdrawn rooms are excluded; `pending` and `removed` are included, which is the entire
-        point of the route. Caller-scoped, so no role beyond being signed in. No `sort`: the order is
-        fixed server-side.
-
-
-        Returns `FlatmateRoom`, the host-facing shape, so `ownerMobile` is populated here where every
-        public read masks it — it is the caller's own number.
-      parameters:
-        - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Size' }
-      responses:
-        '200':
-          description: Paged rooms
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageEnvelope'
-                  - type: object
-                    properties:
-                      content:
-                        type: array
-                        items: { $ref: '#/components/schemas/FlatmateRoom' }
   /me/group-applications:
     get:
       tags: [Engagement]
@@ -7309,38 +8144,117 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/AnalyticsPoint' }
+  /admin/analytics/traffic:
+    get:
+      tags: [Admin & Analytics]
+      summary: Who arrived, from where, on what
+      operationId: adminAnalyticsTraffic
+      # S28: Aggregate platform analytics.
+      x-roles: [staff, admin]
+      description: >
+        Built entirely from PuneNest's own `page_views` table. No third-party analytics tag is
+        loaded on the site, so this is the only traffic picture that exists -- and it is the only
+        one that can be, given the platform holds Indian users' browsing behaviour and shipping it
+        to an ad network would be a disclosure nobody consented to.
+
+
+        `sources` is derived from the referrer host, which means it is honest about its own limits:
+        a visit with no referrer is `direct`, and `direct` therefore includes app switches, pasted
+        links and stripped referrers as well as people typing the URL. It is not inflated to look
+        better.
+
+
+        `identity` splits sessions into anonymous and signed-in by week. That split, not the raw
+        session count, is the number the funnel actually turns on.
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 }, description: 'Window length; the response echoes the window it used in `days`, `from` and `to`.' }
+      responses:
+        '200':
+          description: Traffic for the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsTraffic' }
+  /admin/analytics/engagement:
+    get:
+      tags: [Admin & Analytics]
+      summary: How deep the visits went
+      operationId: adminAnalyticsEngagement
+      # S28: Aggregate platform analytics.
+      x-roles: [staff, admin]
+      description: >
+        Session depth and bounce rate by week, plus the pages people actually reached.
+
+
+        **`avgSessionMinutes` and `bounceRatePct` are nullable and are never zero-filled.** A week
+        with too few sessions to average honestly returns null, and the chart draws a gap. Rounding
+        thin data to `0.0` would put a line on the dashboard that reads as "engagement collapsed"
+        when what happened is "nobody visited on the 2nd of January", and somebody would act on it.
+
+
+        `topPages` reports `views` beside `anonViews` rather than one total, because a page that
+        only signed-in users reach and a page that anonymous users bounce off are different problems
+        with the same view count.
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 }, description: Window length; echoed back in the response }
+      responses:
+        '200':
+          description: Engagement for the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsEngagement' }
+  /admin/analytics/surfers:
+    get:
+      tags: [Admin & Analytics]
+      summary: The anonymous-to-signed-in funnel
+      operationId: adminAnalyticsSurfers
+      # S28: Aggregate platform analytics.
+      x-roles: [staff, admin]
+      description: >
+        The question this endpoint exists to answer: of the people who arrive without an account,
+        how many end up with one, and where do the rest leave?
+
+
+        `anonSharePct` and `conversionRatePct` are the headline pair, `weeks` is their trend, and
+        `dropOff` names the paths people exit from -- which is the actionable half. A high exit
+        share on a listing detail page means something quite different from a high exit share on the
+        signup screen, and only the second is a funnel problem.
+
+
+        Same self-hosted source as the other two analytics reads, with the same consequence: it sees
+        what `POST /page-views` was told and nothing else, so a visitor who blocked the beacon is
+        invisible here rather than estimated.
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 }, description: Window length; echoed back in the response }
+      responses:
+        '200':
+          description: The funnel for the window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAnalyticsSurfers' }
   /admin/analytics/pricing:
     get:
       tags: [Admin & Analytics]
-      summary: Asking prices against the locality's curated market rate
-      operationId: adminAnalyticsPricing
-      # A sibling of /admin/analytics for the same reason /admin/supply-gap is: this compares two
-      # quantities across locality, not one quantity over time, and a series of {date, value}
-      # points cannot carry it without lying about one of them.
-      #
-      # This replaces a comparison computed in the browser over whatever listings that browser had
-      # loaded, which meant the deviation shown to an operator depended on their scroll position.
+      summary: Asking prices against the market rate, by locality
+      operationId: adminPricingInsights
+      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
-        One row per active locality. The asking side is derived from approved listings
-        (`price / area`); the market side is curated reference data maintained by the reference
-        seed, not inferred from listings. Keeping the two apart is the entire value of the report -
-        a figure derived from the listings cannot be used to judge the listings.
+        Where owners are asking more than the locality supports, and where PuneNest's own market
+        rate has drifted from what listings actually say.
 
 
-        **Every derived figure is nullable and an explicit `null` is sent rather than the key being
-        omitted.** A locality with no approved buy listings reports `avgActualRatePerSqft: null`.
-        It must never fall back to the market rate: the browser version did exactly that, so a
-        locality PuneNest has never listed a single home in rendered as perfectly priced, and an
-        operator could not tell a well-served locality from an empty one.
+        `marketRatePerSqft` is the curated figure the platform publishes; `avgActualRatePerSqft` is
+        what live listings average. The gap between the two is the point of the report -- a locality
+        where they have separated is one where the curated number is now misleading buyers, and it
+        is fixed by editing the locality, not by editing the listings.
 
 
-        Listings with a missing or zero `area` are excluded from the averages but still counted in
-        `buyCount` / `rentCount`. Supply and the sample an average was drawn from are two different
-        questions and are not conflated.
+        A **bare array**, not a page. It is one row per locality in Pune, the set is bounded by
+        geography rather than by user behaviour, and paging a fixed-length report would only make it
+        harder to sort in the client.
       responses:
         '200':
-          description: One row per active locality, by name
+          description: One row per locality
           content:
             application/json:
               schema:
@@ -7349,159 +8263,225 @@ paths:
   /admin/analytics/sla:
     get:
       tags: [Admin & Analytics]
-      summary: Moderation turnaround against the review SLA
-      operationId: adminAnalyticsSla
-      # Measured, not modelled. The tab this replaces generated every turnaround from rng(314159),
-      # so the "average approval time" an operator read was a constant that did not move when the
-      # team got faster or slower.
+      summary: Moderation turnaround against the promised target
+      operationId: adminSlaSummary
+      # S28: Aggregate platform analytics.
       x-roles: [staff, admin]
       description: >
-        Turnaround is `properties.created_at` to the **earliest** `audit_log` row for that listing
-        with `action = property.status`. Earliest, not latest: a re-approval is a later re-check of
-        the same listing rather than a second first decision, and averaging those in would flatter
-        the number.
+        Whether the listing-review promise is being kept, and which listings are currently breaking
+        it.
 
 
-        No `properties.reviewed_at` column exists and none was added - `PropertyModerationService`
-        already writes an audit row on every status transition, carrying the actor and the instant,
-        so the measurement was already being recorded and simply never read.
+        The report deliberately looks in both directions. `avgHoursToReview`, `medianHoursToReview`
+        and `slaRatePct` are history -- how the last window went. `pendingCount`,
+        `pendingBreachingCount` and `worstPending` are the present, and they are the half an
+        operator can still do something about: a queue that has already breached is a set of owners
+        currently being let down, named individually so somebody can pick one up.
 
 
-        **Nulls, not zeroes, on an empty queue.** `avgHoursToReview: 0` reads as instantaneous
-        review and `slaRatePct: 100` reads as a perfect record; both are claims about a team that
-        has decided nothing. The mock returned exactly those two figures, so a fresh deployment
-        reported flawless compliance.
+        Median beside mean because a single listing left for a fortnight drags the average past the
+        target while most owners were served in an hour, and acting on that average would be acting
+        on the wrong problem.
 
 
-        `pendingCount` and `pendingBreachingCount` ignore the `days` window on purpose. A backlog is
-        a present-tense fact, and narrowing it to recently-created listings would drop the oldest -
-        the exact rows the number exists to surface.
+        **Nulls are serialised rather than omitted.** A window with nothing reviewed returns
+        `avgHoursToReview: null`, not an absent key -- the dashboard needs to say "no data" and an
+        omitted field is indistinguishable from a field the client forgot to read.
       parameters:
-        - name: days
-          in: query
-          description: >
-            Optional rolling window, counted back from now and applied to the decision instant.
-            Omitted means every recorded decision.
-          schema: { type: integer, minimum: 1, maximum: 365 }
+        - { name: days, in: query, required: false, schema: { type: integer }, description: "Window on the decision instant; omitted means all time, which is the difference from the other analytics reads and is deliberate -- an SLA is a standing promise, not a monthly figure. Spelled the same way as on /admin/supply-gap so two adjacent tabs cannot name the same control differently." }
       responses:
         '200':
           description: SLA summary
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SlaSummary' }
-  /admin/analytics/traffic:
+  /admin/society-claims:
     get:
       tags: [Admin & Analytics]
-      summary: Sessions, page views and acquisition channels over the window
-      operationId: adminAnalyticsTraffic
-      # Measured, not modelled. Every figure on the Traffic tab used to come from rng(314159), so
-      # the "traffic" an operator read was a constant that did not move when traffic did.
+      summary: Committees asking to run their own society page
+      operationId: adminListSocietyClaims
+      # S28 + societies:read.
       x-roles: [staff, admin]
       description: >
-        Read from the daily page-view rollup, not from raw events. The rollup is identity-free and
-        kept indefinitely; the raw views behind it are deleted after 90 days, which is why a report
-        over a 180-day window still answers.
+        **Oldest first**, unlike almost every other list on the platform. This is a work queue, not
+        a feed: newest-first would bury the claim that has been waiting longest under the ones that
+        arrived this morning, which is precisely backwards for the person working through it.
 
 
-        **`series` covers every day in the window, including days with no traffic.** The rollup
-        writes no row for a day nobody visited, and a sparse series lets a line chart draw a
-        straight segment across the gap - inventing a smooth trend exactly where there is no data.
-
-
-        `sources` folds referring hosts into a closed vocabulary. **There is no paid-advertising
-        channel and there cannot be one**: identifying paid traffic needs `utm_source`, which lives
-        in the query string, which the collector strips before storing. A slice that always read
-        zero would be worse than its absence.
-
-
-        `devices` counts each session once, on the device it *arrived* with - the same entry rule
-        the referrer uses. Counting per view would let one visitor who read ten pages outweigh ten
-        visitors who read one.
+        A cross-society queue that starts from no society at all, which is why it lives under
+        `/admin` rather than under `/societies/{slug}`.
       parameters:
-        - name: days
-          in: query
-          description: Rolling window of IST days, ending with today (still accumulating).
-          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] }, description: Narrow the queue; omit for everything }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Traffic over the window
+          description: Claims, oldest first
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdminAnalyticsTraffic' }
-  /admin/analytics/engagement:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyClaim' }
+  /admin/society-claims/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    patch:
+      tags: [Admin & Analytics]
+      summary: Approve or reject one society claim
+      operationId: adminDecideSocietyClaim
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        Approval is not a status change with a badge attached: it hands this person the residency
+        register of a building and the power to take down what its residents post. That is why it is
+        an operator's decision rather than an automatic one on any signal the claimant can produce.
+
+
+        `PATCH` with the outcome in the body, not `/approve` and `/reject`, so the vocabulary stays
+        enumerable in one place.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyClaimDecision' }
+      responses:
+        '200':
+          description: The decided claim
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyClaim' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/society-proposals:
     get:
       tags: [Admin & Analytics]
-      summary: Session depth, bounce rate and the most-read pages
-      operationId: adminAnalyticsEngagement
+      summary: What the community has proposed about its societies
+      operationId: adminListSocietyProposals
+      # S28 + societies:read.
       x-roles: [staff, admin]
       description: >
-        Weekly buckets are **real ISO weeks anchored to Monday**, not the window divided into eight.
-        The version this replaces chopped the window into `ceil(days / 8)`-day chunks, so at 30 days
-        eight buckets spanned 32 and the last one was always short - a downward slope at the right
-        edge of every chart that was an artefact of the arithmetic rather than a fact about usage.
+        Society details, resident WhatsApp invites and corrected map pins, oldest first for the same
+        work-queue reason as the claims queue.
 
 
-        **`bounceRatePct` is the week's bounced sessions over the week's sessions**, never the mean
-        of seven daily rates, which would weight a four-session Tuesday the same as a four-thousand
-        session Saturday.
-
-
-        `topPages` reports **real view counts**. The card it replaces was labelled "Top pages by
-        views" and plotted a 0-100 index pinned at 100, so the most-read page always looked equally
-        dominant no matter how the traffic was actually distributed.
-
-
-        A week with no sessions is present with `null` rates rather than omitted, so the axis stays
-        complete and the gap renders as a gap.
+        **This is the queue whose absence made all three features theatre.** The composer used to
+        write proposals into the author's own browser storage, so this list was permanently empty
+        however many residents filled the form in on theirs, and not one proposal has ever been
+        applied. Reading it from the database is the fix.
       parameters:
-        - name: days
-          in: query
-          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] }, description: Narrow the queue; omit for everything }
+        - { name: kind, in: query, schema: { type: string, enum: [details, whatsapp, pin] }, description: Narrow to one proposal kind }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Engagement over the window
+          description: Proposals, oldest first
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdminAnalyticsEngagement' }
-  /admin/analytics/surfers:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/SocietyProposal' }
+  /admin/society-proposals/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/GenericId' }
+    patch:
+      tags: [Admin & Analytics]
+      summary: Approve or reject one community proposal
+      operationId: adminDecideSocietyProposal
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        **Approving writes the proposed value onto the society in the same transaction.** That is
+        the whole mechanism -- there is no second "apply" step to forget, and no window in which a
+        proposal reads `approved` while the society still shows the old builder name. Reject leaves
+        the society untouched.
+
+
+        Which fields move depends on `kind`: a `details` proposal fills the missing catalogue facts,
+        `whatsapp` attaches the resident group invite, `pin` moves the map coordinates. One route
+        because the lifecycle is one lifecycle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocietyProposalDecision' }
+      responses:
+        '200':
+          description: The decided proposal; on approval the society already carries the change
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocietyProposal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/society-candidates:
     get:
       tags: [Admin & Analytics]
-      summary: The signed-out majority - how many, where they go, where they stop
-      operationId: adminAnalyticsSurfers
+      summary: Member-added societies nobody has checked yet
+      operationId: adminListSocietyCandidates
+      # S28 + societies:read.
       x-roles: [staff, admin]
       description: >
-        **This reports signed-in against anonymous sessions, not new against returning visitors.**
-        `page_views.session_id` is minted per browser tab in `sessionStorage` by design, so a
-        returning visitor is *structurally* underivable rather than merely unimplemented - and
-        making it derivable would mean a durable cross-visit identifier, which is the thing the
-        collector exists to avoid. The card that claimed it showed two series that summed to 100 in
-        the first two weeks and to 137 by the last.
+        Everything `mintSociety` has created and no operator has confirmed, oldest first.
 
 
-        **There is no per-page signup rate.** Attributing a signup to a page means recording a
-        landing page against a new account, which is exactly the traffic-to-identity join this
-        design refuses. `pages` reports anonymous views against total views instead - two counts on
-        one axis, both real. The series it replaces multiplied an already-percentage value by 100
-        and plotted 210-680 on an axis carrying view counts in the tens of thousands, where it was
-        invisible.
+        The third queue that was permanently empty for the same reason as the proposals queue -- and
+        the one whose emptiness meant **no member-added society has ever been verified**, so every
+        one of them has been sitting in the directory unbadged since the day it was added.
 
 
-        `dropOff.sharePct` is a share of the exits **shown**, so the chart's slices add up to what
-        the chart displays.
-
-
-        `anonSharePct` and `conversionRatePct` are `null` when no sessions were recorded. Zero would
-        report a conversion failure that never happened.
+        Rows are ordinary society records; `verifiedAt` being null is what puts them here.
       parameters:
-        - name: days
-          in: query
-          schema: { type: integer, minimum: 1, maximum: 400, default: 90 }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
       responses:
         '200':
-          description: Anonymous-versus-signed-in behaviour over the window
+          description: Unverified societies, oldest first
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AdminAnalyticsSurfers' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/Society' }
+  /admin/society-candidates/{slug}/verify:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Admin & Analytics]
+      summary: Confirm a member-added society is real
+      operationId: adminVerifySocietyCandidate
+      # S28 + societies:write.
+      x-roles: [staff, admin]
+      description: >
+        Stamps `verifiedAt`, which is what the hub's trust badge and the directory's ordering both
+        read. Until it is set, a member-added society is present but explicitly unvouched-for.
+
+
+        **409 if it is already verified**, rather than a silent second success. Verification records
+        who checked it and when; overwriting that with today's date because two operators opened the
+        same queue would erase the only evidence that the first check happened.
+      responses:
+        '200':
+          description: The verified society
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Society' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Already verified -- the earlier check stands
   /admin/supply-gap:
     get:
       tags: [Admin & Analytics]
@@ -8509,11 +9489,42 @@ components:
       required: [decision]
       properties:
         decision: { type: string, enum: [accept, decline] }
+    PartyDetailsUpdate:
+      type: object
+      required: [details]
+      description: >
+        The accepted invitee's half of the agreement, submitted before checkout is opened.
+      properties:
+        details:
+          type: object
+          additionalProperties: true
+          description: >
+            Structured detail, merged into the request's own `details` -- the same free-shaped object
+            `ServiceRequestCreate.details` carries, and subject to the same rules, including the
+            refusal of `pan`/`aadhaar` at any depth. Identity numbers go to
+            `PUT /service-requests/{id}/identities`, which is assignee-only and audited; this object
+            is echoed verbatim on every read of the request by everybody on it.
+
+
+            Free-shaped rather than a typed body per service because the fields a tenant fills differ
+            by agreement and are the wizard's business, not the server's -- the same reasoning that
+            left `details` open on creation. What the server owns is who may write it and when: the
+            invitee, once accepted, and only while the request is still waiting for the requester to
+            pay.
     ServiceRequestParty:
       type: object
       description: >
-        One side of a co-filled service request (D121). Keyed on the invited *account*, never on a
-        mobile number, and carries no contact detail of its own.
+        One side of a co-filled service request (D121). Keyed on the invited *account* wherever
+        there is one to key on, and carrying no contact detail of its own beyond the masked
+        `mobile` that V107 made unavoidable — see that property for why the exception is narrow.
+
+
+        Served in two places with two different jobs, which is why it carries more than the
+        request's own view of it needs. Inside `ServiceRequest.parties` it tells the people already
+        on the matter who else is on it and whether they have answered. On
+        `GET /me/service-request-invites` it is the whole of what an invited person is shown
+        *before* they accept, which is why `requestType` and `invitedBy` are here and why nothing
+        about the agreement itself is: enough to decide, and not the paperwork.
       properties:
         id: { type: string }
         requestId: { type: string }
@@ -8522,7 +9533,41 @@ components:
         requestType: { type: string, example: rent-agreement }
         role: { type: string, enum: [owner, tenant] }
         status: { type: string, enum: [invited, accepted, declined] }
-        party: { type: [string, 'null'], description: Display name of the invited account, absent if it has none }
+        party:
+          type: [string, 'null']
+          description: >
+            Display name of the invited account. `null` while the invitation is still `pending` --
+            there is no account to take a name from -- and also `null` if a once-claimed account has
+            since been removed.
+        # V107. The invitation may now be addressed to a number that has never registered, which
+        # leaves the requester with no name to show for the side they just named. This is what they
+        # have instead, and it exists only for as long as that is true.
+        mobile:
+          type: [string, 'null']
+          example: 98XXXXX999
+          description: >
+            The invited number, **masked**, and present only while `pending` is true. Absent -- and
+            discarded from the row in the same statement -- the moment the invitation is claimed by
+            an account, because from then on `party` answers the question this was standing in for.
+
+
+            Masked rather than whole because the reader of a `ServiceRequest` is whoever is on the
+            matter, and the other side's full number is not theirs until that side has accepted.
+            `ContactVisibility` governs that everywhere else on this platform and this is not an
+            exception to it: enough of the number is shown to answer the only question the requester
+            asks of it -- "is that the number I meant?" -- and no more.
+        pending:
+          type: boolean
+          description: >
+            True while the invitation is addressed to a number rather than to an account (V107).
+
+
+            Deliberately **not** the same fact as `status: invited`, which means only "has not
+            answered". A pending invitation has nobody who *could* answer yet; a claimed one has a
+            person who has not. The two want different words in the interface -- "waiting for them to
+            sign up" against "waiting for them to reply" -- and a client that collapses them will tell
+            a requester to chase somebody who does not exist. A claimed-but-unanswered invitation is
+            `pending: false, status: invited`.
         invitedBy: { type: [string, 'null'], description: Display name of the requester who sent it }
         createdAt: { type: string, format: date-time }
     MessageCreate:
@@ -8789,8 +9834,7 @@ components:
         email: { type: string, format: email }
         avatar: { type: string, format: uri }
         city: { type: string, description: 'Home city. The profile form has always sent this; the contract lacked it, so it was accepted and silently dropped (D20).' }
-        hideNumber: { type: boolean, description: 'Owner preference - stay masked even after approving a contact request; reach me in-app instead. Not a second gate: approval still unlocks the conversation (D5). Retained as a no-op under the current contact policy, which never reveals a number to a buyer at all - there is nothing left for it to suppress. Stored against the day that policy changes.' }
-        verifiedContactOnly: { type: boolean, description: 'Owner preference - accept contact only from L2-verified users. Unlike `hideNumber` this one is enforced: `POST /me/contact-requests` refuses an unverified caller, and `GET /properties/{id}/contact-status` warns them before they try, so the refusal is never a surprise.' }
+        hideNumber: { type: boolean, description: 'Owner preference - stay masked even after approving a contact request; reach me in-app instead. Not a second gate: approval still unlocks the conversation (D5).' }
 
     # ---- Catalog & Search ----
     PropertySummary:
@@ -8809,6 +9853,40 @@ components:
         areaUnit: { type: string, example: sqft }
         furnishing: { $ref: '#/components/schemas/Furnishing' }
         possession: { $ref: '#/components/schemas/PropertyPossession' }
+        landUse:
+          type: string
+          enum: [residential, commercial, industrial, agricultural, mixed]
+          nullable: true
+        ageYears:
+          type: integer
+          minimum: 0
+          nullable: true
+        floor:
+          type: integer
+          nullable: true
+        totalFloors:
+          type: integer
+          nullable: true
+        facing:
+          type: string
+          nullable: true
+        room:
+          type: string
+          enum: [single, shared]
+          nullable: true
+        tenants:
+          type: array
+          items: { type: string, enum: [family, bachelor-male, bachelor-female, company] }
+        availableFrom:
+          type: string
+          enum: [now, '15', '30']
+          nullable: true
+        pets: { type: boolean }
+        sharing:
+          type: array
+          items: { type: string, enum: [single, double, triple, four, five] }
+        societyVerified: { type: boolean }
+        conveyanceDone: { type: boolean }
         locality: { type: string, example: Koregaon Park }
         localitySlug:
           type: string
@@ -8943,63 +10021,6 @@ components:
             tier is what decides tone and ranking. It is served rather than re-derived by each
             client because it also governs whether a listing is shown at all, and a visibility rule
             the browser evaluates is a rule anything reading the API directly does not have.
-        # ---------------------------------------------------------------------------------------
-        # The twelve attributes below are on the CARD and not merely on the detail shape because
-        # every one of them is a *filter*, and the listings grid filters client-side over this
-        # shape. A predicate the payload cannot express is a predicate the grid cannot honour --
-        # so what the grid did instead was invent them, deriving each from `fnvHash(listing.id)`:
-        # age as `(h >> 16) % 26`, floor as `(h >> 20) % 41`, the pet policy as `(h >> 8) % 3 === 0`,
-        # and a society's verification status as a coin flip tuned to look like a plausible 50%.
-        # A buyer filtering for "conveyance done" was served listings chosen by arithmetic on a slug.
-        #
-        # Null is meaningful throughout and must survive the round trip: a null `ageYears` means the
-        # owner never stated an age, which is not the same as a new building, and a null `facing`
-        # means unknown, which is not a direction.
-        landUse:
-          type: string
-          enum: [residential, commercial, industrial, agricultural, mixed]
-          nullable: true
-          description: >
-            Permitted zoning for an open plot or farm land; `null` for anything with a building on
-            it, which is the common case. Zoning decides whether a plot can legally be built on at
-            all, so a fabricated answer here is not a bad recommendation - it is a bad purchase.
-        ageYears:
-          type: integer
-          nullable: true
-          description: 'Null means the owner never stated an age, which is not the same as a new building.'
-        floor: { type: integer, nullable: true }
-        totalFloors: { type: integer, nullable: true }
-        facing:
-          type: string
-          nullable: true
-          description: 'Null means unknown, which is not a direction.'
-        room:
-          type: string
-          nullable: true
-          description: Room type for a PG or shared listing.
-        tenants:
-          type: array
-          items: { type: string }
-          description: >
-            Tenant profiles the owner will accept. Never null - an empty array means "no restriction
-            stated", which is emphatically not "no tenants permitted".
-        availableFrom: { type: string, nullable: true }
-        pets: { type: boolean }
-        sharing:
-          type: array
-          items: { type: string }
-          description: 'Sharing arrangements offered. Empty means none stated, not none offered.'
-        societyVerified:
-          type: boolean
-          description: >
-            The society has been verified as a real, registered body. A legal fact about a named
-            society, not an opinion about a listing - which is why the fabricated value was the
-            worst of this set. Narrow-only as a filter: false never widens a result.
-        conveyanceDone:
-          type: boolean
-          description: >
-            Transfer of land title from builder to society is complete. Narrow-only as a filter, for
-            the same reason as `societyVerified`.
     Property:
       allOf:
         - $ref: '#/components/schemas/PropertySummary'
@@ -9473,6 +10494,12 @@ components:
         conveyance: { type: boolean, description: Conveyance deed done }
         amenities: { type: array, items: { type: string } }
         source: { type: string, enum: [curated, rera, community], description: Origin of the record }
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When ops verified a community-created society record. Null while still pending, and
+            null for curated/RERA-sourced rows that are verified by provenance.
         claimStatus: { type: string, enum: [unclaimed, pending, claimed], description: Community claim state }
         listingCount: { type: integer }
         followerCount: { type: integer }
@@ -9500,6 +10527,323 @@ components:
             reviews:
               type: array
               items: { $ref: '#/components/schemas/Review' }
+    SocietyCreate:
+      type: object
+      description: >
+        What a member supplies when the picker cannot find their building. Deliberately short: this
+        is a form somebody fills in while trying to do something else, and every field beyond the
+        name is one more reason to abandon the listing they came to post.
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 160, example: Kumar Pinnacle }
+        localityLabel: { type: string, maxLength: 120, description: Human-readable locality as the member typed it }
+        localitySlug: { type: string, maxLength: 120, description: 'Resolved locality slug, if the picker managed to match one' }
+        lat: { type: [number, 'null'], description: Optional map pin; a missing pin does not block the mint }
+        lng: { type: [number, 'null'] }
+    SocietyMembership:
+      type: object
+      description: >
+        Where one caller stands in one society. Every personal field is null for a signed-out
+        reader; `verifiedResidents` is public regardless.
+      properties:
+        societySlug: { type: string }
+        resident:
+          oneOf:
+            - $ref: '#/components/schemas/SocietyResident'
+            - type: 'null'
+          description: The caller's own residency row, at whatever status. Null if they have never asked.
+        admin:
+          type: boolean
+          description: >
+            True when this caller may review residency requests and remove community content here --
+            that is, platform staff, or the person whose claim on this society was approved.
+        claim:
+          oneOf:
+            - $ref: '#/components/schemas/SocietyClaim'
+            - type: 'null'
+          description: The society's live claim, if one exists. Null when nobody has claimed it.
+        verifiedResidents:
+          type: integer
+          description: >
+            How many residents the committee has verified. The number a prospective buyer reads to
+            judge whether this hub is alive, so it is public.
+    SocietyResident:
+      type: object
+      description: One person's claim to live in one flat, at whatever point of the review it has reached.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        name: { type: string, description: The requester's display name }
+        mobile:
+          type: [string, 'null']
+          description: >
+            Present to the committee reviewing the request and to the requester themselves;
+            withheld otherwise.
+        wing: { type: [string, 'null'], example: B }
+        flat: { type: string, example: '1204' }
+        unitKey:
+          type: string
+          description: >
+            Wing and flat normalised into the key the society's uniqueness rule is enforced on, so
+            `B/1204` and `b-1204` cannot both be verified.
+        relation: { type: [string, 'null'], description: 'How they occupy it: owner, tenant, family' }
+        status: { type: string, enum: [pending, verified, rejected] }
+        assignedTo: { type: [string, 'null'], description: Which reviewer picked this up }
+        flagged: { type: boolean, description: 'Marked for a closer look -- a second claim on an occupied flat, typically' }
+        note: { type: [string, 'null'], description: "Free text from the requester, or the reviewer's reason" }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+    SocietyResidentRequest:
+      type: object
+      description: >
+        Asking to be recognised as living in one flat. `flat` is the only required field because it
+        is the only one the uniqueness rule needs; a society without wings should not have to invent
+        one.
+      required: [flat]
+      properties:
+        wing: { type: string, maxLength: 16, example: B }
+        flat: { type: string, maxLength: 16, example: '1204' }
+        relation: { type: string, maxLength: 16, example: owner }
+        note: { type: string, maxLength: 500, description: Anything that helps the committee recognise you }
+    SocietyResidentDecision:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, maxLength: 16, enum: [verified, rejected] }
+        note: { type: string, maxLength: 500, description: 'Why -- worth filling in on a rejection, since the requester may ask' }
+    SocietyClaim:
+      type: object
+      description: A committee member's request to run their society's page.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        societyName: { type: string, description: Denormalised so the ops queue reads without a join }
+        claimantName: { type: string }
+        claimantMobile: { type: [string, 'null'], description: Present to staff and to the claimant; withheld otherwise }
+        role: { type: [string, 'null'], example: Secretary }
+        email: { type: [string, 'null'], format: email }
+        note: { type: [string, 'null'] }
+        status: { type: string, enum: [pending, approved, rejected] }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+    SocietyClaimCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 120 }
+        role: { type: string, maxLength: 80, example: Secretary }
+        email: { type: string, format: email, maxLength: 160 }
+        note: { type: string, maxLength: 500, description: How an operator can confirm you are who you say }
+    SocietyClaimDecision:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, maxLength: 16, enum: [approved, rejected] }
+        note: { type: string, maxLength: 500 }
+    SocietyQuestion:
+      type: object
+      description: A question asked about a society, with its answers attached.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        authorName: { type: string }
+        authorIsResident:
+          type: boolean
+          description: >
+            The badge that carries the whole trust model of this tab. Neither asking nor answering
+            requires a verified flat, so the reader is told who is speaking from inside the building
+            and weighs it themselves.
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        answers:
+          type: array
+          items: { $ref: '#/components/schemas/SocietyAnswer' }
+          description: Nested rather than fetched per question -- twenty questions would otherwise be twenty-one requests.
+    SocietyAnswer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        authorName: { type: string }
+        authorIsResident: { type: boolean }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    SocietyPost:
+      type: object
+      description: >
+        One field, shared by every free-text write on the society hub -- questions, answers and
+        replies. Three schemas with the same single property would have been three places to change
+        the length limit and two of them would eventually be missed.
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 600 }
+    SocietyBoardItem:
+      type: object
+      description: One notice on the society's board.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        kind: { type: string, maxLength: 16, example: notice, description: 'notice, event, alert -- what the board renders it as' }
+        title: { type: string }
+        body: { type: [string, 'null'] }
+        category: { type: [string, 'null'], maxLength: 40 }
+        eventDate: { type: [string, 'null'], format: date, description: Set on an event; null on a plain notice }
+        eventTime: { type: [string, 'null'], example: '18:30', description: 'Local time, no zone -- a society AGM is at half six in the building, wherever the reader is' }
+        authorName: { type: string }
+        authorIsResident: { type: boolean }
+        canRemove:
+          type: boolean
+          description: >
+            Whether **this** caller may delete it -- author, committee or staff. Computed
+            server-side against the real rule, because a client guessing from a display name gets it
+            wrong the moment two residents share one.
+        createdAt: { type: string, format: date-time }
+    SocietyBoardItemCreate:
+      type: object
+      required: [kind, title]
+      properties:
+        kind: { type: string, maxLength: 16, example: notice }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        body: { type: string, maxLength: 800 }
+        category: { type: string, maxLength: 40 }
+        eventDate: { type: string, format: date }
+        eventTime: { type: string, example: '18:30' }
+    SocietyContribution:
+      type: object
+      description: One tip, trusted pick or photo on the community tab.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        kind: { type: string, maxLength: 16, example: tip, description: 'tip, referral, photo -- what the chips group on' }
+        category: { type: [string, 'null'], maxLength: 40 }
+        body: { type: [string, 'null'] }
+        referralName: { type: [string, 'null'], description: The person being recommended }
+        referralContact:
+          type: [string, 'null']
+          description: >
+            **Withheld from a signed-out reader.** It is a third party's phone number and they never
+            agreed to be on the open web; a signed-in caller is at least an account the platform can
+            act against if it is misused.
+        photoUrl: { type: [string, 'null'] }
+        authorName: { type: string }
+        authorIsResident: { type: boolean }
+        helpfulCount: { type: integer }
+        helpfulByMe: { type: boolean, description: Whether this caller has already voted; false for a signed-out reader }
+        canRemove: { type: boolean, description: 'Author, committee or staff -- computed for this caller' }
+        createdAt: { type: string, format: date-time }
+        replies:
+          type: array
+          items: { $ref: '#/components/schemas/SocietyContributionReply' }
+    SocietyContributionCreate:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, maxLength: 16, example: tip }
+        category: { type: string, maxLength: 40 }
+        body: { type: string, maxLength: 600 }
+        referralName: { type: string, maxLength: 80 }
+        referralContact: { type: string, maxLength: 20, description: Accepted here because a recommendation nobody can act on is not one }
+        photoUrl: { type: string, maxLength: 500 }
+    SocietyContributionReply:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        contributionId: { type: string, format: uuid }
+        authorName: { type: string }
+        authorIsResident: { type: boolean }
+        body: { type: string }
+        canRemove:
+          type: boolean
+          description: >
+            Against the **reply's** own author, not the contribution's -- posting a tip does not
+            grant the power to delete a correction to it.
+        createdAt: { type: string, format: date-time }
+    SocietyHelpful:
+      type: object
+      description: >
+        Exactly what the helpful button draws, and nothing else. Returned by both the `PUT` and the
+        `DELETE` so a vote never costs a re-read of the page it is on.
+      properties:
+        helpfulCount: { type: integer }
+        helpfulByMe: { type: boolean }
+    SocietyProposal:
+      type: object
+      description: >
+        One community proposal about a society -- a missing detail, the resident WhatsApp invite, or
+        a corrected map pin. Fields not relevant to this `kind` are null.
+      properties:
+        id: { type: string, format: uuid }
+        societySlug: { type: string }
+        kind: { type: string, enum: [details, whatsapp, pin] }
+        status: { type: string, enum: [pending, approved, rejected] }
+        builder: { type: [string, 'null'] }
+        buildYear: { type: [integer, 'null'] }
+        towers: { type: [integer, 'null'] }
+        units: { type: [integer, 'null'] }
+        maintenancePerSqft: { type: [number, 'null'] }
+        amenities: { type: [array, 'null'], items: { type: string } }
+        inviteUrl:
+          type: [string, 'null']
+          description: >
+            The resident group invite. Reaches a verified resident of this society and staff; null
+            for everybody else, approved or not -- an invite link is a door into a group of people
+            who live somewhere.
+        lat: { type: [number, 'null'] }
+        lng: { type: [number, 'null'] }
+        placeId: { type: [string, 'null'], description: The map provider's id for the proposed pin }
+        label: { type: [string, 'null'], description: 'Human-readable summary of what is being proposed, for the ops queue' }
+        authorName: { type: string }
+        authorIsResident: { type: boolean }
+        decidedByName: { type: [string, 'null'] }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    SocietyProposalCreate:
+      type: object
+      description: >
+        One body for three proposal kinds. Which fields are read depends on `kind`, and which caller
+        may send it does too: a `details` proposal is open to anyone signed in, `whatsapp` and `pin`
+        need a verified flat.
+      required: [kind]
+      properties:
+        kind: { type: string, maxLength: 16, enum: [details, whatsapp, pin] }
+        builder: { type: string, maxLength: 120 }
+        buildYear: { type: integer, minimum: 1 }
+        towers: { type: integer, minimum: 1 }
+        units: { type: integer, minimum: 1 }
+        maintenancePerSqft: { type: number, minimum: 0.0, maximum: 999.99 }
+        amenities: { type: array, maxItems: 24, items: { type: string, maxLength: 60 } }
+        inviteUrl: { type: string, maxLength: 300 }
+        lat: { type: number, minimum: -90.0, maximum: 90.0 }
+        lng: { type: number, minimum: -180.0, maximum: 180.0 }
+        placeId: { type: string, maxLength: 300 }
+    SocietyProposalDecision:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          maxLength: 16
+          enum: [approved, rejected]
+          description: Approving applies the proposed value to the society in the same transaction.
+    SocietyProposals:
+      type: object
+      description: >
+        The hub's one read for the whole proposal surface: what is outstanding, and whether a
+        resident group exists at all.
+      properties:
+        pending:
+          type: array
+          items: { $ref: '#/components/schemas/SocietyProposal' }
+          description: Every proposal awaiting a decision, whoever raised it.
+        whatsappAvailable:
+          type: boolean
+          description: >
+            Whether an approved resident group invite exists. Public, and the reason the pair is
+            split: a signed-out visitor can be told the group is there and nudged to verify their
+            flat, without being handed the door.
+        whatsappJoinUrl:
+          type: [string, 'null']
+          description: The invite itself. Null unless the caller is a verified resident of this society.
     Reel:
       type: object
       properties:
@@ -10276,56 +11620,6 @@ components:
             JSON document of what was kept and the statute requiring it, plus the categories this
             implementation is known not to reach. Written at execution rather than resolved at read
             time, so a request decided today still carries the reasoning it was decided under.
-    DataExport:
-      type: object
-      description: >
-        The document returned by `GET /me/data-export`. Uniform by construction: every dataset has
-        the same envelope whatever domain it came from, so a reader does not need seventy-odd
-        special cases, and a new dataset cannot introduce a new shape.
-      properties:
-        generatedAt: { type: string, format: date-time, description: When this document was assembled. It is a snapshot, not a live view. }
-        subjectId: { type: string, format: uuid, description: The caller. Present because the document is meant to outlive the session it was downloaded in. }
-        schemaVersion: { type: integer, description: 'Currently `1`. Bumped when the envelope changes shape, so a stored export can still be read.' }
-        redactionRule: { type: string, description: Prose statement of the rule applied to every dataset. On the wire rather than in documentation because the file is meant to be readable on its own, years later. }
-        rowLimit: { type: integer, description: Per-dataset row cap applied to this request. }
-        datasets:
-          type: array
-          items: { $ref: '#/components/schemas/DataExportDataset' }
-        excluded:
-          type: array
-          description: >
-            What the platform holds, did not put in this document, and why. Stating the gaps is the
-            point: an export that quietly omits a table tells the subject a false story about what
-            is held on them.
-          items: { $ref: '#/components/schemas/DataExportExclusion' }
-    DataExportDataset:
-      type: object
-      description: One group of rows, named and described in plain English.
-      properties:
-        domain: { type: string, enum: [account, identity, listings, enquiries, agreements, messaging, support, community, flatmate] }
-        name: { type: string, description: 'Unique within the document, e.g. `contact_requests_sent`.', example: contact_requests_sent }
-        describes: { type: string, description: What these rows are, for a reader who has never seen the schema. }
-        rowCount: { type: integer, description: Rows actually returned, after any truncation. }
-        truncated: { type: boolean, description: 'True when more rows exist than `rowLimit`. Disclosed rather than applied silently.' }
-        withheld:
-          type: object
-          additionalProperties: { type: string }
-          description: >
-            Column name to the reason it is not in `rows`. Empty rather than null when nothing was
-            withheld, so a reader never has to distinguish "nothing withheld" from "not answered".
-        rows:
-          type: array
-          description: >
-            Free-form: keys are database column names in snake_case, values their natural JSON type
-            (timestamps ISO-8601, dates `YYYY-MM-DD`, `jsonb` inlined as real JSON). Two keys are
-            synthetic — `partyRef`, the opaque counterparty digest or the literal `self`, and
-            `subject_role`, which tells the subject which side of a two-party record they are.
-          items: { type: object, additionalProperties: true }
-    DataExportExclusion:
-      type: object
-      properties:
-        name: { type: string, description: The table or group of tables left out., example: service_request_identities }
-        reason: { type: string, description: Why. Usually that the rows are another person's, are staff-internal, or cannot be attributed to the subject safely. }
     ReviewStatusUpdate:
       type: object
       description: >
@@ -10723,15 +12017,7 @@ components:
         moveIn: { type: string, format: date, description: Earliest date the tenant can move in. }
         priorLandlord: { type: string, description: 'Reference contact, free text.' }
         about: { type: string, description: Tenant's own introduction. }
-        score:
-          type: [integer, 'null']
-          minimum: 0
-          maximum: 100
-          readOnly: true
-          description: >
-            Computed trust score. **Null when the tenant has never saved a profile** — that is "not
-            assessed", which is a different claim from a saved-but-sparse profile scoring 0. A
-            client that renders both as `0%` tells a brand-new tenant they scored nothing.
+        score: { type: integer, minimum: 0, maximum: 100, readOnly: true, description: Computed trust score. }
         verified: { type: boolean, readOnly: true }
     # S17 (slice 5): PUT /me/tenant-profile accepted the full TenantProfile, including `score` and
     # `verified` -- so a tenant could award themselves a trust score of 100 and a verified badge,
@@ -11143,6 +12429,42 @@ components:
         # so an unknown or somebody else's ticket is a 404. One ticket carries at most one request;
         # a second is a 409.
         ticketId: { type: string }
+    CoFillServiceRequestCreate:
+      type: object
+      required: [request, role, mobile]
+      description: >
+        The request and the invitation in one body, because on a co-filled agreement they are one
+        decision.
+
+
+        A composition of two existing shapes rather than a third variant of `ServiceRequestCreate`:
+        `request` is exactly what `createServiceRequest` takes and `role`/`mobile` are exactly what
+        `inviteServiceRequestParty` takes, so neither can drift from the operation it came from. The
+        alternative -- flattening the four fields into one object -- would have made the co-fill body
+        a near-copy of the plain one, and near-copies of a body that gains a field are how a client
+        ends up able to set `ticketId` on one route and not the other for no reason anybody
+        remembers.
+      properties:
+        request:
+          allOf: [ { $ref: '#/components/schemas/ServiceRequestCreate' } ]
+          description: >
+            The request itself, on the same terms as `createServiceRequest` -- same closed `type`
+            vocabulary, same `details` object, same refusal of identity numbers inside it.
+        role:
+          type: string
+          enum: [owner, tenant]
+          description: >
+            The side the **invitee** is on, not the caller's. One of each per request, so naming the
+            side that is already taken is a 409.
+        mobile:
+          type: string
+          description: >
+            The counterparty's mobile, ten digits. Resolved against `users` and bound to the account
+            if one holds it; otherwise the invitation is written against the number itself and
+            claimed when that number registers and proves itself by OTP (V107). Either way the
+            requester is not blocked on the other person having signed up first, which is what the
+            earlier design got wrong -- it put a stranger's registration in the middle of the
+            requester's checkout.
     # D151. The parties a Leave & License names, and the two numbers it prints for each.
     #
     # Deliberately not reachable from ServiceRequest, from any list, or from any query keyed on
@@ -11389,10 +12711,10 @@ components:
         referralBonus: { type: integer, description: Part of allowance earned by referrals }
     ListingEntitlement:
       type: object
-      # Enforced now, not only reported. POST /me/listings refuses an over-quota post with
-      # `422 listing_quota_exhausted`. It used to be a client-side gate reading a client-side
-      # number, which is not a gate: a browser that had never posted counted zero listings used, so
-      # a second device waved an over-quota owner straight through.
+      # Reported, not enforced (D31b). POST /me/listings does not check this yet; the wizard's
+      # paywall does. It exists so the browser stops *computing* the allowance for itself -- a
+      # client-side gate reading a server-side number can be tightened later without another
+      # contract change, and one reading a client-side number cannot be tightened at all.
       #
       # No `used` or `remaining` here, unlike contacts: live listings go up and come down, so the
       # count is a live property of the catalogue that the listings endpoints already report, and
@@ -11402,14 +12724,11 @@ components:
         referralBonus: { type: integer }
     AgreementEntitlement:
       type: object
-      # Free rent agreements earned by referring. Derived on every request from the referrals that
-      # justify it -- nothing is stored, so a clawed-back referral takes its perk with it.
-      #
-      # No `used` or `remaining`, and that is a scope statement rather than an oversight: agreements
-      # are not sold through this API yet, so there is no checkout for a credit to be spent at and a
-      # consumption tally would be a number nobody could trust. It arrives with the money path.
       properties:
-        free: { type: integer, description: Rent agreements earned by referring, zero when none }
+        free:
+          type: integer
+          minimum: 0
+          description: Rent agreements earned via referrals.
     ReferralSummary:
       type: object
       # D31b. `rewardsEarned` and `rewardsPending` were Money and are gone. The rupees they counted
@@ -12575,6 +13894,288 @@ components:
       properties:
         date: { type: string, format: date }
         value: { type: number }
+    AdminAnalyticsTraffic:
+      type: object
+      description: Arrivals for one window, from PuneNest's own page-view table.
+      properties:
+        days: { type: integer, description: 'The window actually used, echoed so a clamped request is visible' }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        series:
+          type: array
+          description: One row per day.
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              sessions: { type: integer }
+              pageviews: { type: integer }
+              signups: { type: integer }
+        sources:
+          type: array
+          description: >
+            Channels derived from the referrer host. `direct` is honest about being a residue --
+            it holds app switches, pasted links and stripped referrers as well as typed URLs.
+          items:
+            type: object
+            properties:
+              channel: { type: string, example: direct }
+              sessions: { type: integer }
+              sharePct: { type: number }
+        devices:
+          type: object
+          description: Session counts by device bucket. Three buckets, because that is all the beacon reports.
+          properties:
+            mobile: { type: integer }
+            tablet: { type: integer }
+            desktop: { type: integer }
+        identity:
+          type: array
+          description: Anonymous against signed-in sessions by week -- the split the funnel turns on.
+          items:
+            type: object
+            properties:
+              week: { type: string, format: date, description: Week-starting date }
+              anonymous: { type: integer }
+              signedIn: { type: integer }
+    AdminAnalyticsEngagement:
+      type: object
+      description: How deep the visits went, for one window.
+      properties:
+        days: { type: integer }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        weeks:
+          type: array
+          items:
+            type: object
+            properties:
+              week: { type: string, format: date }
+              sessions: { type: integer }
+              avgSessionMinutes:
+                type: [number, 'null']
+                description: >
+                  **Null, never zero, when there were too few sessions to average honestly.** A
+                  zero here would draw a line reading "engagement collapsed" for a week in which
+                  nobody visited, and somebody would act on it.
+              bounceRatePct:
+                type: [number, 'null']
+                description: Null on the same terms as `avgSessionMinutes`, and for the same reason.
+        topPages:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              views: { type: integer }
+              anonViews:
+                type: integer
+                description: >
+                  Beside the total rather than folded into it: a page only signed-in users reach
+                  and a page anonymous users bounce off are different problems with the same count.
+    AdminAnalyticsSurfers:
+      type: object
+      description: The anonymous-to-signed-in funnel for one window.
+      properties:
+        days: { type: integer }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        totalSessions: { type: integer }
+        anonSessions: { type: integer }
+        signedInSessions: { type: integer }
+        signups: { type: integer }
+        anonSharePct: { type: number }
+        conversionRatePct: { type: number }
+        weeks:
+          type: array
+          description: The trend behind the two headline percentages.
+          items:
+            type: object
+            properties:
+              week: { type: string, format: date }
+              anonymous: { type: integer }
+              signedIn: { type: integer }
+        pages:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              views: { type: integer }
+              anonViews: { type: integer }
+        dropOff:
+          type: array
+          description: >
+            Where sessions end. The actionable half of the report -- an exit from the signup screen
+            is a funnel problem, an exit from a listing detail page usually is not.
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              exits: { type: integer }
+              sharePct: { type: number }
+    PricingInsightRow:
+      type: object
+      description: One locality's asking prices against the rate PuneNest publishes for it.
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        marketRatePerSqft:
+          type: [number, 'null']
+          description: The curated figure the platform publishes. Null for a locality nobody has rated yet.
+        avgActualRatePerSqft:
+          type: [number, 'null']
+          description: >
+            What live listings actually average. The gap against `marketRatePerSqft` is the point of
+            the report: where they have separated, the curated number is misleading buyers.
+        avgRent: { type: [number, 'null'] }
+        rentalYieldPct: { type: [number, 'null'] }
+        buyCount: { type: integer }
+        rentCount: { type: integer }
+        totalListings: { type: integer }
+        demand: { type: [number, 'null'], description: 'Demand signal for the locality, for reading the price gap against interest' }
+    SlaSummary:
+      type: object
+      description: >
+        Moderation turnaround against the promised target. Nulls are serialised rather than omitted:
+        a window with nothing reviewed must be able to say "no data", and an absent key is
+        indistinguishable from a key the client forgot to read.
+      properties:
+        targetHours: { type: integer, description: The turnaround the platform promises owners }
+        reviewedCount: { type: integer }
+        avgHoursToReview: { type: [number, 'null'] }
+        medianHoursToReview:
+          type: [number, 'null']
+          description: >
+            Beside the mean, because one listing left for a fortnight drags the average past target
+            while most owners were served within the hour -- and acting on that average would be
+            acting on the wrong problem.
+        breachedCount: { type: integer }
+        slaRatePct: { type: [number, 'null'], description: Share of reviewed listings that met the target }
+        pendingCount: { type: integer }
+        pendingBreachingCount:
+          type: integer
+          description: Still waiting and already past target -- owners currently being let down.
+        worstPending:
+          type: array
+          description: The longest-waiting listings, named so somebody can pick one up.
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              hoursWaiting: { type: number }
+    OwnerListingStanding:
+      type: object
+      description: How much listing allowance one phone number has left, for a post-on-behalf decision.
+      properties:
+        mobile: { type: string, description: 'Echoed back, so a mistyped digit is visible in the answer' }
+        known: { type: boolean, description: Whether this number belongs to a PuneNest account at all }
+        allowance: { type: integer, description: How many live listings this owner may hold }
+        held: { type: integer, description: How many they hold now }
+        overAllowance: { type: boolean, description: The single field the composer branches on }
+    PageViewBatchCreate:
+      type: object
+      description: >
+        A flush of everything one tab has seen since the last one. Batched rather than one request
+        per view because `WriteRateLimitFilter` allows 120 mutating requests a minute per caller,
+        shared with everything real the visitor does -- a per-view beacon's first casualty would be
+        the enquiry they tried to send afterwards, refused with a 429 because telemetry had already
+        spent the budget.
+      required: [sessionId, events]
+      properties:
+        sessionId:
+          type: string
+          pattern: '[A-Za-z0-9_-]{8,64}'
+          description: >
+            An opaque tab-scoped token the client mints. **Format-constrained rather than merely
+            length-bounded**: without a pattern this is a 64-character free-text field on an
+            unauthenticated endpoint -- somewhere a careless client parks an email address and a
+            hostile one parks anything at all. Token characters only means whatever arrives cannot
+            be personal data even by accident.
+
+
+            On the batch rather than on each event, because a flush comes from one tab and a tab is
+            one session by construction.
+        events:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: >
+            The views, oldest first, though nothing depends on the order. Capped at 50 -- far above
+            a real flush and far below a payload worth sending to be expensive.
+          items:
+            type: object
+            required: [path, device, agoMs]
+            properties:
+              path: { type: string, maxLength: 200, description: 'The matched route pattern, not the visited URL -- no ids, no query string' }
+              referrerHost: { type: [string, 'null'], maxLength: 120, description: Host only. A full referrer would carry the previous page's query string with it. }
+              device: { type: string, enum: [mobile, tablet, desktop] }
+              agoMs:
+                type: integer
+                minimum: 0
+                description: >
+                  How long before this flush the view happened. **Relative, not an absolute
+                  timestamp, and that is the point.** A browser clock is routinely minutes out and
+                  occasionally years out; day buckets are cut on IST, so a skewed clock files a view
+                  under the wrong day rather than degrading gracefully, and a hostile client could
+                  backdate a flood into any month it liked. An offset is anchored to the server's
+                  clock on arrival, so the worst a wrong client manages is misreporting how long ago
+                  something happened within its own flush.
+
+
+                  Negative is rejected -- "in the future" is a broken or hostile client and saying
+                  so is more useful than accepting it. Implausibly large is clamped rather than
+                  rejected, because a tab left idle for hours and flushed on unload is a real
+                  session that should be counted.
+    DataExport:
+      type: object
+      description: >
+        Everything PuneNest holds about one person, assembled in one call. The response describes
+        itself on purpose: somebody exercising a subject-access right should not have to
+        reverse-engineer a database schema to read the answer.
+      properties:
+        generatedAt: { type: string, format: date-time }
+        subjectId: { type: string, description: The account this export is about }
+        schemaVersion:
+          type: integer
+          description: >
+            So a person who exports twice a year apart can tell whether the shape changed underneath
+            them, rather than guessing from a diff.
+        redactionRule:
+          type: string
+          description: >
+            In plain words, how other people's identifiers were handled. An export of your enquiries
+            necessarily touches the owners you contacted, and their phone numbers are not yours to
+            receive -- stating the rule is the difference between a redaction and an omission.
+        rowLimit: { type: integer, description: The per-dataset cap; `truncated` says where it bit }
+        datasets:
+          type: array
+          items:
+            type: object
+            properties:
+              domain: { type: string, example: listings }
+              name: { type: string, example: enquiries }
+              describes: { type: string, description: 'One sentence saying what these rows are, in plain words' }
+              rowCount: { type: integer }
+              truncated: { type: boolean, description: True when `rowLimit` cut the set -- a capped export is honest about being capped }
+              withheld:
+                type: object
+                additionalProperties: { type: string }
+                description: >
+                  Column name to the reason it was removed. An export that silently dropped a column
+                  would be a worse answer than one that names it.
+              rows:
+                type: array
+                items: { type: object, additionalProperties: true }
+        excluded:
+          type: array
+          description: Tables left out entirely, with reasons.
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              reason: { type: string }
     DemandSignalCreate:
       type: object
       required: [kind]
@@ -12598,68 +14199,6 @@ components:
           type: string
           format: uuid
           description: Set on a view. Absent on a search, which by definition has no one property.
-    PageViewBatchCreate:
-      type: object
-      required: [sessionId, events]
-      properties:
-        sessionId:
-          type: string
-          pattern: '[A-Za-z0-9_-]{8,64}'
-          description: >
-            Opaque tab-scoped token minted by the client in `sessionStorage`. Format-constrained
-            rather than merely bounded: this is an unauthenticated endpoint, so without a pattern
-            the field is 64 characters of free text where a careless client could park an email
-            address and a hostile one could park anything. Restricting it to token characters means
-            whatever arrives cannot be personal data even by accident.
-
-
-            Deliberately **not** durable across tabs or visits, which is why the reports can
-            distinguish signed-in from anonymous sessions but cannot and do not claim to
-            distinguish new visitors from returning ones.
-        events:
-          type: array
-          minItems: 1
-          maxItems: 50
-          description: >
-            Oldest first, though nothing depends on the order. Capped because the whole batch is
-            materialised and validated before anything is written - fifty is far above a real flush
-            and far below a payload worth sending to be expensive.
-          items: { $ref: '#/components/schemas/PageViewCreate' }
-    PageViewCreate:
-      type: object
-      required: [path, device, agoMs]
-      properties:
-        path:
-          type: string
-          maxLength: 200
-          example: '/property/:id'
-          description: >
-            The matched **route pattern**, never a real URL and never a query string. A stored
-            `/property/7f3a…` would be a record of which home a person looked at; a stored
-            `?utm_source=` would be the thing that makes paid-channel attribution possible. Neither
-            is collected, and the reports say so rather than showing a slice that always reads zero.
-        referrerHost:
-          type: string
-          maxLength: 120
-          nullable: true
-          example: google.co.in
-          description: >
-            Host only, never the full referring URL - a referring URL carries the search terms
-            somebody typed. Absent means a typed address, a bookmark, or a withheld header; those
-            are not distinguishable and the reports fold all three into `Direct` rather than
-            claiming to tell them apart.
-        device:
-          type: string
-          enum: [mobile, tablet, desktop]
-        agoMs:
-          type: integer
-          format: int64
-          minimum: 0
-          description: >
-            Milliseconds before this flush that the view happened, anchored to the **server's**
-            clock on arrival. Rejected when negative - "in the future" is a broken or hostile
-            client. Clamped rather than rejected when implausibly large, because a tab left idle for
-            hours and flushed on unload is a real session that should be counted, not an error.
     SupplyGapRow:
       type: object
       description: >
@@ -12699,234 +14238,6 @@ components:
           description: >
             `demand - supply`. Negative means the platform holds more homes there than anybody is
             asking for, which is as actionable as the positive case and is why this is signed.
-    PricingInsightRow:
-      type: object
-      description: >
-        One locality: what owners are asking against what the locality is curated to be worth.
-        Derived fields are nullable and are sent as explicit nulls rather than omitted keys - an
-        absent key leaves the client with `undefined`, which is one `?? marketRate` away from
-        re-introducing on the wire the exact fallback this endpoint exists to remove.
-      properties:
-        slug: { type: string, description: The locality's primary key, and the only join key the tab needs. }
-        name: { type: string }
-        marketRatePerSqft:
-          type: integer
-          format: int64
-          nullable: true
-          description: >
-            Curated reference, maintained by the reference seed and never inferred from listings.
-            Null for a locality nobody has priced yet, which is a gap in curation and worth seeing
-            as one.
-        avgActualRatePerSqft:
-          type: integer
-          format: int64
-          nullable: true
-          description: >
-            Mean of `price / area` over approved buy listings. **Null when there are none - never
-            the market rate, never zero.**
-        avgRent: { type: integer, format: int64, nullable: true, description: Curated monthly rent reference. }
-        rentalYieldPct:
-          type: number
-          nullable: true
-          description: >
-            Annualised asking rent as a percentage of capital value, to one decimal. Null when
-            either half is missing; a yield of 0.0 would read as a locality that earns nothing.
-        buyCount:
-          type: integer
-          format: int64
-          description: >
-            All approved buy listings, including those whose area is missing and which therefore
-            contributed nothing to the average.
-        rentCount: { type: integer, format: int64 }
-        totalListings:
-          type: integer
-          format: int64
-          description: >
-            Counted independently rather than as buyCount + rentCount, so a deal type the report
-            does not break out surfaces as a discrepancy instead of vanishing.
-        demand: { type: integer, nullable: true, description: 'Curated, 0-100. Carried so the tab can sort without a second call.' }
-    SlaSummary:
-      type: object
-      description: >
-        Moderation turnaround. Nullable fields mean "nothing has been reviewed yet" and are sent as
-        explicit nulls: an omitted field says the endpoint changed, an explicit null says the queue
-        has not been worked, and those are different problems.
-      properties:
-        targetHours:
-          type: integer
-          description: >
-            The review SLA. Served rather than left to the client so that "breached" means the same
-            thing on the server that computed it and the screen that colours it red.
-        reviewedCount: { type: integer, format: int64 }
-        avgHoursToReview: { type: number, nullable: true, description: Null when nothing was reviewed. }
-        medianHoursToReview:
-          type: number
-          nullable: true
-          description: >
-            The figure worth reading: one listing that sat for three weeks over a holiday drags the
-            mean far enough to hide a team that is otherwise inside the target.
-        breachedCount: { type: integer, format: int64 }
-        slaRatePct: { type: integer, nullable: true, description: 'Null, not 100, when nothing was reviewed.' }
-        pendingCount:
-          type: integer
-          format: int64
-          description: Unaffected by `days` - a backlog is a present-tense fact.
-        pendingBreachingCount:
-          type: integer
-          format: int64
-          description: The one figure here an ops lead can act on today.
-        worstPending:
-          type: array
-          description: Oldest waiting listings, longest first, capped. A count says act; this says what to open.
-          items: { $ref: '#/components/schemas/SlaPendingListing' }
-    SlaPendingListing:
-      type: object
-      description: >
-        Owner and locality are absent on purpose. This is a work queue, not a listing feed - the id
-        opens the record and the title identifies it, and anything more turns an ops metric into a
-        second unpaginated export of the property table.
-      properties:
-        id: { type: string, description: The listing's uuid as text - what the moderation route takes. }
-        title: { type: string }
-        hoursWaiting: { type: number }
-    AdminAnalyticsTraffic:
-      type: object
-      description: Sessions, page views and acquisition over a window of IST days.
-      properties:
-        days: { type: integer, description: The window actually applied, after defaulting. }
-        from: { type: string, format: date, description: First day in the window, inclusive. }
-        to: { type: string, format: date, description: Day after the last, exclusive - the window is half-open. }
-        series:
-          type: array
-          description: One entry per day in the window. Days with no traffic are present as zeroes.
-          items: { $ref: '#/components/schemas/AdminAnalyticsTrafficDay' }
-        sources:
-          type: array
-          description: Acquisition channels, largest first. Shares sum to 100 across the window.
-          items: { $ref: '#/components/schemas/AdminAnalyticsSource' }
-        devices:
-          $ref: '#/components/schemas/AdminAnalyticsDevices'
-        identity:
-          type: array
-          description: Anonymous against signed-in sessions, by ISO week.
-          items: { $ref: '#/components/schemas/AdminAnalyticsIdentityWeek' }
-    AdminAnalyticsTrafficDay:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        sessions: { type: integer, format: int64 }
-        pageviews: { type: integer, format: int64 }
-        signups:
-          type: integer
-          format: int64
-          description: >
-            Accounts created on the same IST day the sessions beside them are cut on. Reading this
-            from a differently-bounded query would divide one calendar by another.
-    AdminAnalyticsSource:
-      type: object
-      description: >
-        A closed vocabulary - `Organic search`, `Direct`, `WhatsApp`, `Social`, `Other referrals` -
-        rather than one slice per site on the internet. `Direct` covers a typed address, a bookmark
-        and a withheld referrer header, which are not distinguishable and which this does not claim
-        to distinguish.
-      properties:
-        channel: { type: string, example: Organic search }
-        sessions:
-          type: integer
-          format: int64
-          description: >
-            Sessions, not page views, attributed to the host the session *arrived* from. Counting
-            views would weight an arrival by how much it went on to read and then present that as
-            reach.
-        sharePct: { type: number }
-    AdminAnalyticsDevices:
-      type: object
-      description: Sessions by the device they arrived on. Each session is counted exactly once.
-      properties:
-        mobile: { type: integer, format: int64 }
-        tablet: { type: integer, format: int64 }
-        desktop: { type: integer, format: int64 }
-    AdminAnalyticsIdentityWeek:
-      type: object
-      properties:
-        week: { type: string, format: date, description: The Monday the ISO week starts on. }
-        anonymous: { type: integer, format: int64 }
-        signedIn: { type: integer, format: int64 }
-    AdminAnalyticsEngagement:
-      type: object
-      properties:
-        days: { type: integer }
-        from: { type: string, format: date }
-        to: { type: string, format: date }
-        weeks:
-          type: array
-          description: >
-            Every ISO week the window touches. A week with no sessions is present with null rates,
-            so the axis stays complete and the gap renders as a gap.
-          items: { $ref: '#/components/schemas/AdminAnalyticsEngagementWeek' }
-        topPages:
-          type: array
-          description: Most-viewed route patterns, capped. Raw patterns - the console owns the display names.
-          items: { $ref: '#/components/schemas/AdminAnalyticsPage' }
-    AdminAnalyticsEngagementWeek:
-      type: object
-      properties:
-        week: { type: string, format: date }
-        sessions: { type: integer, format: int64 }
-        avgSessionMinutes:
-          type: number
-          nullable: true
-          description: Decimal minutes. Null when the week had no sessions.
-        bounceRatePct:
-          type: number
-          nullable: true
-          description: >
-            The week's bounced sessions over the week's sessions - not the mean of its daily rates.
-            Null when the week had no sessions.
-    AdminAnalyticsPage:
-      type: object
-      description: >
-        `anonViews` is a subset of `views`, so both plot honestly on one axis. This replaces a
-        "signup rate" series that could only have been produced by joining traffic to identity.
-      properties:
-        path: { type: string, example: '/property/:id', description: A route pattern, never a real URL. }
-        views: { type: integer, format: int64 }
-        anonViews: { type: integer, format: int64 }
-    AdminAnalyticsSurfers:
-      type: object
-      properties:
-        days: { type: integer }
-        from: { type: string, format: date }
-        to: { type: string, format: date }
-        totalSessions: { type: integer, format: int64 }
-        anonSessions: { type: integer, format: int64 }
-        signedInSessions: { type: integer, format: int64 }
-        signups: { type: integer, format: int64 }
-        anonSharePct: { type: number, nullable: true, description: 'Null, not 0, when no sessions were recorded.' }
-        conversionRatePct:
-          type: number
-          nullable: true
-          description: >
-            Signups over sessions, both cut on the same IST calendar. Null when there were no
-            sessions - zero would report a conversion failure that never happened.
-        weeks:
-          type: array
-          items: { $ref: '#/components/schemas/AdminAnalyticsIdentityWeek' }
-        pages:
-          type: array
-          items: { $ref: '#/components/schemas/AdminAnalyticsPage' }
-        dropOff:
-          type: array
-          description: Where sessions ended. A page nobody left from is absent rather than listed at zero.
-          items: { $ref: '#/components/schemas/AdminAnalyticsExit' }
-    AdminAnalyticsExit:
-      type: object
-      properties:
-        path: { type: string, example: '/property/:id' }
-        exits: { type: integer, format: int64, description: Sessions whose last view of the day was this page. }
-        sharePct:
-          type: number
-          description: Share of the exits **shown**, so the chart's slices add up to what it displays.
     AdminFinance:
       type: object
       properties:

@@ -20,7 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
-import { signIn, signedInAs, signedInAsNew, authHeaders, API } from '../helpers/liveAuth.js';
+import { signIn, signedInAs, signedInAsNew, apiLogin, uniqueMobile, authHeaders, API } from '../helpers/liveAuth.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -488,12 +488,154 @@ test.describe('LIVE: property domain against the real API', () => {
     await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 20_000 });
 
     /* And it must come back from the server, not from the localStorage mirror the wizard still
-       keeps for edit prefill. `/dashboard` reads `myListings` through the seam, so a row here is a
-       row the API returned. */
+       keeps for the duplicate scan. `/dashboard` reads `myListings` through the seam, so a row here
+       is a row the API returned. */
     const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
     await page.goto('/dashboard');
     const rows = await lastJson(mine).then((b) => (Array.isArray(b) ? b : (b.content ?? [])));
     expect(rows.some((r) => String(r.id) === String(body.id))).toBe(true);
+  });
+
+  /* A listing filed straight through the API, for the two tests below.
+   *
+   * They are about what the *browser* can do with a listing it has never seen written, so driving
+   * the wizard to create one would defeat the point twice over: it would take a minute per test,
+   * and it would leave the local mirror populated, which is exactly the state that hid the bug. */
+  async function fileListing(mobile, title) {
+    const res = await fetch(`${API}/me/listings`, {
+      method: 'POST',
+      headers: { ...(await authHeaders(mobile)), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        deal: 'rent',
+        propertyType: 'flat',
+        bhk: 3,
+        price: 27000,
+        deposit: 81000,
+        area: 1150,
+        areaUnit: 'sqft',
+        furnishing: 'semi-furnished',
+        locality: 'Baner',
+        city: 'Pune',
+        description: 'Filed through the API by the seam spec.',
+      }),
+    });
+    // Read the body ONCE. This is a native `fetch` Response, not Playwright's buffered
+    // `APIResponse`, so `expect(res.status, await res.text())` would consume it and leave nothing
+    // for the parse below — a failure that reports as "Body is unusable" rather than as the 4xx it
+    // was trying to explain.
+    const text = await res.text();
+    expect(res.status, text).toBe(201);
+    return JSON.parse(text);
+  }
+
+  test('the edit form prefills from the server, not from this browser (D237)', async ({ page }) => {
+    /* The wizard's edit prefill was a synchronous `getListing(id)` out of localStorage, and that is
+       the worst shape a stale read can take — not "the screen renders empty" but "the screen renders
+       empty and then saves". An owner reaching `?edit=<id>` on a second device, after clearing site
+       data, or through the "Add photos" link on an enquiry (built from a server id this browser has
+       never held) got the blank default form, and submitting it would have PATCHed those defaults
+       over a listing that was not blank.
+
+       No mock spec can see this, in either half. The read: the mock provider resolves from the same
+       store the old code read, so the prefill is correct there by construction. The *shape*: a mock
+       record carries its own `form` snapshot, while a server row carries the contract's field names
+       — `type` for `propertyType`, `desc` for `description`, `3` for `"3 BHK"` — so the first
+       version of this fix repointed the read and still filled almost nothing, and every mock spec
+       stayed green. Hence `toEditForm`, and hence this test asserting values rather than a heading.
+
+       The listing is created over HTTP and the browser is then pointed at its id without ever having
+       written it locally — the second-device case, reproduced exactly. Step 1 is where the assertion
+       lives because step 2 needs the society and flat number, which the wire stores only inside one
+       composed address line and cannot hand back in parts. */
+    const mobile = await signedInAsNew(page);
+    const created = await fileListing(mobile, 'Prefill Proof Flat');
+
+    await page.goto(`/list-property?edit=${created.slug || created.id}`);
+
+    // Carpet area is the sharpest of the three: it is free text, so a default cannot fake it — the
+    // wizard ships `carpetArea: ''` and there is no value it could show but the server's.
+    await expect(page.locator('input[data-err="carpetArea"]')).toHaveValue('1150', { timeout: 25_000 });
+    // BHK and furnishing both *have* defaults ('2', 'unfurnished'), which is what makes them worth
+    // asserting: each was seeded to something other than its default, so a blank prefill reads as a
+    // wrong answer rather than as an empty box.
+    await expect(page.locator('[data-err="bhk"] [aria-pressed="true"]'))
+      .toHaveText('3', { timeout: 15_000 });
+  });
+
+  test('an owner can take their own listing down, and it frees a quota slot (D238)', async ({ page }) => {
+    /* `DELETE /me/listings/{id}` existed and nothing called it. The dashboard's Delete ran
+       `setListingStatus(id, 'deleted')` — the moderator's route, which an owner is not authorised
+       for, with a status that route rejects anyway — and did not await it, so both failures were
+       swallowed and the owner was told the listing was gone before it reappeared on refresh.
+
+       That is not cosmetic while the listing quota is enforced server-side (D235). The free tier is
+       one listing at a time, and this was the only way to let go of one: a ceiling whose exit
+       silently does nothing is a ceiling with no exit. So the assertion is in two halves — the row
+       leaves `/me/listings`, and the slot it occupied can be filled again. */
+    const mobile = await signedInAsNew(page);
+    const first = await fileListing(mobile, 'Take Down Proof Flat');
+
+    // The free allowance is one, so a second listing is refused while the first stands. Establishing
+    // that here is what makes the retry at the end mean something.
+    const blocked = await fetch(`${API}/me/listings`, {
+      method: 'POST',
+      headers: { ...(await authHeaders(mobile)), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Second Flat, Blocked', deal: 'rent', propertyType: 'flat', bhk: 2,
+        price: 25000, locality: 'Baner', city: 'Pune',
+      }),
+    });
+    expect(blocked.status).toBe(422);
+
+    await page.goto('/dashboard');
+    // The dashboard opens on Overview, which only counts the listings; the cards and their actions
+    // live under My Properties.
+    await page.getByRole('link', { name: /My Properties/i })
+      .or(page.getByRole('button', { name: /My Properties/i })).first().click();
+    const card = page.getByText('Take Down Proof Flat').first();
+    await expect(card).toBeVisible({ timeout: 25_000 });
+
+    const removed = page.waitForResponse(
+      (r) => /\/api\/me\/listings\/[^/]+$/.test(new URL(r.url()).pathname) && r.request().method() === 'DELETE',
+      { timeout: 30_000 },
+    );
+    page.once('dialog', (d) => d.accept());
+    /* `renderOverflow` collapses to an inline danger button when Take down is the only action left,
+       and folds into a "More actions" menu when it is not. A listing filed through the API arrives
+       `pending`, and most of the other actions are gated on `approved` — so which shape renders is
+       a function of moderation state rather than of anything this test is about. Open the menu if
+       there is one, then click the same label either way. */
+    const more = page.getByRole('button', { name: /More actions/i }).first();
+    if (await more.count()) await more.click();
+    // The menu variant carries `role="menuitem"`, which overrides the implicit button role, so
+    // neither query alone finds both shapes.
+    await page.getByRole('menuitem', { name: /Take down/i })
+      .or(page.getByRole('button', { name: /Take down/i })).first().click();
+    expect((await removed).status()).toBe(200);
+
+    /* Archived, not erased — and `GET /me/listings` is deliberately the owner's *whole* file,
+       statuses included, so the row is still there and that is correct. What has to be true is that
+       it is marked: read on a separate HTTP client so the browser's storage cannot be what is
+       answering. (The dashboard filters these out; the API does not, and should not.) */
+    const mineRes = await fetch(`${API}/me/listings?size=100`, { headers: await authHeaders(mobile) });
+    const mineBody = await mineRes.json();
+    const mineRows = Array.isArray(mineBody) ? mineBody : (mineBody.content ?? []);
+    const taken = mineRows.find((r) => String(r.id) === String(first.id));
+    expect(taken, 'the listing should still be on file').toBeTruthy();
+    expect(taken.archived).toBe(true);
+
+    // … and the slot is free again. This is the half that makes the affordance a feature rather
+    // than a tidier list: without it the owner is still capped by a listing they no longer have.
+    const retried = await fetch(`${API}/me/listings`, {
+      method: 'POST',
+      headers: { ...(await authHeaders(mobile)), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Second Flat, Allowed', deal: 'rent', propertyType: 'flat', bhk: 2,
+        price: 25000, locality: 'Baner', city: 'Pune',
+      }),
+    });
+    expect(retried.status, await retried.text()).toBe(201);
   });
 
   test('the session survives a reload (no redirect to signin)', async ({ page }) => {
@@ -1904,6 +2046,52 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
     const summaryReads = calls.filter((c) => /GET \/api\/me\/finances\/.*\/summary$/.test(c)).length;
     expect(summaryReads, `one summary read should serve the tab, saw ${summaryReads}`).toBeLessThanOrEqual(3);
   });
+
+  test('the owner rent-receipts panel is served by /me/rent-ledger and shows only settled money', async ({ page }) => {
+    /* Two defects met in this one panel, and both were invisible for the same reason.
+
+       It read `getRentLedger(user.mobile)` out of localStorage — a key nothing on a live build ever
+       writes — so every owner who had genuinely been paid online was shown "no online rent". And
+       because it rendered nothing, nobody noticed the second bug underneath: the settlement badge
+       was `entry.settlement || 'Settled'`, so a row with no settlement — an unsettled or *failed*
+       charge — was labelled as money received. That is the owner's side of the same defect the Rent
+       Wallet had on the tenant's (D232).
+
+       The fixture is what makes this provable rather than decorative: the seeded tenancy has three
+       rent rows against this owner, two paid and one failed, so a panel that renders three has the
+       old fallback and a panel that renders zero has the old read. The assertion is therefore on
+       *which* rows survive, not on a count of what the API happened to return. */
+    const res = await page.request.get(`${API}/me/rent-ledger?page=0&size=20`, {
+      headers: await authHeaders(OWNER.mobile),
+    });
+    expect(res.status(), await res.text()).toBe(200);
+    const body = await res.json();
+    // Wire shape: `content`, not the `items` the http provider renames it to for components. And
+    // `status`, not `settled` — the panel's `settled` predicate is *derived* in `rentMapper`
+    // (`status === 'paid'`), because whether money landed is a fact about the payment's status and
+    // the server should not ship the same fact twice under two names.
+    const rows = body.content || [];
+    expect(rows.length, 'the seeded tenancy should give this owner a rent ledger').toBeGreaterThan(0);
+
+    const settled = rows.filter((r) => r.status === 'paid');
+    const unsettled = rows.filter((r) => r.status !== 'paid');
+    // If every row were paid the test could not tell a filter from the old `entry.settlement ||
+    // 'Settled'` fallback, so the fixture's failed row is load-bearing rather than incidental.
+    expect(unsettled.length, 'the fixture carries a failed rent row; without it this proves nothing').toBeGreaterThan(0);
+    for (const r of unsettled) expect(r.paidDate, 'an unpaid row must not carry a date the money moved').toBeFalsy();
+    for (const r of settled) expect(r.paidDate, 'a settled row carries the date the money moved').toBeTruthy();
+
+    await signedInAs(page, OWNER.mobile);
+    const calls = [];
+    watchApiCalls(page, calls);
+    await page.goto('/dashboard#documents');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    await expect
+      .poll(() => calls.filter((c) => /GET \/api\/me\/rent-ledger/.test(c)).length,
+        { timeout: 20000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
+      .toBeGreaterThan(0);
+  });
 });
 
 test.describe('LIVE: the flatmates board against the real API', () => {
@@ -2173,19 +2361,190 @@ test.describe('LIVE: service requests against the real API', () => {
     expect(threaded.last.from).toBe('user');
   });
 
-  test('the co-fill party list has no endpoint and returns empty rather than guessing', async ({ page }) => {
+  test('the legacy co-fill merge stays empty live, so accepted requests are not listed twice', async ({ page }) => {
     await signedInAs(page, CHATTER.mobile);
     await page.goto('/services/interior');
     await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
 
-    // Co-fill invites are a mock-only flow; the http provider returns [] rather than inventing a
-    // call the server cannot answer — the tracker spreads this into its merge, so it may not be
-    // undefined.
+    // `listPartyServiceRequests` is the *mock's* second bucket — "requests I am a party to but did
+    // not raise" — which the tracker concatenates onto its own list. Live there is no such bucket:
+    // an accepted party sees the request in `GET /service-requests` like anybody else, so anything
+    // returned here would duplicate every row. Empty, never undefined — the tracker spreads it.
     const party = await page.evaluate(async () => {
       const svc = await import('/src/services/serviceRequestService.js');
       return svc.listPartyServiceRequests();
     });
     expect(party).toEqual([]);
+  });
+
+  /**
+   * The whole co-fill round trip, against a mobile number that has never been seen before (V107).
+   *
+   * V107 made the party row's `user_id` nullable and gave it a `mobile` instead, so an invitation
+   * can be addressed to a number and bound to whoever registers it.
+   *
+   * Two accounts, so two browser contexts. Re-signing the same page would leave the previous
+   * account's tokens in `localStorage` alongside the new ones — `signedInAs` writes a snapshot, it
+   * does not clear one — and the failure would surface several assertions later as a permission
+   * error nobody could trace. Both accounts are minted fresh rather than taken from the fixture
+   * registry, because this spec mutates them and the seeded actors are published read-only
+   * invariants.
+   */
+  test('a co-fill invite reaches an unregistered number and is claimed on sign-up', async ({ page, browser, request }) => {
+    await signedInAsNew(page);
+    // Not registered, and deliberately not registered *yet*. `uniqueMobile` is the same generator
+    // `signedInAsNew` uses, so this is a well-formed number the server has no user for.
+    const inviteeMobile = uniqueMobile();
+
+    await page.goto('/services/rent-agreement');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    const created = await page.evaluate(async ({ mobile }) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      const r = await svc.createCoFillServiceRequest({
+        request: {
+          type: 'rental',
+          customer: { name: 'Live Co-fill Owner' },
+          details: { ownerName: 'Live Co-fill Owner', property: 'Baner, Pune' },
+        },
+        role: 'tenant',
+        mobile,
+      });
+      return { id: r.id, status: r.status, parties: r.parties };
+    }, { mobile: inviteeMobile });
+
+    expect(created.id, 'the server assigned no id to the co-fill request').toBeTruthy();
+    const invited = (created.parties || []).find((p) => p.role === 'tenant');
+    expect(invited, 'the create did not return the invited party').toBeTruthy();
+    expect(invited.status).toBe('invited');
+    // The distinction the whole migration exists for: `pending` means the server is holding a
+    // number nobody has signed up to. The wizard renders a different sentence for it.
+    expect(invited.pending).toBe(true);
+    // The number comes back masked, not in full. The requester typed it, so they know it; anybody
+    // else who reaches this payload should not learn it.
+    expect(invited.mobile).toMatch(/^\d{2}X{5}\d{3}$/);
+    expect(invited.mobile).not.toBe(inviteeMobile);
+
+    // The invitee registers, in their own context. `signedInAsNew` would mint its own number, so the
+    // account is created over HTTP with the number the invitation names and the browser then signs
+    // in normally.
+    const inviteeContext = await browser.newContext();
+    const inviteePage = await inviteeContext.newPage();
+    try {
+      await apiLogin(inviteeMobile);
+      await signedInAs(inviteePage, inviteeMobile);
+      await inviteePage.goto('/services/rent-agreement');
+      await expect(inviteePage.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+      const mine = await inviteePage.evaluate(async () => {
+        const svc = await import('/src/services/serviceRequestService.js');
+        return svc.listMyServiceRequestInvites();
+      });
+      const claimed = mine.find((p) => p.requestId === created.id);
+      expect(claimed, 'the pending invite was not claimed on sign-up').toBeTruthy();
+      expect(claimed.status).toBe('invited');
+      // Claimed, so no longer pending: the row now names a user id rather than a bare number.
+      expect(claimed.pending).toBe(false);
+
+      // Claiming is not accepting — the request stays invisible until the invitee says yes. Asked
+      // over `request` rather than in the page, deliberately: the answer is a 404, and Chromium
+      // logs one against the app's own origin as a console error, which `afterEach` treats as a
+      // real failure (helpers/console.js judges by provenance, not wording).
+      const peek = await request.get(`${API}/service-requests/${created.id}`, {
+        headers: await authHeaders(inviteeMobile),
+      });
+      expect(peek.status(), 'an unanswered invite already exposed the request').toBe(404);
+
+      const afterAccept = await inviteePage.evaluate(async ({ partyId, id }) => {
+        const svc = await import('/src/services/serviceRequestService.js');
+        await svc.decideServiceRequestInvite(partyId, 'accept');
+        const r = await svc.getServiceRequest(id);
+        return r ? { id: r.id, parties: r.parties } : null;
+      }, { partyId: claimed.id, id: created.id });
+
+      expect(afterAccept, 'accepting did not make the request readable to the party').not.toBeNull();
+      expect(afterAccept.id).toBe(created.id);
+      expect((afterAccept.parties || []).find((p) => p.role === 'tenant').status).toBe('accepted');
+
+      // The accepted party fills only their section; the merge is bounded server-side, so the
+      // owner's fields are not theirs to overwrite.
+      const filled = await inviteePage.evaluate(async (id) => {
+        const svc = await import('/src/services/serviceRequestService.js');
+        const r = await svc.submitServiceRequestPartyDetails(id, { tenantName: 'Live Co-fill Tenant' });
+        return r ? r.details : null;
+      }, created.id);
+      expect(filled).toMatchObject({ tenantName: 'Live Co-fill Tenant', ownerName: 'Live Co-fill Owner' });
+    } finally {
+      await inviteeContext.close();
+    }
+
+    // Back on the owner's context, who can now see the section arrive.
+    const asOwner = await page.evaluate(async (id) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      const r = await svc.getServiceRequest(id);
+      return r ? { details: r.details, parties: r.parties } : null;
+    }, created.id);
+    expect(asOwner, 'the requester lost sight of their own request').not.toBeNull();
+    expect(asOwner.details).toMatchObject({ tenantName: 'Live Co-fill Tenant' });
+    expect((asOwner.parties || []).find((p) => p.role === 'tenant').status).toBe('accepted');
+  });
+
+  /**
+   * Withdrawing an unanswered invitation frees the role.
+   *
+   * The point is the second half: the seat has to be genuinely re-issuable afterwards, because the
+   * reason to withdraw is almost always a typo in the number. A withdraw that merely marked the row
+   * dead would leave the role occupied and the owner stuck.
+   */
+  test('withdrawing an unanswered co-fill invite frees the role for a new one', async ({ page, request }) => {
+    const ownerMobile = await signedInAsNew(page);
+    const wrongNumber = uniqueMobile();
+
+    await page.goto('/services/rent-agreement');
+    await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 20000 });
+
+    const outcome = await page.evaluate(async ({ wrong }) => {
+      const svc = await import('/src/services/serviceRequestService.js');
+      const created = await svc.createCoFillServiceRequest({
+        request: {
+          type: 'rental',
+          customer: { name: 'Live Withdraw Owner' },
+          details: { ownerName: 'Live Withdraw Owner', property: 'Kothrud, Pune' },
+        },
+        role: 'tenant',
+        mobile: wrong,
+      });
+      const party = (created.parties || []).find((p) => p.role === 'tenant');
+      const after = await svc.withdrawServiceRequestParty(created.id, party.id);
+      return {
+        id: created.id,
+        partyId: party.id,
+        remaining: (after?.parties || []).map((p) => ({ role: p.role, status: p.status })),
+      };
+    }, { wrong: wrongNumber });
+
+    // The seat is empty, which is the whole point: the reason to withdraw is almost always a typo
+    // in the number, so a withdraw that merely marked the row dead would leave the owner stuck.
+    expect(outcome.remaining.some((p) => p.role === 'tenant')).toBe(false);
+
+    // And it is re-issuable — a second invitation to a different number is accepted onto the same
+    // request rather than refused as "that role is taken".
+    const reissued = await request.post(
+      `${API}/service-requests/${outcome.id}/parties`,
+      {
+        headers: await authHeaders(ownerMobile),
+        data: { role: 'tenant', mobile: uniqueMobile() },
+      },
+    );
+    expect(reissued.status(), await reissued.text()).toBe(201);
+
+    // The withdrawn party really is gone, not merely hidden: deciding on it 404s. Over `request`,
+    // because a 404 driven through the page would land in the console-error assertion.
+    const replay = await request.post(
+      `${API}/me/service-request-invites/${outcome.partyId}`,
+      { headers: await authHeaders(ownerMobile), data: { decision: 'accept' } },
+    );
+    expect([403, 404]).toContain(replay.status());
   });
 });
 

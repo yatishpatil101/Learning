@@ -14,6 +14,7 @@
  */
 import { del, get, patch, post } from '../../http.js';
 import {
+  toEditForm,
   toListingCreate,
   toListingUpdate,
   toModerationQuery,
@@ -209,6 +210,40 @@ export async function myListings() {
   return toViewModelList(page);
 }
 
+/**
+ * `GET /me/listings/{id}` — one of the caller's own listings, in full.
+ *
+ * This exists for the edit form, and the reason it has to exist is that the form used to prefill
+ * from `lib/store`'s `getListing(id)`. On a live build that key holds whatever *this browser*
+ * happened to write, so an owner opening the editor on a second device — or after clearing site
+ * data, or from the "Add photos" link on an enquiry, which is reached from a server-side id —
+ * was handed an empty form for a listing that was not empty, and submitting it would have sent
+ * the defaults over the top of their real record.
+ *
+ * Owner-scoped rather than a `getProperty` read: a listing under moderation is not on the public
+ * endpoint at all, and the public view model is the one built for buyers — it omits precisely the
+ * fields the editor needs back. A non-owner gets a 404 here by design, because existence is itself
+ * information (`MeListingsController.getMine`).
+ *
+ * Resolves `null` for a listing that is not the caller's, so the form can say so rather than
+ * throwing at the top of a screen the owner navigated to deliberately.
+ */
+export async function myListing(id) {
+  if (!id) return null;
+  try {
+    const vm = toViewModel(await get(`/me/listings/${encodeURIComponent(id)}`));
+    /* Carries its own `form` snapshot, because that is the shape the caller reads. The mock resolves
+       a stored record which has one already; a server row has the contract's field names instead,
+       and the wizard's `listing.form || listing` fallback would then prefill from keys that mostly
+       do not exist — `type` for `propertyType`, `desc` for `description`, `"2 BHK"` for `"2"`.
+       Synthesising it here keeps the two providers the same shape, which is the seam's whole job. */
+    return vm && { ...vm, form: toEditForm(vm) };
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function addListing(listing) {
   return toViewModel(await post('/me/listings', toListingCreate(listing)));
 }
@@ -277,6 +312,25 @@ export async function createListingOnBehalf(ownerMobile, ownerName, listing) {
 }
 
 /**
+ * `GET /admin/properties/owner-standing?mobile=…` — how much of their ceiling this owner is using.
+ *
+ * The other half of exempting {@link createListingOnBehalf} from the freemium cap. The desk may now
+ * post past an owner's plan; this is what stops that being silent, so the operator can see they are
+ * holding an upgrade conversation rather than discovering it from a billing report weeks later.
+ *
+ * Counts only — no plan name and no price. The operator needs to know a conversation exists, not
+ * what the account is worth, and a desk that can read anybody's subscription off a phone number is
+ * a larger disclosure than this feature is asking for.
+ *
+ * A number with no account is a **200 with `known: false`**, not a 404, because on this desk that
+ * is the ordinary first call. A short or malformed number is a 400 — the caller should not ask
+ * until the field is complete.
+ */
+export async function ownerListingStanding(mobile) {
+  return get(`/admin/properties/owner-standing?mobile=${encodeURIComponent(mobile)}`);
+}
+
+/**
  * Owner-scoped edit — `PATCH /me/listings/{id}`, so a non-owner gets a 404 by design (existence is
  * never confirmed to a stranger). Editing a foundation field (price/bhk/type/locality/deal) reverts
  * the listing to `pending` server-side, the same rule the mock implements in the UI.
@@ -287,6 +341,22 @@ export async function createListingOnBehalf(ownerMobile, ownerName, listing) {
  */
 export async function updateListingFields(id, patchBody) {
   return toViewModel(await patch(`/me/listings/${encodeURIComponent(id)}`, toListingUpdate(patchBody)));
+}
+
+/**
+ * `DELETE /me/listings/{id}` — the owner takes their own listing down.
+ *
+ * Not `archiveListing`, which is `PATCH /properties/{id}/archive` and is the *moderator's* route:
+ * it takes a reason, because a listing pulled by staff owes the owner an explanation. An owner
+ * withdrawing their own listing owes nobody one, and routing them through the staff path would mean
+ * either inventing a reason on their behalf or storing a blank one on an audit row.
+ *
+ * Soft server-side — the row survives for the enquiries and deals that point at it, because a
+ * listing is not only the owner's; buyers have contacted it. Returns the archived listing so the
+ * dashboard can re-render the row from the answer rather than assuming what it now looks like.
+ */
+export async function takeListingDown(id) {
+  return toViewModel(await del(`/me/listings/${encodeURIComponent(id)}`));
 }
 
 /**

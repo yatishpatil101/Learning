@@ -2,12 +2,12 @@ import { test, expect } from '../../../fixtures/base.js';
 
 // Plans → Checkout → subscription/order state. Behaviour verified from:
 //   pages/consumer/Plans.jsx (persona cards, CTAs → /checkout?plan=<id>),
-//   pages/consumer/Checkout.jsx (pay → addServiceOrder + a `pending` subscription;
-//     `paid` requires status === 'active', alreadyOnThisPlan re-purchase guard,
+//   pages/consumer/Checkout.jsx (pay → a `pending` subscription; `paid` requires
+//     status === 'active', alreadyOnThisPlan re-purchase guard,
 //     unknown-plan → Navigate('/plans')),
 //   services/providers/mock/planProvider.js (priced plan → `pending`;
 //     `mockActivateSubscription` is the local stand-in for the payment webhook),
-//   lib/store/billing.js (pnPlan:<mobile> + pnServiceOrders:<mobile> keys),
+//   lib/store/billing.js (pnPlan:<mobile> key),
 //   components/RouteGuards.jsx (/checkout is ProtectedRoute → /signin?next=),
 //   i18n en/misc1.json (plans*) and en/misc2.json (co*).
 //
@@ -16,7 +16,7 @@ import { test, expect } from '../../../fixtures/base.js';
 // that happen — one that could would be one that can grant itself a paid plan.
 //
 // The owner demo user's mobile is 9876500002 (helpers/seed.js), so the per-user
-// plan/order stores are keyed pnPlan:9876500002 / pnServiceOrders:9876500002.
+// plan store is keyed pnPlan:9876500002.
 const OWNER_MOBILE = '9876500002';
 
 // The global cookie-consent banner is also role="dialog"; seed consent so it
@@ -101,21 +101,23 @@ test.describe('Plans, Checkout & subscription state', () => {
     await expect(page.getByRole('heading', { name: 'Payment pending' })).toBeVisible();
     await expect(page.getByText(/waiting for your bank to confirm/i)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Payment successful!' })).toHaveCount(0);
-    // The order is recorded regardless of status — a pending payment is still an order the user
-    // must be able to find — and the gateway reference is shown so they can chase it.
+    // The gateway reference is shown so the customer can chase the payment. It is the server's
+    // `paymentRef` — the id the bank and the gateway both know the order by. It used to fall back
+    // to a `so<timestamp>` minted by the browser and written to `pnServiceOrders:<mobile>`, which
+    // no screen in the app ever read back, so the "reference" was unlookupable by anyone the
+    // customer could have quoted it to (D236).
     await expect(page.getByText('Order reference')).toBeVisible();
     await expect(page.getByText(/mock-order-\d+/)).toBeVisible();
 
-    // The entitlement key is the thing that must NOT have moved. `pnServiceOrders:<mobile>` holds
-    // the order; `pnPlan:<mobile>` stays empty until the webhook says the money arrived.
+    // The entitlement key is the thing that must NOT have moved: `pnPlan:<mobile>` stays empty
+    // until the webhook says the money arrived.
     const beforeWebhook = await page.evaluate((m) => ({
       plan: JSON.parse(localStorage.getItem('pnPlan:' + m) || 'null'),
-      orders: JSON.parse(localStorage.getItem('pnServiceOrders:' + m) || '[]'),
+      orders: localStorage.getItem('pnServiceOrders:' + m),
     }), OWNER_MOBILE);
     expect(beforeWebhook.plan).toBeNull();
-    expect(beforeWebhook.orders.length).toBeGreaterThanOrEqual(1);
-    expect(beforeWebhook.orders[0]).toMatchObject({ type: 'subscription', plan: 'owner2' });
-    expect(beforeWebhook.orders[0].id).toMatch(/^so\d+/);
+    // Nothing writes a browser-local order any more.
+    expect(beforeWebhook.orders).toBeNull();
 
     // Now play the webhook. `mockActivateSubscription` is the mock provider's stand-in for it and
     // has no http counterpart on purpose (see providers/mock/planProvider.js), so the spec reaches
@@ -129,12 +131,8 @@ test.describe('Plans, Checkout & subscription state', () => {
     expect(activated.id).toBe('owner2');
 
     // Only now does the subscription persist to pnPlan:<mobile>.
-    const afterWebhook = await page.evaluate((m) => ({
-      plan: JSON.parse(localStorage.getItem('pnPlan:' + m) || 'null'),
-      orders: JSON.parse(localStorage.getItem('pnServiceOrders:' + m) || '[]'),
-    }), OWNER_MOBILE);
-    expect(afterWebhook.plan?.id).toBe('owner2');
-    expect(afterWebhook.orders.length).toBeGreaterThanOrEqual(1);
+    const afterWebhook = await page.evaluate((m) => JSON.parse(localStorage.getItem('pnPlan:' + m) || 'null'), OWNER_MOBILE);
+    expect(afterWebhook?.id).toBe('owner2');
 
     // Re-visiting the same plan now short-circuits to the already-active screen
     // (the re-purchase guard proves the webhook's grant is durable).

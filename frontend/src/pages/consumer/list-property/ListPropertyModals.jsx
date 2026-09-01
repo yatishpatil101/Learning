@@ -1,6 +1,5 @@
 import Modal from '../../../components/ui/Modal.jsx';
 import { RotateCcw, Sparkles, UserCheck } from 'lucide-react';
-import { getListing } from '../../../lib/store';
 
 export default function ListPropertyModals({ ctx }) {
   const {
@@ -11,18 +10,17 @@ export default function ListPropertyModals({ ctx }) {
   /**
    * "Go to the listing you already have."
    *
-   * The editor is the better destination when it can actually open: the owner came here to describe
-   * this property, and landing in the form for the one they already posted lets them finish the
-   * thought. But the edit route prefills from the local store only, so it can open the form for a
-   * listing this browser holds and nothing else. `dupExistingId` is a server id now, and on a device
-   * that has never held that listing the editor renders empty — the owner is told "here is the one
-   * you already have" and shown a blank form, which is worse than not offering the link.
+   * This used to check `getListing(dupExistingId)` first and fall back to the dashboard, because
+   * the edit route prefilled from the local store only: on a device that had never held that
+   * listing the editor rendered empty, and telling an owner "here is the one you already have"
+   * while showing them a blank form was worse than not offering the link.
    *
-   * So: the editor when the record is here, the dashboard when it is not. The dashboard reads
-   * through the seam, so it can always show them the listing even when this page cannot edit it.
+   * The editor reads through the seam now (D237), so the id the server just handed back is an id
+   * it can open. The fallback is gone with the condition that needed it — keeping a dashboard
+   * detour for a form that works would send the owner somewhere they did not ask to go.
    */
   const goToExisting = () => {
-    if (dupExistingId && getListing(dupExistingId)) {
+    if (dupExistingId) {
       navigate(`/list-property?edit=${dupExistingId}`);
       return;
     }

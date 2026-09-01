@@ -28,9 +28,43 @@ public final class ReportTargetTypes {
     /** A share-flat / flatmate post. */
     public static final String POST = "post";
 
-    /** True if {@code value} is one of the four reportable kinds. */
+    /**
+     * A society-hub recommendation or tip.
+     *
+     * <p>The five society kinds below are separate vocabulary words rather than one
+     * {@code society_content}, because {@code target_id} means nothing without knowing which table
+     * it indexes. A moderator upholding a complaint has to remove <em>that row</em>, and one
+     * catch-all type would mean five lookups per decision with the id ambiguity that implies.
+     *
+     * <p>A society <em>review</em> is deliberately not a sixth: it is already reportable as
+     * {@link #REVIEW} and already has its own takedown at {@code PATCH /reviews/{id}/status}. A
+     * second word for the same thing would split the queue in half.
+     */
+    public static final String SOCIETY_CONTRIBUTION = "society_contribution";
+
+    /** A reply on a society-hub recommendation. */
+    public static final String SOCIETY_REPLY = "society_reply";
+
+    /** A question on a society hub. */
+    public static final String SOCIETY_QUESTION = "society_question";
+
+    /** An answer to a society-hub question. */
+    public static final String SOCIETY_ANSWER = "society_answer";
+
+    /** A society noticeboard item. */
+    public static final String SOCIETY_BOARD = "society_board";
+
+    /** True if {@code value} is one of the five kinds of society-hub content. */
+    public static boolean isSocietyContent(String value) {
+        return SOCIETY_CONTRIBUTION.equals(value) || SOCIETY_REPLY.equals(value)
+                || SOCIETY_QUESTION.equals(value) || SOCIETY_ANSWER.equals(value)
+                || SOCIETY_BOARD.equals(value);
+    }
+
+    /** True if {@code value} is one of the reportable kinds. */
     public static boolean isValid(String value) {
         return PROPERTY.equals(value) || USER.equals(value)
-                || REVIEW.equals(value) || POST.equals(value);
+                || REVIEW.equals(value) || POST.equals(value)
+                || isSocietyContent(value);
     }
 }

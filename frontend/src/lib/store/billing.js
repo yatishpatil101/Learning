@@ -68,16 +68,10 @@ export const planListingLimit = () => PLAN_LISTING_LIMITS[getPlan().id] || 1;
  */
 export const listingLimit = () => planListingLimit() + referralBonusListings();
 
-/* =========================================================================
-   Service orders (Move-in Pack / marketplace)
-   ========================================================================= */
-const serviceOrderKey = () => 'pnServiceOrders:' + (myMobile() || 'anon');
-export const getServiceOrders = () => get(serviceOrderKey(), []);
-export const addServiceOrder = (o) => {
-  const arr = getServiceOrders();
-  const rec = Object.assign({ id: 'so' + Date.now(), status: 'placed', at: Date.now() }, o || {});
-  arr.unshift(rec);
-  set(serviceOrderKey(), arr);
-  return rec;
-};
+/* `pnServiceOrders:<mobile>` used to be written here by `addServiceOrder`, from the plan checkout
+   and the move-in-pack booking. Nothing ever read it: `getServiceOrders()` had no callers and
+   `BillingPanel` renders a static constant. Both purchases are recorded where they belong now — a
+   subscription by `POST /me/subscription`, a pack booking by the packers-desk ticket that carries
+   its accepted total — and `GET /me/service-orders` exists for orders against the marketplace
+   catalogue, which neither of those is. (D236) */
 

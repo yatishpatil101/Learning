@@ -105,7 +105,14 @@ export function getMyRooms(user) {
    posts. Falls back to a few demo listings only for pre-seeded owner accounts
    with nothing of their own yet. */
 export async function loadMyListings(user) {
-  const mine = await myListings(user);
+  /* Archived rows are dropped here rather than at the seam, because the seam is right to return
+     them: `GET /me/listings` is the owner's complete file, statuses and all, and staff restore work
+     reads the same list. This is the dashboard, and on the dashboard an archived listing is one the
+     owner deliberately took down — leaving it in place would put a card that looks live under a
+     heading that says My Properties, immediately after a confirmation that promised buyers would
+     stop seeing it. The count beside it ("Active Listings") would disagree with the list too, since
+     the server's quota already excludes archived rows. */
+  const mine = (await myListings(user)).filter((l) => !l.archived);
   const rooms = getMyRooms(user);
   const flatmatePosts = getMyFlatmatePosts(user);
   const flatmateGroups = getMyFlatmateGroups(user);

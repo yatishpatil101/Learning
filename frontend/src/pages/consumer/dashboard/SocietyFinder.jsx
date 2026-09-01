@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ShieldCheck, Plus, Bell, Check, Search } from 'lucide-react';
-import { searchSocieties, mintDemandSociety } from '../../../lib/store.js';
+import { searchSocieties } from '../../../lib/store.js';
+import { mintSociety } from '../../../services/societyService.js';
 import { useFollows } from '../../../context/FollowContext.jsx';
 import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 
@@ -46,15 +47,21 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   const createAndFollow = async () => {
     if (!catalogueReady) return;
     setBusy('create');
-    const rec = mintDemandSociety({ name: query.trim() });
-    /* The mint no longer follows on its own (D227): the society exists only in this browser, the
-       server 404s a follow on it, and the context is the only thing that knows to hold such a
-       follow locally and retry it once ops promote the slug. */
-    if (rec) await follows.toggle(rec.slug);
+    let out;
+    try {
+      out = await mintSociety({ name: query.trim() });
+    } catch {
+      setBusy('');
+      return;
+    }
+    /* The follow is an ordinary server write now. It used to be held locally on purpose, because
+       the society had been minted into this browser alone and the server 404'd a slug that
+       existed nowhere else — which also meant the demand signal ops were supposed to act on
+       never left the searcher's device. */
+    await follows.toggle(out.society.slug);
     setBusy('');
-    if (!rec) return;
     setQuery('');
-    if (onFollow) onFollow(rec.slug);
+    if (onFollow) onFollow(out.society.slug);
   };
 
   return (

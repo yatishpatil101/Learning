@@ -116,24 +116,46 @@ What remains is fourteen decided-but-unbuilt items, listed there in the order th
 
 ---
 
-## 4. The next piece of work — ledger item 35, `GET /geo`
+## 4. The next piece of work — Wave D is written; the live run is what remains
 
-First in the damage order, and a live defect rather than an unmigrated screen.
+Rent-agreement co-fill is built end to end. What is **not** yet done is running the new live e2e
+against a real backend — the specs are written and syntax-clean, but a spec nobody has run is a
+claim, not a check. That is the first thing to do next, and the section below records what it is
+checking so a failure can be read rather than guessed at.
 
-**The problem.** The admin writes the map policy — city limit, live cities, locality blacklist — to
-`PUT /admin/settings`, and it lands on the server correctly. Every one of the ~20 consumer surfaces
-that obeys that policy reads it from `rawDb()?.settings?.geo`, in the visitor's own browser. So the
-control reports success, the value is stored, and no visitor is ever affected. The administrator is
-the only person who sees their own setting take effect, and only in mock mode.
+### What shipped
 
-**The build.** Add a public `GET /geo`, fetch it once at boot into a module cache, and leave the 20
-synchronous call sites unchanged — they stay synchronous, they just read the cache. Templated on
-`GET /flags` / `AppFlagsContext`, but **not** part of `/flags`: that contract is map-of-boolean by
-declaration and drops non-booleans on purpose.
+- **backend (`b7bc2fa`, suite green: 2057 tests, 0 failures)** — deferred co-fill create
+  (`awaiting-payment` without opening checkout yet), invitee details submission, an explicit
+  checkout-open endpoint, and an invite that can be addressed to a **mobile number that has no
+  account yet**: held pending (`V107` makes `user_id` nullable and adds a `mobile` under an XOR
+  constraint), claimed on sign-up, withdrawable by the requester, swept after 90 days, and erased
+  with the number under `ErasureService`. The earlier plan for a typed `party_not_registered`
+  conflict code is abandoned: refusing to invite an unregistered number is the thing V107 removed,
+  so there is no longer a state for that code to name.
+- **frontend seam** — `createCoFillServiceRequest`, `listMyServiceRequestInvites`,
+  `decideServiceRequestInvite`, `submitServiceRequestPartyDetails`, `openServiceRequestCheckout` and
+  `withdrawServiceRequestParty` across the facade and both providers. Two divergences are
+  doc-blocked rather than faked: the mock's withdraw is a no-op read (its invite lives in the
+  *invitee's* `localStorage`, which the requester's browser cannot reach), and
+  `listPartyServiceRequests` stays `[]` live because it is the mock's second bucket and an accepted
+  party is already in the main list — returning anything would double every row.
+- **wizard** — the confirmation panel now distinguishes "waiting for them to sign up" (`pending`)
+  from "waiting for them to reply", shows the masked number, and offers a withdraw. Strings in all
+  three locales under `services.ra.invite.*`.
+- **e2e** — two live tests replacing the old *"the co-fill party list has no endpoint"* assertion,
+  which V107 made false. `COVERAGE.md` row rewritten.
 
-Retire `syncGeoFromDisk` and its three listeners while you are there. It was built to patch exactly
-this, and it returns false on its first line in production and under Playwright — so it works only
-where nobody is affected.
+### What to do first
+
+```powershell
+cd c:\Users\E159518\Documents\Learning\e2e
+npx playwright test tests/live-property-integration.spec.js --config=playwright.live.config.js -g "co-fill"
+```
+
+Backend on :8081 under `dev,e2e`. Before blaming the spec, **check `serviceRequest` is in
+`VITE_API_DOMAINS` in `playwright.live.config.js`** — `frontend/.env.live` is `*` and will tell you
+everything is live when the test harness disagrees.
 
 ### After that
 
@@ -154,7 +176,7 @@ where nobody is affected.
 
 - **Do not mass-delete the 195 "dead exports"** that `backend/tools/dead-exports.mjs` reports. That
   tool is sound in one direction only: it can tell you a symbol *is* referenced, not that it is not.
-- **Do not edit an applied `V__` migration.** Next free versioned migration is **`V89`**.
+- **Do not edit an applied `V__` migration.** Next free versioned migration is **`V108`**.
 
 ---
 

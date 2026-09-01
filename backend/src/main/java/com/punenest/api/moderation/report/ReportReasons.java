@@ -55,6 +55,22 @@ public final class ReportReasons {
     private static final Set<String> FOR_REVIEW = Set.of("fake", "abuse", OTHER);
 
     /**
+     * Society-hub content — recommendations, replies, questions, answers, noticeboard items.
+     *
+     * <p>One set across all five kinds, unlike the target types themselves, because the complaint a
+     * neighbour makes does not change with the widget: abuse in an answer and abuse on the
+     * noticeboard are the same abuse. The kinds are separate only so that a moderator can act on
+     * the right row.
+     *
+     * <p>{@code personal} is the one that does not appear anywhere else, and it is the reason this
+     * set is not the review set. The single most damaging thing on a society hub is a recommendation
+     * naming a real tradesman with his real mobile number — published by a neighbour, about somebody
+     * who never agreed to appear on the site and has no account with which to object.
+     */
+    private static final Set<String> FOR_SOCIETY_CONTENT =
+            Set.of("abuse", "spam", "fake", "personal", OTHER);
+
+    /**
      * The reasons legal for one target type.
      *
      * @param targetType one of {@link ReportTargetTypes}
@@ -62,6 +78,9 @@ public final class ReportReasons {
      *         caller has already rejected, since target type is validated first
      */
     public static Set<String> forTarget(String targetType) {
+        if (ReportTargetTypes.isSocietyContent(targetType)) {
+            return FOR_SOCIETY_CONTENT;
+        }
         return switch (targetType == null ? "" : targetType) {
             case ReportTargetTypes.PROPERTY -> FOR_PROPERTY;
             case ReportTargetTypes.USER -> FOR_USER;
@@ -91,7 +110,8 @@ public final class ReportReasons {
     }
 
     /** Every reason code the platform recognises, across all four target types. */
-    private static final Set<String> ANY = Stream.of(FOR_PROPERTY, FOR_USER, FOR_POST, FOR_REVIEW)
-            .flatMap(Set::stream)
-            .collect(Collectors.toUnmodifiableSet());
+    private static final Set<String> ANY =
+            Stream.of(FOR_PROPERTY, FOR_USER, FOR_POST, FOR_REVIEW, FOR_SOCIETY_CONTENT)
+                    .flatMap(Set::stream)
+                    .collect(Collectors.toUnmodifiableSet());
 }

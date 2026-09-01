@@ -77,7 +77,10 @@ async function expectNothingCovering(page, locator, label) {
 test.describe('Mobile content budget', () => {
   test('the posting wizard opens on a form field, not on marketing copy', async ({ page, login }) => {
     await consent(page);
-    await login.asOwner();
+    // A new owner rather than the seeded one: `ACTORS.owner` is over the free-tier allowance by
+    // design, so `/list-property` opens on the upgrade prompt for her, and "marketing copy above
+    // the first field" is exactly what that page is. The assertion needs the wizard.
+    await login.asNewOwner();
     await page.goto('/list-property');
 
     // The first thing the owner must be able to act on: the "Property For"

@@ -1477,3 +1477,417 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
  ('f1c70000-0000-4000-8000-000000005148', 'p5148', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '1 BHK Flat for sale in Wagholi', 'buy', 'Flat', 1, 5150000, 'total', true,  590, 'sqft', 495, 'unfurnished',    'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5704, 73.9781, '1 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["security"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 1, 7, 0, '2026-01-13 10:00:00+05:30', '2026-01-13 10:00:00+05:30'),
  ('f1c70000-0000-4000-8000-000000005149', 'p5149', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 11900000, 'total', false, 1385, 'sqft', 1155, 'furnished',      'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5759, 73.9810, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "club"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 35, 1, '2026-01-14 10:00:00+05:30', '2026-01-14 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
+
+-- ============================================================================================
+-- SOCIETY RESIDENTS AND CLAIMS  (added 2026-08-22, Wave C slice 1)
+-- ============================================================================================
+-- Until D240 a resident's verified flat and a committee's claim lived in the claimant's own
+-- browser: `pnSocietyResidents` and `pnSocietyClaims`. Two tables now hold them, and this section
+-- gives the live suite the two states a spec can only READ, never create for itself.
+--
+-- WHY SEED THESE AT ALL, WHEN A SPEC CREATES THEM
+-- -----------------------------------------------
+-- `live-society-residency.spec.js` does create both, and by the seed-coverage rule that would
+-- normally make them WAIVED. They are seeded anyway because the *society hub* asks a different
+-- question from the endpoints. The hub's job is to gate resident-only content and draw a committee
+-- console, and a spec proving that gate has to arrive at a society where somebody is already
+-- verified and somebody already runs the place. Making it verify itself first would mean the gate
+-- is only ever tested against a resident the same test just created — which passes just as happily
+-- if the gate reads the response it was handed instead of the server.
+--
+-- So the split is: the endpoint spec creates its own people in its own societies, and the hub spec
+-- reads these. They do not overlap, because the endpoint spec skips any society that already has a
+-- claim, and neither of the two below is unclaimed.
+--
+-- WHY TWO SOCIETIES AND NOT ONE
+-- -----------------------------
+-- The two halves of the queue rule are only distinguishable across two societies. Blue Ridge is
+-- claimed and approved, so its pending requests sit with the committee; Kumar Palaash has a claim
+-- still waiting on ops, so its residents queue to ops as well. One society could show one of those
+-- and the other would have no fixture at all — and "assigned_to is always committee" is a bug that
+-- passes every assertion a single claimed society can make.
+--
+-- WHY THE UNIT KEYS LOOK REDUNDANT
+-- --------------------------------
+-- `unit_key` is stored, not derived on read, because `ux_society_residents_unit_verified` is a
+-- partial unique index over it and an index cannot see a Java method. It is what
+-- `SocietyResident.normaliseUnit` produces: upper-cased, with everything outside `[A-Z0-9]`
+-- removed. Writing 'B704' by hand here is therefore not a shortcut — it is the same value the
+-- application would compute, and a row that disagreed would let a second resident be verified into
+-- a flat that already has one.
+--
+-- The two verified rows below are in DIFFERENT flats on purpose. A seed that put two verified
+-- residents in one unit would violate that index and take the whole reset down.
+
+-- WHY THESE ROWS JOIN ON A SLUG AND NOT AN ID
+-- -------------------------------------------
+-- Every other fixture in this file writes its own primary key, because every other fixture owns
+-- the row. Societies are different: they are IMPORTED, and `R__seed_reference_data.sql` mints each
+-- one with `gen_random_uuid()`, so a society's id is a different value after every reset. A literal
+-- id here passed on the database it was read from and failed the first clean reset with a foreign
+-- key violation — which is the honest outcome, but only once.
+--
+-- `slug` is the stable handle; it is what the URL, the hub and the follow table all join on. If a
+-- slug ever disappears from the import these INSERTs quietly write nothing rather than failing —
+-- which would normally be the worse failure mode, except that `check-seed-coverage.mjs` fails the
+-- run the moment either table comes back empty. The absence cannot go unnoticed.
+
+-- Blue Ridge Towers — an approved claim, so Meera Joshi is this society's committee.
+INSERT INTO public.society_claims (society_id, claimed_by, name, role, email, note, status, decided_at, decided_by, created_at, updated_at)
+SELECT s.id, '190ca53e-0f1b-52e0-b825-7cd1f9accd91', 'Meera Joshi', 'Hon. Secretary', 'secretary.blueridge@example.com',
+       'Registered society, MahaRERA listed.', 'approved', '2026-02-02 11:00:00+05:30', 'b72c0b47-5dc2-507d-9e45-e664755ba45a',
+       '2026-02-01 10:00:00+05:30', '2026-02-02 11:00:00+05:30'
+  FROM public.societies s WHERE s.slug = 'blue-ridge-towers-hinjawadi'
+    ON CONFLICT DO NOTHING;
+
+-- Kumar Palaash — still with ops, which is what keeps an unresolved claim in the queue a staff
+-- spec can open. Its residents therefore queue to ops too.
+INSERT INTO public.society_claims (society_id, claimed_by, name, role, email, note, status, created_at, updated_at)
+SELECT s.id, '758f8534-ee2d-5075-ab65-8e89bb294047', 'Meera Chavan', 'Treasurer', NULL,
+       'Committee formed last month, papers attached.', 'pending',
+       '2026-02-14 09:30:00+05:30', '2026-02-14 09:30:00+05:30'
+  FROM public.societies s WHERE s.slug = 'kumar-palaash-hinjawadi'
+    ON CONFLICT DO NOTHING;
+
+-- `claim_status` on the society is what the directory card and the hub badge read. It is a second
+-- copy of a fact the claim row already holds, and it is kept in step by the service on every
+-- decision — so the seed has to keep it in step too, or the badge would say "unclaimed" for a
+-- society with a sitting committee.
+UPDATE public.societies SET claim_status = 'claimed' WHERE slug = 'blue-ridge-towers-hinjawadi';
+UPDATE public.societies SET claim_status = 'pending' WHERE slug = 'kumar-palaash-hinjawadi';
+
+-- Verified, in a claimed society: the state the hub's resident-only gate must open for. Its
+-- neighbour is pending, so the committee console has something in its inbox on first open.
+INSERT INTO public.society_residents (society_id, user_id, wing, flat, unit_key, relation, status, assigned_to, flagged, note, decided_at, decided_by, created_at, updated_at)
+SELECT s.id, v.user_id, v.wing, v.flat, v.unit_key, v.relation, v.status, v.assigned_to, NULL, v.note, v.decided_at, v.decided_by, v.created_at, v.updated_at
+  FROM public.societies s
+  CROSS JOIN (VALUES
+    ('8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid, 'B', '704',  'B704',  'owner',  'verified', 'committee', NULL::text,
+     '2026-02-05 12:00:00+05:30'::timestamptz, '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,
+     '2026-02-03 18:00:00+05:30'::timestamptz, '2026-02-05 12:00:00+05:30'::timestamptz),
+    ('6f77d348-d008-5e70-aeaa-cc465a73e28a'::uuid, 'A', '1203', 'A1203', 'tenant', 'pending',  'committee',
+     'Moved in this month, rent agreement attached.',
+     NULL::timestamptz, NULL::uuid,
+     '2026-02-16 20:15:00+05:30'::timestamptz, '2026-02-16 20:15:00+05:30'::timestamptz)
+  ) AS v(user_id, wing, flat, unit_key, relation, status, assigned_to, note, decided_at, decided_by, created_at, updated_at)
+ WHERE s.slug = 'blue-ridge-towers-hinjawadi'
+    ON CONFLICT DO NOTHING;
+
+-- Pending with OPS, because Kumar Palaash has no approved claim yet. This is the row that makes
+-- "assigned_to is always committee" falsifiable.
+INSERT INTO public.society_residents (society_id, user_id, wing, flat, unit_key, relation, status, assigned_to, created_at, updated_at)
+SELECT s.id, '3ad0171b-3206-53e2-b6dc-732bf4e1b44c', 'C', '502', 'C502', 'resident', 'pending', 'ops',
+       '2026-02-15 08:45:00+05:30', '2026-02-15 08:45:00+05:30'
+  FROM public.societies s WHERE s.slug = 'kumar-palaash-hinjawadi'
+    ON CONFLICT DO NOTHING;
+
+-- =====================================================================================
+-- SOCIETY QUESTIONS AND NOTICEBOARD (added 2026-08-22, Wave C slice 2)
+-- =====================================================================================
+-- Why these are seeded rather than waived, when `live-society-community.spec.js` creates
+-- everything it asserts on: the *hub* is what slice C7 repoints, and a hub whose Q&A and
+-- noticeboard are empty on every fresh database renders three empty states and proves
+-- nothing. A spec that first posts a notice and then reads it back passes just as happily
+-- against a board that only ever shows you your own writes.
+--
+-- All of it hangs off `blue-ridge-towers-hinjawadi`, which the slice-1 fixture already gave
+-- a sitting committee (Meera Joshi, approved claim) and one verified resident (Meera Kapoor,
+-- B/704). That matters: the board is resident-gated, so it is the only seeded society whose
+-- notices could have been legitimately posted at all.
+--
+-- The question is asked by a *buyer with no flat here* (Meera Chavan) on purpose. Questions
+-- are deliberately not resident-gated — the person with the most to ask about a building has
+-- not moved into it — and a fixture where every author is a resident would let a regression
+-- that quietly added the gate go unnoticed.
+--
+-- Every INSERT joins on the slug for the same reason the slice-1 rows do: societies are minted
+-- by `R__seed_reference_data.sql` with `gen_random_uuid()`, so a literal society id is correct
+-- only until the next reset, at which point it becomes a foreign key violation that takes the
+-- whole e2e suite down before the first test runs.
+--
+-- The board carries one event and one notice because the ordering rule — events by when they
+-- happen, then notices newest-first — is unobservable with only one of them.
+
+insert into public.society_questions (id, society_id, author_id, body, created_at, updated_at)
+select
+    'f1c7a201-0000-4000-8000-000000000001'::uuid,
+    s.id,
+    '758f8534-ee2d-5075-ab65-8e89bb294047'::uuid,  -- Meera Chavan, buyer, lives elsewhere
+    'How reliable is the water supply in summer? Any tanker dependency?',
+    now() - interval '6 days',
+    now() - interval '6 days'
+from public.societies s
+where s.slug = 'blue-ridge-towers-hinjawadi'
+on conflict do nothing;
+
+insert into public.society_answers (id, question_id, author_id, body, created_at, updated_at)
+values (
+    'f1c7a202-0000-4000-8000-000000000001'::uuid,
+    'f1c7a201-0000-4000-8000-000000000001'::uuid,
+    '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,  -- Meera Kapoor, verified resident of B/704
+    'Borewell plus corporation line. We booked two tankers in five years, both in May.',
+    now() - interval '5 days',
+    now() - interval '5 days'
+)
+on conflict do nothing;
+
+insert into public.society_board_items
+    (id, society_id, author_id, kind, title, body, category, event_date, event_time,
+     created_at, updated_at)
+select v.id, s.id, v.author_id, v.kind, v.title, v.body, v.category, v.event_date, v.event_time,
+       v.created_at, v.created_at
+from public.societies s
+cross join (values
+    -- Posted by the committee: an AGM is exactly the kind of assertion about the building that
+    -- the resident gate exists to protect.
+    ('f1c7a203-0000-4000-8000-000000000001'::uuid,
+     '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,
+     'event', 'Annual general meeting',
+     'Clubhouse, ground floor. Agenda circulated on the group.',
+     'meeting', date '2027-02-14', time '18:30',
+     now() - interval '3 days'),
+    -- Posted by the verified resident, and undated, so the board has one of each and the
+    -- ordering rule is observable.
+    ('f1c7a204-0000-4000-8000-000000000001'::uuid,
+     '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,
+     'notice', 'Visitor parking is now on the B-wing side',
+     'The old bays are being resurfaced. Expect it to last a month.',
+     'parking', null, null,
+     now() - interval '2 days')
+) as v(id, author_id, kind, title, body, category, event_date, event_time, created_at)
+where s.slug = 'blue-ridge-towers-hinjawadi'
+on conflict do nothing;
+
+-- =====================================================================================
+-- SOCIETY COMMUNITY CONTRIBUTIONS (added 2026-08-22, Wave C slice 3)
+-- =====================================================================================
+-- Seeded rather than waived for the same reason as the noticeboard above: C7 repoints the
+-- hub, and a community tab that is empty on every fresh database renders an empty state and
+-- proves nothing. A spec that posts a tip and reads it back is just as happy against a tab
+-- that only ever shows you your own writes -- which is precisely the bug this slice fixes.
+--
+-- All three kinds are represented because the card renders differently for each and the
+-- filter chips count each separately; one kind would leave two of those paths unexercised.
+--
+-- The photo carries an https URL, not a data URI. That is the whole point of the change: the
+-- browser build kept base64 in localStorage, so a shared photo was invisible on every device
+-- except the one that shared it. A seeded data URI here would quietly bless the old shape.
+--
+-- The helpful vote is by a *different* person from the author, so `helpfulCount` is 1 while
+-- `helpfulByMe` is false for almost every reader -- the state that a counter column cannot
+-- represent and that the whole (contribution, voter) primary key exists to make possible.
+--
+-- Every INSERT joins on the slug: societies are minted with `gen_random_uuid()` by the
+-- reference seed, so a literal society id is correct only until the next reset, at which
+-- point it becomes a foreign key violation that fails the whole e2e suite before test one.
+
+insert into public.society_contributions
+    (id, society_id, author_id, kind, category, body, referral_name, referral_contact,
+     photo_url, created_at, updated_at)
+select v.id, s.id, v.author_id, v.kind, v.category, v.body, v.referral_name, v.referral_contact,
+       v.photo_url, v.created_at, v.created_at
+from public.societies s
+cross join (values
+    -- A tip from the verified resident of B/704. Prose only: a tip has no person attached, and
+    -- the two-sided check constraint refuses a referral name or number on this row.
+    ('f1c7a301-0000-4000-8000-000000000001'::uuid,
+     '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,
+     'tip', 'parking',
+     'Visitor parking fills up by 8pm on weekends. The far end of the B wing is usually free.',
+     null::text, null::text, null::text,
+     now() - interval '9 days'),
+    -- A trusted pick, with a number. This is the single most useful thing on the page and was
+    -- previously known only to the person who already had it.
+    ('f1c7a302-0000-4000-8000-000000000001'::uuid,
+     '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,
+     'pick', 'services',
+     'Turns up the same day and charges what he quotes. Used him three times.',
+     'Vishal Kadam (electrician)', '9822014477', null::text,
+     now() - interval '7 days'),
+    -- A photo, as a URL. The caption is the same `body` column the tip uses: a caption and a
+    -- tip are the author's prose wearing two different names.
+    ('f1c7a303-0000-4000-8000-000000000001'::uuid,
+     '758f8534-ee2d-5075-ab65-8e89bb294047'::uuid,
+     'photo', 'common areas',
+     'The clubhouse lawn on a weekday morning.',
+     null::text, null::text, 'https://cdn.punenest.example/society/blue-ridge-lawn.jpg',
+     now() - interval '4 days')
+) as v(id, author_id, kind, category, body, referral_name, referral_contact, photo_url, created_at)
+where s.slug = 'blue-ridge-towers-hinjawadi'
+on conflict do nothing;
+
+-- One vote, by somebody other than the author, so the electrician outranks the newer photo.
+insert into public.society_contribution_helpful (contribution_id, user_id, created_at)
+values (
+    'f1c7a302-0000-4000-8000-000000000001'::uuid,
+    '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,  -- Meera Kapoor, verified resident of B/704
+    now() - interval '6 days'
+)
+on conflict do nothing;
+
+-- One reply, so the thread renders as a thread rather than as a lone card with a reply count
+-- of zero on every fresh database.
+insert into public.society_contribution_replies
+    (id, contribution_id, author_id, body, created_at, updated_at)
+values (
+    'f1c7a304-0000-4000-8000-000000000001'::uuid,
+    'f1c7a302-0000-4000-8000-000000000001'::uuid,
+    '758f8534-ee2d-5075-ab65-8e89bb294047'::uuid,  -- Meera Chavan, a buyer, not a resident
+    'Does he do fan installation as well?',
+    now() - interval '5 days',
+    now() - interval '5 days'
+)
+on conflict do nothing;
+
+-- =====================================================================================
+-- SOCIETY COMMUNITY PROPOSALS (added 2026-08-22, Wave C slice 4)
+-- =====================================================================================
+-- Seeded rather than waived because the queue this table feeds is the entire point of the
+-- slice. Before it existed, a resident's detail suggestion, WhatsApp invite and corrected
+-- map pin were written to that resident's own browser, and the ops screen meant to review
+-- them read the reviewer's browser -- so it was permanently empty. An empty table on every
+-- fresh database would let a spec that proposes and then reads its own proposal back pass
+-- against exactly that bug.
+--
+-- All three kinds appear, and both halves of the lifecycle: two approved rows (whose values
+-- have already been written onto `societies`, which is what approval means here) and one
+-- still pending, so the hub renders both the "under review" banner and the applied state.
+--
+-- The approved rows carry `decided_by` and `decided_at`. They are not decoration:
+-- `ck_society_proposal_decision` refuses a decided row without a decider and a moment,
+-- because a decision nobody signed is a decision nobody can be asked about.
+--
+-- The pending row is on a *different* society. `uq_society_proposal_pending` is a partial
+-- unique index on (society_id, kind) where status = 'pending', so a second pending row of
+-- the same kind on the same society is a constraint violation that would abort the whole
+-- seed -- and with it the e2e suite, before test one.
+--
+-- Every INSERT joins on the slug rather than naming a society id: societies are minted with
+-- gen_random_uuid() by the reference seed, so a literal id is correct only until the next
+-- reset, at which point it becomes a foreign key violation.
+
+insert into public.society_proposals
+    (id, society_id, author_id, kind, status, builder, build_year, towers, units,
+     maintenance_per_sqft, amenities, invite_url, lat, lng, place_id, label,
+     decided_by, decided_at, created_at, updated_at)
+select v.id, s.id, v.author_id, v.kind, v.status, v.builder, v.build_year, v.towers, v.units,
+       v.maintenance_per_sqft, v.amenities, v.invite_url, v.lat, v.lng, v.place_id, v.label,
+       v.decided_by, v.decided_at, v.created_at, v.created_at
+from public.societies s
+cross join (values
+    -- An approved resident group. The invite is real-shaped so it survives the anchored
+    -- regex the service validates against; it is served only to a verified resident of this
+    -- society, and shown in full only on the ops queue, where screening it is the job.
+    ('a9c05001-0000-4000-8000-000000000001'::uuid,
+     '8d8c7e15-efe0-45e0-81b4-371920583c2d'::uuid,  -- Meera Kapoor, verified resident of B/704
+     'whatsapp', 'approved',
+     null::text, null::int, null::int, null::int, null::numeric, null::jsonb,
+     'https://chat.whatsapp.com/BlueRidge2026Aa',
+     null::double precision, null::double precision, null::text, null::text,
+     'e6621d3a-3e31-5022-a6c9-34a90c8f6e9b'::uuid,  -- Admin
+     now() - interval '11 days',
+     now() - interval '12 days'),
+    -- An approved pin correction. The society's own lat/lng and loc_source are updated by the
+    -- statement below, in the same spirit as the service's single-transaction apply: an
+    -- approved location fix whose coordinates never reached the catalogue is indistinguishable
+    -- from one that did, and the hub would caption a neighbour's correction as an import.
+    ('a9c05002-0000-4000-8000-000000000001'::uuid,
+     '190ca53e-0f1b-52e0-b825-7cd1f9accd91'::uuid,  -- Meera Joshi, owner
+     'location', 'approved',
+     null::text, null::int, null::int, null::int, null::numeric, null::jsonb, null::text,
+     18.5912, 73.7389,
+     'ChIJseedBlueRidgeHinjawadi01', 'Main gate, off Hinjawadi Phase 1 Road',
+     'e6621d3a-3e31-5022-a6c9-34a90c8f6e9b'::uuid,  -- Admin
+     now() - interval '8 days',
+     now() - interval '9 days')
+) as v(id, author_id, kind, status, builder, build_year, towers, units, maintenance_per_sqft,
+       amenities, invite_url, lat, lng, place_id, label, decided_by, decided_at, created_at)
+where s.slug = 'blue-ridge-towers-hinjawadi'
+on conflict do nothing;
+
+-- Approval writes the value onto the society itself. Coalesced on the coordinates for the
+-- same reason the service coalesces the detail write: a fix that is missing a field must not
+-- blank what the catalogue already knows.
+update public.societies
+   set lat = coalesce(18.5912, lat),
+       lng = coalesce(73.7389, lng),
+       place_id = 'ChIJseedBlueRidgeHinjawadi01',
+       loc_source = 'community'
+ where slug = 'blue-ridge-towers-hinjawadi';
+
+-- One still-pending detail suggestion, on a different society so the partial unique index is
+-- not tripped. Deliberately partial -- a builder and a tower count and nothing else -- because
+-- that is the shape that used to be dangerous: applying it must leave the five columns it does
+-- not mention alone, and a suggestion that filled in every field would never exercise that.
+--
+-- Its author is a buyer with no verified flat here, which is the point: detail suggestions are
+-- not resident-gated. Enriching a thin, bulk-imported society without first demanding somebody
+-- verify a flat is how a community society becomes a verified one.
+insert into public.society_proposals
+    (id, society_id, author_id, kind, status, builder, build_year, towers, units,
+     maintenance_per_sqft, amenities, created_at, updated_at)
+select 'a9c05003-0000-4000-8000-000000000001'::uuid, s.id,
+       '758f8534-ee2d-5075-ab65-8e89bb294047'::uuid,  -- Meera Chavan, buyer
+       'details', 'pending',
+       'Shagun Developers', null::int, 4, null::int, null::numeric, null::jsonb,
+       now() - interval '2 days', now() - interval '2 days'
+from public.societies s
+where s.slug = 'aditya-shagun-kothrud'
+on conflict do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Community societies (D241 C5)
+--
+-- Two rows, because the two states are the whole feature and neither is
+-- reachable from the other by a live spec: one still waiting on ops, one
+-- already confirmed. `source = 'community'` was legal in the CHECK constraint
+-- from the start and had no writer -- every society a member added lived in
+-- that member's own browser, so the catalogue has 320 rera + 26 curated rows
+-- and, until now, not one community row at all.
+--
+-- `created_by` is not decoration. It is what an operator working the queue needs
+-- in order to ask, and it is what makes one account minting fifty societies
+-- visible rather than merely suspected.
+--
+-- Both are placed in localities the catalogue actually holds. `locality_slug`
+-- is a foreign key, so an invented area does not degrade gracefully -- it fails
+-- the insert.
+-- ---------------------------------------------------------------------------
+
+-- The candidate. Thin on purpose: a name, an area and a pin is everything the
+-- mint form asks for, and a seeded candidate carrying a builder, tower count and
+-- amenity list would be a candidate nobody could have created.
+insert into public.societies
+    (id, slug, name, locality_slug, lat, lng, registration, conveyance, amenities,
+     source, claim_status, created_by, created_at, updated_at)
+select 'c5a11000-0000-4000-8000-000000000001'::uuid,
+       'sunview-heights-wakad', 'Sunview Heights', 'wakad',
+       18.5989, 73.7629, false, false, '[]'::jsonb,
+       'community', 'unclaimed', u.id,
+       now() - interval '3 days', now() - interval '3 days'
+from public.users u
+where u.mobile = '9708919481'  -- Omkar Kulkarni, owner
+on conflict (slug) do nothing;
+
+-- The confirmed one. `verified_at` and `verified_by` move together -- a CHECK
+-- constraint enforces it -- because a verification with nobody's name on it
+-- cannot answer the only question it will ever be asked, which is who to go back
+-- to when two operators disagree about a society.
+--
+-- Note what is NOT set: `registration` and `conveyance` are both still false.
+-- Those describe the building's legal paperwork, not our confidence in the
+-- record. The old browser-side promotion set them, which meant confirming that a
+-- society exists silently told every buyer its conveyance deed was done.
+insert into public.societies
+    (id, slug, name, locality_slug, lat, lng, registration, conveyance, amenities,
+     source, claim_status, created_by, verified_at, verified_by, created_at, updated_at)
+select 'c5a11000-0000-4000-8000-000000000002'::uuid,
+       'greenfield-residency-baner', 'Greenfield Residency', 'baner',
+       18.5642, 73.7769, false, false, '[]'::jsonb,
+       'community', 'unclaimed', author.id,
+       now() - interval '11 days', ops.id,
+       now() - interval '20 days', now() - interval '11 days'
+from public.users author, public.users ops
+where author.mobile = '9464709344'   -- Meera Joshi, owner
+  and ops.mobile = '9000000000'      -- Admin
+on conflict (slug) do nothing;

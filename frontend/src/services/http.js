@@ -95,10 +95,17 @@ export function observeReachability(fn) {
  *                                        the contract's `Idempotency-Key`; `Authorization` is not
  *                                        overridable here, since the session is not a per-call choice
  * @param {boolean}[opts.auth=true]       attach the bearer token and enable 401-refresh recovery
+ * @param {boolean}[opts.withStatus=false] resolve to `{ data, status }` instead of the bare body.
+ *                                        For the handful of endpoints where the *code* is part of
+ *                                        the answer rather than a transport detail — `POST
+ *                                        /societies` replies 201 for a society it minted and 200 for
+ *                                        one that already existed, and the screen has to say "Added"
+ *                                        or "Already on PuneNest" accordingly. Errors still throw,
+ *                                        so this never becomes a way to swallow a 4xx
  * @returns {Promise<any>} the parsed JSON body, or null for `204 No Content`
  */
 export async function request(path, opts = {}) {
-  const { auth = true } = opts;
+  const { auth = true, withStatus = false } = opts;
   const res = await send(path, opts, auth ? readAccessToken() : null);
 
   // An expired access token is the expected steady state, not an error: refresh and replay once.
@@ -107,12 +114,12 @@ export async function request(path, opts = {}) {
   // and replay a single-use token.
   if (res.status === 401 && auth && path !== REFRESH_PATH && readRefreshToken()) {
     const token = await refreshAccessToken();
-    if (token) return toResult(await send(path, opts, token));
+    if (token) return toResult(await send(path, opts, token), withStatus);
     // Refresh failed → the session is genuinely gone. Clear it so guards stop believing otherwise.
     logoutUser();
   }
 
-  return toResult(res);
+  return toResult(res, withStatus);
 }
 
 export const get = (path, query, opts) => request(path, { ...opts, method: 'GET', query });
@@ -272,9 +279,9 @@ function buildQuery(query) {
   return qs ? `?${qs}` : '';
 }
 
-async function toResult(res) {
+async function toResult(res, withStatus = false) {
   const payload = await parseBody(res);
-  if (res.ok) return payload;
+  if (res.ok) return withStatus ? { data: payload, status: res.status } : payload;
   throw new ApiError({
     code: payload?.error,
     message: payload?.message,

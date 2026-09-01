@@ -1,6 +1,5 @@
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { PROOF_TYPES } from './constants.js';
 
 export default function SocietySidebar({ ctx }) {
   const { t } = useTranslation();
@@ -73,8 +72,15 @@ export default function SocietySidebar({ ctx }) {
                           {r.flagged === 'conflict' ? <span className="tag" style={{ background: 'rgba(220,38,38,.85)', color: '#fff', border: 'none' }}><Icon name="alert-triangle" className="w-3 h-3" /> {t('society.unitTaken')}</span> : null}
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-2 text-[11px] text-gray-300">
-                          {r.otpVerified ? <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 text-emerald-200 px-1.5 py-0.5"><Icon name="check" className="w-3 h-3" /> OTP</span> : null}
-                          {r.doc ? <span className="inline-flex items-center gap-1 rounded bg-violet-500/15 text-violet-200 px-1.5 py-0.5"><Icon name="file-check" className="w-3 h-3" /> {(() => { const p = PROOF_TYPES.find((x) => x[0] === r.proofType); return p ? t(p[1]) : t('society.doc'); })()}</span> : <span className="inline-flex items-center gap-1 rounded bg-white/10 text-gray-400 px-1.5 py-0.5">{t('society.noDoc')}</span>}
+                          {/* The applicant's own words, and their relation to the flat.
+                              These two badges used to read "OTP" and the proof-document type — an
+                              `otpVerified` flag and an uploaded file the browser had written next
+                              to the request and could therefore assert about itself. Neither ever
+                              reached a server, so a reviewer was deciding on evidence that was, in
+                              the literal sense, self-certified. What the server does hold is what
+                              the applicant typed and who they say they are in the flat. */}
+                          {r.relation ? <span className="inline-flex items-center gap-1 rounded bg-violet-500/15 text-violet-200 px-1.5 py-0.5"><Icon name="user-check" className="w-3 h-3" /> {r.relation}</span> : null}
+                          {r.note ? <span className="inline-flex items-center gap-1 rounded bg-white/10 text-gray-300 px-1.5 py-0.5 max-w-full truncate"><Icon name="message-square" className="w-3 h-3 flex-shrink-0" /> {r.note}</span> : null}
                         </div>
                         <div className="flex gap-2 mt-2.5">
                           <button onClick={() => refreshCommittee(r, 'verified')} className="btn-teal flex-1 py-1.5 text-xs">{t('society.verify')}</button>

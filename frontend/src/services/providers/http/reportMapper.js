@@ -58,9 +58,21 @@ import {
   LISTING_REPORT_REASONS,
   SHARE_REPORT_REASONS,
   OWNER_REPORT_REASONS,
+  SOCIETY_REPORT_REASONS,
 } from '../../../lib/reportReasons.js';
 
-/** Client `kind` → wire `targetType`. */
+/**
+ * Client `kind` → wire `targetType`.
+ *
+ * The five `society_*` entries are the society hub's five UGC surfaces. The client has always
+ * called them by the bare word — `societyMod.js` has shipped `REPORT_TYPES` as
+ * `contribution|reply|review|question|answer|board` since the hub was browser-only — so the bare
+ * word is what arrives here, and the prefixed form is what the wire wants.
+ *
+ * `review` is in that client list and is deliberately **not** prefixed: a society review is
+ * reported as an ordinary `review` and taken down through `PATCH /reviews/{id}/status`. It was
+ * already mapped above and stays there.
+ */
 const KIND_TO_TARGET = {
   listing: 'property',
   property: 'property',
@@ -68,6 +80,16 @@ const KIND_TO_TARGET = {
   review: 'review',
   share: 'post',
   post: 'post',
+  contribution: 'society_contribution',
+  reply: 'society_reply',
+  question: 'society_question',
+  answer: 'society_answer',
+  board: 'society_board',
+  society_contribution: 'society_contribution',
+  society_reply: 'society_reply',
+  society_question: 'society_question',
+  society_answer: 'society_answer',
+  society_board: 'society_board',
 };
 
 /** Wire `targetType` → client `kind`, for rendering the queue's tabs. */
@@ -76,6 +98,11 @@ const TARGET_TO_KIND = {
   user: 'user',
   review: 'review',
   post: 'share',
+  society_contribution: 'contribution',
+  society_reply: 'reply',
+  society_question: 'question',
+  society_answer: 'answer',
+  society_board: 'board',
 };
 
 const warned = new Set();
@@ -144,6 +171,15 @@ const LABELS_BY_TARGET = {
     abuse: 'Abusive or offensive review',
     other: 'Something else',
   },
+  /* One vocabulary, five entries. The wire keeps the kinds apart so a moderator knows which table
+     the id indexes; the words a reporter picked are the same either way, so pointing all five at
+     the one list is the honest mapping rather than a shortcut. Spelling them out beats a prefix
+     test here because this object is also read by key. */
+  society_contribution: Object.fromEntries(SOCIETY_REPORT_REASONS),
+  society_reply: Object.fromEntries(SOCIETY_REPORT_REASONS),
+  society_question: Object.fromEntries(SOCIETY_REPORT_REASONS),
+  society_answer: Object.fromEntries(SOCIETY_REPORT_REASONS),
+  society_board: Object.fromEntries(SOCIETY_REPORT_REASONS),
 };
 
 /**
@@ -154,10 +190,13 @@ const LABELS_BY_TARGET = {
  * client knows about has its own entry above.
  *
  * Listing wording wins the collisions, because listings are the overwhelming majority of the queue
- * and it is the least surprising default. Anything that can name its target type should not be
- * reading this.
+ * and it is the least surprising default. Society wording is spread first, so it loses every
+ * collision but still contributes the one code it holds alone — `personal`, which no other
+ * vocabulary has a word for and which would otherwise render as the bare code. Anything that can
+ * name its target type should not be reading this.
  */
 export const REASON_LABELS = {
+  ...LABELS_BY_TARGET.society_contribution,
   ...LABELS_BY_TARGET.post,
   ...LABELS_BY_TARGET.user,
   ...LABELS_BY_TARGET.property,

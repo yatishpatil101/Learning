@@ -31,18 +31,20 @@ import { useAuth } from './AuthContext.jsx';
  * "Following" badge over a society the server never recorded, and the user finds out by never
  * getting the alert they signed up for.
  *
- * ## Societies this browser invented
+ * ## Societies this browser invented — a set that is now drained, never filled
  *
- * `mintDemandSociety` creates a society in localStorage and follows it, so a seeker can be alerted
- * about a building PuneNest does not have yet. The server 404s a follow on a slug it has never
- * heard of, and correctly — it will not write a dangling foreign key.
+ * Adding a missing society used to mint it into `localStorage` and nowhere else, so the server
+ * 404'd a follow on a slug it had never heard of — correctly; it will not write a dangling foreign
+ * key. Those follows were kept in a **local** set, which was the right call at the time: the
+ * society did not exist on the other device either, and syncing the follow would have put a row on
+ * the phone pointing at nothing.
  *
- * Those follows are therefore kept in a **local** set, and that is not a concession. The society
- * itself does not exist on the other device either; syncing the follow would put a row on the phone
- * pointing at nothing, which is worse than not syncing it. What the mint does do is drop an ops
- * lead, and if ops promote it to a real society the follow is promoted with it — {@link promote}
- * retries the local ones on every load, so the follow lands the first time the slug becomes real
- * without the user doing anything.
+ * `POST /societies` now mints a real row, so a follow is refused only when something is genuinely
+ * wrong, and a refusal is rolled back like any other failed write rather than quietly stored. The
+ * local set stays for one reason: every browser that added a society before this migration still
+ * holds those follows, and they are somebody's alerts for their own building. {@link promote}
+ * retries them on load, so each one lands the moment ops give the slug a real row — and the set
+ * empties itself and is never added to again.
  */
 const FollowContext = createContext(null);
 
@@ -149,17 +151,19 @@ export function FollowProvider({ children }) {
       if (local.includes(slug)) writeLocal(local.filter((s) => s !== slug));
       return next;
     } catch {
-      // A follow the server refuses is a society only this browser has (see the class note). Keep
-      // it locally rather than rolling back, so the user who just minted their building stays
-      // subscribed to it. An unfollow that fails has nothing to keep — drop it either way, since
-      // the local set is the only place it could have lived.
+      /* Roll back, and drop any pre-migration local placeholder for this slug on the way.
+         A refused follow used to be kept locally instead, because it meant "a society only this
+         browser has". It cannot mean that any more — adding a society writes a real row before
+         anybody follows it — so a refusal now means the write genuinely failed, and showing the
+         member as subscribed to alerts they will not receive is the one outcome worth avoiding. */
       const local = readLocal();
-      if (next) {
-        if (!local.includes(slug)) writeLocal([slug, ...local]);
-        return true;
-      }
-      writeLocal(local.filter((s) => s !== slug));
-      return false;
+      if (local.includes(slug)) writeLocal(local.filter((s) => s !== slug));
+      setSlugs((prev) => {
+        const copy = new Set(prev);
+        if (next) copy.delete(slug); else copy.add(slug);
+        return copy;
+      });
+      return !next;
     }
   }, [slugs]);
 

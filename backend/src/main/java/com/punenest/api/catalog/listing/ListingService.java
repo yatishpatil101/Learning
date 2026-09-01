@@ -149,6 +149,38 @@ public class ListingService {
     @Transactional
     public Property create(UUID userId, ListingCreate in) {
         requireListingAllowance(userId);
+        return createOnBehalf(userId, in);
+    }
+
+    /**
+     * The same creation, without the freemium ceiling — for the back-office concierge desk only.
+     *
+     * <p><strong>Why the exemption exists.</strong> The ceiling is a rule about what an owner may
+     * help themselves to. The desk is not self-service: it is staff-only behind its own
+     * {@code postOnBehalf:write} atom, doubly audited, and there is a person on a phone call
+     * deciding. Leaving the check in place made the desk inherit a stranger's plan, so an operator
+     * taking down three flats from one caller could record one of them and was refused the rest
+     * with copy written for the owner sitting in the wizard — "take one down, upgrade your plan, or
+     * refer an owner" — addressed to a member of staff, about an account that is not theirs.
+     *
+     * <p>It also made one of the desk's own safeguards unreachable. The owner step warns "this
+     * owner already has N pending listings", which is how a second operator notices the flat has
+     * already been taken down once; a free-tier owner can never hold two pending listings, and
+     * every owner this route provisions starts on the free tier.
+     *
+     * <p><strong>Why this is not a hole in the paywall.</strong> Nothing here is reachable by the
+     * owner. The exemption lives on a route the owner cannot call, and what it produces is a
+     * {@code pending} listing in a hand-back funnel the owner has not yet accepted. What the desk
+     * loses is only the refusal — the overage itself is still a fact, published by
+     * {@code GET /admin/properties/owner-standing} so the operator can see the upgrade
+     * conversation they are now holding.
+     *
+     * <p>Deliberately a second method rather than a boolean parameter on {@link #create}. A
+     * {@code skipQuota} flag is a thing a future caller can pass by accident; a method whose name
+     * says who may call it is not.
+     */
+    @Transactional
+    public Property createOnBehalf(UUID userId, ListingCreate in) {
         User owner = users.findById(userId)
                 .orElseThrow(() -> NotFoundException.of("Owner"));
         Property p = new Property(owner, in.title(), in.deal(), in.propertyType(),
@@ -196,12 +228,47 @@ public class ListingService {
      * no duplicate-probe entry behind.
      */
     private void requireListingAllowance(UUID userId) {
-        int allowance = allowances.listingAllowance(userId);
-        long held = properties.countOccupyingListingSlots(userId, PropertyStatus.OCCUPIES_LISTING_SLOT);
-        if (held >= allowance) {
+        ListingStanding standing = standingFor(userId);
+        if (standing.held() >= standing.allowance()) {
             throw new ListingQuotaExhaustedException(
-                    "You already have " + held + " of " + allowance + " listings live. "
+                    "You already have " + standing.held() + " of " + standing.allowance()
+                    + " listings live. "
                     + "Take one down, upgrade your plan, or refer an owner to earn another slot.");
+        }
+    }
+
+    /**
+     * How much of their ceiling an owner is using — the same two numbers {@link #create} refuses on.
+     *
+     * <p>Exists because {@link #createOnBehalf} no longer refuses. The concierge desk may post past
+     * an owner's plan, but "may" is not "should not be told": an owner sitting two listings over a
+     * one-listing plan is a sales conversation, and the operator is the only person on the call in a
+     * position to have it. Publishing the numbers rather than a verdict keeps the judgement with the
+     * human, which is the whole reason the desk is exempt in the first place.
+     *
+     * <p>Read from the same two sources as the gate, deliberately. A second count derived some other
+     * way would eventually disagree with the one that does the refusing, and the operator would be
+     * reading a number the server does not act on.
+     *
+     * @param userId the owner being asked about — not the caller
+     */
+    @Transactional(readOnly = true)
+    public ListingStanding standingFor(UUID userId) {
+        return new ListingStanding(allowances.listingAllowance(userId),
+                properties.countOccupyingListingSlots(userId, PropertyStatus.OCCUPIES_LISTING_SLOT));
+    }
+
+    /**
+     * An owner's listing quota, as both halves of it.
+     *
+     * @param allowance what their plan and referrals permit
+     * @param held      how many listings currently occupy a slot ({@code pending} and {@code approved})
+     */
+    public record ListingStanding(int allowance, long held) {
+
+        /** Whether they are past the ceiling — only reachable via the concierge desk. */
+        public boolean overAllowance() {
+            return held > allowance;
         }
     }
 

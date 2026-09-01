@@ -118,10 +118,14 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
   });
 
   test('the wizard step actions are not sticky on desktop', async ({ page, login }) => {
-    // Signed in as the owner because `/list-property` is behind the auth gate. On the mock suite
-    // this test skipped itself every run — the `count()` guard below was written for an
-    // environment that could not log in, and it made a gated screen look like a passing one.
-    await login.asOwner();
+    /* Signed in because `/list-property` is behind the auth gate, and as a *new* owner because it is
+       also behind the listing paywall. On the mock suite this test skipped itself every run — the
+       `count()` guard below was written for an environment that could not log in, and it made a
+       gated screen look like a passing one. `asOwner()` then replaced it and worked until the quota
+       started being enforced server-side, at which point the seeded owner (four listings, free tier)
+       got the upgrade prompt instead of the wizard. This test is about desktop layout; it needs the
+       wizard on screen, and does not care who is looking at it. */
+    await login.asNewOwner();
     await page.goto('/list-property');
     const actions = page.locator('.lp-step-actions').first();
     await expect(actions).toBeVisible({ timeout: 20_000 });

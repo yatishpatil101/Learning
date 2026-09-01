@@ -1,10 +1,18 @@
 import { readUser } from '../auth.js';
 import { digits, myMobile } from '../contact.js';
 import { get, set } from './internals.js';
-import { fee, getFees } from './billing.js';
 
 /* =========================================================================
-   Rent payments, convenience-fee calc, ledger, platform revenue, mandate
+   Rent payments, ledger, mandate — the MOCK build's write path
+
+   What used to live here as well: `rentFeeRate`, `calcRentFee`, `addRentLedger`,
+   `addPlatformRentFee` and `getPlatformRentFees`. They were the other four fifths of a rent
+   payment, and they are the server's now (D232/D236). Two of them were doing something worse than
+   duplicating it: `calcRentFee` let the browser decide what the platform charged — halve
+   `rentPayPercent` in devtools and the convenience fee halves with it — and `addPlatformRentFee`
+   booked the platform's own revenue into the payer's localStorage, which is the one ledger the
+   payer must not be able to write. `quoteRentFee` in `providers/http/rentMapper.js` is what a
+   client is allowed to do with a fee: quote it, for display, before the server states it.
    ========================================================================= */
 const rentPaymentKey = () => 'pnRentPayments:' + (myMobile() || 'anon');
 export const getRentPayments = () => get(rentPaymentKey(), []);
@@ -15,35 +23,8 @@ export const addRentPayment = (o) => {
   set(rentPaymentKey(), arr);
   return rec;
 };
-export const rentFeeRate = () => {
-  const f = getFees();
-  return f.rentPayPercent != null ? Number(f.rentPayPercent) : 2;
-};
-export const calcRentFee = (amount) => {
-  amount = Math.max(0, Math.round(Number(amount) || 0));
-  const f = getFees();
-  const pct = f.rentPayPercent != null ? Number(f.rentPayPercent) : 2;
-  const gstPct = f.gstPercent != null ? Number(f.gstPercent) : 18;
-  const feeAmt = Math.round((amount * pct) / 100);
-  const gst = Math.round((feeAmt * gstPct) / 100);
-  return { amount, pct, fee: feeAmt, gstPct, gst, platform: feeAmt + gst, total: amount + feeAmt + gst };
-};
 const rentLedgerKey = (ownerMobile) => 'pnRentLedger:' + (digits(ownerMobile) || 'anon');
 export const getRentLedger = (ownerMobile) => get(rentLedgerKey(ownerMobile), []);
-export const addRentLedger = (ownerMobile, entry) => {
-  const key = rentLedgerKey(ownerMobile);
-  const arr = get(key, []);
-  const rec = Object.assign({ id: 'rl' + Date.now(), at: Date.now(), settlement: 'settled' }, entry || {});
-  arr.unshift(rec);
-  set(key, arr);
-  return rec;
-};
-export const getPlatformRentFees = () => get('pnRentFeeLedger', []);
-export const addPlatformRentFee = (o) => {
-  const arr = getPlatformRentFees();
-  arr.unshift(Object.assign({ id: 'rf' + Date.now(), at: Date.now() }, o || {}));
-  return set('pnRentFeeLedger', arr);
-};
 export const getRentMandate = () => get('pnRentMandate:' + (myMobile() || 'anon'), null);
 export const setRentMandate = (m) => set('pnRentMandate:' + (myMobile() || 'anon'), m ? Object.assign({ at: Date.now() }, m) : null);
 

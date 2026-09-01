@@ -2,9 +2,8 @@ import { useTranslation } from 'react-i18next';
 import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
-import { getListings } from '../../../../lib/store.js';
 
-export default function StepProperty({ step, aType, setAType, prop, setP, setProp, setShowPropertyPicker, errors = {}, fc, clearErr }) {
+export default function StepProperty({ step, aType, setAType, prop, setP, setProp, setShowPropertyPicker, myProperties = [], errors = {}, fc, clearErr }) {
   const { t } = useTranslation();
   const typeLabel = { Residential: t('services.ra.property.typeResidential'), Commercial: t('services.ra.property.typeCommercial') };
   return (
@@ -12,9 +11,11 @@ export default function StepProperty({ step, aType, setAType, prop, setP, setPro
       <h2 className="text-xl font-bold text-white mb-1">{t('services.ra.property.title')}</h2>
       <p className="text-gray-500 text-sm mb-6">{t('services.ra.property.subtitle')}</p>
 
-      {/* Property picker for owners with existing listings */}
+      {/* Property picker for owners with existing listings. The rows arrive as a prop rather than
+          from a `getListings()` call in this render: that read hit localStorage, so against the API
+          the picker never appeared for anybody, and being inline it re-read on every keystroke. */}
       {(() => {
-        const myListings = getListings().filter((l) => l.deal === 'rent' || l.deal === 'buy');
+        const myListings = myProperties.filter((l) => l.deal === 'rent' || l.deal === 'buy');
         if (!myListings.length) return null;
         return (
           <div className="mb-6 p-4 rounded-xl border border-teal-400/20 bg-teal-400/5">

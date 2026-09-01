@@ -118,6 +118,19 @@ export function toViewModel(p) {
     bhk: p.bhk ? `${p.bhk} BHK` : '',
     // Mock: a boolean "has RERA". Wire: the registration number itself (absent when unregistered).
     rera: Boolean(p.reraId),
+    /* …and the number too, because the boolean is a one-way door. The edit form has to put back
+       every field `ListingUpdate` accepts — a key it cannot restore is a key it sends empty, and an
+       empty `reraId` is not "unchanged", it is "erased". Carried under the wire's own name so the
+       two never drift: `rera` answers "is it registered", this answers "with what". */
+    reraId: p.reraId ?? '',
+    /* The remaining `ListingUpdate` fields, mapped for the same reason rather than because a card
+       renders them. Everything the edit form can send, it must be able to read back first. */
+    deposit: p.deposit ?? 0,
+    maintenance: p.maintenance ?? 0,
+    negotiable: p.negotiable ?? false,
+    // Owner/staff only, and absent on a summary — the composed line including the unit token.
+    address: p.address ?? '',
+    pincode: p.pincode ?? '',
     // Owner/staff only — the public response omits it, so on a search card this is simply absent
     // (D218). Mapped back to the wizard's field name so an owner reopening the edit form sees the
     // number they typed rather than an empty box that would silently clear it on save.
@@ -388,8 +401,76 @@ export function toModerationQuery(filters = {}, sort = 'newest') {
  * and `localitySlug` is resolved server-side from the display name by `LocalityResolver`. Sending
  * them would at best be ignored and at worst imply the client is trusted with them.
  */
+/**
+ * View model → the List Property wizard's `form` state, for the edit prefill (D237).
+ *
+ * The mock's `myListing` resolves a stored record which carries its own `form` snapshot, so the
+ * wizard could always reopen it verbatim. A server row has no such snapshot — it has the contract's
+ * field names — and the hook reads `listing.form || listing`, so without this the live editor
+ * prefilled from keys that mostly do not exist: `type` where the form says `propertyType`, `desc`
+ * where it says `description`, `bhk: "2 BHK"` where it wants `"2"`. Almost every box came up empty.
+ *
+ * **Empty is not cosmetic here, it is destructive.** `toListingUpdate` drops only `undefined`, and
+ * the wizard's record builder turns an unfilled field into `''` or `0` — so a field this function
+ * fails to restore is a field the next save *erases*. That is why the set below is pinned to
+ * `ListingUpdate` rather than to what the form happens to show: every key the PATCH can carry has
+ * to come back, and the ones the server never stores (bathrooms, balconies, lock-in, ownership
+ * type, preferred tenants) are safe precisely because the contract has nowhere to put them.
+ *
+ * The address parts are the deliberate exception. The wire carries one composed line and the wizard
+ * carries flat/tower/society/street, and splitting a line back into four is guesswork — so they are
+ * left on their defaults, which makes `forTheWire` compose an empty address, which `toListingUpdate`
+ * then drops. An address the owner did not touch stays exactly as the server has it.
+ */
+export function toEditForm(vm = {}) {
+  const isRent = vm.deal === 'rent';
+  const price = vm.price == null ? '' : String(vm.price);
+  return {
+    deal: vm.deal || 'buy',
+    propertyType: vm.type || '',
+    // The form holds the bedroom count as a string ("2"); `0` is the catalogue's "not a bedroom
+    // count" marker for plots and studios and must read as blank rather than as "0".
+    bhk: vm.bhkNum ? String(vm.bhkNum) : '',
+    carpetArea: vm.area == null ? '' : String(vm.area),
+    areaUnit: vm.areaUnit || 'sqft',
+    furnishing: vm.furnishing || 'unfurnished',
+    locality: vm.locality || '',
+    // One column, two form fields: which one is authoritative is the deal type, exactly as the
+    // record builder decides it on the way out.
+    ...(isRent ? { monthlyRent: price, price: '' } : { price, monthlyRent: '' }),
+    deposit: vm.deposit ? String(vm.deposit) : '',
+    // Maintenance splits by deal on the way out too (`rentMaintenance` when a renter pays it on
+    // top, `monthlyMaintenance` otherwise), so a non-zero figure on a rent listing implies the
+    // 'extra' mode — 'included' would send it straight back as nothing.
+    ...(isRent
+      ? { rentMaintenance: vm.maintenance ? String(vm.maintenance) : '', rentMaintMode: vm.maintenance ? 'extra' : 'included' }
+      : { monthlyMaintenance: vm.maintenance ? String(vm.maintenance) : '' }),
+    priceNegotiable: !!vm.negotiable,
+    reraId: vm.reraId || '',
+    description: vm.desc || '',
+    amenities: vm.amenities || [],
+    floor: vm.floor == null ? '' : String(vm.floor),
+    totalFloors: vm.totalFloors == null ? '' : String(vm.totalFloors),
+    facing: vm.facing || '',
+    /* Possession travels out through `writePossession`, which reads the form's `age` first via the
+       record's `construction`. Leaving `age` blank makes the record say `ready`, so an
+       under-construction listing would be quietly re-declared ready-to-move by an edit that had
+       nothing to do with possession — a misstatement to the buyer rather than a lost field.
+
+       The map is the exact inverse of the record builder's, which is narrower than the contract:
+       `construction: form.age === 'under-construction' ? 'new' : 'ready'` collapses everything that
+       is not under construction onto ready, and sends under-construction out as `new-launch`. That
+       mismatch is the wizard's, not this function's, and reproducing it is the point — an inverse
+       that were more correct than the forward map would make an untouched edit change the listing. */
+    age: (vm.construction === 'new' || vm.construction === 'under') ? 'under-construction' : '',
+    electricityConsumerNo: vm.electricityConsumerNo || '',
+    pincode: vm.pincode || '',
+    // A saved listing has real coordinates; the hook reads these to mark the pin as placed.
+    ...(vm.lat != null && vm.lng != null ? { propLat: vm.lat, propLng: vm.lng } : {}),
+  };
+}
+
 export function toListingCreate(listing = {}) {
-  // The parts the wizard stores separately, assembled into the one line the contract takes. The
   // server normalises whatever arrives (AddressKey), so the exact assembly matters less than
   // including the unit token — that is what distinguishes one flat from its neighbour.
   //

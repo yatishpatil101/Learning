@@ -24,7 +24,9 @@ Where things live:
 
 **Mock retirement.** All 18 seam domains have live consumers. Phases 0–4 are done; Phase 5 (retiring
 `lib/mockApi.js` and the `lib/data/**` stores) is in progress. Remaining work is enumerated as
-numbered rows in the ledger, in damage order — item 35 (`GET /geo`) is next.
+numbered rows in the ledger, in damage order. The consumer-first slice just closed is rent-agreement
+co-fill: deferred checkout, an invite addressable to an **unregistered** mobile, and party-side
+details submission. Written end to end; the live e2e run is the outstanding step.
 
 Two things that are true and are not going to change soon:
 
@@ -33,28 +35,12 @@ Two things that are true and are not going to change soon:
 - **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
   it. It is set per machine, not in the repo.
 
-### In progress — ledger 20, the finance console
+### Closed recently
 
-Four product calls taken 2026-08-18, all recorded in ledger row 20: **four chart bands** (Services
-stays and renders a measured ₹0 under the existing "quoted, not received" marker), **both ARPU and
-ARPPU** as separate tiles, **the payouts panel kept** and driven from real data rather than a 65/35
-invention, and **no migration** — every figure the console draws is already in the schema.
-
-- [x] `AdminMetricsRepository` — per-source revenue series, MRR, per-plan lines, paying users, GST, pending settlement, the paged ledger
-- [x] `AdminFinance` extended; `AdminFinanceSeriesPoint` and `AdminFinanceTransaction` added
-- [x] `GET /admin/finance/series` and `GET /admin/finance/transactions`, both on the existing `finance:read` atom
-- [x] OpenAPI: two operations and three schemas
-- [x] Backend route tests, including the 403 for a non-admin and the ledger's status mapping
-- [x] `financeService.js` + both providers; `finance` added to `config.js` and `playwright.live.config.js`
-- [x] `AdminFinance.jsx` off `rawDb`/`buildTransactions`/`buildRevenueSeries`/`rentFeeRevenue`
-- [x] e2e: mock spec updated, live spec added, `COVERAGE.md` row
-
-**Closed 2026-08-19.** The last box had been ticked in code and was failing in fact: the port
-extracted the settlement ledger into a `<LedgerPanel />` that was never written, and dropped the
-`gstPercent` binding along with the arithmetic it came from. `/admin/finance` threw on render and
-mounted blank, so all 9 live assertions and 21 mock ones were red against a console that could not
-draw. The panel is inlined again (`6041145`); 34 mock + 9 live tests pass. **The lesson is that a
-ticked box on a build step is not evidence — only the run is.**
+- Ledger 20 (finance console) is shipped and verified (`023c311`).
+- Ledger 35 (`GET /geo`) is shipped and closed in the decision register.
+- Rent-agreement co-fill (V107) — backend green at `b7bc2fa`, frontend seam and wizard done, live
+  e2e written. **Not yet run against a live backend**; see `HANDOFF.md` §4 for the command.
 
 ## Needs attention
 
@@ -85,6 +71,18 @@ Open items with no ledger row. Anything covered by a decision is cited, not rest
   are silently dark on live builds. Precondition for ledger 27.
 - `PropertyReviewModal.jsx:391` returns `null` when either the review or the thread fails to load, so
   a failed case-file load is indistinguishable from a dismissed click.
+- **The admin moderation console reads a partial catalogue, and the tripwire is now red.** The
+  e2e catalogue crossed the page ceiling (102 listings against `spring.data.web.pageable.max-page-size=100`),
+  so `warnIfTruncated` fires on both `/admin/properties` reads and `live-property-integration.spec.js`
+  `:689` and `:720` fail in their shared `afterEach` — their own assertions pass. Confirmed
+  pre-existing, not a Wave C regression. Consumer surfaces are unaffected *today*: the public
+  approved catalogue is 47. Fixing it is a **P6 slice**, deferred there by decision on 2026-08-20:
+  `listForModeration` returns a flat array and four screens aggregate over it client-side
+  (`AdminProperties` tabbed table, per-tab counts and the recheck queue; `AdminDashboard` headline
+  counts; `AdminPostOnBehalf` pending list), so a real fix is a page envelope plus server-side counts
+  plus pushing the table's filters and sort onto `/admin/properties` so the server pages a *filtered*
+  set. Raising `PAGE_SIZE` is not a fix and the server clamps it anyway — that is the mistake the
+  tripwire's own docstring records.
 - The review modal's open effect double-POSTs under StrictMode. Harmless since D221's advisory lock,
   but it is why a real server bug hid for weeks.
 
@@ -136,67 +134,10 @@ still undecided · `wa-pricing` → resolved.
 
 ## Next up
 
-The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32, 25 and 20 are built;
-**20 is now verified end to end as well.** **Item 36 is done and closed.** Seven of the eight tabs
-read the database: Pricing, SLA, Geography and Supply gap off existing tables, and Traffic,
-Engagement and Anonymous surfers off a page-view stack built for them — a client collector writing
-`page_views`, a 90-day retention sweep and an erasure path, an hourly `PageViewRollup` into
-`page_view_daily{,_paths,_referrers}`, and three admin-gated read endpoints.
-
-**Seasonal is the one deliberate exception** and keeps its `SampleTabNotice`: it needs several years
-of history the platform has not lived through, so it stays illustrative and is labelled as such. The
-e2e suite asserts the banner on Seasonal *and its absence on Traffic and Anonymous surfers*, so the
-label cannot be forgotten on a tab that has since become real.
-
-The analytics trap the old note warned about is gone — `getAnalytics()` no longer gates the page,
-and each tab fails on its own.
-
-### The order changed — consumer first
-
-Analytics was the last back-office slice taken out of order. From here the migration follows the
-application's own priorities rather than provider convenience: **P1 post a property → P2 listings and
-search → P3 flatmates → P4 rent agreement → P5 dashboard / owner-hub → P6 the remaining admin
-consoles.** The full table and the reasoning are in
-[docs/migration/05-logic-to-backend.md](../docs/migration/05-logic-to-backend.md#sequencing).
-
-Two blockers this list previously carried were re-derived from the code and **do not exist**: the
-http mapper does *not* drop `adminPipeline` (it flattens all seven fields, and the key's absence on
-a consumer route is the access rule working), and the moderator BHK edit was fixed some time ago.
-The moderation console already imports nothing from `lib/data/**`. The lesson is worth keeping:
-re-derive scope from the code, never from a worklog note.
-
-P1 found a real one instead. The wizard collected the owner's documents and wrote them to
-**`localStorage` only**, and only for sale listings — so the file that earns the Verified Owner
-badge never reached the moderator who has to check it, and rent listings had theirs discarded
-outright. Both halves are fixed by routing through the document seam the vault tab already uses.
-
-**P2 found a worse one.** Moving the listings filters server-side looked like plumbing — `ListingFacets`
-already carries all 27 axes, and the relevance ranking the plan budgeted backend work for turned out
-to be there already, matching the browser term for term. The defect is in the one axis nobody
-suspected: **the type chips do not name anything the server stores.** `property_type` is free text
-("Studio", "Shop / Showroom", "Row House"), the chips are eight fixed keys, and the browser has always
-bridged the two with substring matching plus an alias table. Comparing chip to label for equality —
-which is what filtering server-side would otherwise have done — measured against the real catalogue:
-
-| Chip | Shows today | Equality would show |
-|---|---|---|
-| Flat | 32 | **10** |
-| Independent House | 4 | **0** |
-| Commercial | 12 | **0** |
-| Farm Land | 1 | **0** |
-| Open Plot | 6 | 5 |
-| Villa | 5 | 5 |
-
-Only Villa survived, and the failure is silent — an empty result page is indistinguishable from
-"nothing matches". Fixed at the root (V98): a generated `property_type_key` column derives the
-canonical key in the database, so the taxonomy is stated once, an index can answer it, and it cannot
-drift from the write paths the way a maintained column would. It is taught the alias table as well as
-the substring list, which closes a gap that pre-dates this work: `apartment` was declared a flat by
-`ALIASES` but never matched the Flat chip in either mode.
-
-Two axes cannot move and are honest about it. `shareType` — the only thing the PG and Shared Room
-chips match on — **has no column anywhere server-side**, so those two chips deep-link into the
-dedicated flatmates finder rather than silently returning nothing.
+The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built; the
+queue is now **20 (finance console) then 36 (analytics tabs)**. Clear item 36's analytics trap early:
+`AdminAnalytics.jsx:35` calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on
+it, so deleting the mock hangs the page including its one working tab.
 
 ---
 
@@ -206,8 +147,6 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
-| 2026-08-19 | Ledger 20 closed: the finance console's settlement panel restored, 34 mock + 9 live tests green |
-| 2026-08-19 | Listing attributes stopped being fabricated from `fnvHash(id)` — twelve fields now read from the server |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
 | 2026-08-16 | D230–D234, and the closing summary of the autonomous window (`8cecfe5`..`45f9168`) |

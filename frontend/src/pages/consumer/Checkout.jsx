@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
-import { addServiceOrder, getFees } from '../../lib/store.js';
+import { getFees } from '../../lib/store.js';
 import { openCashfreeCheckout } from '../../lib/cashfree.js';
 import { listPlans } from '../../services/planService.js';
 import { usePlan } from '../../context/PlanContext.jsx';
@@ -61,10 +61,16 @@ export default function Checkout() {
     setError('');
     try {
       const sub = await subscribe(planId, method.toLowerCase());
-      // The local order record still drives the mock billing history. Recorded regardless of
-      // status — a pending payment is still an order the user should be able to find.
-      const rec = addServiceOrder({ type: P.kind === 'plan' ? 'subscription' : 'topup', plan: planId, title: P.name, amount: P.price, method });
-      setOrderRef(sub?.paymentRef || rec.id);
+      /* The reference the customer quotes at support. `paymentRef` is the gateway's own order id
+         and is what appears on their bank statement, so it is the useful one; the subscription id
+         is the fallback for a free plan, which has no gateway order to point at.
+
+         This used to be `addServiceOrder({...}).id` — a localStorage row written next to a comment
+         saying it "drives the mock billing history". It did not: `BillingPanel` renders a static
+         `BILLING_HISTORY` constant and `getServiceOrders()` had no callers at all. So the browser
+         was minting an order number for a record nobody could ever look up, and handing it to the
+         customer as the thing to quote. */
+      setOrderRef(sub?.paymentRef || sub?.id || '');
 
       // Option A hosted checkout: a pending subscription carrying a session id means the server
       // opened a real Cashfree order. Hand off to Cashfree's own hosted checkout, then re-read the

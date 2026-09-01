@@ -54,9 +54,15 @@ public class ServiceRequestInvitesController {
      * {@code GET /service-requests} and the invitation stops being the interesting object; once
      * declined, there is nothing to do with it. Both remain visible to the requester through
      * {@code ServiceRequest.parties}, which is the side that needs to know.
+     *
+     * <p>Claims first (V107), and this is the route where it matters most: somebody invited before
+     * they held an account has no invitation addressed to their user id until the claim runs, so
+     * without it their very first look at this list \u2014 the screen the invitation sends them to \u2014
+     * would be empty, and the flow would dead-end exactly where it is supposed to begin.
      */
     @GetMapping(Routes.ServiceRequests.MY_INVITES)
     public List<ServiceRequestPartyDto> myInvites(@CurrentUser AuthPrincipal principal) {
+        parties.claimPendingFor(principal);
         return parties.myInvites(principal);
     }
 

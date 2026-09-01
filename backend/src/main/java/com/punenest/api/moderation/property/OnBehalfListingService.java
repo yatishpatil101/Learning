@@ -80,7 +80,7 @@ public class OnBehalfListingService {
                     "mobile", body.ownerMobile());
         }
 
-        Property created = listings.create(owner.getId(), body.listing());
+        Property created = listings.createOnBehalf(owner.getId(), body.listing());
         // Open the hand-back funnel. This is the one creation path that produces a listing its owner
         // has never seen, so it is the only one that owes anybody a hand-over; a listing an owner
         // posted themselves has already arrived where this funnel is trying to get to.
@@ -91,6 +91,56 @@ public class OnBehalfListingService {
                 "ownerMobile", body.ownerMobile(),
                 "ownerProvisioned", String.valueOf(provisioned));
         return created;
+    }
+
+    /**
+     * {@code GET /admin/properties/owner-standing} — how much of their listing ceiling this number
+     * is using, before the operator adds another.
+     *
+     * <p>The desk is exempt from the ceiling ({@link ListingService#createOnBehalf}), which is what
+     * lets an operator record everything a caller with three flats is telling them. Exempt is not
+     * the same as blind: an owner about to go two listings past a one-listing plan is an upgrade
+     * conversation, and the operator is the only person on the call able to have it. So the numbers
+     * are published and the judgement is left with the human — refusing was precisely what did not
+     * work here.
+     *
+     * <p>Keyed on mobile because that is the only handle the desk has. The operator is on the phone
+     * with somebody who may never have signed in, which is the same reason {@code POST
+     * /admin/properties} takes a mobile rather than a user id.
+     *
+     * <p>An unknown number is not an error. "This person has no account yet" is a real and common
+     * answer at this desk — it is what happens on most first calls — and a 404 would make the
+     * console treat the ordinary case as a failure. {@code known = false} says it plainly, and the
+     * two counts are left at the free tier's shape because that is what provisioning will give them
+     * a moment later.
+     */
+    @Transactional(readOnly = true)
+    public OwnerListingStanding standingFor(String mobile) {
+        String digits = mobile == null ? "" : mobile.replaceAll("\\D", "");
+        if (digits.length() != 10) {
+            throw new BadRequestException("mobile must be a 10-digit number");
+        }
+        return users.findByMobile(digits)
+                .map(owner -> {
+                    ListingService.ListingStanding standing = listings.standingFor(owner.getId());
+                    return new OwnerListingStanding(digits, true, standing.allowance(),
+                            standing.held(), standing.overAllowance());
+                })
+                .orElseGet(() -> new OwnerListingStanding(digits, false, 0, 0, false));
+    }
+
+    /**
+     * Body of {@code getOwnerListingStanding}.
+     *
+     * @param mobile         the number asked about, echoed so a console can match a late response to
+     *                       the field it is now showing
+     * @param known          whether an account exists for it at all
+     * @param allowance      how many listings their plan and referrals permit
+     * @param held           how many they currently hold ({@code pending} and {@code approved})
+     * @param overAllowance  whether {@code held} is already past {@code allowance}
+     */
+    public record OwnerListingStanding(String mobile, boolean known, int allowance, long held,
+            boolean overAllowance) {
     }
 
     /**

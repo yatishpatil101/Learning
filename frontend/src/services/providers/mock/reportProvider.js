@@ -17,13 +17,40 @@
  * three are why the ops queue needs to handle failures it never sees on mocks.
  */
 import { readUser } from '../../../lib/auth.js';
-import { listReports as _list, mutateDb } from '../../../lib/mockApi.js';
+import { listReports as _list, mutateDb, rawDb } from '../../../lib/mockApi.js';
 import { submitReport as _submit } from '../../../lib/data/reports.js';
 import { toTargetType, reasonLabel } from '../http/reportMapper.js';
+
+/**
+ * One open report per person per target, mirrored from the server.
+ *
+ * The http provider turns the server's 409 into the string `'duplicate'` so the modal can say
+ * "you already reported this" instead of thanking someone for a report nobody received. Without
+ * this check the mock accepted every press, so the same UI took a *different* branch under the two
+ * providers — and the branch that only mock mode exercised was the one that lies to the user.
+ *
+ * Matched on the reporter's mobile rather than their name: names are neither unique nor stable, and
+ * a duplicate guard keyed on one lets a rename reopen the door.
+ *
+ * Scoped to `open`. A closed report is a decision that has been made; if the thing is still up and
+ * still wrong, that is a new complaint and ops need to see it as one.
+ */
+function alreadyReported(kind, targetId, mobile) {
+  const id = String(targetId || '');
+  const mob = String(mobile || '').replace(/\D/g, '');
+  if (!id || !mob) return false;
+  return (rawDb().reports || []).some(
+    (r) => r.status === 'open'
+      && String(r.targetId) === id
+      && (r.kind || 'listing') === kind
+      && String(r.reporterMobile || '').replace(/\D/g, '') === mob,
+  );
+}
 
 export async function createReport(report) {
   const u = readUser();
   const kind = report?.kind || 'listing';
+  if (alreadyReported(kind, report?.targetId, u?.mobile)) return 'duplicate';
   return _submit({
     kind,
     listingId: report?.targetId,

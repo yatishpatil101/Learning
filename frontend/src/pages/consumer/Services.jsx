@@ -10,7 +10,6 @@ import { createServiceRequest } from '../../lib/mockApi.js';
 import { createTicket, joinServiceWaitlist } from '../../services/ticketService.js';
 import { isHttpDomain } from '../../services/config.js';
 import { getMovePack } from '../../services/settingsService.js';
-import { addServiceOrder } from '../../lib/store.js';
 import MobileField from '../../components/MobileField.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
@@ -232,12 +231,18 @@ export default function Services() {
     if (!isIn) { navigate('/signin?next=/services'); return; }
     const names = items.map((i) => tr('services.hub.pack.' + i.id));
     const accepted = total - save;
-    // Persist to user's service orders (mirrors HTML Auth.addServiceOrder)
-    addServiceOrder({ type: 'move-in-pack', items: names, total: accepted });
     /* The lead onto the packers desk. `quotedValue` is what this customer assembled line by line
        and accepted, which is not the same fact as ops' `value` and is why the board needed a second
        column (D3): before it existed there was nowhere to put this number, so in live mode the
        whole booking was dropped and the customer got a success toast for a lead nobody received.
+
+       An `addServiceOrder({ type: 'move-in-pack', … })` used to run above this, unconditionally, in
+       both modes. It wrote a localStorage row that no screen read — `getServiceOrders()` had no
+       callers — so the booking existed twice in mock mode and the copy that was not the lead was
+       the copy nobody could see. `POST /me/service-orders` is deliberately not its replacement:
+       that endpoint takes a single catalogue offering and refuses an amount, because the customer
+       does not name the price there. A move-in pack is a bundle the customer assembled and a figure
+       they accepted, which is exactly what `quotedValue` on the ticket is for.
 
        Contact details are not sent — unlike the interior and valuation forms, this one never asks
        for them; the server copies them off the authenticated session, which is why the sign-in

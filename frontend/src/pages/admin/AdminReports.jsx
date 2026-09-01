@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Search, UserX, XCircle } from 'lucide-react';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
-import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
+import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS, SOCIETY_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { fmtNum, classNames, timeAgo } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -64,6 +64,9 @@ const REASON_OPTS = {
   listings: [{ value: '', label: 'All reasons' }, ...LISTING_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
   users: [{ value: '', label: 'All reasons' }, ...OWNER_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
   posts: [{ value: '', label: 'All reasons' }, ...SHARE_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
+  // One vocabulary for all five society kinds, because they are the same object seen through five
+  // widgets: abuse in an answer and abuse on the noticeboard are the same abuse.
+  society: [{ value: '', label: 'All reasons' }, ...SOCIETY_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
 };
 
 /**
@@ -80,18 +83,30 @@ const REASON_OPTS = {
  * surfaced under "Reported users", mislabelled but reachable. Fixing the wire mapping is what made
  * them disappear, which is the ordinary way a latent gap becomes visible.
  *
- * `review` is deliberately absent. `ReportReasons` knows the target type, but nothing in the client
- * files one into this domain — society reviews go through `reportSocietyContent` and their own
- * queue. A tab with no path to it would be furniture.
+ * `review` is deliberately absent as a tab of its own. `ReportReasons` knows the target type and
+ * society reviews are filed under it, but they are moderated through the reviews queue and its own
+ * `PATCH /reviews/{id}/status` — a tab here with no takedown behind it would be furniture.
+ *
+ * The fourth tab collects **five** kinds, which is why this maps to an array. A society hub's
+ * recommendations, replies, questions, answers and noticeboard posts stay five distinct target
+ * types on the wire, because a moderator upholding a complaint has to know which table the id
+ * indexes — but to the person working the queue they are one thing: something a neighbour wrote.
+ * Five tabs would have split one small queue five ways.
  */
-const TAB_KIND = { listings: 'listing', users: 'user', posts: 'share' };
+const TAB_KIND = {
+  listings: ['listing'],
+  users: ['user'],
+  posts: ['share'],
+  society: ['contribution', 'reply', 'question', 'answer', 'board'],
+};
+const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
 
 export default function AdminReports() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
   const [searchParams] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['listings', 'users', 'posts'], 'listings');
+  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', 'society'], 'listings');
   const [statusF, setStatusF] = useState('');
   const [reasonF, setReasonF] = useState('');
   const [dateRange, setDateRange] = useState('');
@@ -226,15 +241,16 @@ export default function AdminReports() {
     const list = all || [];
     return {
       open: list.filter((r) => r.status === 'open').length,
-      listings: list.filter((r) => r.kind === 'listing').length,
-      users: list.filter((r) => r.kind === 'user').length,
-      posts: list.filter((r) => r.kind === 'share').length,
+      listings: list.filter((r) => inTab(r, 'listings')).length,
+      users: list.filter((r) => inTab(r, 'users')).length,
+      posts: list.filter((r) => inTab(r, 'posts')).length,
+      society: list.filter((r) => inTab(r, 'society')).length,
       closed: list.filter((r) => r.status !== 'open').length,
     };
   }, [all]);
 
   const rows = useMemo(() => {
-    let list = (all || []).filter((r) => r.kind === TAB_KIND[tab]);
+    let list = (all || []).filter((r) => inTab(r, tab));
     if (statusF) list = list.filter((r) => r.status === statusF);
     if (activeReason) list = list.filter((r) => r.reason === activeReason);
     if (dateRange) {
@@ -281,7 +297,13 @@ export default function AdminReports() {
                  thing is the post — suspending the person who wrote it is a different, heavier
                  decision that the listings tab does not make either. */
               ? <button onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
-              : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
+              : tab === 'society'
+                /* Same reasoning, and one consequence worth stating: upholding this removes the
+                   post from the hub for everybody. That is the point — the reason `personal`
+                   exists is a recommendation publishing a tradesman's real mobile number, and a
+                   complaint that leaves it up has not answered him. */
+                ? <button onClick={() => act(r.id, 'actioned', 'Society post removed', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Remove post"><Ban className="mr-0.5 inline h-3 w-3" />Remove</button>
+                : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
           <button onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal" title="Resolve"><CheckCircle2 className="mr-0.5 inline h-3 w-3" />Resolve</button>
           <button onClick={() => act(r.id, 'dismissed')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Dismiss"><XCircle className="mr-0.5 inline h-3 w-3" />Dismiss</button>
         </>
@@ -319,7 +341,7 @@ export default function AdminReports() {
     },
     {
       key: 'target',
-      header: tab === 'listings' ? 'Property' : tab === 'posts' ? 'Flatmate post' : 'User / Owner',
+      header: tab === 'listings' ? 'Property' : tab === 'posts' ? 'Flatmate post' : tab === 'society' ? 'Society post' : 'User / Owner',
       render: (r) => {
         const repeatCount = (targetCounts[r.targetId] || 1);
         return (
@@ -471,7 +493,7 @@ export default function AdminReports() {
 
       {/* Tabs */}
       <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-4" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['listings', 'Reported properties', kpis.listings, 'reports.properties'], ['users', 'Reported users & owners', kpis.users, 'reports.users'], ['posts', 'Reported flatmate posts', kpis.posts, 'reports.posts']].map(([id, label, count, flag]) => (
+            {[['listings', 'Reported properties', kpis.listings, 'reports.properties'], ['users', 'Reported users & owners', kpis.users, 'reports.users'], ['posts', 'Reported flatmate posts', kpis.posts, 'reports.posts'], ['society', 'Reported society posts', kpis.society, 'reports.society']].map(([id, label, count, flag]) => (
           optionEnabled(flag) ? (
             <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
               {label} <span className="opacity-70">({fmtNum(count)})</span>
@@ -513,7 +535,7 @@ export default function AdminReports() {
               <XCircle className="h-3.5 w-3.5" /> Clear all filters
             </button>
           )}
-          <span className="text-xs text-gray-500 ml-auto">{rows.length} of {(all || []).filter((r) => r.kind === TAB_KIND[tab]).length}</span>
+                <span className="text-xs text-gray-500 ml-auto">{rows.length} of {(all || []).filter((r) => inTab(r, tab)).length}</span>
         </div>
       </div>
 

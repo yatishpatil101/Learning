@@ -240,11 +240,15 @@
     "waOnlyGenuine": "Only genuine <1>chat.whatsapp.com</1> invite links are accepted.",
     "reportThis": "Report this {{type}}",
     "reportSub": "Tell us what's wrong — spam, scam, abusive or wrong info. Our team reviews every report.",
-    "reasonPlaceholder": "Reason (optional)",
+    "reasonLabel": "Reason",
+  "detailsPlaceholder": "Anything else the team should know (optional)",
     "submitReport": "Submit report",
     "targetReview": "review",
     "targetQuestion": "question",
     "targetAnswer": "answer",
+    "targetContribution": "contribution",
+    "targetReply": "reply",
+    "targetBoard": "post",
     "filterAll": "All",
     "filterTips": "Tips",
     "filterPicks": "Local picks",
@@ -322,7 +326,9 @@
     "viewHub": "View hub",
     "followToast": "Following — we’ll alert you on new listings",
     "unfollowToast": "Unfollowed",
-    "addedToast": "Added — we’ll alert you the moment a home is listed"
+    "addedToast": "Added — we’ll alert you the moment a home is listed",
+    "alreadyListedToast": "Already on PuneNest — taking you there",
+    "addFailed": "That society could not be added. Please try again."
   },
   "societyLoc": {
     "dialogAria": "Suggest society location",

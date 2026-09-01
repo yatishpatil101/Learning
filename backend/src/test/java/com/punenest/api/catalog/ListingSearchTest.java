@@ -278,8 +278,11 @@ class ListingSearchTest extends AbstractApiTest {
             // nobody could have matched. An empty page is legible; a full one is a lie.
             String owner = "&owner=" + seller.getId();
             assertThat(count("localities=%27%20or%201%3D1--" + owner)).isZero();
-            assertThat(count("amenities=%3Cscript%3E" + owner)).isZero();
-            assertThat(count("tenants=%3Cscript%3E" + owner)).isZero();
+            // `%3Cscript%3E` is normalised away by the web layer before model binding, which turns
+            // this from "invalid token" into "facet absent" and makes the assertion vacuous.
+            // Keep the check on a token shape that reaches ListingFacets and is rejected there.
+            assertThat(count("amenities=%27%20or%201%3D1--" + owner)).isZero();
+            assertThat(count("tenants=%27%20or%201%3D1--" + owner)).isZero();
         }
 
         @Test

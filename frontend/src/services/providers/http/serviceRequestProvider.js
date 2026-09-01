@@ -14,8 +14,9 @@
  *
  *   - **draft / final-document uploads** are `multipart/form-data` to the vault; there is no upload
  *     surface behind the customer tracker, and the vault's signed URLs do not resolve in dev.
- *   - **co-fill invites** (`listPartyServiceRequests`) have no endpoint — the server scopes every
- *     request to its requester, so there is no counterparty view to fetch.
+ *   - **legacy co-fill tracker merge** (`listPartyServiceRequests`) stays mock-only; live co-fill
+ *     moved to account-addressed invites (`GET /me/service-request-invites`,
+ *     `POST /me/service-request-invites/{partyId}`) plus explicit party detail submission.
  *   - **read receipts** (`markServiceRequestRead`) have no endpoint; unread badges are a mock-only
  *     affordance.
  *   - **share draft and upload final** have no surface at all any more. They were the five
@@ -26,7 +27,7 @@
  *     a request, the identity read, and the document checklist — are live here (D173, D120);
  *     everything else about working a matter is not.
  */
-import { get, patch, post, put } from '../../http.js';
+import { del, get, patch, post, postMultipart, put } from '../../http.js';
 import {
   toChecklist, toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
 } from './serviceRequestMapper.js';
@@ -126,6 +127,76 @@ export async function createServiceRequest(data) {
 }
 
 /**
+ * Deferred co-fill create: commit awaiting-payment with no checkout yet, and invite the second
+ * party.
+ */
+export async function createCoFillServiceRequest({ request, role, mobile }) {
+  return toViewModel(await post('/service-requests/co-fill', {
+    request: toCreate(request || {}),
+    role,
+    mobile,
+  }));
+}
+
+/** Outstanding invitations addressed to the signed-in account. */
+export async function listMyServiceRequestInvites() {
+  const rows = await get('/me/service-request-invites');
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** Accept or decline one invitation. */
+export async function decideServiceRequestInvite(partyId, decision) {
+  return post(`/me/service-request-invites/${encodeURIComponent(partyId)}`, { decision });
+}
+
+/** Accepted invitee submits their section of the details payload. */
+export async function submitServiceRequestPartyDetails(id, details) {
+  return toViewModel(await put(`/service-requests/${encodeURIComponent(id)}/party-details`, {
+    details: details || {},
+  }));
+}
+
+/** Requester opens checkout for a deferred co-fill request. */
+export async function openServiceRequestCheckout(id) {
+  return toViewModel(await post(`/service-requests/${encodeURIComponent(id)}/checkout`, {}));
+}
+
+/**
+ * Requester takes an unanswered invitation back (V107).
+ *
+ * <p>Answers 204, so there is nothing to map. The caller re-reads the request rather than patching
+ * a party out of a local copy: withdrawing frees the role, and whether it is re-issuable is the
+ * server's answer to give.
+ */
+export async function withdrawServiceRequestParty(id, partyId) {
+  await del(`/service-requests/${encodeURIComponent(id)}/parties/${encodeURIComponent(partyId)}`);
+  return getServiceRequest(id);
+}
+
+const toUploadFile = (doc = {}) => {
+  const name = doc?.fileName || 'document.bin';
+  const mime = doc?.mime || 'application/octet-stream';
+  const dataUrl = String(doc?.dataUrl || '');
+  const comma = dataUrl.indexOf(',');
+  if (comma <= 0 || !dataUrl.startsWith('data:')) return null;
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], name, { type: mime });
+};
+
+/** Upload one customer document to `POST /service-requests/{id}/docs` and return the fresh request. */
+export async function addServiceRequestDoc(id, doc) {
+  const file = toUploadFile(doc);
+  if (!file) return getServiceRequest(id);
+  const form = new FormData();
+  form.append('category', 'service-request');
+  form.append('file', file);
+  await postMultipart(`/service-requests/${encodeURIComponent(id)}/docs`, form);
+  return getServiceRequest(id);
+}
+
+/**
  * Record the parties' identity numbers against a request (D151).
  *
  * A separate call after the create rather than a field on the create body, deliberately: the create
@@ -177,8 +248,14 @@ export async function decideServiceRequestDraft(id, decision, note) {
 }
 
 /**
- * Co-fill counterparty requests. No endpoint — the server scopes every request to its requester —
- * so there is nothing to merge in http mode. Empty array, never undefined: the tracker spreads it.
+ * The *legacy* co-fill tracker merge. Empty in http mode, and not because co-fill is missing.
+ *
+ * There is a live co-fill flow now — `listMyServiceRequestInvites` reads the invitations addressed
+ * to this account, and once one is accepted the request is visible through `listServiceRequests`
+ * like any other. What has no endpoint is this function's *shape*: the mock keeps a second bucket of
+ * "requests I am a party to but did not raise" and the tracker concatenates it onto its own list.
+ * Live, an accepted party is already in the main list, so returning anything here would double every
+ * row. Empty array, never undefined: the tracker spreads it.
  */
 export async function listPartyServiceRequests() {
   return [];

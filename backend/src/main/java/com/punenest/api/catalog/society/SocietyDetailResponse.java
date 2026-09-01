@@ -27,6 +27,11 @@ import java.util.UUID;
  *
  * @param avgRating   average published rating, null when the society has no reviews
  * @param reviewCount published review count
+ * @param placeId     Google Place id, when an approved resident location fix supplied one
+ * @param locSource   {@code community} once a resident's corrected pin was approved; else null
+ * @param verifiedAt  when ops confirmed a community-minted society is real; null while it is still
+ *                    a candidate, and null for curated and RERA rows, which are verified by
+ *                    construction
  * @param homes       live listings in this society
  * @param reviews     always empty; reviews are a separate, paged resource
  */
@@ -38,6 +43,8 @@ public record SocietyDetailResponse(
         String localitySlug,
         Double lat,
         Double lng,
+        String placeId,
+        String locSource,
         Integer year,
         Integer towers,
         Integer units,
@@ -55,6 +62,7 @@ public record SocietyDetailResponse(
         boolean conveyance,
         List<String> amenities,
         String source,
+        java.time.Instant verifiedAt,
         String claimStatus,
         long listingCount,
         long followerCount,

@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signedInAs } from '../../helpers/liveAuth.js';
-import { ACTORS } from '../../fixtures/live.js';
+import { signedInAsNew } from '../../helpers/liveAuth.js';
 
 /* Phase 2 of the mobile-only design work: overlays become bottom sheets, the
    listing wizard's step actions dock to the thumb arc, filters get a thumb-arc
@@ -148,8 +147,13 @@ test.describe('Mobile wizard', () => {
        `.lp-step-actions` was missing -- and it was always missing, because `/list-property` is a
        ProtectedRoute (App.jsx) and the test never signed in. The skip was not describing an
        environment; it was describing the test's own omission, and it meant this assertion had
-       never run. Signing in is the fix, and the step actions are then unconditional. */
-    await signedInAs(page, ACTORS.owner);
+       never run. Signing in is the fix, and the step actions are then unconditional.
+
+       A *new* owner, not `ACTORS.owner`: she holds four listings against a free-tier allowance of
+       one, on purpose, so `/list-property` answers her with the upgrade prompt and this file's one
+       wizard assertion would be waiting for a bar the paywall never renders. The skip that used to
+       hide the missing sign-in would have hidden this too. */
+    await signedInAsNew(page);
     await page.goto('/list-property');
 
     const actions = page.locator('.lp-step-actions').first();

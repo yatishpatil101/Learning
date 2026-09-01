@@ -240,8 +240,156 @@ public final class Routes {
         /** Public — one society with its homes and community aggregates. */
         public static final String BY_SLUG = BASE + "/{slug}";
 
+        /**
+         * Public — where the caller stands in this society: their residency, whether they are the
+         * committee, the society's live claim, and how many residents are verified.
+         *
+         * <p>Public and caller-aware for the same reason {@link #BY_SLUG} is: a logged-out visitor
+         * gets the society's public facts and empty personal ones, and the hub renders in one pass
+         * instead of flickering controls in as three separate reads land.
+         */
+        public static final String MEMBERSHIP = BY_SLUG + "/membership";
+
+        /**
+         * Authenticated — {@code POST} asks to be recognised as a resident of one flat.
+         *
+         * <p>Under the society rather than under {@code /me} because the resource being created
+         * belongs to the society's register, not to the caller's account: the committee reads it,
+         * the committee decides it, and its uniqueness rule is scoped to the building.
+         */
+        public static final String RESIDENTS = BY_SLUG + "/residents";
+
+        /** Committee or staff — {@code GET} the residency queue for this society. */
+        public static final String RESIDENTS_QUEUE = RESIDENTS;
+
+        /** Committee or staff — {@code PATCH} verifies or rejects one residency request. */
+        public static final String RESIDENT_BY_ID = RESIDENTS + "/{residentId}";
+
+        /** Authenticated — {@code POST} claims this society on behalf of its committee. */
+        public static final String CLAIM = BY_SLUG + "/claim";
+
+        /**
+         * Public {@code GET}, authenticated {@code POST} — questions asked about this society.
+         *
+         * <p>Deliberately not gated on residency: the person with the most to ask has not moved in
+         * yet. The reader is protected by the {@code authorIsResident} badge instead.
+         */
+        public static final String QUESTIONS = BY_SLUG + "/questions";
+
+        /** Authenticated — {@code POST} answers one question. */
+        public static final String ANSWERS = QUESTIONS + "/{questionId}/answers";
+
+        /**
+         * Public {@code GET}, resident/committee {@code POST} — the society noticeboard.
+         *
+         * <p>Reading is open because an active noticeboard is the most honest signal a society hub
+         * can give a prospective buyer; posting is not, because a notice asserts something about
+         * the building.
+         */
+        public static final String BOARD = BY_SLUG + "/board";
+
+        /** Author, committee or staff — {@code DELETE} takes one item down. */
+        public static final String BOARD_ITEM = BOARD + "/{itemId}";
+
+        /**
+         * Public {@code GET}, authenticated {@code POST} — the community tab's tips, trusted picks
+         * and photos.
+         *
+         * <p>Unfiltered: the tab's chips carry a count for every bucket including the ones you are
+         * not looking at, so the page is drawn from one read and filtered in the browser. The
+         * public read withholds a recommended person's phone number — they never agreed to be on
+         * the open web.
+         */
+        public static final String CONTRIBUTIONS = BY_SLUG + "/contributions";
+
+        /** Author, committee or staff — {@code DELETE} removes one contribution. */
+        public static final String CONTRIBUTION = CONTRIBUTIONS + "/{contributionId}";
+
+        /**
+         * Authenticated — {@code PUT} marks a contribution helpful, {@code DELETE} unmarks it.
+         *
+         * <p>Two verbs rather than one toggle, so a request retried after a timeout cannot silently
+         * undo the vote it just cast.
+         */
+        public static final String CONTRIBUTION_HELPFUL = CONTRIBUTION + "/helpful";
+
+        /** Authenticated — {@code POST} replies in the thread under a contribution. */
+        public static final String CONTRIBUTION_REPLIES = CONTRIBUTION + "/replies";
+
+        /** Reply author, committee or staff — {@code DELETE} removes one reply. */
+        public static final String CONTRIBUTION_REPLY = CONTRIBUTION_REPLIES + "/{replyId}";
+
+        /**
+         * Public {@code GET}, authenticated {@code POST} — what the community says this society is.
+         *
+         * <p>One resource for three proposals that share one lifecycle: missing details, the
+         * resident WhatsApp invite, and a corrected map pin. The read publishes every pending
+         * proposal plus whether a resident group exists at all; the invite URL itself reaches only
+         * a verified resident, approved or not.
+         */
+        public static final String PROPOSALS = BY_SLUG + "/proposals";
+
         /** Security-chain matcher; single-segment for the same reason as {@link Localities#ANY_SINGLE}. */
         public static final String ANY_SINGLE = BASE + "/*";
+    }
+
+    /**
+     * Staff — the society claim queue.
+     *
+     * <p>Not inside {@link Societies}: every route there is addressed by a society slug and all but
+     * two are public, whereas this is a cross-society work queue that starts from no society at all.
+     * Same reasoning that keeps {@code /admin/locality-queue} out of {@link Localities}.
+     */
+    public static final class SocietyClaims {
+
+        private SocietyClaims() {
+        }
+
+        /** Staff — the pipeline of committees asking to run their own page, oldest first. */
+        public static final String BASE = "/admin/society-claims";
+
+        /** Staff — {@code PATCH} approves or rejects one claim. */
+        public static final String BY_ID = BASE + "/{id}";
+    }
+
+    /**
+     * Staff — the community-proposal queue: society details, WhatsApp invites, corrected pins.
+     *
+     * <p>Beside {@link SocietyClaims} rather than inside {@link Societies}, for the same reason: it
+     * is a cross-society work queue that starts from no society at all. It is also the queue whose
+     * absence made all three features theatre — it used to read the operator's own browser, so it
+     * was permanently empty however many residents filled the form in on theirs.
+     */
+    public static final class SocietyProposals {
+
+        private SocietyProposals() {
+        }
+
+        /** Staff — everything the community has proposed, oldest first, filterable by kind. */
+        public static final String BASE = "/admin/society-proposals";
+
+        /** Staff — {@code PATCH} approves or rejects one, applying it to the society on approval. */
+        public static final String BY_ID = BASE + "/{id}";
+    }
+
+    /**
+     * Staff — the queue of societies members added because the catalogue did not have them.
+     *
+     * <p>Beside {@link SocietyClaims} and {@link SocietyProposals} for the same reason all three sit
+     * here: a cross-society work queue starts from no society at all. This is the third queue that
+     * was permanently empty because it read the operator's own browser — and the one whose emptiness
+     * meant no member-added society has ever been confirmed.
+     */
+    public static final class SocietyCandidates {
+
+        private SocietyCandidates() {
+        }
+
+        /** Staff — member-added societies nobody has checked yet, oldest first. */
+        public static final String BASE = "/admin/society-candidates";
+
+        /** Staff — {@code POST} confirms one is real. */
+        public static final String VERIFY = BASE + "/{slug}/verify";
     }
 
     /** Public — the short-video discovery feed. */
@@ -1205,6 +1353,9 @@ public final class Routes {
         /** Customer or staff — one request with its timeline, documents and messages. */
         public static final String BY_ID = BASE + "/{id}";
 
+        /** The requester only — create a co-fill rent agreement and invite the second party. */
+        public static final String CO_FILL_CREATE = BASE + "/co-fill";
+
         /** Staff/admin — drive the workflow. */
         public static final String STATUS = BY_ID + "/status";
 
@@ -1257,6 +1408,21 @@ public final class Routes {
          * {@link #MY_INVITES}.
          */
         public static final String PARTIES = BY_ID + "/parties";
+
+        /**
+         * The requester only — take back an unanswered invitation (V107).
+         *
+         * <p>Nested under the request rather than hung off a top-level {@code /parties} collection,
+         * because a party has no meaning apart from the matter it is on and the authorisation rule
+         * is a fact about that matter.
+         */
+        public static final String PARTY_BY_ID = PARTIES + "/{partyId}";
+
+        /** An accepted co-fill party — submit their section of the agreement details. */
+        public static final String PARTY_DETAILS = BY_ID + "/party-details";
+
+        /** The requester only — open checkout for a deferred co-fill request. */
+        public static final String CHECKOUT = BY_ID + "/checkout";
 
         /**
          * Anyone on the request — mark the other side's messages seen (D121).
@@ -1614,6 +1780,28 @@ public final class Routes {
          * cupboard would be no lock.
          */
         public static final String ADMIN_PROPERTIES_SUMMARY = ADMIN_PROPERTIES + "/summary";
+
+        /**
+         * Staff/admin — how much of their listing ceiling one owner is using.
+         *
+         * <p>Exists because the concierge desk stopped being refused by that ceiling. Posting on an
+         * owner's behalf inherited the owner's freemium cap, which meant an operator on a call with
+         * somebody who has three flats could record one of them; the exemption fixed that, and this
+         * is the other half of it. The desk may now post past the plan, so the desk is told when it
+         * is about to — the operator is the only person on the call in a position to raise an
+         * upgrade, and a rule that is silently not enforced is worse than one that is enforced.
+         *
+         * <p>Under {@link #ADMIN_PROPERTIES} rather than beside the billing routes because the
+         * question is "may this desk add another listing here", not "what is this person paying".
+         * It answers with counts, never with a plan name or a price — the operator needs to know
+         * there is a conversation, not what the account is worth.
+         *
+         * <p>Takes a {@code mobile} query parameter, like {@code POST} on the collection takes a
+         * mobile in its body, and for the same reason: on a first call the owner has no account and
+         * therefore no id.
+         */
+        public static final String ADMIN_PROPERTIES_OWNER_STANDING =
+                ADMIN_PROPERTIES + "/owner-standing";
 
         /**
          * Staff/admin — move a staff-created listing along the owner hand-back funnel.

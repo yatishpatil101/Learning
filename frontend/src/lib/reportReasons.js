@@ -1,5 +1,5 @@
 /**
- * The three report reason vocabularies, and nothing else.
+ * The report reason vocabularies, and nothing else.
  *
  * **Why these are not in `ReportModal.jsx` any more.** They were, and four consumer pages imported
  * them from there, which made a component file the de facto home of a piece of domain data. That
@@ -20,6 +20,9 @@
  * type and rejects a mismatch with a 400. `pricing` is a real complaint about a listing and a
  * meaningless one about a person; `impersonation` the reverse. A single flattened list would offer,
  * as a filter and as a form option, pairings the API refuses to store.
+ *
+ * (Four lists now — society-hub content added a fourth, shared across its five target types. See
+ * `SOCIETY_REPORT_REASONS` for why that one is deliberately *not* split per kind.)
  *
  * **The codes deliberately collide, and the labels deliberately do not.** `spam`, `fake`, `broker`
  * and `unavailable` appear in more than one list under *different wording*, because they describe
@@ -62,5 +65,34 @@ export const OWNER_REPORT_REASONS = [
   ['abuse', 'Abusive or harassing behaviour'],
   ['spam', 'Spam or irrelevant messages'],
   ['fakelistings', 'Listings are fake or unavailable'],
+  ['other', 'Something else'],
+];
+
+/**
+ * Reporting anything a neighbour posted on a society hub — a recommendation, a reply to one, a
+ * question, an answer, or a noticeboard item. Wire `targetType` is one of the five `society_*`
+ * kinds; client `kind` is the bare word (`contribution`, `reply`, `question`, `answer`, `board`).
+ *
+ * **Why one list for five kinds, when the other three vocabularies are per-target.** The other
+ * three describe different *objects* — a price complaint is about a listing and means nothing
+ * about a person. These five are the same object seen through five widgets: abuse in an answer and
+ * abuse on the noticeboard are the same abuse. The kinds stay separate on the wire only so a
+ * moderator upholding a complaint knows which table the id indexes, which is a routing concern, not
+ * a vocabulary one. `ReportReasons.FOR_SOCIETY_CONTENT` is the single mirrored set.
+ *
+ * **`personal` exists nowhere else on the platform.** It names what this surface actually attracts:
+ * a recommendation publishing a real tradesman's real mobile number, posted by somebody who is not
+ * him and has no standing to publish it. None of the other three vocabularies had a word for it, so
+ * the nearest available complaint was `other` — which is the code a queue learns to skim past.
+ *
+ * A society **review** is deliberately not here: it is reported as `review`, through
+ * `LABELS_BY_TARGET.review`, and taken down by `PATCH /reviews/{id}/status`. One complaint, one
+ * queue.
+ */
+export const SOCIETY_REPORT_REASONS = [
+  ['abuse', 'Abusive, offensive or harassing'],
+  ['spam', 'Spam, advertising or a duplicate post'],
+  ['fake', 'False or misleading information'],
+  ['personal', "Publishes someone's personal details"],
   ['other', 'Something else'],
 ];

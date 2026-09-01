@@ -240,11 +240,15 @@
     "waOnlyGenuine": "केवल असली <1>chat.whatsapp.com</1> इनवाइट लिंक स्वीकार किए जाते हैं।",
     "reportThis": "इस {{type}} की रिपोर्ट करें",
     "reportSub": "बताएँ क्या ग़लत है — स्पैम, धोखाधड़ी, अपमानजनक या ग़लत जानकारी। हमारी टीम हर रिपोर्ट देखती है।",
-    "reasonPlaceholder": "कारण (वैकल्पिक)",
+    "reasonLabel": "कारण",
+  "detailsPlaceholder": "टीम को और कुछ बताना चाहें तो लिखें (वैकल्पिक)",
     "submitReport": "रिपोर्ट भेजें",
     "targetReview": "समीक्षा",
     "targetQuestion": "सवाल",
     "targetAnswer": "जवाब",
+    "targetContribution": "योगदान",
+    "targetReply": "जवाब",
+    "targetBoard": "पोस्ट",
     "filterAll": "सभी",
     "filterTips": "टिप्स",
     "filterPicks": "स्थानीय सुझाव",
@@ -322,7 +326,9 @@
     "viewHub": "हब देखें",
     "followToast": "फ़ॉलो किया — नई लिस्टिंग पर हम बताएँगे",
     "unfollowToast": "अनफ़ॉलो किया",
-    "addedToast": "जोड़ा गया — घर लिस्ट होते ही हम बताएँगे"
+    "addedToast": "जोड़ा गया — घर लिस्ट होते ही हम बताएँगे",
+    "alreadyListedToast": "यह सोसायटी पहले से PuneNest पर है — ले चलते हैं",
+    "addFailed": "सोसायटी जोड़ी नहीं जा सकी। कृपया फिर कोशिश करें।"
   },
   "societyLoc": {
     "dialogAria": "सोसायटी का स्थान सुझाएँ",

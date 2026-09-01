@@ -40,13 +40,17 @@ const LIVE_LISTING = {
 const formLocator = (page) => page.locator('[data-err="propertyType"]');
 
 /**
- * Put the seeded listing where the *quota* looks, which is not where the *editor* looks.
+ * Put the seeded listing in the catalogue, which is where both the quota and the editor look.
  *
- * `seedOwner` writes `puneNestListings:<mobile>`, and that is still right for the edit tests —
- * `?edit=L1` resolves the draft straight out of that key. The paywall no longer reads it: the
- * wizard asks the property service how many listings the owner has, and on this build that is the
- * mock marketplace DB. So an owner can be simultaneously "editing L1" and "has posted nothing",
- * which is exactly the split this helper closes for the one test that measures the ceiling.
+ * `seedOwner` writes `puneNestListings:<mobile>`, and nothing in this file reads that key any more:
+ * the paywall asks the property service how many listings the owner has, and since D237 `?edit=L1`
+ * resolves the same way, through `propertyService.myListing`. The mirror is kept in `seedOwner`
+ * only because it is still the store the wizard's own local write goes to.
+ *
+ * That change is the whole point of D237 rather than an inconvenience to work around: the editor
+ * used to prefill from `puneNestListings:`, so an owner opening it on a second device — or from the
+ * "Add photos" link on an enquiry, which is built from a server id this browser never held — got a
+ * blank form for a listing that was not blank, and saving it would have written those blanks back.
  *
  * It has to run after boot. The DB seeds itself from db.json on first load, so writing the key
  * beforehand would leave a partial catalogue behind and white-screen the wizard.
@@ -84,6 +88,7 @@ test('P2 — a second new listing is paywalled on the free plan', async ({ page 
 
 test('P1 — editing a live listing shows the tiered edit banner (and no paywall)', async ({ page }) => {
   await seedOwner(page, { listings: [LIVE_LISTING] });
+  await publishToCatalogue(page, LIVE_LISTING);
   await page.goto(`${BASE}/list-property?edit=L1`);
 
   // The edit-policy banner explains the two tiers …
@@ -98,6 +103,7 @@ test('P1 — editing a live listing shows the tiered edit banner (and no paywall
 
 test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', async ({ page }) => {
   await seedOwner(page, { listings: [LIVE_LISTING] });
+  await publishToCatalogue(page, LIVE_LISTING);
   await page.goto(`${BASE}/list-property?edit=L1`);
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
 
@@ -119,6 +125,7 @@ test('P1 — a Tier-A edit surfaces the re-check summary + status timeline', asy
 
 test('P1 — a price edit is re-checked but the banner promises the listing stays live', async ({ page }) => {
   await seedOwner(page, { listings: [LIVE_LISTING] });
+  await publishToCatalogue(page, LIVE_LISTING);
   await page.goto(`${BASE}/list-property?edit=L1`);
   await expect(page.getByRole('heading', { name: /editing a live listing/i })).toBeVisible({ timeout: 10000 });
 

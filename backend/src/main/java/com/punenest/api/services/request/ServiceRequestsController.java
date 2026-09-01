@@ -12,13 +12,16 @@ import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.Map;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -74,6 +77,13 @@ public class ServiceRequestsController {
      */
     private final CoFillParties parties;
 
+    /**
+     * The three routes that arrange a two-sided agreement: file unpaid, collect the other side, open
+     * checkout. A separate service from {@link #service} because the reordering is the use case —
+     * see {@link CoFillServiceRequests}.
+     */
+    private final CoFillServiceRequests coFill;
+
     /** Read receipts on the conversation (D121). */
     private final ServiceRequestReadReceipts receipts;
 
@@ -125,11 +135,13 @@ public class ServiceRequestsController {
             ServiceRequestIdentityService identities,
             ServiceRequestQueryService queries,
             CoFillParties parties,
+            CoFillServiceRequests coFill,
             ServiceRequestReadReceipts receipts) {
         this.service = service;
         this.identities = identities;
         this.queries = queries;
         this.parties = parties;
+        this.coFill = coFill;
         this.receipts = receipts;
     }
 
@@ -156,6 +168,7 @@ public class ServiceRequestsController {
             @RequestParam(required = false) String team,
             @RequestParam(required = false) String ticketId,
             @PageableDefault(size = 20) Pageable pageable) {
+        parties.claimPendingFor(principal);
         return PageResponse.of(
                 queries.list(principal, type, status, team, ticketId, Pageables.unsorted(pageable)),
                 dto -> dto);
@@ -169,10 +182,57 @@ public class ServiceRequestsController {
         return service.create(principal, body);
     }
 
-    /** {@code GET /service-requests/{id}} (contract {@code getServiceRequest}). */
+    /**
+     * {@code POST /service-requests/co-fill} (contract {@code createCoFillServiceRequest}) — 201.
+     *
+     * <p>Creates the priced request in {@code awaiting-payment} without opening checkout, then
+     * records the invitation to the named counterparty. Checkout is opened later through
+     * {@link Routes.ServiceRequests#CHECKOUT} after the invitee has accepted and submitted details.
+     */
+    @PostMapping(Routes.ServiceRequests.CO_FILL_CREATE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ServiceRequestDto createCoFill(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody CoFillCreateRequest body) {
+        return coFill.createCoFill(principal, body.request(), body.role(), body.mobile());
+    }
+
+    /** {@code GET /service-requests/{id}} (contract {@code getServiceRequest}).
+     *
+     * <p>Claims first (V107). Somebody invited before they had an account arrives here from the
+     * link in their invitation, freshly registered; until the pending row is bound to their user id
+     * they are not a participant and {@code visible} would answer 404 — the one 404 in this file
+     * that would be wrong. Deliberately called from the controller rather than from inside
+     * {@link ServiceRequestService#get}, whose transaction is {@code readOnly}: a write joining it
+     * would fail on flush, and widening that transaction to permit writes for the sake of one
+     * bookkeeping update would be the wrong trade on the most-read route on the resource.
+     */
     @GetMapping(Routes.ServiceRequests.BY_ID)
     public ServiceRequestDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        parties.claimPendingFor(principal);
         return service.get(principal, id);
+    }
+
+    /**
+     * {@code PUT /service-requests/{id}/party-details} (contract
+     * {@code submitServiceRequestPartyDetails}) — 200.
+     *
+     * <p>The accepted invitee's write path for pre-payment co-fill: updates the request's
+     * structured details before checkout is opened.
+     */
+    @PutMapping(Routes.ServiceRequests.PARTY_DETAILS)
+    public ServiceRequestDto submitPartyDetails(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody PartyDetailsRequest body) {
+        return coFill.submitPartyDetails(principal, id, body.details());
+    }
+
+    /**
+     * {@code POST /service-requests/{id}/checkout} (contract {@code openServiceRequestCheckout}) —
+     * requester only.
+     */
+    @PostMapping(Routes.ServiceRequests.CHECKOUT)
+    public ServiceRequestDto openCheckout(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id) {
+        return coFill.openDeferredCheckout(principal, id);
     }
 
     /**
@@ -353,6 +413,21 @@ public class ServiceRequestsController {
     }
 
     /**
+     * {@code DELETE /service-requests/{id}/parties/{partyId}} (contract
+     * {@code withdrawServiceRequestParty}) — 204. The requester only.
+     *
+     * <p>Takes back an invitation that has not been answered, releasing the side so a mistyped
+     * number can be corrected. 204 rather than the remaining party list, for the reason
+     * {@code markServiceRequestRead} returns one: the caller is undoing something, not reading.
+     */
+    @DeleteMapping(Routes.ServiceRequests.PARTY_BY_ID)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void withdrawParty(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @PathVariable String partyId) {
+        parties.withdraw(principal, id, partyId);
+    }
+
+    /**
      * {@code POST /service-requests/{id}/read} (contract {@code markServiceRequestRead}) — 204.
      * Anyone who can read the request.
      *
@@ -385,5 +460,15 @@ public class ServiceRequestsController {
      * of them.
      */
     public record PartyInvite(@NotBlank String role, @NotBlank @IndianMobile String mobile) {
+    }
+
+    /** Body of {@code createCoFillServiceRequest} (schema {@code CoFillServiceRequestCreate}). */
+    public record CoFillCreateRequest(@NotNull @Valid ServiceRequestCreate request,
+            @NotBlank String role,
+            @NotBlank @IndianMobile String mobile) {
+    }
+
+    /** Body of {@code submitServiceRequestPartyDetails} (schema {@code PartyDetailsUpdate}). */
+    public record PartyDetailsRequest(@NotNull Map<String, Object> details) {
     }
 }

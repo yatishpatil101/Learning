@@ -58,6 +58,26 @@ public class Society extends AuditedEntity {
     @Column(name = "lng")
     private Double lng;
 
+    /**
+     * Google Place id, when an approved resident location fix supplied one.
+     *
+     * <p>The only Place field persisted besides the coordinates. Ratings, photos, reviews and
+     * opening hours are deliberately not stored, per the Places terms — and because every one of
+     * them is a fact this product already holds a better version of.
+     */
+    @Column(name = "place_id")
+    private String placeId;
+
+    /**
+     * Where {@link #lat}/{@link #lng} came from; {@code community} once a resident's correction was
+     * approved, null for a bulk import.
+     *
+     * <p>The hub renders this beside the map. A coordinate lifted from a RERA filing and one a
+     * neighbour walked to are both coordinates, and only one of them has been to the building.
+     */
+    @Column(name = "loc_source")
+    private String locSource;
+
     /** Year built or possession year. */
     @Column(name = "year")
     private Integer year;
@@ -122,6 +142,30 @@ public class Society extends AuditedEntity {
     /** {@code curated} / {@code rera} / {@code community}; the column's CHECK is the authority. */
     @Column(name = "source")
     private String source;
+
+    /**
+     * The member who minted this society, for community-sourced rows; null for curated and RERA
+     * imports, which nobody in particular typed in.
+     *
+     * <p>Kept so an operator reviewing a candidate can ask the person who added it, and so one
+     * account minting fifty societies is visible rather than merely suspected.
+     */
+    @Column(name = "created_by")
+    private java.util.UUID createdBy;
+
+    /**
+     * When ops confirmed this society is real; null means it is still a candidate.
+     *
+     * <p>A timestamp and a verifier rather than a boolean. A flag answers "has anybody checked
+     * this" and nothing else, and the day two operators disagree about a society it cannot say
+     * which of them set it.
+     */
+    @Column(name = "verified_at")
+    private java.time.Instant verifiedAt;
+
+    /** The operator who confirmed it. Moves with {@link #verifiedAt} — see V105. */
+    @Column(name = "verified_by")
+    private java.util.UUID verifiedBy;
 
     /** {@code unclaimed} / {@code pending} / {@code claimed}. */
     @Column(name = "claim_status", nullable = false)

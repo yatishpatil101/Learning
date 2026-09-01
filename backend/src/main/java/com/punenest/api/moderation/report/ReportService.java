@@ -36,14 +36,17 @@ public class ReportService {
     private final AuditService audit;
     private final PropertyModerationService propertyModeration;
     private final UserAdminService userAdmin;
+    private final com.punenest.api.moderation.society.SocietyContentModerationService societyContent;
 
     public ReportService(ReportRepository reports, ReportMapper mapper, AuditService audit,
-            PropertyModerationService propertyModeration, UserAdminService userAdmin) {
+            PropertyModerationService propertyModeration, UserAdminService userAdmin,
+            com.punenest.api.moderation.society.SocietyContentModerationService societyContent) {
         this.reports = reports;
         this.mapper = mapper;
         this.audit = audit;
         this.propertyModeration = propertyModeration;
         this.userAdmin = userAdmin;
+        this.societyContent = societyContent;
     }
 
     /**
@@ -223,8 +226,14 @@ public class ReportService {
         String because = "Reported: " + report.getReason()
                 + (note == null || note.isBlank() ? "" : " — " + note.trim());
         switch (enforcement) {
-            case ReportEnforcement.HIDE_CONTENT ->
+            case ReportEnforcement.HIDE_CONTENT -> {
+                if (ReportTargetTypes.isSocietyContent(report.getTargetType())) {
+                    societyContent.remove(actor, report.getTargetType(), report.getTargetId(),
+                            because);
+                } else {
                     propertyModeration.flag(actor, report.getTargetId(), because);
+                }
+            }
             case ReportEnforcement.SUSPEND_ACCOUNT ->
                     userAdmin.archive(actor, report.getTargetId(), because);
             default -> {

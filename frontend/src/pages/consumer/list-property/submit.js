@@ -1,6 +1,5 @@
 import {
   addListing, updateListing, addRoom, parseAmount,
-  getListing, isListingApproved,
 } from '../../../lib/store';
 import {
   addListing as saveListing,
@@ -33,16 +32,25 @@ const STAYS_LIVE_FORM_TO_WIRE = Object.fromEntries(
    `toListingCreate` picks out the keys it knows and ignores the rest, so this only has to close the
    gaps where the wizard's name and the contract's name diverge — plus one field the record
    deliberately does not carry at all. */
-const forTheWire = (record, form, isRent) => ({
+const forTheWire = (record, form, isRent, storedAddress = '') => ({
   ...record,
   /* AddressKey derives the duplicate signal from this one line, so it has to carry the unit token:
      "Rohan Nilay, Kharadi" names a building, and every flat in it would look like one property.
      `street` is included because D219 made `address` a re-checked foundation field and the only
      part of the address line the wizard lets an owner edit afterwards is `street` — leave it out
      and they could move the listing without the server ever seeing the change it re-checks for.
-     The landmark is not: "opposite the temple" is wayfinding, not identity. */
+     The landmark is not: "opposite the temple" is wayfinding, not identity.
+
+     `storedAddress` is the line the server already holds, and it wins whenever the form has no unit
+     token to offer (D237). The wire carries the address as one composed string while the wizard
+     carries it as four fields, and splitting one back into four is guesswork — so on an edit opened
+     from the server those boxes start empty, and recomposing from them would replace a full
+     "B-1204, Tower 2, Green Acres, Baner Road" with whatever fragment the owner happened to retype.
+     Losing the flat number there is not a cosmetic downgrade: it is the token that tells one flat
+     from its neighbour, so the listing would stop colliding with its own duplicate. */
   address: [form.flatNumber, form.tower, form.society, form.street]
-    .map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
+    .map((part) => String(part ?? '').trim()).filter(Boolean).join(', ')
+    || storedAddress,
   /* `record.floor` is `parseInt(form.floor) || 0`, which collapses two very different blanks onto
      the same number: "ground floor" and "we never asked". The second is the dangerous one — villas,
      plots and PGs never render the field, so forwarding 0 for them would hand every such listing in
@@ -87,10 +95,22 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
    `propertyService.addListing`, and on the http provider that is `POST /me/listings`, which is the
    only place the server can run the duplicate probe. Until this slice the probe was reachable from
    exactly one screen (admin post-on-behalf), so the detector was blind to the people it was
-   written for: owners. The local writes that follow are a mirror, not the system of record — they
-   stay only because `getListing`, `isListingApproved`, `evaluateListingDedup` and `documents.js`
-   still read that key, and pulling them out with the writes would break edit prefill. */
-export const persistListing = async ({ form, user, editId, documents, photos, photoHashes }) => {
+   written for: owners.
+
+   The local writes that follow are a mirror, not the system of record. **Edit prefill no longer
+   depends on them** (D237) — it reads `propertyService.myListing(id)`, because a form that
+   prefills from this browser and then PATCHes the server is a form that silently blanks a listing
+   the moment the owner opens it on a second device. What still reads the mirror is
+   `evaluateListingDedup`'s cross-owner scan and `lib/data/documents.js`.
+
+   Removing the mirror is deliberately *not* part of that change, and the reason is a trap rather
+   than a preference: `saveListing` is handed `forTheWire(record, …)`, which carries
+   `electricityConsumerNo` — kept out of `record` on purpose, because the record is buyer-readable.
+   In mock mode the seam write and this mirror are the same store function, so deleting the mirror
+   would leave the wire record as the stored one and put a meter number where the detail page can
+   read it. The mirror goes when those two readers do, and the wire/record split is resolved with
+   them. */
+export const persistListing = async ({ form, user, editId, editListing, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
     // Duplicate prevention, in two halves that go to two different places.
@@ -358,12 +378,18 @@ export const persistListing = async ({ form, user, editId, documents, photos, ph
       // change into material (Tier A → schedule a re-check, stays live) vs soft
       // (Tier B → instant), keep an audit log, and raise price/abuse signals.
       if (editId) {
-        const oldListing = getListing(editId) || {};
+        /* The listing as it was when the editor opened, handed in by the hook rather than read back
+           out of `lib/store`. A local read answered about whatever this browser had written, which
+           on a live build is usually nothing — so every edit classified as a change from an empty
+           record, and every field looked material. */
+        const oldListing = editListing || {};
         const oldForm = oldListing.form || oldListing;
-        /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. `isListingApproved`
-           only matches the status half, and an archived listing is not in search — raising a
-           re-check on one would queue a moderator to look at a listing nobody can see. */
-        const wasApproved = isListingApproved(editId) && !oldListing.archived;
+        /* `isPubliclyVisible()` server-side is `status == APPROVED && !archived`. Read off the
+           record the editor opened rather than from `isListingApproved(editId)`, which asked the
+           local store the same question and got the same wrong answer for the same reason. An
+           archived listing is not in search, so raising a re-check on one would queue a moderator
+           to look at a listing nobody can see. */
+        const wasApproved = /approved|verified|live/i.test(String(oldListing.status || '')) && !oldListing.archived;
         const oldPhotoUrls = (oldListing.images || oldListing.gallery || []).filter(Boolean);
         const newPhotoUrls = photos.map((p) => p.url).filter(Boolean);
         const cls = classifyChanges(oldForm, form, oldPhotoUrls, newPhotoUrls);

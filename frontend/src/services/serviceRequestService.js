@@ -16,7 +16,14 @@
  * | Operation | Endpoint |
  * |---|---|
  * | list own requests | `GET /service-requests` |
+ * | create a deferred co-fill request | `POST /service-requests/co-fill` |
  * | read one | `GET /service-requests/{id}` |
+ * | list my co-fill invites | `GET /me/service-request-invites` |
+ * | accept / decline a co-fill invite | `POST /me/service-request-invites/{partyId}` |
+ * | submit invited-party details | `PUT /service-requests/{id}/party-details` |
+ * | open deferred checkout | `POST /service-requests/{id}/checkout` |
+ * | withdraw an unanswered invite | `DELETE /service-requests/{id}/parties/{partyId}` |
+ * | upload a request document | `POST /service-requests/{id}/docs` |
  * | create | `POST /service-requests` |
  * | record the parties' identity numbers | `PUT /service-requests/{id}/identities` |
  * | post a message | `POST /service-requests/{id}/messages` |
@@ -43,8 +50,9 @@
  * |---|---|
  * | draft / final document *rendering* | vault `multipart` uploads behind signed URLs that do not resolve in dev |
  * | per-request document checklist | no read representation on `ServiceRequestDto` |
- * | co-fill party requests | no endpoint — the server scopes every request to its requester |
+ * | legacy co-fill tracker merge (`listPartyServiceRequests`) | mock-only compatibility path; live flow uses `GET /me/service-request-invites` + `POST /me/service-request-invites/{partyId}` |
  * | unread badges / read receipts | no read-receipt endpoint |
+ * | withdrawing an unanswered invite (`withdrawServiceRequestParty`) | the mock's invite row lives in the *invitee's* `localStorage`, which the requester's browser cannot reach — so the mock reports the request unchanged rather than pretending to have withdrawn it |
  * | the customer's rejection *note* | the note goes into the message thread, not onto the request, so `draftDecision.note` is empty on a live read. The rejection itself survives: the server's `changes-requested` maps to the tracker's `changes_requested` step |
  * | staff transitions (share draft, upload final) | no desk surface for them yet — the drafting desk covers the queue read, taking a matter, and the identity read, and stops there |
  * | identity numbers (`recordServiceRequestIdentities`) | mock storage is `localStorage`; writing a PAN and an Aadhaar there is the threat the wizard's redaction closed, so the mock provider drops them on purpose. There is no mock *read* any more — that was the desk's, and the desk is live-only |
@@ -155,6 +163,34 @@ export const readServiceRequestChecklist = async (id) => (await provider()).read
 
 /** Create a request from a service form. Structured `details` round-trip to the server (D119). */
 export const createServiceRequest = async (data) => (await provider()).createServiceRequest(data);
+
+/** Create a deferred co-fill request and invite the counterparty (rent-agreement only). */
+export const createCoFillServiceRequest = async ({ request, role, mobile }) =>
+  (await provider()).createCoFillServiceRequest({ request, role, mobile });
+
+/** Outstanding co-fill invites addressed to the signed-in account. */
+export const listMyServiceRequestInvites = async () =>
+  (await provider()).listMyServiceRequestInvites();
+
+/** Accept or decline one co-fill invite (`decision`: `accept|decline`). */
+export const decideServiceRequestInvite = async (partyId, decision) =>
+  (await provider()).decideServiceRequestInvite(partyId, decision);
+
+/** Accepted invitee submits their half of the request details. */
+export const submitServiceRequestPartyDetails = async (id, details) =>
+  (await provider()).submitServiceRequestPartyDetails(id, details);
+
+/** Requester opens checkout for a deferred co-fill request. */
+export const openServiceRequestCheckout = async (id) =>
+  (await provider()).openServiceRequestCheckout(id);
+
+/** Requester takes back an unanswered co-fill invitation, freeing the role (V107). */
+export const withdrawServiceRequestParty = async (id, partyId) =>
+  (await provider()).withdrawServiceRequestParty(id, partyId);
+
+/** Upload one document onto a service request. */
+export const addServiceRequestDoc = async (id, doc) =>
+  (await provider()).addServiceRequestDoc(id, doc);
 
 /**
  * Hand the parties' PAN and Aadhaar to the drafting desk (D151).

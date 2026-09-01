@@ -39,6 +39,12 @@ import java.util.Set;
  *
  * <p>Both are therefore restricted to {@link #NONE} with an error message that names the endpoint to
  * use instead, rather than silently accepting an enforcement and discarding it.
+ *
+ * <p><strong>Society-hub content is the counter-example, added later.</strong> The five society
+ * kinds accept {@link #HIDE_CONTENT} because a verb was <em>built</em> for them —
+ * {@code SocietyContentModerationService.remove}. Filing without it would have been the worse half
+ * of the same defect: a queue that finally receives complaints about a recommendation naming a real
+ * tradesman's mobile number, and still cannot take it down.
  */
 public final class ReportEnforcement {
 
@@ -71,6 +77,7 @@ public final class ReportEnforcement {
     /** What may be done to each reportable kind. See the class Javadoc for the two empty ones. */
     private static final Set<String> FOR_PROPERTY = Set.of(NONE, HIDE_CONTENT);
     private static final Set<String> FOR_USER = Set.of(NONE, SUSPEND_ACCOUNT);
+    private static final Set<String> FOR_SOCIETY_CONTENT = Set.of(NONE, HIDE_CONTENT);
     private static final Set<String> DECIDE_ONLY = Set.of(NONE);
 
     /** True if {@code value} is one of the three enforcements. */
@@ -80,6 +87,9 @@ public final class ReportEnforcement {
 
     /** The enforcements that can be carried out against {@code targetType}. */
     public static Set<String> forTarget(String targetType) {
+        if (ReportTargetTypes.isSocietyContent(targetType)) {
+            return FOR_SOCIETY_CONTENT;
+        }
         return switch (targetType) {
             case ReportTargetTypes.PROPERTY -> FOR_PROPERTY;
             case ReportTargetTypes.USER -> FOR_USER;

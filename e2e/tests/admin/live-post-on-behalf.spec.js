@@ -192,3 +192,107 @@ test('the owner step warns about listings the server is already holding', async 
   await page.getByLabel('Owner Mobile *').fill(uniqueMobile());
   await expect(page.getByText(/already has \d+ pending listing/i)).toHaveCount(0);
 });
+
+/*
+   The concierge desk and the freemium ceiling.
+
+   `POST /admin/properties` went through the same creation the owner's own wizard calls, and so
+   inherited the owner's plan cap. An operator on a call with somebody who owns three flats could
+   record one of them and was refused the other two -- with the owner's wizard copy, addressed to a
+   member of staff, about an account that is not theirs. Because every owner this route provisions
+   is brand new and therefore on the free tier, that was not an edge case: it was every second
+   listing the desk had ever tried to take.
+
+   Driven at the route rather than through the wizard because the ceiling is a server rule, and the
+   wizard is six steps of Next buttons between here and the write that proves it.
+*/
+test('the desk is not capped at one listing per owner', async () => {
+  const ownerMobile = uniqueMobile();
+  const headers = await admin();
+
+  for (const n of [1, 2, 3]) {
+    const res = await postOnBehalf(headers, {
+      ownerMobile, ownerName: 'Three Flats', listing: listing(`Concierge ${n} ${Date.now()}`),
+    });
+    expect(res.status, `listing ${n} of 3 phoned in by the same owner`).toBe(201);
+  }
+
+  // And all three are the owner's, not three attempts at one.
+  expect((await myListings(ownerMobile)).length).toBeGreaterThanOrEqual(3);
+});
+
+/* The exemption belongs to the route, not to the owner. If it followed the account, "ring the
+   office" would be the documented way around the paywall. */
+test('an owner the desk posted for is still refused by their own wizard', async () => {
+  const ownerMobile = uniqueMobile();
+
+  expect((await postOnBehalf(await admin(), {
+    ownerMobile, ownerName: 'Phoned In', listing: listing(`Phoned in ${Date.now()}`),
+  })).status).toBe(201);
+
+  const res = await fetch(`${API}/me/listings`, {
+    method: 'POST',
+    headers: await authHeaders(ownerMobile),
+    body: JSON.stringify(listing(`Typed in myself ${Date.now()}`)),
+  });
+  expect(res.status).toBe(422);
+  expect((await res.json()).error).toBe('listing_quota_exhausted');
+});
+
+/*
+   What replaced the refusal.
+
+   Exempting the desk removed the only signal anyone had that an owner was running past what they
+   pay for. `GET /admin/properties/owner-standing` puts it back as information rather than as a
+   block, so the operator can raise the upgrade on the call they are already on.
+*/
+test('the desk can see when an owner is past their plan', async () => {
+  const ownerMobile = uniqueMobile();
+  const headers = await admin();
+
+  const standing = async () => {
+    const res = await fetch(`${API}/admin/properties/owner-standing?mobile=${ownerMobile}`, { headers });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  /* An unknown number answers, rather than 404ing. This is the ordinary state of a first call, and
+     a console that rendered its error banner for it would be showing one on most calls. */
+  const before = await standing();
+  expect(before.status).toBe(200);
+  expect(before.body.known).toBe(false);
+
+  await postOnBehalf(headers, {
+    ownerMobile, ownerName: 'Over Their Plan', listing: listing(`Standing one ${Date.now()}`),
+  });
+
+  /* Exactly on the free tier's one listing is not over it. Warning about every caller is the same
+     as warning about none, since an operator stops reading a note that is always there. */
+  const atLimit = await standing();
+  expect(atLimit.body.known).toBe(true);
+  expect(atLimit.body.allowance).toBe(1);
+  expect(atLimit.body.held).toBe(1);
+  expect(atLimit.body.overAllowance).toBe(false);
+
+  await postOnBehalf(headers, {
+    ownerMobile, ownerName: 'Over Their Plan', listing: listing(`Standing two ${Date.now()}`),
+  });
+
+  const over = await standing();
+  expect(over.body.held).toBe(2);
+  expect(over.body.overAllowance).toBe(true);
+  /* Counts, and nothing else. An operator needs to know a conversation exists, not what the
+     account is worth, and a desk that can read anybody's subscription off a phone number is a
+     larger disclosure than this note is asking for. */
+  expect(over.body.plan).toBeUndefined();
+  expect(over.body.price).toBeUndefined();
+});
+
+/* Guarded by the desk's own atom. An owner must not be able to read anyone's standing, including
+   their own, through a back-office route. */
+test('a consumer session cannot read an owner standing', async () => {
+  const consumer = await authHeaders(uniqueMobile());
+  const res = await fetch(`${API}/admin/properties/owner-standing?mobile=${uniqueMobile()}`, {
+    headers: consumer,
+  });
+  expect(res.status).toBe(403);
+});

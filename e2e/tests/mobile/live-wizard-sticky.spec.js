@@ -28,6 +28,15 @@ async function withConsent(page) {
   });
 }
 
+/* Every test below signs in with `asNewOwner`, not `asOwner`.
+
+   `ACTORS.owner` holds four listings against a free-tier allowance of one — deliberately, because
+   `live-listing-quota.spec.js` is built on that fixture to prove the paywall works. `/list-property`
+   therefore answers her with the upgrade prompt, and `.lp-step-actions` is a bar the paywall never
+   renders, so all five tests here died in `openWizard` waiting for it. Nothing about the layout was
+   wrong; the spec was signed in as the one owner who is not allowed to see it. No seeded actor can
+   be the answer permanently either, since the first spec to post a listing as them spends the
+   allowance — which is why `asNewOwner` exists. */
 async function openWizard(page) {
   await page.goto('/list-property');
   await page.locator('.lp-step-actions').first().waitFor({ timeout: 15000 });
@@ -36,7 +45,7 @@ async function openWizard(page) {
 test.describe('Mobile listing wizard', () => {
   test('the step actions are pinned, not parked at the end of the form', async ({ page, login }) => {
     await withConsent(page);
-    await login.asOwner();
+    await login.asNewOwner();
     await openWizard(page);
 
     const actions = page.locator('.lp-step-actions').first();
@@ -69,7 +78,7 @@ test.describe('Mobile listing wizard', () => {
     // screen above. Step 1 opens with propertyType/bhk/carpetArea empty, so a bare
     // Next is guaranteed to fail validation — no setup needed to reach the error path.
     await withConsent(page);
-    await login.asOwner();
+    await login.asNewOwner();
     await openWizard(page);
 
     await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
@@ -95,7 +104,7 @@ test.describe('Mobile listing wizard', () => {
 
   test('every field that fails is marked, not just the first', async ({ page, login }) => {
     await withConsent(page);
-    await login.asOwner();
+    await login.asNewOwner();
     await openWizard(page);
 
     await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
@@ -111,7 +120,7 @@ test.describe('Mobile listing wizard', () => {
     // Android kills backgrounded tabs aggressively; an owner halfway through a
     // 3-step listing must not lose the work. useFormDraft persists to localStorage.
     await withConsent(page);
-    await login.asOwner();
+    await login.asNewOwner();
     await openWizard(page);
 
     // Carpet area is the first free-text field visible on step 1. (A bare
@@ -134,7 +143,7 @@ test.describe('Mobile listing wizard', () => {
   test('the wizard logs no console errors on a phone', async ({ page, login }) => {
     const errors = trackErrors(page);
     await withConsent(page);
-    await login.asOwner();
+    await login.asNewOwner();
     await openWizard(page);
     expect(errors).toEqual([]);
   });

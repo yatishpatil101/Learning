@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
-import { createListingOnBehalf, listForModeration } from '../../services/propertyService.js';
+import { createListingOnBehalf, listForModeration, ownerListingStanding } from '../../services/propertyService.js';
 import { logStaffActivity } from '../../lib/mockApi.js';
 import { parseAmount } from '../../lib/store.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -71,6 +71,45 @@ export default function AdminPostOnBehalf() {
       .catch(() => { /* advisory only — see above */ });
     return () => { alive = false; };
   }, []);
+
+  /*
+   * Where this owner stands against their own plan, once the operator has typed a whole number.
+   *
+   * The desk is exempt from the freemium listing ceiling. It has to be: the ceiling is a rule about
+   * self-service, and inheriting it meant an operator on a call with somebody who owns three flats
+   * could record one of them and was refused the rest — with the owner's own wizard copy ("take one
+   * down, upgrade your plan, or refer an owner"), addressed to a member of staff, about an account
+   * that is not theirs.
+   *
+   * Exempt is not blind, though. An owner going past what they pay for is an upgrade conversation,
+   * and the operator is the only person on the call able to have it. So the numbers are shown and
+   * the desk decides — which is the whole reason the refusal was the wrong tool.
+   *
+   * Keyed off the mobile rather than read once on open, unlike the pending tally above: the tally
+   * is a slice of a queue the wizard can fetch before it knows anything, this is a question about
+   * one person and there is nobody to ask about until the field is complete. Ten digits is the gate
+   * — the server 400s on anything shorter, and asking on every keystroke would spend nine requests
+   * to answer the tenth.
+   *
+   * The response echoes the mobile back, and a reply for a number the operator has since edited is
+   * dropped. Without that, a fast typist gets one owner's standing rendered against another's name
+   * — the classic out-of-order-response bug, and a uniquely bad one here because what it mislabels
+   * is somebody's billing position.
+   *
+   * Swallowed on failure, for the same reason as the tally: advisory copy must never be able to
+   * stop a listing being taken down.
+   */
+  const [standing, setStanding] = useState(null);
+  const ownerMobile = form.ownerMobile;
+  useEffect(() => {
+    const m = String(ownerMobile || '').replace(/\D/g, '');
+    if (m.length !== 10) { setStanding(null); return undefined; }
+    let alive = true;
+    ownerListingStanding(m)
+      .then((s) => { if (alive && s && s.mobile === m) setStanding(s); })
+      .catch(() => { /* advisory only — see above */ });
+    return () => { alive = false; };
+  }, [ownerMobile]);
 
   // Autosave the in-progress form so an accidental refresh mid-call doesn't lose
   // everything. Skipped once the wizard is submitted (success) — the draft is cleared then.
@@ -236,7 +275,7 @@ export default function AdminPostOnBehalf() {
 
   const stepContent = () => {
     switch (step) {
-      case 1: return <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} />;
+      case 1: return <OwnerStep form={form} set={set} errors={errors} pendingByMobile={pendingByMobile} standing={standing} />;
       case 2: return <PropertyStep form={form} set={set} errors={errors} />;
       case 3: return <LocationStep form={form} set={set} errors={errors} />;
       case 4: return <PricingStep form={form} set={set} errors={errors} />;

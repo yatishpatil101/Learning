@@ -48,7 +48,7 @@
  * `MePhotosLiveTest` and `MePersonalDocumentsLiveTest` against the real sandbox.
  */
 import { test, expect } from '@playwright/test';
-import { signedInAs } from '../helpers/liveAuth.js';
+import { signedInAs, signedInAsNew } from '../helpers/liveAuth.js';
 
 /* The seeded owner the other live specs use — the wizard is behind auth, and `/me/photos` is scoped
    by the caller's token, so this has to be a real account. */
@@ -146,7 +146,15 @@ test.describe('Fees — the rent-agreement sidebar prices from the server (live)
 
 test.describe('Photos — the listing wizard uploads to the server (live)', () => {
   test('stores the file through /me/photos and renders the URL the server returned', async ({ page }) => {
-    await signedInAs(page, OWNER.mobile);
+    /* A fresh account, not the seeded owner, and the reason is the whole point of this describe.
+       `OWNER` holds four listings against a free-tier allowance of one, which is deliberate — a
+       whole spec (`live-listing-quota.spec.js`) is built on that fixture to prove the paywall — and
+       the paywall replaces the wizard entirely. This test is about `/me/photos`, not about who may
+       post, so it needs an owner who can get to step 3 rather than one who is being sold a plan.
+       Signing in as the seeded owner used to work only because the quota was never enforced on the
+       server; when it started being enforced this failed with "no step-1 inputs", which named the
+       symptom and not the cause. */
+    await signedInAsNew(page);
 
     /* The photo input lives on step 3 of the wizard, and `uploadPhoto` has exactly one caller in the
        app (`useListingMedia.js`), so there is no cheaper screen to reach it from.

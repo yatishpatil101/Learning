@@ -1,5 +1,6 @@
 {
   "listProperty": {
+    "editLoadFailed": "We could not load that listing. Reload the page and try again.",
     "next": "Next Step",
     "back": "Back",
     "optional": "(optional)",

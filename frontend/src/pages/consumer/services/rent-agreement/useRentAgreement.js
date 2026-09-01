@@ -5,18 +5,26 @@ import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../../context/AuthContext.jsx';
 import { useToast } from '../../../../context/ToastContext.jsx';
 import { createCoFill, inviteContext, submitInviteDetails, buildInviteWaLink, inviteLink, findInviteById, pendingInvites, isActive } from '../../../../lib/serviceFlow.js';
-import { getListings, getListing, pushNotificationFor } from '../../../../lib/store.js';
+import { pushNotificationFor } from '../../../../lib/store.js';
+import { isHttpDomain } from '../../../../services/config.js';
 import { getDocsForProp, addDocument } from '../../../../lib/data/documents.js';
 import { useFormDraft } from '../../../../lib/hooks.js';
 import { OWNER_DOCS, TENANT_DOCS, OWNER_VAULT_CAT } from './constants.js';
 import { fmt, digits, num, emptyTenant, emptyProp, emptyOwner, emptyInvite, emptyTerms, emptyWit, DETAILS_MAX_CHARS, detailsChars, largestFreeTextField, redactIdentityNumbers, hasIdentityNumbers, identityParties } from './helpers.js';
 import { useRaFurniture } from './useRaFurniture.js';
 import { getDealFees } from '../../../../services/feesService.js';
+import { myListings } from '../../../../services/propertyService.js';
 import {
+  addServiceRequestDoc,
+  createCoFillServiceRequest,
+  decideServiceRequestInvite,
   createServiceRequest as createServiceRequestLive,
   getServiceRequest,
+  listMyServiceRequestInvites,
   listServiceRequests,
   recordServiceRequestIdentities,
+  submitServiceRequestPartyDetails,
+  withdrawServiceRequestParty,
 } from '../../../../services/serviceRequestService.js';
 import { openCashfreeCheckout } from '../../../../lib/cashfree.js';
 import { createServiceRequest } from '../../../../lib/mockApi.js';
@@ -40,6 +48,7 @@ export function useRentAgreement() {
   const { t: tr } = useTranslation();
   const { user, isIn } = useAuth();
   const { toast } = useToast();
+  const serviceRequestLive = isHttpDomain('serviceRequest');
   const formRef = useRef(null);
   // Re-armed in the effect body, not just cleared in the cleanup: StrictMode mounts, cleans up and
   // re-mounts, so a cleanup-only ref stays `false` for the rest of the page's life and would
@@ -107,6 +116,21 @@ export function useRentAgreement() {
   const [inviteCtx, setInviteCtx] = useState(null);
   const [inviteError, setInviteError] = useState(null); // null | { kind: 'expired'|'wrongNumber'|'done', toMobile }
   const [showPropertyPicker, setShowPropertyPicker] = useState(false);
+  /* The owner's own listings, for the "pick one of your properties" shortcut and the `?listing=`
+     prefill. Both used to be synchronous `getListings()` / `getListing(id)` reads out of
+     localStorage, which meant that on a live build the picker never appeared for anybody and the
+     flatmate board's "reissue the joint agreement" link opened a blank wizard — the listing it
+     named was in the database, and the wizard was looking in the browser. Loaded once here rather
+     than in `StepProperty`, because the URL-driven prefill below needs the same rows. */
+  const [myProperties, setMyProperties] = useState([]);
+  useEffect(() => {
+    if (!isIn) { setMyProperties([]); return undefined; }
+    let alive = true;
+    myListings(user)
+      .then((rows) => { if (alive) setMyProperties(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (alive) setMyProperties([]); });
+    return () => { alive = false; };
+  }, [isIn, user]);
   const [inviteResult, setInviteResult] = useState(null); // { waLink, link, toName, toMobile }
   const [copied, setCopied] = useState(false);
 
@@ -494,14 +518,65 @@ export function useRentAgreement() {
   const removeTenant = (i) => setTenants((arr) => (arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr));
 
   // ── Invite mode init ──
-  // The invite id in the deep link is a bearer token. Resolve it up-front (before
-  // sign-in) so we can (a) bounce a signed-out invitee to a prefilled sign-in and
-  // (b) confirm the signed-in number matches the one the owner invited.
+  // Mock mode keeps the historical bearer-token deep link (`?invite=...`). Live mode moved to an
+  // account-addressed invite (`?party=...&request=...`) that is resolved only after sign-in.
   useEffect(() => {
+    if (serviceRequestLive) {
+      const partyId = searchParams.get('party');
+      const requestId = searchParams.get('request');
+      if (!partyId && !requestId) return;
+      if (!isIn || !user?.mobile) {
+        const next = location.pathname + location.search;
+        navigate('/signin?' + new URLSearchParams({ reason: 'invite', next }).toString());
+        return;
+      }
+      let alive = true;
+      (async () => {
+        try {
+          const invites = await listMyServiceRequestInvites();
+          const row = (invites || []).find((inv) => inv?.id === partyId || inv?.requestId === requestId);
+          if (!row || !row.requestId) {
+            if (alive) setInviteError({ kind: 'expired' });
+            return;
+          }
+          if (row.status === 'declined') {
+            if (alive) setInviteError({ kind: 'expired' });
+            return;
+          }
+          if (row.status !== 'accepted') {
+            await decideServiceRequestInvite(row.id, 'accept');
+          }
+          const req = await getServiceRequest(row.requestId);
+          if (!req) {
+            if (alive) setInviteError({ kind: 'expired' });
+            return;
+          }
+          if (!alive) return;
+          setInviteError(null);
+          setInviteCtx({
+            invite: {
+              inviteId: row.id,
+              reqId: row.requestId,
+              toRole: row.role || 'tenant',
+              toName: null,
+              toMobile: digits(user.mobile),
+            },
+            req,
+          });
+          setMode('invite');
+          if (req.details && req.details._state) applyFormState(req.details._state);
+          setTenantMode('fill');
+          setStep(0);
+        } catch {
+          if (alive) setInviteError({ kind: 'expired' });
+        }
+      })();
+      return () => { alive = false; };
+    }
+
     const inviteId = searchParams.get('invite');
     if (!inviteId) return;
     const rec = findInviteById(inviteId);
-    // Signed-out invitee → sign in with the invited number, then return here.
     if (!isIn || !user?.mobile) {
       const next = location.pathname + location.search;
       const qs = new URLSearchParams({ reason: 'invite', next });
@@ -518,18 +593,35 @@ export function useRentAgreement() {
     setInviteCtx(ctx);
     setMode('invite');
     if (ctx.req.details && ctx.req.details._state) applyFormState(ctx.req.details._state);
-    setTenantMode('fill'); // invited tenant fills their part
-    setStep(0); // start at the top, not wherever the owner left off
+    setTenantMode('fill');
+    setStep(0);
     // eslint-disable-next-line
-  }, [searchParams, isIn, user]);
+  }, [searchParams, isIn, user, serviceRequestLive]);
 
   // ── Pending co-fill invites for the signed-in user (banner outside the invite flow) ──
   const [myInvites, setMyInvites] = useState([]);
   useEffect(() => {
     if (mode === 'invite' || !isIn || !user?.mobile) { setMyInvites([]); return; }
-    if (searchParams.get('invite')) return;
+    if (searchParams.get('invite') || searchParams.get('party')) return;
+    let alive = true;
+    if (serviceRequestLive) {
+      listMyServiceRequestInvites()
+        .then((rows) => {
+          if (!alive) return;
+          setMyInvites((rows || []).filter((row) => row?.status === 'invited').map((row) => ({
+            inviteId: row.id,
+            requestId: row.requestId,
+            fromName: row.invitedBy,
+            property: null,
+            href: `/services/rent-agreement?party=${encodeURIComponent(row.id)}&request=${encodeURIComponent(row.requestId || '')}`,
+          })));
+        })
+        .catch(() => { if (alive) setMyInvites([]); });
+      return () => { alive = false; };
+    }
     setMyInvites(pendingInvites(digits(user.mobile)));
-  }, [mode, isIn, user, searchParams]);
+    return () => { alive = false; };
+  }, [mode, isIn, user, searchParams, serviceRequestLive]);
 
   // ── Property auto-fill from ?listing=<id> (or ?flat=<id> from a flatmate reissue) ──
   useEffect(() => {
@@ -542,13 +634,15 @@ export function useRentAgreement() {
     const listingId = searchParams.get('listing') || searchParams.get('flat');
     if (!listingId) {
       // Show property picker if owner has listings
-      if (isIn && user?.role === 'owner') {
-        const listings = getListings();
-        if (listings && listings.length > 0) setShowPropertyPicker(true);
-      }
+      if (isIn && user?.role === 'owner' && myProperties.length > 0) setShowPropertyPicker(true);
       return;
     }
-    const l = getListing(listingId);
+    /* Resolved against the loaded rows rather than a fresh single-listing read. `?listing=` only
+       ever arrives from a screen that just showed the owner their own properties, so the row is
+       already here; and matching on `slug` as well as `id` matters because a listing created
+       through the API has a null slug until moderation names one, so the two identifiers are not
+       interchangeable in either direction. */
+    const l = myProperties.find((row) => row.id === listingId || row.slug === listingId);
     if (!l) return;
     // Prefill from listing
     const fmap = { unfurnished: 'Unfurnished', semi: 'Semi-Furnished', furnished: 'Furnished' };
@@ -557,7 +651,7 @@ export function useRentAgreement() {
     setShowPropertyPicker(false);
     if (reissue) toast(tr('services.ra.reissueHint'));
     // eslint-disable-next-line
-  }, [searchParams, mode]);
+  }, [searchParams, mode, myProperties]);
 
   // ── File uploads ──
   // Owner/tenant documents are captured (file name) directly inside their step components
@@ -632,6 +726,32 @@ export function useRentAgreement() {
     }
   };
 
+  /**
+   * Take an unanswered invitation back (V107).
+   *
+   * Guarded by its own busy flag rather than by `saving`: this sits on the confirmation panel after
+   * the submit has already finished, so `saving` is false and a double-click would send a second
+   * DELETE against a party row the first one removed — a 404 the owner has no way to interpret.
+   * The result panel is cleared rather than re-read: the invitation is what it described, and there
+   * is nothing left to describe.
+   */
+  const [withdrawing, setWithdrawing] = useState(false);
+  const withdrawInvite = async () => {
+    if (withdrawing || !inviteResult?.requestId || !inviteResult?.partyId) return;
+    setWithdrawing(true);
+    try {
+      await withdrawServiceRequestParty(inviteResult.requestId, inviteResult.partyId);
+      if (!mountedRef.current) return;
+      setInviteResult(null);
+      toast(tr('services.ra.invite.withdrawn'), 'success');
+    } catch (err) {
+      console.error('Rent Agreement invite withdraw failed', err?.status || err?.message);
+      if (mountedRef.current) toast(tr('services.ra.invite.withdrawFailed'), 'error');
+    } finally {
+      if (mountedRef.current) setWithdrawing(false);
+    }
+  };
+
   const generate = async () => {
     // Re-entrancy guard. `generate` is an onClick handler that now awaits a create round-trip and a
     // lazily-imported checkout SDK; a second click before either settles would price and bill a
@@ -692,36 +812,64 @@ export function useRentAgreement() {
         persistOwnerKYC();
         const docs = collectDocs();
         if (tenantMode === 'invite' && inviteMobile) {
-          // Co-fill stays on `serviceFlow` and is not charged here: the server scopes every request
-          // to its requester, so there is no endpoint that can represent a two-party draft, and
-          // `createCoFill` below already creates the request record. Calling the live create as well
-          // would bill the owner for a request that exists twice. The owner pays when the completed
-          // agreement is submitted, not when the tenant is invited to fill their half.
-          const { invite: inv } = createCoFill(ownerMobile, {
-            type: 'rental', service: 'Rent Agreement', customer: { name: details.ownerName }, details,
-            docs, ticketRef,
-            initiatorRole: 'owner', initiatorName: details.ownerName,
-            parties: [{ role: 'owner', mobile: ownerMobile, name: details.ownerName }, { role: 'tenant', mobile: inviteMobile, name: invite.invName }],
-            invite: { toMobile: inviteMobile, toName: invite.invName, toRole: 'tenant', sections: ['tenant'], fromName: details.ownerName, fromRole: 'owner', property, message: invite.invMessage },
-          });
-          raiseAdminTicket();
-          if (inv) {
+          if (serviceRequestLive) {
+            const request = await createCoFillServiceRequest({
+              request: {
+                type: 'rental',
+                details,
+                propertyId: searchParams.get('listing') || searchParams.get('flat') || undefined,
+                ticketRef,
+              },
+              role: 'tenant',
+              mobile: inviteMobile,
+            });
+            raiseAdminTicket();
+            const party = (request?.parties || []).find((p) => p?.role === 'tenant' && p?.status === 'invited')
+              || (request?.parties || [])[0]
+              || null;
+            const link = `/services/rent-agreement?party=${encodeURIComponent(party?.id || '')}&request=${encodeURIComponent(request?.id || '')}`;
+            const signupLink = `/signup?mobile=${encodeURIComponent(inviteMobile)}&next=${encodeURIComponent(link)}`;
+            const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on PuneNest${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
+            const waLink = `https://wa.me/91${inviteMobile}?text=${encodeURIComponent(text)}`;
             setInviteResult({
               toName: invite.invName || '',
               toMobile: inviteMobile,
-              link: inviteLink(inv.inviteId),
-              waLink: buildInviteWaLink({ toMobile: invite.invMobile, toName: invite.invName, toRole: 'tenant', fromName: details.ownerName, property, message: invite.invMessage, inviteId: inv.inviteId }),
+              link,
+              waLink,
+              // Two different waits, and the owner should be told which one they are in (V107). A
+              // `pending` party is a number the server is holding because nobody has signed up to
+              // it yet — the link will not resolve until they do, so "resend it" is bad advice and
+              // "ask them to create an account" is the right one. A party that is not pending is a
+              // real account that simply has not answered.
+              requestId: request?.id || null,
+              partyId: party?.id || null,
+              pending: !!party?.pending,
+              maskedMobile: party?.mobile || null,
             });
-            // In-app nudge for the tenant if they already have a PuneNest account.
-            // Route to "My Rental" first (their hub), where the pending request is
-            // surfaced and they can open it to fill their details.
-            pushNotificationFor(inviteMobile, {
-              id: 'ra_invite_' + inv.inviteId,
-              type: 'service',
-              title: 'Complete your Rent Agreement details',
-              desc: `${details.ownerName} invited you to add your tenant details & documents${property ? ' for ' + property : ''}. Open it from My Rental to complete your part.`,
-              link: '/dashboard#rental',
+          } else {
+            const { invite: inv } = createCoFill(ownerMobile, {
+              type: 'rental', service: 'Rent Agreement', customer: { name: details.ownerName }, details,
+              docs, ticketRef,
+              initiatorRole: 'owner', initiatorName: details.ownerName,
+              parties: [{ role: 'owner', mobile: ownerMobile, name: details.ownerName }, { role: 'tenant', mobile: inviteMobile, name: invite.invName }],
+              invite: { toMobile: inviteMobile, toName: invite.invName, toRole: 'tenant', sections: ['tenant'], fromName: details.ownerName, fromRole: 'owner', property, message: invite.invMessage },
             });
+            raiseAdminTicket();
+            if (inv) {
+              setInviteResult({
+                toName: invite.invName || '',
+                toMobile: inviteMobile,
+                link: inviteLink(inv.inviteId),
+                waLink: buildInviteWaLink({ toMobile: invite.invMobile, toName: invite.invName, toRole: 'tenant', fromName: details.ownerName, property, message: invite.invMessage, inviteId: inv.inviteId }),
+              });
+              pushNotificationFor(inviteMobile, {
+                id: 'ra_invite_' + inv.inviteId,
+                type: 'service',
+                title: 'Complete your Rent Agreement details',
+                desc: `${details.ownerName} invited you to add your tenant details & documents${property ? ' for ' + property : ''}. Open it from My Rental to complete your part.`,
+                link: '/dashboard#rental',
+              });
+            }
           }
         } else {
           // The paid desk. The server prices `rent-agreement` (platform fee + stamp duty +
@@ -830,7 +978,16 @@ export function useRentAgreement() {
         // Invited tenant submits their part — attach their real documents to the request.
         // No new admin ticket here; the owner's ticket already represents this agreement.
         const pname = tenants.length && tenants[0].name ? tenants[0].name : (user?.name || 'Tenant');
-        submitInviteDetails(digits(user.mobile), inviteCtx.invite.inviteId, details, collectDocs(), { name: pname, mobile: digits(user.mobile) });
+        if (serviceRequestLive) {
+          await submitServiceRequestPartyDetails(inviteCtx.req.id, details);
+          const uploads = collectDocs().map((d) => d?.file).filter(Boolean);
+          for (const file of uploads) {
+            // eslint-disable-next-line no-await-in-loop
+            await addServiceRequestDoc(inviteCtx.req.id, file);
+          }
+        } else {
+          submitInviteDetails(digits(user.mobile), inviteCtx.invite.inviteId, details, collectDocs(), { name: pname, mobile: digits(user.mobile) });
+        }
       }
     } catch (err) {
       console.error('Rent Agreement submit failed', err);
@@ -853,7 +1010,8 @@ export function useRentAgreement() {
     rootRef, formRef, tr, isIn, user, navigate,
     step, errors, done, openFaq, setOpenFaq,
     mode, inviteError, inviteResult, copied,
-    aType, setAType, prop, setP, setProp, setShowPropertyPicker,
+    withdrawInvite, withdrawing,
+    aType, setAType, prop, setP, setProp, setShowPropertyPicker, myProperties,
     owner, setO, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
     tenantMode, setTenantMode, tenants, setTenant, addTenant, removeTenant, tenantDocs, setTenantDocs, invite, setInvite,
     terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,

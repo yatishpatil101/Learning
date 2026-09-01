@@ -31,6 +31,7 @@ import { matchesFacetQuery } from '../../../lib/listings/facetMatch.js';
 import { sortByQuery } from '../../../lib/listings/facetRank.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { currentStaffInfo } from '../../../lib/mockApi/core.js';
+import { PLAN_LISTING_LIMITS } from '../../../lib/store/billing.js';
 import { ApiError } from '../../http.js';
 
 // Already async (returns Promise)
@@ -215,6 +216,40 @@ export const getPropertiesByIds = (ids = []) =>
   Promise.all(ids.map((id) => _getProperty(id))).then((list) => list.filter(Boolean));
 
 /**
+ * The mock counterpart of `GET /admin/properties/owner-standing`.
+ *
+ * `held` is real: the store knows every listing and who owns it, and the two statuses that occupy a
+ * slot are the same two the server counts.
+ *
+ * `allowance` cannot be. The store keeps exactly one plan — the signed-in session's — so there is
+ * no honest way to ask what *another* person's plan permits, and reading the operator's own limit
+ * here would report the desk's entitlements as the caller's. It answers with the free tier instead,
+ * which is what the server says about the large majority of the people this desk speaks to: every
+ * account it provisions starts there. The consequence is that demo mode understates a paying
+ * owner's ceiling and so may show the note when the API would not — the wrong direction to be wrong
+ * in, and deliberately chosen over the alternative, which is a note that never appears in demo mode
+ * at all and therefore never gets looked at until it is wrong in production.
+ *
+ * `known` is "the store has heard of this number", which for the mock means it holds a listing under
+ * it. The store has no accounts, so there is nothing else to ask.
+ */
+export const ownerListingStanding = async (mobile) => {
+  const wanted = digits(mobile);
+  const all = await _listProperties({ includeAllStatuses: true, includeArchived: true }, 'newest');
+  const theirs = all.filter((p) => digits(p.ownerMobile) === wanted);
+  const held = theirs.filter((p) => !p.archived
+    && (p.status === 'pending' || p.status === 'approved')).length;
+  const allowance = PLAN_LISTING_LIMITS.free;
+  return {
+    mobile: wanted,
+    known: theirs.length > 0,
+    allowance,
+    held,
+    overAllowance: held > allowance,
+  };
+};
+
+/**
  * The owner's own listings at every status. The mock has no session, so ownership is matched on the
  * last 10 mobile digits (formatting varies across seeded and user-entered numbers); the http
  * provider gets the same set from the access token instead.
@@ -237,6 +272,19 @@ export const myListings = (user) => {
     }));
 };
 
+/**
+ * One of the caller's own listings — the mock half of `GET /me/listings/{id}`.
+ *
+ * Filtered through `myListings` rather than reading `getListing(id)` straight out of the store, so
+ * that the ownership rule is written once. A store read would resolve any listing whose id you
+ * could name, including another owner's, and a mock that answers a question the server refuses is
+ * a mock that teaches the suite a permission the product does not have.
+ */
+export const myListing = (id, user) => {
+  if (!id) return Promise.resolve(null);
+  return myListings(user).then((rows) => rows.find((p) => p.id === id || p.slug === id) || null);
+};
+
 // Sync → async wrappers
 export const flagListing = (id, reason) => Promise.resolve(_flagListing(id, reason));
 export const clearFlag = (id) => Promise.resolve(_clearFlag(id));
@@ -255,6 +303,20 @@ export const updateListingFields = (id, patch) => Promise.resolve(_updateListing
    mock mode too, or the mistake only ever shows up against the API. */
 export const updateListingAsModerator = (id, patch) => Promise.resolve(_updateListingFields(id, patch));
 export const archiveListing = (id, reason) => Promise.resolve(_archiveListing(id, reason));
+
+/**
+ * The owner takes their own listing down — the mock half of `DELETE /me/listings/{id}`.
+ *
+ * Ownership is checked here rather than delegating straight to the store's archive, because the
+ * store has no notion of a caller and would happily withdraw any listing whose id you could name.
+ * A mock that answers a question the server refuses teaches the suite a permission the product does
+ * not have, which is the one thing a mock provider must never do.
+ */
+export const takeListingDown = (id, user) =>
+  myListing(id, user).then((mine) => {
+    if (!mine) throw new Error('That listing is not yours to take down.');
+    return _archiveListing(id);
+  });
 export const restoreListing = (id) => Promise.resolve(_restoreListing(id));
 
 /**

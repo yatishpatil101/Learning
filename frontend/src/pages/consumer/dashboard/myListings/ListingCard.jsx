@@ -113,7 +113,11 @@ export default function ListingCard({
   const overflowItems = [
     ...overflowActions,
     overflowActions.length > 0 && { divider: true },
-    { icon: 'trash-2', label: 'Delete', tone: 'danger', onClick: () => onDelete(l) },
+    /* "Take down", not "Delete". The server soft-archives (`DELETE /me/listings/{id}`) so the
+       enquiries and deals pointing at the listing survive, and the owner can list it again. Calling
+       that Delete promised an erasure the product does not perform and made the one exit from the
+       free-tier listing quota read as the most destructive thing on the menu. */
+    { icon: 'trash-2', label: l.flatmate || l.flatmatePost || l.flatmateGroup ? 'Delete' : 'Take down', tone: 'danger', onClick: () => onDelete(l) },
   ];
 
   return (

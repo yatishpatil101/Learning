@@ -17,10 +17,14 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
  * paywall.
  *
  * The block itself is a seam call now (D226) — `propertyService.checkOwnDuplicate`, which the mock
- * provider answers from this same store and the http provider answers from the server. That is why
- * the two cases below differ only in what the *local mirror* holds: the guard's id is the
- * catalogue's, the edit route reads the mirror, and the pair asserts the CTA notices when those two
- * disagree instead of opening a blank form.
+ * provider answers from this same store and the http provider answers from the server.
+ *
+ * This used to be a pair of tests, because the guard's id was the catalogue's while the edit route
+ * prefilled from `puneNestListings:<mobile>` — so the CTA had to notice when those two disagreed
+ * and fall back to the dashboard rather than open a blank form. D237 removed the disagreement: the
+ * editor reads `propertyService.myListing`, the same seam the guard's id came from. One case is
+ * left, and it is deliberately the *harder* one — the listing is in the catalogue and not in this
+ * browser's mirror, which is the shape of an owner posting from a second device.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -137,50 +141,13 @@ test('Re-listing the same unit shows the duplicate guard modal and blocks the po
   }, SOCIETY);
   expect(realAtAddress).toBe(0);
 
-  /* The CTA sends the owner to the dashboard, not to the editor, and that is the point (D226).
-     The guard's id is the *catalogue's* — against a real API it comes from the server — while the
-     edit route prefills from `puneNestListings:<mobile>`, this browser's own record of what it
-     posted. Here the seed put the listing in the catalogue and not in that mirror, which is exactly
-     the shape of an owner posting from a second device: the listing is real, the id is real, and
-     this browser has never held it. Opening the editor would render an empty form under the words
-     "here is the one you already have". */
-  await page.getByRole('button', { name: /Go to my existing listing/i }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
-});
-
-test('The guard opens the editor when this browser actually holds the listing', async ({ page }) => {
-  await seed(page);
-  await page.goto(`${BASE}/list-property`);
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
-  await seedExistingListing(page);
-  await page.reload();
-  await page.waitForSelector('.lp-meter', { timeout: 10000 });
-
-  /* The other half of the pair: the owner posted this from *this* browser, so the local mirror the
-     edit route reads has the record and the editor can genuinely prefill.
-
-     Written after the form is on screen, not in the init script, because `puneNestListings:` is
-     also what the freemium quota counts — seeding it before boot paywalls the wizard and there is
-     no form left to submit. The quota is decided once per page load (`quotaDecidedRef`), so writing
-     it now is invisible to this page and visible to the one the CTA navigates to, which is exactly
-     the state we are trying to reach: a listing the browser holds. */
-  await page.evaluate(({ mobile, society, flat, pin }) => {
-    localStorage.setItem('puneNestListings:' + mobile, JSON.stringify([{
-      id: 'GUARD-EXISTING-1',
-      title: '2 BHK Flat in Baner',
-      deal: 'rent',
-      propertyType: 'flat',
-      society,
-      flatNumber: flat,
-      pincode: pin,
-      locality: 'Baner',
-      status: 'approved',
-    }]));
-  }, { mobile: MOBILE, society: SOCIETY, flat: FLAT, pin: PIN });
-
-  await submitTheSameUnit(page);
-
-  await expect(page.getByText(/already listed this property/i)).toBeVisible({ timeout: 10000 });
+  /* The CTA opens the editor on the id the guard named, and the state this test is in is the whole
+     reason that is now safe (D237). The listing is in the catalogue and *not* in this browser's
+     `puneNestListings:` mirror — an owner posting from a second device, or after clearing site
+     data. The editor used to prefill from that mirror, so it would have rendered an empty form
+     under the words "here is the one you already have", and this CTA sent them to the dashboard
+     instead to avoid it. It reads `propertyService.myListing` now, the same seam the guard's id
+     came from, so the destination is the one the owner asked for. */
   await page.getByRole('button', { name: /Go to my existing listing/i }).click();
   await expect(page).toHaveURL(/edit=GUARD-EXISTING-1/, { timeout: 10000 });
 });

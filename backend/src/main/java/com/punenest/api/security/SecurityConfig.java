@@ -139,6 +139,34 @@ public class SecurityConfig {
                                 Routes.Cities.BASE,
                                 Routes.Localities.BASE, Routes.Localities.ANY_SINGLE,
                                 Routes.Societies.BASE, Routes.Societies.ANY_SINGLE,
+                                // Named explicitly: ANY_SINGLE is deliberately one segment, so a
+                                // two-segment route under a society is not covered by it and would
+                                // otherwise fall through to `authenticated`. That is the right
+                                // default — the residency queue and the claim write must not be
+                                // public — and this is the one child that is. It reports the
+                                // society's own claim state and verified-resident count, which a
+                                // visitor deciding whether to claim the page has to be able to see.
+                                Routes.Societies.MEMBERSHIP,
+                                // The two community reads, public for the same reason the society
+                                // page itself is: somebody deciding where to live reads the
+                                // questions and the noticeboard before they have an account, and a
+                                // board that is only visible to residents cannot tell a prospective
+                                // buyer that the committee is active. The matching writes are not
+                                // here, and the board's is gated on residency on top of that.
+                                Routes.Societies.QUESTIONS,
+                                Routes.Societies.BOARD,
+                                // The community tab, for the same reason again: the tips and photos
+                                // neighbours wrote are most of what a stranger comes to this page
+                                // for. A recommended person's phone number is withheld from this
+                                // anonymous read in the service, which is where that decision can
+                                // see who is asking.
+                                Routes.Societies.CONTRIBUTIONS,
+                                // What the community has proposed about this society. Public
+                                // because the hub reads it on first paint, before it knows who is
+                                // looking; what it publishes to a stranger is a bare "a resident
+                                // group exists" and never the invite, which the service withholds
+                                // from anyone without a verified flat here.
+                                Routes.Societies.PROPOSALS,
                                 Routes.Reels.BASE,
                                 Routes.Fees.BASE,
                                 // Which features the client should render (contract: security: []).

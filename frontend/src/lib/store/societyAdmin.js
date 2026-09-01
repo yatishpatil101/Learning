@@ -2,7 +2,7 @@ import { readUser } from '../auth.js';
 import { digits, myMobile } from '../contact.js';
 import { allSocieties, registerCommunitySocieties, registerSocietyMerges, societyBySlug } from '../../data/societies.js';
 import { get, set } from './internals.js';
-import { COMMUNITY_SOC_KEY, addCommunitySociety, addSocietyLead, getCommunitySocieties, searchSocieties } from './community.js';
+import { COMMUNITY_SOC_KEY, addSocietyLead, getCommunitySocieties, searchSocieties } from './community.js';
 import { FOLLOW_KEY, QA_KEY, allSocietyQA, getFollowedSocieties } from './society.js';
 
 /* =========================================================================
@@ -159,21 +159,31 @@ export const suggestDuplicates = (cand, limit = 6) => {
 };
 
 /* Community societies still awaiting verification (and not merged away) — the
-   ops "Candidates" queue. Each row carries a suggested-duplicate hint. */
+   ops "Candidates" queue. Each row carries a suggested-duplicate hint.
+
+   "Verified" is the presence of a verification stamp, not `registration && conveyance`.
+   Those two describe the *building's* legal paperwork, which nobody here has seen; reading
+   them as confirmation meant a member-added society whose registration flag happened to be
+   set never reached the queue at all, and a confirmed one that had neither could never leave
+   it. The server (`societies.verified_at` / `verified_by`, V105) makes the same distinction. */
 export const getSocietyCandidates = () => {
   const merges = getSocietyMerges();
   return getCommunitySocieties()
     .filter((s) => !merges[s.slug])
     .map((s) => {
       const r = resolveSociety(s.slug) || s;
-      const verified = !!(r.registration && r.conveyance) && r.tier !== 'community';
+      const verified = !!r.verifiedAt || r.tier === 'verified';
       return { ...s, verified, dupes: verified ? [] : suggestDuplicates(s) };
     })
     .filter((s) => !s.verified);
 };
 
-/* Promote a community society to verified (ops action). Overlay carries the
-   registration/conveyance flags searchSocieties/resolveSociety read for badges. */
+/* Promote a community society to verified (ops action).
+
+   Deliberately does NOT touch `registration` or `conveyance`. It used to set both, which meant
+   an operator confirming that a society exists silently told every buyer reading its hub that
+   its conveyance deed was done — a claim about the building's paperwork made by somebody who
+   had only checked that the building is real. The badge now reads the verification stamp. */
 export const verifyCommunitySociety = (slug, by) => {
   const rec = getCommunitySocieties().find((s) => s.slug === slug);
   if (!rec) return null;
@@ -182,7 +192,7 @@ export const verifyCommunitySociety = (slug, by) => {
   set(COMMUNITY_SOC_KEY, arr);
   registerCommunitySocieties(arr);
   return setSocietyOverlay(slug, {
-    tier: 'verified', registration: true, conveyance: true,
+    tier: 'verified',
     verifiedAt: Date.now(), verifiedBy: digits(by || myMobile()) || 'ops',
   });
 };
@@ -269,17 +279,6 @@ export const mergeSocieties = (fromSlug, toSlug) => {
   }
   return { from: fromSlug, to: toSlug };
 };
-
-/* Demand-side minting: a searcher who can't find their society mints it as a
-   `community` candidate so we can alert them the moment a home is listed there.
-   Reuses the exact same funnel as supply-side auto-mint.
-
-   The follow is the caller's job now (D227). It used to happen here, silently, straight into
-   localStorage — which was fine while follows were a browser array and wrong the moment they
-   became rows. A society minted here exists only in this browser, so the server refuses a follow on
-   it; only `FollowContext` knows to hold that follow locally and retry it once ops promote the
-   slug. Doing it here would write to a store the live build never reads. */
-export const mintDemandSociety = (o = {}) => addCommunitySociety({ ...o, source: 'demand' });
 
 /* Society admin (the approved claimant) — powers committee-side resident review (Tier 4). */
 export const societyAdminMobile = (slug) => digits((getSocietyOverlay(slug) || {}).adminMobile);

@@ -1,9 +1,12 @@
 package com.punenest.api.services;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,9 +14,12 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.security.Teams;
+import com.punenest.api.services.request.CoFillInviteRetention;
+import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
@@ -27,6 +33,10 @@ import org.springframework.http.MediaType;
  */
 @DisplayName("Slice 11 — service requests: the maker-checker workflow")
 class ServiceRequestFlowTest extends ServiceFixtures {
+
+    /** Driven directly rather than through its scheduler, which is off in tests. */
+    @Autowired
+    private CoFillInviteRetention retention;
 
     @Nested
     @DisplayName("maker-checker integrity")
@@ -612,6 +622,197 @@ class ServiceRequestFlowTest extends ServiceFixtures {
             deliverSigned(ref, false);
             expectStatus(buyer, id, "new");
         }
+
+            @Test
+            @DisplayName("co-fill defers checkout, then opens it after invite acceptance")
+            void coFillDeferredCheckout() throws Exception {
+                User owner = customer("9820000149");
+                User tenant = customer("9820000150");
+                User desk = staff("9820000151", Teams.RENTAL);
+                Property p = listing(owner);
+
+                String created = mvc.perform(post(Routes.ServiceRequests.CO_FILL_CREATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{" +
+                            "\"request\":{\"type\":\"rent-agreement\",\"propertyId\":\""
+                            + p.getId() + "\",\"details\":{\"property\":\"Flat 9A\"}},"
+                            + "\"role\":\"tenant\",\"mobile\":\"" + tenant.getMobile()
+                            + "\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value("awaiting-payment"))
+                    .andExpect(jsonPath("$.paymentSessionId").doesNotExist())
+                    .andReturn().getResponse().getContentAsString();
+                String requestId = field(created, "id");
+
+                // Unpaid is still invisible to ops, as with any awaiting-payment request.
+                mvc.perform(get(Routes.ServiceRequests.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[?(@.id=='" + requestId + "')]", hasSize(0)));
+
+                String invites = mvc.perform(get(Routes.ServiceRequests.MY_INVITES)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andReturn().getResponse().getContentAsString();
+                String partyId = field(invites, "id");
+
+                mvc.perform(post(Routes.ServiceRequests.INVITE_DECISION, partyId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"accept\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("accepted"));
+
+                mvc.perform(put(Routes.ServiceRequests.PARTY_DETAILS, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"details\":{\"tenants\":\"Ria Sharma\",\"_state\":{\"tenantMode\":\"fill\"}}}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.details.tenants").value("Ria Sharma"));
+
+                mvc.perform(post(Routes.ServiceRequests.CHECKOUT, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.paymentSessionId").isNotEmpty());
+            }
+
+            @Test
+            @DisplayName("co-fill invite to an unregistered mobile waits, then binds on sign-up")
+            void coFillPendingInviteIsClaimedOnSignUp() throws Exception {
+                User owner = customer("9820000152");
+                Property p = listing(owner);
+
+                // The number belongs to nobody yet. V75 refused this outright; V107 holds the
+                // number instead, which is the whole point — the requester should not have to ring
+                // the other party and talk them through a sign-up before they can start.
+                String created = mvc.perform(post(Routes.ServiceRequests.CO_FILL_CREATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{" +
+                            "\"request\":{\"type\":\"rent-agreement\",\"propertyId\":\""
+                            + p.getId() + "\"},"
+                            + "\"role\":\"tenant\",\"mobile\":\"9820000999\"}"))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+                String requestId = field(created, "id");
+
+                // The requester can see who they invited, masked. Masked and not plain: they typed
+                // the number, so this tells them nothing they did not already know, and an API that
+                // echoes whole mobiles back is one API bug away from being a directory.
+                mvc.perform(get(Routes.ServiceRequests.BY_ID, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.parties", hasSize(1)))
+                    .andExpect(jsonPath("$.parties[0].pending").value(true))
+                    .andExpect(jsonPath("$.parties[0].status").value("invited"))
+                    .andExpect(jsonPath("$.parties[0].mobile").value("98XXXXX999"));
+
+                // They sign up. Nothing in registration knows about service requests -- identity
+                // sits below services in the module order and there is no event bus -- so the
+                // binding happens the first time they look at their invitations.
+                User tenant = customer("9820000999");
+                String invites = mvc.perform(get(Routes.ServiceRequests.MY_INVITES)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].pending").value(false))
+                    .andExpect(jsonPath("$[0].mobile").doesNotExist())
+                    .andReturn().getResponse().getContentAsString();
+
+                // Claiming is not accepting. The invitation is now addressed to a person and still
+                // unanswered, which is why checkout must stay shut.
+                mvc.perform(post(Routes.ServiceRequests.CHECKOUT, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isConflict());
+
+                mvc.perform(post(Routes.ServiceRequests.INVITE_DECISION, field(invites, "id"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tenant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"accept\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("accepted"));
+
+                // And the row no longer holds a number: claimed rows are byte-for-byte the rows
+                // V75 described, which is what keeps this table's steady state free of contact data.
+                mvc.perform(get(Routes.ServiceRequests.BY_ID, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.parties[0].pending").value(false))
+                    .andExpect(jsonPath("$.parties[0].mobile").doesNotExist());
+            }
+
+            @Test
+            @DisplayName("the requester can withdraw a pending invite and re-issue the role")
+            void withdrawingAPendingInviteFreesTheRole() throws Exception {
+                User owner = customer("9820000153");
+                User stranger = customer("9820000154");
+                Property p = listing(owner);
+
+                String created = mvc.perform(post(Routes.ServiceRequests.CO_FILL_CREATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{" +
+                            "\"request\":{\"type\":\"rent-agreement\",\"propertyId\":\""
+                            + p.getId() + "\"},"
+                            + "\"role\":\"tenant\",\"mobile\":\"9820000998\"}"))
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+                String requestId = field(created, "id");
+                String partyId = field(created.substring(created.indexOf("\"parties\":[")), "id");
+
+                // A stranger gets 404, not 403: whether this request exists is not their business.
+                mvc.perform(delete(Routes.ServiceRequests.PARTY_BY_ID, requestId, partyId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
+                    .andExpect(status().isNotFound());
+
+                mvc.perform(delete(Routes.ServiceRequests.PARTY_BY_ID, requestId, partyId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isNoContent());
+
+                // A mistyped number is the whole reason this route exists, so the role has to be
+                // genuinely free afterwards -- not merely marked withdrawn under the unique index.
+                mvc.perform(post(Routes.ServiceRequests.PARTIES, requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"tenant\",\"mobile\":\"9820000997\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.pending").value(true))
+                    .andExpect(jsonPath("$.mobile").value("98XXXXX997"));
+            }
+
+            @Test
+            @DisplayName("an unclaimed invite is deleted once it expires")
+            void unclaimedInvitesExpire() throws Exception {
+                User owner = customer("9820000155");
+                Property p = listing(owner);
+
+                mvc.perform(post(Routes.ServiceRequests.CO_FILL_CREATE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{" +
+                            "\"request\":{\"type\":\"rent-agreement\",\"propertyId\":\""
+                            + p.getId() + "\"},"
+                            + "\"role\":\"tenant\",\"mobile\":\"9820000996\"}"))
+                    .andExpect(status().isCreated());
+
+                // Nothing is due yet -- the sweep must not take a live invitation with it.
+                assertThat(retention.expireNow()).isZero();
+
+                // A number that was never claimed is a number that may since have been recycled to
+                // somebody with no connection to this agreement, which is the answer to the second
+                // of V75's two objections and the reason the retention window exists at all.
+                long swept = retention.expireInvitesOlderThan(
+                        Instant.now().plus(CoFillInviteRetention.RETENTION).plusSeconds(60));
+                assertThat(swept).isEqualTo(1);
+
+                User late = customer("9820000996");
+                mvc.perform(get(Routes.ServiceRequests.MY_INVITES)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(late)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(0)));
+            }
     }
 
     private void message(User caller, String id, String body, int expected) throws Exception {

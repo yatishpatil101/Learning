@@ -23,7 +23,8 @@ export default function RentAgreement() {
     rootRef, formRef, tr, isIn, user, navigate,
     step, errors, done, openFaq, setOpenFaq,
     mode, inviteError, inviteResult, copied,
-    aType, setAType, prop, setP, setProp, setShowPropertyPicker,
+    withdrawInvite, withdrawing,
+    aType, setAType, prop, setP, setProp, setShowPropertyPicker, myProperties,
     owner, setO, ownerDocs, setOwnerDocs, vaultEnabled, saveOwnerDocToVault,
     tenantMode, setTenantMode, tenants, setTenant, addTenant, removeTenant, tenantDocs, setTenantDocs, invite, setInvite,
     terms, setT, maint, setMaint, regArea, setRegArea, furnItems, custom, setCustom, clauses, setClauses,
@@ -102,11 +103,25 @@ export default function RentAgreement() {
                     <div className="p-5 rounded-xl bg-white/[0.03]">
                       <p className="text-white font-semibold text-sm flex items-center gap-2"><Icon name="message-circle" className="w-4 h-4 text-emerald-400" /> {tr('services.ra.invite.sendTitle')}</p>
                       <p className="text-gray-400 text-xs mt-1">{tr('services.ra.invite.sendDesc', { mobile: inviteResult.toMobile ? '••••' + inviteResult.toMobile.slice(-4) : '' })}</p>
+                      {/* Two different waits, and they need different advice. A pending party is a
+                          number nobody has signed up to yet, so the link cannot open until they
+                          create an account; a non-pending one is a real account that has not
+                          answered. Saying "resend it" to the first is useless advice. */}
+                      {inviteResult.pending ? (
+                        <p className="text-amber-200/90 text-[11px] mt-2 flex items-start gap-1.5"><Icon name="clock" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {tr('services.ra.invite.pendingSignup')}</p>
+                      ) : (
+                        <p className="text-gray-500 text-[11px] mt-2 flex items-start gap-1.5"><Icon name="clock" className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {tr('services.ra.invite.awaitingReply')}</p>
+                      )}
                       <div className="flex flex-col sm:flex-row gap-2 mt-3">
                         <a href={inviteResult.waLink} target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold min-h-[44px]"><Icon name="message-circle" className="w-4 h-4" /> {tr('services.ra.invite.sendWhatsapp')}</a>
                         <button type="button" onClick={copyInviteLink} className="btn-outline inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-gray-200 text-sm font-semibold min-h-[44px]"><Icon name={copied ? 'check' : 'copy'} className="w-4 h-4" /> {copied ? tr('services.ra.invite.copied') : tr('services.ra.invite.copyLink')}</button>
                       </div>
                       <p className="text-gray-600 text-[11px] mt-2.5 leading-relaxed">{tr('services.ra.invite.sendNote')}</p>
+                      {inviteResult.partyId ? (
+                        <button type="button" onClick={withdrawInvite} disabled={withdrawing} className="mt-3 text-gray-500 hover:text-gray-300 disabled:opacity-50 text-[11px] font-semibold underline underline-offset-2">
+                          {withdrawing ? tr('services.ra.invite.withdrawing') : tr('services.ra.invite.withdraw')}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -162,7 +177,7 @@ export default function RentAgreement() {
                       <p className="text-gray-400 text-xs mt-1">{tr('services.ra.pendingInvite.desc')}</p>
                       <div className="mt-3 space-y-2">
                         {myInvites.map((inv) => (
-                          <a key={inv.inviteId} href={invitePath(inv.inviteId)} className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/4 border border-white/8 hover:border-emerald-400/30">
+                          <a key={inv.inviteId} href={inv.href || invitePath(inv.inviteId)} className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/4 border border-white/8 hover:border-emerald-400/30">
                             <span className="text-gray-200 text-xs">{tr('services.ra.pendingInvite.from', { name: inv.fromName || 'A PuneNest user' })}{inv.property ? ' · ' + inv.property : ''}</span>
                             <span className="text-emerald-300 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">{tr('services.ra.pendingInvite.cta')} <Icon name="arrow-right" className="w-3.5 h-3.5" /></span>
                           </a>
@@ -195,7 +210,7 @@ export default function RentAgreement() {
 
                   {/* Step 1: Property */}
                   <fieldset disabled={mode === 'invite'} className="contents">
-                    <StepProperty step={step} aType={aType} setAType={setAType} prop={prop} setP={setP} setProp={setProp} setShowPropertyPicker={setShowPropertyPicker} errors={errors} fc={fc} clearErr={clearErr} />
+                    <StepProperty step={step} aType={aType} setAType={setAType} prop={prop} setP={setP} setProp={setProp} setShowPropertyPicker={setShowPropertyPicker} myProperties={myProperties} errors={errors} fc={fc} clearErr={clearErr} />
                   </fieldset>
 
                   {/* Step 2: Owner */}

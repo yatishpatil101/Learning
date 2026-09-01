@@ -214,28 +214,47 @@ test('a verified resident of the society sees the private Join link with a safe 
 });
 
 // ─── AC5: report → ops moderation remove/dismiss ───
+/**
+ * The oracle here changed with the backend repoint, and the change is the point.
+ *
+ * A society report used to be written to `pnSocietyReports` — a key in the *reporting* member's own
+ * browser, which the ops queue (reading the moderator's browser) could never see. It now goes
+ * through `reportService` to the one platform reports store, so this reads that store instead. The
+ * dedupe assertion below is unchanged in meaning and now proves something it could not before: both
+ * providers refuse the second press, so the "you already reported this" branch is not mock-only.
+ */
 test('KYC member reports a contribution — one open report per user per target', async ({ page }) => {
   await seedKyc(page, KYC_MOBILE);
   await seedContribs(page, [contrib()]);
   await gotoHub(page, 'community');
 
+  const openReports = () => page.evaluate(() => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+    return (db.reports || []).filter((r) => r.status === 'open' && (r.kind || '') === 'contribution');
+  });
+
   const feed = page.locator('section', { has: page.getByRole('heading', { name: 'Community insights' }) });
   const card = feed.locator('div.glass.rounded-xl', { hasText: 'Water tanker fills the sump' });
   await card.getByRole('button', { name: 'Report contribution' }).click();
   const rpt = page.getByRole('dialog', { name: 'Submit report' });
-  await rpt.getByPlaceholder(/Reason/i).fill('Looks like spam.');
+  // The reason is a picker now, not prose. `spam` rather than the default, so the stored code below
+  // cannot pass on a report whose reason was never read off the control at all.
+  await rpt.getByRole('button', { name: /Reason/i }).click();
+  await page.getByRole('option', { name: /Spam, advertising/i }).click();
+  await rpt.getByPlaceholder(/Anything else/i).fill('Looks like spam.');
   await rpt.getByRole('button', { name: 'Submit report' }).click();
 
   await expect(page.getByText(/our team will review it/i)).toBeVisible({ timeout: 8000 });
-  let reports = await page.evaluate(() => JSON.parse(localStorage.getItem('pnSocietyReports') || '[]'));
-  expect(reports.filter((r) => r.status === 'open').length).toBe(1);
+  let reports = await openReports();
+  expect(reports.length).toBe(1);
+  expect(reports[0].reason).toBe('spam');
 
   // Reporting the same target again is a no-op dup.
   await card.getByRole('button', { name: 'Report contribution' }).click();
   await page.getByRole('dialog', { name: 'Submit report' }).getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText(/already reported this/i)).toBeVisible({ timeout: 8000 });
-  reports = await page.evaluate(() => JSON.parse(localStorage.getItem('pnSocietyReports') || '[]'));
-  expect(reports.filter((r) => r.status === 'open').length).toBe(1);
+  reports = await openReports();
+  expect(reports.length).toBe(1);
 });
 
 test('ops Remove deletes the reported contribution and closes the report; Dismiss keeps it', async ({ page }) => {

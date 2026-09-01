@@ -45,13 +45,20 @@ const moneyWords = (v) => {
   return `≈ ₹ ${num}`;
 };
 
-export function OwnerStep({ form, set, errors, pendingByMobile }) {
+export function OwnerStep({ form, set, errors, pendingByMobile, standing }) {
   const mobileValid = /^[6-9]\d{9}$/.test(form.ownerMobile);
   /* Counted by the page, not here. This used to read `rawDb().listings` directly — the mock store,
      which the live provider never writes to, so against the API the warning could never appear.
      The tally now arrives as a prop from one read of the pending queue when the wizard opens; see
      `AdminPostOnBehalf`. Defaulted so the step still renders if it is mounted without one. */
   const dupCount = mobileValid ? (pendingByMobile?.get(form.ownerMobile) || 0) : 0;
+  /* Shown, never enforced. The desk is exempt from the owner's plan ceiling — that exemption is
+     what lets an operator record all three flats the caller is describing instead of one — so this
+     is information for the call, not a gate on the form. It reads as a sales prompt rather than a
+     warning for exactly that reason: nothing has gone wrong, there is simply a conversation to
+     have. `known` is false on most first calls, and an owner sitting exactly on their limit is not
+     over it, so neither renders anything. */
+  const overage = standing?.known && standing.overAllowance ? standing : null;
   return (
     <div className="space-y-5">
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
@@ -60,6 +67,7 @@ export function OwnerStep({ form, set, errors, pendingByMobile }) {
       <div><label htmlFor="pob-ownerName" className={label}>Owner Name *</label><input id="pob-ownerName" value={form.ownerName} onChange={(e) => set('ownerName', e.target.value)} placeholder="Full name of the property owner" className={classNames(fld, errors.ownerName && errCls)} /><FieldError show={!!errors.ownerName}>Owner name is required.</FieldError></div>
       <div><label htmlFor="pob-ownerMobile" className={label}>Owner Mobile *</label><div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400">+91</span><input id="pob-ownerMobile" inputMode="numeric" value={form.ownerMobile} onChange={(e) => set('ownerMobile', e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="9876543210" className={classNames(fld, 'pl-12', errors.ownerMobile && errCls)} /></div><FieldError show={!!errors.ownerMobile}>Valid 10-digit mobile required.</FieldError>
         {dupCount > 0 && <p className="mt-1.5 text-xs text-amber-300/90">⚠ This owner already has {dupCount} pending listing{dupCount > 1 ? 's' : ''}. You can still continue if this is a different property.</p>}
+        {overage && <p data-testid="pob-plan-overage" className="mt-1.5 text-xs text-sky-300/90">This owner is over their plan — {overage.held} live listing{overage.held > 1 ? 's' : ''} on a plan that includes {overage.allowance}. You can still post; worth mentioning an upgrade on the call.</p>}
       </div>
       <div><label htmlFor="pob-ownerNotes" className={label}>Internal Notes (optional)</label><textarea id="pob-ownerNotes" value={form.ownerNotes} onChange={(e) => set('ownerNotes', e.target.value)} placeholder="e.g. Owner contacted via WhatsApp, photos sent on chat..." rows={3} className={fld} /></div>
     </div>

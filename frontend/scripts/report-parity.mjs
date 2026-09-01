@@ -83,7 +83,20 @@ if (missingOnMock.length) failures.push(`mock provider is missing: ${missingOnMo
 // ─── The kind → targetType table ──────────────────────────────────────────────────────────────
 // Driven directly, because the round trip below only exercises one kind. This is the assertion the
 // flatmates bug needed: `share` must not resolve to `user`.
-for (const [kind, expected] of [['listing', 'property'], ['user', 'user'], ['share', 'post'], ['review', 'review']]) {
+for (const [kind, expected] of [
+  ['listing', 'property'],
+  ['user', 'user'],
+  ['share', 'post'],
+  ['review', 'review'],
+  // The society hub's five surfaces. The client has called them by the bare word since the hub was
+  // browser-only; the wire wants the prefixed form. `review` is absent on purpose — a society
+  // review is an ordinary `review`, checked one line above.
+  ['contribution', 'society_contribution'],
+  ['reply', 'society_reply'],
+  ['question', 'society_question'],
+  ['answer', 'society_answer'],
+  ['board', 'society_board'],
+]) {
   const got = toTargetType(kind);
   if (got !== expected) {
     failures.push(`kind "${kind}" mapped to targetType "${got}", expected "${expected}" — the server validates the reason against the target type, so a wrong type is a 400, not a mislabel`);
@@ -142,6 +155,11 @@ for (const [kind, expected] of [['listing', 'property'], ['user', 'user'], ['sha
     ['FOR_PROPERTY', 'LISTING_REPORT_REASONS', 'property'],
     ['FOR_USER', 'OWNER_REPORT_REASONS', 'user'],
     ['FOR_POST', 'SHARE_REPORT_REASONS', 'post'],
+    /* One client list against one server set, covering five target types. The server short-circuits
+       every `society_*` kind onto `FOR_SOCIETY_CONTENT` before its switch, so there is exactly one
+       vocabulary to diff however many kinds share it. `personal` is the code that only lives here —
+       if it ever falls out of one side, this is what says so. */
+    ['FOR_SOCIETY_CONTENT', 'SOCIETY_REPORT_REASONS', 'society_contribution'],
   ];
 
   for (const [field, exportName, targetType] of pairs) {

@@ -9,12 +9,9 @@ import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
 import { listProperties } from '../../services/propertyService.js';
-import { listSocietyRatings } from '../../services/societyService.js';
+import { listSocietyRatings, mintSociety } from '../../services/societyService.js';
 import { allSocieties, listingsInSociety } from '../../data/societies.js';
-import {
-  resolveSociety,
-  mintDemandSociety,
-} from '../../lib/store.js';
+import { resolveSociety } from '../../lib/store.js';
 import { Stars } from './property/Stars.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -153,8 +150,13 @@ export default function Societies() {
 
   const enriched = useMemo(() => allSocieties().map((raw) => {
     const soc = resolveSociety(raw.slug) || raw;
-    const community = soc.tier === 'community';
-    const verified = !community && !!(soc.registration && soc.conveyance);
+    /* `source`, not `tier`. `tier: 'community'` was stamped by the browser that minted the row and
+       existed nowhere else; the server records how a society got here (`curated`, `rera`,
+       `community`) and, separately, whether ops have since confirmed it. A member-added society
+       that has been verified is therefore no longer badged as unchecked, which under the old flag
+       it could never stop being. */
+    const community = (soc.source || soc.tier) === 'community';
+    const verified = !!soc.verifiedAt || (!community && !!(soc.registration && soc.conveyance));
     return {
       id: soc.id, slug: soc.slug, name: soc.name, builder: soc.builder || '',
       localitySlug: soc.localitySlug || '',
@@ -220,19 +222,35 @@ export default function Societies() {
     toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
 
+  /**
+   * Add a society we do not have, and land the member on it.
+   *
+   * This used to mint a `SC…` id into the reader's own `localStorage` and navigate there. Nobody
+   * else could see it, ops had no queue to verify it from, and the follow had to be kept local
+   * because the server 404'd a slug that existed nowhere but this browser. Four surfaces invite
+   * somebody to add a missing society; not one of those additions had ever reached us.
+   *
+   * `POST /societies` is a mint-or-match: 201 for a society that did not exist, 200 when the name
+   * already resolves to one. The 200 case is why the toast branches — telling somebody we added
+   * their society when we simply found it is a small lie that sends them looking for a new row.
+   */
   const addSociety = async () => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
     if (!catalogueReady) return;
     setBusy(true);
-    const rec = mintDemandSociety({ name: query.trim(), localitySlug: loc || undefined });
-    /* Minting no longer follows on its own (D227). The society exists only in this browser, so the
-       server 404s a follow on it; the context is the only thing that knows to keep such a follow
-       local and retry it once ops promote the slug. */
-    if (rec) await follows.toggle(rec.slug);
+    let out;
+    try {
+      out = await mintSociety({ name: query.trim(), localitySlug: loc || undefined });
+    } catch {
+      setBusy(false);
+      toast(t('societies.addFailed'), 'error');
+      return;
+    }
+    // The slug is real now, so the follow is an ordinary server write like any other.
+    await follows.toggle(out.society.slug);
     setBusy(false);
-    if (!rec) return;
-    toast(t('societies.addedToast'), 'success');
-    nav('/society/' + rec.slug);
+    toast(out.created ? t('societies.addedToast') : t('societies.alreadyListedToast'), 'success');
+    nav('/society/' + out.society.slug);
   };
 
   const visible = results.slice(0, limit);

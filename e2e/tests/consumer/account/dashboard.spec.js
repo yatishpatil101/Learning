@@ -22,6 +22,31 @@ async function login(page, user, { listings, savedSearches, aadhaar } = {}) {
   }, { u: user, l: listings || null, ss: savedSearches || null, aad: aadhaar || false });
 }
 
+/* Put a listing where the owner dashboard actually looks for one.
+
+   `login({ listings })` writes `puneNestListings:<mobile>`, which is where the dashboard read from
+   until "My Listings" was repointed onto `propertyService.myListings`. The mock provider behind that
+   seam resolves the *catalogue* (`puneNestDB_v5`) and keeps only rows marked `real`, so the
+   per-owner key is no longer read by anything and these two tests were seeding into a drawer nobody
+   opens: the owner had no inventory, the management tabs stayed gated, and the Overview stats had
+   nothing to total.
+
+   It has to run after boot. The app seeds `puneNestDB_v5` itself on first load, so an
+   `addInitScript` write is overwritten before the page settles — hence the `pnBoot` wait rather
+   than another init script. */
+async function publishToCatalogue(page, listing, mobile) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.documentElement.dataset.pnBoot === 'ready', null, { timeout: 30000 });
+  await page.evaluate(({ l, m }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, ownerMobile: m, real: true }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { l: listing, m: mobile });
+}
+
 test.describe('Consumer Dashboard', () => {
   test('an owner with NO inventory does not see management tabs (gating by posting)', async ({ page }) => {
     await login(page, OWNER); // role owner but zero listings/rooms/managed
@@ -33,6 +58,7 @@ test.describe('Consumer Dashboard', () => {
 
   test('posting a listing unlocks the owner management tabs', async ({ page }) => {
     await login(page, OWNER, { listings: [LISTING] });
+    await publishToCatalogue(page, LISTING, OWNER.mobile);
     await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
     await expect(page.getByRole('button', { name: /^Requests$/ }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Finances/ }).first()).toBeVisible();
@@ -52,6 +78,7 @@ test.describe('Consumer Dashboard', () => {
 
   test('Overview shows real data, not fabricated stats', async ({ page }) => {
     await login(page, OWNER, { listings: [LISTING] });
+    await publishToCatalogue(page, LISTING, OWNER.mobile);
     await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
     await expect(page.getByText('Total Views')).toBeVisible();
     // The old hardcoded numbers must be gone.
