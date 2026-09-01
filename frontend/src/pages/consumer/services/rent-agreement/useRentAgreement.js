@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useScrollReveal } from '../../../../lib/useScrollReveal.js';
 import { useAuth } from '../../../../context/AuthContext.jsx';
 import { useToast } from '../../../../context/ToastContext.jsx';
-import { createCoFill, inviteContext, submitInviteDetails, buildInviteWaLink, inviteLink, findInviteById, pendingInvites, isActive } from '../../../../lib/serviceFlow.js';
+import { createCoFill, inviteContext, submitInviteDetails, buildInviteWaLink, inviteLink, findInviteById, pendingInvites, inviteRouteFor, isActive } from '../../../../lib/serviceFlow.js';
 import { pushNotificationFor } from '../../../../lib/store.js';
 import { isHttpDomain } from '../../../../services/config.js';
 import { listDocuments, uploadDocument } from '../../../../services/documentService.js';
@@ -27,7 +27,6 @@ import {
   withdrawServiceRequestParty,
 } from '../../../../services/serviceRequestService.js';
 import { openCashfreeCheckout } from '../../../../lib/cashfree.js';
-import { createServiceRequest } from '../../../../lib/mockApi.js';
 
 /* Waits between the re-reads that follow checkout. Cashfree confirms payment over a server-to-server
    webhook, so the status the browser can see lags the customer's own experience of having paid by a
@@ -567,18 +566,31 @@ export function useRentAgreement() {
         try {
           const invites = await listMyServiceRequestInvites();
           const row = (invites || []).find((inv) => inv?.id === partyId || inv?.requestId === requestId);
-          if (!row || !row.requestId) {
+          if (row && row.status === 'declined') {
             if (alive) setInviteError({ kind: 'expired' });
             return;
           }
-          if (row.status === 'declined') {
+          /* An accepted invitation leaves the pending list, so a reload — or StrictMode's second
+             pass, which lands immediately after the first has accepted — finds no row here.
+             Absence is not expiry: the server's answer to the request itself is the authority on
+             whether this account is a party, and it 404s for everyone else. Reading it that way
+             also lets an invitee come back and finish later. */
+          const reqId = row?.requestId || requestId;
+          if (!reqId) {
             if (alive) setInviteError({ kind: 'expired' });
             return;
           }
-          if (row.status !== 'accepted') {
-            await decideServiceRequestInvite(row.id, 'accept');
+          if (row && row.status !== 'accepted') {
+            /* StrictMode runs this effect twice, and a user with two tabs is the same shape: two
+               accepts race for one invitation and the loser can be refused. That refusal is not
+               a failure to open the invite — it means someone already accepted it. The read below
+               is the authority on whether this account is a party; a genuine failure shows up
+               there as a 404 and still reaches the expired panel. */
+            try {
+              await decideServiceRequestInvite(row.id, 'accept');
+            } catch { /* fall through to the read, which decides */ }
           }
-          const req = await getServiceRequest(row.requestId);
+          const req = await getServiceRequest(reqId);
           if (!req) {
             if (alive) setInviteError({ kind: 'expired' });
             return;
@@ -587,9 +599,9 @@ export function useRentAgreement() {
           setInviteError(null);
           setInviteCtx({
             invite: {
-              inviteId: row.id,
-              reqId: row.requestId,
-              toRole: row.role || 'tenant',
+              inviteId: row?.id || partyId,
+              reqId,
+              toRole: row?.role || 'tenant',
               toName: null,
               toMobile: digits(user.mobile),
             },
@@ -645,7 +657,7 @@ export function useRentAgreement() {
             requestId: row.requestId,
             fromName: row.invitedBy,
             property: null,
-            href: `/services/rent-agreement?party=${encodeURIComponent(row.id)}&request=${encodeURIComponent(row.requestId || '')}`,
+            href: inviteRouteFor(row, true),
           })));
         })
         .catch(() => { if (alive) setMyInvites([]); });
@@ -806,7 +818,6 @@ export function useRentAgreement() {
       return;
     }
     const inviteMobile = digits(invite.invMobile);
-    const tNames = tenantNames();
     const property = propertyLine();
     const ownerMobile = digits(owner.oMobile) || user?.mobile || '';
     const details = buildDetails();
@@ -814,37 +825,30 @@ export function useRentAgreement() {
     setSubmitting(true);
     try {
       if (mode === 'owner') {
-        /* The admin lead ticket. **Still the browser store, and not because nobody has got to it.**
+        /* **There is no admin lead ticket here any more, and that is the decision rather than an
+           omission.**
 
-           `ServiceLanding` was moved onto `POST /tickets` because there the lead *is* the point: a
-           free quote enquiry with nothing behind it, which a desk calls back. This desk is priced.
-           `ServiceRequestService` commits the request at `awaiting-payment` and `findForQueue`
-           deliberately excludes that status, so an unpaid rent-agreement request is invisible to
-           ops on purpose. Raising a server ticket here would put the same enquiry on the rental
-           desk immediately — visible, callable, and indistinguishable from a paid one — which is
-           precisely the thing the server took care to prevent one layer down.
+           This submit used to mint a `TR…` ref and write a `rental` ticket through `lib/mockApi`,
+           unconditionally — on a live build too. Nothing about that write was real: `toCreate` in
+           `serviceRequestMapper.js` deliberately refuses to forward a `TR…` ref to the server, the
+           backend has no `ticketRef` field at any layer, and the ticket itself only ever existed in
+           the one browser that made it. So the rental desk was never told anything; the owner's own
+           tab simply believed it had been.
 
-           The ordering makes it worse rather than better. A server ticket has to be created first
-           so its id can go onto the request, which inverts the rule this line already follows: the
-           ticket is raised only after the request it references exists, so a failed create cannot
-           leave admin holding a ticket that points at nothing.
+           The question it was standing in for — *when should the desk see this?* — is answered by
+           the server already. `rent-agreement` is the one priced desk: `ServiceRequestService`
+           commits the request at `awaiting-payment`, `findForQueue` excludes that status on
+           purpose, and `applyWebhookOutcome` transitions it to `new` the moment the
+           signature-verified payment webhook lands. From there the request is on the queue carrying
+           its own `details` — property, parties, terms, cost — which is strictly more than the
+           one-line `detail` string the ticket was carrying.
 
-           So the honest options are "raise the ticket from the payment webhook" or "do not raise
-           one at all and let the request be the record" — both product decisions about what the
-           rental desk should see, not refactors. Until one is taken this stays where it is, and the
-           `TR…` ref keeps pairing it with the flow record locally.
-
-           This used to cite "item 21 in `tasks/DECISIONS-NEEDED.md`". There is no item 21 in that
-           register and there is no evidence there ever was — the pointer sent every reader looking
-           for a rationale that only exists here, so the reasoning is stated in full above rather
-           than delegated to a row that cannot be found. */
-        // Raised only *after* the request it references exists, so a failed create cannot leave
-        // admin holding a ticket that points at nothing.
-        const ticketRef = 'TR' + Date.now() + Math.floor(Math.random() * 1000);
-        const raiseAdminTicket = () => createServiceRequest({
-          team: 'rental', service: 'Rent Agreement', customer: owner.oName || user?.name || 'Customer', mobile: ownerMobile,
-          detail: `${aType} · ${property} · ${tNames || '—'} · ${fmt(cost.rent)}/mo · ${terms.months}m`, value: cost.total ?? 0, ref: ticketRef,
-        });
+           So the request *is* the record, and raising a second one from the browser could only be a
+           worse copy of it. The two rejected alternatives, for the next reader: raising a real
+           `POST /tickets` here would put an unpaid enquiry on the rental desk immediately, visible
+           and indistinguishable from a paid one, which is precisely what the server takes care to
+           prevent one layer down; raising it from the payment webhook would be a second record of
+           an event that already has one. */
         persistOwnerKYC();
         const docs = collectDocs();
         if (tenantMode === 'invite' && inviteMobile) {
@@ -854,12 +858,10 @@ export function useRentAgreement() {
                 type: 'rental',
                 details,
                 propertyId: searchParams.get('listing') || searchParams.get('flat') || undefined,
-                ticketRef,
               },
               role: 'tenant',
               mobile: inviteMobile,
             });
-            raiseAdminTicket();
             const party = (request?.parties || []).find((p) => p?.role === 'tenant' && p?.status === 'invited')
               || (request?.parties || [])[0]
               || null;
@@ -885,12 +887,11 @@ export function useRentAgreement() {
           } else {
             const { invite: inv } = createCoFill(ownerMobile, {
               type: 'rental', service: 'Rent Agreement', customer: { name: details.ownerName }, details,
-              docs, ticketRef,
+              docs,
               initiatorRole: 'owner', initiatorName: details.ownerName,
               parties: [{ role: 'owner', mobile: ownerMobile, name: details.ownerName }, { role: 'tenant', mobile: inviteMobile, name: invite.invName }],
               invite: { toMobile: inviteMobile, toName: invite.invName, toRole: 'tenant', sections: ['tenant'], fromName: details.ownerName, fromRole: 'owner', property, message: invite.invMessage },
             });
-            raiseAdminTicket();
             if (inv) {
               setInviteResult({
                 toName: invite.invName || '',
@@ -926,9 +927,7 @@ export function useRentAgreement() {
             details,
             docs: docs.length ? docs : undefined,
             propertyId: listingId,
-            ticketRef,
           });
-          raiseAdminTicket();
           /*
              ── The identity numbers, on their own narrow channel (D151) ──
 

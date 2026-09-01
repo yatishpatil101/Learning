@@ -13,7 +13,9 @@ import {
 } from '../../../services/rentService.js';
 import { generateSingle } from '../../../lib/rentReceipt.js';
 import { thisMonth } from '../../../lib/rentPay.js';
-import { pendingInvites, invitePath } from '../../../lib/serviceFlow.js';
+import { inviteRouteFor } from '../../../lib/serviceFlow.js';
+import { listMyServiceRequestInvites } from '../../../services/serviceRequestService.js';
+import { isHttpDomain } from '../../../services/config.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 
 /* "My Rental" — the tenant mirror of My Properties. One hub for the home you rent:
@@ -35,6 +37,7 @@ export default function MyRentalPanel({ user, toast }) {
   /* The tenant's own tenancy, payment history, mandate, profile and agreements — five caller-scoped
      reads, issued together because none depends on another and the panel blocks on all of them. */
   const [rent, setRent] = useState({ payments: [], mandate: null, profile: null, agreements: [] });
+  const [invites, setInvites] = useState([]);
   useEffect(() => {
     let alive = true;
     Promise.all([
@@ -43,11 +46,23 @@ export default function MyRentalPanel({ user, toast }) {
       getMandate().catch(() => null),
       myTenantProfile().catch(() => null),
       myRentAgreements().catch(() => []),
-    ]).then(async ([rows, page, mandateRow, profileRow, agreementRows]) => {
+      /* Sixth caller-scoped read, and the reason this is a request rather than a local lookup:
+         the invitation is a row the *owner* created against this account, so this browser has
+         never seen it. Reading it from `localStorage` meant the card below could only appear to
+         someone who had already been invited in this same browser — that is, never. */
+      listMyServiceRequestInvites().catch(() => []),
+    ]).then(async ([rows, page, mandateRow, profileRow, agreementRows, inviteRows]) => {
       if (!alive) return;
       const cards = await toRentalCards(rows);
       if (!alive) return;
       setTenancies(cards);
+      setInvites((inviteRows || [])
+        .filter((row) => row?.status === 'invited')
+        .map((row) => ({
+          inviteId: row.id,
+          fromName: row.invitedBy,
+          href: inviteRouteFor(row, isHttpDomain('serviceRequest')),
+        })));
       setRent({
         payments: page?.items || [],
         mandate: mandateRow,
@@ -71,8 +86,7 @@ export default function MyRentalPanel({ user, toast }) {
   // meter has no number to show.
   const score = profile?.score ?? null;
   // Rent-agreement co-fill requests addressed to this user (owner invited them to
-  // add their tenant details). Surfaced here first, then routed to the fill page.
-  const invites = useMemo(() => pendingInvites(user?.mobile), [user?.mobile]);
+  // add their tenant details). Fetched with the panel's other reads, above.
 
   const downloadReceipt = (p) => {
     try {
@@ -292,7 +306,7 @@ function PendingInvites({ invites }) {
               </p>
               <p className="text-gray-500 text-xs mt-0.5">You fill your tenant details; the rest is view-only.</p>
             </div>
-            <Link to={invitePath(inv.inviteId)} className="btn-teal px-4 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 flex-shrink-0">
+            <Link to={inv.href} className="btn-teal px-4 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 flex-shrink-0">
               <Icon name="pencil" className="w-4 h-4" /> Fill my details
             </Link>
           </div>

@@ -9,15 +9,11 @@ import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { createServiceRequest } from '../lib/mockApi.js';
 /* Two writes, and they are not the same write.
-   - The ops *lead ticket* is what a desk calls back from. Live it is `POST /tickets`; in mock mode
-     the `ticket` domain has no provider on purpose (see `services/config.js`), so the browser store
-     keeps its own copy rather than losing the lead entirely.
+   - The ops *lead ticket* is what a desk calls back from: `POST /tickets`.
    - The *flow request* is the workflow the customer then tracks. It crosses the seam per
-     `VITE_API_DOMAINS` either way. */
+     `VITE_API_DOMAINS`. */
 import { createTicket } from '../services/ticketService.js';
-import { isHttpDomain } from '../services/config.js';
 import { createServiceRequest as createFlowRequest } from '../services/serviceRequestService.js';
 import ServiceTracker from './ServiceTracker.jsx';
 import AutosaveBanner from './AutosaveBanner.jsx';
@@ -92,24 +88,23 @@ export default function ServiceLanding({
     const details = (quote?.fields || []).filter((f) => form[f.name]).reduce((o, f) => { o[f.name] = form[f.name]; return o; }, {});
 
     /* The lead ticket and the flow request are two records for one submit, and they have to name
-       each other or an operator opening either has no route to the other.
+       each other or an operator opening either has no route to the other. The link is the
+       server's: `POST /tickets` returns a real id and it goes onto the request as `ticketId`
+       (D45, `service_requests.ticket_id`).
 
-       Live, the link is the server's: `POST /tickets` returns a real id and it goes onto the
-       request as `ticketId` (D45, `service_requests.ticket_id`). Until now this branch did not
-       exist — the ticket was written to `localStorage` on every deployment, so on a live one the
-       desk never saw the lead at all and the request carried no link, while the customer was shown
-       the same confirmation either way. That is the failure this replaces.
+       A `!isHttpDomain('ticket')` arm used to stand here and write the lead to `localStorage`,
+       pairing the two with a browser-minted `TR…` ref. It ran on every deployment, live included,
+       so the desk never saw the lead, the request carried no link, and the customer was shown the
+       same confirmation either way. Nothing replaces it in mock mode, and that is the point: the
+       `ticket` domain has no mock provider by deliberate decision (D184), because the mock store
+       knows three ticket statuses where the desk knows nine, and `/admin/services` already tells
+       an operator the queue needs the API rather than rendering one that cannot be worked. A lead
+       filed where no desk can read it is not a lead — it is a record of somebody being missed.
 
-       In mock mode the `ticket` domain has no provider on purpose, so the browser store keeps the
-       lead and the two are paired by a `TR…` ref that `syncServiceTicket` mirrors flow status onto.
-       `serviceRequestMapper.toCreate` refuses to forward a `TR…` ref to the server for exactly the
-       reason it exists: it is a browser-local pairing, and the server has never heard of it. */
+       `serviceRequestMapper.toCreate` still refuses to forward a `TR…` ref, and that guard stays:
+       it is the seam's statement that a browser-minted pairing is not a server id, and the flatmate
+       and rent-agreement flows can still hand it one. */
     const raiseLead = async () => {
-      if (!isHttpDomain('ticket')) {
-        const ref = flowType ? 'TR' + Date.now() + Math.floor(Math.random() * 1000) : null;
-        createServiceRequest({ team, service, customer: form.name, mobile: form.mobile, detail, ...(ref ? { ref } : {}) });
-        return ref;
-      }
       // Contact details are not sent: the page is sign-in gated above and the server copies the
       // name and number off the session, so a form-supplied pair would be a second, unverified one.
       const ticket = await createTicket({ team, subject: service, body: detail });

@@ -376,6 +376,15 @@ export const pendingInviteCount = (mobile) => pendingInvites(mobile).length;
 /* In-app (relative) path the invited party opens to fill their section. Safe for
    React Router <Link>/notification links, which only accept same-origin paths. */
 export const invitePath = (inviteId) => '/services/rent-agreement?invite=' + encodeURIComponent(inviteId || '');
+/* Path for a row off `listMyServiceRequestInvites`, whichever provider answered.
+   A live invitation is addressed to an account (`?party=&request=`) and is resolved only after
+   sign-in; the mock's id is a bearer token (`?invite=`) that opens for whoever holds it. The two
+   are not interchangeable — the live wizard ignores `?invite=` entirely — so this lives in one
+   place rather than being rebuilt at each of the three surfaces that link to an invitation. */
+export const inviteRouteFor = (row, live) => (live
+  ? '/services/rent-agreement?party=' + encodeURIComponent(row?.id || '')
+    + '&request=' + encodeURIComponent(row?.requestId || '')
+  : invitePath(row?.id));
 /* Absolute deep link (origin + path) for external channels like WhatsApp. */
 export const inviteLink = (inviteId, origin) => {
   const base = origin || (typeof window !== 'undefined' ? window.location.origin : '');

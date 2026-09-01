@@ -73,6 +73,12 @@ const TYPE_PREFIXES = [
   // been falling through to the grey `system` row since the notification page shipped — it is an
   // enquiry thread from the reader's point of view, which is the chip they would reach for.
   ['message', 'enquiry'],
+  // Our services team shared a draft for the customer to approve (`service.draft-shared`). Identity
+  // mapping onto the UI's own `service` member, stated for the same dotted-type reason as `visit`
+  // and `document` above — `PASSTHROUGH` matches the bare word only, and no server type is bare.
+  // Load-bearing rather than cosmetic: this notification is the *only* thing that tells a customer
+  // a draft is waiting on their decision, and the request cannot progress until they act on it.
+  ['service', 'service'],
 ];
 
 /** UI types that already mean what they say — passed through untouched. */

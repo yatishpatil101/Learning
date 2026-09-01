@@ -44,3 +44,38 @@ test('the admin services desk says it needs the API rather than rendering an emp
   await expect(page.getByText(/served by the API, which is not enabled/i)).toBeVisible({ timeout: 10000 });
   await expect(page.locator('input[placeholder="Search id, customer, detail…"]')).toHaveCount(0);
 });
+
+/*
+ * The second claim that is about the mock build and so cannot move to the live suite.
+ *
+ * `ServiceLanding` carried a `!isHttpDomain('ticket')` arm that wrote the lead into
+ * `puneNestDB_v5.tickets` — a browser-local row on a desk that, by the test above, does not exist
+ * in this build. It ran on live deployments too, which is the half `live-service-landing-ticket`
+ * now covers; this is the other half, and it is the one no live spec can see, because on a live
+ * build the deleted branch was never taken.
+ *
+ * Asserted as a delta with a marker rather than a count. The seed ships tickets on several desks
+ * and more arrive while the page is still booting, so `tickets.length` is a race — but `customer`
+ * is copied verbatim off the session by the deleted writer, so a name nobody else uses is a
+ * signature only this submit could have left. The confirmation heading is the positive anchor: a
+ * submit that silently did not run would satisfy the absence for free.
+ */
+test('a quote submitted without the API leaves no lead in this browser', async ({ page }) => {
+  const PROBE = `Mock Lead Probe ${Date.now()}`;
+  await login(page, { name: PROBE, mobile: '9800000002', email: '', role: 'user', joinedAt: Date.now() });
+  await page.goto(`${BASE}/home-loans`, { waitUntil: 'domcontentloaded' });
+
+  // The field is not a native `<select>` — `NativeSelect` keeps the `<option>` API but renders the
+  // themed `pn-dropdown`, and its label is not wired to it, so the `data-err` wrapper is the hook.
+  await page.locator('[data-err="loanType"] .pn-dropdown__trigger').click();
+  await page.getByRole('option', { name: 'Home Purchase Loan' }).click();
+  await page.getByRole('button', { name: 'Get Loan Offers' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Request received!' })).toBeVisible({ timeout: 10000 });
+
+  const mine = await page.evaluate((probe) => {
+    const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+    return (db.tickets || []).filter((t) => t.customer === probe).length;
+  }, PROBE);
+  expect(mine, 'the lead was filed in this browser, where no desk in this build can read it').toBe(0);
+});

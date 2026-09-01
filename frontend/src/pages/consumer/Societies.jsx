@@ -240,7 +240,7 @@ export default function Societies() {
     setBusy(true);
     let out;
     try {
-      out = await mintSociety({ name: query.trim(), localitySlug: loc || undefined });
+      out = await mintSociety({ name: query.trim(), localitySlug: loc || undefined, mintOrigin: 'demand' });
     } catch {
       setBusy(false);
       toast(t('societies.addFailed'), 'error');

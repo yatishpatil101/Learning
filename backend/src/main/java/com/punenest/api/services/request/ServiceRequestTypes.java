@@ -69,6 +69,31 @@ public final class ServiceRequestTypes {
             PACKERS, Teams.PACKERS,
             VALUATION, Teams.VALUATION);
 
+    /**
+     * The in-app page that shows this type's tracker, for notification links.
+     *
+     * <p><strong>Route knowledge in Java, deliberately.</strong> A notification carries a link or it
+     * is a dead end — "your draft is ready" with nowhere to go is worse than silence, because the
+     * reader now knows something is waiting and cannot reach it. Every other notifier on the
+     * platform already names a client path ({@code /dashboard#visits}, {@code /view-documents/{id}}),
+     * so this is the established shape rather than a new coupling.
+     *
+     * <p>It is a map and not string concatenation because the paths are <em>not</em> derivable from
+     * the type: {@code valuation} lives at {@code /services/property-valuation}, {@code packers} at
+     * {@code /services/packers-movers}. A {@code "/services/" + type} would have produced four
+     * plausible-looking 404s and one accidental hit.
+     *
+     * <p>Total over {@link #KNOWN} and checked in the static block below, for the same reason
+     * {@link #TEAM_BY_TYPE} is: a sixth type whose page nobody named would notify its customer with
+     * a null link, which reads as an ordinary un-clickable row rather than as a mistake.
+     */
+    private static final Map<String, String> PAGE_BY_TYPE = Map.of(
+            RENT_AGREEMENT, "/services/rent-agreement",
+            LEGAL, "/services/property-legal",
+            INTERIOR, "/services/interior-renovation",
+            PACKERS, "/services/packers-movers",
+            VALUATION, "/services/property-valuation");
+
     static {
         // Totality, asserted where it cannot be skipped. A missing entry here is the exact defect
         // the register predicted, and the only moment it is cheap to find is before the first
@@ -79,6 +104,14 @@ public final class ServiceRequestTypes {
                             + KNOWN.stream().filter(t -> !TEAM_BY_TYPE.containsKey(t)).sorted().toList()
                             + "; mapped but not a known type: "
                             + TEAM_BY_TYPE.keySet().stream().filter(t -> !KNOWN.contains(t)).sorted()
+                                    .toList());
+        }
+        if (!PAGE_BY_TYPE.keySet().equals(KNOWN)) {
+            throw new IllegalStateException(
+                    "Every service request type must name the page its customer is sent to. Unmapped: "
+                            + KNOWN.stream().filter(t -> !PAGE_BY_TYPE.containsKey(t)).sorted().toList()
+                            + "; mapped but not a known type: "
+                            + PAGE_BY_TYPE.keySet().stream().filter(t -> !KNOWN.contains(t)).sorted()
                                     .toList());
         }
     }
@@ -117,5 +150,24 @@ public final class ServiceRequestTypes {
     /** The type→desk pairing, for the tests that pin it and for the contract's documentation. */
     public static Map<String, String> teams() {
         return TEAM_BY_TYPE;
+    }
+
+    /**
+     * The in-app page a customer is sent to for this type of request.
+     *
+     * <p>Throws rather than returning null or a default, for the reason {@link #teamFor} does: a
+     * notification whose link silently became {@code null} is indistinguishable from one that was
+     * never meant to be clickable.
+     *
+     * @throws IllegalStateException if the type has no page
+     */
+    public static String pageFor(String type) {
+        String page = PAGE_BY_TYPE.get(type);
+        if (page == null) {
+            throw new IllegalStateException("No customer page is mapped to service request type '"
+                    + type + "'. Add it to ServiceRequestTypes.PAGE_BY_TYPE, or every notification "
+                    + "about it links nowhere.");
+        }
+        return page;
     }
 }

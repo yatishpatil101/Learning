@@ -145,6 +145,48 @@ test.describe('Move-in Pack booking (live)', () => {
     expect(Object.keys(body)).not.toContain('value');
   });
 
+  test('a booking the server refuses is reported as refused, and the selection survives', async ({ page, login }) => {
+    /* The remaining half of the original defect, and the more expensive half. The write was
+       `.catch(() => {})`'d and the success toast sat outside the branch, so a 500, an unreachable
+       server and a real booking all ended in "Move-in Pack booked! Our team will call to
+       schedule." The first defect lost bookings on installs that had a desk to lose them from;
+       this one told a customer their move was arranged when nothing had been recorded.
+
+       A booking that works cannot demonstrate that a booking that fails is reported, so the POST is
+       made to fail rather than waited on. The assertion is a pair — failure toast present AND
+       success toast absent — because either alone passes on the wrong page: one that says nothing
+       satisfies "no success toast", and one that says both satisfies "a failure toast". */
+    await login.asBuyer();
+
+    // Scoped to the POST, and installed after the login, so the page's own reads still work. A page
+    // that cannot load is not a page that failed to book.
+    await page.route('**/api/tickets', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server_error"}' });
+    });
+
+    const before = (await packersBoard()).length;
+    await openHubWithPackLive(page);
+    const pack = await bookPack(page);
+
+    await expect(page.getByText(/couldn't book your Move-in Pack/i)).toBeVisible();
+    await expect(
+      page.getByText(/Move-in Pack booked/i),
+      'the customer was told their move was arranged by a server that had just refused it',
+    ).toHaveCount(0);
+
+    // And nothing reached the desk, so the refusal is the whole truth rather than half of it.
+    expect((await packersBoard()).length).toBe(before);
+
+    /* The selection is six checkboxes and a figure the customer worked out; clearing it on failure
+       would turn the retry into a re-do. The button coming back is the other half — it is disabled
+       while the POST is in flight, so a stuck `booking` state would leave the customer holding a
+       failure message and no way to act on it. */
+    const bookBtn = pack.getByRole('button', { name: 'Book Move-in Pack' });
+    await expect(bookBtn).toBeEnabled();
+    await expect(pack.getByRole('button', { name: new RegExp(CHOSEN[0]) })).toHaveClass(/bg-teal-400\/10/);
+  });
+
   test('a signed-out visitor is sent to sign in before anything is written', async ({ page }) => {
     const before = (await packersBoard()).length;
     await openHubWithPackLive(page);

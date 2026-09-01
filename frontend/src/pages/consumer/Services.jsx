@@ -6,9 +6,7 @@ import '../../styles/routes/services-hub.css';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { createServiceRequest } from '../../lib/mockApi.js';
 import { createTicket, joinServiceWaitlist } from '../../services/ticketService.js';
-import { isHttpDomain } from '../../services/config.js';
 import { getMovePack } from '../../services/settingsService.js';
 import MobileField from '../../components/MobileField.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
@@ -144,6 +142,11 @@ export default function Services() {
   const { toast } = useToast();
   const [cat, setCat] = useState('all');
   const [packSel, setPackSel] = useState({});
+  /* Both, not either: the ref closes the window between the click and the re-render, and the
+     state is what actually disables the button. The booking is a POST that mints a ticket, so a
+     double click on a slow connection is two leads for one move. */
+  const [booking, setBooking] = useState(false);
+  const bookingRef = useRef(false);
   const [countRun, setCountRun] = useState(false);
   const statRef = useRef(null);
   const svcGridRef = useRef(null);
@@ -225,10 +228,13 @@ export default function Services() {
   const total = PACK.reduce((a, p) => a + (packSel[p.id] ? (movePack.items[p.id] || 0) : 0), 0);
   const save = Math.round(total * 0.12);
 
-  const bookPack = () => {
+  const bookPack = async () => {
     const items = PACK.filter((p) => packSel[p.id]);
     if (!items.length) { toast(tr('services.hub.selectAtLeastOne'), 'error'); return; }
     if (!isIn) { navigate('/signin?next=/services'); return; }
+    if (bookingRef.current) return;
+    bookingRef.current = true;
+    setBooking(true);
     const names = items.map((i) => tr('services.hub.pack.' + i.id));
     const accepted = total - save;
     /* The lead onto the packers desk. `quotedValue` is what this customer assembled line by line
@@ -246,18 +252,28 @@ export default function Services() {
 
        Contact details are not sent — unlike the interior and valuation forms, this one never asks
        for them; the server copies them off the authenticated session, which is why the sign-in
-       redirect above happens before anything is written rather than after. */
-    if (isHttpDomain('ticket')) {
-      createTicket({
+       redirect above happens before anything is written rather than after.
+
+       There is no mock branch, and the toast waits on the server — the same two corrections
+       `submitNotify` below already carries, for the same reason. A `!isHttpDomain('ticket')` arm
+       used to write the booking to `lib/mockApi`, and the success toast then fired outside the
+       branch, so it also fired when the live `createTicket` rejected: an unreachable server and a
+       failed one both ended in "Move-in Pack booked! Our team will call to schedule." The
+       selection is deliberately left standing on failure — it is six checkboxes and a price the
+       customer worked out, and clearing it would make the retry a re-do. */
+    try {
+      await createTicket({
         subject: 'Move-in Pack booking',
         team: 'packers',
         body: names.join(', '),
         quotedValue: accepted,
-      }).catch(() => {});
-    } else {
-      // The ticket domain is live-only by design (see ticketService.js), so mock mode keeps its own
-      // store rather than losing the booking entirely.
-      createServiceRequest({ team: 'packers', service: 'Move-in Pack', customer: user.name, mobile: user.mobile, detail: names.join(', '), value: accepted });
+      });
+    } catch {
+      toast(tr('services.hub.packFailed'), 'error');
+      return;
+    } finally {
+      bookingRef.current = false;
+      setBooking(false);
     }
     setPackSel({});
     toast(tr('services.hub.packBookedToast'), 'success');
@@ -496,7 +512,7 @@ export default function Services() {
                     <p className="text-sm text-gray-500 line-through h-5">{total ? '₹' + total.toLocaleString('en-IN') : '\u00A0'}</p>
                     <p className="text-3xl font-extrabold text-white">₹{(total - save).toLocaleString('en-IN')}</p>
                     <p className="text-emerald-300 text-xs mb-4">{total ? tr('services.hub.packSaveNote', { amount: save.toLocaleString('en-IN') }) : '\u00A0'}</p>
-                    <button onClick={bookPack} className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2"><Icon name="check-circle-2" className="w-4 h-4" /> {tr('services.hub.bookPack')}</button>
+                    <button onClick={bookPack} disabled={booking} className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"><Icon name="check-circle-2" className="w-4 h-4" /> {tr(booking ? 'services.hub.bookingPack' : 'services.hub.bookPack')}</button>
                     <p className="text-gray-500 text-[11px] mt-2 text-center">{tr('services.hub.payAfter')}</p>
                   </>
                 ) : notified ? (

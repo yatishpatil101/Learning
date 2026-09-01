@@ -78,6 +78,8 @@ public class FlatmateSupplyService {
     private final FlatmateGroupRepository groups;
     private final FlatmateRequestRepository requests;
     private final FlatmateOwnerConsentRepository consents;
+    /** The owner-consent fact, which outlives and pre-dates any one group. */
+    private final FlatmateOwnerConsentService consentService;
     private final FlatmateGuardrails guardrails;
     /** Whether a written or edited post lands on the board or in the D72 backlog. */
     private final FlatmatePublication publication;
@@ -99,6 +101,7 @@ public class FlatmateSupplyService {
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
             FlatmateRequestRepository requests,
             FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
+            FlatmateOwnerConsentService consentService,
             FlatmatePublication publication,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
             Notifier notifier, OtpService otpService, AuditService audit,
@@ -108,6 +111,7 @@ public class FlatmateSupplyService {
         this.groups = groups;
         this.requests = requests;
         this.consents = consents;
+        this.consentService = consentService;
         this.guardrails = guardrails;
         this.publication = publication;
         this.mapper = mapper;
@@ -361,6 +365,13 @@ public class FlatmateSupplyService {
         group.setHostRole(hostRole);
         group.setVerificationTier(tier);
         group.setAgreementDeclared(declared);
+        // Consent taken before this group existed. The mapper has already normalised `consentMobile`
+        // into `ownerConsentMobile`; `ownerConsent` itself stays un-settable by the client, so the
+        // flag is decided here by asking the consent table whether this owner actually agreed to
+        // this tenant. Without this the tenant's OTP round-trip was discarded at the door: the chip
+        // never rendered, and the Ops review entry below said consent was absent.
+        group.setOwnerConsent(
+                consentService.has(group.getOwnerConsentMobile(), caller.userId()));
         group.setAddressFingerprint(eligibility.fingerprint());
         group.setFlagForReview(eligibility.flagForReview());
         group.setModStatus(publication.stateFor(tier, eligibility.flagForReview()));
@@ -606,42 +617,22 @@ public class FlatmateSupplyService {
         if (!group.getHostId().equals(caller.userId())) {
             throw new ForbiddenException("You can only request consent for a group you created.");
         }
-        // Shape is validated at the edge (@IndianMobile on OwnerConsentRequest); canonicalise here so
-        // the self-check, OTP and stored consent all key off the same ten digits the owner's account
-        // uses. The rule the edge cannot know — whose number it is — is enforced below.
-        String mobile = MobileMask.normalise(ownerMobile);
-        if (mobile == null) {
-            throw new BadRequestException("Enter the owner's mobile number.");
-        }
-        // A tenant cannot be their own landlord for this purpose: self-consent would make the
-        // record worthless, and it is the one shortcut somebody would certainly try.
-        User self = users.findById(caller.userId())
-                .orElseThrow(() -> NotFoundException.of("User"));
-        if (mobile.equals(self.getMobile())) {
-            throw new BadRequestException(
-                    "That is your own number. Consent has to come from the flat's owner.");
-        }
+        // Normalisation and the self-consent refusal belong to the consent fact itself, not to the
+        // group it is being attached to, so both live in FlatmateOwnerConsentService and both routes
+        // get them identically.
+        String mobile = consentService.normalise(caller, ownerMobile);
 
         if (FlatmateVocabulary.blankToNull(otp) == null) {
-            otpService.sendCode(mobile, OtpCode.PURPOSE_OWNER_CONSENT);
+            consentService.send(mobile);
             group.setOwnerConsentMobile(mobile);
             groups.saveAndFlush(group);
             return false;
         }
 
-        // Throws 401 on a wrong code and 429 once the attempt cap is spent — the same primitive
-        // that guards login, scoped to its own purpose so neither flow can be used against the other.
-        otpService.verifyCode(mobile, otp.strip(), OtpCode.PURPOSE_OWNER_CONSENT);
-
-        consents.findByOwnerMobileAndGrantedBy(mobile, caller.userId())
-                .orElseGet(() -> consents.saveAndFlush(
-                        new FlatmateOwnerConsent(mobile, caller.userId(), groupId)));
+        consentService.record(caller, mobile, otp, groupId);
         group.setOwnerConsent(true);
         group.setOwnerConsentMobile(mobile);
         groups.saveAndFlush(group);
-
-        audit.record(caller, "flatmate.ownerConsent", "flatmateGroup", groupId.toString(),
-                "ownerMobile", mobile);
         return true;
     }
 

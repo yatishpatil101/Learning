@@ -944,6 +944,12 @@ export async function mintSociety(body = {}) {
     localitySlug: body.localitySlug,
     lat: body.lat,
     lng: body.lng,
+    /* The store's word for the provenance is `source`; the wire's is `mintOrigin`, because on a
+       society row `source` already answers "catalogue or member-added?". Forwarded rather than
+       left to the store's `'listing'` default: the default is right for the wizard and wrong for
+       the finder, and getting it wrong tells the operator reviewing the queue that somebody is
+       selling a flat in a building nobody has listed in. */
+    source: body.mintOrigin === 'demand' || body.mintOrigin === 'listing' ? body.mintOrigin : undefined,
   });
   if (!rec) throw Object.assign(new Error('That name cannot be turned into a web address.'), { status: 422 });
   return { society: toSocietyWire(resolveSociety(rec.slug) || rec), created: !before };

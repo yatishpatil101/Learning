@@ -128,7 +128,6 @@ export default function Flatmates() {
       {consentOpen && (
         <OwnerConsentModal
           ownerMobile={grp.consentMobile}
-          byMobile={user ? user.mobile : ''}
           onClose={() => setConsentOpen(false)}
           onVerified={() => { setGrp((g) => ({ ...g, consentVerified: true })); toast(t('flatmates.ownerConsentConfirmedToast'), 'success'); }}
         />

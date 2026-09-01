@@ -314,6 +314,16 @@ export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
   return { consentRecorded: !!res?.consentRecorded };
 }
 
+/**
+ * `POST /flatmates/owner-consent` — the group-less twin, for consent taken while the group form is
+ * still open. Same two-call shape; the server writes the row with a null `group_id` and
+ * `POST /flatmates/groups` reads it back at submit time.
+ */
+export async function requestOwnerConsent({ ownerMobile, otp } = {}) {
+  const res = await post('/flatmates/owner-consent', clean({ ownerMobile, otp }));
+  return { consentRecorded: !!res?.consentRecorded };
+}
+
 /* ─── Seeker posts (the other half of "Team up") ────────────────────────────────────────────── */
 
 /** `GET /flatmates/posts` — people looking for a flat. **Public.** Facets filter server-side. */

@@ -22,8 +22,47 @@ import { appReady } from '../../../helpers/app.js';
  *     would have pinned a promise the product no longer makes.
  *
  * What is left is deliberately mock-shaped: draft autosave and the D159 identity purge are
- * claims *about browser storage*, and the co-fill/checker/notification paths lean on
- * affordances the live build gates off. See the live spec's header for the boundary list.
+ * claims *about browser storage*, and the admin lead ticket is a deliberate mock-side keeper
+ * (see the test's own note). See the live specs' headers for the boundary lists.
+ *
+ * A further three have been retired onto `live-service-draft-review.spec.js` — the draft
+ * maker→checker. All three opened with `Preview with a sample draft`, a **demo affordance**
+ * that `ServiceTracker.jsx:138` hides the moment the app is live, with the comment "a customer
+ * cannot share a draft to themselves". So the mock's maker was the customer's own browser:
+ *
+ *   - "customer (checker) can approve the draft our team shares" — our team had not shared
+ *     anything; the browser had fabricated a draft one line earlier.
+ *   - "sharing a draft raises a dashboard bell notification" — read back out of
+ *     `pnNotifications:` in the same tab that wrote it. Converting it found the server raised
+ *     **no notification at all**, so live the checker was never told a draft was waiting on
+ *     them — on a flow that no one else is permitted to advance.
+ *   - "request-changes uses an on-brand modal … and records the note" — the modal half was a
+ *     real component claim and is preserved live; "records the note" read `puneNestServiceReq:`
+ *     back out of localStorage.
+ *
+ * The live spec files a **valuation** rather than a rent agreement, deliberately: rent-agreement
+ * is the one priced desk, so it opens at `awaiting-payment`, and `ServiceRequestStatus.ALLOWED`
+ * lets that reach only `new` or `cancelled` — nothing a browser can do moves it on. The tracker
+ * component is the same one either way.
+ *
+ * A further three have been retired onto `live-rent-agreement-cofill.spec.js`. Co-fill is a
+ * two-actor flow, and the mock's own provider concedes it cannot test one — both actors shared a
+ * single `localStorage`, so the "tenant" was reading the key the "owner" had written in the same
+ * tab. Two of the three also asserted behaviour that has since **reversed**, and were retired
+ * rather than ported:
+ *
+ *   - "co-fill invite is delivered to the tenant on WhatsApp with a deep link" — asserted the
+ *     link carried `?invite=<token>`, a bearer credential openable by whoever received the
+ *     forward. Live invitations are addressed to an account (`?party=&request=`) and resolve only
+ *     after sign-in; holding the link is no longer authority.
+ *   - "signed-out invitee is bounced to a prefilled sign-in" — asserted `mobile=9822334455` was
+ *     put in the sign-in URL, prefilled from a record the test had seeded itself. That would
+ *     disclose the invited tenant's number to anyone holding the link. Live sends only `reason`
+ *     and `next`, and the live spec asserts the *absence*.
+ *   - "invited tenant: request surfaces in My Rental first, and only the Tenant tab is editable"
+ *     — the surviving half of a test whose premise was the shared browser. Converting it found
+ *     that live the card never appeared at all: the dashboard was reading invitations from
+ *     `localStorage` while the server held them.
  */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
@@ -132,35 +171,6 @@ async function submitFromReview(page) {
 }
 
 test.describe('Rent Agreement — revenue flow', () => {
-  test('co-fill invite is delivered to the tenant on WhatsApp with a deep link', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    await fillProperty(page);
-    await fillOwner(page);
-
-    // Step 3 — choose "Invite the tenant" and enter their mobile.
-    await active(page).getByText('Invite the tenant', { exact: true }).click();
-    await active(page).getByPlaceholder('10-digit mobile').fill('9822334455');
-    await clickNext(page, 3);
-
-    await fillTerms(page);
-    await submitFromReview(page);
-
-    // The invited tenant now has a real delivery channel.
-    const wa = page.getByRole('link', { name: /Send invite on WhatsApp/ });
-    await expect(wa).toBeVisible();
-    const href = await wa.getAttribute('href');
-    expect(href).toContain('wa.me/91');
-    expect(decodeURIComponent(href || '')).toContain('/services/rent-agreement?invite=');
-    await expect(page.getByRole('button', { name: /Copy invite link/ })).toBeVisible();
-
-    // The Tenant step stays PENDING (amber, not a green check) until the tenant fills it.
-    const tenantDot = page.locator('.step-dot').nth(2);
-    await expect(tenantDot).toHaveClass(/pending/);
-    await expect(tenantDot).not.toHaveClass(/done/);
-  });
-
   test('mandatory document fields carry the app-standard required marker', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
@@ -171,15 +181,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     for (const doc of ['PAN Card', 'Aadhaar Card', 'Passport Photo', 'Ownership Proof']) {
       await expect(p.locator('label span.req').filter({ hasText: doc })).toBeVisible();
     }
-  });
-
-  test('customer (checker) can approve the draft our team shares', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    await page.getByRole('button', { name: /Preview with a sample draft/ }).click();
-    await page.getByRole('button', { name: /^Approve$/ }).click();
-    await expect(page.getByText('Approved — awaiting registration')).toBeVisible({ timeout: 10000 });
   });
 
   test('mandatory docs are reused from — and saved back to — the dashboard Document vault', async ({ page }) => {
@@ -304,24 +305,6 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(active(page).getByPlaceholder('12-digit Aadhaar')).toHaveValue('');
   });
 
-  test('signed-out invitee is bounced to a prefilled sign-in', async ({ page }) => {
-    // Seed a pending invite as if an owner had sent it to this tenant number.
-    await page.addInitScript(() => {
-      localStorage.setItem('puneNestRAInvite:9822334455', JSON.stringify([{
-        inviteId: 'INVTESTXYZ', reqMobile: '9811223344', reqId: 'SR1',
-        toMobile: '9822334455', toName: 'Rahul', toRole: 'tenant', status: 'pending',
-        createdAt: Date.now(), fromName: 'Anita Verma', property: 'B-1204, Skyline Heights',
-      }]));
-    });
-    await page.goto(`${BASE}/services/rent-agreement?invite=INVTESTXYZ`, { waitUntil: 'networkidle' });
-
-    // Not signed in → we send them to sign in with the invited number, then back here.
-    await expect(page).toHaveURL(/\/signin/);
-    await expect(page).toHaveURL(/reason=invite/);
-    await expect(page).toHaveURL(/mobile=9822334455/);
-    await expect(page.getByText('Sign in to complete your Rent Agreement')).toBeVisible();
-  });
-
   test('witnesses step is optional and flags biometric attendance', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
@@ -339,97 +322,53 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(active(page).getByRole('button', { name: /Generate Agreement & Proceed/ })).toBeVisible();
   });
 
-  test('invited tenant: request surfaces in My Rental first, and only the Tenant tab is editable', async ({ page }) => {
-    // Another full wizard run plus a second-actor login — same 30s ceiling as the
-    // Ops-queue test above; it only exceeds it under parallel contention.
-    test.slow();
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    await fillProperty(page);
-    await fillOwner(page);
-    await active(page).getByText('Invite the tenant', { exact: true }).click();
-    await active(page).getByPlaceholder('10-digit mobile').fill('9822334455');
-    await clickNext(page, 3);
-    await fillTerms(page);
-    await submitFromReview(page);
+  /* This test used to be called "submitting opens an admin lead ticket linked to the flow request",
+     and asserted a `rental` row in `puneNestDB_v5.tickets`. That ticket is gone, and the absence is
+     now the thing worth pinning.
 
-    // The owner's invite link carries the bearer token we route the tenant through.
-    const href = await page.getByRole('link', { name: /Send invite on WhatsApp/ }).getAttribute('href');
-    const inviteId = decodeURIComponent(href || '').match(/invite=([^&\s]+)/)?.[1];
-    expect(inviteId).toBeTruthy();
+     The wizard was minting a `TR…` ref and writing that ticket through `lib/mockApi` on *every*
+     build, live included, where it reached nothing: `serviceRequestMapper.toCreate` refuses by name
+     to forward a `TR…` ref, and the backend has no `ticketRef` field at any layer. So the rental
+     desk was never told; only the owner's own tab believed it had been. The product answer is that
+     the request *is* the record — `ServiceRequestService` parks a priced request at
+     `awaiting-payment`, and `applyWebhookOutcome` moves it to `new` and onto the queue, carrying its
+     own `details` rather than the ticket's one-line summary.
 
-    // The invited tenant signs in (same browser context — the invite + request the
-    // owner just created are already in localStorage).
-    const TENANT = { name: 'Rahul Nair', mobile: '9822334455', email: '', role: 'buyer', joinedAt: Date.now() };
-    await login(page, TENANT);
-
-    // 1) The request appears in "My Rental" first, with a route into the fill page.
-    await page.goto(`${BASE}/dashboard#rental`, { waitUntil: 'networkidle' });
-    await expect(page.getByText('Action needed: complete your rent agreement')).toBeVisible();
-    const fill = page.getByRole('link', { name: /Fill my details/ });
-    await expect(fill).toBeVisible();
-    await fill.click();
-
-    // 2) …which routes to the rent-agreement page for exactly this invite.
-    await expect(page).toHaveURL(new RegExp('invite=' + inviteId));
-
-    // 3) The owner's Property step is view-only for the tenant (inputs disabled).
-    await expect(page.getByText('Set up by the owner — view only')).toBeVisible();
-    await expect(active(page).getByPlaceholder('e.g. Skyline Heights')).toBeDisabled();
-
-    // 4) The Tenant step is the one section they can edit.
-    await clickNext(page, 1); // Property → Owner (still read-only)
-    await clickNext(page, 2); // Owner → Tenant
-    await expect(page.getByText('Your details — please complete this step')).toBeVisible();
-    await expect(active(page).getByPlaceholder('As per PAN/Aadhaar')).toBeEnabled();
-  });
-
-  test('sharing a draft raises a dashboard bell notification for the customer', async ({ page }) => {
+     The absence is asserted next to the presence on purpose. "No rental ticket" on its own would
+     pass just as happily if the submit had silently not taken at all — the failure mode
+     `submitFromReview` exists to catch — so the flow record it *should* have written is read in the
+     same breath. The live half (the park, the amount, the single-use session) belongs to
+     `consumer/services/live-rent-agreement.spec.js`; settlement stays with
+     `ServiceRequestFlowTest.PaidGate`, because forging a webhook signature is the one thing a spec
+     on this surface should not learn to do. */
+  test('submitting records the request itself, and raises no browser-only admin ticket', async ({ page }) => {
     await login(page, BUYER);
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
 
-    // Loading the sample shares a draft with the customer (the maker→checker handoff).
-    await page.getByRole('button', { name: /Preview with a sample draft/ }).click();
-    await expect(page.getByText('Draft ready for your review')).toBeVisible({ timeout: 10000 });
+    /* The flow record is counted as a delta rather than an absolute, because
+       `serviceFlow.seedDemo()` plants rental requests under three other demo mobiles.
 
-    // The customer is actively pinged in-app so a shared draft never silently stalls.
-    const notif = await page.evaluate((mobile) => {
-      const list = JSON.parse(localStorage.getItem('pnNotifications:' + mobile) || '[]');
-      return list.find((n) => n && typeof n.id === 'string' && n.id.startsWith('svc_draft_')) || null;
-    }, BUYER.mobile);
-    expect(notif).toBeTruthy();
-    expect(notif.link).toContain('/services/rent-agreement');
-    expect(notif.read).toBe(false);
-  });
+       The ticket is matched on its `TR…` ref instead of on `team === 'rental'`, and that is not
+       cosmetic: measured, eight seeded rental tickets arrive while this page is still booting, so a
+       count of the team would have been reporting the seed's arrival rather than the wizard's write.
+       A `TR…` ref is the wizard's own signature and nothing else in the product mints one. */
+    const census = () => page.evaluate(() => {
+      const flows = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('puneNestServiceReq:')) {
+          try { flows.push(...(JSON.parse(localStorage.getItem(k)) || [])); } catch { /* ignore */ }
+        }
+      }
+      const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
+      return {
+        rental: flows.filter((r) => r.type === 'rental').length,
+        wizardTickets: (db.tickets || []).filter((t) => String(t.ref || '').startsWith('TR')).length,
+        ours: flows.find((r) => (r.details?.property || '').includes('B-1204, Skyline Heights')) || null,
+      };
+    });
 
-  test('request-changes uses an on-brand modal (not window.prompt) and records the note', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    await page.getByRole('button', { name: /Preview with a sample draft/ }).click();
-    await page.getByRole('button', { name: /Request changes/ }).click();
-
-    // An in-app dialog opens — no native prompt — and Send is gated on a real note.
-    const dialog = page.getByRole('dialog', { name: 'Request changes' });
-    await expect(dialog).toBeVisible();
-    const send = dialog.getByRole('button', { name: /Send request/ });
-    await expect(send).toBeDisabled();
-    await dialog.getByRole('textbox').fill('Please correct the monthly rent to ₹32,000.');
-    await expect(send).toBeEnabled();
-    await send.click();
-
-    // The request transitions to "Changes requested" and the note reaches the flow.
-    await expect(page.getByText('Changes requested')).toBeVisible({ timeout: 10000 });
-    const noted = await page.evaluate((mobile) => {
-      const list = JSON.parse(localStorage.getItem('puneNestServiceReq:' + mobile) || '[]');
-      return list.some((r) => (r.messages || []).some((x) => /monthly rent to ₹32,000/.test(x.text || '')));
-    }, BUYER.mobile);
-    expect(noted).toBe(true);
-  });
-
-  test('submitting opens an admin lead ticket linked to the flow request', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
+    const before = await census();
 
     await fillProperty(page);
     await fillOwner(page, { withDoc: true });
@@ -437,20 +376,11 @@ test.describe('Rent Agreement — revenue flow', () => {
     await fillTerms(page);
     await submitFromReview(page);
 
-    // At submit the admin lead ticket exists and is linked to the flow request via `ref`.
-    const created = await page.evaluate(() => {
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-      return (db.tickets || []).find((t) => t.ref && t.team === 'rental') || null;
-    });
-    expect(created).toBeTruthy();
-    expect(created.status).toBe('new');
+    const after = await census();
 
-    /* This test used to carry on into `/ops/rent-agreement` and click "Mark all verified",
-       asserting the linked ticket moved `new -> in_progress`. That operation is not coming
-       back: the server derives the document checklist on read, so there is nothing to mark
-       (D120 — "nothing about a checklist is stored, so there is no second source of truth
-       to fall out of step with the vault"), and `docs_review` was one of three statuses the
-       React prototype invented that `ServiceRequestStatus` refuses by name. What survives
-       is the half that is still true: submitting opens the lead ticket, and it starts new. */
+    expect(after.rental - before.rental, 'the submit wrote no request — the flow record is the system of record now').toBe(1);
+    expect(after.ours, 'the request that was written is not the one this wizard filled in').toBeTruthy();
+    expect(after.ours.status).toBe('submitted');
+    expect(after.wizardTickets, 'a browser-only rental ticket is back; the desk is told by the request, not by a TR… ref').toBe(0);
   });
 });

@@ -38,9 +38,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class FlatmateSupplyController {
 
     private final FlatmateSupplyService service;
+    private final FlatmateOwnerConsentService consentService;
 
-    public FlatmateSupplyController(FlatmateSupplyService service) {
+    public FlatmateSupplyController(FlatmateSupplyService service,
+            FlatmateOwnerConsentService consentService) {
         this.service = service;
+        this.consentService = consentService;
     }
 
     // ---- rooms ----
@@ -195,6 +198,27 @@ public class FlatmateSupplyController {
             @Valid @RequestBody OwnerConsentRequest body) {
         boolean recorded = service.ownerConsent(principal, id, body.ownerMobile(), body.otp());
         return new ConsentResult(recorded);
+    }
+
+    /**
+     * {@code POST /flatmates/owner-consent} (contract {@code requestStandaloneOwnerConsent}).
+     *
+     * <p>The group-less twin of {@link #ownerConsent}, for the moment the form asks for consent —
+     * which is before the group exists. Same two-call shape, same 200 for both, and the same
+     * self-consent refusal; the only difference is that there is no group to attach the result to
+     * yet, so the row is written with a null {@code group_id} and
+     * {@code POST /flatmates/groups} reads it back when the tenant submits.
+     */
+    @PostMapping(Routes.Flatmates.OWNER_CONSENT)
+    public ConsentResult ownerConsent(@CurrentUser AuthPrincipal principal,
+            @Valid @RequestBody OwnerConsentRequest body) {
+        String mobile = consentService.normalise(principal, body.ownerMobile());
+        if (body.otp() == null || body.otp().isBlank()) {
+            consentService.send(mobile);
+            return new ConsentResult(false);
+        }
+        consentService.record(principal, mobile, body.otp(), null);
+        return new ConsentResult(true);
     }
 
     /**

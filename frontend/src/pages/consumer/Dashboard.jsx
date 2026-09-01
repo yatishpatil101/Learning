@@ -19,7 +19,7 @@ import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
 import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
 import { listManaged } from '../../services/managedService.js';
-import { pendingInviteCount } from '../../lib/serviceFlow.js';
+import { listMyServiceRequestInvites } from '../../services/serviceRequestService.js';
 import LoadError from '../../components/LoadError.jsx';
 import OverviewPanel from './dashboard/OverviewPanel.jsx';
 import MyPropertiesPanel from './dashboard/MyPropertiesPanel.jsx';
@@ -102,9 +102,20 @@ export default function Dashboard() {
       .catch(() => { if (live) setHasTenancy(false); });
     return () => { live = false; };
   }, [user?.mobile]);
-  // A pending co-fill invite (owner asked this user to add their tenant details)
-  // also belongs in "My Rental", so an invited tenant always has a place to act.
-  const hasRentalInvite = pendingInviteCount(user?.mobile) > 0;
+  /* A pending co-fill invite (owner asked this user to add their tenant details) also belongs in
+     "My Rental", so an invited tenant always has a place to act. Read from the server for the same
+     reason the tenancy above is: the invitation was created by somebody else, on their device, so
+     a local count is zero for exactly the people the tab exists for. */
+  const [hasRentalInvite, setHasRentalInvite] = useState(false);
+  useEffect(() => {
+    let live = true;
+    listMyServiceRequestInvites()
+      .then((rows) => {
+        if (live) setHasRentalInvite((rows || []).some((row) => row?.status === 'invited'));
+      })
+      .catch(() => { if (live) setHasRentalInvite(false); });
+    return () => { live = false; };
+  }, [user?.mobile]);
   const showRental = hasTenancy || !isOwner || hasRentalInvite;
 
   const visibleTabs = useMemo(

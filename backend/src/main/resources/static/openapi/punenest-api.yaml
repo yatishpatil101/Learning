@@ -8324,6 +8324,33 @@ paths:
                 otp: { type: string, minLength: 6, maxLength: 6 }
       responses:
         '200': { description: OTP sent, or consent recorded }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /flatmates/owner-consent:
+    post:
+      tags: [Engagement]
+      summary: Request or confirm the flat owner's consent before the group exists
+      description: >
+        The group-less twin of `requestOwnerConsent`, for the moment the group form asks for
+        consent — which is before there is a group to attach it to. Same two-call shape: once
+        without `otp` to send the owner a code, again with it to record the consent. The row is
+        keyed on (owner mobile, tenant), so `POST /flatmates/groups` reads it back at submit time
+        rather than believing an `ownerConsent` flag from the client, which is ignored.
+      operationId: requestStandaloneOwnerConsent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerMobile]
+              properties:
+                ownerMobile: { $ref: '#/components/schemas/Mobile' }
+                otp: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        '200': { description: OTP sent, or consent recorded }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
   /flatmates/rooms/{id}/interest:

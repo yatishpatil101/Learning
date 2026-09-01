@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signedInAs } from '../../../helpers/liveAuth.js';
+import { API, signedInAs } from '../../../helpers/liveAuth.js';
 
 // Society "select or create" typeahead on the list-property Location step.
 // Verifies a listing binds to a real society ENTITY (verified pick) and that an
@@ -50,19 +50,45 @@ test('typing a known name lists the verified society and binds it on pick', asyn
   await expect(page.getByText(/Verified society/i)).toBeVisible();
 });
 
-test('an unknown name can be added inline and mints a community society', async ({ page }) => {
+/**
+ * The mint reaches the shared catalogue, not the lister's own browser.
+ *
+ * This assertion used to read `localStorage.pnCommunitySocieties` and pass — which is exactly how
+ * the defect survived a *live* spec. `SocietySelect.createSociety` called `store.addCommunitySociety`
+ * unconditionally, so on a live deployment the owner was congratulated, the wizard bound `societyId`
+ * to an id Postgres had never heard of, and the listing persisted pointing at nothing. Nobody else
+ * could find the building and ops got no candidate to verify. A spec that inspects the same browser
+ * that did the writing cannot tell that apart from working, so the read-back is deliberately made
+ * by `request` — a different HTTP client, with no session and no access to the page's storage.
+ *
+ * `mintOrigin` is checked because it is the field that distinguishes this surface from the Society
+ * Finder: `Admin ▸ Societies ▸ Candidates` renders "From a listing" and "Searcher demand"
+ * differently, and until this change no caller sent it. Note that `listing` is also
+ * `SocietyMintService`'s default for an absent value, so this assertion is a guard on the rendered
+ * provenance rather than a proof that the client sent the field — the assertion that can only pass
+ * if the client sends it is the `demand` one, over in `live-society-minting.spec.js`.
+ */
+test('an unknown name can be added inline and reaches the shared catalogue', async ({ page, request }) => {
   await toStep2Flat(page);
   const society = page.locator('input[data-err="society"]');
-  const NAME = 'Testville Residency 2026';
+  // Unique per run: `POST /societies` is a mint-or-match, so a fixed name would be a 201 on the
+  // first run of a fresh database and a 200 against a row some earlier run left behind — and the
+  // `mintOrigin` assertion below would then be reading the *earlier* run's value.
+  const NAME = `Zz Live Select ${Date.now().toString(36)}`;
   await society.click();
   await society.fill(NAME);
-  const addRow = page.locator('.pn-dropdown__option', { hasText: /^Add /i }).first();
+  const addRow = page.getByTestId('society-add-option');
   await expect(addRow).toBeVisible();
   await addRow.click();
   await expect(society).toHaveValue(NAME);
   await expect(page.getByText(/pending verification/i)).toBeVisible();
 
-  // The society is persisted as a community-tier entity for ops to verify.
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('pnCommunitySocieties') || '[]'));
-  expect(stored.some((s) => s.name === NAME && s.tier === 'community')).toBe(true);
+  // Outside the browser: an anonymous reader searching the catalogue finds the building.
+  const found = await request.get(`${API}/societies`, { params: { q: NAME, size: 20 } });
+  expect(found.status()).toBe(200);
+  const row = (await found.json()).content.find((s) => s.name === NAME);
+  expect(row, 'the minted society is absent from the catalogue — the write never left the browser').toBeTruthy();
+  expect(row.source).toBe('community');
+  expect(row.verifiedAt).toBeNull();
+  expect(row.mintOrigin).toBe('listing');
 });

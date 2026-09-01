@@ -433,6 +433,23 @@ export async function recordOwnerConsent(id, { ownerMobile, otp } = {}) {
   return { consentRecorded: true };
 }
 
+/**
+ * The group-less twin. The mock's storage was always keyed on (owner mobile, tenant) rather than on
+ * a group, so there is nothing for it to do differently — which is the same shape V27 chose, and the
+ * reason the server could adopt this flow without a new table.
+ */
+export async function requestOwnerConsent({ ownerMobile, otp } = {}) {
+  requireUser();
+  const mobile = digits(ownerMobile || '');
+  if (mobile.length !== 10) throw badRequest('ownerMobile must be a 10-digit mobile number');
+  if (mobile === digits(me() || '')) {
+    throw badRequest('That is your own number. Consent has to come from the flat\'s owner.');
+  }
+  if (!String(otp || '').trim()) return { consentRecorded: false };
+  setOwnerConsent(mobile, me());
+  return { consentRecorded: true };
+}
+
 /* ─── Seeker posts ──────────────────────────────────────────────────────────────────────────── */
 
 const postVm = (p) => ({

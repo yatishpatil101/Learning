@@ -91,7 +91,12 @@ class ServiceSizeGuardTest {
         // `groupFeed`'s body out of a one-expression `.map()` so the batch happens once per window
         // instead of once per card. Fixing an existing read rather than adding a responsibility,
         // which is why it is a raise and not the rooms/groups split above.
-        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 880);
+        // Lowered 880 -> 871: owner consent left for FlatmateOwnerConsentService. The move was not
+        // a size exercise — the consent row is keyed on (owner mobile, tenant) with a nullable
+        // group_id, so it was never really a group's business, and `createGroup` now reads back a
+        // consent granted before the group existed. Two entry points share the normalise/send/record
+        // path instead of one owning it. The pin drops by the 9 lines that actually left.
+        BASELINE.put("com/punenest/api/engagement/flatmate/FlatmateSupplyService.java", 871);
         BASELINE.put("com/punenest/api/finance/rent/RentService.java", 700);
         BASELINE.put("com/punenest/api/billing/plan/SubscriptionService.java", 586);
         BASELINE.put("com/punenest/api/billing/boost/BoostService.java", 500);

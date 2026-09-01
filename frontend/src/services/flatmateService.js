@@ -87,6 +87,16 @@ export const joinGroup = async (id, body) => (await provider()).joinGroup(id, bo
 /** The flat owner acknowledges a tenant's sublet — the anti-broker guardrail. */
 export const recordOwnerConsent = async (id, body) => (await provider()).recordOwnerConsent(id, body);
 
+/**
+ * The same acknowledgement, taken *before* the group exists — which is when the form asks for it.
+ *
+ * <p>Separate from `recordOwnerConsent` because that one records onto a group and so needs one. The
+ * consent itself is keyed on (owner mobile, tenant), not on a post, so it can be granted first and
+ * read back when the group is submitted. Called twice: without `otp` to send the owner a code, with
+ * it to record the consent.
+ */
+export const requestOwnerConsent = async (body) => (await provider()).requestOwnerConsent(body);
+
 /* ─── Seeker posts ──────────────────────────────────────────────────────────────────────────── */
 
 /** People looking for a flat. **Public.** */

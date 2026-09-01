@@ -85,7 +85,7 @@ const FlatmateFlow = ({
             {isHouse ? (
               <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
             ) : (
-              <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} pincode={form.pincode} invalid={!!errors.society} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
+              <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} invalid={!!errors.society} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
             )}
             <FieldError show={!!errors.society}>{isHouse ? t('listProperty.err.house') : t('listProperty.err.society')}</FieldError>
           </div>

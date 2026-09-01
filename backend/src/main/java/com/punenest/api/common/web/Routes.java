@@ -1433,6 +1433,24 @@ public final class Routes {
 
         /** Authenticated — request, then confirm, the flat owner's OTP consent. */
         public static final String GROUP_OWNER_CONSENT = GROUP_BY_ID + "/owner-consent";
+        /**
+         * Authenticated — request, then confirm, the flat owner's OTP consent <em>before</em> the
+         * group exists.
+         *
+         * <p><strong>Not a duplicate of {@link #GROUP_OWNER_CONSENT}.</strong> That one records
+         * consent onto a group, so it needs one to exist. The form asks for consent while the group
+         * is still being written, which is the moment the tenant is actually sitting with their
+         * landlord — so there was no route the browser could call when it needed one, and it wrote
+         * {@code localStorage} instead. The server then dropped the {@code ownerConsent} flag the
+         * client put on the create payload, correctly, because a tenant asserting their own
+         * landlord's consent would make the record worthless.
+         *
+         * <p>Group-less because V27 keys {@code flatmate_owner_consents} on
+         * {@code (owner_mobile, granted_by)} and leaves {@code group_id} nullable: the consent is a
+         * fact about two people. {@code POST /flatmates/groups} then reads that fact rather than
+         * believing the client.
+         */
+        public static final String OWNER_CONSENT = "/flatmates/owner-consent";
 
         /** Authenticated — ask to join. An open-policy group accepts outright. */
         public static final String GROUP_JOIN = GROUP_BY_ID + "/join";

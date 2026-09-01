@@ -8,6 +8,7 @@ import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.payments.AbandonedCheckouts;
 import com.punenest.api.common.persistence.ConstraintViolations;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.documents.vault.DocumentDto;
 import com.punenest.api.documents.vault.DocumentService;
@@ -150,6 +151,16 @@ public class ServiceRequestService implements AbandonedCheckouts {
     private final PaymentGateway gateway;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
+    /**
+     * How the customer is told a draft is waiting on them (D121 follow-on).
+     *
+     * <p>The maker-checker only works if the checker knows they have been handed something. Until
+     * this existed, {@link #shareDraft} moved the request into {@code draft-shared} and told nobody:
+     * the customer learned about it by happening to revisit the service page. That is the same
+     * defect class as an unannounced co-fill invitation, and the same fix — the platform already has
+     * twelve other senders behind {@link Notifier}, so service requests were the outlier.
+     */
+    private final Notifier notifier;
 
     /** Runs the two short transactions {@link #create} is built from — see the field it mirrors on
      * {@code SubscriptionService} for why the template is built here and why propagation is left at
@@ -171,6 +182,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
             PaymentGateway gateway,
             AuditService audit,
             ObjectMapper objectMapper,
+            Notifier notifier,
             PlatformTransactionManager transactionManager) {
         this.requests = requests;
         this.events = events;
@@ -187,6 +199,7 @@ public class ServiceRequestService implements AbandonedCheckouts {
         this.gateway = gateway;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.notifier = notifier;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -823,6 +836,14 @@ public class ServiceRequestService implements AbandonedCheckouts {
      * case. The file lands in the vault under the {@code draft} category, so the newest-first list
      * of them is the version history — the contract has no version field and inventing one would be
      * schema nobody asked for.
+     *
+     * <p><strong>The customer is told.</strong> Sharing a draft hands the decision to the requester,
+     * and {@link #decideDraft} will accept it from nobody else — so a share the customer never hears
+     * about stalls the request indefinitely with each side believing it is the other's move. The
+     * notification goes only to the requester, because they are exactly the set of people the next
+     * step is available to; a co-fill counterparty who cannot decide would only be told to go and
+     * fail. It runs inside this transaction (see {@link Notifier}), so a rolled-back share cannot
+     * leave behind an announcement of a draft that does not exist.
      */
     @Transactional
     public ServiceRequestDto shareDraft(AuthPrincipal caller, String id, String note,
@@ -832,6 +853,10 @@ public class ServiceRequestService implements AbandonedCheckouts {
         storeDocument(caller, request, "draft", file, "draft.shared");
         audit.record(caller, "service-request.draft-shared", "service_request",
                 request.getId().toString(), "from", from.wire(), "note", note);
+        notifier.notify(request.getRequesterId(), "service.draft-shared",
+                "Your draft is ready to review",
+                "Our team has shared a draft with you. Approve it, or ask for changes.",
+                ServiceRequestTypes.pageFor(request.getType()));
         return mapper.toDto(request);
     }
 

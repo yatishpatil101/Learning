@@ -44,9 +44,20 @@ export const API = `http://localhost:${process.env.API_PORT || '8081'}/api`;
  *
  * `97` prefix keeps it inside the seed's reserved block and away from real Indian numbering; the
  * timestamp tail is what makes it unique.
+ *
+ * The clamp is not decoration. `Date.now()` has millisecond resolution, so two calls with no
+ * `await` between them returned the *same* "unique" mobile — and a spec naming two actors back to
+ * back would quietly be naming one. That surfaces as a bizarre downstream assertion (a tenant
+ * refused for consenting to themselves; a "second" user already holding the first one's data)
+ * rather than as anything pointing here. Advancing by a millisecond whenever the clock has not
+ * moved keeps the value strictly increasing, so a worker can never issue the same number twice
+ * while leaving the format exactly as it was.
  */
+let lastIssued = 0;
 export function uniqueMobile() {
-  return `97${String(Date.now()).slice(-8)}`;
+  const now = Date.now();
+  lastIssued = now > lastIssued ? now : lastIssued + 1;
+  return `97${String(lastIssued).slice(-8)}`;
 }
 
 /**

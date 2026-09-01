@@ -15,7 +15,7 @@
  * shared catalogue: the assertions that matter are made by a *second* caller, and an anonymous one.
  */
 import { expect, test } from '@playwright/test';
-import { API, apiLogin, authHeaders, uniqueMobile } from '../helpers/liveAuth.js';
+import { API, apiLogin, authHeaders, signedInAs, uniqueMobile } from '../helpers/liveAuth.js';
 
 /**
  * A brand-new signed-in account, over HTTP.
@@ -209,5 +209,39 @@ test.describe('society minting', () => {
     // an unplaced society is a state the schema already allows.
     expect(res.status()).toBe(201);
     expect((await res.json()).localitySlug).toBeNull();
+  });
+
+  /**
+   * The one assertion in this file that has to go through a browser.
+   *
+   * `mintOrigin` is what lets ops separate "somebody wants a flat in this building" from "somebody
+   * is selling one" — the entire question the Society Finder exists to answer, and one no other
+   * field on the row can reconstruct. `SocietyMintService` defaults an absent value to `listing`,
+   * so a finder that forgets to send `demand` does not fail: it files every searcher's request on
+   * the candidates queue as a listing, which is a confident wrong answer rather than a missing one.
+   * That is precisely what was happening — no client sent the field at all.
+   *
+   * An API-level POST could only assert the server's default back at itself. Driving the real "Add
+   * this society" button is the only way to prove the *page* sends it.
+   */
+  test('the Society Finder files its mint as searcher demand, not as a listing', async ({ page, request }) => {
+    const mobile = await newAccount();
+    await signedInAs(page, mobile);
+    const name = freshName('Demand');
+
+    await page.goto('/societies');
+    const box = page.getByPlaceholder(/Search by society/i).first();
+    await box.fill(name);
+    // The button's accessible name is the whole "Can't find “<name>”? Add it and we'll alert you…"
+    // block, so anchor on the query rather than on the word "Add".
+    await page.getByRole('button', { name: new RegExp(`find .${name}`, 'i') }).click();
+
+    // Read back from outside the browser: the row's provenance is the assertion, and it lives on
+    // the server or nowhere.
+    await expect.poll(async () => {
+      const found = await request.get(`${API}/societies`, { params: { q: name, size: 20 } });
+      return (await found.json()).content.find((s) => s.name === name)?.mintOrigin ?? null;
+    }, { message: 'the finder mint never reached the catalogue, or reached it without a provenance' })
+      .toBe('demand');
   });
 });
