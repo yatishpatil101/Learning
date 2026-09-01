@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import Icon from '../Icon.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
-import { getFaqs } from '../../lib/mockApi.js';
+import { listFaqs } from '../../services/contentService.js';
 import { getCookieConsent } from '../CookieConsent.jsx';
 import { rankAnswers, LOW_CONFIDENCE } from '../../lib/assistant/match.js';
 import {
@@ -98,7 +98,7 @@ export default function AssistantWidget() {
   // Load FAQs once so the matcher can answer them too (best-effort).
   useEffect(() => {
     let alive = true;
-    getFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
+    listFaqs().then((f) => alive && setFaqs(f || [])).catch(() => {});
     return () => { alive = false; };
   }, []);
 

@@ -1803,3 +1803,233 @@ Newest first. Each line: what changed, and the one thing worth remembering.
 | 2026-07-26 | OpenAPI established as the single source of truth; matured to cover all React needs |
 | 2026-07-25 | Platform & solution architecture (MVP pass), ADR-009a KYC, ADR-014 payments, legal/compliance advisory |
 
+
+### The locality registry the search page uses is not the one the locality page uses
+
+`pages/consumer/Listings.jsx` now reads `services/localityService.js` (server, 155 active rows,
+alphabetical, live counts). `pages/consumer/Locality.jsx` — the `/locality/:slug` landing page —
+still reads the bundled `data/localities.js` and `data/localityIntel.js` directly, below the seam.
+So the two screens can disagree about which areas exist, and only one of them will notice when an
+area is retired.
+
+That is not an oversight to fix in passing. `GET /localities/{slug}` returns
+`LocalityDetailResponse` with `about`, `connectivity`, `highlights` and `priceTrends`, and psql says
+the seeded rows have those columns empty and `demand` NULL for most of the 155. The bundled intel is
+hand-written editorial copy that nothing has ever written into the database. Moving the landing page
+to the server without first moving the copy would replace a rich page with a blank one — so this is
+a content migration and a product decision about who owns that copy, not a seam.
+
+Recorded, not built. `Listings.jsx` was moved because it uses only `slug` and `name`, which the
+server has.
+
+### The mock's locality count was already wrong, and the seam now says so out loud
+
+`db.json` localities carry a stored `listings` number that nothing recalculates; the server computes
+`listingCount` on read (D7.2). `providers/mock/localityProvider.js` maps one onto the other and its
+docblock states that the number it carries has been wrong for three of fifteen rows since before the
+migration started. Nothing renders it today, so no screen is affected either way — but a future
+consumer reading `listingCount` gets a live number on the server side and a stale one on the mock
+side, and that difference is deliberate rather than latent.
+
+### A code-point sort is the wrong oracle for a Postgres `ORDER BY name`
+
+The first draft of `live-localities.spec.js` asserted alphabetical order with `a < b`. It failed on
+one row out of 155: "NIBM Road", which a code-point compare puts before "Narhe" (`I` is 0x49, `a` is
+0x61) and which Postgres's collation puts between "Narhe" and "Nigdi", because it compares letters
+before it compares case. The server was right; the test was wrong. `localeCompare(b, 'en')` is the
+correct oracle and is what the spec now uses.
+
+Worth generalising: every future spec that pins a server-side `ORDER BY` on a text column has this
+trap, and it only shows up when the data happens to contain an acronym or a mixed-case name. There
+are 155 localities and exactly one triggered it.
+
+### The reels feed cannot move to the seam, because the list endpoint has no galleries
+
+`pages/consumer/Reels.jsx:7` still imports `listProperties` from `lib/mockApi.js` while every other
+catalogue surface reads `services/propertyService`. That is not an oversight anyone forgot; it was
+tried this session and reverted, and the reason is worth writing down before someone tries again.
+
+The page's own header comment says the feed is "the live catalogue, not a curated list" — it was
+rewritten away from eight hardcoded entries specifically so a newly posted home could appear. So in
+live mode it is currently wrong in a way that looks fine: `/reels` scrolls the browser's bundled
+`db.json` while `/listings` next door shows Postgres. Nothing errors. The two surfaces just disagree
+about what is for rent in Pune.
+
+**Why the one-line import swap does not work.** `GET /properties` returns `coverImage` and no
+`images` array — verified against the running server, the list row carries exactly
+`id, slug, title, deal, propertyType, bhk, price, priceUnit, area, areaUnit, furnishing, possession,
+locality, localitySlug, city, lat, lng, coverImage, verified, ownerVerified, ownershipVerified,
+postedByType, status, dealStatus, boosted, createdAt`. `GET /properties/{id}` does carry `images`
+(6 for the first seeded row). `propertyMapper.toViewModel` maps `gallery: p.images ?? []`, so every
+list row arrives with an empty gallery, and the page's `MIN_PHOTOS = 3` gate then rejects all of
+them. The feed renders empty. It does not throw, and the page's own catch-all falls through to the
+empty state, so the failure reads as "no reels today" rather than as a bug.
+
+That omission is almost certainly deliberate on the server's part — a gallery per row on a 100-row
+page is a large payload for a list nobody scrolls the photos of.
+
+**The three options, none of which is a cleanup call:**
+
+1. **The list response grows `images`.** Simplest for the client, and it makes every consumer of
+   the search endpoint pay for photos that only this one page wants.
+2. **A photo count on the list row** (`imageCount`), and reels fetches details only for the rows
+   that pass the gate. Cheap on the list, and still 15 detail requests to draw the current feed —
+   the per-row-request pattern `societyService`'s docblock exists to avoid, though bounded here.
+3. **A dedicated feed endpoint** that returns the already-gated set with galleries. Most work,
+   least waste, and it puts the editorial rule (homes only, three photos) on the server where it
+   can change without a deploy.
+
+Option 3 is probably right if reels is a surface the business cares about, and option 1 is right if
+it is not worth an endpoint. That is a product call about how much reels matters, so it is recorded
+rather than taken.
+
+Until then `Reels.jsx` stays on the mock and the disagreement stands. Noted here because "reels
+still imports mockApi" looks like a missed line during the P5c sweep, and deleting the mock without
+answering this first will empty the page.
+
+### `/help/faq` and `/support` will disagree once the FAQ seam is finished
+
+`pages/consumer/help/HelpFaq.jsx:7` still calls `getFaqs` from the mock. `Support.jsx` and the
+assistant widget now read `services/contentService`. Same nine questions, two sources.
+
+This one is blocked on a contract question rather than a payload one. `HelpFaq` runs each row
+through `localizeRecord(f, ['q', 'a', 'cat'], lang)` — FAQs are admin-editable records, so their
+translations live on the record (`q_mr`, `a_mr`, ...) rather than in the locale bundles, for the
+reasons `lib/contentLang.js` sets out. `FaqResponse` is `(id, question, answer, category)` and has
+no translation fields at all, so repointing the page would silently drop a capability.
+
+It would drop an *unexercised* one — the nine seeded rows carry no `_mr`/`_hi` variants today, so
+`localizeRecord` is currently a no-op and the page would look identical. That is precisely what
+makes it dangerous to move quietly: the regression would not appear until the first translated FAQ
+was written, by which time the cause would be several months upstream.
+
+The decision is whether the FAQ contract grows per-language fields (and if so, whether as suffixed
+columns like the mock or as a translations sub-object), which is the same question the banners and
+announcements will ask when they move. Worth answering once, for all of admin-editable content,
+rather than three times.
+
+### Two different functions are called `createServiceRequest`, and one of them makes tickets
+
+`lib/mockApi.createServiceRequest` (defined in `lib/mockApi/tickets.js:20`) pushes onto `db.tickets`
+and returns a `T…` id. `services/serviceRequestService.createServiceRequest` posts
+`POST /service-requests` and returns an `SR…` request. Same name, different entities, different
+boards. `InteriorRenovation.jsx` and `PropertyValuation.jsx` import both in the same file and can
+only tell them apart because one is aliased `createFlowRequest`.
+
+That is worth renaming — `createTicket` is what the mock one does and what the seam already calls
+its counterpart — but the rename touches the mock, which is scheduled for deletion in P5c, so it is
+recorded rather than done. Anyone reading a call site in the meantime should check the import.
+
+### The Move-in Pack booking is a lead that is lost entirely in live mode
+
+`Services.jsx:213` (`bookPack`) writes a ticket to `localStorage` and nothing else. The ops board
+reads `GET /tickets` in live mode, so a customer who books a Move-in Pack raises a request no one
+will ever see. It is behind a sign-in gate, so unlike the waitlist below it *could* move today.
+
+The move is `createTicket({ subject: 'Move-in Pack', team: 'packers', body: <the chosen items> })`.
+`team` is fine — `tickets_team_check` allows `rental, legal, loans, interior, packers, valuation`.
+What does not survive is `value`, the pack total, and that is a documented server decision rather
+than a gap: `TicketCreate`'s Javadoc says `service` and `value` are "ops' commercial annotations —
+a client that could set its own deal value would be writing the pipeline report." The `tickets`
+table *has* `service`, `customer`, `mobile`, `value` and `detail` columns, so the schema was built
+for the mock's shape; the create DTO deliberately withholds four of them.
+
+Putting the total into `body` as free text would route around that decision rather than respect it,
+so it should not be done quietly. The open question is whether the customer's accepted quote is the
+same thing as ops' deal value — it is arguably not, and if it is not, `TicketCreate` may want a
+`quotedValue` that ops can override. That is a product call.
+
+Not moved, because the same commit should answer that question rather than drop a number silently.
+
+### The Move-in Pack waitlist cannot move at all: it is deliberately anonymous
+
+`Services.jsx:225` (`submitNotify`) carries the comment "No forced sign-up — we only need a valid
+mobile to follow up," and it means it: the mobile comes from the form, not the session, and
+`user?.name` is optional-chained because there may be no user. `POST /tickets` takes a
+`@CurrentUser` principal and attributes the ticket to it.
+
+So there are only bad mappings. Sending it authenticated 401s the anonymous visitor this form
+exists for. Sending it as the signed-in user, when there is one, attributes a stranger's lead to
+whoever last used the browser and drops the mobile that was the entire point of collecting it.
+
+This needs an anonymous lead-capture route — a public `POST /leads`, or `POST /tickets` accepting a
+`contactMobile` when unauthenticated with its own rate limit, since an unauthenticated write to an
+ops queue is a spam surface and would need one. Both are product and security decisions.
+
+### The ticket board and the service-request queue are two boards with no link, in live mode
+
+`InteriorRenovation.jsx:94-95` and `PropertyValuation.jsx:107-108` create *both*: a mock ticket and
+a seam service request, tied together by a `ref` the mock's `syncServiceTicket` uses to mirror
+workflow status onto the board so nothing shows "new" after it has moved on.
+
+In live mode the service request half already reaches Postgres and the ticket half does not, so
+these leads are not lost — they land on the ops service queue and not on the board. Adding
+`createTicket` here would put them on both, unlinked: `TicketCreate` has no field for a service
+request, and `ServiceRequestCreate` (as the seam sends it) has no `ticketId`, although
+`ServiceRequest.ticketId` exists and `GET /service-requests?ticketId=` is documented as answering
+"which request came off this board item" (D45).
+
+So the link exists in one direction on the server and neither call site can set it. Until it can,
+creating both from the client produces two rows that look duplicated to whoever is on shift. The
+question is whether these forms should raise a board ticket at all now that the ops queue is real,
+which is a workflow decision about what the board is *for*.
+
+Recorded. Nothing moved here.
+
+### The homepage trust counters have no server to read, and cannot be derived from the list
+
+`pages/consumer/home/Featured.jsx:11` calls `verifiedStats(localitySlug)`, which reduces the mock
+catalogue into `{ verifiedListings, totalListings, verifiedOwners }`. There is no server endpoint
+for it — nothing in the backend answers anything resembling `verifiedStats` — so this is a new
+route, not a repoint.
+
+Two of the three numbers *could* be computed client-side from `listProperties`, since the list row
+carries `verified`, `ownerVerified` and `ownershipVerified`. The third cannot: `verifiedOwners` is
+a **distinct count of owners**, and `GET /properties` does not send `ownerId`. Counting distinct
+owners on the client would also mean counting them only among the rows that happened to be on the
+page, which is a wrong number that looks right.
+
+These are trust counters on the front page. A wrong one is worse than an absent one, so this wants
+a small server endpoint that counts in one query — the same shape as the locality `listingCount`
+decision (D7.2), and for the same reason. Recorded, not built.
+
+### The public owner profile has no route at all
+
+`pages/consumer/Owner.jsx:7` calls `getOwner(id)`, which returns the user record **spread whole**
+plus their listings. There is no public owner endpoint on the server, and the shape the mock
+returns is the reason there should not be one built casually: `{ ...owner }` includes every column
+the mock stores, and the standing ruling (D5/Q2) is that an owner's raw mobile is never revealed to
+a buyer before a deal, on any surface.
+
+So this needs a deliberately-shaped public projection — display name, badges, listing count, the
+listings themselves — and an explicit decision about what a stranger may learn about an owner from
+a URL they can guess. That is a privacy decision, not a mapping.
+
+Recorded. It is the last consumer page still reading the mock for its main content, so it will be
+the last thing standing before P5c.
+
+### Wave 4c is mostly already done — the plan item was stale
+
+Surveyed the three files the plan listed for retirement or absorption. Two of them are finished and
+only the third is real work:
+
+- **`admin/flatmates.spec.js` (3 tests) — already retired.** The file is no longer a desk suite; it
+  is three tests that the redirect to `/ops/flatmate-review` keeps its guards, with a docblock
+  explaining that the retired route stays as a redirect because operators have it bookmarked. That
+  is the correct end state and it should not be touched again.
+- **`admin/flatmate-moderation-reach.spec.js` (3 tests) — already truncated correctly.** The admin
+  half died with `/admin/flatmates`; what remains is the consumer half, proving the mock board
+  honours `MOD_HIDDEN`. Its own docblock says it "dies with the mock at P5c", which is right — it
+  exists to keep mock mode an honest rehearsal of D72 for as long as mock mode exists. Leave it.
+- **`admin/consolidation.spec.js` (18 tests) — the only outstanding one**, and it is a style
+  problem rather than a provider problem. It imports `@playwright/test` directly instead of
+  `fixtures/base.js`, hardcodes `BASE = 'http://localhost:5173'`, rolls its own `loginAsAdmin`, and
+  uses `waitForTimeout(500)`. Its assertions are almost all provider-agnostic — routes redirect,
+  nav items absent, tabs absent — so it would very likely pass unchanged against the live API.
+
+  That makes it a good candidate to convert to the `login` fixture and promote to a live spec, but
+  the assertions are the negative kind (`toHaveCount(0)`), and a negative assertion passes for free
+  if the page fails to load at all. So the conversion needs a positive anchor per test — assert the
+  destination heading, not just the URL — or it will pass while proving nothing.
+
+Not started, because the live suite was running and two Playwright suites must not run at once.

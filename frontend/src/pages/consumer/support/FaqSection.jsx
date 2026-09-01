@@ -14,10 +14,10 @@ export default function FaqSection({ faqs, openFaq, setOpenFaq }) {
               onClick={() => setOpenFaq(openFaq === f.id ? null : f.id)}
               className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium text-white hover:bg-white/5"
             >
-              {f.q}
+              {f.question}
               <Icon name="chevron-down" className={'w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ' + (openFaq === f.id ? 'rotate-180' : '')} />
             </button>
-            {openFaq === f.id && <p className="px-4 pb-4 text-sm text-gray-400 leading-relaxed">{f.a}</p>}
+            {openFaq === f.id && <p className="px-4 pb-4 text-sm text-gray-400 leading-relaxed">{f.answer}</p>}
           </div>
         ))}
       </div>

@@ -5,9 +5,8 @@ import Icon from '../../components/Icon.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { getFaqs } from '../../lib/mockApi.js';
-import { MAX_IMAGES, compressFiles } from '../../lib/data/support.js';
-import {
+import { listFaqs } from '../../services/contentService.js';
+import { MAX_IMAGES, compressFiles } from '../../lib/data/support.js';import {
   listTickets,
   getTicket,
   createTicket,
@@ -76,7 +75,7 @@ export default function Support() {
 
   useEffect(() => {
     let alive = true;
-    getFaqs().then((f) => alive && setFaqs(f));
+    listFaqs().then((f) => alive && setFaqs(f));
     return () => {
       alive = false;
     };

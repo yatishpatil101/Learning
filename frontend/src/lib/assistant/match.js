@@ -22,14 +22,21 @@ export function tokenize(str) {
   return m.filter((t) => t.length > 1 && !STOP.has(t));
 }
 
-/* FAQs (loaded from the mock DB) become low-priority pseudo-entries so the
-   assistant can answer them too, always with a support escalation attached. */
+/* FAQs (loaded from the content service) become low-priority pseudo-entries so
+   the assistant can answer them too, always with a support escalation attached.
+
+   This function is the boundary between two vocabularies, and that is why the
+   rename stops here. The published FAQ is `{ question, answer }` because that is
+   what the server calls it; a knowledge-base entry is `{ q, a }` because it also
+   carries keywords, actions and a route, and is a different thing that happens to
+   contain a question. Adapting at the edge keeps the KB entries and the scorer
+   untouched by where the answers came from. */
 function faqEntries(faqs) {
   return (faqs || []).map((f) => ({
     id: 'faq-' + f.id,
-    keywords: tokenize(f.q + ' ' + f.a),
-    q: f.q,
-    a: f.a,
+    keywords: tokenize(f.question + ' ' + f.answer),
+    q: f.question,
+    a: f.answer,
     actions: [{ label: 'More help', to: '/support', icon: 'ticket-plus' }],
     isFaq: true,
   }));

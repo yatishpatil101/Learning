@@ -26,12 +26,12 @@ assert(r3[0]?.entry.id === 'emi', 'emi query → emi, got ' + r3[0]?.entry.id);
 assert(rankAnswers('xyzzy qwerty').length === 0, 'gibberish → no matches');
 assert(rankAnswers('   ').length === 0, 'blank → no matches');
 
-const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', q: 'Is PuneNest zero brokerage?', a: 'Yes.' }] });
+const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', question: 'Is PuneNest zero brokerage?', answer: 'Yes.' }] });
 assert(faqR.length > 0, 'faq entries are searchable');
 
 // A curated entry must win over an imported FAQ that duplicates its question,
 // so trust questions keep Nestor's crafted answer + deep-link (not a bare FAQ).
-const dupFaq = [{ id: 'F2', q: 'How are owners and listings verified?', a: 'We check them.' }];
+const dupFaq = [{ id: 'F2', question: 'How are owners and listings verified?', answer: 'We check them.' }];
 const vr = rankAnswers('How are owners and listings verified?', { faqs: dupFaq });
 assert(vr[0]?.entry.id === 'verification', 'curated verification beats duplicate FAQ, got ' + vr[0]?.entry.id);
 

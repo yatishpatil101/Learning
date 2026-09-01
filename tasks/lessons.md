@@ -3439,3 +3439,51 @@ acted on and there is nothing friendlier to show for it. The claim I actually wa
 cell, not the row. A negative assertion scoped wider than the claim will find something true and
 call it a bug — and the tempting fix (soften the pattern, or stop printing the id) would have
 damaged the page to protect the test.
+
+## Mock-retirement migration lessons (feature/backend-integration)
+
+- **`localeCompare`, not `<`, when pinning a server-side `ORDER BY` on text.** A code-point
+  compare put "NIBM Road" before "Narhe" (`I` is 0x49, `a` is 0x61); Postgres's collation is
+  linguistic and puts it between "Narhe" and "Nigdi". The server was right and the test was
+  wrong. It took exactly **one row out of 155** to expose it, so this passes on most datasets
+  and fails the day an acronym or a mixed-case name is seeded.
+- **Pin an order the server promises; do not pin one it merely happens to produce.**
+  `findByActiveTrueOrderByNameAsc()` is a decision and is asserted. `findByArchivedFalse()`
+  with no `Sort` is heap order — asserting it would make an accident look intentional. Record
+  the difference as a finding instead.
+- **A list endpoint usually does not carry what the detail endpoint does.** Repointing the
+  reels feed from the mock to `propertyService` looked like a one-line import swap and emptied
+  the page: `GET /properties` sends `coverImage` and no `images`, `GET /properties/{id}` sends
+  the gallery, and the mapper's `gallery: p.images ?? []` therefore yields `[]` for every list
+  row. The page's three-photo gate then rejected everything, it did not throw, and its own
+  catch-all rendered the empty state — so the bug read as "no reels today". **Diff the actual
+  field list of both responses before moving any page that renders a collection.**
+- **Verify a count against a different endpoint, not against the field it came from.** The
+  locality spec asserts `listingCount` equals what `GET /properties?locality=<slug>` reports.
+  Comparing a computed count to the stored one it replaced proves only that the migration
+  copied a number.
+- **Two functions can share a name and make different entities.**
+  `lib/mockApi.createServiceRequest` creates a *ticket*; `serviceRequestService.createServiceRequest`
+  creates a *service request*. Two pages import both, distinguishable only by an alias. Check
+  the import before assuming what a call does.
+- **A schema built for the old shape does not mean the API will accept it.** `tickets` has
+  `service`, `customer`, `mobile`, `value` and `detail` columns matching the mock exactly, and
+  `TicketCreate` deliberately withholds four of them — "a client that could set its own deal
+  value would be writing the pipeline report". Read the DTO's Javadoc, not the table.
+- **Mutation-test a concurrency guard.** Deleting the single `lockCaseFileFor` line made the
+  new race test fail with the exact `duplicate key value violates unique constraint` the
+  production log had shown. A race test that has never been seen to fail is not evidence.
+- **StrictMode turns "idempotent when called twice in a row" into a live bug.** The review
+  modal's open effect fires two *concurrent* POSTs, so a `findBy…().orElseGet(insert)` raced
+  and one caller got a constraint violation. The fix is a transaction-scoped advisory lock plus
+  a double-checked read — a row lock cannot help, because the contended resource is the
+  *absence* of a row and `SELECT … FOR UPDATE` cannot lock one of those.
+- **A modal that returns `null` when its data fails to load is indistinguishable from a modal
+  that never opened.** The screenshot showed the page with the button still present and no
+  error, which sent the investigation to the wrong layer entirely. The backend log had the
+  answer; the UI had erased it.
+- **Anonymous lead-capture forms cannot move to an authenticated endpoint at all.** Every
+  mapping is wrong: sending it authenticated locks out the visitor the form exists for, and
+  attributing it to whoever is signed in loses the mobile that was the point of the form.
+- **Adding a domain to the seam needs `VITE_API_DOMAINS` in `playwright.live.config.js`.**
+  `frontend/.env.live` is `*` and will mislead you into thinking a new provider is already live.
