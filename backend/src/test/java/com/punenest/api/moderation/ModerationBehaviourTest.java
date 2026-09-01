@@ -71,6 +71,12 @@ class ModerationBehaviourTest extends AbstractApiTest {
         p.setPriceUnit("per-month");
         p.setArea(new BigDecimal("950"));
         p.setStatus(PropertyStatus.PENDING);
+        // Filed under a curated area, as a listing whose free text resolved would be. Saving through
+        // the repository skips LocalityResolver, so without this every fixture here is an *unfiled*
+        // listing — and approval now refuses those (register item 24). Approving one is not what any
+        // test in this class is about, and a fixture that trips a guard it never mentions is a
+        // fixture that will be "fixed" by weakening the guard.
+        p.setLocalitySlug("baner");
         return properties.saveAndFlush(p);
     }
 

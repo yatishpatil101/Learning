@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { DEFAULT_CITY, getCities, getCityLive } from '../lib/geoConfig.js';
+import { DEFAULT_CITY, getCities, getCityLive, onGeoChange } from '../lib/geoConfig.js';
 
 /* PuneNest city system (ports PNCity from auth.js). City is persisted in
    `puneNestCity`; which cities are live is governed by the admin Maps settings
@@ -29,26 +29,30 @@ export function CityProvider({ children }) {
 
   useEffect(() => {
     const sync = () => setCities(getCities());
-    /* A `focus` listener used to sit here calling `syncGeoFromDisk()` from `mockApi.js`, with a
-       comment promising it would carry an admin's city-went-live edit "to shoppers here without a
-       manual cache clear". It never could.
+    /* Three sources, and the first is the one that made the other two mean anything.
 
-       `syncGeoFromDisk` (`lib/mockApi/collections.js:59`) begins by awaiting `persistLoad(KEY)`,
-       and `persistLoad` returns `null` whenever `DISK_OFF` — which is
-       `!import.meta.env.DEV || navigator.webdriver`. So it returned `false` on its first line in
-       every production build and under every Playwright run. Its entire reachable behaviour was
-       that a second browser profile on a developer's own machine picked up a geo edit on focus.
+       `onGeoChange` fires when `lib/geoConfig.js` finishes fetching the operator's policy from
+       `GET /geo`. Until that lands the roster is built from the built-in defaults — Pune live,
+       everything else waitlisted — so without this subscription a second live city would render
+       as "coming soon" until something else happened to trigger a re-render.
 
-       That is the shape recorded in register item 35: a workaround switched off in the only
-       environment that needed it. This deletes the workaround, not the item — the underlying
-       staleness (admin geo edits now go to `PUT /admin/settings` and never reach `geoConfig`'s
-       localStorage read) is untouched and still item 35's to answer.
+       Before that route existed, a `focus` listener sat here calling `syncGeoFromDisk()` from
+       `mockApi.js`, with a comment promising it would carry an admin's city-went-live edit "to
+       shoppers here without a manual cache clear". It never could: `syncGeoFromDisk` began by
+       awaiting `persistLoad(KEY)`, which returns `null` whenever `DISK_OFF`
+       (`!import.meta.env.DEV || navigator.webdriver`) — so it returned `false` on its first line
+       in every production build and under every Playwright run. Its entire reachable behaviour
+       was that a second browser profile on a developer's own machine picked up a geo edit on
+       focus. The workaround is gone and so is the staleness it was covering for.
 
-       The two listeners that remain are the ones that actually fire: `punenest-settings-change` is
-       dispatched by `updateSettings`, and `storage` by another tab in the same profile. */
+       The other two still fire and still matter: `punenest-settings-change` is dispatched by
+       `updateSettings` (and re-fetches the policy, see main.jsx), and `storage` by another tab in
+       the same profile. */
+    const unsubscribe = onGeoChange(sync);
     window.addEventListener('punenest-settings-change', sync);
     window.addEventListener('storage', sync);
     return () => {
+      unsubscribe();
       window.removeEventListener('punenest-settings-change', sync);
       window.removeEventListener('storage', sync);
     };

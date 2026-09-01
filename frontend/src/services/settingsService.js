@@ -114,3 +114,29 @@ export const getAppFlags = async () => (await provider()).getAppFlags();
  * @returns {Promise<{ enabled: boolean, items: Record<string, number> }>}
  */
 export const getMovePack = async () => (await provider()).getMovePack();
+
+/**
+ * Where the platform operates, and which places it will not suggest (`settings.geo`).
+ *
+ * **A fourth public route.** Live this reads `GET /geo`, for the reason the flags and the Move-in
+ * Pack each read their own: the block gates what a *logged-out visitor* sees — which cities the
+ * switcher opens rather than waitlists, where a map centres, whether locality search is fenced to
+ * the city bounds, which places are hidden from every suggestion box — and the document it lives in
+ * is admin-only because it also carries the fee table and the permission map. Not a key on
+ * `getAppFlags()` either: that contract is map-of-boolean and would drop two of this block's three
+ * parts on the floor.
+ *
+ * **Everything in the answer is an override.** `lib/geoConfig.js` owns the built-in centre, box and
+ * launch status per city and merges this over them, so `{}` is the correct answer for an install
+ * whose operator has never opened the Maps panel, and an unreachable server leaves the client on
+ * defaults rather than on nothing. That is why there is no fail-closed shape here the way there is
+ * for the Move-in Pack — there is nothing to close.
+ *
+ * **The live answer is narrower than the stored block by one field.** Each blacklist entry keeps
+ * its `placeId` and `term`, which is all the matcher has ever read, and drops the operator's
+ * free-text reason. The admin console reads the whole entry through `getSettings()`, which is
+ * where a moderator's note about a named building belongs.
+ *
+ * @returns {Promise<{ enforceCityLimit?: boolean, cities?: object, blacklist?: Array }>}
+ */
+export const getGeo = async () => (await provider()).getGeo();

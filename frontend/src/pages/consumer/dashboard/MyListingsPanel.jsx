@@ -7,7 +7,7 @@ import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/d
 import { deleteFlatmatePost, deleteFlatmateGroup } from '../../../lib/data/flatmates.js';
 import { myContactRequests } from '../../../services/contactService.js';
 import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
-import { publishManagedProp, deleteManagedProp } from '../../../lib/data/managedProperty.js';
+import { publishManaged, deleteManaged } from '../../../services/managedService.js';
 import { splitFlat, unsplitFlat } from '../../../lib/data/flatSplit.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
@@ -191,11 +191,16 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const handleReopen = async (l) => {
     try {
       await reopenDeal(dealIdOf(l));
+      /* Awaited, unlike the `sold`/`rented` mark above, because this one can be refused: the server
+         will not return a listing to `approved` while it has no locality, since that is the state
+         that reads as live and behaves as missing (register item 24). A listing that was approved
+         once already has one, so this is a corner — but an unhandled rejection here would leave the
+         deal reopened and the listing silently still closed. */
+      await setListingStatus(l.id, 'approved');
     } catch (err) {
       toast(err?.body?.error || err?.message || 'Could not reopen the listing', 'error');
       return;
     }
-    setListingStatus(l.id, 'approved');
     toast(`${l.title} reopened for listing`, 'success');
     await refreshDeals(listingKey);
     refreshListings();
@@ -288,10 +293,10 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     [listingsState],
   );
 
-  const handleDelete = (l) => {
+  const handleDelete = async (l) => {
     if (!window.confirm(`Delete "${l.title}"? This cannot be undone.`)) return;
 
-    if (l.private) deleteManagedProp(l.managedId);
+    if (l.private) await deleteManaged(l.managedId);
     else if (l.flatmateGroup) deleteFlatmateGroup(l.id);
     else if (l.flatmatePost) deleteFlatmatePost(l.id);
     else if (l.flatmate) deleteRoom(l.id);
@@ -301,9 +306,21 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     refreshListings();
   };
 
-  // Publish a private (managed-only) property into the normal pending-review flow.
-  const handlePublish = (l) => {
-    const res = publishManagedProp(l.managedId);
+  /* Publish a private (managed-only) property into the normal pending-review flow.
+
+     The catch is not defensive padding. A managed record is captured loosely — free-text
+     furnishing, a price that may still be zero — and the marketplace contract is stricter, so the
+     server re-runs the listing's own validation at this boundary and can refuse. Before D32 this
+     was a synchronous call with no failure path at all, so a refusal would have shown the success
+     toast and then quietly done nothing. */
+  const handlePublish = async (l) => {
+    let res;
+    try {
+      res = await publishManaged(l.managedId);
+    } catch (e) {
+      toast(e?.message || 'Could not publish this property. Please check its details.', 'error');
+      return;
+    }
     if (res?.already) { toast('This property is already listed.', 'info'); return; }
     toast('Submitted for review — buyers will see it once verified.', 'success');
     refreshListings();

@@ -71,6 +71,21 @@ public class AdminMetricsService {
     private static final int MAX_LEDGER_PAGE = 100;
 
     /**
+     * Ceiling on how many ledger rows a caller may skip.
+     *
+     * <p>The page number arrives on the query string, so {@code ?page=} is an unbounded integer a
+     * caller chooses. {@code financeTransactions} widens the multiplication to a {@code long} to
+     * stop it wrapping negative — Postgres rejects a negative offset, which would surface as an
+     * unhandled 500 — but the arithmetic being correct is not the same as the query being sensible.
+     * Every page past the end of the ledger is a full scan of every money row on the platform,
+     * sorted, and then discarded in its entirety.
+     *
+     * <p>A hundred thousand is far past anywhere a human has paged to and far short of a scan worth
+     * worrying about, which is the whole of the reasoning.
+     */
+    private static final long MAX_LEDGER_OFFSET = 100_000L;
+
+    /**
      * The ledger's closed vocabularies.
      *
      * <p>Declared here rather than derived from the SQL because they are the contract: the same two

@@ -11,9 +11,8 @@ export function SocietySection({ p }) {
   const { t } = useTranslation();
   const base = societyForListing(p);
   const soc = base ? (resolveSociety(base.slug) || base) : null;
-  const socName = soc ? soc.name : t('property.societyBuilding');
-  const verified = soc ? (soc.registration && soc.conveyance) : !!p.ownershipVerified;
-  const claimed = soc && soc.claimStatus === 'claimed';
+  const verified = !!(soc && soc.registration && soc.conveyance);
+  const claimed = !!(soc && soc.claimStatus === 'claimed');
   /* SEAM NOTE: one society's aggregate, from the seam, keyed on the **slug**.
 
      The society itself comes from `data/societies.js`, so `soc.id` is a synthetic `S01` the server
@@ -46,12 +45,28 @@ export function SocietySection({ p }) {
     return () => { alive = false; };
   }, [slug]);
 
-  const quick = soc ? [
+  /* D19 — no binding, no section. Every hook above still runs, so this early return is safe.
+
+     `societyForListing` used to answer with `SOCIETIES[fnvHash(p.id) % SOCIETIES.length]`, which is
+     never null, so this component always had a society to draw and the question "is this listing in
+     a society at all?" was never asked. It now answers null for a listing that carries no
+     `societySlug`, which is most of them: an owner is not obliged to name a building, and
+     `properties.society_id` is null for the majority of real rows.
+
+     The tempting half-measure — keep the heading, drop the details — is worse than nothing. A
+     "Society Information" heading over a generic "Building" name, a registration tile and a
+     conveyance tile still asserts that this home belongs to a society and that someone checked its
+     paperwork. Those tiles were fed by `p.ownershipVerified`, which is a claim about the *seller's*
+     title and says nothing at all about a society's registration or conveyance deed. Absent is the
+     only honest rendering of unknown. */
+  if (!soc) return null;
+
+  const quick = [
     ['home', t('property.homesCount', { count: soc.units })],
     ['building-2', t('property.towersCount', { count: soc.towers })],
     ['calendar', t('property.builtYear', { year: soc.year })],
     ['users', t('property.occupied', { occupancy: soc.occupancy })],
-  ] : [];
+  ];
 
   const card = (ok, icon, title, okLabel, noLabel, okDesc, noDesc) => (
     <div className={'rounded-xl border p-5 flex items-start gap-3 ' + (ok ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-white/10 bg-white/5')}>
@@ -77,48 +92,42 @@ export function SocietySection({ p }) {
             <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="building" className="w-6 h-6 text-brand-teal-3" /></div>
             <div>
               <p className="text-xs text-slate-400 mb-0.5">{t('property.societyBuilding')}</p>
-              <p className="font-bold text-white text-lg">{socName}</p>
-              {soc ? (
-                <div className="flex items-center gap-2 mt-1">
-                  {rating && rating.count ? (
-                    <>
-                      <Stars value={rating.avg} size={13} />
-                      <span className="text-xs text-slate-500" data-testid="property-society-rating">{`${Number(rating.avg).toFixed(1)} · ${t('property.societyReviewCount', { count: rating.count })}`}</span>
-                    </>
-                  ) : (
-                    <span className="text-xs text-slate-500">{rating ? `${t('property.societyNotRated')} · ${soc.builder}` : soc.builder}</span>
-                  )}
-                </div>
-              ) : null}
+              <p className="font-bold text-white text-lg">{soc.name}</p>
+              <div className="flex items-center gap-2 mt-1">
+                {rating && rating.count ? (
+                  <>
+                    <Stars value={rating.avg} size={13} />
+                    <span className="text-xs text-slate-500" data-testid="property-society-rating">{`${Number(rating.avg).toFixed(1)} · ${t('property.societyReviewCount', { count: rating.count })}`}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-500">{rating ? `${t('property.societyNotRated')} · ${soc.builder}` : soc.builder}</span>
+                )}
+              </div>
             </div>
           </div>
           {verified ? <span className="tag tag-emerald flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.verifiedSociety')}</span> : null}
           {claimed ? <span className="tag flex items-center gap-1.5" style={{ background: 'rgba(37,99,235,.15)', color: '#93c5fd', border: '1px solid rgba(37,99,235,.3)' }}><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('property.managedOnPuneNest')}</span> : null}
         </div>
 
-        {soc ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
-            {quick.map(([icon, val]) => (
-              <div key={val} className="rd-cell flex items-center gap-2">
-                <Icon name={icon} className="w-4 h-4 text-brand-teal-3 flex-shrink-0" />
-                <span className="text-sm font-semibold text-white truncate">{val}</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
+          {quick.map(([icon, val]) => (
+            <div key={val} className="rd-cell flex items-center gap-2">
+              <Icon name={icon} className="w-4 h-4 text-brand-teal-3 flex-shrink-0" />
+              <span className="text-sm font-semibold text-white truncate">{val}</span>
+            </div>
+          ))}
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {card(verified, 'badge-check', t('property.societyRegistration'), t('property.verified'), t('property.pending'), t('property.societyRegYes'), t('property.societyRegNo'))}
-          {card(soc ? soc.conveyance : verified, 'file-text', t('property.conveyanceDeed'), t('property.done'), t('property.pending'), t('property.conveyanceYes'), t('property.conveyanceNo'))}
+          {card(soc.conveyance, 'file-text', t('property.conveyanceDeed'), t('property.done'), t('property.pending'), t('property.conveyanceYes'), t('property.conveyanceNo'))}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 mt-5">
           <p className="text-slate-500 text-xs flex items-center gap-1.5"><Icon name="info" className="w-3.5 h-3.5 flex-shrink-0" /> {t('property.societyFooter')}</p>
-          {soc ? (
-            <Link to={`/society/${soc.slug}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:underline flex-shrink-0">
-              {t('property.viewSocietyProfile', { name: soc.name })} <Icon name="arrow-right" className="w-4 h-4" />
-            </Link>
-          ) : null}
+          <Link to={`/society/${soc.slug}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-teal-3 hover:underline flex-shrink-0">
+            {t('property.viewSocietyProfile', { name: soc.name })} <Icon name="arrow-right" className="w-4 h-4" />
+          </Link>
         </div>
       </div>
     </section>

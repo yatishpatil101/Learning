@@ -47,17 +47,23 @@ public class PlatformSettings {
      */
     private static final BigDecimal MAX_PERCENT = new BigDecimal("100");
 
-    /** Credit given to a referrer when ops approves a referral, in whole rupees. */
-    private static final long DEFAULT_REFERRAL_REWARD = 500L;
+    /** Owner contacts a caller with no subscription may open, before any referral bonus (D31b). */
+    private static final long DEFAULT_FREE_CONTACT_LIMIT = 15L;
+
+    /** Owner contacts granted to a referrer each time one of their referrals qualifies (D31b). */
+    private static final long DEFAULT_REFERRAL_CONTACT_BONUS = 15L;
 
     /**
-     * Ceiling on a single referral reward.
+     * Ceiling on both contact numbers above.
      *
-     * <p>The same reason as {@link #MAX_PERCENT}, with more at stake: this value is multiplied by
-     * however many referrals somebody can generate, so a mistyped extra zero is not one wrong
-     * payout but an unbounded one.
+     * <p>The same reason as {@link #MAX_PERCENT}, with more at stake for the bonus: it is multiplied
+     * by however many referrals somebody can generate, so a mistyped extra zero is not one wrong
+     * grant but an unbounded one. A thousand owner contacts is already far beyond any honest use of
+     * the platform, and past it the number is indistinguishable from "no limit" anyway -- which is
+     * what {@code plans.unlimited_contacts} is for, and it should be a deliberate choice rather than
+     * something a typo can produce.
      */
-    private static final long MAX_REFERRAL_REWARD = 100_000L;
+    private static final long MAX_CONTACT_GRANT = 1_000L;
 
     /**
      * Referrals one referrer may have auto-qualify in a rolling month before the rest go to a human
@@ -76,7 +82,7 @@ public class PlatformSettings {
     /**
      * Ceiling on that cap.
      *
-     * <p>Not a safety limit on money — {@link #MAX_REFERRAL_REWARD} is that — but on the number of
+     * <p>Not a safety limit on money — {@link #MAX_CONTACT_GRANT} is that — but on the number of
      * rewards a single account can mint without anyone looking. A back office that can type an
      * arbitrarily large number here can switch the fraud desk off by accident.
      */
@@ -103,17 +109,43 @@ public class PlatformSettings {
     }
 
     /**
-     * Whole rupees credited to a referrer when ops approves one of their referrals.
+     * Owner contacts a caller with no subscription may open (D31b).
      *
-     * <p>Configurable rather than a constant in the growth code because it is a price, and every
-     * other price the platform charges or pays already lives in this block. Bounded to
-     * {@code [0, 100000]} — a referral scheme is the one place where a back-office typo is
-     * multiplied by the number of people willing to exploit it.
+     * <p>This is the free tier's whole entitlement, and it has no plan row to live on: a caller with
+     * no subscription has nothing in {@code plans} to read. Settings is the only home for a number
+     * that describes the absence of a purchase.
+     *
+     * <p>A "contact" is one {@code contact_requests} row -- the right to put yourself in front of one
+     * owner and ask. Under D5 it was never the digits, so metering it does not withhold anything the
+     * platform ever handed over.
      */
     @Transactional(readOnly = true)
-    public long referralRewardInr() {
-        return wholeNumber(FEES_KEY, "referralReward", DEFAULT_REFERRAL_REWARD,
-                MAX_REFERRAL_REWARD);
+    public long freeContactLimit() {
+        return wholeNumber(FEES_KEY, "freeContactLimit", DEFAULT_FREE_CONTACT_LIMIT,
+                MAX_CONTACT_GRANT);
+    }
+
+    /**
+     * Owner contacts granted to a referrer for each referral that qualifies (D31b).
+     *
+     * <p>Replaces {@code referralReward}, which was denominated in rupees and paid into a balance no
+     * screen rendered and nothing could spend. The offer the product actually makes -- and the one
+     * the API contract has always documented -- is contacts, so this is what the platform now pays.
+     *
+     * <p>Configurable for the same reason the rupee figure was: it is the price of the offer, and a
+     * growth campaign that doubles it should be a deployment change rather than a release. Bounded
+     * because a referral scheme is the one place a back-office typo is multiplied by the number of
+     * people willing to exploit it.
+     *
+     * <p>Lives in the {@code fees} block beside {@link #referralQualifyPerMonth()} because they are
+     * two halves of one offer: what a referral is worth, and how many of them one account can mint
+     * before a human looks. Splitting them across two documents would let one be changed without the
+     * other being read.
+     */
+    @Transactional(readOnly = true)
+    public long referralContactBonus() {
+        return wholeNumber(FEES_KEY, "referralContactBonus", DEFAULT_REFERRAL_CONTACT_BONUS,
+                MAX_CONTACT_GRANT);
     }
 
     /**

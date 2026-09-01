@@ -15,7 +15,11 @@ import java.time.Instant;
  * @param mobile          set only for the signed-out lead path
  * @param alertFrequency  off|instant|daily|weekly
  * @param channel         whatsapp|sms|email|push
- * @param newCount        stored column, currently always 0 — see class Javadoc on D8.8
+ * @param newCount        stored column — matches that arrived since the sweep's last baseline, and
+ *                        zero again once the alert has gone out. See D8.8 on the service.
+ * @param matchCount      computed on the read — how many live listings match these facets at all,
+ *                        regardless of age. Zero on a flatmates alert, which this count does not
+ *                        cover. Not a column; see D227 on the service.
  */
 public record SavedSearchResponse(
         String id,
@@ -29,5 +33,19 @@ public record SavedSearchResponse(
         String alertFrequency,
         String channel,
         int newCount,
+        int matchCount,
         Instant createdAt) {
+
+    /**
+     * This response with its match count filled in.
+     *
+     * <p>The mapper builds every other field from the row and cannot supply this one, so it maps
+     * zero and the service replaces it. A wither rather than a second constructor because the
+     * record <em>is</em> the contract shape: adding a build path that omits a field is how a field
+     * starts being forgotten.
+     */
+    SavedSearchResponse withMatchCount(int count) {
+        return new SavedSearchResponse(id, name, kind, query, filters, criteria, label, mobile,
+                alertFrequency, channel, newCount, count, createdAt);
+    }
 }

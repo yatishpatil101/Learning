@@ -186,6 +186,39 @@ export async function addListing(listing) {
 }
 
 /**
+ * `POST /me/listings/duplicate-check` — "have I already listed this?", answered over the caller's
+ * real listings instead of whatever this browser is holding.
+ *
+ * The address is composed here by the **same** expression `toListingCreate` uses, and that is not a
+ * stylistic echo: the server normalises the string it is given into the comparison key, so a
+ * three-part line here and a four-part line on the create normalise to two different keys and the
+ * pre-check would answer about a property the submission is not about. Reusing `toListingCreate` and
+ * discarding the rest of the body would be the tidier-looking way to guarantee it, but that body
+ * requires `title`/`deal`/`price`, none of which the check needs or the schema declares.
+ *
+ * `POST` on a read because the body carries the electricity meter number — the one field on a
+ * listing that names a real-world utility account, and not something to put in a query string.
+ *
+ * `mobile` is ignored: who is asking is the access token's business, and letting the caller name an
+ * owner here would be an authorization decision made in the browser. It is in the signature only so
+ * this matches the mock provider, which has no session to read.
+ */
+export async function checkOwnDuplicate({ fields } = {}) {
+  const f = fields || {};
+  const address = [f.flatNumber, f.tower, f.society, f.street]
+    .map((part) => String(part ?? '').trim()).filter(Boolean).join(', ');
+  const verdict = await post('/me/listings/duplicate-check', {
+    address: address || undefined,
+    locality: f.locality || undefined,
+    city: f.city || 'Pune',
+    lat: f.propLat ?? undefined,
+    lng: f.propLng ?? undefined,
+    electricityMeterNo: f.electricityConsumerNo || undefined,
+  });
+  return { found: !!verdict?.found, existingId: verdict?.existingId ?? null };
+}
+
+/**
  * `POST /admin/properties` — a listing taken over the phone, owned by the person on the phone.
  *
  * Not `addListing` with a couple of extra fields, and the difference is the whole point.
@@ -311,6 +344,24 @@ export async function flagListing(id, reason) {
  */
 export async function clearFlag(id) {
   await del(`/properties/${encodeURIComponent(id)}/flag`);
+}
+
+/**
+ * Move a staff-posted listing along one of the two concierge funnels.
+ *
+ * `POST /properties/{id}/pipeline` **does** answer with the updated listing — unlike the four
+ * decisions above — because the board that issues the call renders the stage it just set. The
+ * resolved value is dropped here anyway, for the reason documented above: the mock cannot produce
+ * a faithful `PropertyResponse`, so a caller reading this value would work against one provider
+ * and not the other. The board re-reads its list after the call, as it already did.
+ *
+ * The server sorts the value onto the right column: a hand-back milestone lands in
+ * `handback_milestone` and pins `pipeline_stage` at `docs_submitted`; an acquisition stage lands in
+ * `pipeline_stage` and clears the milestone. Anything outside the eight is a 400, which includes
+ * `under_review` and `live` — those are `status`, not stages.
+ */
+export async function setPipelineStage(id, stage) {
+  await post(`/properties/${encodeURIComponent(id)}/pipeline`, { stage });
 }
 
 // ─── Internals ────────────────────────────────────────────────────────────────────────────────

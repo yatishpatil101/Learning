@@ -72,6 +72,12 @@
   listings. `canPostListing()` = `activeListingCount() < listingLimit()`. A **new** post over the
   limit renders `ListingPaywall`; **editing** an existing listing is never paywalled (`canPost` is
   fixed `true` in edit mode).
+- **This paywall is a courtesy, not a gate, and knowingly so.** D31b moved the *contact* quota
+  server-side but deliberately left the listing count alone. `GET /me/entitlements` **reports**
+  `listings.allowance` and `listings.referralBonus`, and `Refer.jsx` renders the "slots left" figure
+  from it, but `POST /me/listings` does not check either number — a caller that skips this screen
+  posts as many listings as it likes. Enforcing it is separate work; see
+  [`../../system/open-questions.md`](../../system/open-questions.md) Q17.
 
 ### The 3-step wizard (whole-place track)
 `StepNav` shows the same 3 phases for both tracks. `nextStep` validates the current step and blocks
@@ -139,24 +145,40 @@ advance on any error (scrolling to the first error via `scrollToError`).
 ### Derivations in `persistListing`
 - **Title:** `[BHK|sharing prefix] + typeLabel + " in " + locality` (PG multi-occupancy advertises a
   "from ... onwards" price = cheapest bed).
-- **Locality binding:** `matchLocalityToCanonical(locality, lat, lng)` -> canonical slug; else
-  `addCommunityLocality(...)` mints a community-tier locality (never the old first-word truncation).
+- **Locality binding:** `matchLocalityToCanonical(locality, lat, lng)` -> canonical slug; an
+  unmatched locality yields **no slug** (D225 deleted the community tier that used to mint one, and
+  never the old first-word truncation). The listing lands in the server's locality queue and cannot
+  be approved until a human files it — see `docs/flows/admin/localities.md`.
 - **Private identifiers stripped** from the buyer-readable `form` snapshot (`electricityConsumerNo`,
   `pmcPropertyId`) - they live only in Ops-only `strongIds`.
 - **Flat spec fields** (bhkNum, bath, area, price, furnishing, amenities, ...) are denormalized onto
   the record so cards/detail read them without reaching into `record.form`.
 
-### Duplicate prevention (`evaluateListingDedup`)
-This is the **browser-side** half, and it only ever sees this browser's localStorage. The
-authoritative check is the server's `ListingDuplicateProbe`, which runs inside `POST /me/listings`
-(reached since D219) and again every ten minutes from `ListingDuplicateSweep`, because two
+### Duplicate prevention - two questions, two places
+The wizard asks two different things, and they are deliberately not the same call.
+
+**"Have I already listed this?" is the server's** (D226). `persistListing` calls
+`propertyService.checkOwnDuplicate` -> `POST /me/listings/duplicate-check`, which derives the
+comparison key by the same `LocalityResolver` + `AddressKey` calls the create makes and matches it
+against the **caller's own** listings only. It used to be `evaluateListingDedup`'s self-arm, scanning
+this browser's localStorage - which against a live API is the seeded demo catalogue, so the guard
+could refuse a genuine owner over a fixture and then offer to open an id the server had never
+issued. Only asked on a create; an edit is by definition already the listing it would match.
+- **Hard block:** `{ found: true, existingId }` -> `persistListing` returns
+  `{ ok:false, blocked:true, existingId }` and the wizard shows the duplicate guard. The CTA opens
+  the editor only when `getListing(existingId)` resolves locally, because the edit route prefills
+  from `puneNestListings:<mobile>` and a server id this browser has never held renders an empty form
+  under the words "here is the one you already have". Otherwise it goes to `/dashboard`.
+
+**"Is somebody else claiming this?" stays local and stays on the write.**
+`evaluateListingDedup` still runs for its other outputs (`fingerprint`, `fingerprintKeys`, and the
+cross-owner flag), and the authoritative version is the server's `ListingDuplicateProbe` inside
+`POST /me/listings` (reached since D219) plus `ListingDuplicateSweep` every ten minutes, because two
 simultaneous submissions are invisible to each other inside one transaction.
-- **Hard block:** same owner + same physical unit (electricity meter / PMC tax id / society+unit+
-  pincode) -> `persistListing` returns `{ ok:false, blocked:true, existingId }`, the wizard shows the
-  duplicate guard and points the owner to the existing listing.
 - **Soft flag:** a **different** owner claiming the same address, or reusing the same photo hashes ->
   the listing still posts but carries `duplicateFlag` + a `flagReason` and opens an Ops review thread
-  (`ensureOwnerReview` + `addPropReviewAdminNote`).
+  (`ensureOwnerReview` + `addPropReviewAdminNote`). Never reported back to the lister: a finding
+  about somebody else's property is what turns a duplicate check into a lookup.
 
 ### Edit policy (`editPolicy.js`) - the anti bait-and-switch rules
 Editing a **live** listing classifies every changed field into two tiers (`classifyChanges`):

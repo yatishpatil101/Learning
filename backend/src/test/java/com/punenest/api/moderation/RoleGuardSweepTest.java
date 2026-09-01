@@ -62,6 +62,13 @@ class RoleGuardSweepTest extends AbstractApiTest {
         return template.replace("{id}", ANY_ID);
     }
 
+    /** {@code /admin/notes/{entityType}/{entityId}} with both segments filled in. */
+    private static String notesFor(String entityType) {
+        return Routes.Moderation.NOTES_FOR_ENTITY
+                .replace("{entityType}", entityType)
+                .replace("{entityId}", ANY_ID);
+    }
+
     /**
      * The complete set of role-guarded routes this slice ships, mirroring the {@code x-roles} added
      * to the contract by spec fix S28.
@@ -80,6 +87,19 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REPORT_BY_ID), "staff"),
                 // Review takedown.
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REVIEW_STATUS), "staff"),
+                // Internal notes (D29). Read and write are both staff: notes are how one shift
+                // hands a case to the next, and a note the next shift cannot see is a note that
+                // did not need writing.
+                new Guarded(HttpMethod.GET, notesFor("property"), "staff"),
+                new Guarded(HttpMethod.POST, notesFor("property"), "staff"),
+                new Guarded(HttpMethod.PATCH, id(Routes.Moderation.NOTE_BY_ID), "staff"),
+                // The locality curation queue (register item 24). Staff, and gated on
+                // properties:* rather than localities:* — the rows are listings, and the write is
+                // the remedy for the approval block, so it must be reachable by whoever the block
+                // stops.
+                new Guarded(HttpMethod.GET, Routes.LocalityQueue.BASE, "staff"),
+                new Guarded(HttpMethod.PATCH,
+                        Routes.LocalityQueue.BY_PROPERTY.replace("{propertyId}", ANY_ID), "staff"),
                 // Reading people.
                 new Guarded(HttpMethod.GET, Routes.Users.BASE, "staff"),
                 new Guarded(HttpMethod.GET, id(Routes.Users.BY_ID), "staff"),
@@ -179,6 +199,14 @@ class RoleGuardSweepTest extends AbstractApiTest {
      * will fail this sweep while being perfectly well guarded.
      */
     private static String bodyFor(String path) {
+        if (path.startsWith(Routes.LocalityQueue.BASE)) {
+            return "{\"slug\":\"baner\"}";
+        }
+        // Before the /reviews/ branch: a note *on* a review is /admin/notes/review/{id}, and the
+        // review status body would be the wrong shape for it.
+        if (path.startsWith("/admin/notes")) {
+            return "{\"text\":\"Guard probe\"}";
+        }
         if (path.contains("/reviews/")) {
             return "{\"status\":\"rejected\"}";
         }

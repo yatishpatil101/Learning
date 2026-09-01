@@ -72,17 +72,22 @@ export async function clawbackReferral(id, reason) {
 }
 
 /**
- * The signed-in user's own summary — `{ code, invited, converted, rewardsEarned, rewardsPending }`.
+ * The signed-in user's own summary — `{ code, invited, converted, contactsEarned, contactsPending }`.
  *
  * `code` is the one the product should be handing out. `Refer.jsx` used to mint its own in the
  * browser, so every link the product has ever produced carried a string `POST /referrals/redeem`
- * could not resolve. Register item 31 separates that from the reward question deliberately: the
- * currency mapping (the server's rupees against the browser's quota perks) is an open product
- * decision, but which code is *the* code is not.
+ * could not resolve.
  *
- * `rewardsEarned` / `rewardsPending` are whole rupees and are **not displayed** by any caller yet,
- * for that same reason. They are returned because the endpoint returns them and hiding a field at
- * the seam is how a seam starts lying.
+ * `contactsEarned` / `contactsPending` are counts of **owner contacts**, not rupees. Register item
+ * 31 left the currency open — the server paid ₹500 and the browser granted quota, and no arithmetic
+ * turned one into the other. D31b closed it by moving the server onto the browser's unit rather
+ * than the other way round: a referral is worth owner contacts because owner contacts are what the
+ * scheme was always advertised to pay, and rupees of platform credit had nothing to be spent on.
+ *
+ * These two are the *narrative* of the scheme — what this referrer has earned and what is still
+ * waiting on the fraud desk. They are not the balance. The spendable balance is
+ * `GET /me/entitlements` (`services/entitlementService.js`), which derives it from the referrals
+ * that justify it, so a clawback moves it without anybody having to remember to.
  */
 export async function getMyReferralSummary() {
   return (await provider()).getMyReferralSummary();

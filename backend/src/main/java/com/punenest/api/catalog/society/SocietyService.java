@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -71,14 +72,35 @@ public class SocietyService {
             UUID viewerId) {
         Page<Society> page = societies.findAll(
                 SocietySpecs.browse(q, localitySlug), SocietySort.sanitize(pageable));
+        List<SocietyResponse> rows = summarise(page.getContent(), viewerId);
+        return new PageImpl<>(rows, page.getPageable(), page.getTotalElements());
+    }
 
-        List<UUID> ids = page.getContent().stream().map(Society::getId).toList();
+    /**
+     * Turn a page's worth of societies into cards, in the order given.
+     *
+     * <p>Extracted from {@link #browse} so the follow list ({@code GET /me/societies/following},
+     * D227) renders identical cards. The alternative — a second assembly in the Engagement slice —
+     * would have been a place for the two to drift, and the drift would be silent: a society would
+     * simply show a different follower count or a missing star depending on which screen you found
+     * it on.
+     *
+     * <p>Five queries whatever the page size, and none of them per row. The caller supplies the
+     * order and this preserves it, because a follow list is ordered by when you followed, which is a
+     * fact this class cannot see.
+     *
+     * @param page the societies to render, already ordered and already limited
+     * @param viewerId the caller, or {@code null} when anonymous
+     */
+    @Transactional(readOnly = true)
+    public List<SocietyResponse> summarise(List<Society> page, UUID viewerId) {
+        List<UUID> ids = page.stream().map(Society::getId).toList();
         Map<UUID, Long> listings = listingCounts.bySocietyId();
         Map<UUID, Long> followers = followerCounts(ids);
         Set<UUID> followed = followedBy(viewerId, ids);
         Map<UUID, RatingLookup.Rating> rated = ratings.forSocieties(ids);
 
-        return page.map(society -> {
+        return page.stream().map(society -> {
             // Absent, not zero: `forSocieties` omits unrated societies precisely so this stays a
             // null average rather than a 0.0 the card would render as a one-star society.
             RatingLookup.Rating rating = rated.get(society.getId());
@@ -89,7 +111,7 @@ public class SocietyService {
                     followed.contains(society.getId()),
                     rating == null ? null : rating.average(),
                     rating == null ? 0L : rating.reviewCount());
-        });
+        }).toList();
     }
 
     /**

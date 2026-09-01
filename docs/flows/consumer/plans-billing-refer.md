@@ -82,8 +82,17 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   promotion. Free plans (`free`/`owner-free`) must upgrade first (MyListingsPanel "Feature" action).
   `boostListing(id, days=7)` writes an expiry to `pnBoosts:<mobile>`; `isBoosted(id)` = expiry >
   `Date.now()`.
-- Seeker Plus entitlement ("15 owner contacts") is thematic in the prototype - not enforced as a hard
-  counter in this layer.
+- **Owner-contact quota (server-side since D31b).** The free tier is 15 owner contacts
+  (`settings.fees.freeContactLimit`), a "contact" is the right to open one `contact_requests` row,
+  and the three priced plans carry `plans.unlimited_contacts = true` (V91). The numbers are read
+  from `GET /me/entitlements`; the refusal is a **422 `contact_quota_exhausted`** from
+  `POST /contacts/request`. `used` is `count(contact_requests where requester = me)` rather than a
+  stored counter, so a repeat press on the same listing costs nothing and a refused press costs
+  nothing. This replaces the old `lib/store/contactQuota.js` — a `pnContactsUsed:<mobile>` counter
+  that the browser wrote, added a locally-minted referral bonus to, and enforced *before* making any
+  request. Clearing site data restored it in full and a second device never knew about the first.
+  The old module now lives at `services/providers/mock/contactQuota.js`, where it is the **mock
+  server's** state and is not importable from `lib/store.js`.
 
 ### Checkout (`Checkout.jsx`)
 - Reads `?plan=` (`seeker-plus` | `owner2` | `owner5`); unknown -> `Navigate('/plans')`. Requires
@@ -123,8 +132,8 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
   `pnReferralCode:<mobile>`. Deliberately **not** reshaped to imitate the server's `PUNE-AB12`: on a
   mock build there is no server to agree with, and a code that passes for real is worse than one
   that is visibly its own.
-- **Code (live build):** `GET /me/referrals` → `{ code, invited, converted, rewardsEarned,
-  rewardsPending }`. The page renders nothing in the share card until it resolves, because a Copy
+- **Code (live build):** `GET /me/referrals` → `{ code, invited, converted, contactsEarned,
+  contactsPending }`. The page renders nothing in the share card until it resolves, because a Copy
   button that writes `""` and then reports "Copied" is the quiet kind of wrong.
 - **Link:** `referralLink(code)` = `<origin>/signup?ref=<code>` (drives `?ref` capture on signup).
 - **Redemption:** `Signup.jsx` calls `POST /referrals/redeem` when a `?ref=` is present, alongside
@@ -136,16 +145,23 @@ The page renders two hardcoded plan sets (not directly from `plans.json`), price
 - **Invite counting is honest:** only a genuine share counts (`shareNative` on OS share success, or
   `shareWA` opening WhatsApp). **Copying the code/link does NOT count** an invite (would inflate a
   vanity metric).
-- **Reward rules (targets in code) — still entirely local, on both builds:**
+- **Reward rules (targets in code):**
   - `referralListingsTarget = 3` - **owner track:** every 3 referred friends who LIST a property = 1
     free rent agreement. `referralFreeAgreements() = floor(listed / 3)`. The progress bar shows
-    `listed % 3 / 3`.
-  - `referralContactsPerReward = 15`, `referralJoinsTarget = 1` - **seeker track:** each referred
-    friend who JOINS/searches = +15 owner contacts. `referralContactsEarned() = floor(joined / 1) *
-    15` (i.e. 15 per join).
-  - The server pays **whole rupees** (`rewardsEarned` / `rewardsPending`) and this page grants quota.
-    No arithmetic turns one into the other, so the rupee figures are fetched and displayed by nobody.
-    Mapping them is register item 31 option (2) — an open product decision.
+    `listed % 3 / 3`. **Still local on both builds** — the free-rent-agreement perk has no
+    server-side equivalent to read.
+  - `referralContactsPerReward = 15` - **seeker track:** each qualified referral = **+15 owner
+    contacts**, and since D31b that grant is the server's. `GET /me/entitlements` reports
+    `contacts.referralBonus`, derived as `count(referrals that are qualified or rewarded) ×
+    settings.fees.referralContactBonus` — recomputed on every read rather than added to a balance,
+    which is what makes a clawback whole: there is no grant to reverse. The listing-slot bonus is
+    `count / 3` from the same read.
+  - **Currency, settled (D31b).** The server used to pay ₹500 of platform credit, which nothing could
+    be spent on, while this page granted quota — "two different currencies, and no arithmetic turns
+    one into the other" (register item 31). It was closed by moving the server onto the browser's
+    unit rather than the reverse: `referrals.reward_amount` is now a **count of owner contacts** and
+    `reward` reads `"+15 owner contacts"`. `settings.fees.referralReward` is gone; `freeContactLimit`
+    and `referralContactBonus` replace it.
 - **Attribution honesty:** `setReferredBy(code)` records who referred a new signup
   (`pnReferredBy:<mobile>`) but **does NOT credit the referrer's counters** - real cross-device
   attribution needs a backend. So on the mock build the referrer's stats only move via their own

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import Select from '../../components/ui/Select.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useFollows } from '../../context/FollowContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useSocietyCatalogue } from '../../lib/useSocietyCatalogue.js';
@@ -12,7 +13,7 @@ import { listSocietyRatings } from '../../services/societyService.js';
 import { allSocieties, listingsInSociety } from '../../data/societies.js';
 import {
   resolveSociety,
-  getFollowedSocieties, toggleFollowSociety, mintDemandSociety,
+  mintDemandSociety,
 } from '../../lib/store.js';
 import { Stars } from './property/Stars.jsx';
 
@@ -103,6 +104,7 @@ export default function Societies() {
   const rootRef = useScrollReveal();
   const nav = useNavigate();
   const { isIn } = useAuth();
+  const follows = useFollows();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -114,7 +116,6 @@ export default function Societies() {
   /* The rating for every card in one read. `{ index, loading, failed }` rather than a bare object
      because "not read yet" and "could not be read" are not "no reviews" — see `SocietyCard`. */
   const [ratings, setRatings] = useState({ index: {}, loading: true, failed: false });
-  const [followed, setFollowed] = useState(() => new Set(getFollowedSocieties()));
   const [busy, setBusy] = useState(false);
   const [limit, setLimit] = useState(24);
   // This page is the directory: it must show all 348 societies, not the 28 that
@@ -210,18 +211,24 @@ export default function Societies() {
   // as absent, so this would offer to mint a duplicate of one (D129).
   const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
-  const onFollow = (slug) => {
+  const onFollow = async (slug) => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
-    const now = toggleFollowSociety(slug);
-    setFollowed(new Set(getFollowedSocieties()));
+    /* The context flips optimistically and rolls back on failure, so it returns the state it
+       actually settled on rather than the one that was attempted. The toast reads that, so a
+       refused write says "unfollowed" instead of cheerfully confirming an alert nobody will get. */
+    const now = await follows.toggle(slug);
     toast(now ? t('societies.followToast') : t('societies.unfollowToast'), now ? 'success' : 'info');
   };
 
-  const addSociety = () => {
+  const addSociety = async () => {
     if (!isIn) { nav('/signin?next=' + encodeURIComponent('/societies')); return; }
     if (!catalogueReady) return;
     setBusy(true);
     const rec = mintDemandSociety({ name: query.trim(), localitySlug: loc || undefined });
+    /* Minting no longer follows on its own (D227). The society exists only in this browser, so the
+       server 404s a follow on it; the context is the only thing that knows to keep such a follow
+       local and retry it once ops promote the slug. */
+    if (rec) await follows.toggle(rec.slug);
     setBusy(false);
     if (!rec) return;
     toast(t('societies.addedToast'), 'success');
@@ -312,7 +319,7 @@ export default function Societies() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map((s) => (
-                <SocietyCard key={s.id} s={s} followed={followed.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
+                <SocietyCard key={s.id} s={s} followed={follows.has(s.slug)} onFollow={onFollow} t={t} ratingLoading={ratings.loading} ratingFailed={ratings.failed} />
               ))}
             </div>
             {results.length > limit ? (

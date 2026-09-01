@@ -115,3 +115,27 @@ export async function getMovePack() {
     items: cfg.items && typeof cfg.items === 'object' ? cfg.items : {},
   };
 }
+
+/**
+ * `GET /geo` — public, and a fourth route rather than more of `/flags`.
+ *
+ * Same argument `/move-pack` makes: this block is a per-city roster of coordinates, a bounding box
+ * and an ordered list, and `/flags` would drop two thirds of it. Public because the block decides
+ * what a logged-out visitor is shown — which cities open rather than waitlist, where a map centres,
+ * whether locality search is fenced — while the document it lives in also carries the fee table.
+ * Verified against the contract's `/geo` (`getGeoPolicy`, schema `GeoPolicy`) and
+ * `common/settings/GeoPolicyController.java`.
+ *
+ * **A failed read means "no overrides", like the flags and unlike the pack.** Every field here is
+ * an override merged over `lib/geoConfig.js`'s built-ins, so an unreachable server leaves the
+ * client on a working default policy — Pune live, city limit on, nothing blacklisted. There is no
+ * fail-closed answer to prefer: refusing to render a map is not safer than rendering the one the
+ * client already knows about.
+ *
+ * The server withholds each blacklist entry's operator note. No normalisation of that here — the
+ * projection is the server's job and doing it twice would hide a regression in its half.
+ */
+export async function getGeo() {
+  const geo = await get('/geo');
+  return geo && typeof geo === 'object' ? geo : {};
+}

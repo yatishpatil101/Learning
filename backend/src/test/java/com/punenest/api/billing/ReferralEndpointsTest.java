@@ -23,12 +23,14 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Contract + behaviour proof for the referral scheme and its fraud desk (slice 13).
  *
- * <p>A referral scheme is an endpoint that pays strangers money, so the properties proved here are
- * the ones an attacker would go after:
+ * <p>A referral scheme is an endpoint that pays strangers, so the properties proved here are the
+ * ones an attacker would go after:
  *
  * <ol>
- *   <li><strong>Nothing self-approves.</strong> Redeeming creates a {@code pending} row worth
- *       nothing; only a staff decision moves money into {@code rewardsEarned}.</li>
+ *   <li><strong>Redeeming grants nothing.</strong> It creates a {@code pending} row worth nothing;
+ *       the grant arrives either when the referee's first listing verifies (Q17, proved in
+ *       {@code ReferralQualificationTest}) or when a staff decision approves it. What redemption
+ *       alone can mint is zero, and that is what {@code contactsEarned} says here.</li>
  *   <li><strong>Every refusal is identical.</strong> An unknown code, your own code and a mobile
  *       already referred all answer the same 409 with the same message, so the endpoint cannot be
  *       used to discover which codes are real.</li>
@@ -39,8 +41,13 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class ReferralEndpointsTest extends AbstractApiTest {
 
-    /** {@code fees.referralReward} in the seeded settings row. */
-    private static final int REWARD = 500;
+    /**
+     * {@code fees.referralContactBonus} in the seeded settings row — owner contacts, not rupees.
+     *
+     * <p>Was 500 and meant ₹500 until D31b. The rupees were never spendable anywhere in the product
+     * while every screen promised contacts, so the reward now is what it always claimed to be.
+     */
+    private static final int REWARD = 15;
 
     @Autowired MockMvc mvc;
     @Autowired JwtService jwtService;
@@ -129,8 +136,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invited").value(0))
                 .andExpect(jsonPath("$.converted").value(0))
-                .andExpect(jsonPath("$.rewardsEarned").value(0))
-                .andExpect(jsonPath("$.rewardsPending").value(0));
+                .andExpect(jsonPath("$.contactsEarned").value(0))
+                .andExpect(jsonPath("$.contactsPending").value(0));
     }
 
     // ---- 2: redeeming ----
@@ -146,8 +153,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invited").value(1))
                 .andExpect(jsonPath("$.converted").value(0))
-                .andExpect(jsonPath("$.rewardsEarned").value(0))
-                .andExpect(jsonPath("$.rewardsPending").value(REWARD));
+                .andExpect(jsonPath("$.contactsEarned").value(0))
+                .andExpect(jsonPath("$.contactsPending").value(REWARD));
     }
 
     @Test
@@ -236,8 +243,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.converted").value(1))
-                .andExpect(jsonPath("$.rewardsEarned").value(REWARD))
-                .andExpect(jsonPath("$.rewardsPending").value(0));
+                .andExpect(jsonPath("$.contactsEarned").value(REWARD))
+                .andExpect(jsonPath("$.contactsPending").value(0));
 
         mvc.perform(post("/referrals/" + id + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
@@ -293,8 +300,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rewardsEarned").value(0))
-                .andExpect(jsonPath("$.rewardsPending").value(0));
+                .andExpect(jsonPath("$.contactsEarned").value(0))
+                .andExpect(jsonPath("$.contactsPending").value(0));
     }
 
     @Test
@@ -326,7 +333,9 @@ class ReferralEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rewardsEarned").value(0));
+                // The grant is derived from the row's status, so the clawback withdrew it with no
+                // compensating write. A stored balance would still be sitting there (D31b).
+                .andExpect(jsonPath("$.contactsEarned").value(0));
     }
 
     @Test

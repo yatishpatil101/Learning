@@ -102,16 +102,26 @@ listing id:
 ### 5.3 Reviewer actions and their side-effects
 | Action | Handler | State written | Side-effects |
 |--------|---------|---------------|--------------|
-| Approve & publish | `reviewApprove` | review `decision.type='approved'`, listing `status='approved'`, `pipelineStage='live'` | clears `flagReason`, appends owner "approved" message, internal note "Approved", `logAudit`, listing becomes buyer-visible |
+| Approve & publish | `reviewApprove` | review `decision.type='approved'`, listing `status='approved'`, `pipelineStage='live'` | clears `flagReason`, appends owner "approved" message, files the optional internal note as action "Approved", `logAudit`, listing becomes buyer-visible |
 | Reject | `reviewReject` (two-step: arm, then confirm with reason) | review `decision.type='rejected'`, listing `status='rejected'` | reason appended to owner thread, internal note "Rejected", `logAudit`; owner may resubmit |
 | Message owner | `reviewSend` -> `addReviewMessage(id,'admin',text)` | review `status='clarification'` (unless already decided) | two-way thread; owner sees it in their listing |
 | Mark doc verified/rejected | `reviewSetDoc` -> `setDocStatus` | doc `status`, review `in_review` | updates verified count |
 | Approve owner edits (P0) | `approveEdits` | listing `reReview=null`, `materialEditFlag=false` | clears re-review flag on a still-live listing, thread note, `logAudit` |
-| Flag | `submitFlag` -> `flagListing` | listing `status='flagged'`, `flagReason` | removes from live; internal note, `logAudit` |
+| Flag | `submitFlag` -> `flagListing` | listing `status='flagged'`, `flagReason` | removes from live; internal note "Flagged", `logAudit` |
 | Clear flag | `doClearFlag` -> `clearFlag` + `setPipelineStage('live')` | listing `status='approved'`, `flagReason=''` | republishes; `logAudit` |
-| Archive | `submitArchive` -> `archiveListing` | listing `archived=true`, `archivedAt`, `archiveReason` | soft-delete; internal note, `logAudit` |
+| Archive | `submitArchive` -> `archiveListing` | listing `archived=true`, `archivedAt`, `archiveReason` | soft-delete; internal note "Archived", `logAudit` |
 | Restore | `doRestore` -> `restoreListing` | listing `archived=false`, `status='pending'` | re-enters the queue; `logAudit` |
 | Toggle featured | `doFeature` -> `toggleFeatured` | listing `featured` | curation only; `logAudit` |
+
+The four internal notes above go through `saveNoteIfAny` (`components/ui/InternalNote.jsx`), which
+posts to `POST /admin/notes/property/{id}` **after** the decision has landed and reports failure
+without unwinding it: the listing really was approved, and a toast that said otherwise because a
+note did not save would be a worse lie than a missing note. The widget's history is a live read of
+`GET /admin/notes/property/{id}`, so a note filed by one staffer is visible to the next — which is
+the whole point, and something the previous localStorage store could not do. Notes also appear on
+the review modal's **Communication log**, interleaved with the outreach ledger, since "what has
+already been done about this listing" is one question and reading it in two panels made the
+operator merge them by eye.
 
 **The decision itself carries no side-effect.** `decideReview(id, type, reason)` only writes the
 review `status`, `decision = { type, reason, at }`, and a system message. The listing `status` is
@@ -249,8 +259,28 @@ approved|pending|flagged --(archive)--> archived --(restore)--> pending
 **Review `status`:** `in_review -> clarification -> approved | rejected` (decision is terminal;
 owner replies after a rejection re-open the thread).
 
-**`pipelineStage`:** `listed | info_collected | docs_submitted -> under_review -> live`
-(set to `under_review` when the modal opens, `live` on approval).
+**Pipeline (D27) — two axes, not one.** The board and the server used to disagree about what a
+"stage" was. They now hold two separate facts:
+
+- **`pipelineStage`** — the acquisition funnel, "how far did we get towards having a listing":
+  `contacted -> info_collected -> listed -> docs_submitted`.
+- **`handbackMilestone`** — the hand-back, "how far did we get towards giving it to its owner":
+  `photos_uploaded -> aadhaar_verified -> claim_sent -> claimed`. Null until the paperwork is in;
+  the database refuses a milestone on a row that has not reached `listed`.
+
+A listing is at a point on both at once, which is why one column could not hold them: documents in
+*and* photographs up is two facts, and whichever was written last erased the other.
+
+`POST /properties/{id}/pipeline` accepts a point on either axis in its single `stage` field — the
+vocabularies are disjoint, so the value says which column is meant. Moving onto a milestone pins
+`pipelineStage` at `docs_submitted`; moving back onto the acquisition funnel clears the milestone.
+Both directions are allowed, because evidence gets withdrawn.
+
+**Where `under_review` and `live` went.** They were console-only stages and they are `status` under
+different names, so they are stored nowhere. The board still shows six columns: the first four read
+`pipelineStage`, and the last two are derived from `status` (`pending` -> Under Review,
+`approved` -> Live). That is why approving a listing moves it to the Live column without anything
+writing a stage.
 
 ## 8. Edge cases, validation & error states
 - **Empty queue:** "No listings match your filters" card.

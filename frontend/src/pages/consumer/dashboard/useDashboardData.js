@@ -19,7 +19,7 @@ import {
   countSharedDocs, notifyBuyerDocsGranted,
 } from '../../../lib/data/documents.js';
 import { loadMyListings } from '../../../lib/data/myListings.js';
-import { countMatches, searchHref } from '../listings/alertCriteria.js';
+import { searchHref } from '../listings/alertCriteria.js';
 import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
 
 /**
@@ -306,12 +306,14 @@ export function useDashboardData({ user, toast }) {
     const realRecent = getRecentProps().map((id) => approvedById.get(id)).filter(Boolean).slice(0, 6);
     setRecent(realRecent);
     setRecommended(approved.slice(0, 6));
-    // Retention loop: for each active saved search, count how many LIVE approved
-    // listings match its criteria right now. Only surface searches with real
-    // matches; each links to the actual filtered results. Nothing is fabricated.
+    // Retention loop: for each active saved search, how many LIVE approved listings match its
+    // criteria right now. The count is carried on the record by the seam (D227) — it used to be
+    // computed here against `approved`, which is one page of the catalogue, so the strip read
+    // "2 match" to a user with fifty. Only searches with real matches surface; each links to the
+    // actual filtered results. Nothing is fabricated.
     const matches = searches
       .filter((s) => s.alerts !== false)
-      .map((s) => ({ id: s.id, label: s.label || 'your saved search', count: countMatches(s, approved), href: searchHref(s) }))
+      .map((s) => ({ id: s.id, label: s.label || 'your saved search', count: s.matchCount ?? 0, href: searchHref(s) }))
       .filter((m) => m.count > 0)
       .slice(0, 3);
     setAlertMatches(matches);

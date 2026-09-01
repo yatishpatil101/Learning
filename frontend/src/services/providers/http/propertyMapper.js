@@ -168,6 +168,13 @@ export function toViewModel(p) {
     furnishing: p.furnishing,
     locality: p.locality,
     localitySlug: p.localitySlug,
+    // The society this home is actually in, by slug and not by id (D19). The slug is the key the
+    // local catalogue, `/societies/{slug}` and the hub route all agree on; the server's `societyId`
+    // is a UUID that matches nothing here, because the catalogue is still `data/societies.js` with
+    // its synthetic `S01` ids. Absent when the owner never named one — and absent has to survive as
+    // absent, because until D19 the property page filled the gap by hashing the listing id into a
+    // society list and printing that building's builder, towers, units, year and occupancy.
+    societySlug: p.societySlug,
     city: p.city,
     lat: p.lat,
     lng: p.lng,
@@ -218,6 +225,12 @@ export function toViewModel(p) {
     postedByAdmin: p.adminPipeline?.postedByAdmin ?? false,
     postedByStaff: p.adminPipeline?.postedByStaff ?? null,
     pipelineStage: p.adminPipeline?.pipelineStage ?? null,
+    // The second funnel (D27/V92). `pipelineStage` is where the *desk* got to — contacted, info
+    // collected, listed, docs submitted — and `handbackMilestone` is where the *owner* got to once
+    // the desk handed the listing over. They were one column until V92, where the later write
+    // silently erased the earlier one. Null is the honest answer for every listing whose hand-back
+    // has not started, which is most of them and all owner-posted ones.
+    handbackMilestone: p.adminPipeline?.handbackMilestone ?? null,
     claimLinkSent: p.adminPipeline?.claimLinkSent ?? false,
     photosUploaded: p.adminPipeline?.photosUploaded ?? false,
     aadhaarVerified: p.adminPipeline?.aadhaarVerified ?? false,

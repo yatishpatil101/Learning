@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,12 +48,34 @@ public class PropertyService {
      */
     @Transactional(readOnly = true)
     public Page<Property> search(PropertySearchQuery filters, Pageable pageable) {
+        return search(filters, ListingFacets.NONE, pageable, false);
+    }
+
+    /**
+     * Faceted public search including the listings-page facets and ranking (D26).
+     *
+     * @param filters   the contract facets
+     * @param extra     the listings-page facets, or {@link ListingFacets#NONE}
+     * @param pageable  page, size and optional explicit sort
+     * @param newestOnly when the caller asked for "newest" specifically: promoted-first then most
+     *     recent, with no merit ranking. The distinction matters because "newest" and "best match"
+     *     are the two orders that both carry paid placement, and only one of them may be reordered
+     *     by a quality score — a buyer who asked for the newest listings and got the best-scoring
+     *     ones instead has been shown something other than what the control says.
+     */
+    @Transactional(readOnly = true)
+    public Page<Property> search(PropertySearchQuery filters, ListingFacets extra, Pageable pageable,
+            boolean newestOnly) {
         Pageable safe = PropertySort.sanitize(pageable);
         if (PropertySort.hasExplicitSort(pageable)) {
-            return properties.findAll(PropertySpecs.publicSearch(filters), safe);
+            return properties.findAll(PropertySpecs.publicSearch(filters, extra), safe);
         }
+        Instant now = Instant.now();
+        Specification<Property> ranked = newestOnly
+                ? PropertySpecs.boostedFirst(now)
+                : PropertySpecs.relevanceFirst(now);
         return properties.findAll(
-                PropertySpecs.publicSearch(filters).and(PropertySpecs.boostedFirst(Instant.now())),
+                PropertySpecs.publicSearch(filters, extra).and(ranked),
                 PageRequest.of(safe.getPageNumber(), safe.getPageSize()));
     }
 

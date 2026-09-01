@@ -27,15 +27,27 @@ import org.springframework.transaction.annotation.Transactional;
  * The referral scheme: a user's own code and rewards, and the ops desk that decides whether a
  * referral is real.
  *
- * <p><strong>Every reward is decided by a human.</strong> Redeeming a code creates a
- * {@link ReferralStatuses#PENDING} row and pays nothing; only {@link #approve} releases money. A
- * referral scheme that self-approves is a scheme that gets farmed, which is why the contract gives
- * the fraud desk three verbs and the consumer only one.
+ * <p><strong>The reward is owner contacts, not money (D31b).</strong> Redemption stamps a label and
+ * a magnitude onto the row — "+15 owner contacts", 15 — and those two are what the fraud desk reads
+ * and what the audit trail records. Nothing here pays anything out: the referrer's actual
+ * entitlement is <em>derived</em> from these rows by {@code billing.entitlement}, by counting the
+ * ones {@link ReferralStatuses#isGranting} accepts. That indirection is the point. A stored balance
+ * has to be decremented by whoever remembers when a referral is clawed back; a derived one is
+ * withdrawn by the clawback itself.
+ *
+ * <p><strong>A referral now pays without a human, and that is a change.</strong> Q17's automatic
+ * {@link ReferralStatuses#QUALIFIED} transition — the referred party's first listing passing
+ * ownership verification — used to be a hint for the checker and nothing more. It is now the grant
+ * point. {@link #approve} still exists and still matters, because it is what a fraud desk uses to
+ * bless a referral that did not qualify on its own, and {@link #clawback} is what takes a grant back.
+ * What changed is that an honest referrer no longer waits in a queue for something the platform
+ * already verified for itself. The exposure is bounded by the D61 monthly cap and by what is being
+ * handed over: the right to ask fifteen owners a question.
  *
  * <p><strong>The rewards "ledger" is the referrals table itself.</strong> Approve and clawback are
  * documented as crediting and debiting a ledger; that ledger is
  * {@code sum(reward_amount) group by status}. A separate double-entry table was considered and
- * rejected: there is nothing to reconcile against — no external rail moves this money, the amount is
+ * rejected: there is nothing to reconcile against — no external rail moves this, the amount is
  * frozen on the row at redemption, and every mutation already carries who decided, when and why.
  * The platform's other ledger, {@code finance.ledger.Transaction}, is the <em>user's own</em> rent
  * and expense book and would be actively wrong as a home for platform-side credits.
@@ -90,7 +102,7 @@ public class ReferralService {
     }
 
     /**
-     * {@code GET /me/referrals} — the caller's code and rewards.
+     * {@code GET /me/referrals} — the caller's code and what their referrals have bought them.
      *
      * <p>Not read-only: the code is minted on first read. Generating it at signup would mean a
      * migration over every existing user and a code for the overwhelming majority who never open
@@ -99,6 +111,12 @@ public class ReferralService {
      * <p>The request is carried in because minting is also when the referrer's half of the D55
      * correlation signals is stamped — see {@link ReferralCode}. Reads after the first do not
      * re-stamp, so this stays one insert and never a write on a repeat read.
+     *
+     * <p><strong>{@code converted} counts what paid, not what a human blessed (D31b).</strong> It
+     * used to mean {@code rewarded} alone, which was correct while a checker was the only thing that
+     * released a reward. Now that {@link ReferralStatuses#QUALIFIED} grants on its own, a referrer
+     * whose friend has verified a listing would otherwise read "0 converted" beside fifteen contacts
+     * they can already spend. The two numbers on this screen have to be able to explain each other.
      */
     @Transactional
     public ReferralSummaryDto summary(AuthPrincipal caller, HttpServletRequest request) {
@@ -109,14 +127,15 @@ public class ReferralService {
         long earned = 0;
         long pending = 0;
         for (Referral r : mine) {
-            if (ReferralStatuses.REWARDED.equals(r.getStatus())) {
+            if (ReferralStatuses.isGranting(r.getStatus())) {
                 converted++;
                 earned += r.getRewardAmount();
-            } else if (ReferralStatuses.isRewardPending(r.getStatus())) {
+            } else if (ReferralStatuses.PENDING.equals(r.getStatus())) {
                 pending += r.getRewardAmount();
             }
         }
-        return new ReferralSummaryDto(code, mine.size(), converted, earned, pending);
+        return new ReferralSummaryDto(code, mine.size(), converted,
+                Math.toIntExact(earned), Math.toIntExact(pending));
     }
 
     /**
@@ -147,7 +166,7 @@ public class ReferralService {
         }
 
         User referrer = users.findById(owner.get().getUserId()).orElseThrow(this::refuse);
-        long reward = settings.referralRewardInr();
+        long reward = settings.referralContactBonus();
         boolean velocityHigh = referrals.countByReferrerIdAndAtAfter(
                 referrer.getId(), Instant.now().minus(VELOCITY_WINDOW)) >= VELOCITY_LIMIT;
 
@@ -163,7 +182,11 @@ public class ReferralService {
                 referred.getMobile(),
                 channelOf(referred),
                 ShareChannels.normalise(shareChannel),
-                "₹" + reward + " PuneNest credit",
+                // The label the fraud desk reads, in the unit the referrer was actually promised
+                // (D31b). Frozen on the row at redemption rather than rendered from settings on
+                // every read, so a campaign that changes the bonus does not silently restate what
+                // someone was offered last month.
+                "+" + reward + " owner contacts",
                 reward,
                 risk(velocityHigh, referred.isAadhaarVerified(), sameDevice || sameIp),
                 referred.isAadhaarVerified(),
@@ -295,8 +318,12 @@ public class ReferralService {
         }
         referral.decide(nextStatus, actor.userId().toString(), blankToNull(reason));
         referrals.saveAndFlush(referral);
+        // "contacts", not "amount": the audit trail names the unit, because a bare number in a
+        // trail that used to mean rupees and now means owner contacts is a sentence somebody will
+        // read wrong in a year (D31b). Old records keep the old key and the old meaning, which is
+        // the honest way for an append-only trail to survive a change of currency.
         audit.record(actor, action, "referral", referral.getId().toString(),
-                "amount", String.valueOf(referral.getRewardAmount()));
+                "contacts", String.valueOf(referral.getRewardAmount()));
         return mapper.toDto(referral);
     }
 

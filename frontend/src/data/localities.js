@@ -189,29 +189,21 @@ export const LOCALITIES = [
 const BY_SLUG = Object.fromEntries(LOCALITIES.map((l) => [l.slug, l]));
 const BY_NAME = Object.fromEntries(LOCALITIES.map((l) => [l.name.toLowerCase(), l]));
 
-// Community localities — user-minted from a Google Places pick that matched no
-// curated locality (tier: 'community'). They live in localStorage (see store.js)
-// but are registered here at runtime so every lookup resolves them alongside the
-// curated set. localities.js stays dependency-free (store.js calls the register).
-const COMMUNITY = [];
-const COMMUNITY_BY_SLUG = {};
-const COMMUNITY_BY_NAME = {};
-export function registerCommunityLocalities(list) {
-  (list || []).forEach((l) => {
-    if (!l || !l.slug) return;
-    const existing = COMMUNITY_BY_SLUG[l.slug];
-    if (existing) {
-      // Update in place so a tier upgrade (ops verify) reflects immediately in the
-      // live lookup maps — the array + both maps share this same reference.
-      Object.assign(existing, l);
-      COMMUNITY_BY_NAME[existing.name.toLowerCase()] = existing;
-      return;
-    }
-    COMMUNITY.push(l);
-    COMMUNITY_BY_SLUG[l.slug] = l;
-    COMMUNITY_BY_NAME[l.name.toLowerCase()] = l;
-  });
-}
+// A `COMMUNITY` array and a `registerCommunityLocalities(list)` used to sit here. The listing flow
+// minted a `community`-tier locality whenever a lister's Google pick matched no curated area, and
+// this registered the slug at runtime so every lookup resolved it.
+//
+// Both are gone (register item 24). Free text coins a slug, so the tier turned "Undhera Wasti",
+// "undhera wasti " and "Undhera-Wasti" into three localities, each with a landing page and a share
+// of the search facet — and the queue that was supposed to reconcile them lived in one browser's
+// localStorage, so no operator but the one who caused it could see the mess. The server has always
+// declined to invent a slug for text it cannot resolve; the listing now simply carries none, and a
+// human files it from Admin ▸ Localities.
+//
+// The consequence for this module is that its registry is a constant again: `allLocalities()`
+// returns `LOCALITIES` and nothing at runtime can add to it. `tier: 'curated'` is left on every row
+// because callers still read it, and because a field whose only other value has been deleted is
+// cheaper to leave than to chase through fifty call sites.
 
 // Turn a locality name into a stable, URL-safe slug (same rule as slugifySociety
 // so "Koregaon Park" → "koregaon-park", never the first-word-only truncation the
@@ -219,15 +211,14 @@ export function registerCommunityLocalities(list) {
 export const slugifyLocality = (name) =>
   (name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-export const localityBySlug = (slug) => (slug ? BY_SLUG[slug] || COMMUNITY_BY_SLUG[slug] || null : null);
+export const localityBySlug = (slug) => (slug ? BY_SLUG[slug] || null : null);
 export const localityByName = (name) => {
   const k = (name || '').toLowerCase().trim();
-  return k ? BY_NAME[k] || COMMUNITY_BY_NAME[k] || null : null;
+  return k ? BY_NAME[k] || null : null;
 };
 
-// Full registry (curated + community) — used by dropdowns, coord maps and the
-// match layer. Curated first so the shortlist stays stable at the top.
-export const allLocalities = () => LOCALITIES.concat(COMMUNITY);
+// The registry — used by dropdowns, coord maps and the match layer.
+export const allLocalities = () => LOCALITIES;
 
 // Canonical name list + coord map — the single source the three legacy constant
 // files (list-property, flatmates, homeData) now derive from.

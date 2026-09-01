@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -53,6 +54,16 @@ public class PropertyController {
     /**
      * {@code GET /properties} — faceted public search. Every facet is optional; results are always
      * approved + non-archived (enforced in the service), owner contact is never in the card shape.
+     *
+     * <p>The listings-page facets arrive as a bound {@link ListingFacets} rather than another
+     * twenty-seven {@code @RequestParam} declarations. That is not only brevity: a method with
+     * forty parameters is one where a mistyped name binds nothing and the filter silently does
+     * not apply, which is precisely the class of bug this whole change exists to remove.
+     *
+     * <p>{@code rank} is deliberately not part of Spring's {@code sort}: {@code relevance} and
+     * {@code newest} are not column orders, they are rankings, and {@link PropertySort} exists to
+     * refuse anything that is not a whitelisted column. Passing them through {@code sort} would
+     * either widen that whitelist or be silently dropped.
      */
     @GetMapping(Routes.Properties.BASE)
     public PageResponse<PropertySummary> search(
@@ -67,11 +78,15 @@ public class PropertyController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String owner,
+            @RequestParam(required = false) String rank,
+            @ModelAttribute ListingFacets facets,
             @PageableDefault(size = 20) Pageable pageable) {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status,
                 owner);
-        return PageResponse.of(propertyService.search(filters, pageable), propertyMapper::toSummary);
+        return PageResponse.of(
+                propertyService.search(filters, facets, pageable, "newest".equals(rank)),
+                propertyMapper::toSummary);
     }
 
     /** {@code GET /properties/featured} — featured-first live listings for the homepage strip. */

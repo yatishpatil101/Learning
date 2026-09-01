@@ -105,18 +105,13 @@ export function getUserTimeline(userId) {
       });
   }
 
-  // 6. Internal notes on this user
-  const notes = (db.internalNotes && db.internalNotes[`user:${userId}`]) || [];
-  notes.forEach((n) => {
-    timeline.push({
-      id: `UT-note-${n.id}`,
-      type: 'note',
-      action: n.action || 'Admin note',
-      detail: n.text,
-      at: n.at,
-      meta: { by: n.by },
-    });
-  });
+  // 6. Internal notes are deliberately absent (D29).
+  /* They used to be pushed on here as `type: 'note'`, and always as an empty list, because nothing
+     wrote a `user:` key in `db.internalNotes`. Now that notes are rows with their own route, they
+     have their own panel on the user drawer, for a reason worth recording: the live timeline is
+     `GET /users/{id}/timeline`, which is **admin-only** and whose `kind` union has no `note`.
+     Staff write these notes and staff must be able to read them back, so routing them through an
+     admin-only endpoint would have hidden them from their own authors. */
 
   // Sort newest first
   timeline.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());

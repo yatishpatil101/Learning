@@ -14,10 +14,16 @@ import lombok.Getter;
  * (V7, extended by V23).
  *
  * <p><strong>The reward is two fields, not one.</strong> {@code reward} is the human label the
- * referrer was promised ("+15 owner contacts"); {@code rewardAmount} is what it costs in rupees.
- * Before spec fix S54 only the label existed, so {@code ReferralSummary.rewardsEarned} — declared as
- * {@code Money} — had nothing to add up and a checker was asked to approve a payout without being
- * shown its size.
+ * referrer was promised ("+15 owner contacts") and {@code rewardAmount} is its magnitude (15).
+ * Before spec fix S54 only the label existed, so the summary had nothing to add up and a checker was
+ * asked to approve a grant without being shown its size.
+ *
+ * <p><strong>The unit is owner contacts, and it used to be rupees (D31b).</strong> The label always
+ * said contacts — so did the API contract — while {@code rewardAmount} counted a ₹500 credit that no
+ * screen displayed and nothing could spend. V91 restated the undecided rows and left the decided
+ * ones alone, because a {@code rewarded} row records what a person actually released at the time and
+ * is not ours to re-denominate after the fact. That is why {@link #reward} is free text and not an
+ * enum: the column has to be able to hold two eras of the offer at once.
  *
  * <p><strong>The reward amount is frozen at redemption.</strong> It is copied onto the row rather
  * than read from settings when the summary is computed, so changing the offer never rewrites what
@@ -41,6 +47,8 @@ import lombok.Getter;
  * It moves from null exactly once, when the referred party's <em>first</em> listing passes ownership
  * verification. Because it can only move once on a row, and {@code uq_referrals_referred_mobile}
  * admits one row per referred mobile, "one credit per referee, ever" needs no further constraint.
+ * Since D31b it is also the moment the grant becomes spendable, so this field is now load-bearing
+ * for an entitlement and not only for a checker's confidence.
  */
 @Entity
 @Table(name = "referrals")
@@ -74,7 +82,7 @@ public class Referral extends AuditedEntity {
     @Column(name = "reward", updatable = false)
     private String reward;
 
-    /** What the label costs, whole rupees. Frozen at redemption. */
+    /** How many the label is worth — owner contacts since D31b, rupees on older decided rows. */
     @Column(name = "reward_amount", nullable = false, updatable = false)
     private long rewardAmount;
 

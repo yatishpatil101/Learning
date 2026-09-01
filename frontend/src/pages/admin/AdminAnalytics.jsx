@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
+import { listLocalities } from '../../services/localityService.js';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import Tabs from '../../components/ui/Tabs.jsx';
 import {
   trafficSeries,
-  localities as getLocalities,
   anonymousSurfers,
   pricingInsight,
   slaMetrics,
@@ -44,6 +44,8 @@ export default function AdminAnalytics() {
   // other seven tabs rendering, so a failure here empties this tab rather than the page.
   const [supplyGap, setSupplyGap] = useState([]);
   const showSupplyGap = optionEnabled('analytics.supplyGap');
+  const [locs, setLocs] = useState([]);
+  const showGeography = optionEnabled('analytics.geography');
   useEffect(() => {
     if (!showSupplyGap) { setSupplyGap([]); return undefined; }
     let alive = true;
@@ -53,8 +55,24 @@ export default function AdminAnalytics() {
     return () => { alive = false; };
   }, [showSupplyGap]);
 
+  useEffect(() => {
+    if (!showGeography) { setLocs([]); return undefined; }
+    let alive = true;
+    listLocalities()
+      .then((rows) => {
+        if (!alive) return;
+        setLocs(rows.map((row) => ({
+          name: row.name,
+          listings: row.listingCount,
+          demand: row.demand ?? 0,
+          ratePerSqft: row.ratePerSqft ?? 0,
+        })));
+      })
+      .catch(() => { if (alive) setLocs([]); });
+    return () => { alive = false; };
+  }, [showGeography]);
+
   const traffic = useMemo(() => trafficSeries(days), [days]);
-  const locs = useMemo(() => (optionEnabled('analytics.geography') ? getLocalities() : []), [optionEnabled]);
   const surfers = useMemo(() => (optionEnabled('analytics.anonymous') ? anonymousSurfers(days, traffic) : null), [days, traffic, optionEnabled]);
   const pricing = useMemo(() => (optionEnabled('analytics.pricing') ? pricingInsight() : null), [optionEnabled]);
   const sla = useMemo(() => (optionEnabled('analytics.sla') ? slaMetrics() : null), [optionEnabled]);

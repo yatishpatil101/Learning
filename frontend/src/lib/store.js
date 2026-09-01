@@ -37,7 +37,12 @@ export * from './store/notifications.js';
 export * from './store/account.js';
 export * from './store/search.js';
 export * from './store/billing.js';
-export * from './store/contactQuota.js';
+/* `./store/contactQuota.js` used to be re-exported here. It is now
+   `services/providers/mock/contactQuota.js` — the mock server's state, not the app's. The owner
+   contact quota is read through `services/entitlementService.js` and enforced by
+   `POST /contacts/request` on both builds (D31b). Nothing in `src/pages` or `src/components` may
+   import it: a component that can consult the quota synchronously is a component that can decide
+   the answer without asking. */
 export * from './store/rent.js';
 export * from './store/visits.js';
 export {
@@ -45,13 +50,6 @@ export {
   addSocietyLead,
   getCommunitySocieties,
   addCommunitySociety,
-  getLocalityLeads,
-  addLocalityLead,
-  getCommunityLocalities,
-  addCommunityLocality,
-  pendingCommunityLocalities,
-  verifyCommunityLocality,
-  dismissCommunityLocality,
   searchSocieties,
 } from './store/community.js';
 export * from './store/societyAdmin.js';

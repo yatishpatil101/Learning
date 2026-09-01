@@ -92,6 +92,29 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
     long countByReferrerIdAndQualifiedAtAfter(UUID referrerId, Instant since);
 
     /**
+     * How many of this referrer's referrals have earned their owner-contact grant (D31b).
+     *
+     * <p>This count <em>is</em> the entitlement. There is no balance column and no grant ledger:
+     * multiplying this by {@code settings.fees.referralContactBonus} gives the referrer's bonus
+     * every time it is asked for, so the number cannot drift from the referrals that justify it.
+     * The alternative — a stored counter incremented on qualification — has to be un-incremented on
+     * clawback by whoever remembers, and is wrong forever if anybody forgets.
+     *
+     * <p><strong>Status alone, deliberately not {@code qualified_at is not null} as well.</strong>
+     * That extra condition looks like a harmless belt-and-braces check and silently halves the
+     * scheme: {@code qualified_at} is stamped only by Q17's automatic path, so a referral a human
+     * approved at the fraud desk is {@code rewarded} with a null timestamp and would earn nothing.
+     * The two ways a referral can pay are the two statuses in
+     * {@link ReferralStatuses#isGranting}, and this query must agree with that set and nothing else.
+     */
+    @Query("""
+            select count(r) from Referral r
+            where r.referrerId = :referrerId
+              and r.status in ('qualified', 'rewarded')
+            """)
+    long countGrantingFor(@Param("referrerId") UUID referrerId);
+
+    /**
      * Blank the referee-side correlation digests on rows past their retention window (D55).
      *
      * <p>A bulk update rather than a load-mutate-flush: this touches rows nobody is looking at and

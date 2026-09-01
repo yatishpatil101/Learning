@@ -85,10 +85,16 @@ export function slaMetrics() {
     : 100;
 
   // --- 4. Concierge Pipeline SLA ---
-  // Measure: how quickly staff-posted listings reach 'live' stage
+  // Measure: how quickly staff-posted listings go live.
+  //
+  // "Live" is `status === 'approved'` and nothing else (D27). This used to also test
+  // `pipelineStage === 'live'`, which was dead against the API — `live` was never one of the
+  // server's stages, so the first half of the test could only ever match a listing whose stage had
+  // been written by the old browser-local console. V92 removed the value entirely; the status test
+  // was already carrying the whole clause.
   const conciergeListings = listings.filter((l) => l.postedByAdmin);
-  const liveConc = conciergeListings.filter((l) => l.pipelineStage === 'live' || l.status === 'approved');
-  const pendingConc = conciergeListings.filter((l) => l.pipelineStage !== 'live' && l.status !== 'approved');
+  const liveConc = conciergeListings.filter((l) => l.status === 'approved');
+  const pendingConc = conciergeListings.filter((l) => l.status !== 'approved');
 
   const conciergeMetrics = liveConc.map((l) => {
     const hoursToLive = Math.round((48 + r() * 150) * 10) / 10; // 48-198 hours

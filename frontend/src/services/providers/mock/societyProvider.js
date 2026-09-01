@@ -22,6 +22,7 @@
  * aggregate) and the seam's job is to make the two indistinguishable to the caller.
  */
 import { allEntityReviews } from '../../../lib/store/reviews.js';
+import { getFollowedSocieties, isSocietyFollowed, toggleFollowSociety } from '../../../lib/store/society.js';
 
 /** One decimal, rounded the way the server's `BigDecimal.setScale(1, HALF_UP)` rounds. */
 const round1 = (n) => Number(n.toFixed(1));
@@ -39,4 +40,34 @@ export async function listSocietyRatings() {
     };
   }
   return index;
+}
+
+/**
+ * The followed slugs, newest first (D227).
+ *
+ * `pnFollowedSocieties` stays the mock's backing store — that is what a mock provider is for. What
+ * changed is who reads it: five surfaces used to call `getFollowedSocieties` directly and are now
+ * behind this seam, so the live build can answer the same question from the server.
+ *
+ * `toggleFollowSociety` already unshifts, so the array is newest-first and matches the server's
+ * `order by created_at desc` without sorting anything here.
+ */
+export async function listFollowedSocieties() {
+  return getFollowedSocieties();
+}
+
+/**
+ * Idempotent follow.
+ *
+ * The store offers a toggle, not a set, so following one already followed would unfollow it. The
+ * guard is not defensive tidiness: the context retries a failed write and the finder follows a
+ * society it may have just minted-and-followed, and either would silently undo the follow.
+ */
+export async function followSociety(slug) {
+  if (!isSocietyFollowed(slug)) toggleFollowSociety(slug);
+}
+
+/** Idempotent unfollow — same reasoning as {@link followSociety}, in the other direction. */
+export async function unfollowSociety(slug) {
+  if (isSocietyFollowed(slug)) toggleFollowSociety(slug);
 }

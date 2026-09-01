@@ -5,12 +5,13 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useSaved } from '../../context/SavedContext.jsx';
+import { useFollows } from '../../context/FollowContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { firstName } from '../../lib/auth.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
 import {
-  hasListings, getFollowedSocieties,
+  hasListings,
   getRecentSearches, getTenancies,
 } from '../../lib/store.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
@@ -20,7 +21,7 @@ import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
 import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
 import { getMyRooms, getMyFlatmatePosts, getMyFlatmateGroups } from '../../lib/data/myListings.js';
-import { getManagedProps } from '../../lib/data/managedProperty.js';
+import { listManaged } from '../../services/managedService.js';
 import { pendingInviteCount } from '../../lib/serviceFlow.js';
 import LoadError from '../../components/LoadError.jsx';
 import OverviewPanel from './dashboard/OverviewPanel.jsx';
@@ -39,6 +40,7 @@ export default function Dashboard() {
   const { t: tr } = useTranslation();
   const { user, update, logout } = useAuth();
   const saved = useSaved();
+  const follows = useFollows();
   const savedSearches = useSavedSearches();
   const { flagEnabled } = useAppFlags();
   const { toast } = useToast();
@@ -55,7 +57,22 @@ export default function Dashboard() {
   const hasRooms = getMyRooms(user).length > 0;
   const hasRequests = getMyFlatmatePosts(user).length > 0;
   const hasGroups = getMyFlatmateGroups(user).length > 0;
-  const hasManaged = getManagedProps().length > 0;
+  /* Managed properties used to be read straight out of `localStorage` in the render body, twice —
+     once here to decide whether the management tabs exist at all, once further down to find the
+     rental being tracked. Against the API that is a request, so it moves into state and an effect
+     (D32). The first paint therefore has an empty array, exactly as it does for `listings`, which
+     is loaded the same way and gates the same decision; the tabs appear when the answer arrives.
+     Failures fall back to empty rather than surfacing: not knowing whether someone owns anything is
+     a reason to show the tenant view, not an error to put in front of them. */
+  const [managedProps, setManagedProps] = useState([]);
+  useEffect(() => {
+    let live = true;
+    listManaged()
+      .then((rows) => { if (live) setManagedProps(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (live) setManagedProps([]); });
+    return () => { live = false; };
+  }, [user?.mobile]);
+  const hasManaged = managedProps.length > 0;
   const ownsInventory = hasRooms || hasRequests || hasGroups || hasManaged;
 
   /* Loaded here rather than below the tab logic, because `listings` decides whether this user is an
@@ -153,12 +170,15 @@ export default function Dashboard() {
   const pendingDocGroups = docGroups.filter((g) => g.pendingIds.length > 0);
   const savedCount = saved.count;
   const alertCount = savedSearches.count;
-  const followCount = getFollowedSocieties().length;
+  // From the context, not a render-body localStorage read (D227): the tile counted a browser-local
+  // array, so it disagreed with the same user's count on another device — and with the follower
+  // count the society hub shows, which the server computes from rows nothing was writing.
+  const followCount = follows.count;
   // Returning-seeker resume: the user's own recent searches (persistent, per-user).
   // Only seekers get the "continue your search" hero; owners have their own flow.
   const recentSearches = isOwner ? [] : getRecentSearches();
   // A real rental only exists if the owner is tracking a rented managed property.
-  const rental = getManagedProps().find((p) => p.rented && p.monthlyRent) || null;
+  const rental = managedProps.find((p) => p.rented && p.monthlyRent) || null;
   // Real profile-completion meter (name/email/city + Aadhaar verification).
   const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
 

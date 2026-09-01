@@ -36,9 +36,25 @@ import org.mapstruct.ReportingPolicy;
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface PropertyMapper {
 
+    /**
+     * The freshness tier, derived at map time from the request's own clock (D26).
+     *
+     * <p>Shared by the card and detail mappings so there is exactly one definition — the whole
+     * point of moving this off the browser was to stop two surfaces deriving it independently, and
+     * writing the expression twice here would have reintroduced the same split one layer down.
+     *
+     * <p>{@code Instant.now()} rather than a {@code @Context} clock: the tier is a statement about
+     * the moment the response is built, every call site would pass the same value, and threading a
+     * parameter through six controllers to make a constant explicit is ceremony. {@link Freshness}
+     * itself takes the clock as an argument, so the boundaries stay testable without it.
+     */
+    String FRESHNESS = "java(Freshness.of(property.getLastConfirmedAt(), property.getCreatedAt(),"
+            + " java.time.Instant.now()).wire())";
+
     /** Card projection for search/lists — fully mechanical, no owner contact by construction. */
     @Mapping(target = "imageCount",
             expression = "java(property.getImages() == null ? 0 : property.getImages().size())")
+    @Mapping(target = "freshness", expression = FRESHNESS)
     PropertySummary toSummary(Property property);
 
     /**
@@ -50,6 +66,7 @@ public interface PropertyMapper {
      * detail endpoint cannot accidentally inherit "reveal".
      */
     @Mapping(target = "adminPipeline", expression = "java(toAdminPipeline(property, backOffice, outreach))")
+    @Mapping(target = "freshness", expression = FRESHNESS)
     @Mapping(target = "flagReason",
             expression = "java(backOffice == com.punenest.api.common.trust.BackOfficeVisibility.VISIBLE"
                     + " ? property.getFlagReason() : null)")
@@ -147,13 +164,15 @@ public interface PropertyMapper {
             return null;
         }
         String stage = property.getPipelineStage();
+        String milestone = property.getHandbackMilestone();
         return new PropertyResponse.AdminPipeline(
                 true,
                 property.getPostedByStaff(),
                 stage,
-                PipelineStage.reached(stage, PipelineStage.CLAIM_SENT),
-                PipelineStage.reached(stage, PipelineStage.PHOTOS_UPLOADED),
-                PipelineStage.reached(stage, PipelineStage.AADHAAR_VERIFIED),
+                milestone,
+                PipelineStage.reached(milestone, PipelineStage.CLAIM_SENT),
+                PipelineStage.reached(milestone, PipelineStage.PHOTOS_UPLOADED),
+                PipelineStage.reached(milestone, PipelineStage.AADHAAR_VERIFIED),
                 outreach.forSubject(property.getId()));
     }
 

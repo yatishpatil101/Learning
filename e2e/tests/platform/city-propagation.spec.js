@@ -28,6 +28,19 @@ async function selectCity(page, city) {
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
   }, city);
   await page.reload();
+  /* Wait for the reloaded page to have actually *read* the liveness we just wrote.
+     `lib/geoConfig.js` fetches the geo policy at boot and answers from its built-in defaults
+     until that lands — and in those defaults every city but Pune is waitlisted. So a reload
+     resolves, and the h1 says "Mumbai" because the active city comes from `puneNestCity`, while
+     the app still believes Mumbai is not live. A caller that changes the policy again inside that
+     window overwrites a reading the app never took, and the assertion it then makes is about a
+     transition that never happened. `geoPolicySettled()` is the module's own "the boot window is
+     over" signal; awaiting it is the difference between forcing a city and forcing a city the app
+     has agreed to. */
+  await page.evaluate(async () => {
+    const geoConfig = await import('/src/lib/geoConfig.js');
+    await geoConfig.geoPolicySettled();
+  });
 }
 
 test('Pune (has inventory) shows the full home experience', async ({ page }) => {
@@ -76,7 +89,7 @@ test('admin taking the viewed city offline reverts the shopper to Pune (no manua
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
 
   // Simulate the admin toggling Mumbai off in the shared geo store, exactly like
-  // updateSettings/syncGeoFromDisk do: flip live -> false, then fire the in-tab event.
+  // updateSettings does: flip live -> false, then fire the in-tab event.
   await page.evaluate(() => {
     const raw = localStorage.getItem('puneNestDB_v5');
     if (!raw) throw new Error('mock store missing'); // read-modify-write: never fall back to {}

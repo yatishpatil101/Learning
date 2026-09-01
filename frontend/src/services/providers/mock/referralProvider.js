@@ -32,12 +32,14 @@
  *
  * ## Rewards are reported as zero, not omitted
  *
- * The server pays whole rupees; the browser grants quota (a listing slot, +15 contacts). Item 31
- * calls those "two different currencies today, and no arithmetic turns one into the other", so this
- * provider does not attempt one. It returns `0`, and `Refer.jsx` does not display the rupee figures
- * on either build — the quota perks it *does* display still come from `lib/store/referrals.js`
- * directly, exactly as before. Reporting zero rather than omitting the fields keeps the shape the
- * same across providers, which is the seam's whole job.
+ * D31b settled the currency question item 31 left open: the server pays **owner contacts**, which is
+ * the same unit the browser was already granting, so there are no longer two currencies to
+ * reconcile. What there still is not, on a mock build, is anything to count — the mock has no
+ * redemption and no fraud desk, so no referral here has ever been approved. `contactsEarned` and
+ * `contactsPending` are therefore honestly `0`, and the quota figures the product actually shows
+ * come from `GET /me/entitlements`, which on this build is `providers/mock/entitlementProvider.js`
+ * reading the same local counters as before. Reporting zero rather than omitting the fields keeps
+ * the shape the same across providers, which is the seam's whole job.
  */
 import { delay } from '../../../lib/mockApi/core.js';
 import { referralCode, getReferralStats } from '../../../lib/store/referrals.js';
@@ -58,8 +60,8 @@ export async function getMyReferralSummary() {
     code: referralCode(),
     invited: stats.invited || 0,
     converted: stats.listed || 0,
-    rewardsEarned: 0,
-    rewardsPending: 0,
+    contactsEarned: 0,
+    contactsPending: 0,
   };
 }
 

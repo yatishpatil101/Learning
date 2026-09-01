@@ -6,12 +6,16 @@
  *
  * 1. **Flat facets vs nested `filters`.** Every consumer reads `rec.deal`, `rec.bhk`,
  *    `rec.localities` straight off the record. If a provider stops flattening the server's
- *    `filters` jsonb, those become `undefined`, `criteriaChips` renders nothing and `countMatches`
- *    matches everything. No error — just an alert that quietly describes the wrong search.
+ *    `filters` jsonb, those become `undefined` and `criteriaChips` renders nothing. No error — just
+ *    an alert that quietly describes the wrong search.
  *
  * 2. **`alerts` boolean vs `alertFrequency` enum.** The Switch and two `s.alerts !== false` guards
  *    depend on the derived boolean. If it goes missing, `undefined !== false` is true, so a
  *    disabled alert starts firing again.
+ *
+ * 3. **`matchCount` / `newCount` (D227).** Both are read as `s.matchCount ?? 0`, so a provider that
+ *    stops supplying them does not fail — it reports zero matches, and zero matches removes the
+ *    alert from the retention strip and the inbox altogether.
  *
  * Usage (backend must be running):
  *   node scripts/saved-search-parity.mjs --otp-log <path-to-backend-console-log>
@@ -117,6 +121,24 @@ if (!liveView || !mockView) {
   for (const field of ['id', 'kind', 'label', 'channel']) {
     if (typeof mockView[field] !== 'string') failures.push(`${field}: mock is ${typeof mockView[field]}, expected string`);
     if (typeof liveView[field] !== 'string') failures.push(`${field}: live is ${typeof liveView[field]}, expected string`);
+  }
+
+  /* Gap 3: the two counts (D227). Neither is compared value-for-value — the mock counts its demo
+     catalogue and the server counts the e2e database, and those are different catalogues. What must
+     hold on both sides is that the fields are *numbers*, because every consumer reads them as
+     `s.matchCount ?? 0`: a missing field is not an error, it is a confident zero, and a zero
+     suppresses the retention strip and the inbox row entirely. That is exactly the silent drift this
+     harness exists to catch. `newCount` is checked alongside it because it fails the same way. */
+  for (const [label, view] of [['mock', mockView], ['live', liveView]]) {
+    for (const field of ['matchCount', 'newCount']) {
+      if (typeof view[field] !== 'number') {
+        failures.push(`${field}: ${label} is ${typeof view[field]}, expected number — a missing count reads as a confident zero and hides the alert`);
+      }
+    }
+  }
+  // A search saved a moment ago has nothing new by definition, on either side.
+  for (const [label, view] of [['mock', mockView], ['live', liveView]]) {
+    if (view.newCount !== 0) warnings.push(`newCount: ${label} returned ${view.newCount} for a search created just now`);
   }
 }
 

@@ -136,6 +136,22 @@ class SpecCoverageTest {
      * {@code getConversationForModeration} — a reported chat had no reader, because a conversation
      * admitted its two participants and nobody else.
      *
+     * <p>D31b added one: {@code getEntitlements} — {@code GET /me/entitlements}. The free tier's
+     * fifteen owner contacts were counted in {@code localStorage}, by a module whose own header said
+     * it was not real security: clearing site data reset the quota and a second browser never saw
+     * it. The referral bonus that topped it up was computed the same way, from counters the client
+     * incremented for itself, so the platform's referral scheme paid a reward the platform never
+     * granted. This is the route that made both of those server facts.
+     *
+     * <p>D32 added three: the managed-property vault — {@code listManagedDocuments},
+     * {@code uploadManagedDocument} and {@code deleteManagedDocument}. The Property Passport has
+     * always shown a document vault keyed on a managed record, and it was the one part of the
+     * document flip that never shipped, because the record ids were minted in the browser. Moving
+     * managed properties to this server made those ids real and left the question the missing ids
+     * had been standing in for: where the papers on a flat you own but have not listed actually
+     * live. Not in {@code documents} — V20 closed that door and V32 set the precedent for opening a
+     * new one instead.
+     *
      * <p>The floor is a running sum of what each slice added, not the live count. The paragraphs
      * above are that sum's audit trail, and they are the thing to trust: an author who cannot say
      * which operations their delta refers to has not earned the raise. At the time D58 landed the
@@ -143,8 +159,17 @@ class SpecCoverageTest {
      * ratcheted yet. Claiming their number here would make this file assert somebody else's change,
      * and the ratchet would then fail on any branch that has D58 without them. Each slice raises the
      * floor by what it added; the arithmetic catching up is the next author's to do.
+     *
+     * <p><strong>D25 — the demand board's audited reveals: +3.</strong> {@code GET} on each of
+     * {@code /admin/enquiries/&#123;id&#125;}, {@code /admin/visits/&#123;id&#125;} and
+     * {@code /admin/deals/&#123;id&#125;}: the row the list already returns, with the one contact
+     * number unmasked and an {@code audit_log} entry recording that it was. Three near-identical
+     * operations rather than one polymorphic one for the same reason the service has three methods —
+     * what varies is whose number it is and where it came from, and on the deals route that
+     * difference is the whole point, since the number there may belong to somebody who never held an
+     * account.
      */
-    private static final int IMPLEMENTED_FLOOR = 246;
+    private static final int IMPLEMENTED_FLOOR = 253;
 
     /** Infrastructure Spring maps for us; none of it is part of the public contract. */
     private static final List<String> NOT_OURS = List.of("/error", "/actuator");

@@ -3,7 +3,7 @@ import { digits, myMobile } from '../contact.js';
 import { allSocieties, registerCommunitySocieties, registerSocietyMerges, societyBySlug } from '../../data/societies.js';
 import { get, set } from './internals.js';
 import { COMMUNITY_SOC_KEY, addCommunitySociety, addSocietyLead, getCommunitySocieties, searchSocieties } from './community.js';
-import { FOLLOW_KEY, QA_KEY, allSocietyQA, getFollowedSocieties, isSocietyFollowed, toggleFollowSociety } from './society.js';
+import { FOLLOW_KEY, QA_KEY, allSocietyQA, getFollowedSocieties } from './society.js';
 
 /* =========================================================================
    Society Hub — Phase 2: claims, resident verification, admin overlay
@@ -249,6 +249,11 @@ export const mergeSocieties = (fromSlug, toSlug) => {
   set(MERGE_KEY, merges);
   registerSocietyMerges(merges);
   // Move followers off the dead slug (dedupe against the target).
+  //
+  // This is the mock store's follow list, and deliberately still is: merging is an ops action that
+  // lives entirely in localStorage, so there is no server-side merge for a server-side follow to
+  // survive. When merges move server-side the follow rows move with them, in the same transaction,
+  // and this block goes away rather than being ported (D227).
   const followed = getFollowedSocieties();
   if (followed.includes(fromSlug)) {
     const next = followed.filter((s) => s !== fromSlug);
@@ -266,13 +271,15 @@ export const mergeSocieties = (fromSlug, toSlug) => {
 };
 
 /* Demand-side minting: a searcher who can't find their society mints it as a
-   `community` candidate AND follows it — so we alert them the moment a home is
-   listed there. Reuses the exact same funnel as supply-side auto-mint. */
-export const mintDemandSociety = (o = {}) => {
-  const rec = addCommunitySociety({ ...o, source: 'demand' });
-  if (rec && !isSocietyFollowed(rec.slug)) toggleFollowSociety(rec.slug);
-  return rec;
-};
+   `community` candidate so we can alert them the moment a home is listed there.
+   Reuses the exact same funnel as supply-side auto-mint.
+
+   The follow is the caller's job now (D227). It used to happen here, silently, straight into
+   localStorage — which was fine while follows were a browser array and wrong the moment they
+   became rows. A society minted here exists only in this browser, so the server refuses a follow on
+   it; only `FollowContext` knows to hold that follow locally and retry it once ops promote the
+   slug. Doing it here would write to a store the live build never reads. */
+export const mintDemandSociety = (o = {}) => addCommunitySociety({ ...o, source: 'demand' });
 
 /* Society admin (the approved claimant) — powers committee-side resident review (Tier 4). */
 export const societyAdminMobile = (slug) => digits((getSocietyOverlay(slug) || {}).adminMobile);

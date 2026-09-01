@@ -43,10 +43,12 @@ const BUILDER = 'Panchshil Realty';
    near-miss could legitimately resolve. */
 const UNKNOWN_SLUG = 'zzz-not-a-real-society-baner';
 
-/* The society the property page's Society block resolves to for P5013. `societyForListing` is a
-   deterministic id-stable hash over the listing id, so this binding does not drift. */
+/* The society the property page's Society block resolves to for P5013. D19: the binding is a fact in
+   the seed (`db.json` listing P5013 carries `societySlug`), not a hash of the listing id, so it
+   moves only when someone edits the seed — and if they do, this constant is the thing that fails
+   rather than a silently different building being described. */
 const PROP = 'P5013';
-const PROP_SOCIETY_SLUG = 'kolte-patil-24k-baner';
+const PROP_SOCIETY_SLUG = 'green-meadows-baner';
 
 const CONSENT = { necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() };
 

@@ -290,12 +290,38 @@ export function addListing(listing) {
   return delay(rec);
 }
 
+/* The hand-back milestones. V92 moved these off `pipeline_stage` onto their own column, because
+   the two funnels answer different questions and a single column made them overwrite each other:
+   a listing that had reached `claim_sent` and was then moved back to `listed` lost the fact that
+   the owner had been sent a claim link at all. Mirrored here so the mock and the server agree on
+   which axis a value belongs to — see `PipelineStage.java`. */
+const HANDBACK = ['photos_uploaded', 'aadhaar_verified', 'claim_sent', 'claimed'];
+
+/**
+ * Move a listing along whichever funnel the value belongs to.
+ *
+ * Mirrors `Property.moveToStage`: a hand-back milestone is recorded on `handbackMilestone` and
+ * pins the acquisition stage at `docs_submitted` (a hand-back cannot be under way for a listing
+ * that was never listed), and an acquisition stage clears the milestone, because moving a listing
+ * back down the funnel un-does the hand-back with it.
+ *
+ * `under_review` and `live` are deliberately absent from both axes. They are not stages the desk
+ * sets — they are `status` read sideways (`pending` and `approved`), which is why the board derives
+ * those two columns rather than storing them. Writing them here used to flip `status` as a side
+ * effect, which is how approving a listing and "moving it to Live" became two ways to do the same
+ * thing that could disagree.
+ */
 export function setPipelineStage(id, stage) {
   const db = rawLoad();
   const it = db.listings.find((p) => p.id === id);
   if (it) {
-    it.pipelineStage = stage;
-    if (stage === 'live' && it.status !== 'approved') it.status = 'approved';
+    if (HANDBACK.includes(stage)) {
+      it.handbackMilestone = stage;
+      it.pipelineStage = 'docs_submitted';
+    } else {
+      it.pipelineStage = stage;
+      it.handbackMilestone = null;
+    }
     rawSave(db);
   }
   return delay(it);

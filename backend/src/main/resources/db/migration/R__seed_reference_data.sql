@@ -44,7 +44,8 @@ INSERT INTO settings (key, value) VALUES
         "featuredListing": 999,
         "gstPercent": 18,
         "rentPayPercent": 2,
-        "referralReward": 500,
+        "freeContactLimit": 15,
+        "referralContactBonus": 15,
         "referralQualifyPerMonth": 10
     }'::jsonb),
     ('flags', '{
@@ -659,26 +660,35 @@ ON CONFLICT (id) DO UPDATE SET
 -- Prices are illustrative and track settings->fees (ownerProYearly, featuredListing,
 -- rentAgreementPlatform). Confirm real figures with the business before launch.
 -- ---------------------------------------------------------------------------
--- listing_limit / contact_limit carry the numbers the paywall enforces (D109). NULL means "no cap":
--- an owner plan has no contact limit, and Seeker Plus (a tenant plan) has no listing limit and grants
--- unlimited owner contacts. These must stay in step with the number written in `features`.
-INSERT INTO plans (id, name, audience, price, billing_cycle, listing_limit, contact_limit, features) VALUES
-    ('b1000000-0000-4000-8000-000000000001', 'Owner Free',  'owner',     0, 'yearly',    1, NULL,
+-- listing_limit carries the number the listing paywall shows (D109); NULL means "no cap", which is
+-- the right answer for a tenant plan that does not sell listings at all.
+--
+-- contact_limit is display data and nothing enforces it -- it has been NULL on every row since V35.
+-- The entitlement that is actually enforced is `unlimited_contacts` (V91): whether this plan lifts
+-- the owner-contact ceiling entirely. The two are separate columns because a nullable integer that
+-- means "unlimited or not-applicable, we are not saying which" cannot answer an entitlement
+-- question, and V35's own comment admits it means both.
+--
+-- The free ceiling itself (15) is not on any plan row: it belongs to callers with no subscription,
+-- who by definition have no row to read. It lives in settings->fees->freeContactLimit.
+INSERT INTO plans (id, name, audience, price, billing_cycle, listing_limit, contact_limit, unlimited_contacts, features) VALUES
+    ('b1000000-0000-4000-8000-000000000001', 'Owner Free',  'owner',     0, 'yearly',    1, NULL, false,
      '["1 live listing", "Verified owner badge", "Unlimited enquiries"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000002', 'Owner Plus',  'owner',  2499, 'yearly',    2, NULL,
+    ('b1000000-0000-4000-8000-000000000002', 'Owner Plus',  'owner',  2499, 'yearly',    2, NULL, true,
      '["2 live listings", "Self-serve boosts", "Priority support"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000003', 'Owner Pro',   'owner',  4999, 'yearly',    5, NULL,
+    ('b1000000-0000-4000-8000-000000000003', 'Owner Pro',   'owner',  4999, 'yearly',    5, NULL, true,
      '["5 live listings", "Self-serve boosts", "Rent agreement included", "Dedicated manager"]'::jsonb),
-    ('b1000000-0000-4000-8000-000000000004', 'Seeker Plus', 'tenant',  299, 'monthly', NULL, NULL,
+    ('b1000000-0000-4000-8000-000000000004', 'Seeker Plus', 'tenant',  299, 'monthly', NULL, NULL, true,
      '["Unlimited owner contacts", "Instant alerts", "Saved-search priority"]'::jsonb)
 ON CONFLICT (id) DO UPDATE SET
-    name          = EXCLUDED.name,
-    audience      = EXCLUDED.audience,
-    price         = EXCLUDED.price,
-    billing_cycle = EXCLUDED.billing_cycle,
-    listing_limit = EXCLUDED.listing_limit,
-    contact_limit = EXCLUDED.contact_limit,
-    features      = EXCLUDED.features;
+    name               = EXCLUDED.name,
+    audience           = EXCLUDED.audience,
+    price              = EXCLUDED.price,
+    billing_cycle      = EXCLUDED.billing_cycle,
+    listing_limit      = EXCLUDED.listing_limit,
+    contact_limit      = EXCLUDED.contact_limit,
+    unlimited_contacts = EXCLUDED.unlimited_contacts,
+    features           = EXCLUDED.features;
 
 INSERT INTO boost_packs (id, name, price, duration_days, placement) VALUES
     ('b2000000-0000-4000-8000-000000000001', '7-day Spotlight',   999,  7, 'top'),

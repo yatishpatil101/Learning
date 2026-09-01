@@ -408,12 +408,27 @@ computed instead of hardcoded `false` (D55, ninety-day retention), and a configu
 (`settings.fees.referralQualifyPerMonth`, default 10/month) sends the overflow to the fraud desk
 rather than rejecting it — the flatmate case D61 protects still works.
 
-**Still open, and the remainder of D191:** the *client* half. `pnReferralStats` still counts
-`invited` / `joined` / `listed` in localStorage and still grants quota off those raw counters, and
-`Signup.jsx` / `useListProperty.js` still mint on join and on publish rather than on verification.
-Closing it needs a `referral` domain in the services seam **and** a product decision that does not
-exist yet: the server pays a ₹ credit and the client pays free listing slots and free contacts, and
-nobody has ruled on the exchange rate between them.
+**Closed by D31b.** The remainder of D191 — the *client* half — is done, and the product decision it
+was waiting on went the other way round from what this paragraph assumed. There is no exchange rate,
+because there are no longer two currencies: the server stopped paying a ₹ credit (which nothing could
+be spent on) and now pays **owner contacts**, the unit the scheme has always advertised.
+`settings.fees.referralReward` is gone; `freeContactLimit` and `referralContactBonus` replace it, and
+`referrals.reward_amount` is a count.
+
+The quota moved with it. `lib/store/contactQuota.js` — a `pnContactsUsed:<mobile>` counter the browser
+wrote, a referral bonus the same browser minted, and a limit the same browser enforced *before* making
+any request — is retired. `GET /me/entitlements` reports the allowance and `POST /contacts/request`
+refuses with a 422 `contact_quota_exhausted`. Both numbers are **derived**: `used` is a count of
+`contact_requests` rows (so a repeat press or a refused press costs nothing), and the referral bonus is
+`count(qualified or rewarded referrals) × referralContactBonus` recomputed per read, so a clawback
+takes its contacts back with no grant to reverse. The old module now lives at
+`services/providers/mock/contactQuota.js` as the mock server's state and is not re-exported from
+`lib/store.js`.
+
+**Deliberately still open, and narrower than it was:** the **listing** ceiling is *reported* by
+`GET /me/entitlements` (`listings.allowance`, `listings.referralBonus`) but is **not enforced** —
+`POST /me/listings` does not check it. The wizard's paywall remains a client-side courtesy. That is a
+separate piece of work from the contact quota and was not smuggled into this one.
 
 ### Q18 — What should the ops console be allowed to see and act on? *(closed 2026-08-11)*
 

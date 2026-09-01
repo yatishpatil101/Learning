@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   isLand, canonicalBhkNum, bhkLabel, areaForBhk, buyPrice, rentPrice,
 } from './lib-realism.mjs';
+import { SOCIETIES } from '../src/data/societies.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dirname, '..', 'src', 'data');
@@ -59,6 +60,44 @@ const genName = (r) => pick(r, FIRST) + ' ' + pick(r, LAST);
 // 9999xxxxxx is not allocated to any Indian subscriber, so seed owners rendered as
 // live wa.me / tel: links on a public dev deploy can never reach a real person.
 const genMobile = (r) => '9999' + intp(r, 100000, 999999);
+
+/* Bind listings to the society they are in (D19).
+ *
+ * A seed is allowed to invent a fact — it invents owners, prices and photographs. What it is not
+ * allowed to do is leave a fact out and let a *page* invent it at render time, which is what
+ * happened here: no listing carried a society, so `societyForListing` picked one with
+ * `fnvHash(listing.id) % pool.length` and the property page printed a real named building's
+ * builder, tower count, unit count, year and occupancy over a home that was not in it. The binding
+ * now lives in the data, where a reader can check it and an editor can correct it.
+ *
+ * Locality-matched, so a Baner flat is in a Baner society and never in a Kharadi one. Round-robin
+ * over that locality's societies rather than a hash, so every society with a locality in the
+ * generator's list ends up with homes instead of a random third of them having none.
+ *
+ * Every fourth listing is deliberately left unbound, and that is the more important half of the
+ * fixture: an owner does not have to name a society, `societies.society_id` is null for most real
+ * rows, and the page's correct behaviour there is to render no Society section at all. Without
+ * unbound rows in the seed, "absent when unknown" is untested and would rot back into a fallback.
+ *
+ * Consumes no RNG, and runs after the draw loop, so the rest of the seed stays byte-for-byte
+ * identical to what it was before this pass existed.
+ */
+function bindSocieties(listings) {
+  const byLocality = new Map();
+  for (const s of SOCIETIES) {
+    if (!byLocality.has(s.localitySlug)) byLocality.set(s.localitySlug, []);
+    byLocality.get(s.localitySlug).push(s);
+  }
+  const cursor = new Map();
+  listings.forEach((l, i) => {
+    if (i % 4 === 0) return; // deliberately unbound — see above
+    const pool = byLocality.get(l.localitySlug);
+    if (!pool || !pool.length) return; // no curated society here; inventing one is the old bug
+    const n = cursor.get(l.localitySlug) || 0;
+    cursor.set(l.localitySlug, n + 1);
+    l.societySlug = pool[n % pool.length].slug;
+  });
+}
 
 function build() {
   const r = rng(20260618);
@@ -137,6 +176,8 @@ function build() {
       flagReason: st === 'flagged' ? pick(r, ['Suspected duplicate', 'Price looks off', 'User reported', 'Photos mismatch']) : '',
     });
   }
+
+  bindSocieties(db.listings);
 
   const tstatus = ['new', 'new', 'in_progress', 'in_progress', 'done', 'done', 'cancelled'];
   const prio = ['low', 'medium', 'high'];

@@ -16,7 +16,7 @@
  * | list, mark read, mark all read | **server** | the read + mark-read endpoints |
  * | `dismiss` (server rows) | **server** | `DELETE /notifications/{id}` — permanent, syncs across devices (D93) |
  * | `dismiss` (client-derived rows) | **client tombstones** | they have no server row to delete, so the server 404s them and the provider falls back locally |
- * | saved-search / saved-property alerts | **client-derived** | computed in the browser from `countMatches`; the server has no slot for them |
+ * | saved-search / saved-property alerts | **client-derived** | the server has no inbox slot for them, but the number in them is no longer counted here — it rides on the saved-search record as `matchCount` (D227) |
  * | `pushNotificationFor` | **mock only, permanently** | writing into *another* user's inbox is a server-side effect, never a client call |
  * | preferences + quiet hours | **server** | `GET`/`PUT /me/notification-preferences` — see below |
  *

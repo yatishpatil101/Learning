@@ -1,6 +1,5 @@
 // ---------------- Simple collection getters ----------------
-import { rawLoad, rawSave, delay, KEY } from './core.js';
-import { persistLoad } from '../persist.js';
+import { rawLoad, rawSave, delay } from './core.js';
 
 const collGetter = (coll) => (opts = {}) => {
   const items = rawLoad()[coll] || [];
@@ -51,22 +50,15 @@ export function updateSettings(patch) {
   return delay(db.settings);
 }
 
-/* Cross-context sync for admin-owned geo policy (dev).
-   The persist layer treats the on-disk file as a store shared across browsers/profiles,
-   but a browser that already has localStorage never re-reads it (see the hydration guard
-   above) — so an admin toggling a city live in one browser never reaches a shopper in
-   another. Pull the persisted `settings.geo` back in on demand so the navbar city roster
-   and waitlist gate stay consistent everywhere. Best-effort + dev-only (persistLoad is a
-   no-op in production and under Playwright), touches ONLY settings.geo (never per-browser
-   user data), and writes localStorage directly to avoid a disk write-back loop. Resolves
-   true only when something actually changed, after firing punenest-settings-change. */
-export async function syncGeoFromDisk() {
-  const disk = await persistLoad(KEY);
-  if (!disk || !disk.settings || !disk.settings.geo) return false;
-  const db = rawLoad();
-  if (JSON.stringify(db.settings?.geo) === JSON.stringify(disk.settings.geo)) return false;
-  db.settings = { ...db.settings, geo: disk.settings.geo };
-  localStorage.setItem(KEY, JSON.stringify(db));
-  window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  return true;
-}
+/* `syncGeoFromDisk` used to be here.
+
+   It pulled the persisted `settings.geo` back out of the on-disk store on window focus, so that an
+   admin toggling a city live in one browser reached a shopper in another. It could not: its first
+   line awaited `persistLoad(KEY)`, which returns `null` whenever `DISK_OFF` —
+   `!import.meta.env.DEV || navigator.webdriver` — so it returned `false` before doing anything in
+   every production build and under every Playwright run. The only place it ever worked was a
+   second browser profile on a developer's own machine.
+
+   The staleness it was covering for is closed properly now: geo policy is served by `GET /geo` and
+   fetched once at boot into `lib/geoConfig.js`'s cache (register item 35). A cross-browser sync
+   through a dev-only file store has nothing left to do. */

@@ -34,6 +34,11 @@ function toViewModel(row) {
     alerts: (row.alertFrequency || 'daily') !== 'off',
     channel: row.channel || 'whatsapp',
     newCount: row.newCount ?? 0,
+    // How many listings match this alert right now, counted by the server over the whole
+    // catalogue (D227). The browser used to count this itself out of `listProperties({})`, which
+    // returns one page — right only while the catalogue was smaller than a page. `?? 0` rather
+    // than `undefined` so `matchCount > 0` behaves the same against an older server.
+    matchCount: row.matchCount ?? 0,
     at: row.createdAt ? Date.parse(row.createdAt) : Date.now(),
   };
 }
@@ -48,7 +53,7 @@ function toViewModel(row) {
  */
 const TOP_LEVEL = new Set([
   'id', 'kind', 'name', 'query', 'criteria', 'label', 'mobile',
-  'alertFrequency', 'alerts', 'channel', 'newCount', 'at',
+  'alertFrequency', 'alerts', 'channel', 'newCount', 'matchCount', 'at',
 ]);
 
 function toCreateRequest(record = {}) {

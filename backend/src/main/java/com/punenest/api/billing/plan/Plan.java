@@ -53,6 +53,23 @@ public class Plan extends AuditedEntity {
     @Column(name = "contact_limit")
     private Integer contactLimit;
 
+    /**
+     * Whether this plan lifts the owner-contact ceiling entirely (V91, D31b).
+     *
+     * <p>A separate column from {@link #contactLimit} rather than a convention over it, because that
+     * one is nullable and its own comment admits {@code null} means "unlimited <em>or</em>
+     * not-applicable" — two different answers stored identically, which is exactly the question an
+     * entitlement check asks. {@code contactLimit} stayed as it was: it is display data on the
+     * pricing page, and nothing reads it to decide anything.
+     *
+     * <p>{@code false} on Owner Free and {@code true} on the three priced plans, which is precisely
+     * what the browser enforced before the quota moved server-side. Set from the seeded ids rather
+     * than from {@code price > 0}: "priced" and "unlimited" coincide today but are two decisions, and
+     * a promotional free month must not withdraw the entitlement it is promoting.
+     */
+    @Column(name = "unlimited_contacts", nullable = false)
+    private boolean unlimitedContacts;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "features", nullable = false)
     private List<String> features = new ArrayList<>();

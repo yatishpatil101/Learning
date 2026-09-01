@@ -26,13 +26,44 @@ export const EDIT_STATUS_OPTS = [
 
 export const PAGE_LIMIT = 15;
 
+/**
+ * The six columns of the concierge board — but only the first four are a *stored* stage (D27).
+ *
+ * These six shipped as one enum, and the register carried them as one field, and that was the bug:
+ * `under_review` and `live` are not places the desk moves a listing to, they are `status` read
+ * sideways. A listing is under review exactly when it is `pending` and live exactly when it is
+ * `approved`, so storing them as well meant the same fact was written twice by two different
+ * actions that could disagree — approving a listing set `status`, and "move it to Live" set the
+ * stage, and nothing made them agree. V92 kept the four the desk actually works and dropped the
+ * other two from the column; `derived` marks the two the board works out for itself.
+ *
+ * The four settable values are also exactly what `POST /properties/{id}/pipeline` accepts on the
+ * acquisition axis. Sending `under_review` or `live` is a 400 — deliberately, so this cannot quietly
+ * regrow.
+ */
 export const PIPELINE_STAGES = [
   { key: 'contacted', label: 'Contacted', color: 'bg-gray-500/15 text-gray-300 border-gray-500/30' },
   { key: 'info_collected', label: 'Info Collected', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
   { key: 'listed', label: 'Listed', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
   { key: 'docs_submitted', label: 'Docs Submitted', color: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
-  { key: 'under_review', label: 'Under Review', color: 'bg-teal-500/15 text-teal-300 border-teal-500/30' },
-  { key: 'live', label: 'Live', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  { key: 'under_review', label: 'Under Review', color: 'bg-teal-500/15 text-teal-300 border-teal-500/30', derived: true },
+  { key: 'live', label: 'Live', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', derived: true },
+];
+
+/**
+ * The owner's half of the funnel — the second axis V92 split out of `pipeline_stage`.
+ *
+ * The desk hands a staff-posted listing back to its owner, and these four record how far that got.
+ * They lived in the same column as the four above until a listing that reached `claim_sent` and was
+ * then moved back to `listed` lost the fact that a claim link had ever been sent. They are shown on
+ * the card rather than given columns of their own: a listing has a place on the acquisition funnel
+ * *and* a hand-back milestone at the same time, which is precisely what one column could not say.
+ */
+export const HANDBACK_MILESTONES = [
+  { key: 'photos_uploaded', label: 'Photos uploaded' },
+  { key: 'aadhaar_verified', label: 'Aadhaar verified' },
+  { key: 'claim_sent', label: 'Claim sent' },
+  { key: 'claimed', label: 'Claimed' },
 ];
 
 export const KPI_TINTS = {

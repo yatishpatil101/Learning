@@ -508,6 +508,31 @@ public class SubscriptionService implements AbandonedCheckouts {
     }
 
     /**
+     * The plan whose entitlements this user actually holds right now, if any (D31b).
+     *
+     * <p>Distinct from what {@code GET /me/subscription} shows. That endpoint reports the user's
+     * standing, including a {@code pending} order they should go and pay for; this one answers "what
+     * may they do", so it accepts only a status {@link SubscriptionStatuses#isEntitling} admits — an
+     * unpaid order buys nothing. The two share {@link #currentFor} so that the plan on the billing
+     * screen and the plan behind the contact gate can never be different plans.
+     *
+     * <p>{@code PAST_DUE} entitles, which is a deliberate grace: a failed renewal is usually an
+     * expired card, and locking someone out of the product on the day their bank declined a charge
+     * is how a recoverable payment problem becomes a cancellation. D57's lapse clock is the actual
+     * bound on that grace, and it is applied inside {@link #currentFor}.
+     *
+     * <p>Empty means "no live plan", not "free plan". The free tier has no row in {@code plans} to
+     * point at, so the caller decides what an absent subscription is worth — see
+     * {@code ContactAllowanceService}.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Plan> entitlingPlan(java.util.UUID userId) {
+        return currentFor(userId)
+                .filter(s -> SubscriptionStatuses.isEntitling(s.getStatus()))
+                .flatMap(s -> plans.findById(s.getPlanId()));
+    }
+
+    /**
      * The subscription {@code GET /me/subscription} should report.
      *
      * <p><strong>An entitling row wins over a newer pending one.</strong> Otherwise a user who

@@ -94,6 +94,21 @@
 - `tabs` = overview, amenities (shown when amenities exist OR residential OR reviews on),
   location, pricing (rent details vs price insights), trust. `?tab=` selects; invalid -> overview.
 
+### Society section (`SocietySection.jsx`)
+- Renders **only when the listing is bound to a society** (D19). `societyForListing(p)` reads
+  `societySlug` (the server's `@Formula` over `societies.slug`), then `societyId`, and returns null
+  when neither resolves; the component returns `null` on that branch and the Amenities tab simply
+  has no Society block. It used to fall back to `pool[fnvHash(p.id) % pool.length]` and print a real
+  building's builder, towers, units, year and occupancy over a home that was not in it.
+- A partial render was considered and rejected: a "Society Information" heading over a generic
+  "Building" name, with registration and conveyance tiles driven by `p.ownershipVerified`, still
+  asserts membership - and `ownershipVerified` is a claim about the seller's title, not about a
+  society's registration or conveyance deed.
+- `verified` = `soc.registration && soc.conveyance` (the same single rule the hub and the directory
+  use), `claimed` = `soc.claimStatus === 'claimed'`. The rating is `getEntityReviewSummary('society',
+  slug)`, keyed on the slug, with three states: not-loaded (builder only), `count === 0`
+  ("Not rated yet"), `count > 0` (a real average). No hard-coded default.
+
 ### Contact entry point (the gate lives elsewhere)
 - **Number reveal** (`ContactBox.jsx` inside `OwnerCard`): reads `contactStatus(ownerMobile, id)`.
   `revealed = status === 'owner' || (status === 'approved' && !ownerHidesNumber)`. Masked otherwise;

@@ -11,13 +11,13 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
    could be reached from a screen or asserted in a test. The gap was recorded in tasks/todo.md as
    the blocker for the whole cluster. This file is what it was blocking.
 
-   ## Why one listing per stage
+   ## Why one listing per point on the funnel
 
-   `pipeline_stage` is the only fact stored. The three booleans the board draws - claim sent, photos
-   uploaded, Aadhaar verified - are *derived* from it by `PipelineStage.reached`, which asks whether
-   the listing has passed a milestone in the six-stage order. So there is no such thing as a listing
-   with photos but no documents, and seeding one would be seeding a state the application cannot
-   represent. Four listings at four stages is the smallest fixture that exercises all four
+   The three booleans the board draws - claim sent, photos uploaded, Aadhaar verified - are not
+   stored. They are *derived* by `PipelineStage.reached`, which asks whether the hand-back has
+   passed a milestone in the four-milestone order. So there is no such thing as a listing with
+   photos but no documents, and seeding one would be seeding a state the application cannot
+   represent. Four listings at four points is the smallest fixture that exercises all four
    combinations of the derived booleans, and the test reads them back as a table for exactly that
    reason: it is checking the derivation, not four independent values.
 
@@ -26,17 +26,23 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
    cannot hold - PRC004 sat at `listed` with photos *and* Aadhaar both true. Reproducing that here
    would mean asserting against data the constraint would reject.
 
-   ## What this file does not cover, and why not
+   ## The two axes
 
-   The console's pipeline controls write stages this server cannot store. `PIPELINE_STAGES` in
-   frontend/src/pages/admin/properties/constants.js offers contacted / info_collected / listed /
-   docs_submitted / under_review / live; the server's `properties_pipeline_stage_check` allows
-   listed / docs_submitted / photos_uploaded / aadhaar_verified / claim_sent / claimed. They agree
-   on two values out of six, and they disagree because they are two different funnels wearing one
-   column name: the console's tracks how staff acquired the listing, the server's tracks what has
-   come back from the owner. Both are reasonable; only one can own the column. That is a product
-   decision, not a defect to quietly resolve in a test, so it is written up in tasks/todo.md and
-   nothing here asserts a stage transition.
+   V92 split the one `pipeline_stage` column in two, because the console and the server were
+   tracking different things through it: how staff *acquired* the listing, and how much has come
+   back from the *owner* since. They agreed on two values out of six and silently overwrote each
+   other on the rest — a listing that reached `claim_sent` and was then moved back to `listed` lost
+   the fact a claim link had ever been sent.
+
+   So `pipelineStage` is now contacted / info_collected / listed / docs_submitted, and
+   `handbackMilestone` is photos_uploaded / aadhaar_verified / claim_sent / claimed. A hand-back
+   cannot be under way for a listing that was never listed, which is what
+   `properties_handback_needs_listing` enforces and why the two fixtures carrying a milestone also
+   sit at `docs_submitted`. The derived booleans read the milestone, not the stage.
+
+   `under_review` and `live` — the two the console offered and the server never had — turned out to
+   belong to neither axis. They are `status` under another name, and the board derives those two
+   columns rather than storing them. Nothing to reconcile; there was never a third funnel.
 
    Counts grow: the ledger is append-only and every run adds to it, so the reminder count is
    measured as a delta across the call that causes it, never as an absolute.
@@ -45,30 +51,46 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 */
 
 /**
- * The four concierge listings, keyed by the stage each one sits at.
+ * The four concierge listings, keyed by the point on the funnel each one sits at.
  *
  * Named rather than discovered. A test that took "whichever listing is posted_by_admin" would pass
  * today and start asserting something else the moment a fifth is seeded - and the whole point of
- * the set is that each member is at a different stage.
+ * the set is that each member is at a different point.
+ *
+ * `stage` and `milestone` are both spelled out because they are two columns now. The last two sit
+ * at `docs_submitted` on the acquisition axis and carry their milestone on the other: that is not
+ * an accident of the seed, it is the constraint — a hand-back presupposes a listing.
  */
 const CONCIERGE = {
-  listed: { id: '42ba0880-ee4f-5a78-9a8d-e70200409791', slug: 'p5030', title: '1 BHK Flat in Kharadi' },
+  listed: {
+    id: '42ba0880-ee4f-5a78-9a8d-e70200409791',
+    slug: 'p5030',
+    title: '1 BHK Flat in Kharadi',
+    stage: 'listed',
+    milestone: null,
+  },
   docs_submitted: {
     id: '9fd5a65b-0607-50e4-8f1c-3d1de0090017',
     slug: 'p5028',
     title: '1 BHK Plot in Viman Nagar',
     ownerMobile: '9108512606',
+    stage: 'docs_submitted',
+    milestone: null,
   },
   photos_uploaded: {
     id: '7847ad81-cc55-5db2-bacb-67d085e3ef4e',
     slug: 'p5024',
     title: '2 BHK Row House in Kothrud',
+    stage: 'docs_submitted',
+    milestone: 'photos_uploaded',
   },
   claim_sent: {
     id: '11d1c69c-2e33-55a8-ac83-af36deb1b31c',
     slug: 'p5037',
     title: '4 BHK Penthouse in Undri',
     ownerMobile: '9592138848',
+    stage: 'docs_submitted',
+    milestone: 'claim_sent',
   },
 };
 
@@ -82,12 +104,16 @@ const admin = () => authHeaders('9000000000');
 const adminProperties = async (headers) =>
   (await (await fetch(`${API}/admin/properties?size=100`, { headers })).json()).content || [];
 
-test('the funnel booleans are derived from the stage, not stored beside it', async () => {
+test('the funnel booleans are derived from the milestone, not stored beside it', async () => {
   const rows = await adminProperties(await admin());
 
-  /* Expected value per stage, written out rather than computed. Computing it here would mean
-     reimplementing PipelineStage.reached in the test, which would then agree with itself while both
-     copies were wrong. The table is the specification. */
+  /* Expected value per point on the funnel, written out rather than computed. Computing it here
+     would mean reimplementing PipelineStage.reached in the test, which would then agree with itself
+     while both copies were wrong. The table is the specification.
+
+     Note the first two rows: they differ on `pipelineStage` and agree on every boolean, which is
+     the split doing its job — the booleans are about the *owner's* progress, and neither listing
+     has had anything back from its owner. */
   const expected = {
     listed: { claimLinkSent: false, photosUploaded: false, aadhaarVerified: false },
     docs_submitted: { claimLinkSent: false, photosUploaded: false, aadhaarVerified: false },
@@ -95,14 +121,16 @@ test('the funnel booleans are derived from the stage, not stored beside it', asy
     claim_sent: { claimLinkSent: true, photosUploaded: true, aadhaarVerified: true },
   };
 
-  for (const [stage, fixture] of Object.entries(CONCIERGE)) {
+  for (const [key, fixture] of Object.entries(CONCIERGE)) {
     const row = rows.find((p) => p.id === fixture.id);
     expect(row, `"${fixture.title}" should be in the moderation queue`).toBeTruthy();
 
     const pipeline = row.adminPipeline;
     expect(pipeline, `"${fixture.title}" is staff-posted, so staff should see its funnel`).toBeTruthy();
     expect(pipeline.postedByAdmin).toBe(true);
-    expect(pipeline.pipelineStage).toBe(stage);
+    expect(pipeline.pipelineStage).toBe(fixture.stage);
+    expect(pipeline.handbackMilestone ?? null,
+      `"${fixture.title}" carries its hand-back on the second axis`).toBe(fixture.milestone);
 
     expect(
       {
@@ -110,8 +138,8 @@ test('the funnel booleans are derived from the stage, not stored beside it', asy
         photosUploaded: pipeline.photosUploaded,
         aadhaarVerified: pipeline.aadhaarVerified,
       },
-      `the funnel booleans for "${fixture.title}" at stage "${stage}"`,
-    ).toEqual(expected[stage]);
+      `the funnel booleans for "${fixture.title}" at "${key}"`,
+    ).toEqual(expected[key]);
   }
 });
 

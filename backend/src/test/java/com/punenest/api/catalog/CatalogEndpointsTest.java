@@ -12,6 +12,8 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,22 @@ class CatalogEndpointsTest extends AbstractApiTest {
     UserRepository users;
     @Autowired
     PropertyRepository properties;
+    @PersistenceContext
+    EntityManager em;
+
+    /**
+     * Make the next read a real SELECT.
+     *
+     * <p>These tests share one transaction with the controller they call, so a row saved here is
+     * still managed when the handler asks for it and comes back as the same instance. That is fine
+     * for columns, which the writer set, and wrong for {@code Property.societySlug}, which is a
+     * {@code @Formula} and therefore only ever populated by a query. Without this the assertion
+     * would be reading back the object the test built, which proves nothing about the mapping.
+     */
+    private void detach() {
+        em.flush();
+        em.clear();
+    }
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
@@ -473,6 +491,59 @@ class CatalogEndpointsTest extends AbstractApiTest {
         mvc.perform(get("/societies/no-such-society"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("not_found"));
+    }
+
+    // ---------------- society on the listing itself (D19) ----------------
+
+    /**
+     * A bound listing names its society by slug, on the card and on the detail read.
+     *
+     * <p>The slug and not {@code society_id}: the client's society catalogue is indexed by slug,
+     * every society route takes a slug, and the hub link routes on one, so a response carrying only
+     * the UUID would be telling a browser that a society exists while giving it nothing it could do
+     * with the fact. That gap is what the property page papered over for a long time by choosing a
+     * society with {@code fnvHash(listing.id) % pool.length} and printing that building's builder,
+     * towers, units, year and occupancy under this listing — a page of checkable claims about a
+     * named third party, wrong for all but one listing in twenty-eight by construction.
+     *
+     * <p>Asserted on the summary as well as the detail because a society filter and a "homes in
+     * this building" count are computed over a page of results, and a field that only appears after
+     * the click cannot answer either.
+     */
+    @Test
+    void aBoundListingCarriesItsSocietySlugOnTheCardAndOnDetail() throws Exception {
+        User o = owner("9850000021");
+        Property p = listing(o, "Bound to Amanora", "hadapsar",
+                societyId("amanora-park-hadapsar"), "approved");
+        detach();
+
+        mvc.perform(get("/properties/" + p.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.societySlug").value("amanora-park-hadapsar"));
+
+        mvc.perform(get("/properties").param("q", "Bound to Amanora"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].societySlug").value("amanora-park-hadapsar"));
+    }
+
+    /**
+     * An unbound listing says nothing rather than something.
+     *
+     * <p>{@code NON_NULL} drops the key entirely, which is the point: absent has to read as "we do
+     * not know which building this is", and the client renders no society section at all rather
+     * than an emptied one. A section present but blank still asserts that this listing belongs to a
+     * society, which is the same claim in a quieter font.
+     */
+    @Test
+    void anUnboundListingClaimsNoSociety() throws Exception {
+        User o = owner("9850000022");
+        Property p = listing(o, "Bound to nothing", "hadapsar", null, "approved");
+        detach();
+
+        mvc.perform(get("/properties/" + p.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.societySlug").doesNotExist());
     }
 
     /**

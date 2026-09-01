@@ -94,8 +94,8 @@ public class OnBehalfListingService {
     }
 
     /**
-     * {@code POST /properties/{id}/pipeline} — move a staff-created listing along the hand-back
-     * funnel.
+     * {@code POST /properties/{id}/pipeline} — move a staff-created listing along, on whichever of
+     * the two funnels the value names.
      *
      * <p>Lives here rather than with the moderation verbs because it is the same job as
      * {@link #create}: this module owns listings the platform posted on somebody else's behalf, from
@@ -104,15 +104,22 @@ public class OnBehalfListingService {
      * stranger's name is the desk that must report on handing it back, and splitting the two across
      * permissions would let somebody open that liability without being accountable for closing it.
      *
+     * <p>Since D27 a listing sits on two axes — the acquisition funnel and the hand-back — and this
+     * route accepts a point on either. One route rather than two because the desk experiences it as
+     * one act, and the vocabularies are disjoint so the value alone says which column is meant; the
+     * response carries both fields back so the caller can see what moved. {@code under_review} and
+     * {@code live} are rejected here: they are {@code status}, and the moderation verbs own it.
+     *
      * <p>Refuses a listing the platform did not post. An owner's own listing has already arrived
      * where the funnel is trying to get to, so a stage on it would be an item on a board that can
      * never be cleared. Refusing is also what keeps the board's total honest.
      */
     @Transactional
     public Property advance(AuthPrincipal caller, String propertyId, String stage) {
-        if (!PipelineStage.isValid(stage)) {
-            throw new BadRequestException(
-                    "stage must be one of " + String.join(", ", PipelineStage.ORDER));
+        if (!PipelineStage.isKnown(stage)) {
+            throw new BadRequestException("stage must be one of "
+                    + String.join(", ", PipelineStage.ORDER) + " (acquisition) or "
+                    + String.join(", ", PipelineStage.HANDBACK_ORDER) + " (hand-back)");
         }
         Property property = Ids.parseUuid(propertyId)
                 .flatMap(properties::findById)
@@ -122,7 +129,9 @@ public class OnBehalfListingService {
                     "This listing was posted by its owner, so it has no hand-back to track");
         }
 
-        String from = property.getPipelineStage();
+        String from = PipelineStage.isHandback(stage)
+                ? property.getHandbackMilestone()
+                : property.getPipelineStage();
         property.moveToStage(stage);
         audit.record(caller, "property.pipeline", "property", propertyId,
                 "from", String.valueOf(from), "to", stage,

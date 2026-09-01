@@ -82,7 +82,8 @@ Pure function of `{ all, df (deferred filters), sort, urlQ, locNameBySlug }`. Ap
 6. **Sharing (PG occupancy):** `offersSharing` - applied for both deals (a PG can be rented per bed
    or its building sold).
 7. **Land use / zone**, **BHK** (`bhkMatch`: `3plus` -> `>=3`, `5` -> `>=5`, `0` -> RK/studio),
-   **furnishing**, **localities** (by `localitySlug`), **societies** (by `societyForListing().slug`).
+   **furnishing**, **localities** (by `localitySlug`), **societies** (by `societyForListing().slug`;
+   an unbound listing matches no society filter rather than a hashed guess — D19).
 8. **Area** (buy only), **amenities** (must contain ALL selected), **verification flags**
    (`ownerVerified`, `ownershipVerified`, `rera`, `societyVerified`, `conveyanceDone`).
 9. **Buy extras:** availability (`ready` vs not), construction status, age range, floor range.

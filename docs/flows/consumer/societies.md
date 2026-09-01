@@ -76,7 +76,27 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   `pnSocietySuggestions`, `pnSocietyMerges`). Created/updated here (maker side), decided by ops.
 - **Reviews & Q&A** - `getEntityReviews/addEntityReview('society'|'locality', id)`, `getSocietyQA` /
   `addSocietyQuestion` / `addSocietyAnswer`.
-- **Follows** - `getFollowedSocieties` / `toggleFollowSociety` (`pnFollowedSocieties`).
+- **Follows** - `context/FollowContext.jsx`, over `societyService.listFollowedSocieties` /
+  `followSociety` / `unfollowSociety`. Server-backed since **D227**: `PUT`/`DELETE
+  /me/societies/{slug}/follow` and `GET /me/societies/following`, with `pnFollowedSocieties` now
+  only the mock provider's backing store.
+
+  Before D227 this was that localStorage array read directly by five surfaces, so following on a
+  laptop did not follow on a phone and the Hub's follower count - which the server computes from
+  `society_follows` - counted nobody, because nothing ever wrote a row. The five could not be ported
+  one at a time: `followedByMe` on a page of societies could have carried the directory alone, but
+  the dashboard tile, the followed-societies panel and the finder ask *which* societies with no page
+  to hang the question on, which is why `GET /me/societies/following` had to be built first.
+
+  The set is held once for the app rather than read per row - the finder asks membership once per
+  search result and the directory once per card, which against a real API is a request per row.
+  Writes are optimistic and roll back on failure, and `toggle` returns the state it **settled** on,
+  so a toast reports what happened rather than what was attempted.
+
+  Follows on societies **this browser minted** stay local (`pnLocalSocietyFollows`): the server
+  refuses a follow on a slug it has never heard of, correctly, since it will not write a dangling
+  foreign key. The context retries them on every load, so the follow lands by itself the day ops
+  promote the slug.
 - **Community content** - contributions (tips/picks/photos + replies + helpful votes), events &
   notices board, WhatsApp join link, location correction, content reports.
 - **Saved searches / alerts** - `addSavedSearch` (locality alert reuses the listings alert layer).
@@ -100,10 +120,14 @@ Link to [`../../system/data-model.md`](../../system/data-model.md).
   specs; it shows an honest "add details" / "help verify" panel instead.
 
 ### 5.2 Society -> listing binding (`societyForListing`)
-Deterministic and honest: if a listing has an explicit `societyId` and it resolves, use it. Otherwise
-(legacy/unbound) fall back to a **locality-scoped, id-stable hash**: `pool =
-societiesInLocality(localitySlug)` (or all curated if empty), pick `pool[fnvHash(listing.id) %
-pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound society id matches.
+**A binding is a fact or it is nothing (D19).** `societySlug` first (the server's `@Formula` over
+`societies.slug`), then `societyId`, then **null**. There is no fallback: this function used to
+answer `pool[fnvHash(listing.id) % pool.length]` over the locality's societies, which is wrong for
+all but one listing in a pool-sized group by construction, and the property page printed the chosen
+building's builder, towers, units, year and occupancy as if they described the home. Callers must
+handle null - the property page's Society section renders **nothing at all** when unbound, because a
+heading over a generic "Building" still asserts membership. `listingsInSociety(listings, socId)`
+filters listings whose bound society id matches, so an unbound listing counts towards no hub.
 
 ### 5.3 Societies index (`Societies.jsx`)
 - Enriches every society with `{ verified, community, managed, rating: entityRating('society', slug),
@@ -118,7 +142,13 @@ pool.length]`. `listingsInSociety(listings, socId)` filters listings whose bound
   - `name`: A-Z.
 - **Add-society funnel:** the "Can't find X?" CTA shows when `query.trim().length >= 2` and no exact
   name match. `addSociety` -> `mintDemandSociety({ name, localitySlug })` which mints a `community`
-  candidate (`source: 'demand'`) AND auto-follows it, then navigates to its Hub. Requires sign-in.
+  candidate (`source: 'demand'`), then the page follows it through `FollowContext` and navigates to
+  its Hub. Requires sign-in.
+
+  The follow used to happen inside `mintDemandSociety`, straight into localStorage - fine while
+  follows were a browser array, wrong the moment they became rows (D227). The society exists only in
+  this browser, so the server 404s the follow; only the context knows to hold it locally and retry
+  it later.
 - **Paging:** client-side `limit` starts 24, "Show more" adds 24; resets on any filter change.
 
 ### 5.4 Society Hub ratings & stats (`useSocietyHub.js`)

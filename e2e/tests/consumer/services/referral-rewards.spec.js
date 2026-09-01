@@ -12,8 +12,20 @@ import {
    Everything else (boosts, featuring, priority support) must stay paid-only,
    and Ops can withdraw the whole free route with the `referralRewards` flag.
 
-   The quota gates read localStorage synchronously during first render, so all
-   commercial state is seeded through `seed()` before the app boots. */
+   ── What D31b changed under these tests ──────────────────────────────────
+   The arithmetic is identical; where it happens is not. The contact quota used
+   to be read synchronously out of localStorage during first render, and the
+   browser decided whether to send the request at all. It is now server-owned:
+   the countdown comes from `GET /me/entitlements` and the refusal is a 422 from
+   `POST /contacts/request`. On this (mock) build the numbers still come from
+   the same localStorage keys, because the mock provider *is* the server — which
+   is why `seed()` still sets them and `readContactsUsed()` still reads them.
+
+   The one visible consequence: an exhausted seeker now makes a round trip
+   before being turned away, so the upsell arrives a tick later than it used to.
+   Every assertion below waits for it rather than asserting synchronously, which
+   they had to do anyway. Nothing here should ever assert that a blocked press
+   made *no* network call — that was the old design and it was the bug. */
 
 const PROP = 'P-e2e-1';
 

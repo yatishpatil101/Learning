@@ -35,8 +35,11 @@ const epoch = (iso) => (iso ? Date.parse(iso) || 0 : 0);
  * `ReferralDto` → one desk row.
  *
  * `rewardAmount` is carried alongside `reward` because the label is prose the server composed
- * ("₹500 PuneNest credit") and the number is what a CSV column and a total need. The mock had only
+ * ("+15 owner contacts") and the number is what a CSV column and a total need. The mock had only
  * the label, so its export could not be summed.
+ *
+ * D31b re-denominated it: the reward used to be ₹500 of platform credit and is now a count of owner
+ * contacts. `rewardAmount` is therefore a plain integer, not money — do not format it as currency.
  */
 export function toViewModel(dto) {
   if (!dto) return null;

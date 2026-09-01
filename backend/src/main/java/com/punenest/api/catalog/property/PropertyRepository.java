@@ -171,6 +171,40 @@ public interface PropertyRepository
             Pageable pageable);
 
     /**
+     * The same question turned around: listings by <em>this</em> owner that look like the same unit.
+     * Answers "have I already listed this?" for the wizard, before it lets an owner post the flat
+     * they posted last month.
+     *
+     * <p>Every clause is deliberately identical to {@link #findDuplicateCandidates} except the
+     * direction of the owner comparison — same two OR'd arms, same plain {@code =} on each (a
+     * {@code coalesce} would make absence match absence here too), same {@code archived = false},
+     * same caller-supplied status set, same absence of an {@code ORDER BY} so the partial indexes
+     * keep their bitmap-OR plan. Two readings of one rule about what counts as the same doorway; if
+     * they ever disagree, the platform blocks owners on a definition it does not flag strangers on.
+     *
+     * <p>Both live behind the same {@code owner_id} predicate the caller is authenticated as, so
+     * unlike its sibling this one can be answered <em>to</em> the person asking: every row it can
+     * possibly return is already on their own dashboard.
+     */
+    @Query("""
+            select p from Property p
+            where p.owner.id = :ownerId
+              and p.archived = false
+              and p.status in :statuses
+              and (
+                    p.electricityMeterNo = :meter
+                 or (p.addressKey = :addressKey and p.localitySlug = :localitySlug)
+              )
+            """)
+    List<Property> findOwnDuplicateCandidates(
+            @Param("ownerId") UUID ownerId,
+            @Param("statuses") Collection<String> statuses,
+            @Param("meter") String meter,
+            @Param("addressKey") String addressKey,
+            @Param("localitySlug") String localitySlug,
+            Pageable pageable);
+
+    /**
      * Recently created listings that carry something for the duplicate probe to compare — the input
      * to the catch-up sweep.
      *
@@ -327,6 +361,39 @@ public interface PropertyRepository
     long countBySocietyIdAndStatusAndArchivedFalse(UUID societyId, String status);
 
     /**
+     * Listings the resolver could not place — the curation queue (register item 24).
+     *
+     * <p>The exact complement of {@link #countLiveByLocalitySlug}, which filters these out. That is
+     * the point: every read on the platform that groups, facets or routes by locality skips a null
+     * slug, so these listings are invisible to locality search, {@code /locality/{slug}},
+     * saved-search alerts and the society join. Nothing else in the codebase selects them, which is
+     * why the queue that was supposed to clear them ran on one operator's {@code localStorage} and
+     * nobody noticed it was empty.
+     *
+     * <p>{@code archived = false} because a soft-deleted listing needs no locality — curating one
+     * would be work with no reader. Statuses are the caller's to choose so the two cases stay
+     * distinguishable: {@code pending} is a listing a moderator is about to be stopped from
+     * approving, {@code approved} is one that already went live invisible and is the more urgent
+     * repair.
+     *
+     * <p>Oldest first, and capped by the caller: this queue is unbounded by nature — a geocoding
+     * outage puts a day's listings in it at once — and a console that renders every row of an
+     * unbounded set is one that stops loading on exactly the day it is needed.
+     */
+    @Query("""
+            select p from Property p
+            where p.localitySlug is null and p.archived = false and p.status in :statuses
+            order by p.createdAt asc""")
+    List<Property> findAwaitingLocality(@Param("statuses") Collection<String> statuses,
+            Pageable limit);
+
+    /** How many listings {@link #findAwaitingLocality} would return uncapped, for honest truncation. */
+    @Query("""
+            select count(p) from Property p
+            where p.localitySlug is null and p.archived = false and p.status in :statuses""")
+    long countAwaitingLocality(@Param("statuses") Collection<String> statuses);
+
+    /**
      * How many listings this owner currently has live.
      *
      * <p>Counted rather than read from {@code users.listings_count}, which is the same trap as the
@@ -387,24 +454,45 @@ public interface PropertyRepository
             @Param("slug") String slug);
 
     /**
-     * Count live listings created after a baseline, filtered by optional deal/locality/bhk facets.
+     * Count live listings matching a saved search's facets, optionally only those newer than a
+     * baseline.
      *
-     * <p>Used by D7 sweep to avoid loading full listing rows into memory for each alert.
+     * <p>Two questions share one query on purpose. The sweep asks "how many are <em>new</em>?"
+     * (D7) by passing the alert row's last update; the saved-search list asks "how many match
+     * <em>now</em>?" (D227) by passing {@code null}. They are the same search read at two
+     * moments, and a user who is told "3 new" on one screen and "14 match" on another is owed the
+     * guarantee that the 3 are among the 14. Two queries would drift the moment either facet set
+     * grew a field — and the facets are read out of a free-form jsonb blob, so nothing would fail
+     * loudly when they did.
+     *
+     * <p>Counts rather than loads: neither caller wants the rows, and the sweep touches every alert
+     * on the platform every thirty minutes.
+     *
+     * @param unbounded {@code true} drops the recency predicate entirely — that is what turns this
+     *     into a live match count. A boolean flag rather than a null {@code baseline} because
+     *     Postgres cannot infer the type of a bare {@code ? is null} and refuses to prepare the
+     *     statement; the query already uses the same flag idiom for the two list facets. Callers
+     *     must still pass a non-null {@code baseline}; it is simply not read when unbounded.
+     * @param baseline exclusive lower bound on {@code createdAt}, read only when
+     *     {@code unbounded} is false. A row with a null {@code createdAt} is excluded from the
+     *     bounded reading (it cannot be shown to be newer) and counted by the unbounded one (it is
+     *     still a live listing).
      */
     @Query("""
             select count(p)
             from Property p
             where p.status = :status
               and p.archived = false
-              and p.createdAt is not null
-              and p.createdAt > :baseline
+              and (:unbounded = true
+                   or (p.createdAt is not null and p.createdAt > :baseline))
               and (:deal is null or lower(p.deal) = :deal)
               and (:localitiesEmpty = true
                    or lower(coalesce(p.localitySlug, p.locality)) in :localities)
               and (:bhkEmpty = true or cast(p.bhk as integer) in :bhkValues)
             """)
-    long countVisibleCreatedAfterWithFilters(
+    long countVisibleWithFilters(
             @Param("status") String status,
+            @Param("unbounded") boolean unbounded,
             @Param("baseline") Instant baseline,
             @Param("deal") String deal,
             @Param("localitiesEmpty") boolean localitiesEmpty,

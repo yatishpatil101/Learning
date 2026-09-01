@@ -101,14 +101,17 @@ test('searcher can mint a missing society and get alerted (demand capture)', asy
   await expect(addRow).toBeVisible();
   await addRow.click();
 
-  // The minted society is followed (so we can alert) and stored as a demand-sourced
-  // community candidate for ops.
-  const followed = await page.evaluate(() => JSON.parse(localStorage.getItem('pnFollowedSocieties') || '[]'));
+  // The minted society is stored as a demand-sourced community candidate for ops...
   const community = await page.evaluate(() => JSON.parse(localStorage.getItem('pnCommunitySocieties') || '[]'));
   const mint = community.find((s) => s.name === NAME);
   expect(mint).toBeTruthy();
   expect(mint.source).toBe('demand');
-  expect(followed).toContain(mint.slug);
+
+  // ...and it is followed, so we can alert. Asserted through the panel rather than through
+  // `pnFollowedSocieties`, because the follow is no longer a synchronous localStorage write: it
+  // goes through `FollowContext`, which against a live server is a request (D227). The panel
+  // listing the society is the fact the user cares about; the storage key is one build's detail.
+  await expect(page.getByRole('link', { name: NAME })).toBeVisible({ timeout: 8000 });
 });
 
 test('thin community hub shows an honest unverified state, not fabricated specifics', async ({ page }) => {

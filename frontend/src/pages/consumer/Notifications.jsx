@@ -6,7 +6,6 @@ import HScroll from '../../components/ui/HScroll.jsx';
 import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { listProperties } from '../../services/propertyService.js';
-import { countMatches } from './listings/alertCriteria.js';
 import { useSaved } from '../../context/SavedContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { useNotifications } from '../../context/NotificationContext.jsx';
@@ -62,8 +61,8 @@ const isToday = (at) => {
 const SAFE_LINK_RE = /^\/(?!\/)[a-zA-Z0-9\-_/?=&#%.]*$/;
 const safeLink = (link) => (typeof link === 'string' && SAFE_LINK_RE.test(link) ? link : '/notifications');
 
-// Honest count of live listings matching a saved search's core criteria is
-// provided by the shared `countMatches` helper (see listings/alertCriteria).
+// How many live listings match a saved search is the seam's answer now, carried on the record as
+// `matchCount` (D227). This page used to count it here over one page of the catalogue.
 
 export default function Notifications() {
   const { t, i18n } = useTranslation();
@@ -147,39 +146,50 @@ export default function Notifications() {
         if (!prefs?.matchAlerts || inQuietHours(prefs)) return;
         const savedIds = [...saved.ids];
         if (!searches.length && !savedIds.length) return;
+        const extra = [];
+
+        /* The match count comes off the saved search itself (D227). It used to be counted here,
+           over `listProperties({})` — which is one page of the catalogue, so the number was right
+           only while the catalogue was smaller than a page and silently wrong forever after. The
+           seam now answers it: the server counts it on live, the mock counts it over the whole
+           demo catalogue, and neither can be truncated by a page size this file does not set. */
+        searches.slice(0, 4).forEach((s) => {
+          if (s.alerts === false) return;
+          const count = s.matchCount ?? 0;
+          if (count > 0) {
+            extra.push({
+              id: `real-ss-${s.id}`,
+              type: 'match',
+              at: Date.now(),
+              key: 'match',
+              vars: { count, label: s.label || 'your saved search' },
+              title: `${count} ${count === 1 ? 'property' : 'properties'} match "${s.label || 'your saved search'}"`,
+              desc: 'New listings that fit one of your saved alerts are available now.',
+              link: '/listings',
+            });
+          }
+        });
+
+        /* Only the saved-property nudge still needs the catalogue, so the fetch is scoped to it —
+           a user with no shortlist no longer pulls a hundred listings to render nothing. */
+        if (!savedIds.length) {
+          if (extra.length) setDerived(extra);
+          return;
+        }
         return listProperties({}).then((props) => {
           if (!alive) return;
-          const extra = [];
-          searches.slice(0, 4).forEach((s) => {
-            if (s.alerts === false) return;
-            const count = countMatches(s, props);
-            if (count > 0) {
-              extra.push({
-                id: `real-ss-${s.id}`,
-                type: 'match',
-                at: Date.now(),
-                key: 'match',
-                vars: { count, label: s.label || 'your saved search' },
-                title: `${count} ${count === 1 ? 'property' : 'properties'} match "${s.label || 'your saved search'}"`,
-                desc: 'New listings that fit one of your saved alerts are available now.',
-                link: '/listings',
-              });
-            }
-          });
-          if (savedIds.length) {
-            const sp = props.find((p) => savedIds.includes(p.id));
-            if (sp) {
-              extra.push({
-                id: `real-savedprop-${sp.id}`,
-                type: 'price',
-                at: Date.now() - 60_000,
-                key: 'price',
-                vars: { bhkNum: sp.bhkNum, title: sp.title, locality: sp.locality },
-                title: `Your saved ${sp.bhkNum ? `${sp.bhkNum} BHK` : 'property'} is still available`,
-                desc: `${sp.title || 'A saved property'}${sp.locality ? ` in ${sp.locality}` : ''} — check the latest price and enquire.`,
-                link: '/saved',
-              });
-            }
+          const sp = props.find((p) => savedIds.includes(p.id));
+          if (sp) {
+            extra.push({
+              id: `real-savedprop-${sp.id}`,
+              type: 'price',
+              at: Date.now() - 60_000,
+              key: 'price',
+              vars: { bhkNum: sp.bhkNum, title: sp.title, locality: sp.locality },
+              title: `Your saved ${sp.bhkNum ? `${sp.bhkNum} BHK` : 'property'} is still available`,
+              desc: `${sp.title || 'A saved property'}${sp.locality ? ` in ${sp.locality}` : ''} — check the latest price and enquire.`,
+              link: '/saved',
+            });
           }
           if (extra.length) setDerived(extra);
         });

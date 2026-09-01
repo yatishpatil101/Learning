@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router';
 import { useAuth } from '../../../context/AuthContext.jsx';
+import { useFollows } from '../../../context/FollowContext.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
@@ -14,7 +15,6 @@ import { createEntityReview, getEntityReviewSummary, listEntityReviews } from '.
 import { useOtpFlow } from '../../../components/auth/useOtpFlow.js';
 import {
   digits,
-  isSocietyFollowed, toggleFollowSociety,
   getSocietyQA, addSocietyQuestion, addSocietyAnswer,
   resolveSociety, requestSocietyClaim,
   residentStatus, requestResidentVerification,
@@ -39,6 +39,7 @@ export function useSocietyHub() {
   const nav = useNavigate();
   const { isIn, user } = useAuth();
   const { toast } = useToast();
+  const follows = useFollows();
   const { flagEnabled } = useAppFlags();
   const saasOn = flagEnabled('societySaaS');
 
@@ -73,7 +74,6 @@ export function useSocietyHub() {
   const [summary, setSummary] = useState(null);
   const [summaryFailed, setSummaryFailed] = useState(false);
   const [qa, setQa] = useState([]);
-  const [followed, setFollowed] = useState(false);
   const [rateOpen, setRateOpen] = useState(false);
   const [pick, setPick] = useState(5);
   /**
@@ -159,7 +159,6 @@ export function useSocietyHub() {
 
   useEffect(() => {
     setQa(getSocietyQA(soc.slug));
-    setFollowed(isSocietyFollowed(soc.slug));
     setResStat(residentStatus(soc.slug));
     setSugRec(getSocietySuggestion(soc.slug));
     setContribs(getSocietyContributions(soc.slug));
@@ -288,10 +287,12 @@ export function useSocietyHub() {
     toast(status === 'verified' ? `Verified ${r.name} as a resident` : 'Request rejected', status === 'verified' ? 'success' : 'info');
   };
 
-  const onFollow = () => {
+  const onFollow = async () => {
     if (!requireLogin()) return;
-    const now = toggleFollowSociety(soc.slug);
-    setFollowed(now);
+    /* The toast reports the state the write settled on, not the one attempted: the context rolls a
+       failed follow back, and a "we'll alert you" on a follow the server refused is a promise the
+       page cannot keep (D227). */
+    const now = await follows.toggle(soc.slug);
     toast(now ? `Following ${soc.name} — we'll alert you on new listings` : 'Unfollowed', now ? 'success' : 'info');
   };
   const submitReview = () => requireSignedIn(() => {
@@ -573,7 +574,7 @@ export function useSocietyHub() {
     hasCoords, dirUrl, locFix, openLocation, commute, nearby,
     iAmResident, resStat, requireLogin, setResStep, setResOpen,
     wa, waRaw, openWa, waExists, committee, refreshCommittee,
-    saasOn, claimed, claimPending, setClaim, followed, onFollow,
+    saasOn, claimed, claimPending, setClaim, followed: follows.has(soc.slug), onFollow,
     setRateOpen, claim, closeClaim, cl, setCl, submitClaim,
     resOpen, closeResident, resStep, res, setRes, unitTaken, resToStep2, user, otp, submitResident,
     sugOpen, setSugOpen, sug, setSug, toggleSugAmenity, submitSuggest,

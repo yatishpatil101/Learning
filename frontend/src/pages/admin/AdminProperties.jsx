@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
-import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
-import { setPipelineStage } from '../../lib/mockApi.js';
+import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, setPipelineStage, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
-import { submitNote } from '../../components/ui/InternalNote.jsx';
+import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { computeQualityScore, qualityLabel } from '../../lib/qualityScore.js';
@@ -312,32 +311,34 @@ export default function AdminProperties() {
   // ---- actions ----
   // There used to be a `logAudit(...)` line after each of these, writing a sentence into a
   // browser-local array. Every moderation call below now goes to the server, and every one of those
-  // endpoints records its own audit row from the authenticated principal — `property.status`,
-  // `property.featured`, `property.flag`, `property.archive`, `review.decide`. The browser's copy
+  // endpoints records its own audit row from the authenticated principal — the audit actions
+  // property.status, property.featured, property.flag, property.archive and review.decide. (Written
+  // unquoted on purpose: check-i18n-route-namespaces.mjs reads any quoted dotted literal as a
+  // translation key, and would drag the 40 KB `property` namespace onto this route for a comment.)
+  // The browser's copy
   // was a duplicate of a record it could not see, composed from the row the table happened to be
   // holding rather than from what the server actually did, and it survived a failed call in one
   // case and a partial bulk failure in three. Two audit trails that can disagree are worse than
   // one, and the one that cannot be tampered with from a console is the one to keep.
   //
-  // `setPipelineStage` below is the exception and is still local: the server's `pipeline_stage` is
-  // the post-on-behalf onboarding funnel (listed → docs_submitted → … → claimed) and this console's
-  // is a moderation funnel that happens to share the name. Recorded, not reconciled.
+  // `setPipelineStage` was the last exception and is no longer one (D27). It used to write to
+  // `localStorage` because this console's funnel and the server's shared one field and disagreed
+  // about what belonged in it: the read side was already the server's — `adminPipeline.pipelineStage`
+  // through `propertyMapper` — while the write sent `under_review` and `live`, which the server's
+  // enum did not contain and would have answered 400.
   //
-  // CORRECTION (D228). "Happens to share the name" understates it, and the understatement is the
-  // dangerous half. The two funnels share the *field*, and they are already mixed in one condition:
-  // `PropertyReviewModal.jsx:115` guards on `listing.pipelineStage === 'listed' || 'docs_submitted'`
-  // — server vocabulary, arriving through `propertyMapper`'s `adminPipeline.pipelineStage` — and
-  // then writes `'under_review'`, which is not in the server's enum
-  // (`listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed`). So does
-  // `'live'`, written two lines below this comment. The read side is already the server's; only the
-  // write is local, and it writes values the server would reject with 400.
+  // V92 settled the disagreement by splitting the field rather than picking a winner. `pipeline_stage`
+  // is the acquisition funnel the desk works (contacted → info collected → listed → docs submitted),
+  // `handback_milestone` is the owner's half once the desk hands over (photos uploaded → Aadhaar
+  // verified → claim sent → claimed), and the two no longer overwrite each other. `under_review` and
+  // `live` turned out to belong to neither: they are `status` under another name — `pending` and
+  // `approved` — so the board derives those two columns and nothing stores them.
   //
-  // That is why porting these two call sites is not the mechanical change the rest of this file's
-  // moderation calls were. `POST /properties/{id}/pipeline` is built, the seven `adminPipeline`
-  // fields are already mapped on read, and the port would still be wrong — it would send
-  // `under_review` and `live` into an enum that has neither. Register item 27 is about funnel
-  // reporting; this is about two vocabularies in one column, which is a different question and a
-  // smaller one. Recorded, still not reconciled.
+  // That is why the port removed writes rather than translating them. Approving a listing already
+  // sets its status, so "and also move it to Live" was a second way to say the same thing that could
+  // fail on its own; opening a review modal already means the listing is pending, so "and also mark
+  // it Under Review" recorded nothing that was not already true. Both are gone. The one surviving
+  // write is the board's own Select, below, and it goes to `POST /properties/{id}/pipeline`.
   const findListing = (id) => (all || []).find((l) => l.id === id);
 
   // Every moderation call is awaited and every failure is surfaced. Against the API these are real
@@ -366,7 +367,10 @@ export default function AdminProperties() {
       toast(`Could not clear the flag: ${err.message}`, 'error');
       return;
     }
-    setPipelineStage(l.id, 'live');
+    // No pipeline write here. `clearFlag` sets the status to `approved` server-side, and the board's
+    // Live column reads `status`, so the listing moves the moment the list refreshes. The
+    // `setPipelineStage(l.id, 'live')` that used to sit on this line was an unawaited second write
+    // of the same fact, which could fail silently under the success toast below.
     toast('Flag cleared — listing published', 'success');
     refresh();
   };
@@ -415,7 +419,7 @@ export default function AdminProperties() {
   };
 
   const doArchive = (l) => { setArchiveFor(l); setArchiveReason(''); setInternalNote(''); };
-  const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } submitNote('listing', archiveFor.id, internalNote, 'Archived'); setArchiveFor(null); toast('Listing archived'); refresh(); };
+  const submitArchive = async () => { try { await archiveListing(archiveFor.id, archiveReason.trim() || undefined); } catch (err) { toast(`Could not archive: ${err.message}`, 'error'); return; } const noted = await saveNoteIfAny('listing', archiveFor.id, internalNote, 'Archived'); setArchiveFor(null); toast(noted.error ? 'Listing archived \u2014 but the internal note could not be saved' : 'Listing archived', noted.error ? 'error' : undefined); refresh(); };
   const doRestore = async (l) => { if (!window.confirm(`Restore "${l.title}"?`)) return; try { await restoreListing(l.id); } catch (err) { toast(`Could not restore: ${err.message}`, 'error'); return; } toast('Listing restored — moved to pending review', 'success'); refresh(); };
   const openFlag = (l) => { setFlagFor(l); setFlagReason(''); setInternalNote(''); };
   const submitFlag = async () => {
@@ -427,9 +431,9 @@ export default function AdminProperties() {
       toast(`Could not flag: ${err.message}`, 'error');
       return;
     }
-    submitNote('listing', flagFor.id, internalNote, 'Flagged');
+    const noted = await saveNoteIfAny('listing', flagFor.id, internalNote, 'Flagged');
     setFlagFor(null);
-    toast('Listing flagged');
+    toast(noted.error ? 'Listing flagged \u2014 but the internal note could not be saved' : 'Listing flagged', noted.error ? 'error' : undefined);
     refresh();
   };
   const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhk || '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
@@ -496,7 +500,21 @@ export default function AdminProperties() {
   };
   const handleReminder = (l) => chase(l, 'wa-gentle');
   const handleConfirmReminder = (l) => chase(l, freshnessState(l) === 'dormant' ? 'wa-dormant' : 'wa-stale');
-  const advancePipeline = async (id, newStage) => { await setPipelineStage(id, newStage); toast('Pipeline stage updated', 'success'); refresh(); };
+
+  /* The board's Select. Awaited and error-branched like every other write on this page: against the
+     API this is a network call that can 403 (the funnel needs post-on-behalf rights, which not every
+     moderator has), 404, or refuse the value. The old form was fire-and-forget into localStorage and
+     could not fail, so it had no error path to lose. */
+  const advancePipeline = async (id, newStage) => {
+    try {
+      await setPipelineStage(id, newStage);
+    } catch (err) {
+      toast(err?.message || 'Could not move this listing', 'error');
+      return;
+    }
+    toast('Pipeline stage updated', 'success');
+    refresh();
+  };
 
   // ---- bulk ----
   // `allSettled`, not `all`: a partial failure still applied to some listings, and reporting "12

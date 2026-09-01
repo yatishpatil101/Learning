@@ -42,7 +42,11 @@
 - [`localities`](../../system/data-model.md) - **read** (curated + community); community records **updated** (`tier`) or **removed**.
 - Societies: static `societies.js` catalog (**read**) plus localStorage-backed overlays (claims, resident
   requests, candidates, suggestions, reports, WhatsApp/location fixes) - **read / updated**.
-- [`audit_log`](../../system/data-model.md) - **created** on every content/locality/society action; `addInternalNote` on archive/restore.
+- [`audit_log`](../../system/data-model.md) - **created** on every content/locality/society action.
+  This console writes **no** internal notes. It did once, into a browser-side log it was also the
+  only reader of; `AdminContent.jsx` carries the tombstone explaining why re-wiring a `window.prompt`
+  to the live route's `reason` would have been worse than dropping it. Notes are their own domain
+  now (`note`, four entity families, `notes:read` / `notes:write`) and `content` is not one of them.
 
 ## 5. Business rules & logic  *(the meat)*
 
@@ -61,6 +65,9 @@ Each active/archived split is `filter(x => !x.archived)` vs `x.archived`.
 - Modal fields: banner edits title/sub/cta/href/theme + active; FAQ edits q/a/cat; announcement edits title/body/audience + active.
 
 ### 5.3 Content - archive / restore (soft delete)
+> **Historical.** The archive/restore controls below were localStorage-only and have been removed
+> along with `archiveRecord` / `restoreRecord`; the optional `window.prompt` note they collected is
+> gone with them. Kept as the record of what the mock desk did.
 - **Archive:** `window.confirm` -> optional `window.prompt` note -> `archiveRecord(col, id, 'Archived by admin')`
   (sets `archived:true`, `archivedAt`, `archiveReason`), optional `addInternalNote(kind, id, note, 'Archived')`,
   local state flips `archived:true`; audit `Archived <kind> <id>`.

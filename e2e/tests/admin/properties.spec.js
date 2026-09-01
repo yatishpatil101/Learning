@@ -39,21 +39,21 @@
  *
  * ## Why this stays on the mock provider
  *
- * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, but two things are wired
- * to localStorage regardless: the whole Pipeline tab (`pipelineStage` is a localStorage-only column
- * here, and `setPipelineStage` also silently flips `status` to `approved`), and the Duplicates tab
- * with its KPI. Promoting this file to live would need those two to grow a server home first.
- * Recorded in `tasks/todo.md`.
+ * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, and as of D27 so is the
+ * Pipeline tab — the board reads `adminPipeline` and writes through
+ * `propertyService.setPipelineStage`. What still holds this file on the mock is the Duplicates tab
+ * and its KPI, which have no server home. Recorded in `tasks/todo.md`.
  *
  * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
  * lines are gone: every moderation call on this page goes to the server, and the server records its
  * own audit row from the authenticated principal, so the browser's copy was a duplicate of a record
  * it could not read back. Nothing here asserted on it, which is how it stayed unnoticed.
  *
- * The Pipeline entry is a genuine conflict rather than unfinished work: the server does have a
- * `pipeline_stage`, but it is the post-on-behalf onboarding funnel
- * (`listed → docs_submitted → … → claimed`) while this console's is a moderation funnel of the same
- * name. Reconciling the two vocabularies is a product decision, not a migration.
+ * The Pipeline entry used to be listed here as a genuine conflict — the server's `pipeline_stage`
+ * was the post-on-behalf onboarding funnel while this console's was a moderation funnel of the same
+ * name. V92 settled it by splitting the column rather than picking a winner, and by finding that
+ * the two values the console had which the server did not (`under_review`, `live`) were `status`
+ * under another name. The board derives those two columns now and stores nothing for them.
  *
  * Fixtures: `login.asAdmin()`.
  */
@@ -63,7 +63,7 @@ import { test, expect } from '../../fixtures/base.js';
 const TABS = ['All Listings', 'Verification Queue', 'Needs Follow-up', 'Staff Posted', 'Flagged', 'Featured', 'Pipeline'];
 /** KPI cards, in render order. Each is a shortcut into a tab. */
 const KPIS = ['Total', 'Active', 'Pending', 'Flagged', 'Re-check', 'Duplicate', 'Featured'];
-/** The six pipeline stages a concierge listing moves through. */
+/** The six board columns. Only the first four are stored; the last two are `status` read sideways. */
 const STAGES = ['Contacted', 'Info Collected', 'Listed', 'Docs Submitted', 'Under Review', 'Live'];
 /** `{rows.length} of {all.length} listings`, the All Listings counter. */
 const COUNTER = /\d+ of \d+ listings/;
@@ -441,6 +441,52 @@ test.describe('Pipeline tab', () => {
     await expect(page.locator('[aria-label^="Change pipeline stage"]').first()).toBeVisible();
     const cards = await page.locator('[aria-label^="Change pipeline stage"]').count();
     expect(cards).toBeGreaterThan(0);
+  });
+
+  /* The board files every listing it shows, and shows every listing it has (D27).
+     The previous version invented a stage for anything with a null one and then dropped the row
+     entirely if the invented value was not a known column key -- so a listing carrying an
+     unrecognised stage silently vanished off the board. Nothing on screen said a row was missing,
+     which is the failure mode this asserts against: the column counts must add up to the total the
+     header reports. */
+  test('no listing falls off the board', async ({ page, login }) => {
+    await openProperties(page, login);
+    await openTab(page, 'Pipeline');
+
+    const total = Number((await page.getByText(/\d+ total/).innerText()).match(/\d+/)[0]);
+    expect(total).toBeGreaterThan(0);
+
+    let summed = 0;
+    for (const stage of STAGES) {
+      // The count sits in the column header, next to the stage pill.
+      const header = page.locator('.rounded-xl', { has: page.getByText(stage, { exact: true }) }).first();
+      summed += Number((await header.locator('.tabular-nums').first().innerText()).trim());
+    }
+    /* `total` counts unarchived listings; the columns additionally exclude rejected ones, so the
+       columns may hold fewer -- but never more, and never zero while listings exist. What would
+       fail here is the old drop: a stage the board did not recognise took its listing with it. */
+    expect(summed).toBeGreaterThan(0);
+    expect(summed).toBeLessThanOrEqual(total);
+  });
+
+  /* `Under Review` and `Live` are not stored stages -- they are `status` read sideways, which is why
+     the stage dropdown does not offer them. Offering them was the bug: the console wrote values the
+     server's enum never contained, so approving a listing and "moving it to Live" were two ways to
+     say the same thing that could disagree. */
+  test('the stage dropdown offers only the four the desk can set', async ({ page, login }) => {
+    await openProperties(page, login);
+    await openTab(page, 'Pipeline');
+
+    await page.locator('[aria-label^="Change pipeline stage"]').first().click();
+    const menu = page.getByRole('listbox');
+    await expect(menu).toBeVisible();
+
+    for (const settable of ['Contacted', 'Info Collected', 'Listed', 'Docs Submitted']) {
+      await expect(menu.getByText(settable, { exact: true })).toBeVisible();
+    }
+    for (const derived of ['Under Review', 'Live']) {
+      await expect(menu.getByText(derived, { exact: true })).toHaveCount(0);
+    }
   });
 });
 

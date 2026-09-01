@@ -8,6 +8,7 @@ import { AuthProvider } from './context/AuthContext.jsx';
 import { CityProvider } from './context/CityContext.jsx';
 import { CompareProvider } from './context/CompareContext.jsx';
 import { SavedProvider } from './context/SavedContext.jsx';
+import { FollowProvider } from './context/FollowContext.jsx';
 import { SavedSearchProvider } from './context/SavedSearchContext.jsx';
 import { PlanProvider } from './context/PlanContext.jsx';
 import { VerificationProvider } from './context/VerificationContext.jsx';
@@ -16,6 +17,7 @@ import { ConversationProvider } from './context/ConversationContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { GOOGLE_MAPS_API_KEY } from './lib/mapsConfig.js';
 import { initPmf } from './lib/pmf.js';
+import { loadGeoPolicy } from './lib/geoConfig.js';
 import { ensureMockDb } from './lib/mockApi.js';
 import './i18n';
 // Ahead of index.css so the @font-face declarations land before anything sets
@@ -82,6 +84,10 @@ const app = (
               clears on sign-out by watching that context. */}
           <SavedProvider>
             <SavedSearchProvider>
+              {/* Same reasoning again: five surfaces ask which societies the caller follows, and
+                  the finder and the directory ask once per rendered row. Held here so that is one
+                  request rather than one per card (D227). */}
+              <FollowProvider>
               {/* Also caller-scoped, and read during render rather than awaited: the paywall, the
                   Feature action and the pricing card all ask which plan is held while drawing.
                   Holding it here makes that one request instead of one per asker. */}
@@ -103,6 +109,7 @@ const app = (
               </NotificationProvider>
               </VerificationProvider>
               </PlanProvider>
+              </FollowProvider>
             </SavedSearchProvider>
           </SavedProvider>
         </CityProvider>
@@ -145,5 +152,27 @@ ensureMockDb()
        Set before `render` rather than after: the store is what callers are waiting on, and
        it is ready now. */
     document.documentElement.dataset.pnBoot = 'ready';
+
+    /* Fetch the operator's geo policy — which cities are live, where each centres and how far it
+       extends, whether locality search is fenced to those bounds, which places to hide from every
+       suggestion box.
+
+       Inside the gate, not at module scope, because in mock mode this reads the store that
+       `ensureMockDb` seeds; fired before it resolves, it would find nothing and silently fall back
+       to the built-ins. Not awaited, because the readers in `lib/geoConfig.js` are synchronous and
+       answer from those built-ins until this lands — blocking the first paint on a config fetch
+       would buy nothing a visitor could perceive, `CityContext` subscribes via `onGeoChange` so the
+       roster re-renders the moment it arrives, and the one reader that must not answer early (the
+       blacklist) waits on `geoPolicySettled()` inside `lib/places.js`. Fired here rather than from
+       a provider because half the consumers are not components — the Places wrapper, the
+       List-Property geocoder.
+
+       And again on every admin save, so an operator who takes a city live sees it in the tab they
+       did it in rather than after a reload. The listener is registered here, beside the first
+       fetch, for the same store-ordering reason. Cross-tab is out of scope by design: this document
+       changes a handful of times a year, and other tabs pick it up on their next load. */
+    loadGeoPolicy();
+    window.addEventListener('punenest-settings-change', loadGeoPolicy);
+
     createRoot(document.getElementById('root')).render(app);
   });

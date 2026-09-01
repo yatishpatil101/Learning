@@ -94,6 +94,23 @@ Once past the floor (and the exception, if any), `requestContact`:
   ```
 - The owner's number stays **masked** (`maskPhone` -> `+91 98xxx xxxx02`) until approved.
 
+### The quota, which is a second gate and is the server's (D31b)
+Being signed in gets you *to* the request; it does not get you an unlimited number of them. The free
+tier is **15 owner contacts** (`settings.fees.freeContactLimit`), the three priced plans are
+unlimited (`plans.unlimited_contacts`, V91), and a qualified referral adds 15 more.
+
+- **The refusal is a response, not a pre-check.** `POST /contacts/request` returns **422
+  `contact_quota_exhausted`**; `ContactBox` and `ContactOwnerModal` open `ContactsExhaustedModal` on
+  that error code. They deliberately do **not** read the remaining count and skip the request — that
+  was the old behaviour (`canRevealContact()` in `lib/store/contactQuota.js`, evaluated before any
+  network call), and it put the limit in the place with the least reason to respect it.
+- **What a contact costs.** `used` is `count(contact_requests where requester = me)`, so the price is
+  paid on the transition to a new row and nothing else: a repeat press on the same listing is the
+  same door and is free, a refused press is free, and an owner's approval or decline changes nothing.
+- **Reading the balance.** `GET /me/entitlements` → `{ contacts: { unlimited, used, allowance,
+  remaining, referralBonus }, listings: { … } }`. `allowance` and `remaining` are **`null`** when
+  `unlimited` — branch on the flag, never on `remaining > 0`.
+
 ### Status model (`contactStatus`)
 `'owner' | 'approved' | 'pending' | 'declined' | 'none'`:
 - `owner` - viewer is the owner; full number always.

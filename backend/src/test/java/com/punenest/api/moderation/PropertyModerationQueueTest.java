@@ -60,6 +60,10 @@ class PropertyModerationQueueTest extends AbstractApiTest {
         p.setPriceUnit("per-month");
         p.setArea(new BigDecimal("950"));
         p.setStatus(status);
+        // Filed under a curated area. Saving through the repository skips LocalityResolver, so
+        // without this every fixture is unfiled and the approval below is refused (register item
+        // 24) — a queue test would then be failing on a rule it is not testing.
+        p.setLocalitySlug("baner");
         return properties.saveAndFlush(p);
     }
 

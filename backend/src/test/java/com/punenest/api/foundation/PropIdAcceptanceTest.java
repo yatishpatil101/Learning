@@ -31,17 +31,17 @@ import org.springframework.http.HttpHeaders;
  *   <tr><th>Binding</th><th>Slug gives</th><th>Families</th></tr>
  *   <tr>
  *     <td>{@code @PathVariable UUID}</td>
- *     <td><strong>400</strong> â€” Spring's converter fails before the handler runs</td>
+ *     <td><strong>400</strong> — Spring's converter fails before the handler runs</td>
  *     <td>saved, reviews, tenancy declarations</td>
  *   </tr>
  *   <tr>
  *     <td>{@code @PathVariable String} + {@code Ids.parseUuid(..).orElseThrow(NotFound)}</td>
- *     <td><strong>404</strong> â€” the handler runs and rejects the token itself</td>
+ *     <td><strong>404</strong> — the handler runs and rejects the token itself</td>
  *     <td>deals (6), finalization (2), finances (6)</td>
  *   </tr>
  *   <tr>
  *     <td>{@code @PathVariable String} + service-side slug fallback</td>
- *     <td><strong>it works</strong> â€” {@code findBySlugAndOwner_Id}</td>
+ *     <td><strong>it works</strong> — {@code findBySlugAndOwner_Id}</td>
  *     <td>documents (2), boost (1)</td>
  *   </tr>
  * </table>
@@ -50,7 +50,7 @@ import org.springframework.http.HttpHeaders;
  * they are not, and reconciling them is a behaviour change across seventeen operations that needs a
  * decision, not a test. It pins the shapes precisely so that the reconciliation, when it happens, is
  * visible as a red test rather than as a silent change of meaning. If you are here because you made
- * the strict routes lenient, this class failing is the point â€” update it and say so.
+ * the strict routes lenient, this class failing is the point — update it and say so.
  *
  * <p><strong>What this cost.</strong> A client addressed {@code PUT /me/saved/{propId}} with the
  * slug it had been routing on. Every save answered 400. Because the heart control is optimistic, it
@@ -61,7 +61,7 @@ class PropIdAcceptanceTest extends AbstractApiTest {
 
     /**
      * A slug that is a perfectly well-formed slug and is not a UUID. The point of the constant is
-     * that nothing about it is malformed â€” it is exactly what the client had in hand.
+     * that nothing about it is malformed — it is exactly what the client had in hand.
      */
     private static final String SLUG = "2bhk-kothrud-propid-guard";
 
@@ -119,7 +119,7 @@ class PropIdAcceptanceTest extends AbstractApiTest {
     void propertyReviews_rejectsASlugWithFourHundred() throws Exception {
         listing(owner());
 
-        // Public route â€” no bearer. The identifier is rejected before authorisation would matter,
+        // Public route — no bearer. The identifier is rejected before authorisation would matter,
         // which is worth pinning: a 401 here would mean the conversion had stopped happening first.
         mvc.perform(get(Routes.Reviews.FOR_PROPERTY, SLUG))
                 .andExpect(status().isBadRequest());
@@ -135,7 +135,7 @@ class PropIdAcceptanceTest extends AbstractApiTest {
         // The dangerous shape. 404 on a slug is indistinguishable from 404 on a listing that was
         // taken down, so a caller making this mistake reads it as "the property is gone" and stops
         // looking. The status differs from the saved route above only because the constraint is
-        // expressed by a helper instead of by a type â€” nothing about the intent differs.
+        // expressed by a helper instead of by a type — nothing about the intent differs.
         mvc.perform(get(Routes.Deals.BY_PROP, SLUG)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u)))
                 .andExpect(status().isNotFound());
@@ -160,7 +160,7 @@ class PropIdAcceptanceTest extends AbstractApiTest {
 
         // DocumentService.ownedProperty tries Ids.parseUuid, then findBySlugAndOwner_Id. This and
         // the boost endpoints are the only three operations under {propId} where that is true, and
-        // the Javadoc on that method used to claim it was true "as everywhere else" â€” it is not,
+        // the Javadoc on that method used to claim it was true "as everywhere else" — it is not,
         // and the two tests above are the proof.
         mvc.perform(get(Routes.MeDocuments.FOR_PROPERTY, SLUG)
                         .header(HttpHeaders.AUTHORIZATION, bearer(u)))

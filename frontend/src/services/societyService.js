@@ -1,5 +1,5 @@
 /**
- * Society Service — the review aggregate a society card renders.
+ * Society Service — the review aggregate a society card renders, and the caller's follows.
  *
  * ## Why this domain exists at all, and why it is one operation wide
  *
@@ -38,6 +38,25 @@
  * A slug absent from the index is *not* the same as an unrated society: it means this reader has
  * no opinion about it (the server does not have that society, or the read has not resolved). The
  * caller decides what to say about that, and "nothing" is usually the honest answer.
+ *
+ * ## Follows (D227)
+ *
+ * The second thing on this domain is the follow set. It was `pnFollowedSocieties`, a localStorage
+ * array, which meant following a society on a laptop did not follow it on a phone — and the
+ * follower count on the hub, which the server computes from the join table, counted nobody at all
+ * because nothing ever wrote a row.
+ *
+ * **Slugs, not rows.** `GET /me/societies/following` returns full society cards, which is the right
+ * contract — a follow list is a list of societies and an endpoint that answered with bare strings
+ * would be useless to any other client. This seam narrows it to slugs because that is the whole of
+ * what the five follow surfaces ask for: four of them only need membership, and the one that
+ * renders cards (`FollowedSocietiesPanel`) already resolves each slug through the local society
+ * catalogue to get the synthetic `S01` id that `listingsInSociety` joins on. Handing it server rows
+ * would replace that id with a UUID and it would silently match no listings.
+ *
+ * **These are not for components to call directly.** Membership is asked once per card on the
+ * directory, so per-call reads are the N+1 this seam exists to prevent; `context/FollowContext.jsx`
+ * holds the set and answers `has(slug)` from memory. Only that context should import these.
  */
 import { createProvider } from './config.js';
 
@@ -51,3 +70,22 @@ const provider = createProvider('society');
  *   rather than present-and-zero.
  */
 export const listSocietyRatings = async () => (await provider()).listSocietyRatings();
+
+/**
+ * The slugs of the societies the caller follows, most recently followed first.
+ *
+ * @returns {Promise<string[]>} newest first. Empty when signed out — the route is caller-scoped.
+ */
+export const listFollowedSocieties = async () => (await provider()).listFollowedSocieties();
+
+/**
+ * Follow one society. Idempotent: following one already followed is not an error.
+ *
+ * @param {string} slug the society's public key
+ * @throws {ApiError} 404 when no society has this slug — which is the case for a society minted
+ *   only in this browser, and the reason `FollowContext` keeps those follows local.
+ */
+export const followSociety = async (slug) => (await provider()).followSociety(slug);
+
+/** Unfollow one society. Idempotent: unfollowing one not followed is not an error. */
+export const unfollowSociety = async (slug) => (await provider()).unfollowSociety(slug);

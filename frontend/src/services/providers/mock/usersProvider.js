@@ -75,14 +75,14 @@ export async function listUsers({ role, status, q, page = 0, size = 20 } = {}) {
  * neither, because the console is translated. Dropping them here rather than letting the page read
  * them is what stops the mock's wording quietly becoming the page's only wording.
  *
- * `note` has no live equivalent — internal notes are their own feature and are not part of the
- * union — so it is mapped onto `moderation`, which is the kind the live timeline uses for things a
- * colleague did rather than the account holder.
+ * Internal notes are not here, in either half. They are their own domain (`noteService`, D29) with
+ * their own panel, because the live timeline route is admin-only and its `kind` union has no
+ * `note` — an internal note routed through it would be invisible to the staff who wrote it.
  */
 export async function getUserTimeline(id) {
   const entries = await mockTimeline(id);
   return (entries || []).map((e) => ({
-    kind: e.type === 'note' ? 'moderation' : e.type,
+    kind: e.type,
     entityId: e.meta?.listingId || e.id,
     at: e.at,
     label: e.detail || e.action || '',

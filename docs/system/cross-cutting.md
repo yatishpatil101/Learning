@@ -263,8 +263,13 @@ add `archivedAt` / `restoredAt`. The future schema standardizes on `created_at` 
 - `logAudit(action, detail)` prepends an entry `{ id, at (ISO-8601), who, action, detail }` to a
   capped list (`auditLog`, max 200). `who` is resolved from the signed-in user via
   `currentStaffInfo()`. `listAudit()` / `clearAudit()` read/reset it.
-- `addInternalNote(entityType, entityId, text, action)` attaches a timestamped, authored note to
-  any entity under `internalNotes["type:id"]`. **These are never deleted - full audit trail.**
+- `addInternalNote` / `editInternalNote` / `getInternalNotes` are the **mock** half of the
+  `note` domain, reached only through `services/providers/mock/noteProvider.js`. Live, notes are a
+  table of their own (`internal_notes`) behind `GET|POST /admin/notes/{entityType}/{entityId}` and
+  `PATCH /admin/notes/{id}`, gated on `notes:read` / `notes:write`. They are **mutable on purpose**
+  — a note is retained customer information that goes stale, not a signature — and an edit records
+  the previous wording on the audit row while leaving the original author on the note. There is no
+  delete route, deliberately. See `docs/system/frontend-data-seam.md` for the domain registry.
 
 Admin handlers fire `logAudit(...)` after every mutation (feature toggle, flag, archive, restore,
 edit, bulk approve/reject, pipeline move) - see `src/pages/admin/AdminProperties.jsx`.

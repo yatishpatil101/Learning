@@ -11,6 +11,7 @@ import {
   addListing as _addListing,
   setListingStatus as _setListingStatus,
   toggleFeatured as _toggleFeatured,
+  setPipelineStage as _setPipelineStage,
   confirmListingFresh as _confirmListingFresh,
 } from '../../../lib/mockApi.js';
 
@@ -24,7 +25,9 @@ import {
   digits,
 } from '../../../lib/data/properties-admin.js';
 import { myOwnerId, ownerIdOfProperty } from '../../../lib/data/ownerIdentity.js';
+import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { currentStaffInfo } from '../../../lib/mockApi/core.js';
+import { ApiError } from '../../http.js';
 
 // Already async (returns Promise)
 export const listProperties = _listProperties;
@@ -75,6 +78,27 @@ export const ownerListings = async (id) => {
 export const addListing = _addListing;
 
 /**
+ * The mock counterpart of `POST /me/listings/duplicate-check`.
+ *
+ * Delegates to the same local scan the wizard used to run inline. Against the mock store that scan
+ * is right — every listing in it belongs to the demo, the caller included — and it is the only
+ * reading available, since there is no server here to ask. What changed is where it is called from:
+ * behind the seam, so the wizard asks one question and gets the same answer shape either way.
+ *
+ * Only the self-arm is returned. `evaluateListingDedup` also decides whether to *flag* a submission
+ * against a different owner's claim, and that half deliberately stays where it is: it is an ops
+ * signal, computed on write, and reporting it to the lister is how a duplicate probe turns into a
+ * lookup on somebody else's property. The server's route has no such arm at all.
+ *
+ * `mobile` is the caller's, because the mock store has no session to read; the http provider ignores
+ * it and lets the token say who is asking.
+ */
+export const checkOwnDuplicate = async ({ mobile, fields } = {}) => {
+  const { blocked, existingId } = evaluateListingDedup({ mobile, fields });
+  return { found: !!blocked, existingId: blocked ? existingId : null };
+};
+
+/**
  * The mock counterpart of `POST /admin/properties`.
  *
  * The store has one flat `owner` name per listing and no accounts to provision, so the owner
@@ -102,8 +126,34 @@ export const createListingOnBehalf = (ownerMobile, ownerName, listing) => _addLi
  * on the audit row; there is no audit store in the mock, so a rejection reason has nowhere to go.
  * Declared rather than silently absent so the two providers' signatures match and a caller passing
  * a reason is not misled into thinking the mock lost it by accident.
+ *
+ * **Approving a listing with no `localitySlug` is refused**, mirroring
+ * `PropertyModerationService.denyApprovingUnfiled`. Publishing one puts a listing live that is
+ * absent from locality search facets, from its locality landing page, from saved-search alerts and
+ * from its society's home list — while telling its owner it is now visible to buyers. The guard
+ * lives at the seam rather than in `lib/mockApi`, because it is a restatement of the server's
+ * contract and `ApiError` is the seam's vocabulary for one; putting it deeper would also fire on
+ * the store's internal writes, which are fixtures rather than decisions.
+ *
+ * Only approval. Rejecting or returning an unfiled listing to `pending` stays allowed: a listing
+ * that is plainly spam has to be disposable without first being carefully filed, or a curation rule
+ * becomes a moderation deadlock.
  */
-export const setListingStatus = (id, status, _reason) => _setListingStatus(id, status);
+export const setListingStatus = async (id, status, _reason) => {
+  if (status === 'approved') {
+    const row = await _getProperty(id);
+    if (row && !row.localitySlug) {
+      throw new ApiError({
+        code: 'conflict',
+        status: 409,
+        message: 'This listing has no locality, so approving it would publish it out of locality'
+          + ' search, its locality page, saved-search alerts and the society join. Assign one from'
+          + ` the locality queue first (the owner typed '${row.locality || ''}').`,
+      });
+    }
+  }
+  return _setListingStatus(id, status);
+};
 
 export const toggleFeatured = _toggleFeatured;
 
@@ -155,6 +205,14 @@ export const myListings = (user) => {
 // Sync → async wrappers
 export const flagListing = (id, reason) => Promise.resolve(_flagListing(id, reason));
 export const clearFlag = (id) => Promise.resolve(_clearFlag(id));
+
+/**
+ * Move along a concierge funnel. Resolves with no value, matching the live provider — the mock's
+ * own `setPipelineStage` returns the updated record, and swallowing it here is deliberate so a
+ * caller cannot come to depend on a value the API does not send.
+ */
+export const setPipelineStage = async (id, stage) => { await _setPipelineStage(id, stage); };
+
 export const deleteListing = (id) => Promise.resolve(_deleteListing(id));
 export const updateListingFields = (id, patch) => Promise.resolve(_updateListingFields(id, patch));
 export const archiveListing = (id, reason) => Promise.resolve(_archiveListing(id, reason));

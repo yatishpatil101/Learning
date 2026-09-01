@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { fmtNum } from '../../../lib/format.js';
-import { updateManagedProp } from '../../../lib/data/managedProperty.js';
+import { updateManaged } from '../../../services/managedService.js';
 import { currentDueStatus, recentMonths, markRentReceived, downloadReceipt } from '../../../lib/data/rentReminders.js';
 import { FIELD_CLS } from './constants.js';
 
@@ -21,8 +21,11 @@ export default function RentPanel({ prop, onChange }) {
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const saveDetails = (rented) => {
-    updateManagedProp(prop.id, {
+  const saveDetails = async (rented) => {
+    // The 1–28 clamp is this panel's rule, not the server's: February is why, and a due day of 31
+    // would silently never fall due. It stays here because it is about what the owner can
+    // meaningfully pick, and the server accepts what it is told.
+    await updateManaged(prop.id, {
       rented,
       tenantName: form.tenantName.trim(),
       monthlyRent: Number(form.monthlyRent) || 0,

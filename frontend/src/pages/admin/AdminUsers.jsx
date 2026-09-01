@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, RotateCcw, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react';
+import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, MessageSquareText, RotateCcw, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react';
 import { listUsers, getUserTimeline, setUserBadge, setUserStatus, setUserFlag } from '../../services/usersService.js';
+import { addNote, listNotes } from '../../services/noteService.js';
 import { MAX_PAGE_SIZE } from '../../services/apiLimits.js';
 import { fmtNum, classNames, timeAgo, avatarFor } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
@@ -69,6 +70,12 @@ export default function AdminUsers() {
   const [busy, setBusy] = useState(false);
   const [timelineUser, setTimelineUser] = useState(null);
   const [timeline, setTimeline] = useState(null); // null = still loading
+  /* Notes on this person (D29). Separate from `timeline` because they are a separate route with a
+     separate audience: the timeline is admin-only and has no `note` kind, and these are written by
+     staff who must be able to read them back. null = still loading. */
+  const [userNotes, setUserNotes] = useState(null);
+  const [userNoteDraft, setUserNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   // Guards every post-await setState. Re-armed in the effect body, not merely cleared in cleanup:
   // under StrictMode a mount/unmount/re-mount would otherwise leave it false forever and silently
@@ -107,6 +114,13 @@ export default function AdminUsers() {
     if (!optionEnabled('users.timeline')) return;
     setTimelineUser(user);
     setTimeline(null);
+    setUserNotes(null);
+    setUserNoteDraft('');
+    /* Two reads, deliberately not awaited together: a timeline that fails must not blank the notes,
+       and vice versa. They answer different questions about the same person. */
+    listNotes('user', user.id)
+      .then((rows) => { if (alive.current) setUserNotes(rows); })
+      .catch(() => { if (alive.current) setUserNotes([]); });
     try {
       const entries = await getUserTimeline(user.id);
       if (alive.current) setTimeline(entries);
@@ -114,7 +128,32 @@ export default function AdminUsers() {
       if (alive.current) { setTimeline([]); toast('Could not load this user\u2019s activity', 'error'); }
     }
   };
-  const closeTimeline = () => { setTimelineUser(null); setTimeline(null); };
+  const closeTimeline = () => { setTimelineUser(null); setTimeline(null); setUserNotes(null); setUserNoteDraft(''); };
+
+  /**
+   * File a note against this person.
+   *
+   * No `action` label: the four listing notes are filed beside a decision and say which one, but a
+   * note written here is the whole of what happened. Labelling it "Note" would add a word and no
+   * information.
+   *
+   * The list is refetched rather than optimistically prepended, because the server decides the id,
+   * the timestamp and the byline — and the byline is the point of the panel.
+   */
+  const submitUserNote = async () => {
+    const text = userNoteDraft.trim();
+    if (!text || !timelineUser || savingNote) return;
+    setSavingNote(true);
+    try {
+      await addNote('user', timelineUser.id, text);
+      const rows = await listNotes('user', timelineUser.id);
+      if (alive.current) { setUserNotes(rows); setUserNoteDraft(''); }
+    } catch (err) {
+      toast(err?.message || 'Could not save that note', 'error');
+    } finally {
+      if (alive.current) setSavingNote(false);
+    }
+  };
 
   /**
    * Every action ends in a reload rather than a local patch.
@@ -371,6 +410,55 @@ export default function AdminUsers() {
                   <div className="text-2xl font-bold text-white">{timeline?.length ?? '—'}</div>
                   <div className="text-xs text-gray-500">activities</div>
                 </div>
+              </div>
+
+              {/* Staff notes on this person (D29). Above the timeline because it is the only part
+                  of this drawer anyone can add to, and because it is what a colleague picking up
+                  the case needs first. Deliberately inter-transparent: any staff or admin reads
+                  every note here, whoever wrote it. */}
+              <div data-testid="user-notes" className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-200">
+                  <MessageSquareText className="h-4 w-4 text-indigo-400" /> Staff notes
+                  {userNotes && (
+                    <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">{userNotes.length}</span>
+                  )}
+                </div>
+                <div className="mt-3 flex items-start gap-2">
+                  <textarea
+                    value={userNoteDraft}
+                    onChange={(e) => setUserNoteDraft(e.target.value)}
+                    rows={2}
+                    placeholder="What should the next person know about this account?"
+                    aria-label="Add a staff note"
+                    className="pn-input resize-none text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={submitUserNote}
+                    disabled={savingNote || !userNoteDraft.trim()}
+                    className="pn-btn-primary shrink-0 px-3 py-2 text-xs disabled:opacity-40"
+                  >
+                    {savingNote ? 'Saving…' : 'Add note'}
+                  </button>
+                </div>
+                {userNotes === null ? (
+                  <div className="mt-3 text-xs text-gray-500">Loading notes…</div>
+                ) : userNotes.length > 0 ? (
+                  <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                    {userNotes.map((n) => (
+                      <div key={n.id} data-testid="user-note" className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-xs leading-relaxed">
+                        <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                          <span className="font-medium text-gray-300">{n.author}</span>
+                          {n.at && <span>{timeAgo(n.at)}</span>}
+                          {n.editedAt && <span className="italic">edited</span>}
+                        </div>
+                        <p className="mt-0.5 text-gray-400">{n.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-gray-500">Nobody has written a note about this account yet.</div>
+                )}
               </div>
 
               {timeline === null ? (

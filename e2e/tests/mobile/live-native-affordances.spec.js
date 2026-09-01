@@ -48,6 +48,28 @@ const openFirstProperty = async (page) => {
   await page.waitForURL(/\/property\//);
 };
 
+/* The heart on a listing card renames itself once the property is saved, so a
+   locator that only knows the unsaved name silently walks past every card these
+   tests already touched. Against the live backend a save is a row in
+   `saved_properties` that outlives the test — matching both names is what lets
+   each test toggle the *same* card back off and hand the next spec the seeded
+   Saved page it expects. */
+const heartOf = (page) =>
+  page.getByRole('button', { name: /save property|remove from saved/i }).first();
+
+/** Tap the heart, read what the phone did, then tap it back so the row count is
+ *  unchanged. The live database is reset once per suite, not per test. */
+const tapHeartAndRestore = async (page) => {
+  const heart = heartOf(page);
+  await expect(heart).toBeVisible();
+  await heart.click();
+  await page.waitForTimeout(400);
+  const buzzes = await page.evaluate(() => window.__vibrations);
+  await heart.click();
+  await page.waitForTimeout(400);
+  return buzzes;
+};
+
 test.describe('Native share', () => {
   test('dismissing the OS share sheet is not reported as a failure', async ({ page }) => {
     await consent(page);
@@ -134,12 +156,9 @@ test.describe('Haptics', () => {
     await login.asBuyer();
 
     await page.goto('/listings');
-    const heart = page.getByRole('button', { name: /save property/i }).first();
-    await expect(heart).toBeVisible();
-    await heart.click();
-    await page.waitForTimeout(400);
+    const buzzes = await tapHeartAndRestore(page);
 
-    expect(await page.evaluate(() => window.__vibrations.length), 'save should tick').toBeGreaterThan(0);
+    expect(buzzes.length, 'save should tick').toBeGreaterThan(0);
   });
 
   test('a user who asked for less motion is never buzzed', async ({ page, login }) => {
@@ -152,14 +171,11 @@ test.describe('Haptics', () => {
     await login.asBuyer();
 
     await page.goto('/listings');
-    const heart = page.getByRole('button', { name: /save property/i }).first();
-    await expect(heart).toBeVisible();
-    await heart.click();
-    await page.waitForTimeout(400);
+    const buzzes = await tapHeartAndRestore(page);
 
     // Reduced motion means motion, not just animation. A device buzzing in the hand
     // of someone who turned motion off is the same broken promise as a slide-in.
-    expect(await page.evaluate(() => window.__vibrations), 'reduce-motion must suppress haptics').toEqual([]);
+    expect(buzzes, 'reduce-motion must suppress haptics').toEqual([]);
   });
 
   test('the OS-level reduced-motion setting is honoured too', async ({ page, login }) => {
@@ -169,12 +185,9 @@ test.describe('Haptics', () => {
     await login.asBuyer();
 
     await page.goto('/listings');
-    const heart = page.getByRole('button', { name: /save property/i }).first();
-    await expect(heart).toBeVisible();
-    await heart.click();
-    await page.waitForTimeout(400);
+    const buzzes = await tapHeartAndRestore(page);
 
-    expect(await page.evaluate(() => window.__vibrations), 'OS reduce-motion must suppress haptics').toEqual([]);
+    expect(buzzes, 'OS reduce-motion must suppress haptics').toEqual([]);
   });
 });
 /* Loading states. A spinner says "wait"; a skeleton says "wait, and here is the

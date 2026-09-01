@@ -9,6 +9,7 @@ import com.punenest.api.common.trust.Notifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,12 +24,25 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>The collection is structurally bounded (one user's own actions) and returned as a bare array.
  *
- * <p><strong>D8.8 — {@code newCount} is served as stored (currently always 0).</strong> Computing
- * it truly would require a {@code last_viewed_at} column that does not exist, plus re-running
- * every saved search on every list read — an N+1 of full-text searches on a user-facing read
- * endpoint. The frontend mock also stores {@code newCount: 0}, so parity holds. This is a
- * deliberate, revisitable decision: when a scheduler exists that can write meaningful counts,
- * and a {@code last_viewed_at} column is added, this becomes a single-read from the row.
+ * <p><strong>D8.8 — {@code newCount} is served as stored.</strong> It is written by
+ * {@link SavedSearchNewCountSweep} against the row's own {@code updated_at} baseline, because
+ * computing "new since you last looked" truly would need a {@code last_viewed_at} column that does
+ * not exist.
+ *
+ * <p><strong>D227 — {@code matchCount} is computed on the read, reversing half of that
+ * refusal.</strong> D8.8 declined to run any search on a list read, calling it "an N+1 of
+ * full-text searches on a user-facing read endpoint". Two of those three objections turned out not
+ * to apply. It is not full-text: {@link PropertyRepository#countVisibleWithFilters} is an indexed
+ * {@code count(*)} over three equality facets, returning one number and no rows. It is not
+ * unbounded: {@link #MAX_SAVED_SEARCHES} caps the fan-out at ten, and the endpoint is one user
+ * reading their own short list. What remains true is that it is an N+1, and it is accepted, because
+ * the alternative shipped the defect this fixes — the count was being computed in the browser over
+ * one page of the catalogue ({@code size=100}), so it was right only while the catalogue was
+ * smaller than a page and silently wrong forever after, with nothing failing.
+ *
+ * <p>The two counts answer different questions and are both served. {@code newCount} is "how many
+ * arrived since the last sweep baseline" and falls back to zero once the alert has gone out, by
+ * design; {@code matchCount} is "how many match at all", and moves only when the catalogue does.
  */
 @Service
 public class SavedSearchService {
@@ -58,11 +72,17 @@ public class SavedSearchService {
         this.notifier = notifier;
     }
 
-    /** All of the caller's saved searches, newest first. */
+    /**
+     * All of the caller's saved searches, newest first, each carrying a live {@code matchCount}.
+     *
+     * <p>The count is computed here rather than in {@link SavedSearchMapper} because the mapper
+     * turns one row into one response and a match count is a count of <em>other</em> rows. See the
+     * class Javadoc on D227 for why it is computed on a read at all.
+     */
     @Transactional(readOnly = true)
     public List<SavedSearchResponse> list(UUID userId) {
         return repo.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                .map(mapper::toResponse)
+                .map(row -> mapper.toResponse(row).withMatchCount(countMatchingNow(row)))
                 .toList();
     }
 
@@ -121,7 +141,8 @@ public class SavedSearchService {
         if (request.channel() != null) {
             entity.setChannel(request.channel());
         }
-        return mapper.toResponse(repo.saveAndFlush(entity));
+        SavedSearch saved = repo.saveAndFlush(entity);
+        return mapper.toResponse(saved).withMatchCount(countMatchingNow(saved));
     }
 
     /** The card's summary line. The user-given name wins; otherwise there is nothing to invent. */
@@ -154,7 +175,8 @@ public class SavedSearchService {
         if (request.channel() != null) {
             entity.setChannel(request.channel());
         }
-        return mapper.toResponse(repo.saveAndFlush(entity));
+        SavedSearch saved = repo.saveAndFlush(entity);
+        return mapper.toResponse(saved).withMatchCount(countMatchingNow(saved));
     }
 
     /**
@@ -303,22 +325,41 @@ public class SavedSearchService {
     }
 
     private int countMatchingSince(SavedSearch search, Instant baseline) {
+        if (baseline == null) {
+            return 0;
+        }
+        return countMatching(search, baseline);
+    }
+
+    /**
+     * How many live listings match this saved search right now, ignoring when they were posted.
+     *
+     * <p>The same read as {@link #countMatchingSince} with the recency bound removed — see
+     * {@link PropertyRepository#countVisibleWithFilters} for why the two share one query.
+     */
+    private int countMatchingNow(SavedSearch search) {
+        return countMatching(search, null);
+    }
+
+    private int countMatching(SavedSearch search, Instant baseline) {
         if (!"listings".equals(search.getKind())) {
             return 0;
         }
-        String deal = textOrNull(filterText(search, "deal"));
-        if (deal == null || baseline == null) {
+        Map<String, Object> filters = filterMap(search);
+        String deal = textOrNull(filterText(filters, "deal"));
+        if (deal == null) {
             return 0;
         }
-        List<String> localities = lowerList(search, "localities");
-        List<Integer> bhk = intList(search, "bhk");
+        List<String> localities = lowerList(filters, "localities");
+        List<Integer> bhk = intList(filters, "bhk");
 
         List<String> localitiesParam = localities.isEmpty() ? List.of("__none__") : localities;
         List<Integer> bhkParam = bhk.isEmpty() ? List.of(Integer.MIN_VALUE) : bhk;
 
-        long count = properties.countVisibleCreatedAfterWithFilters(
+        long count = properties.countVisibleWithFilters(
                 PropertyStatus.APPROVED,
-                baseline,
+                baseline == null,
+                baseline == null ? Instant.EPOCH : baseline,
                 deal.toLowerCase(Locale.ROOT),
                 localities.isEmpty(),
                 localitiesParam,
@@ -327,24 +368,35 @@ public class SavedSearchService {
         return (int) count;
     }
 
-    @SuppressWarnings("unchecked")
-    private String filterText(SavedSearch search, String key) {
+    /**
+     * The stored {@code filters} document, parsed once.
+     *
+     * <p>Each facet reader used to parse the column itself, so counting one saved search
+     * deserialized the same blob three times. Harmless at one call per sweep tick; not harmless
+     * once the list endpoint counts up to {@link #MAX_SAVED_SEARCHES} rows on a read a user
+     * triggers.
+     *
+     * <p>A malformed or non-object blob answers an empty map rather than throwing. {@code filters}
+     * is free-form jsonb with no schema, so an unreadable one is a row that matches nothing — not
+     * a 500 on a list read the user cannot fix.
+     */
+    private Map<String, Object> filterMap(SavedSearch search) {
         Object parsed = mapper.jsonStringToObject(search.getFilters());
         if (!(parsed instanceof Map<?, ?> map)) {
-            return null;
+            return Map.of();
         }
-        Object raw = map.get(key);
+        Map<String, Object> out = new LinkedHashMap<>();
+        map.forEach((key, value) -> out.put(String.valueOf(key), value));
+        return out;
+    }
+
+    private String filterText(Map<String, Object> filters, String key) {
+        Object raw = filters.get(key);
         return raw == null ? null : String.valueOf(raw);
     }
 
-    @SuppressWarnings("unchecked")
-    private List<String> lowerList(SavedSearch search, String key) {
-        Object parsed = mapper.jsonStringToObject(search.getFilters());
-        if (!(parsed instanceof Map<?, ?> map)) {
-            return List.of();
-        }
-        Object raw = map.get(key);
-        if (!(raw instanceof List<?> list)) {
+    private List<String> lowerList(Map<String, Object> filters, String key) {
+        if (!(filters.get(key) instanceof List<?> list)) {
             return List.of();
         }
         return list.stream()
@@ -353,14 +405,8 @@ public class SavedSearchService {
                 .toList();
     }
 
-    @SuppressWarnings("unchecked")
-    private List<Integer> intList(SavedSearch search, String key) {
-        Object parsed = mapper.jsonStringToObject(search.getFilters());
-        if (!(parsed instanceof Map<?, ?> map)) {
-            return List.of();
-        }
-        Object raw = map.get(key);
-        if (!(raw instanceof List<?> list)) {
+    private List<Integer> intList(Map<String, Object> filters, String key) {
+        if (!(filters.get(key) instanceof List<?> list)) {
             return List.of();
         }
         return list.stream()

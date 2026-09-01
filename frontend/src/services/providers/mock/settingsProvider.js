@@ -110,3 +110,43 @@ export async function getMovePack() {
     items: pack.items && typeof pack.items === 'object' ? pack.items : {},
   };
 }
+
+/**
+ * The geo policy block, from that same stored document.
+ *
+ * Every field here is an *override* merged over `lib/geoConfig.js`'s built-in defaults, so there is
+ * no shape to normalise toward and `{}` is the correct answer for a document nobody has edited.
+ *
+ * **Projected to the three keys `GET /geo` publishes, and no others** — the same list, in the same
+ * order, as `GeoPolicyController`. Spreading the stored block instead would be the cheaper line and
+ * the wrong one: `settings.geo` is an open document an operator writes through the Maps panel, and
+ * the day a private field is added under it the mock would publish it while the live route withheld
+ * it, silently, with nothing failing. A projection cannot drift that way — a new field is invisible
+ * here until somebody adds it on purpose, in both places.
+ *
+ * The one field that already differs is `note` on each blacklist entry. `GET /geo` withholds it
+ * because that route is anonymous and the note is moderator prose about a named building; keeping
+ * it here would make the mock the only place a consumer could read it, which is how a leak ships —
+ * a component binds to a field that exists in development and vanishes in production. Nothing loses
+ * access: the admin console reads the whole entry through `getSettings()`.
+ *
+ * What this deliberately does *not* mirror is the server's hardening — a half-written `center`, an
+ * inverted `bounds`, a one-character `term`. Those are defences against a malformed stored
+ * document, and the mock store is written only by this app's own admin panel. Reproducing them here
+ * would be a second implementation of the same rules with nothing keeping the two honest.
+ */
+export async function getGeo() {
+  const doc = await mockGetSettings();
+  const geo = doc?.geo;
+  if (!geo || typeof geo !== 'object') return {};
+  const blacklist = Array.isArray(geo.blacklist)
+    ? geo.blacklist
+        .filter((entry) => entry && typeof entry === 'object')
+        .map(({ id, placeId, term }) => ({ id, placeId, term }))
+    : [];
+  return {
+    enforceCityLimit: geo.enforceCityLimit,
+    cities: geo.cities && typeof geo.cities === 'object' ? geo.cities : {},
+    blacklist,
+  };
+}

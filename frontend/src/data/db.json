@@ -819,7 +819,8 @@
       },
       "gallery": [
         "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=70"
-      ]
+      ],
+      "societySlug": "kumar-palaash-hinjawadi"
     },
     {
       "bhk": "",
@@ -895,7 +896,8 @@
       },
       "gallery": [
         "https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&w=800&q=70"
-      ]
+      ],
+      "societySlug": "nyati-elysia-kharadi"
     },
     {
       "bhk": "",
@@ -1012,7 +1014,8 @@
       "createdAt": "2026-04-24",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/villa-4.svg"
+      "floorPlan": "/floorplans/villa-4.svg",
+      "societySlug": "godrej-infinity-mundhwa"
     },
     {
       "id": "P5001",
@@ -1057,7 +1060,8 @@
       "desc": "Spacious 3 BHK plot in Bavdhan, Pune. Zero brokerage, deal directly with the verified owner.",
       "createdAt": "2026-05-28",
       "docsCount": 4,
-      "flagReason": ""
+      "flagReason": "",
+      "societySlug": "pristine-prolife-bavdhan"
     },
     {
       "id": "P5002",
@@ -1152,7 +1156,8 @@
       "createdAt": "2026-06-01",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "lunkad-sky-station-viman-nagar"
     },
     {
       "id": "P5004",
@@ -1198,7 +1203,8 @@
       "createdAt": "2026-05-12",
       "docsCount": 1,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-3.svg"
+      "floorPlan": "/floorplans/penthouse-3.svg",
+      "societySlug": "rohan-abhilasha-pimple-saudagar"
     },
     {
       "id": "P5005",
@@ -1244,7 +1250,8 @@
       "createdAt": "2026-05-26",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/1bhk.svg"
+      "floorPlan": "/floorplans/1bhk.svg",
+      "societySlug": "aditya-shagun-kothrud"
     },
     {
       "id": "P5006",
@@ -1338,7 +1345,8 @@
       "createdAt": "2026-04-26",
       "docsCount": 2,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "the-address-balewadi"
     },
     {
       "id": "P5008",
@@ -1386,7 +1394,8 @@
       "createdAt": "2026-06-13",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-3.svg"
+      "floorPlan": "/floorplans/penthouse-3.svg",
+      "societySlug": "skyline-heights-baner"
     },
     {
       "id": "P5009",
@@ -1432,7 +1441,8 @@
       "createdAt": "2026-04-05",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "gera-world-of-joy-kharadi"
     },
     {
       "id": "P5010",
@@ -1525,7 +1535,8 @@
       "createdAt": "2026-04-21",
       "docsCount": 5,
       "flagReason": "User reported",
-      "floorPlan": "/floorplans/villa-3.svg"
+      "floorPlan": "/floorplans/villa-3.svg",
+      "societySlug": "oxford-village-wanowrie"
     },
     {
       "id": "P5012",
@@ -1617,7 +1628,8 @@
       "createdAt": "2026-06-19",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/1bhk.svg"
+      "floorPlan": "/floorplans/1bhk.svg",
+      "societySlug": "green-meadows-baner"
     },
     {
       "id": "P5014",
@@ -1709,7 +1721,8 @@
       "createdAt": "2026-06-20",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/rowhouse-4.svg"
+      "floorPlan": "/floorplans/rowhouse-4.svg",
+      "societySlug": "mont-vert-tropez-wakad"
     },
     {
       "id": "P5016",
@@ -1758,7 +1771,8 @@
       "createdAt": "2026-05-18",
       "docsCount": 1,
       "flagReason": "",
-      "floorPlan": "/floorplans/rowhouse-4.svg"
+      "floorPlan": "/floorplans/rowhouse-4.svg",
+      "societySlug": "godrej-infinity-mundhwa"
     },
     {
       "id": "P5017",
@@ -1903,7 +1917,8 @@
       "createdAt": "2026-05-12",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "ganga-legend-bavdhan"
     },
     {
       "id": "P5020",
@@ -1947,7 +1962,8 @@
       "createdAt": "2026-05-18",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "kolte-patil-24k-baner"
     },
     {
       "id": "P5021",
@@ -1995,7 +2011,8 @@
       "createdAt": "2026-06-12",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-3.svg"
+      "floorPlan": "/floorplans/penthouse-3.svg",
+      "societySlug": "majestique-towers-kharadi"
     },
     {
       "id": "P5022",
@@ -2086,7 +2103,8 @@
       "createdAt": "2026-04-07",
       "docsCount": 6,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-3.svg"
+      "floorPlan": "/floorplans/penthouse-3.svg",
+      "societySlug": "pristine-prolife-bavdhan"
     },
     {
       "id": "P5024",
@@ -2131,7 +2149,8 @@
       "createdAt": "2026-05-30",
       "docsCount": 6,
       "flagReason": "",
-      "floorPlan": "/floorplans/rowhouse-3.svg"
+      "floorPlan": "/floorplans/rowhouse-3.svg",
+      "societySlug": "aditya-shagun-kothrud"
     },
     {
       "id": "P5025",
@@ -2178,7 +2197,8 @@
       "createdAt": "2026-05-23",
       "docsCount": 6,
       "flagReason": "",
-      "floorPlan": "/floorplans/villa-3.svg"
+      "floorPlan": "/floorplans/villa-3.svg",
+      "societySlug": "aditya-shagun-kothrud"
     },
     {
       "id": "P5026",
@@ -2268,7 +2288,8 @@
       "createdAt": "2026-04-25",
       "docsCount": 6,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "oxford-village-wanowrie"
     },
     {
       "id": "P5028",
@@ -2313,7 +2334,8 @@
       "desc": "Spacious 1 BHK plot in Viman Nagar, Pune. Zero brokerage, deal directly with the verified owner.",
       "createdAt": "2026-04-14",
       "docsCount": 1,
-      "flagReason": ""
+      "flagReason": "",
+      "societySlug": "lunkad-sky-station-viman-nagar"
     },
     {
       "id": "P5029",
@@ -2359,7 +2381,8 @@
       "createdAt": "2026-05-10",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "panchshil-towers-kharadi"
     },
     {
       "id": "P5030",
@@ -2449,7 +2472,8 @@
       "createdAt": "2026-05-14",
       "docsCount": 4,
       "flagReason": "Price looks off",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "vtp-urban-nest-undri"
     },
     {
       "id": "P5032",
@@ -2494,7 +2518,8 @@
       "desc": "Spacious 1 RK plot in Pimple Saudagar, Pune. Zero brokerage, deal directly with the verified owner.",
       "createdAt": "2026-05-26",
       "docsCount": 2,
-      "flagReason": ""
+      "flagReason": "",
+      "societySlug": "mahindra-antheia-pimpri"
     },
     {
       "id": "P5033",
@@ -2538,7 +2563,8 @@
       "createdAt": "2026-06-04",
       "docsCount": 2,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-3.svg"
+      "floorPlan": "/floorplans/penthouse-3.svg",
+      "societySlug": "the-address-balewadi"
     },
     {
       "id": "P5034",
@@ -2631,7 +2657,8 @@
       "createdAt": "2026-06-02",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/studio.svg"
+      "floorPlan": "/floorplans/studio.svg",
+      "societySlug": "godrej-infinity-mundhwa"
     },
     {
       "id": "P5036",
@@ -2679,7 +2706,8 @@
       "desc": "Spacious 2 BHK plot in Undri, Pune. Zero brokerage, deal directly with the verified owner.",
       "createdAt": "2026-05-02",
       "docsCount": 5,
-      "flagReason": "Suspected duplicate"
+      "flagReason": "Suspected duplicate",
+      "societySlug": "nyati-esteban-undri"
     },
     {
       "id": "P5037",
@@ -2725,7 +2753,8 @@
       "createdAt": "2026-05-18",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/penthouse-4.svg"
+      "floorPlan": "/floorplans/penthouse-4.svg",
+      "societySlug": "vtp-urban-nest-undri"
     },
     {
       "id": "C6100",
@@ -2815,7 +2844,8 @@
       "createdAt": "2026-05-09",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/office.svg"
+      "floorPlan": "/floorplans/office.svg",
+      "societySlug": "nyati-elysia-kharadi"
     },
     {
       "id": "C6102",
@@ -2860,7 +2890,8 @@
       "createdAt": "2026-06-04",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/shop.svg"
+      "floorPlan": "/floorplans/shop.svg",
+      "societySlug": "aditya-shagun-kothrud"
     },
     {
       "id": "C6112",
@@ -2905,7 +2936,8 @@
       "createdAt": "2026-06-10",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/office.svg"
+      "floorPlan": "/floorplans/office.svg",
+      "societySlug": "skyline-heights-baner"
     },
     {
       "id": "C6103",
@@ -3040,7 +3072,8 @@
       "createdAt": "2026-05-11",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/retail.svg"
+      "floorPlan": "/floorplans/retail.svg",
+      "societySlug": "green-meadows-baner"
     },
     {
       "id": "C6106",
@@ -3085,7 +3118,8 @@
       "createdAt": "2026-06-06",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/warehouse.svg"
+      "floorPlan": "/floorplans/warehouse.svg",
+      "societySlug": "amanora-park-hadapsar"
     },
     {
       "id": "C6107",
@@ -3185,7 +3219,8 @@
       "createdAt": "2026-05-07",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/industrial.svg"
+      "floorPlan": "/floorplans/industrial.svg",
+      "societySlug": "blue-ridge-towers-hinjawadi"
     },
     {
       "id": "C6109",
@@ -3230,7 +3265,8 @@
       "createdAt": "2026-05-13",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/industrial.svg"
+      "floorPlan": "/floorplans/industrial.svg",
+      "societySlug": "rohan-abhilasha-pimple-saudagar"
     },
     {
       "id": "C6110",
@@ -3275,7 +3311,8 @@
       "createdAt": "2026-06-08",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/coworking.svg"
+      "floorPlan": "/floorplans/coworking.svg",
+      "societySlug": "silver-oak-residency-aundh"
     },
     {
       "id": "C6111",
@@ -3363,7 +3400,8 @@
       "createdAt": "2026-06-02",
       "docsCount": 2,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "saarrthi-skybay-wakad"
     },
     {
       "id": "R7101",
@@ -3407,7 +3445,8 @@
       "createdAt": "2026-07-03",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "kolte-patil-24k-baner"
     },
     {
       "id": "R7102",
@@ -3451,7 +3490,8 @@
       "createdAt": "2026-06-04",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "paranjape-blue-ridge-hinjawadi"
     },
     {
       "id": "R7103",
@@ -3539,7 +3579,8 @@
       "createdAt": "2026-06-06",
       "docsCount": 2,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "amanora-park-hadapsar"
     },
     {
       "id": "R7105",
@@ -3583,7 +3624,8 @@
       "createdAt": "2026-07-07",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "oxford-village-wanowrie"
     },
     {
       "id": "R7106",
@@ -3627,7 +3669,8 @@
       "createdAt": "2026-06-08",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "the-address-balewadi"
     },
     {
       "id": "R7107",
@@ -3715,7 +3758,8 @@
       "createdAt": "2026-06-10",
       "docsCount": 2,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "mahindra-antheia-pimpri"
     },
     {
       "id": "R7109",
@@ -3759,7 +3803,8 @@
       "createdAt": "2026-07-11",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/1bhk.svg"
+      "floorPlan": "/floorplans/1bhk.svg",
+      "societySlug": "kohinoor-tinseltown-hinjawadi"
     },
     {
       "id": "R7110",
@@ -3803,7 +3848,8 @@
       "createdAt": "2026-06-12",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/1bhk.svg"
+      "floorPlan": "/floorplans/1bhk.svg",
+      "societySlug": "skyline-heights-baner"
     },
     {
       "id": "R7111",
@@ -3892,7 +3938,8 @@
       "createdAt": "2026-05-04",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "green-meadows-baner"
     },
     {
       "id": "R7201",
@@ -3936,7 +3983,8 @@
       "createdAt": "2026-06-05",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "mont-vert-tropez-wakad"
     },
     {
       "id": "R7202",
@@ -3981,7 +4029,8 @@
       "createdAt": "2026-05-06",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "life-republic-hinjawadi"
     },
     {
       "id": "R7203",
@@ -4068,7 +4117,8 @@
       "createdAt": "2026-05-08",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "amanora-park-hadapsar"
     },
     {
       "id": "R7205",
@@ -4112,7 +4162,8 @@
       "createdAt": "2026-06-09",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "lunkad-sky-station-viman-nagar"
     },
     {
       "id": "R7206",
@@ -4157,7 +4208,8 @@
       "createdAt": "2026-05-10",
       "docsCount": 5,
       "flagReason": "",
-      "floorPlan": "/floorplans/2bhk.svg"
+      "floorPlan": "/floorplans/2bhk.svg",
+      "societySlug": "the-address-balewadi"
     },
     {
       "id": "R7207",
@@ -4244,7 +4296,8 @@
       "createdAt": "2026-05-12",
       "docsCount": 3,
       "flagReason": "",
-      "floorPlan": "/floorplans/3bhk.svg"
+      "floorPlan": "/floorplans/3bhk.svg",
+      "societySlug": "saarrthi-skybay-wakad"
     },
     {
       "id": "R7209",
@@ -4288,7 +4341,8 @@
       "createdAt": "2026-06-13",
       "docsCount": 4,
       "flagReason": "",
-      "floorPlan": "/floorplans/3bhk.svg"
+      "floorPlan": "/floorplans/3bhk.svg",
+      "societySlug": "kumar-palaash-hinjawadi"
     },
     {
       "id": "L1783616167372",

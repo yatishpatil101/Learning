@@ -56,10 +56,15 @@ a domain flip. Zero results = zero leaks.
 | `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
 | `propertyReview` | `propertyReviewService.js` | mock + **http** | Live: the property-verification case file — `GET/POST /properties/{id}/verification`, `POST .../messages`, `POST .../read`, `POST .../decision`, and the staff queue `GET /admin/property-reviews`. **Named for the collision it avoids twice over**: `verificationService` is the Aadhaar *identity* badge, and `reviewService.listPropertyReviews` is consumer star-ratings — hence `listPropertyReviewQueue` for the desk. `{id}` is the listing **UUID, never the slug** (`propertyMapper` sets `id = slug || id` and stashes the real one on `uuid`), so callers pass `listing.uuid \|\| listing.id`. Two vocabularies that look like one: the request verb is `approve`/`reject`, the resulting status is `approved`/`rejected`, and an unrecognised verb **throws a 400 on both providers** rather than defaulting — the obvious `startsWith('approve') ? … : 'reject'` makes every typo a rejection, which is the destructive, owner-visible, audit-logged side of the branch. Deciding writes **three** places server-side — the case file, `properties.status`, and an owner-facing sentence posted into the thread — so a console must stop pairing `decideReview` with `setListingStatus`. The mock is the *richer* end for once (per-document verify/reject, `in_review`/`clarification` statuses, a listing snapshot) and none of it has a server: the checklist is read-only `{item, pass}` with no write endpoint, and `/admin/property-reviews` takes a `Pageable` and nothing else, so a "pending only" desk is filtering a page, not the queue. `reviewer` is a raw user **UUID**, not a handle. The mock provider reproduces the server's *access* rules as well as its business ones — participant-or-staff on the thread (404, not 403, so a stranger cannot confirm the listing is under review), staff on the queue and the decision, owner-cannot-decide-their-own — because a permissive mock lets a buyer session publish a listing in the demo and lets screens get built against forbidden states they never render. **D218 added a third party to the thread: nobody.** A message can now be `internal`, and an internal message is filtered out of the owner's copy entirely — so a case holding *only* internal notes answers the owner **404, not an empty thread**, because an empty thread still tells them a file has been opened on them. `internal` is on the wire (and false in every owner-side response) because filtering alone left staff unable to tell a staff-only finding from something the owner was actually told: both arrive as `from: ops`, in one conversation, and a moderator who quotes the first back to an owner has made the disclosure the filter existed to prevent. It renders as a separate amber lane with no `You (PuneNest)` attribution. The read is gated on the `properties:read` **grant** and not the bare staff role — that is the one verification route that cannot be gated at the controller, because it is participant-or-staff and an owner holds no grants at all. D218 also moved the desk's sort to `last_message_at desc, id desc`; note that this currently orders *identically* to `updatedAt` and is still the right column, because it is the write that dirties the row in the first place |
 | `settings` | `settingsService.js` | mock + **http** | Live: the platform configuration document — `GET`/`PUT /admin/settings`, both `x-roles: [admin]`. **The last domain to get a seam, and the one that most needed it**: `AdminFlagsContext` and `AdminSettings.jsx` imported `getSettings`/`updateSettings` straight from `lib/mockApi.js`, so with every domain switched on the admin console *still* read its feature flags, fee schedule and geo policy out of `db.json` — and nothing said so, because a direct import has no switch to look at. No mapper, deliberately: the server stores one row per top-level key and folds them on read, so the key set is open by construction and a mapper would either enumerate it (dropping the next key someone adds) or pass it through. Writes **merge**, on both providers — send only what you actually changed, because a block you did not read is still a block you are asserting. That is not pedantry: `setFlag` used to send the whole `adminFlags` object, so a failed read followed by one toggle would persist the all-`true` defaults over every flag the operator had set. The mock provider deep-merges against the stored document before handing whole blocks to `lib/mockApi`'s shallow spread, matching the server's rule — objects merge key by key, arrays and scalars replace whole (`geo.blacklist` is an ordered list). `getCustomRoles()` answers `[]` on http and that is the correct answer, not a stub: V61 deleted the key and `PUT` returns **422** for it. The optional `If-Match` precondition (D66) is not sent — honouring it is UI work in `AdminSettings.jsx` (surface the 412, re-read, re-apply), and sending the header without that handling turns a rare silent overwrite into a frequent unexplained failure |
+| `society` | `societyService.js` | mock + **http** | Live: the directory's rating index (`GET /societies`, `avgRating`/`reviewCount` per row, so a 348-card grid is one request and not 348) and the caller's follows — `GET /me/societies/following`, idempotent `PUT`/`DELETE /me/societies/{slug}/follow`. Keyed on the **slug** throughout; `soc.id` is the synthetic `S01` minted by `data/societies.js` and the server has never heard of it. The follow seam narrows the server's full society rows down to **slugs**, because the four surfaces that read it only need membership and `FollowedSocietiesPanel` resolves each slug through the local catalogue to get the `S01` that `listingsInSociety` joins on — a server UUID there would silently match nothing. Membership is answered from `FollowContext`, never per card. Follows on societies **this browser minted** stay local (`pnLocalSocietyFollows`): the server refuses a slug it does not know, correctly, and the context retries them on every load. The society *catalogue itself* is still `data/societies.js` + `lib/store/societyAdmin.js` — overlays, claims, resident verification, Q&A, contributions, the board and merges have no seam (D227) |
+| `note` | `noteService.js` | mock + **http** | Live: what the back office knows about a case — `GET`/`POST /admin/notes/{entityType}/{entityId}`, `PATCH /admin/notes/{id}`, gated on `notes:read` / `notes:write` (both `ops(...)`, so an ordinary staffer holds them; there is no per-team wall, deliberately — a note nobody else can read is one the next person on the case rewrites from scratch). Replaces `db.internalNotes` in localStorage, which five moderation screens wrote to while the decision printed beside it was a real API call landing in the audit log: the note was a private diary in one browser, and every mock assertion about it passed for that reason. **The one vocabulary bridge in the seam**: every admin screen has said `listing` since it was a mock and the wire says `property`, like every other route, so `http/noteMapper.js` is the single place the two words meet and the server answers **400** for `listing` rather than accepting a second spelling into one table. Notes are **mutable** — retained customer information that goes stale, not a signature — and an edit records the previous wording on the audit row while leaving the original author on the note; there is **no delete route**. The author is resolved server-side from the token and re-read from `users` at list time, so renaming a staffer renames them on their old notes too. The four listing writers go through `saveNoteIfAny`, which posts **after** the decision has landed and reports failure without unwinding it — the listing really was approved, and a toast that said otherwise because a note did not save is the worse lie. `GET` returns a **bare array**, not a page envelope: a case file with enough notes to paginate is a case, not a queue |
 | others (content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
-| `document` | `documentService.js` | mock + **http** | **Owner side only.** Live surface: the vault — `GET /me/documents/{propId}`, multipart `POST` (upload), `DELETE` — and the owner's request inbox — `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}` (grant/decline). The wire's `categories[]` collapses to a single `docType` for the inbox row; the requester mobile stays masked; `shareToken`/`expiresAt` are re-send affordances, null until granted. The vault's signed `url` does not resolve in dev, so the bytes live behind the mock's `dataUrl` (D120 pattern). The **buyer's half** (ask → poll → open a shared bundle, token-mediated), the cross-user grant notification, shared-doc counts, the dashboard doc-count badge, rent agreements, and every presentation helper stay on `lib/data/documents.js` (D123). The consumer flip shipped as an **honest subset**: `DocumentsTab` — the owner's per-listing vault, the personal/KYC bucket (`/me/documents/personal`) and the request inbox — reads and writes through the service, and `document` is in the live e2e `VITE_API_DOMAINS`. `useRentAgreement`'s vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` (the first needs the bytes the signed URL withholds; the last two address mock-only managed-property ids). What the flip left rough — failure states that read as emptiness, the missing loading state, wrong-flat mutation updates, and the request inbox on localStorage (tracked as D125, resolved 2026-08-08) |
+| `document` | `documentService.js` | mock + **http** | **Owner side only.** Live surface: the vault — `GET /me/documents/{propId}`, multipart `POST` (upload), `DELETE` — and the owner's request inbox — `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}` (grant/decline). The wire's `categories[]` collapses to a single `docType` for the inbox row; the requester mobile stays masked; `shareToken`/`expiresAt` are re-send affordances, null until granted. The vault's signed `url` does not resolve in dev, so the bytes live behind the mock's `dataUrl` (D120 pattern). The **buyer's half** (ask → poll → open a shared bundle, token-mediated), the cross-user grant notification, shared-doc counts, the dashboard doc-count badge, rent agreements, and every presentation helper stay on `lib/data/documents.js` (D123). The consumer flip shipped as an **honest subset**: `DocumentsTab` — the owner's per-listing vault, the personal/KYC bucket (`/me/documents/personal`) and the request inbox — reads and writes through the service, and `document` is in the live e2e `VITE_API_DOMAINS`. `useRentAgreement`'s vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` (the first needs the bytes the signed URL withholds; the last two address mock-only managed-property ids). **D32 removed the second half of that excuse**: managed-property ids are server ids now, and `GET`/multipart `POST /me/documents/managed/{managedId}` plus `DELETE …/{docId}` are a third vault beside the per-listing one and the personal bucket — a separate table (V93) rather than a nullable foreign key, because V20 established that every row in `documents` has a property and V32 set the precedent for opening a new table instead of reopening that question. The papers on a flat you own but have not listed are not shareable with buyers, which is the invariant the separation buys. The client half landed in the same slice: `listManagedDocuments` / `uploadManagedDocument` / `deleteManagedDocument` are three more exports on the same service, kept separate from the per-listing three rather than added as a flag on them, because live they are different routes against a different table and a boolean argument would read like a variation on one thing when it is really two. `DocVault` is the only caller and always holds a managed id, so it took the managed trio outright; the 3 MB inline cap moved down into the mock provider, which is the only end that has a quota to blow, and `openDoc` now prefers the http `url` and falls back to the mock `dataUrl`. `useRentAgreement`'s vault reuse is the one remaining `lib/` reader — it needs the bytes the signed URL withholds. What the flip left rough — failure states that read as emptiness, the missing loading state, wrong-flat mutation updates, and the request inbox on localStorage (tracked as D125, resolved 2026-08-08) |
+| `managed` | `managedService.js` | mock + **http** | Live: the owner's private property record — `GET`/`POST /me/managed-properties`, `GET`/`PATCH`/`DELETE /me/managed-properties/{id}`, `POST …/{id}/publish`. The **whole domain** crosses the seam, unlike `document`: there is no half of the owner hub that stays on `lib/`, and `lib/data/managedProperty.js` is now imported by exactly one file, the mock provider. Four translations in `http/managedMapper.js` are load-bearing and none of them are cosmetic: **`deal`** is `rent`/`sale` in the browser and `rent`/`buy` on the wire, so a missed conversion is a hard 422 on every sale record; **`bhk`** is one number on the server and the store kept both the number and its `2 BHK` label, so the label is re-derived (`4+ BHK` above three); timestamps are epoch millis in the store and ISO-8601 on the wire; and `monthlyRent`/`publishedListingId` are `0`/`''` in the store where the server means null. `priceStr`, `loc`, `img`/`image`/`gallery` and `owner`/`ownerMobile` have no column and are derived on read — the first three because cards render them, the last from the session. `source` and `real` were dropped outright: grep found no reader. **Publish can be refused.** A managed record is captured loosely — free-text furnishing, a price that may still be zero — and the marketplace contract is stricter, so the server re-runs listing validation at that boundary and answers **422**; every caller now has an error branch, which the synchronous client function never gave them. The mock's publish also unshifts a listing into the browser catalogue and pushes a notification; the first the server does on its own terms, the second not at all, and both are documented as mock-only affordances rather than pending work. **The bridge runs both ways.** Publish is managed → listing. An owner who advertised first and opened the passport later needs listing → managed, and the client cannot infer which listing a new record refers to, so `POST /me/managed-properties` takes an optional `publishedListingId` (the one lifecycle field a body may set, and only on create): a listing that is not the caller's is **404** — a 403 would confirm it exists, which is the probe an enumerator is running — and one that is already spoken for is **409**, because the caller can see it, it's theirs. The partial unique index in V93 says the same thing one layer down. `ensureManagedForListing` swallows both to null; `loadOwnerProperties` reads the managed set **once** and dedups against it client-side (option C) rather than firing a create per card |
 
-Twenty-nine services, twenty-nine http providers, twenty-six mock providers — and the invariant to
+| `enquiryBoard` | `enquiryBoardService.js` | mock + **http** | The back-office demand desk — `GET /admin/{enquiries,visits,deals}` and, new in D25, `GET /admin/{enquiries,visits,deals}/{id}`. The backend for the three lists had **already shipped** in `eb825b6` with no route test, so its central claim — contact numbers are masked — was a Javadoc; register item 25 supplied nine route tests before touching the frontend at all. **The list masks and the detail reveals.** `98XXXXX210` on every row; an administrator who needs the real number opens that one row, which is a separate request on a raised role (`hasRole('ADMIN')` over the same `enquiries:read` atom, exactly as `TIMELINE_READ` does — a new atom would be a new checkbox for something that is not a separate capability) and which writes an `audit_log` entry *before* answering. The alternative, `?reveal=true` on the list, was rejected: a parameter makes bulk disclosure a single request and reduces the audit trail to "somebody looked at forty numbers". The audit row stores the **masked** value, so the log is not a second copy of the secret, and on the deals route it also records `source: off-platform | account`, because a counterparty mobile may have been typed by an owner closing privately and belong to nobody with an account here. **The mock provider masks too**, rather than serving the browser store's raw numbers — otherwise masking would be a property of the server and the mock suite would be exercising a screen that differs from the one that ships. Three fields were dropped rather than mapped: the mock's enquiry `kind` (`contact`/`chat`/`call` — only `contact` was ever a row in a table, chats have their own moderated surface, and the platform places no calls), and with it the enquiry type filter and the funnel's `item.kind` clause. **No writes.** The board is read-only on the server; "mark responded" against a live backend adds an **internal note on the listing** through the `note` domain instead of flipping a status on a conversation the platform is not party to. The status pickers in `admin/enquiries/constants.js` are a deliberate **union of two vocabularies** (`pending|approved|declined` from the contract, `new|open|responded|closed` from the store) while the mock rows survive, because the analytics seam still reads them |
+
+Thirty-one services, thirty-one http providers, twenty-eight mock providers — and the invariant to
 keep is that the first two match. A provider without a service is unreachable; a service without a
 provider throws. (The table above grew past the "eighteen" and then the "twenty-three" it was
 written for; the count is the thing to check, not the adjective.) The three mock-side gaps are
@@ -156,8 +161,14 @@ early exit, and `coming soon` in the i18n catalogue. A surface that fails any of
 These stay on `lib/` **because they have no backend counterpart**, and moving them would create a
 service method that can never be implemented:
 
-- `setPipelineStage`, `sendOwnerReminder`, `confirmListingFresh`, `applyVerifiedBadgeToListings`,
-  `verifiedStats` — growth/ops features that are mock-only by design.
+- `sendOwnerReminder`, `confirmListingFresh`, `applyVerifiedBadgeToListings`, `verifiedStats` —
+  growth/ops features that are mock-only by design.
+- `setPipelineStage` **used to be listed here and was wrong**. `POST /properties/{id}/pipeline` has
+  existed since D215; what was missing was a service method in front of it, so the console wrote
+  straight to the browser store while the server route sat unused with a different vocabulary. D27
+  reconciled the vocabularies and put the write behind `propertyService.setPipelineStage`. The
+  lesson worth keeping: "no backend counterpart" is a claim about the server, and it has to be
+  checked against the server rather than inherited from the last person who wrote it down.
 - `logAudit` on the admin pages stays mock-only **deliberately**, not pending. The server writes its
   own `audit_log` row inside `PropertyModerationService` for every status change, feature toggle,
   flag and clear; wiring the client's `logAudit` to the API would record the same action twice, from
@@ -308,9 +319,17 @@ Three things this slice had to get right, none of them obvious from the provider
   around moderation, which is exactly what the foundation-field rules exist to prevent.
 
 The localStorage write survives as a **mirror**, not as the system of record: edit prefill, the
-browser-side dedup (`evaluateListingDedup`) and the documents shelf still read it. It is wrapped in
+cross-owner half of `evaluateListingDedup` and the documents shelf still read it. It is wrapped in
 its own try/catch for quota errors, and the seam call sits deliberately *outside* that — losing the
 mirror is survivable, losing the save is not.
+
+The self-arm of that dedup is **no longer** one of those readers (D226). "Have I already listed
+this?" is a question about the caller's real listings, which is precisely what the mirror does not
+hold, so it crossed the seam as `checkOwnDuplicate` → `POST /me/listings/duplicate-check`. This is
+the general shape of the mirror's remaining readers being wrong: each one answers a question about
+the world using a record of what *this browser* did, and is correct only for as long as those two
+are the same thing. The one reader still living on the wrong side of that line is edit prefill,
+which is why the duplicate guard's CTA has to check `getListing(id)` before offering the editor.
 
 ### Types diverge across the seam before values do
 
@@ -568,6 +587,39 @@ has reviewed is stating something false about it, and "unrated" and "rated zero"
 claims. The `SocietyDetail` schema had these two fields already; they moved up to `Society` rather
 than being duplicated, so the hub and the directory cannot drift into computing different numbers.
 
+### Follows: the read that had to exist before the writes could be used (D227)
+
+`PUT`/`DELETE /me/societies/{slug}/follow` and a per-row `followedByMe` shipped with the catalogue
+slice and were never called once. Following stayed `pnFollowedSocieties`, a localStorage array read
+synchronously by five surfaces, so following on a laptop did not follow on a phone — and the Hub's
+follower count, which the server computes from `society_follows`, counted nobody.
+
+The five could not be ported one at a time, and the reason generalises. `followedByMe` answers *"is
+this one followed?"* for a society you already have in hand, so the directory could have gone alone.
+The dashboard tile, the followed-societies panel and the finder ask *"which ones do I follow?"* with
+no page of societies to hang the question on. `GET /me/societies/following` is what makes those
+answerable; porting the directory without it would have left two follow sets disagreeing on one
+screen. **A per-row flag and a list endpoint are not substitutes for each other**, and a slice that
+ships only the first leaves four of five callers unable to move.
+
+`FollowContext` holds the set once, the way `SavedContext` does and for the same reason: the finder
+asks membership once per search result and the directory once per card, so the naive conversion is
+one request per row. Writes are optimistic with rollback, and `toggle` returns the state it
+**settled** on — the callers show toasts from it, and a toast that reports the attempt rather than
+the outcome promises an alert the server never recorded.
+
+The seam returns **slugs**, not rows, and that is the one place it deliberately narrows what the
+server offers. `FollowedSocietiesPanel` resolves each slug through the local catalogue to get the
+synthetic `S01` that `listingsInSociety` joins on; handing it the server's rows would substitute a
+UUID and every panel row would read "No homes listed now".
+
+A society minted in the browser (`mintDemandSociety`) is the deliberate exception. The server 404s a
+follow on a slug it has never heard of — correctly; it will not write a dangling foreign key — so
+those follows are kept in `pnLocalSocietyFollows` and retried on every load. Not a concession: the
+society does not exist on the other device either, so syncing the follow would put a row on the
+phone pointing at nothing. The mint drops an ops lead, and the day ops promote it the retry lands
+without the user doing anything.
+
 ### What the server has that the UI does not use
 
 `title` and `categories` exist on the wire and only `categories` is rendered; `ReviewCreate` accepts
@@ -761,7 +813,7 @@ asks **while drawing**:
 | Question | Asked by |
 |---|---|
 | `isPaidOwnerPlan()` | `MyListingsPanel`, deciding whether to offer the Feature action |
-| `listingLimit()` | `ListProperty`'s paywall and `Refer`'s "slots left" counter |
+| `listingLimit()` | `ListProperty`'s paywall (`Refer`'s "slots left" counter reads `GET /me/entitlements` since D31b) |
 | `canPostListing()` | `useListProperty`, in a `useState` initialiser |
 | `getPlan().id` | `Plans` (which card is current), `Checkout` (the already-owned guard) |
 
@@ -814,6 +866,75 @@ Plan identity is a UUID on the wire and a slug in the app (`/checkout?plan=owner
 joined by plan **name** in `planMapper.js`. Mapping by name rather than by position matters: a fifth
 plan inserted in the middle would silently re-point every slug if this keyed on order. An unknown
 name maps to `null` rather than guessing — a plan the app has no card for is one it cannot describe.
+
+## The entitlement slice: a domain created to take a decision away from the browser (D31b)
+
+Every other slice in this document moved a *read* across the wire. This one moved a **decision**, and
+it is the only slice where the honest description of the previous state is "the client was the
+security".
+
+The owner-contact quota lived in `lib/store/contactQuota.js`, re-exported from `lib/store.js`, so any
+component could `import { canRevealContact }` and answer it synchronously during render. Three facts,
+all the browser's:
+
+- `pnContactsUsed:<mobile>` — the counter, incremented by the same code that read it.
+- `referralBonusContacts()` — the allowance top-up, derived from `pnReferralStats`, which the browser
+  also wrote.
+- `canRevealContact()` — the gate, evaluated **before** any network call. An exhausted user was
+  refused with zero requests made.
+
+Clearing site data restored the quota in full; a second device never knew about the first; and the
+referral bonus was minted by the machine that spent it. The mock e2e suite could not have caught any
+of it, because on a mock build the browser *is* the server and the two halves agree by construction.
+
+### The shape, and the one trap in it
+
+```
+GET /me/entitlements
+{ contacts: { unlimited, used, allowance, remaining, referralBonus },
+  listings: { allowance, referralBonus } }
+```
+
+`allowance` and `remaining` are **`null`** when `unlimited` is true — not `Infinity`, and not a large
+number. The retired local API returned `Infinity`, which reads nicely and is not a thing JSON can
+carry, so the http provider would have handed back `null` while the mock handed back something that
+behaved differently. Callers must branch on `unlimited`; `null > 0` is false, and a caller that
+compared `remaining > 0` would tell an unlimited user they had run out. Both providers return `null`
+so that mistake fails on both builds or neither.
+
+### The rule the seam does not enforce
+
+Nothing in this domain gates anything. It reports. The refusal is a **422 `contact_quota_exhausted`**
+from `POST /contacts/request`, and the two call sites — `ContactBox` and `ContactOwnerModal` — open
+the refer-or-upgrade modal on that error code rather than on a number they read first. Reading
+`remaining` and skipping the request when it hits zero would put the decision back in the browser,
+and would be wrong as well as unsafe: another tab or device may have spent or earned contacts since
+the fetch.
+
+The visible consequence is that a blocked press now costs one round trip where it used to cost none.
+That is the change, not a regression — `referral-rewards.spec.js` previously asserted the zero-request
+behaviour explicitly, which is the shape of a test that documents a bug.
+
+### Where the mock's quota went
+
+`lib/store/contactQuota.js` → **`services/providers/mock/contactQuota.js`**. Same arithmetic, same
+localStorage keys, so `seed()` and `readContactsUsed()` in the e2e helpers still work. What changed is
+that it now sits inside the mock provider directory, where it is understood to be the mock *server's*
+state, and it is deliberately **not** re-exported from `lib/store.js`. Its only legitimate importers
+are `mock/entitlementProvider.js` (which reports it) and `mock/contactProvider.js` (which enforces the
+422 and spends on the transition). If a component can import it, the seam is not a seam.
+
+### Derivation over storage, twice
+
+Neither number is stored, and both refusals to store are load-bearing:
+
+- `used` is `count(contact_requests where requester = me)`. The unique index
+  `uq_contact_requests_requester_property` (V9) makes that count race-proof and makes idempotency
+  free: a repeat press on the same listing is the same door, so it cannot cost a second contact. A
+  stored counter gets this wrong the first time somebody double-clicks.
+- `referralBonus` is `count(qualified or rewarded referrals) × settings.fees.referralContactBonus`,
+  recomputed per read. That is what makes **clawback** whole — there is no grant to reverse, so
+  nobody has to remember to reverse it.
 
 ## The deal slice: the first domain where the mock had a security hole
 
@@ -979,12 +1100,21 @@ quietly wrong on a large one — the worst failure mode available.
    first draft read `res?.items` and silently produced empty pages — the same class of bug as D106,
    which is why the harness asserts a payment is readable back rather than only that it was created.
 
-## Backend gaps that block the last two aggregates
+## Backend gaps that block the last aggregate
 
 | Aggregate | Blocker | Needs |
 |---|---|---|
 | Societies "N homes" | No `society` facet on `/properties`; the society list itself is client-side mock data, so an exact count over fabricated societies is meaningless | a `society` facet, or a societies slice |
-| Saved-search match counts (`listings/alertCriteria.js` `countMatches`) | Matches on **multi-valued** `localities[]`/`bhk[]`; server facets are single-valued, so it would take \|localities\| × \|bhks\| requests per saved search | a saved-search / alerts count endpoint |
+
+Saved-search match counts used to be the second row here, and the "needs" column said *a
+saved-search / alerts count endpoint*. It shipped in D227, not as an endpoint but as a **field**:
+`matchCount` on the saved-search resource itself. That is the cheaper shape for the same reason the
+gap existed — the blocker was that the facets are multi-valued (`localities[]`, `bhk[]`) and
+`/properties` takes one value each, so a browser-side count would have cost |localities| × |bhks|
+requests per search. Answering it where the record is already being read costs one `count(*)` per
+search on a list capped at ten by `MAX_SAVED_SEARCHES`, and the mock provider counts the same three
+facets over its in-memory catalogue. `countMatches` in `listings/alertCriteria.js` is now the mock
+provider's implementation detail rather than a caller-side aggregate.
 
 ## Shape gaps (resolved in Phase 2b)
 

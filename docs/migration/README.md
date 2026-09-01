@@ -560,8 +560,16 @@ Each phase ends green before the next starts. UI instability on this branch is a
   **The perk grant could not be ported and is recorded as intentionally dropped**, alongside the D95
   Featured perk. `creditReferrer({ mobile: r.referrerMobile, … })` failed on both halves: the number
   it looked the referrer up by is masked on the wire, and the reward it granted (a listing slot, +15
-  contacts) is not a thing the contract models — `ReferralSummaryDto` speaks `rewardsEarned` /
+  contacts) is not a thing the contract modelled — `ReferralSummaryDto` spoke `rewardsEarned` /
   `rewardsPending` in rupees. The reward is money, and the desk's job ends at approving it.
+
+  > **Half-overruled by D31b.** The masked-mobile half stands: the desk still cannot address a
+  > referrer by phone number. The second half was the wrong thing to drop. The perk *was* the
+  > product, and the rupees were a currency with nothing to spend them on, so the contract moved to
+  > the perk rather than the other way round: `reward_amount` is a count of owner contacts,
+  > `ReferralSummaryDto` speaks `contactsEarned` / `contactsPending`, and the grant is derived from
+  > referral status on every read of `GET /me/entitlements` — so approving grants it and clawback
+  > removes it without anyone crediting an account.
 
   **Flagged → High risk.** There is no `flagged` status, so that tab would have sat permanently
   empty while telling a fraud desk there was nothing suspicious. It now filters on `risk`, which is
@@ -821,10 +829,14 @@ Each phase ends green before the next starts. UI instability on this branch is a
   in place rather than overruled, and the new mock provider carries the consumer half only; its four
   desk methods throw with that reason.
 
-  **The currency is still open, deliberately.** The server pays whole rupees; the page grants
-  listing slots and free contacts. `rewardsEarned` / `rewardsPending` are fetched by the seam and
-  displayed by nobody, because hiding a field at the seam is how a seam starts lying — the place to
-  decide not to show a number is the component that would show it. Register item 31 option (2).
+  **The currency was open, deliberately, and is now closed.** At the time of this wave the server
+  paid whole rupees while the page granted listing slots and free contacts, so `rewardsEarned` /
+  `rewardsPending` were fetched by the seam and displayed by nobody — the place to decide not to show
+  a number is the component that would show it. **D31b** settled it by moving the *server* onto the
+  browser's unit rather than the reverse: a qualified referral is worth **owner contacts**, the
+  fields are `contactsEarned` / `contactsPending`, and the spendable balance is a separate read,
+  `GET /me/entitlements`, derived from the referrals that justify it. The contact quota itself moved
+  server-side in the same change; `lib/store/contactQuota.js` is retired.
 
   Suites: full mock 844 passed / 1 flaky ✅ (20.4m), live `tests/live-refer.spec.js` 5 ✅,
   lint 0 errors / 372 warnings, build ✅.
@@ -852,7 +864,7 @@ That file is the single record of every question raised during this migration an
 Nothing about a decision is restated here, in `tasks/todo.md` or in `tasks/HANDOFF.md` — cite the
 number instead.
 
-Fourteen items are decided but not yet built; the ledger lists them in the order they should be
+Two items are decided but not yet built; the ledger lists them in the order they should be
 worked. Five entries remain genuinely undecided (Checkmarx vs CodeQL, a caching layer, the
 first-verification Featured perk, the "Posted by PuneNest" badge, and who owns the concierge
 fixtures), and none of them block a port.

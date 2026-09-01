@@ -6,7 +6,7 @@ import NativeSelect from '../../../components/ui/NativeSelect.jsx';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { fmtINR, fmtNum } from '../../../lib/format.js';
 import { estimateValuation } from '../../../lib/data/valuation.js';
-import { registerManagedProp } from '../../../lib/data/managedProperty.js';
+import { registerManaged } from '../../../services/managedService.js';
 import { HUB_LOCALITIES, HOME_TYPES, BHK_OPTIONS, FURNISHING_OPTIONS, FIELD_CLS } from './constants.js';
 
 /* The Rent-o-meter — the acquisition hero. An owner gets an instant, indicative
@@ -32,22 +32,33 @@ export default function RentOMeter({ onSaved }) {
     setResult({ est: out });
   };
 
-  const save = () => {
+  const save = async () => {
     if (!est) return;
     setSaving(true);
     const price = isRent ? est.rent.mid : est.sale.mid;
-    const prop = registerManagedProp({
-      deal: isRent ? 'rent' : 'sale',
-      locality: form.locality,
-      type: form.type,
-      bhk: form.bhk,
-      area: est.area,
-      furnishing: form.furnishing,
-      price,
-      rented: false,
-      monthlyRent: est.rent.mid,
-      valuation: { rent: est.rent, sale: est.sale, perSqft: est.perSqft, at: Date.now() },
-    });
+    let prop;
+    try {
+      prop = await registerManaged({
+        deal: isRent ? 'rent' : 'sale',
+        locality: form.locality,
+        type: form.type,
+        bhk: form.bhk,
+        area: est.area,
+        furnishing: form.furnishing,
+        price,
+        rented: false,
+        monthlyRent: est.rent.mid,
+        // The whole estimate, kept verbatim. It is the owner's evidence for the number they were
+        // shown, and the server stores it as an opaque blob for exactly that reason — re-deriving
+        // it later from a changed model would quietly rewrite history.
+        valuation: { rent: est.rent, sale: est.sale, perSqft: est.perSqft, at: Date.now() },
+      });
+    } catch (e) {
+      // Without this the button stays in its saving state forever on a failure, with no explanation.
+      setSaving(false);
+      toast(e?.message || t('ownerHub.publishFailed'), 'error');
+      return;
+    }
     toast(t('ownerHub.savedToast'), 'success');
     if (onSaved) onSaved(prop);
     navigate(`/owner-hub/property/${prop.id}`);

@@ -20,7 +20,7 @@
  * would put the grid back to showing "Not rated yet" for societies that are rated, which is exactly
  * the failure mode nobody noticed the first time.
  */
-import { get } from '../../http.js';
+import { del, get, put, unwrapFullPage } from '../../http.js';
 import { toRatingIndex } from './societyMapper.js';
 
 /** The server's hard ceiling (`spring.data.web.pageable.max-page-size`); asking for more is clamped. */
@@ -28,6 +28,17 @@ const PAGE_SIZE = 100;
 
 /** 20 × 100 = 2,000 societies. The seeded catalogue is 348. */
 const MAX_PAGES = 20;
+
+/**
+ * How many follows to ask for in one page.
+ *
+ * A follow set grows only through the user's own taps, so it is bounded by their own effort in the
+ * way a shortlist is — the same reasoning, and the same number, as `SavedContext`. Asking for one
+ * page and getting it whole matters here more than it does for a list screen, because the answer
+ * feeds a membership check: a second page left unread is not a shorter list, it is a set of
+ * societies the directory would draw as unfollowed and invite the user to follow again.
+ */
+const FOLLOW_PAGE_SIZE = 500;
 
 export async function listSocietyRatings() {
   const first = await get('/societies', { page: 0, size: PAGE_SIZE });
@@ -47,4 +58,29 @@ export async function listSocietyRatings() {
   const index = {};
   for (const res of [first, ...rest]) Object.assign(index, toRatingIndex(res?.content));
   return index;
+}
+
+/**
+ * The caller's followed society slugs, newest follow first (D227).
+ *
+ * `unwrapFullPage` rather than a silent `.content`: if the follow set ever outgrows one page the
+ * console says so, because the failure is invisible otherwise — the directory would simply show
+ * the overflow as unfollowed, which looks like the user never followed them.
+ *
+ * Rows without a slug are dropped rather than pushed in as `undefined`, which would make one
+ * membership check answer true for every unnamed society.
+ */
+export async function listFollowedSocieties() {
+  const res = await get('/me/societies/following', { page: 0, size: FOLLOW_PAGE_SIZE });
+  return unwrapFullPage(res, 'society').map((row) => row?.slug).filter(Boolean);
+}
+
+/** Idempotent follow — 204 whether or not the row existed. 404 when the slug is unknown. */
+export async function followSociety(slug) {
+  await put(`/me/societies/${encodeURIComponent(slug)}/follow`);
+}
+
+/** Idempotent unfollow — 204 whether or not the row existed, and 204 for an unknown slug too. */
+export async function unfollowSociety(slug) {
+  await del(`/me/societies/${encodeURIComponent(slug)}/follow`);
 }

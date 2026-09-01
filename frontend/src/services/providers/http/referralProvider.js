@@ -19,8 +19,8 @@
  *
  * This is what retires `creditReferrer({ mobile: r.referrerMobile, ... })`: the mock granted a perk
  * by looking the referrer up by phone number, and that number is no longer on the wire. The reward
- * is money now (`rewardAmount`, surfaced to the referrer as `rewardsEarned`), and approving is the
- * whole of the desk's part in paying it.
+ * is a count of owner contacts (`rewardAmount`, surfaced to the referrer as `contactsEarned`), and
+ * approving is the whole of the desk's part in paying it.
  *
  * ## The Aadhaar rule moved to the server in this wave
  *
@@ -88,10 +88,10 @@ function reasonBody(reason) {
  * the fraud desk's." Only the desk half was wired. This is the other half.
  *
  * Returned verbatim, with no mapper. `ReferralSummaryDto` is `(code, invited, converted,
- * rewardsEarned, rewardsPending)` — five scalars, all already in the shape the page wants, and the
- * money is whole rupees like everywhere else on this platform. A mapper here would exist only to
- * copy five fields, and every such mapper is one more place for the two shapes to drift apart
- * silently.
+ * contactsEarned, contactsPending)` — five scalars, all already in the shape the page wants, and
+ * the reward is a plain count of owner contacts rather than money (D31b). A mapper here would exist
+ * only to copy five fields, and every such mapper is one more place for the two shapes to drift
+ * apart silently.
  *
  * ## What this fixes
  *

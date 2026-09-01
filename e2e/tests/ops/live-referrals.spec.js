@@ -153,7 +153,7 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await expect(row).toContainText('Same IP');
   });
 
-  test('approving releases money the referrer can see, not a perk', async ({ page, login }) => {
+  test('approving grants owner contacts the referrer can actually spend', async ({ page, login }) => {
     const { referrer, referee } = PAIRS.approve;
     await seedReferral(PAIRS.approve);
     await openDesk(page, login);
@@ -166,14 +166,21 @@ test.describe('Ops → referral fraud desk (live)', () => {
     await expect(statusOf(page, referee.name, 'rewarded')).toBeVisible();
 
     /* The mock granted a free listing slot or +15 contacts by looking the referrer up by phone
-       number - a number that is no longer on the wire. The server pays rupees, and this is the
-       only assertion that proves the approval reached the referrer at all rather than just
-       recolouring a chip. */
+       number - a number that is no longer on the wire. The server used to pay rupees of platform
+       credit instead, which nothing could be spent on; D31b re-denominated it into the unit the
+       scheme always advertised, owner contacts. These are the only assertions that prove the
+       approval reached the referrer at all rather than just recolouring a chip - and the second
+       pair proves it reached the thing the referrer can actually spend, which is the entitlement,
+       not the summary. */
     const { accessToken } = await apiLogin(referrer.mobile);
     const summary = await fetch(`${API}/me/referrals`, { headers: auth(accessToken) }).then((r) => r.json());
     expect(summary.converted).toBe(1);
-    expect(summary.rewardsEarned).toBeGreaterThan(0);
-    expect(summary.rewardsPending).toBe(0);
+    expect(summary.contactsEarned).toBeGreaterThan(0);
+    expect(summary.contactsPending).toBe(0);
+
+    const ent = await fetch(`${API}/me/entitlements`, { headers: auth(accessToken) }).then((r) => r.json());
+    expect(ent.contacts.referralBonus).toBe(summary.contactsEarned);
+    expect(ent.contacts.allowance).toBeGreaterThan(ent.contacts.referralBonus);
   });
 
   test('the Aadhaar rule is the server\u2019s now, and the greyed-out button only mirrors it', async ({ page, login }) => {

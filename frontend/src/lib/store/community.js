@@ -1,7 +1,6 @@
 import { readUser } from '../auth.js';
 import { digits, myMobile } from '../contact.js';
 import { allSocieties, registerCommunitySocieties, slugifySociety } from '../../data/societies.js';
-import { registerCommunityLocalities, slugifyLocality } from '../../data/localities.js';
 import { isBlacklisted } from '../geoConfig.js';
 import { get, set } from './internals.js';
 import { resolveSociety } from './societyAdmin.js';
@@ -67,72 +66,37 @@ export const addCommunitySociety = (o = {}) => {
 };
 
 /* =========================================================================
-   Community localities — user-minted from the listing flow, mirroring the
-   community-society graph. When a lister's Google pick matches no canonical
-   locality, we mint a `community`-tier locality (the system of record),
-   persist it here, register it into localities.js so every lookup resolves
-   it, and drop an ops lead so it can be promoted to `curated`.
+   Community localities used to live here — `pnLocalityLeads`,
+   `pnCommunityLocalities`, and the mint / promote / dismiss trio that
+   surrounded them. All of it is gone (register item 24).
+
+   It minted a `community`-tier locality whenever a lister's Google pick
+   matched no canonical area, registered the slug into `data/localities.js`
+   so lookups resolved, and queued the new locality for ops promotion. Three
+   things were wrong with that, in ascending order of cost.
+
+   The store was one browser's `localStorage`, so the ops queue it fed was
+   visible only on the machine that had minted the row. Every other operator
+   opened Admin ▸ Localities, saw an empty queue, and concluded there was no
+   work.
+
+   The tier itself was unvetted supply masquerading as catalogue. Free text
+   coins a slug, so "Undhera Wasti", "undhera wasti " and "Undhera-Wasti" are
+   three localities, each with its own landing page and its own share of the
+   search facet.
+
+   And it reviewed the wrong object. The listing that triggered the mint was
+   never the thing in the queue, so promoting or dismissing a locality left the
+   listing exactly as it was. The listing is what is broken when its area does
+   not resolve — it is missing from locality search, from `/locality/{slug}`,
+   from saved-search alerts and from its society. That listing is now the queue,
+   it is served by `GET /admin/locality-queue`, and it is filed by picking an
+   area that already exists.
+
+   The society machinery above is deliberately untouched: community *societies*
+   are a separate feature with its own verification path, and the two only ever
+   looked alike.
    ========================================================================= */
-export const getLocalityLeads = () => get('pnLocalityLeads', []);
-export const addLocalityLead = (o) => {
-  const arr = getLocalityLeads();
-  arr.unshift(Object.assign({ id: 'll' + Date.now(), at: Date.now(), status: 'new' }, o || {}));
-  return set('pnLocalityLeads', arr);
-};
-
-const COMMUNITY_LOC_KEY = 'pnCommunityLocalities';
-export const getCommunityLocalities = () => get(COMMUNITY_LOC_KEY, []);
-// Rehydrate the canonical registry with any previously-minted localities.
-registerCommunityLocalities(getCommunityLocalities());
-
-export const addCommunityLocality = (o = {}) => {
-  const name = String(o.name || '').trim();
-  if (!name) return null;
-  const slug = slugifyLocality(name);
-  if (!slug) return null;
-  const arr = getCommunityLocalities();
-  const existing = arr.find((l) => l.slug === slug);
-  if (existing) { registerCommunityLocalities([existing]); return existing; }
-  const rec = {
-    slug, name,
-    lat: o.lat ?? null, lng: o.lng ?? null, pincode: o.pincode || '',
-    tier: 'community',
-    source: o.source || 'listing',
-    by: digits((readUser() || {}).mobile),
-    at: Date.now(),
-  };
-  arr.unshift(rec);
-  set(COMMUNITY_LOC_KEY, arr);
-  registerCommunityLocalities([rec]);
-  addLocalityLead({ kind: 'auto', slug, locality: name, source: o.source || 'listing' });
-  return rec;
-};
-
-/* Ops queue: community localities awaiting promotion to curated. */
-export const pendingCommunityLocalities = () =>
-  getCommunityLocalities().filter((l) => l.tier === 'community');
-
-/* Promote a community locality to curated (ops action). Flips the stored tier
-   so raw reads and the live registry agree. */
-export const verifyCommunityLocality = (slug, by) => {
-  const rec = getCommunityLocalities().find((l) => l.slug === slug);
-  if (!rec) return null;
-  const arr = getCommunityLocalities().map((l) => (l.slug === slug
-    ? { ...l, tier: 'curated', verifiedAt: Date.now(), verifiedBy: digits(by || myMobile()) || 'ops' }
-    : l));
-  set(COMMUNITY_LOC_KEY, arr);
-  registerCommunityLocalities(arr);
-  return arr.find((l) => l.slug === slug);
-};
-
-/* Dismiss a mistaken/duplicate community locality (ops action). Drops it from
-   the persisted set; the in-memory registry keeps the slug resolvable until
-   reload (harmless), matching the community-society dismissal behavior. */
-export const dismissCommunityLocality = (slug) => {
-  const arr = getCommunityLocalities().filter((l) => l.slug !== slug);
-  set(COMMUNITY_LOC_KEY, arr);
-  return arr;
-};
 
 /* Ranked type-ahead over the full catalogue (curated + community). Verified
    societies float to the top, then locality matches, then alphabetical. Returns

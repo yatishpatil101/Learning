@@ -33,6 +33,23 @@ public record PropertyResponse(
         String furnishing,
         String locality,
         String localitySlug,
+        /**
+         * The society this home is actually in, keyed by slug, or {@code null} when the owner never
+         * named one (D19).
+         *
+         * <p>The detail page's Society section — builder, towers, units, year, occupancy,
+         * conveyance, and a link to the hub — renders from this. It used to render from a society
+         * picked by {@code fnvHash(listing.id) % pool.length}, so a page could print one real
+         * building's paperwork under another building's listing, and every figure on it was a
+         * checkable claim about a named third party.
+         *
+         * <p>Slug rather than id because that is the society's public key: it is what
+         * {@code GET /societies/{slug}} takes, what the hub link routes on, and what the client's
+         * own catalogue is indexed by. Absent (NON_NULL) when unbound, and the client renders no
+         * Society section at all rather than an emptied one — a section with nothing in it still
+         * asserts that this listing belongs to a society.
+         */
+        String societySlug,
         String city,
         Double lat,
         Double lng,
@@ -59,6 +76,27 @@ public record PropertyResponse(
         // listing being real. Withholding it would leave the badge to be computed from `createdAt`
         // alone, which is what it already did, badly.
         Instant lastConfirmedAt,
+        // The freshness tier derived from `lastConfirmedAt` above, and the generated completeness
+        // score (V94). Both moved off the browser in D26: the tier because `isDormant` was a
+        // visibility decision the client had no business making, the score because it orders
+        // search results and an ordering the database cannot see cannot be paged.
+        // `qualityScore` is absent rather than zero when the instance has not been read back since
+        // it was written -- a generated column has no value on the row a write just built.
+        Integer qualityScore,
+        String freshness,
+        // ---- search facets the browser used to invent (V95) ----
+        // Six fields the listings page has filtered on since it was written, none of which had a
+        // column: against the live API they compared against `undefined`, so selecting any of them
+        // returned an empty page. On detail rather than on the card because their job is to be
+        // filtered on -- which now happens in SQL -- and to be shown to the owner who declared
+        // them. See V95 for why they were built rather than deleted.
+        String landUse,
+        Integer ageYears,
+        String room,
+        List<String> tenants,
+        String availableFrom,
+        boolean pets,
+        List<String> sharing,
         // ---- detail ----
         String description,
         Long deposit,
@@ -199,11 +237,18 @@ public record PropertyResponse(
     /**
      * Post-on-behalf onboarding state (contract {@code Property.adminPipeline}).
      *
-     * <p>Only {@code postedByAdmin}, {@code pipelineStage} and {@code postedByStaff} are stored.
-     * The three booleans are derived from the stage by {@link PipelineStage#reached} — they ask
-     * "has the funnel got this far", which the stage already answers, and keeping a second copy
-     * would only create the opportunity for the two to disagree.
+     * <p>Only {@code postedByAdmin}, {@code pipelineStage}, {@code handbackMilestone} and
+     * {@code postedByStaff} are stored. The three booleans are derived from the milestone by
+     * {@link PipelineStage#reached} — they ask "has the hand-back got this far", which the
+     * milestone already answers, and keeping a second copy would only create the opportunity for
+     * the two to disagree.
      *
+     * @param pipelineStage      where the listing is on the acquisition funnel: {@code contacted},
+     *                           {@code info_collected}, {@code listed} or {@code docs_submitted}.
+     * @param handbackMilestone  where it is on the hand-back axis, or null if that has not started.
+     *                           A second field rather than more values on {@code pipelineStage},
+     *                           because a listing sits on both axes at once — see D27 and
+     *                           {@link PipelineStage}.
      * @param reminderCount how many chasers have gone to this owner. This said "always 0 until
      *                      there is a messaging surface to count"; there is one now, and this is a
      *                      live count over the {@code outbound_message} ledger, supplied by
@@ -222,6 +267,7 @@ public record PropertyResponse(
             boolean postedByAdmin,
             String postedByStaff,
             String pipelineStage,
+            String handbackMilestone,
             boolean claimLinkSent,
             boolean photosUploaded,
             boolean aadhaarVerified,

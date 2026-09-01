@@ -39,6 +39,11 @@
   have ACTUAL inventory (a property listing, a flatmate room, a flatmate request/group, or a
   private managed property from Owner Hub / Rent-o-meter). This prevents a brand-new "owner" from
   landing on empty "My Listings / Requests / Finances" dead-ends.
+- **`hasManaged` is asynchronous since D32.** The managed set now comes from `managedService.js`,
+  so `Dashboard.jsx` holds it in state and starts empty. On the first paint a returning owner is
+  briefly not an owner by this test - the same first-paint hole `listings` already had, and the
+  reason the tab registry is recomputed rather than frozen at mount. A failed read falls back to
+  an empty list rather than surfacing: the dashboard's job is to show what it can.
 - **`showRental`** (My Rental tab) = `hasTenancy || !isOwner || hasRentalInvite` - buyers/tenants,
   anyone with a finalised tenancy, or anyone with a pending owner co-fill invite; a pure owner who
   rents nothing does not see it.
@@ -60,7 +65,8 @@ All read-heavy; mutations happen inside the sub-flows this hub links to. Links g
 - photo requests, flatmates requests, group applications - read + updated.
 - `property_review` - read (verification status per listing) + reply (`addPropReviewReply`).
 - `saved_properties`, `saved_searches`, followed societies, recent props/searches - read (counts + nudges).
-- `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge).
+- `managed_property` (Owner Hub / Rent-o-meter) - read (rental nudge). Since D32 this is the
+  `managed` seam domain (`/me/managed-properties`), not a browser store.
 - `users` (profile), `aadhaar_verification` - read (profile-completion meter + the opt-in Verified
   badge state; the badge is a trust signal, never a posting/contact gate — ADR-019).
 - `pnPlan` / plan - read via Plan & Billing tab (see plans-billing-refer doc).
@@ -88,7 +94,11 @@ Exactly four cards, all real:
 1. **Saved Properties** = `getSavedProps().length`.
 2. **Recently Viewed** = `recent.length` (real per-user MRU resolved against approved catalog, cap 6).
 3. **Saved Searches** = `getSavedSearches().length`.
-4. **Followed Societies** = `getFollowedSocieties().length`.
+4. **Followed Societies** = `useFollows().count` (`context/FollowContext.jsx`). Was a render-body
+   `getFollowedSocieties().length` until **D227** - a different reader from the followed-societies
+   panel's, which is how the tile and the list it links to could disagree, and a browser-local one,
+   which is how it disagreed with the same account on another device. Both now read one context over
+   `GET /me/societies/following`.
 Each tile's `onClick` deep-links via `go()` to the relevant tab.
 
 ### Action Center (`buildActionItems`) - "what's waiting on ME"
@@ -136,7 +146,7 @@ pending ids together, then re-reads shared state.
   — the number stays masked even after approval, routing approved buyers to in-app chat.
 
 ### Rental nudge
-`rental = getManagedProps().find(p => p.rented && p.monthlyRent) || null` - a real rented managed
+`rental = managedProps.find(p => p.rented && p.monthlyRent) || null` - a real rented managed
 property only. Drives the seeker "Rent due soon" action row and Overview rental card.
 
 ### Recent vs recommended feed

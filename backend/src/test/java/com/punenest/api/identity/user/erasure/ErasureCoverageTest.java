@@ -240,6 +240,10 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("plans.contact_limit",
                 "A number of contact reveals a plan allows. Matched on 'contact'; it is a quota, not "
                         + "a contact detail.");
+        map.put("plans.unlimited_contacts",
+                "Whether a plan lifts the contact ceiling entirely (V91). Matched on 'contact'; it "
+                        + "is a flag on a catalogue row, identical for every subscriber to that "
+                        + "plan, and says nothing about any of them.");
         map.put("platform_fees.gst",
                 "A tax rate on the platform's own fee schedule. Matched on 'gst'; it is a rate, not "
                         + "a GSTIN.");

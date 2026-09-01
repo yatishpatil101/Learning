@@ -89,12 +89,21 @@
 - Every new report starts `status: 'open'` with no action taken.
 
 ### 5.2 Triage states & moderator actions
-The `act(id, status, actionTaken)` handler (`AdminReports.jsx`) is the single mutation path:
-- Prompts for an optional internal note (`window.prompt`).
+The `act(id, status, actionTaken, enforcement)` handler (`AdminReports.jsx`) is the single mutation
+path:
+- Prompts for an optional internal note (`window.prompt`) and sends it to
+  `PATCH /reports/{id}/triage` as `note`, where `ReportService.triage` records it on `report.triage`
+  alongside the from-status, the to-status and the authenticated actor.
 - Writes `{ status, handledAt: Date.now() }`, plus `actionTaken` when supplied; **reopening
   (`status='open'`) clears `actionTaken` back to `''`**.
-- If a note was entered: `addInternalNote('report', id, note, actionTaken || status)`.
-- Always `logAudit('Reports', '<status> report <id>')`.
+- **No** `addInternalNote` and no `logAudit`. Both stood here once and both wrote a browser-local
+  second copy of something the server had already stored under a real author. The note went under
+  the key `report:<id>` in localStorage, which nothing ever read. `report` is one of the `note`
+  domain's four entity families and the route is open to this screen, but nothing here calls it
+  yet, deliberately: the triage record already carries the moderator's words for the decision
+  itself, and a note here would be for something the triage record cannot hold — context that
+  outlives the decision. Adding the panel is a product choice, not a gap in the plumbing.
+- The server's answer is authoritative for `status` — `resolved` is stored as `dismissed`.
 
 | Trigger | status | actionTaken | Effect |
 |---------|--------|-------------|--------|

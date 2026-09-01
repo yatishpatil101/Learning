@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ShieldCheck, Plus, Bell, Check, Search } from 'lucide-react';
-import { searchSocieties, mintDemandSociety, toggleFollowSociety, isSocietyFollowed } from '../../../lib/store.js';
+import { searchSocieties, mintDemandSociety } from '../../../lib/store.js';
+import { useFollows } from '../../../context/FollowContext.jsx';
 import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
 
 /**
@@ -8,9 +9,13 @@ import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
  *
  * A searcher looks for a society and "follows" it to get alerted the moment a
  * home is listed there. If it doesn't exist yet, "Add & alert me" MINTS a
- * community society (source: 'demand') and auto-follows it — creating both the
+ * community society (source: 'demand') and follows it — creating both the
  * society entity AND a demand signal ops can act on. Reuses the same follow +
  * auto-mint funnel as the listing side, so supply and demand grow one graph.
+ *
+ * Membership comes from `useFollows` rather than a read per row (D227). This surface is the
+ * clearest reason the follow set had to become a context: it asks "is this followed?" once per
+ * search result, on every keystroke, and against a real API a per-row read is a request per row.
  */
 const norm = (s) => String(s || '').trim().toLowerCase();
 
@@ -18,6 +23,7 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState('');
   const inputRef = useRef(null);
+  const follows = useFollows();
 
   // Searching the curated head only would offer "Add & alert me" for a society that
   // already exists in the RERA rows, minting a duplicate (D129).
@@ -29,17 +35,22 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
   // duplicate of a society we already have verified (D129).
   const canCreate = catalogueReady && query.trim().length >= 2 && !exact;
 
-  const follow = (slug) => {
-    if (!isSocietyFollowed(slug)) toggleFollowSociety(slug);
-    // Notify the parent first so its refresh re-renders us; the row then reads
-    // isSocietyFollowed() fresh and flips to "Following" (visible confirmation).
+  const follow = async (slug) => {
+    if (!follows.has(slug)) await follows.toggle(slug);
+    /* The row now flips from the context's own state, so this no longer depends on the parent
+       re-rendering us before the badge can update. The callback stays because the panel still
+       refreshes its listing counts off it. */
     if (onFollow) onFollow(slug);
   };
 
-  const createAndFollow = () => {
+  const createAndFollow = async () => {
     if (!catalogueReady) return;
     setBusy('create');
     const rec = mintDemandSociety({ name: query.trim() });
+    /* The mint no longer follows on its own (D227): the society exists only in this browser, the
+       server 404s a follow on it, and the context is the only thing that knows to hold such a
+       follow locally and retry it once ops promote the slug. */
+    if (rec) await follows.toggle(rec.slug);
     setBusy('');
     if (!rec) return;
     setQuery('');
@@ -71,7 +82,7 @@ export default function SocietyFinder({ onFollow, autoFocus = false }) {
       {query.trim().length >= 1 && (
         <div className="mt-2 overflow-hidden rounded-xl border border-white/10 divide-y divide-white/5">
           {results.map((s) => {
-            const followed = isSocietyFollowed(s.slug);
+            const followed = follows.has(s.slug);
             return (
               <button
                 key={s.id}

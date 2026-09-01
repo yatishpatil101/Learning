@@ -74,6 +74,25 @@ export const myListings = async (user) => (await provider()).myListings(user);
 export const addListing = async (listing) => (await provider()).addListing(listing);
 
 /**
+ * "Have I already listed this?" — asked by the wizard before it submits.
+ *
+ * Scoped to the caller's own listings, which is the whole change. The wizard used to answer this
+ * itself, out of `evaluateListingDedup`, by scanning the listings the browser's local store happened
+ * to hold. Against a live API that store is the seeded demo catalogue, so the guard could refuse a
+ * real owner over a fixture and then offer to open an id the server had never issued — it blocked
+ * the wrong people and sent them to a blank form.
+ *
+ * `fields` are the wizard's, not the wire's: the provider composes the address the same way
+ * `toListingCreate` does, because the server derives the comparison key from that string and a
+ * different composition here would answer about a different property than the one about to be
+ * posted.
+ *
+ * Resolves `{ found, existingId }`. It never throws for "yes" — a duplicate is an answer, not an
+ * error — so a caller that only cares about the block reads `found`.
+ */
+export const checkOwnDuplicate = async (fields) => (await provider()).checkOwnDuplicate(fields);
+
+/**
  * Staff: create a listing on somebody else's behalf, attributed to them.
  *
  * A separate operation rather than `addListing` with a couple of extra fields, because the two
@@ -125,6 +144,25 @@ export const flagListing = async (id, reason) => (await provider()).flagListing(
  * restored to whatever it was before being flagged. Both providers behave this way.
  */
 export const clearFlag = async (id) => (await provider()).clearFlag(id);
+
+/**
+ * Move a staff-posted listing along one of the two concierge funnels (D27).
+ *
+ * `stage` is either an acquisition stage — `contacted | info_collected | listed | docs_submitted`,
+ * where the desk has got to — or a hand-back milestone — `photos_uploaded | aadhaar_verified |
+ * claim_sent | claimed`, where the owner has got to once the desk handed the listing over. The
+ * server keeps them in two columns and works out which one you meant, so callers pass a single
+ * value; sending a hand-back milestone also pins the acquisition stage at `docs_submitted`, and
+ * sending an acquisition stage clears the milestone.
+ *
+ * `under_review` and `live` are **not** stages and are refused with a 400. They are `status` read
+ * sideways (`pending` and `approved`), and the board derives those two columns rather than storing
+ * them — a listing cannot be approved and "not yet Live" at the same time. Anything wanting to move
+ * a listing into either belongs in {@link setListingStatus} or the review decision.
+ *
+ * Resolves with **no value** on both providers, like the four moderation decisions above.
+ */
+export const setPipelineStage = async (id, stage) => (await provider()).setPipelineStage(id, stage);
 
 export const deleteListing = async (id) => (await provider()).deleteListing(id);
 export const updateListingFields = async (id, patch) => (await provider()).updateListingFields(id, patch);

@@ -11,11 +11,14 @@ package com.punenest.api.content;
  * {@code case 'services'} in both of the client's content providers -- but nothing writes it and
  * nothing reads it, so {@code cms_services} is authored by nobody and rendered to nobody.
  *
- * <p>Deliberately not resolved by adding the tab. A console tab on its own produces records no
- * visitor sees; pointing the {@code /services} landing index at the CMS on its own produces a page
- * fed by a table nobody can edit. Either half alone is worse than neither, which is presumably how
- * it arrived here. The choice between finishing both ends and deleting the type is recorded as item
- * 26 in {@code tasks/DECISIONS-NEEDED.md}; this comment exists so the next reader does not spend the
+ * <p><strong>Kept, deliberately unfinished (D26).</strong> Adding the console tab on its own would
+ * produce records no visitor sees; pointing a {@code /services} landing index at the CMS on its own
+ * would produce a page fed by a table nobody can edit. Either half alone is worse than neither,
+ * which is presumably how it arrived here. Deleting the type was considered and rejected: every
+ * layer already exists and is tested, the column is a {@code text} discriminator so an unused value
+ * costs nothing at rest, and removing it would mean unpicking a permission, a public route and two
+ * client providers to save nothing. It stays as a complete, dormant fourth type, to be switched on
+ * by building both ends together. This comment exists so the next reader does not spend the
  * afternoon looking for the fourth tab.
  */
 public final class ContentTypes {

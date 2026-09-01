@@ -33,6 +33,22 @@ Two things that are true and are not going to change soon:
 - **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
   it. It is set per machine, not in the repo.
 
+### In progress — ledger 20, the finance console
+
+Four product calls taken 2026-08-18, all recorded in ledger row 20: **four chart bands** (Services
+stays and renders a measured ₹0 under the existing "quoted, not received" marker), **both ARPU and
+ARPPU** as separate tiles, **the payouts panel kept** and driven from real data rather than a 65/35
+invention, and **no migration** — every figure the console draws is already in the schema.
+
+- [ ] `AdminMetricsRepository` — per-source revenue series, MRR, per-plan lines, paying users, GST, pending settlement, the paged ledger
+- [ ] `AdminFinance` extended; `AdminFinanceSeriesPoint` and `AdminFinanceTransaction` added
+- [ ] `GET /admin/finance/series` and `GET /admin/finance/transactions`, both on the existing `finance:read` atom
+- [ ] OpenAPI: two operations and three schemas
+- [ ] Backend route tests, including the 403 for a non-admin and the ledger's status mapping
+- [ ] `financeService.js` + both providers; `finance` added to `config.js` and `playwright.live.config.js`
+- [ ] `AdminFinance.jsx` off `rawDb`/`buildTransactions`/`buildRevenueSeries`/`rentFeeRevenue`
+- [ ] e2e: mock spec updated, live spec added, `COVERAGE.md` row
+
 ## Needs attention
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
@@ -113,7 +129,8 @@ still undecided · `wa-pricing` → resolved.
 
 ## Next up
 
-The ledger's damage order, starting at item 35 (`GET /geo`). Clear item 36's analytics trap early:
+The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built; the
+queue is now **20 (finance console) then 36 (analytics tabs)**. Clear item 36's analytics trap early:
 `AdminAnalytics.jsx:35` calls `getAnalytics()` from `mockApi.js` and `:59` gates the whole page on
 it, so deleting the mock hangs the page including its one working tab.
 

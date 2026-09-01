@@ -2,6 +2,7 @@
   "common": {
     "somethingWentWrong": "Something went wrong. Please try again.",
     "retry": "Retry",
+    "loading": "Loading…",
     "errorBoundary": {
       "title": "This page stopped working",
       "bodyRoute": "Something on this page failed while it was drawing, so we stopped it here instead of showing you a half-broken screen. The rest of the site still works — use the menu to go elsewhere, or try again below.",
@@ -60,7 +61,15 @@
     "refundsNotMeasured": "Refunds: the platform has no refund path, so no refund can be recorded here.",
     "servicesNotCounted": "Revenue excludes the services marketplace: a service order records a quote, not money received.",
     "servicesQuoted": "Quoted value, not money received, so it is left out of revenue.",
-    "notMeasured": "Not measured"
+    "notMeasured": "Not measured",
+    "arpuBasis": "Across all {{count}} accounts.",
+    "arppuBasis": "Across the {{count}} who paid this month.",
+    "mrrChartBasis": "Subscription revenue booked each month. The tile above is the current run rate, which is a different question.",
+    "noActivePlans": "No active paid plans.",
+    "unavailableTitle": "Finance figures are unavailable",
+    "unavailableBody": "The finance service did not answer, so nothing is shown rather than zeros — a ₹0 here would be indistinguishable from a platform that earned nothing. Reload to try again.",
+    "ledgerUnavailable": "The ledger could not be loaded, so this table is empty for that reason rather than because there were no transactions.",
+    "ledgerTruncated": "Showing {{shown}} of {{total}} transactions. Narrow the filters to see the rest."
   },
   "settings": {
     "languageTitle": "App language",

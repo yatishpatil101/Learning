@@ -95,6 +95,9 @@ test('the funnel is opened, and it names the staff member by id', async () => {
      already arrived where the funnel is trying to get to. */
   expect(created.body.adminPipeline?.postedByAdmin).toBe(true);
   expect(created.body.adminPipeline?.pipelineStage).toBe('listed');
+  /* And nothing on the other axis. The hand-back has not started — the owner has not been told the
+     listing exists yet — so a milestone here would be a claim about somebody who has done nothing. */
+  expect(created.body.adminPipeline?.handbackMilestone ?? null).toBeNull();
 
   /* An id, taken from the caller's token. The console used to send `user?.name`, which would have
      made "who posted this" a value that changes when a colleague edits their profile -- and which

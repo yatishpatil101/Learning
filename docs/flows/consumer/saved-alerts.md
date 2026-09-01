@@ -156,11 +156,22 @@ display but not applied to the count.
 Saved property (per id):   unsaved --toggleSavedProp--> saved --toggleSavedProp--> unsaved
 Saved search (per id):     created(alerts=true) --toggleSearchAlert--> alerts off <--> on
                                                  --removeSavedSearch--> deleted (terminal)
-Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet hours AND countMatches>0
+Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet hours AND matchCount>0
                              -> match notification merged (deduped by id)
 ```
-- `newCount` exists on the record (seeded/settable) but no live code increments it; today it reflects
-  seed data only. Real match counting happens live via `countMatches`.
+- `newCount` and `matchCount` are two different questions on the same record and are answered by the
+  same query with one parameter flipped, so they cannot drift. `newCount` is "what arrived since the
+  alert sweep's last baseline" — it falls back to zero once the alert has been sent, and a search
+  saved a moment ago has none. `matchCount` is "how many live listings fit these facets right now",
+  regardless of age.
+- **`matchCount` is the server's number (D227).** It used to be the browser's: `Notifications.jsx`
+  and the dashboard retention strip each fetched listings and ran `countMatches` over the result.
+  That result was one page — `PAGE_SIZE = 100` — so the count was accidentally correct while the
+  catalogue was smaller than a page and would have become a silent ceiling the day it was not. Now
+  `SavedSearchService` fills the field on every read of the resource (list, create and update alike,
+  so a freshly saved alert never renders a stale zero), and both surfaces read `s.matchCount`.
+  `countMatches` survives as the **mock provider's** implementation of the same three facets, which
+  is honest there because the whole demo catalogue is in memory and there is no page to truncate.
 
 ## 8. Edge cases, validation & error states
 - **Signed-out lead:** alert stored under the mobile they typed, not `anon`, so it re-appears after
@@ -172,7 +183,10 @@ Alert delivery (derived):  alerts on AND matchAlerts pref on AND not in quiet ho
 - **"Any" ranges:** default-max budget/rent produce no price chip (noise suppression).
 - **Duplicate saves:** heart toggle is idempotent per id; a saved search is not deduped by criteria
   (two identical saves create two records).
-- **countMatches is conservative:** any field mismatch -> excluded; it never invents matches, so an
-  alert can legitimately show zero live matches.
+- **The match count is conservative on both sides:** a facet the record does not carry does not
+  narrow, but a record with no `deal` at all counts **zero** rather than counting everything — an
+  alert that has not said what it wants has not asked for anything. A `flatmates` alert is likewise
+  zero; this count does not read the rooms catalogue. So an alert can legitimately show no matches,
+  and never invents them.
 - **Quiet hours / alerts-off:** live match/price notifications are fully suppressed; the record stays
   but no notification is generated.

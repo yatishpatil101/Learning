@@ -4,7 +4,6 @@
 // Data is curated/deterministic (no backend). The record shape is intentionally
 // "ownership-ready": `claimStatus`, `adminId` and `members` are reserved for Phase 2
 // (society claim + admin edit) and Phase 3 (Society OS SaaS) and are unused in Phase 1.
-import { fnvHash } from '../lib/hash.js';
 
 // water: 'Corporation' | '24x7 Corp + Borewell' | 'Tanker + Borewell'
 // power: backup coverage. petPolicy/vegPolicy: 'Allowed' | 'Not allowed' | 'Common areas only' | 'Mixed'
@@ -40,9 +39,9 @@ export const SOCIETIES = [
 ];
 
 // Verified catalogue = 28 curated demo societies + the MahaRERA bulk import.
-// RERA rows are lookup-/search-visible immediately, but the hash-fallback pool
-// used for LEGACY unbound listings stays the curated set (see societyForListing)
-// so existing demo hubs keep their listing density.
+// Both are lookup-/search-visible immediately. Neither is a *fallback* pool: a
+// listing is in a society because it says so (`societySlug`), never because a
+// hash of its id landed on one — see societyForListing.
 //
 // D129: the bulk import is 182 KB of generated data and it used to be a static
 // import, which put it on the critical path of every route — including the ones
@@ -172,39 +171,42 @@ export const societiesInLocality = (localitySlug) => SOCIETIES.filter((s) => s.l
 export const allSocieties = () =>
   catalogue().concat(COMMUNITY).filter((s) => !MERGES_BY_SLUG[s.slug]);
 
-// Map a listing to a society.
+// Map a listing to the society it is actually in, or to nothing (D19).
 //
-// This comment used to read: "Deterministically map a listing to a society. Prefers an
-// explicit `societyId` binding (curated or community) so the assignment is honest; only
-// when a listing is truly unbound (legacy data) does it fall back to a locality-scoped,
-// id-stable hash so the Society Hub still has something to show."
+// This used to end in a fallback: when a listing had no `societyId`, pick one from its locality
+// with `fnvHash(listing.id) % pool.length`. The comment above it called that "id-stable" and
+// "honest", and it was neither. Nothing set `societyId` — not one row in `db.json`, and not one of
+// the 38 listings in the database, where `society_id` was null on every row. The explicit branch
+// had never once been taken. The fallback was not a fallback; it was the whole function.
 //
-// Every clause of that is false in practice, and it was worth checking rather than
-// believing. Nothing sets `societyId` — not one row in `db.json`, and not one of the 38
-// listings in the database, where `society_id` is a real column with a real foreign key and
-// is null on every row. The explicit branch below has never been taken. "Legacy data"
-// describes 100% of the data. The fallback is not a fallback; it is the whole function.
+// What made that worse than an ordinary placeholder is what `SocietySection` does with the result:
+// it prints the society's name and builder, its unit count, tower count, year built and occupancy,
+// and a verified badge. Every one of those is a checkable claim about a real, named building in
+// Pune, and it was being made about a listing that was not in it — wrong for all but one listing in
+// twenty-eight by construction, and wrong in the direction that a reader can act on.
 //
-// That matters more here than it would elsewhere, because `SocietySection` prints the
-// result on every property page as fact: the society's name and builder, its unit count,
-// tower count, year built and occupancy, and a verified badge. Those are checkable claims
-// about a real, named building in Pune, attached to a listing that is not in it.
+// Both halves of the fix are now real. The wizard has asked for the society since SocietySelect
+// landed, the server carries the binding back on `societySlug` (the slug rather than the UUID,
+// because the UUID matches nothing in this catalogue), and the dev seed binds the demo listings so
+// the feature is visible rather than theoretical. So this returns null when a listing is unbound,
+// and the section disappears — which is the correct thing for a page to say about a building it
+// does not know.
 //
-// Left in place deliberately, and only because removing it is a product decision rather
-// than a cleanup: `societyForListing` is the spine of the Society Hub, and returning null
-// empties a section from every listing on the site. That call is recorded as item 19 in
-// tasks/DECISIONS-NEEDED.md, with the two honest fixes (ask for the society at posting
-// time; then show the section only when bound). This comment exists so that nobody reads
-// the code in the meantime and concludes the binding works.
+// `societySlug` first because it is the server's answer and the only one live data carries;
+// `societyId` second because mock records and community societies still key on the synthetic `S01`
+// ids. A slug that names no society in the catalogue also lands here as null rather than being
+// invented: an unrecognised MahaRERA row is a gap in the catalogue, not a licence to guess.
 export function societyForListing(p) {
   if (!p) return null;
+  if (p.societySlug) {
+    const bound = societyBySlug(p.societySlug);
+    if (bound) return bound;
+  }
   if (p.societyId) {
     const bound = societyById(p.societyId);
     if (bound) return bound;
   }
-  const pool = societiesInLocality(p.localitySlug);
-  const set = pool.length ? pool : SOCIETIES;
-  return set[fnvHash(p.id || '') % set.length];
+  return null;
 }
 
 // All listings that map to a given society (from a pre-fetched listing array).

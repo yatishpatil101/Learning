@@ -71,18 +71,25 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
     the contract declares no unmasked single-record read for referrals — so a checker decides on
     the signals, which are computed server-side from the unmasked data. The checker sees the
     finding without seeing the evidence.
-  - Reward: `reward` (human string) and `rewardAmount` (paise/rupees, from platform settings at
-    redeem time). The reward is **money**, surfaced to the referrer as `rewardsEarned` /
-    `rewardsPending` on `GET /me/referrals`.
+  - Reward: `reward` (human string, `"+15 owner contacts"`) and `rewardAmount` (an integer **count of
+    owner contacts**, from `settings.fees.referralContactBonus` at redeem time). Since **D31b** the
+    reward is not money: it was ₹500 of platform credit, which nothing could be spent on, and is now
+    the unit the scheme always advertised. Surfaced to the referrer as `contactsEarned` /
+    `contactsPending` on `GET /me/referrals`, and as spendable balance on `GET /me/entitlements`.
+    Do not format `rewardAmount` as currency.
   - Signals: `aadhaarVerified`, `aadhaarUnique`, `activated`, `sameDevice`, `sameIp`,
     `velocityHigh` (booleans); `risk` (`low | medium | high`, computed by `ReferralService.risk`).
     `aadhaar_verified` and `aadhaar_unique` are `updatable = false` — they are a snapshot of the
     redeem moment, which is why the approve gate reads the referred party's *current* badge
     instead (§5.2).
   - Lifecycle: `status`, `at` (redeemed), `qualifiedAt`, `handledBy`, `handledAt`.
-- **The referrer's reward balance** - rupees on `ReferralSummaryDto`, credited by the server on
-  approval. The mock's device-local perk counters (`src/lib/store/referrals.js`,
-  `pnReferralStats:<mobile>`) have no server equivalent and were **not** ported; see §5.5.
+- **The referrer's reward balance** - owner contacts, reported by `GET /me/entitlements` and derived
+  from the referrals that justify it on every read (`count(qualified or rewarded) ×
+  settings.fees.referralContactBonus`). There is no balance column and no grant ledger, which is
+  precisely what makes **clawback** whole: reversing the referral reverses the contacts, with nothing
+  to un-increment by hand. The mock's device-local perk counters
+  (`services/providers/mock/contactQuota.js`, `pnContactsUsed:<mobile>`) are the *mock server's*
+  equivalent of the same arithmetic; see §5.5.
 - **Audit log** - decisions are audited server-side (`referral.approve` / `.reject` / `.clawback`).
 
 ## 5. Business rules & logic  *(the meat)*
@@ -167,12 +174,15 @@ at the reward/deal layer where money is at risk.
 
 ### 5.5 Reward release - what the mock could not do
 - The mock's Approve called `creditReferrer({ mobile: r.referrerMobile, ... })` to grant a listing
-  slot or +15 contacts. **Neither half survives the contract:** `referrerMobile` is masked, and the
-  server models the reward as money, not as a perk. The perk grant is therefore recorded as
-  **intentionally dropped**, alongside the D95 Featured perk — the reward is money, and the desk's
-  job ends at approving it.
-- Approval credits `rewardsEarned` on the referrer's own `GET /me/referrals`, atomically, which is
-  what the mock could only promise.
+  slot or +15 contacts. That call is gone: `referrerMobile` is masked and there is no unmasked read,
+  so the desk cannot address a referrer by phone number and must not try.
+- **Corrected by D31b.** This section used to end "the server models the reward as money, not as a
+  perk", and recorded the perk grant as intentionally dropped. That was the wrong half to drop. The
+  perk was the product — owner contacts are what the scheme advertises — and the ₹500 of platform
+  credit was a currency with nothing to spend it on. The server now pays owner contacts, so the
+  grant is neither dropped nor device-local: approving moves the referral into a status
+  `EntitlementService` counts, and the referrer's `GET /me/entitlements` reflects it on the next
+  read. **Clawback** takes it back the same way, with no ledger entry to reverse.
 
 ### 5.6 Export
 CSV of the current tab's rows including all six signals, the reward amount and the redeemed date
@@ -185,7 +195,7 @@ Three disagreements, not three formatting differences — which is why this desk
 |---|---|---|
 | statuses | `pending`, `flagged`, `qualified`, `rewarded`, `rejected` | `pending`, `qualified`, `rewarded`, `rejected`, `clawed-back` |
 | mobiles | both in full | both masked, no unmasked read |
-| approve pays | a perk, device-locally | rupees, in the ledger |
+| approve pays | a perk, device-locally | owner contacts, on the account (D31b) |
 | clawback leaves | `rejected` | `clawed-back` |
 | Aadhaar gate | the button | the endpoint |
 

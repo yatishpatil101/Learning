@@ -5,7 +5,8 @@ import { usePlan } from '../../context/PlanContext.jsx';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import { useEffect, useState, useCallback } from 'react';
-import { referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, referralContactsEarned, referralBonusListings, contactsRemaining, listingLimit, activeListingCount, fee } from '../../lib/store.js';
+import { referralLink, getReferralStats, addReferralInvite, claimReferralCredits, referralListingsTarget, referralFreeAgreements, activeListingCount, listingLimit, fee } from '../../lib/store.js';
+import { getEntitlements } from '../../services/entitlementService.js';
 import { getDealFees } from '../../services/feesService.js';
 import { getMyReferralSummary } from '../../services/referralService.js';
 
@@ -53,12 +54,15 @@ export default function Refer() {
    * is a number about this browser's owner rather than about anybody they reached. The server's
    * counts redemptions. The copy under it — "You've invited N" — was only ever true of the second.
    *
-   * The **rewards** stay where they were. `referralFreeAgreements`, `referralContactsEarned` and
-   * `referralBonusListings` still read the local quota counters, because the server pays whole
-   * rupees and this page grants listing slots and free contacts, and no arithmetic turns one into
-   * the other. Register item 31 records that as an open product decision and this change
-   * deliberately does not pre-empt it — `rewardsEarned` / `rewardsPending` are fetched and not
-   * shown.
+   * The **contact and listing balances** are the server's too now (D31b). They used to be read
+   * straight out of the same localStorage counters this page incremented, which meant the page
+   * that advertised the reward was also the page that granted it. `GET /me/entitlements` derives
+   * the bonus from the referrals that justify it every time it is asked, so a clawed-back referral
+   * takes its contacts back with it and no counter has to be un-incremented by hand.
+   *
+   * What is still local is the *progress* narrative — `referralFreeAgreements` and the `listed` /
+   * `joined` counts behind it. Those describe milestones towards the free-rent-agreement perk,
+   * which has no server-side equivalent to read.
    *
    * Nothing renders until the summary resolves. The alternative is a page that shows a blank code
    * for a tick and a Copy button that puts an empty string on the clipboard, which is the quiet
@@ -83,10 +87,22 @@ export default function Refer() {
   const invited = summary?.invited || 0;
   const listed = stats.listed || 0, joined = stats.joined || 0;
   const free = referralFreeAgreements();
-  const contacts = referralContactsEarned();
-  const bonusSlots = referralBonusListings();
-  const left = contactsRemaining();
-  const slotsLeft = Math.max(0, listingLimit(planLimit) - activeListingCount());
+
+  /* Balances, from whoever is serving. `null` until the answer lands — rendered as an em dash
+     rather than as 0, because "you have 0 contacts left" and "we have not asked yet" are different
+     sentences and only one of them should send a user to the checkout. */
+  const [ent, setEnt] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getEntitlements()
+      .then((e) => { if (alive) setEnt(e); })
+      .catch(() => { if (alive) setEnt(null); });
+    return () => { alive = false; };
+  }, []);
+  const contacts = ent?.contacts?.referralBonus ?? 0;
+  const bonusSlots = ent?.listings?.referralBonus ?? 0;
+  const left = ent?.contacts?.unlimited ? null : (ent?.contacts?.remaining ?? null);
+  const slotsLeft = Math.max(0, (ent?.listings?.allowance ?? listingLimit(planLimit)) - activeListingCount());
 
   // Collect anything friends have earned for us since the last visit so the
   // numbers below are the real, spendable balance.
@@ -256,7 +272,7 @@ export default function Refer() {
             <div className="glass rounded-2xl px-5 py-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center shrink-0"><Icon name="phone-call" className="w-[18px] h-[18px] text-teal-400" /></div>
               <div className="min-w-0">
-                <p className="text-xl font-extrabold text-teal-300" data-testid="refer-balance-contacts">{Number.isFinite(left) ? left : '∞'}</p>
+                <p className="text-xl font-extrabold text-teal-300" data-testid="refer-balance-contacts">{ent == null ? '—' : (ent.contacts?.unlimited ? '∞' : left)}</p>
                 <p className="text-gray-500 text-[11px]">{t('misc1.referBalanceContacts')}</p>
               </div>
             </div>

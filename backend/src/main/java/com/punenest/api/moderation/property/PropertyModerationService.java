@@ -5,6 +5,7 @@ import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.BadRequestException;
+import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.ForbiddenException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.Notifier;
@@ -51,6 +52,9 @@ public class PropertyModerationService {
      * ({@code flag_reason}, the {@code archived} triplet). Allowing them through would let a
      * moderator set {@code status='archived'} while {@code archived=false}, leaving the row visible
      * on the public site while every admin screen showed it as deleted.
+     *
+     * <p><strong>Approval requires a locality (register item 24).</strong> See
+     * {@link #denyApprovingUnfiled}.
      */
     @Transactional
     public Property setStatus(AuthPrincipal actor, String id, String status, String reason) {
@@ -60,6 +64,7 @@ public class PropertyModerationService {
         }
         Property property = load(id);
         denySelfDealing(actor, property);
+        denyApprovingUnfiled(property, status);
 
         String from = property.getStatus();
         property.setStatus(status);
@@ -162,6 +167,32 @@ public class PropertyModerationService {
     private static void denySelfDealing(AuthPrincipal actor, Property property) {
         if (actor.userId().equals(property.getOwner().getId())) {
             throw new ForbiddenException("You cannot moderate your own listing");
+        }
+    }
+
+    /**
+     * Refuse to publish a listing the catalogue cannot file (register item 24).
+     *
+     * <p>{@code locality_slug} is null when {@code LocalityResolver} could not confidently match the
+     * free text the owner typed, and every locality-keyed read on the platform skips a null slug:
+     * the search facet, {@code /locality/{slug}}, the saved-search alert and the society join. So
+     * approving one produces a listing that is live by every measure the console shows and reachable
+     * by almost none a buyer uses — while its owner is sent "It is now live and visible to buyers",
+     * which is the part that makes this worth a 409 rather than a warning. The listing is not
+     * broken; the <em>ordering</em> is, and only a refusal fixes an ordering.
+     *
+     * <p>Only approval is blocked. Rejecting an unfiled listing is exactly right — it never needed
+     * a locality — and bouncing one back to {@code pending} is a queue move. There is no override:
+     * the remedy is {@code PATCH /admin/locality-queue/{propertyId}}, which the same
+     * {@code properties:write} permission grants, so this can never deadlock the moderator it
+     * stops. Curating first and approving second is the whole of the fix.
+     */
+    private static void denyApprovingUnfiled(Property property, String status) {
+        if (PropertyStatus.APPROVED.equals(status) && property.getLocalitySlug() == null) {
+            throw new ConflictException("This listing has no locality, so approving it would"
+                    + " publish it out of locality search, its locality page, saved-search alerts"
+                    + " and the society join. Assign one from the locality queue first"
+                    + " (the owner typed '" + property.getLocality() + "').");
         }
     }
 

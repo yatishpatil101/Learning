@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -140,6 +141,107 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String possession;
 
+    /**
+     * Permitted zoning for an open plot or farm land (V95). Null for anything with a building on
+     * it — a flat has no land use, it has the use its society was sanctioned for.
+     *
+     * <p>Plots are the one catalogue segment where the wrong answer is not a disappointment but a
+     * dead purchase: agricultural land cannot be built on by a non-agriculturist, industrial land
+     * will not get a residential completion certificate. So this is a search facet, not a detail —
+     * a buyer must be able to exclude the zoning they cannot use before they ever open a listing.
+     */
+    @Column(name = "land_use")
+    @Setter
+    private String landUse;
+
+    /**
+     * Age of the construction in years (V95). {@code null} means the owner never said, which is
+     * emphatically not zero: a range filter that reads unstated as brand-new floats every lazy
+     * listing above the honest ones. Both the query and the quality score treat null as absent.
+     */
+    @Column(name = "age_years")
+    @Setter
+    private Integer ageYears;
+
+    /**
+     * Flatmate room shape (V95): {@code single} for a private room, {@code shared} for a bed in a
+     * shared room. Null for every listing that is not a flatmate share.
+     */
+    @Column(name = "room")
+    @Setter
+    private String room;
+
+    /**
+     * Who the owner will rent to (V95) — {@code family}, {@code bachelor-male},
+     * {@code bachelor-female}, {@code company}.
+     *
+     * <p>A list rather than a single value because "family or company, no bachelors" is the
+     * ordinary Pune position and no enum expresses it. An <em>empty</em> list means the owner
+     * stated no preference, and the search must read that as matching every tenant filter rather
+     * than none — an owner who did not answer has not refused anybody, and treating silence as
+     * refusal would hide most of the inventory from the filter that is supposed to narrow it.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "tenants", nullable = false)
+    @Setter
+    private List<String> tenants = new ArrayList<>();
+
+    /**
+     * Move-in bucket (V95): {@code now}, {@code 15} or {@code 30} days. Null when unstated.
+     *
+     * <p>A bucket rather than a date, because a date on a listing nobody edits is wrong within a
+     * fortnight and wrong in the direction that wastes a tenant's visit. The filter is cumulative
+     * — "within 30 days" must also return {@code now} and {@code 15} — which the query widens
+     * explicitly rather than relying on the strings sorting usefully.
+     */
+    @Column(name = "available_from")
+    @Setter
+    private String availableFrom;
+
+    /**
+     * Pets allowed (V95). Not nullable: to a tenant with a dog, "unstated" and "no" are the same
+     * answer, because neither is worth the risk of moving in and being told to leave. A third
+     * state would complicate every predicate and change nobody's decision.
+     */
+    @Column(name = "pets", nullable = false)
+    @Setter
+    private boolean pets = false;
+
+    /**
+     * PG/hostel occupancy options (V95): {@code single}, {@code double}, {@code triple},
+     * {@code four}, {@code five}. Empty for anything that is not a PG.
+     *
+     * <p>A list because one PG usually offers several occupancies at different rents, and a single
+     * value would force the same building to be posted three times. Its own column rather than the
+     * amenity list the client was inferring it from — occupancy is a property of the room, not a
+     * facility offered alongside it, and reading it out of amenities meant an honest PG that never
+     * happened to word an amenity that way vanished from the filter.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sharing", nullable = false)
+    @Setter
+    private List<String> sharing = new ArrayList<>();
+
+    /**
+     * Listing completeness, 0–100, computed by the database (V94).
+     *
+     * <p>Read-only here, and deliberately so: this is a Postgres {@code GENERATED ALWAYS AS ...
+     * STORED} column, so Hibernate must never include it in an INSERT or UPDATE — hence
+     * {@code insertable = false, updatable = false} — and there is no setter to tempt anyone.
+     *
+     * <p>It is a column rather than a Java calculation because its job is to <em>order search
+     * results</em>, and an ordering the database cannot see cannot be paged: page 2 is a separate
+     * query, and a rank computed in the browser after the rows arrive has no way to decide which
+     * rows should have been on it. It is generated rather than maintained on write because eight
+     * different paths touch a scored field, and a maintained column is one forgotten call away
+     * from serving a number that disagrees with the listing beneath it.
+     *
+     * <p>The weights live in V94 with the reasoning, including which of the browser's inputs had
+     * no column behind them and what replaced them.
+     */
+    @Column(name = "quality_score", insertable = false, updatable = false)
+    private Short qualityScore;
+
     @Column(name = "locality", nullable = false)
     @Setter
     private String locality;
@@ -161,15 +263,41 @@ public class Property extends SoftDeleteEntity {
     /**
      * The society this listing sits in, as a bare id rather than a {@code @ManyToOne} association.
      *
-     * <p>Nothing on the listing surface needs a society's name, amenities or occupancy — only the
-     * society hub does, and it starts from the society and looks up its homes. Mapping this as an
-     * association would buy a lazy proxy that every page of search results risks initialising, for
-     * a field no listing response emits. The id is enough to answer "which homes are in this
-     * society?", which is the only question asked of it.
+     * <p>Mapping this as an association would buy a lazy proxy that every page of search results
+     * risks initialising, and the society's name, amenities and occupancy belong to the society hub,
+     * which starts from the society and looks up its homes. The id is enough to answer "which homes
+     * are in this society?", and — with {@link #societySlug} beside it — "which society is this home
+     * in?", which are the only two questions asked of it.
      */
     @Column(name = "society_id")
     @Setter
     private UUID societyId;
+
+    /**
+     * The bound society's public key, read-only and derived (D19).
+     *
+     * <p>A UUID is the wrong thing to put on the wire here. The client keys its society catalogue by
+     * slug — that is what {@code /societies/{slug}} takes and what a hub link routes on — so a
+     * response carrying only {@code society_id} tells a browser that a society exists without giving
+     * it any way to name one. That gap is what the frontend papered over for a long time by picking
+     * a society with {@code fnvHash(listing.id) % pool.length}, which printed a real named building's
+     * builder, tower count and occupancy on a listing that was not in it.
+     *
+     * <p>A {@code @Formula} rather than a join or a denormalised column: it rides along in the
+     * entity's own SELECT as a correlated subquery on a primary key, so a page of twenty listings
+     * still costs one statement and no proxy, and there is no second copy of the slug to drift from
+     * {@code societies.slug} when a society is renamed. Null exactly when {@code societyId} is null.
+     *
+     * <p>The setter is not a way to change which society a listing is in — nothing here is written
+     * back, because a formula has no column. It exists because a formula is only evaluated by a
+     * SELECT, so a row that has just been inserted or updated is still the managed instance the
+     * writer built and its slug is null until a later request reads the row afresh. That instance is
+     * what the create and update responses are mapped from, so {@code ListingEditRules} stamps the
+     * slug it has just validated and the answer to a write matches the next read of it.
+     */
+    @Formula("(select s.slug from societies s where s.id = society_id)")
+    @Setter
+    private String societySlug;
 
     @Column(name = "city", nullable = false)
     @Setter
@@ -322,14 +450,30 @@ public class Property extends SoftDeleteEntity {
     private boolean postedByAdmin = false;
 
     /**
-     * How far through {@link PipelineStage} the hand-back has got, or null if not applicable.
+     * How far the acquisition funnel has got, or null if not applicable.
      *
      * <p>Nullable rather than defaulting to {@code listed}, because null and {@code listed} say
      * different things: null is "this listing was never ours to hand over", {@code listed} is "it is
      * ours and we have not started". Thirty-eight seeded rows are the former.
+     *
+     * <p>Holds only the four acquisition stages since V92 — see {@link PipelineStage} for why the
+     * hand-back milestones moved to {@link #handbackMilestone} and why {@code under_review} and
+     * {@code live} live on {@code status} instead of here.
      */
     @Column(name = "pipeline_stage")
     private String pipelineStage;
+
+    /**
+     * How far the hand-back has got, or null if it has not started.
+     *
+     * <p>A second axis rather than more values on {@link #pipelineStage}, because a listing is at a
+     * point on both at once: documents in <em>and</em> photographs up is two facts, and the single
+     * column V3 shipped could only remember whichever was written last. Null while the acquisition
+     * funnel is still running; the database also refuses a milestone on a row that has not reached
+     * {@code listed}, since there is nothing to hand back before the listing exists.
+     */
+    @Column(name = "handback_milestone")
+    private String handbackMilestone;
 
     /**
      * Everything about the hand-back that is not the stage — currently just {@code postedByStaff},
@@ -355,15 +499,29 @@ public class Property extends SoftDeleteEntity {
     }
 
     /**
-     * Move the hand-back to {@code stage}.
+     * Move the listing along, on whichever funnel {@code stage} names.
      *
-     * <p>Backwards is allowed. The stages record what has actually come back from an owner, and
-     * that can be undone — a document turns out to be the wrong flat, a claim link goes to a stale
-     * number. A forward-only funnel would leave the desk with no way to say so except to lie, and a
-     * board everyone knows is optimistic is worse than no board.
+     * <p>One method rather than two because the desk experiences it as one act, and the two
+     * vocabularies are disjoint so the value alone says which column it means. Reaching a hand-back
+     * milestone also pins the acquisition funnel at its last stage: the paperwork must be in before
+     * a hand-back can start, and leaving the first axis behind at {@code listed} would show the
+     * board a listing still waiting for documents it has already received.
+     *
+     * <p>Backwards is allowed on both axes. The stages record what has actually come back from an
+     * owner, and that can be undone — a document turns out to be the wrong flat, a claim link goes
+     * to a stale number. A forward-only funnel would leave the desk with no way to say so except to
+     * lie, and a board everyone knows is optimistic is worse than no board.
      */
     public void moveToStage(String stage) {
+        if (PipelineStage.isHandback(stage)) {
+            this.handbackMilestone = stage;
+            this.pipelineStage = PipelineStage.DOCS_SUBMITTED;
+            return;
+        }
         this.pipelineStage = stage;
+        // Stepping back onto the acquisition funnel un-does the hand-back rather than leaving a
+        // milestone stranded on a row that no longer claims to have the paperwork.
+        this.handbackMilestone = null;
     }
 
     /** The staff member who created this listing on the owner's behalf, or null. */

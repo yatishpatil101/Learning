@@ -43,16 +43,37 @@ public final class ReferralStatuses {
     /** States a checker may still approve or reject from. */
     private static final Set<String> REVIEWABLE = Set.of(PENDING, QUALIFIED);
 
-    /** Statuses whose reward is owed but not yet released — {@code ReferralSummary.rewardsPending}. */
-    private static final Set<String> PENDING_REWARD = Set.of(PENDING, QUALIFIED);
+    /**
+     * Statuses that have earned the owner-contact grant (D31b).
+     *
+     * <p>{@link #QUALIFIED} is in this set and {@link #PENDING} is not, which is the whole of the
+     * decision taken on this item: the grant lands automatically the moment the referred party's
+     * first listing passes ownership verification, rather than waiting on a checker. That is a real
+     * change of policy — {@link #QUALIFIED} is documented above as "a referral a checker can approve
+     * without wondering, not one that has been approved", and it now pays on its own. It is
+     * defensible because Q17's qualifying event is an act the platform verified itself, the D61
+     * monthly cap already holds the volume down, and what is being handed over is the right to ask
+     * fifteen owners a question rather than money.
+     *
+     * <p>{@link #REWARDED} is here too, so a checker's approval never withdraws a grant the
+     * qualification already made. {@link #REJECTED} and {@link #CLAWED_BACK} are not, and because
+     * the entitlement is <em>derived</em> from this set rather than stored, a clawback withdraws the
+     * contacts the instant the desk records it — the reversal became real rather than cosmetic.
+     *
+     * <p>This set replaced a {@code PENDING_REWARD} one that answered the opposite question for
+     * {@code ReferralSummary.rewardsPending}. That field was rupees, was rendered by nothing, and is
+     * gone; "promised but not yet granted" is now simply {@link #PENDING}, and
+     * {@code ReferralService.summary} tests for it directly rather than through a set of one.
+     */
+    private static final Set<String> GRANTING = Set.of(QUALIFIED, REWARDED);
 
     /** Whether a checker may still approve or reject this referral. */
     public static boolean isReviewable(String status) {
         return REVIEWABLE.contains(status);
     }
 
-    /** Whether this referral's reward is promised but not yet released. */
-    public static boolean isRewardPending(String status) {
-        return PENDING_REWARD.contains(status);
+    /** Whether this referral has earned its owner-contact grant (D31b). */
+    public static boolean isGranting(String status) {
+        return GRANTING.contains(status);
     }
 }

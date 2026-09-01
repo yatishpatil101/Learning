@@ -24,8 +24,16 @@ public interface SavedSearchMapper {
      */
     ObjectMapper FILTERS_JSON = JsonMapper.builder().build();
 
+    /**
+     * {@code matchCount} is ignored here on purpose: it is not a column, it is a count of other
+     * rows, and this mapper sees one entity. {@link SavedSearchService#list} fills it in. The
+     * ignore is spelled out rather than left implicit because {@code unmappedTargetPolicy = ERROR}
+     * turns every unmapped field into a compile failure — which is exactly what should happen to a
+     * field that genuinely was forgotten.
+     */
     @Mapping(target = "filters", source = "filters", qualifiedByName = "jsonStringToObject")
     @Mapping(target = "criteria", source = "criteria", qualifiedByName = "jsonStringToNullableObject")
+    @Mapping(target = "matchCount", ignore = true)
     SavedSearchResponse toResponse(SavedSearch entity);
 
     default String map(UUID value) {

@@ -11,6 +11,7 @@
     "removeProperty": "Remove property",
     "completeness": "Passport completeness",
     "alreadyListed": "This property is already listed.",
+    "publishFailed": "Could not publish this property. Please check its details.",
     "submittedReview": "Submitted for review — buyers will see it once verified.",
     "removedToast": "Property removed from your hub",
     "valuation": "Valuation",

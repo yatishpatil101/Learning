@@ -5,8 +5,8 @@
  *
  * **1. Flat facets vs a nested `filters` object.** The mock stores a saved search as one flat record
  * — `{ deal, types, bhk, localities, budget, rent, label, … }` — and the whole app reads those
- * facets directly off it: `criteriaChips(rec)`, `countMatches(s, props)` and the alert card all do
- * `rec.deal`, `rec.bhk`, `rec.localities`. The server nests them under a free-form `filters` jsonb
+ * facets directly off it: `criteriaChips(rec)` and the alert card both do `rec.deal`, `rec.bhk`,
+ * `rec.localities`. The server nests them under a free-form `filters` jsonb
  * column instead. Rather than rewrite every consumer to reach one level deeper, the providers
  * flatten `filters` back onto the record on read and re-nest it on write. The seam's shape is the
  * flat one, because that is the shape the UI is written against.
@@ -28,6 +28,15 @@
  * A saved search watches one of two surfaces. `kind: 'listings'` carries a `query` string and
  * `filters`; `kind: 'flatmates'` carries a `criteria` object and no query. The server enforces
  * "listings needs query, flatmates needs criteria" in both Bean Validation and a CHECK constraint.
+ *
+ * ## Two counts, both read-only
+ *
+ * `newCount` is what arrived since the alert sweep's last baseline; it falls back to zero once the
+ * alert has been sent, so it is a "what changed" number, not a total. `matchCount` is how many live
+ * listings fit the facets right now, regardless of age (D227). Callers must not derive either one:
+ * the browser can only ever see a page of the catalogue, which is precisely the defect `matchCount`
+ * was added to close. Both are always 0 for a `flatmates` alert — neither count reads the rooms
+ * catalogue.
  */
 import { createProvider } from './config.js';
 

@@ -174,6 +174,7 @@
     "plansFooterBold": "support team.",
 
     "referCodeCopied": "Referral code copied!",
+    "referCodeUnavailable": "We could not load your referral code just now.",
     "referShareMsg": "Join me on PuneNest — India's broker-free property platform. Use my code {{code}} to get started: {{link}}",
     "referBadge": "Refer & earn",
     "referTitle": "Refer friends, earn rewards",

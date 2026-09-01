@@ -207,7 +207,7 @@ which is what the original entry ruled out on principle: the endpoint drives
 `VerificationService.simulateSuccess`, which runs the production `handleWebhook` path, so
 one-Aadhaar-one-account dedup and idempotency still apply. The test stands on the real grant,
 reached by the one door a developer machine has.
-
+  
 **Rule this earned:** before writing down "we would need to build X", grep the backend for X. A
 capability with no caller looks exactly like a capability that does not exist, and a plan that sends
 the next person to build something that already ships is worse than no plan.

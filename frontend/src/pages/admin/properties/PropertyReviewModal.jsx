@@ -9,7 +9,6 @@ import {
   startPropertyReview, getPropertyReview, markPropertyReviewRead,
   setPropertyReviewChecklistItem, addPropertyReviewMessage, decidePropertyReview,
 } from '../../../services/propertyReviewService.js';
-import { setPipelineStage } from '../../../lib/mockApi.js';
 import { clearFlag, setListingStatus } from '../../../services/propertyService.js';
 import { chaseOwner, listOutreachTemplates, listOwnerOutreach } from '../../../services/outreachService.js';
 import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
@@ -19,7 +18,8 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useAdminFlags } from '../../../context/AdminFlagsContext.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
-import InternalNote, { submitNote } from '../../../components/ui/InternalNote.jsx';
+import InternalNote, { saveNoteIfAny } from '../../../components/ui/InternalNote.jsx';
+import { listNotes } from '../../../services/noteService.js';
 import { dealLabel, perSqftLabel, liveHref, fmtAgo, detailKvs } from './constants.js';
 import { iconBtn } from './review-modal/styles.js';
 import WhatsappTemplates from './review-modal/WhatsappTemplates.jsx';
@@ -41,6 +41,9 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
   /* Raw ledger rows, not timeline entries. The template library that names them loads on its own
      schedule, so mapping here would race it; the timeline is derived at render instead. */
   const [outreach, setOutreach] = useState([]);
+  /* The other half of the communication timeline (D29): what the desk wrote to itself about this
+     listing, as opposed to what it wrote to the owner. */
+  const [notes, setNotes] = useState([]);
   const [commsOpen, setCommsOpen] = useState(false);
   /* Was a lazy `useState(() => getWhatsappTemplates())` reading a module-level array. The library is
      a staff-only fetch now, so it starts empty and arrives; the panel is a disclosure the operator
@@ -90,6 +93,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
       }
     })();
     setOutreach([]);
+    setNotes([]);
     if (optionEnabled('properties.commsLog')) {
       /* Separate from the case-file fetch above on purpose: this is a collapsed disclosure panel,
          and a chaser history that fails to load must not take the checklist and the decision
@@ -103,6 +107,19 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
           if (!cancelled) setOutreach([]);
         }
       })();
+      /* The second half of the same timeline (D29). Notes and chasers answer the same question —
+         what has already been done about this listing — and reading them in two separate panels
+         makes the operator interleave them by eye. Fetched separately from the outreach ledger
+         because they are separate routes with separate failure modes, and a note history that is
+         briefly missing must not blank the chasers that did load. */
+      (async () => {
+        try {
+          const rows = await listNotes('listing', listing.id);
+          if (!cancelled) setNotes(rows);
+        } catch {
+          if (!cancelled) setNotes([]);
+        }
+      })();
     }
     setCommsOpen(false);
     setRejectMode(false);
@@ -112,18 +129,19 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setWaOpen(false);
     setWaPreview(null);
     setBusy(false);
-    /* This `if` is where the two pipeline vocabularies meet, and it is the reason the port of
-       `setPipelineStage` is not mechanical (D228). The guard reads the **server's** stages —
-       `listing.pipelineStage` arrives from `propertyMapper`'s `adminPipeline.pipelineStage` — and
-       then writes `'under_review'`, which the server's enum does not contain
-       (`listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed`).
+    /* Opening this modal used to write `pipelineStage = 'under_review'` when the listing was at
+       `listed` or `docs_submitted`. That was the two pipeline vocabularies colliding in one column:
+       the guard read the server's stages, arriving through `propertyMapper`'s
+       `adminPipeline.pipelineStage`, and then wrote a value the server's enum did not contain, so
+       it could only ever land in localStorage — pointed at `POST /properties/{id}/pipeline` it
+       would have been a 400.
 
-       Today the write lands in localStorage, so nothing disagrees out loud. Pointed at
-       `POST /properties/{id}/pipeline` — which is built, and whose read half this line already
-       consumes — it would 400. See the correction at `AdminProperties.jsx` for the full argument. */
-    if (!listing.pipelineStage || listing.pipelineStage === 'listed' || listing.pipelineStage === 'docs_submitted') {
-      setPipelineStage(listing.id, 'under_review');
-    }
+       D27 resolved it by finding that `under_review` was never a stage at all. A listing is under
+       review exactly when its status is `pending`, which is already true before this modal opens
+       and stays true whether or not anyone opens it; the board derives that column from `status`
+       rather than storing it. So the write recorded nothing, and removing it loses nothing — what
+       it was standing in for is a *reviewer* claim, and that is what `startPropertyReview` (called
+       just above) already records, against a person and a time. */
     return () => {
       cancelled = true;
       setThread(null);
@@ -176,15 +194,43 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
    * `action` says *written*, never *sent*. Every row's status is `prepared` because what ships is
    * click-to-chat: the server composed the text and a staff member's own WhatsApp opened with it
    * typed out. Whether they pressed send is not a fact this platform holds.
+   *
+   * ## The `note` rows (D29)
+   *
+   * `CommunicationLog` has had an indigo style keyed `note` since it was written, with nothing
+   * producing one — the notes existed, in this browser's localStorage, invisible to the panel and
+   * to every other operator. Now that they are rows, they belong on this timeline: "rejected the
+   * photos, owner says they will re-shoot" is the same kind of fact as "chaser written", and the
+   * order between the two is the whole story.
+   *
+   * These carry a real `by`, unlike the outreach rows: the notes route resolves the author to a
+   * display name server-side, which is exactly what the outreach ledger cannot do.
+   *
+   * Sorted newest first across both sources, and rows with no timestamp are dropped rather than
+   * sorted as epoch zero, which would file them below everything as though they were the oldest
+   * events on the case.
    */
-  const commsLog = useMemo(() => outreach.map((row) => ({
-    id: row.id,
-    type: 'outreach',
-    action: `Chaser written \u2014 ${waTemplates.find((t) => t.id === row.templateId)?.name || row.templateId || 'WhatsApp'}`,
-    detail: row.body,
-    by: null,
-    at: row.preparedAt,
-  })), [outreach, waTemplates]);
+  const commsLog = useMemo(() => {
+    const chasers = outreach.map((row) => ({
+      id: row.id,
+      type: 'outreach',
+      action: `Chaser written \u2014 ${waTemplates.find((t) => t.id === row.templateId)?.name || row.templateId || 'WhatsApp'}`,
+      detail: row.body,
+      by: null,
+      at: row.preparedAt,
+    }));
+    const written = notes.map((n) => ({
+      id: n.id,
+      type: 'note',
+      action: n.action ? `Note \u2014 ${n.action}` : 'Note',
+      detail: n.text,
+      by: n.author || null,
+      at: n.at,
+    }));
+    return [...chasers, ...written]
+      .filter((entry) => entry.at)
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  }, [outreach, waTemplates, notes]);
 
   /**
    * Tick or untick one checklist line.
@@ -239,16 +285,22 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setBusy(true);
     try {
       await decidePropertyReview(pid(review), 'approve');
-      setPipelineStage(review.id, 'live');
+      // No `setPipelineStage(review.id, 'live')` here. The decision above sets the status to
+      // `approved` in the same transaction that writes the case file and the owner's thread
+      // message, and the board's Live column reads `status` — so the listing has already moved.
+      // The old line wrote the same fact a second time, unawaited, into a column the server would
+      // have rejected the value for.
       // clearFlag, not updateListingFields({ flagReason: '' }). The latter is the owner's own PATCH
       // route, so from an admin screen it 404s on somebody else's listing -- and its mapper
       // whitelists a fixed key set that does not include flagReason, so the body serialised to {}
       // and the failure was invisible. Neither half was awaited, so the rejection escaped the try
       // while the toast below still said "approved".
       await clearFlag(review.id);
-      submitNote('listing', review.id, internalNote, 'Approved');
+      const noted = await saveNoteIfAny('listing', review.id, internalNote, 'Approved');
       handleClose();
-      toast('Approved & published \u2014 owner notified', 'success');
+      toast(noted.error
+        ? 'Approved & published \u2014 but the internal note could not be saved'
+        : 'Approved & published \u2014 owner notified', noted.error ? 'error' : 'success');
       onRefresh();
     } catch (err) {
       toast(err?.message || 'Could not approve this listing', 'error');
@@ -265,9 +317,11 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     setBusy(true);
     try {
       await decidePropertyReview(pid(review), 'reject', reason);
-      submitNote('listing', review.id, internalNote, 'Rejected');
+      const noted = await saveNoteIfAny('listing', review.id, internalNote, 'Rejected');
       handleClose();
-      toast('Property rejected \u2014 owner notified', 'error');
+      toast(noted.error
+        ? 'Property rejected \u2014 but the internal note could not be saved'
+        : 'Property rejected \u2014 owner notified', 'error');
       onRefresh();
     } catch (err) {
       toast(err?.message || 'Could not reject this listing', 'error');
