@@ -75,9 +75,10 @@ test('a live staff sign-in takes its identity from the server, not from the scre
   /* `/staff-login` used to resolve who you are in the page itself, by looking the mobile up in the
      mock team registry and falling back to a radio group when that missed. Both are demo
      affordances and both were gated, but the gate meant a product page imported `lib/mockApi` and
-     read a build-mode flag whose only job was to switch itself off. The resolution now lives in
-     `providers/mock/authProvider.js`; the http provider is a different module and has no registry
-     to consult, because its identity arrives in a token it did not mint.
+     read a build-mode flag whose only job was to switch itself off. That resolution moved to
+     `providers/mock/authProvider.js`, and D256 deleted that provider outright, so the registry
+     path is gone rather than merely unreachable: identity now arrives only in a token the client
+     did not mint.
 
      So the assertion is that the browser holds exactly what the server says and nothing beside it.
      It is made against the API with this account's own token, from outside the browser, because a

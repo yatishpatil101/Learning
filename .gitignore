@@ -25,11 +25,11 @@ data/persist/
 .env
 .env.*
 !.env.example
-# .env.live is a committed *switch*, not a credential store: it holds one line
-# (VITE_API_DOMAINS=*) and is loaded only by `npm run dev:live`. It must be tracked,
+# `!.env.live` stood here. That file was a committed *switch* — one line,
+# VITE_API_DOMAINS=*, loaded only by `npm run dev:live` — and it had to be tracked
 # because a gitignored one would leave a fresh clone running `dev:live` silently on
-# mocks — a green run that exercised the wrong backend. Never put a key in it.
-!.env.live
+# mocks. There is no switch and no mock now, so a clone that copies .env.example
+# talks to the server or fails visibly. Nothing under .env* is tracked again.
 
 .vite
 target/

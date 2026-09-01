@@ -8,14 +8,20 @@ import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.error.ValidationException;
 import com.punenest.api.common.web.Ids;
+import com.punenest.api.identity.user.User;
+import com.punenest.api.identity.user.UserRepository;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,20 +45,25 @@ public class ManagedPropertyService {
     private static final String CITY = "Pune";
 
     private final ManagedPropertyRepository records;
+    private final ManagedRentReceiptRepository receipts;
     private final ManagedPropertyMapper mapper;
     private final LocalityResolver localities;
     private final ListingService listingService;
     private final PropertyRepository properties;
+    private final UserRepository users;
     private final Validator validator;
 
-    public ManagedPropertyService(ManagedPropertyRepository records, ManagedPropertyMapper mapper,
+    public ManagedPropertyService(ManagedPropertyRepository records,
+            ManagedRentReceiptRepository receipts, ManagedPropertyMapper mapper,
             LocalityResolver localities, ListingService listingService,
-            PropertyRepository properties, Validator validator) {
+            PropertyRepository properties, UserRepository users, Validator validator) {
         this.records = records;
+        this.receipts = receipts;
         this.mapper = mapper;
         this.localities = localities;
         this.listingService = listingService;
         this.properties = properties;
+        this.users = users;
         this.validator = validator;
     }
 
@@ -224,6 +235,100 @@ public class ManagedPropertyService {
                 .flatMap(records::findById)
                 .filter(m -> m.getOwnerId().equals(ownerId))
                 .orElseThrow(() -> NotFoundException.of("Managed property"));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Manual rent receipts (V120)
+    //
+    // The owner's own record of rent that arrived as cash or a bank transfer PuneNest never saw.
+    // Deliberately disjoint from the payment domain: `RentPayment` is the tenant's gateway record
+    // and its paid state is webhook-controlled, so nothing here reads or writes one.
+    // ---------------------------------------------------------------------------------------------
+
+    /** Widest ledger a client may ask for. A year of history is more than the panel can show. */
+    private static final int MAX_RECEIPT_MONTHS = 24;
+
+    /** What the panel asks for when it says nothing. */
+    private static final int DEFAULT_RECEIPT_MONTHS = 6;
+
+    /** How far back an owner may record a month they took in cash and never got round to logging. */
+    private static final int RECEIPT_BACKDATE_YEARS = 5;
+
+    /**
+     * The newest receipts for one owned property, newest month first.
+     *
+     * <p>{@code months} is clamped rather than rejected: it is a page size, not an assertion about
+     * the world, and a client that asks for 5000 wants "all of them" — answering 422 would be a
+     * puzzle rather than a correction. A foreign or unparseable id gets the same {@code 404} as an
+     * unknown one, from {@link #ownedRecord}.
+     */
+    @Transactional(readOnly = true)
+    public List<ManagedRentReceiptDto> listRentReceipts(UUID ownerId, String id, Integer months) {
+        ManagedProperty m = ownedRecord(ownerId, id);
+        int limit = months == null ? DEFAULT_RECEIPT_MONTHS : Math.clamp(months, 1, MAX_RECEIPT_MONTHS);
+        return mapper.toReceiptDtos(
+                receipts.findByManagedPropertyIdOrderByRentMonthDesc(m.getId(), Limit.of(limit)));
+    }
+
+    /**
+     * Record one month as received and mint the immutable receipt for it.
+     *
+     * <p>The request carries a month and nothing else. Amount, tenant, landlord and address are all
+     * snapshotted server-side from the owned property and the caller's own user row — a rent receipt
+     * is a tax document, and "the browser said so" is not a provenance for one.
+     *
+     * <p>Three preconditions, all 422 because they describe a property that cannot produce a receipt
+     * rather than a malformed request: the property must be marked rented, carry a positive monthly
+     * rent, and name a tenant. The old {@code localStorage} version failed the same cases silently by
+     * returning {@code {ok:false}} and letting the panel guess at a message.
+     *
+     * <p>A fourth, on the month itself: the pattern on the request admits {@code 0000-01} through
+     * {@code 9999-12}, and the unique index only stops a month being receipted twice — not a month
+     * being absurd. Since a receipt is immutable and has no delete, an unbounded month is both a
+     * nonsense tax document and a way to mint rows without limit. Rent is received in the past, so
+     * the window is "not in the future, and within {@value #RECEIPT_BACKDATE_YEARS} years".
+     *
+     * @throws ConflictException 409 if this month already has a receipt — one receipt per month, so
+     *     a double tap converges instead of handing a tenant two documents for one payment
+     */
+    @Transactional
+    public ManagedRentReceiptDto recordRentReceipt(UUID ownerId, String id, String rentMonth) {
+        ManagedProperty m = ownedRecord(ownerId, id);
+        requireReceiptableMonth(rentMonth);
+        if (!m.isRented()) {
+            throw new ValidationException("Turn on rent tracking for this property first");
+        }
+        Long rent = m.getMonthlyRent();
+        if (rent == null || rent <= 0) {
+            throw new ValidationException("Set a monthly rent for this property first");
+        }
+        if (m.getTenantName() == null || m.getTenantName().isBlank()) {
+            throw new ValidationException("Add the tenant's name for this property first");
+        }
+        if (receipts.existsByManagedPropertyIdAndRentMonth(m.getId(), rentMonth)) {
+            throw new ConflictException("Rent for " + rentMonth + " is already recorded");
+        }
+        User owner = users.findById(ownerId).orElseThrow(() -> NotFoundException.of("Owner"));
+        String landlord = owner.getName() == null || owner.getName().isBlank()
+                ? "Owner"
+                : owner.getName().trim();
+        return mapper.toDto(receipts.saveAndFlush(new ManagedRentReceipt(m, rentMonth, landlord)));
+    }
+
+    /**
+     * Refuse a month no tenancy could have paid rent for. Compared as {@code YYYY-MM} strings, which
+     * sort lexicographically for exactly this format — the same reason the ledger query orders by
+     * the raw column instead of parsing it.
+     */
+    private static void requireReceiptableMonth(String rentMonth) {
+        YearMonth now = YearMonth.now(ZoneId.of("Asia/Kolkata"));
+        if (rentMonth.compareTo(now.toString()) > 0) {
+            throw new ValidationException("You can't record rent for a month that hasn't happened yet");
+        }
+        if (rentMonth.compareTo(now.minusYears(RECEIPT_BACKDATE_YEARS).toString()) < 0) {
+            throw new ValidationException(
+                    "You can only record the last " + RECEIPT_BACKDATE_YEARS + " years of rent");
+        }
     }
 
     private static String synthTitle(BigDecimal bhk, String type, String locality) {

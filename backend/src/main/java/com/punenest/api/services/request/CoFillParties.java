@@ -5,6 +5,7 @@ import com.punenest.api.common.error.BadRequestException;
 import com.punenest.api.common.error.ConflictException;
 import com.punenest.api.common.error.NotFoundException;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.trust.Notifier;
 import com.punenest.api.common.validation.Formats;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
@@ -86,15 +87,18 @@ class CoFillParties {
     private final ServiceRequestRepository requests;
     private final UserRepository users;
     private final AuditService audit;
+    private final Notifier notifier;
 
     CoFillParties(ServiceRequestPartyRepository parties,
             ServiceRequestRepository requests,
             UserRepository users,
-            AuditService audit) {
+            AuditService audit,
+            Notifier notifier) {
         this.parties = parties;
         this.requests = requests;
         this.users = users;
         this.audit = audit;
+        this.notifier = notifier;
     }
 
     /**
@@ -149,7 +153,38 @@ class CoFillParties {
                 new ServiceRequestParty(request.getId(), invitee.getId(), side, caller.userId()));
         audit.record(caller, "service-request.party-invited", "service_request",
                 request.getId().toString(), "role", side, "party", invitee.getId().toString());
+        notifyInvitee(request, saved, invitee.getId(), side);
         return toDto(saved, request.getType(), invitee.getName(), displayName(caller.userId()));
+    }
+
+    /**
+     * Tell the person they have been named on somebody else's paperwork.
+     *
+     * <p>Only reachable from the branch above, where the invitee already holds an account. The
+     * pending-number branch has no {@code userId} to address and therefore no inbox to write to;
+     * that invitation announces itself when {@link #claimPendingFor} binds it, which is the first
+     * moment there is anybody to announce it to.
+     *
+     * <p>Until this existed the invitation was silent on live. The client had been writing the row
+     * itself ({@code useRentAgreement.generate}), into {@code localStorage} under the *inviter's*
+     * browser — so it reached the tenant only when tenant and owner were the same person, which is
+     * to say in the mock and nowhere else. Discovery still worked, because
+     * {@link #myInvites} lists the invitation on the dashboard, but nothing ever prompted the
+     * tenant to go and look.
+     *
+     * <p>The link carries {@code party} and {@code request} rather than an invitation token, for the
+     * reason the class header gives: an invitation is readable only by the person it names, signed
+     * in as themselves. It is the same shape the frontend builds for the live wizard, so a tapped
+     * notification and a tapped dashboard row land in the same place.
+     */
+    private void notifyInvitee(ServiceRequest request, ServiceRequestParty saved, UUID inviteeId,
+            String side) {
+        notifier.notify(inviteeId, "service.party-invited",
+                "You were added as the " + side,
+                "Complete your details so this request can move forward.",
+                ServiceRequestTypes.pageFor(request.getType())
+                        + "?party=" + saved.getId()
+                        + "&request=" + request.getId());
     }
 
     /**

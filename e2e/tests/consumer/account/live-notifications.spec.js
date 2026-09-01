@@ -9,9 +9,11 @@ import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liv
  * the database owns; destructive assertions derive their subject from the current
  * server response rather than assuming a fixed count or order.
  */
-/* The mock provider's demo inbox, named here so the live build can be checked against it by id and
-   by copy. Kept in sync by hand deliberately: if `providers/mock/notificationProvider.js` grows a
-   row, the honest failure is this list going stale, not a silent hole in the check. */
+/* The demo inbox these ids and titles came from, named here so the live build can be checked
+   against it. It used to live in `providers/mock/notificationProvider.js` and this list was kept in
+   sync with that file by hand; D256 deleted the provider, so the list is now the only copy and its
+   counterpart is the database seed. Nothing keeps the two in step automatically — if the seed
+   changes, the honest failure is this list going stale, not a silent hole in the check. */
 const SEED_IDS = [
   'n-match-baner', 'n-flatmate-hinjawadi', 'n-enquiry-priya', 'n-price-kp',
   'n-visit-wakad', 'n-match-balewadi', 'n-enquiry-viewed', 'n-system-welcome',

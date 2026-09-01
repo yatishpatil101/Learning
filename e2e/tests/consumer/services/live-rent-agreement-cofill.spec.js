@@ -120,6 +120,22 @@ async function invitesFor(token) {
 }
 
 /**
+ * This account's own inbox, read outside the browser.
+ *
+ * Deliberately the API rather than the bell: what is being checked is that the *server* raised the
+ * row against this user id. Reading it through the page would put the client's own rendering — and
+ * `notificationMapper`'s wire-to-chip translation — between the assertion and the fact, so a type
+ * the mapper mishandled would look like a notification that was never sent.
+ */
+async function notificationsFor(token) {
+  const res = await fetch(`${API}/notifications?size=100`, { headers: authed(token) });
+  expect(res.status, 'an account can always read its own inbox').toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body.content), 'the notification contract returns a page envelope').toBe(true);
+  return body.content;
+}
+
+/**
  * File a co-fill request the way the wizard does, without driving the wizard.
  *
  * `type` is the wire value `rent-agreement`, not the client's `rental`: `toWireType` maps between
@@ -399,5 +415,57 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
       page.getByText('Set up by the owner — view only'),
       'and it opens the invite rather than the expired panel',
     ).toBeVisible();
+  });
+
+  /*
+   * The invitation announces itself, and to the right person.
+   *
+   * Until the server raised this, the only thing that ever notified an invited tenant was
+   * `pushNotificationFor` in `useRentAgreement.generate` — a write into `localStorage` under the
+   * key `pnNotifications:<tenant>`, performed by the *owner's* browser. Storage is per-origin and
+   * per-browser, so that row reached the tenant only when tenant and owner were the same person:
+   * true in the mock, never true on live. The invitation was discoverable (`myInvites` puts it on
+   * the dashboard) but silent — nothing told the tenant to go and look.
+   *
+   * Both halves are asserted deliberately. The BEFORE is not decoration: without it a server that
+   * pre-filled every inbox, or a `type` that happened to match some unrelated seeded row, would
+   * satisfy the AFTER on its own. And the owner's inbox is checked precisely because writing into
+   * the *inviter's* store is the original defect — a notification raised against the wrong user id
+   * would still make the tenant-side count non-zero if the two were confused, so the negative is
+   * what pins the recipient.
+   *
+   * Time-independent by construction: quiet hours DEFER delivery (`NotificationPublisher`), and
+   * `NotificationService.list` withholds a row until its window closes. Both accounts are created
+   * fresh here, and `quiet_hours_enabled` defaults to false, so nothing is held back. A test that
+   * reused a seeded account could pass by day and fail at night.
+   */
+  test('the SERVER announces the invitation to the invited tenant — into their inbox, not the inviter\'s browser', async () => {
+    const tenantMobile = uniqueMobile();
+    const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });
+    const { accessToken: ownerToken } = await apiLogin(uniqueMobile(), { api: API });
+
+    const invited = (rows) => rows.filter((n) => n.type === 'service.party-invited');
+
+    const before = invited(await notificationsFor(tenantToken));
+    expect(before, 'a brand-new account has no invitation notice to begin with').toHaveLength(0);
+
+    const { requestId, partyId } = await coFillOverHttp(ownerToken, tenantMobile);
+
+    const after = invited(await notificationsFor(tenantToken));
+    expect(after, 'the invitation raised exactly one notice in the tenant\'s inbox').toHaveLength(1);
+
+    /* The notice has to be actionable, not merely present: the link is the whole point of sending
+       it. Same account-addressed shape the dashboard card uses — asserted here too because a
+       notification is the one surface a user reaches without passing through that card. */
+    expect(after[0].link, 'the notice opens the invite it is about').toContain(`party=${partyId}`);
+    expect(after[0].link).toContain(`request=${requestId}`);
+    expect(after[0].link, 'not the mock bearer-token link the live wizard ignores').not.toContain('invite=');
+    expect(after[0].read, 'an unread notice is what surfaces the bell').toBe(false);
+
+    /* The negative that names the recipient. */
+    expect(
+      invited(await notificationsFor(ownerToken)),
+      'the person who SENT the invitation is not the person it notifies',
+    ).toHaveLength(0);
   });
 });

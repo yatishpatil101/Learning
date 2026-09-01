@@ -1,125 +1,35 @@
 import { test, expect } from '@playwright/test';
-import { appReady } from '../../helpers/app.js';
 
 /* City selection must propagate across the app. Pune has inventory + a locality registry;
    other cities can be toggled live in admin but have no data yet, so they must show an
-   honest city-aware presentation (dynamic copy + "just launched" empty state) and never
-   leak Pune localities or listings. */
+   honest city-aware presentation and never leak Pune localities or listings.
+
+   SCOPE, after the mock retirement (D256). Four of this file's six tests drove a *second*,
+   no-inventory city by writing `live: true` into the `puneNestDB_v5` roster and firing
+   `punenest-settings-change` — reaching past the app into the mock store to manufacture a
+   city the seed does not contain. Precisely: the `puneNestDB_v5` key still exists (`boot.js`
+   seeds it unconditionally, and will until `lib/mockApi.js`'s last two below-seam importers
+   go), but nothing *reads* the roster out of it any more — `providers/mock/cityProvider.js`
+   was the only reader and it is deleted. So the write still lands and changes nothing, which
+   is the worse failure: the tests do not error, they assert about a city that never launches.
+   There is no honest way to keep them in this lane either, since it runs with no backend at
+   all and so cannot ask a real API to launch a city.
+
+   What survives are the two assertions that never needed the mock: the default city renders
+   its own inventory, and a coming-soon city is a waitlist prompt rather than a destination.
+   Both are pure client-side city behaviour and pass on the seeded catalogue alone.
+
+   The four propagation assertions are NOT retired as ideas — they belong in the live lane,
+   where a city can actually be toggled through the admin API. Until they are ported there,
+   cross-city leakage is uncovered; that gap is deliberate and recorded here rather than
+   papered over by a test asserting against a store the app no longer reads. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
-
-// Mark a city live in the mock roster, tell the app, then pick it the way a shopper does.
-// `appReady` first: every caller reaches this straight off a `goto`, and the store is written
-// one microtask past the point any navigation wait resolves (D129).
-async function selectCity(page, city) {
-  await appReady(page);
-  await page.evaluate((c) => {
-    const defaultCities = [
-      { slug: 'pune', name: 'Pune', live: true },
-      { slug: 'mumbai', name: 'Mumbai', live: false },
-      { slug: 'bengaluru', name: 'Bengaluru', live: false },
-      { slug: 'delhi-ncr', name: 'Delhi NCR', live: false },
-      { slug: 'hyderabad', name: 'Hyderabad', live: false },
-    ];
-    // No `|| '{}'`. This is a read-modify-write: an empty fallback is written straight back,
-    // wiping every listing, society and setting, and the damage only surfaces later as a
-    // blank page nobody connects to this line.
-    const raw = localStorage.getItem('puneNestDB_v5');
-    if (!raw) throw new Error('mock store missing after appReady()');
-    const db = JSON.parse(raw);
-    db.cities = Array.isArray(db.cities) && db.cities.length ? db.cities : defaultCities;
-    const row = db.cities.find((cityRow) => cityRow.name === c);
-    if (!row) throw new Error(`city missing from roster: ${c}`);
-    row.live = true;
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  }, city);
-
-  /* Then wait for the app to have *read* that, by watching the one place the roster is visible:
-     the city dropdown lists live cities by name and files the rest under "Coming soon" with a
-     "Soon" badge, so `exact: true` matches only once the app agrees the city is launched.
-
-     This used to force `puneNestCity`, reload, and await `geoPolicySettled()`. The await was a
-     no-op: an `import()` from inside `page.evaluate` hands back a module whose cache is cold, so
-     the promise settles instantly against a policy nobody has fetched. The reload then raced the
-     boot fetch, and a caller that toggled the city off inside that window was asserting on a
-     transition the app never saw — `CityContext` only reverts a shopper it once believed was on a
-     live city. Selecting through the UI removes the race instead of waiting it out, and it is what
-     a shopper does anyway. */
-  const pill = page.getByRole('button', { name: /^City: / }).first();
-  const list = page.getByRole('listbox', { name: 'Select city' });
-  const option = list.getByRole('button', { name: city, exact: true });
-  await expect(async () => {
-    if (!(await list.isVisible())) await pill.click();
-    await expect(option).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 15000 });
-
-  await option.click();
-  await expect(page.getByRole('heading', { level: 1 })).toContainText(city);
-}
 
 test('Pune (has inventory) shows the full home experience', async ({ page }) => {
   await page.goto(`${BASE}/`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
   await expect(page.getByRole('button', { name: 'Baner', exact: true })).toBeVisible();
-});
-
-test('Mumbai (live, no inventory) shows an honest city-aware home — no Pune content', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-  await selectCity(page, 'Mumbai');
-
-  // Hero copy reflects the selected city.
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
-  await expect(page.locator('p.hero-sub')).toContainText(/just launched in/i);
-  await expect(page.locator('p.hero-sub')).toContainText('Mumbai');
-
-  // Honest empty state instead of Pune content.
-  await expect(page.getByRole('button', { name: /List your property/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Baner', exact: true })).toHaveCount(0);
-});
-
-test('Mumbai listings show an honest empty state, not Pune listings', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-  await selectCity(page, 'Mumbai');
-  await page.goto(`${BASE}/listings?deal=buy`);
-
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
-  await expect(page.getByRole('heading', { name: /No listings in Mumbai yet/i })).toBeVisible();
-  // No Pune property cards leak through.
-  await expect(page.locator('a[href^="/property/"]')).toHaveCount(0);
-});
-
-test('switching back to Pune restores inventory', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-  await selectCity(page, 'Mumbai');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
-  await selectCity(page, 'Pune');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
-  await expect(page.getByRole('button', { name: 'Baner', exact: true })).toBeVisible();
-});
-
-test('admin taking the viewed city offline reverts the shopper to Pune (no manual reload)', async ({ page }) => {
-  await page.goto(`${BASE}/`);
-  await selectCity(page, 'Mumbai');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
-
-  // Simulate the admin toggling Mumbai off in the shared city roster, exactly like the
-  // city provider does: flip live -> false, then fire the in-tab event.
-  await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestDB_v5');
-    if (!raw) throw new Error('mock store missing'); // read-modify-write: never fall back to {}
-    const db = JSON.parse(raw);
-    const row = (db.cities || []).find((city) => city.name === 'Mumbai');
-    if (!row) throw new Error('Mumbai missing from roster');
-    row.live = false;
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  });
-
-  // The shopper is kicked back to the default live city with no page reload.
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
-  await expect(page.getByRole('button', { name: 'Baner', exact: true })).toBeVisible();
-  await expect(await page.evaluate(() => localStorage.getItem('puneNestCity'))).toBe('Pune');
 });
 
 test('picking a "coming soon" city and cancelling leaves the shopper on their city', async ({ page }) => {

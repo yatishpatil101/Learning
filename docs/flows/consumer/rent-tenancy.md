@@ -127,6 +127,29 @@ dues and received rent. Async (provider seam,
 When `onlineRentPayment` is off, `/pay-rent` renders `PayRentComingSoon` (value prop + waitlist)
 instead of the live flow; no money moves.
 
+### 5.8 Ruling: online rent payment is a **concept-only** feature (2026-08-24)
+
+`/pay-rent` is deliberately **not** being built out. `onlineRentPayment` stays off, the route's real
+behaviour is `PayRentComingSoon`, and the payment engine behind the flag exists to demonstrate the
+idea, not to move money. Three consequences that are easy to get wrong:
+
+- **Do not build backend for it.** The gaps a reader will notice are real but will not be filled:
+  `PayoutAccountUpdateRequest` is `@NotBlank accountHolder`, so a payout account can be linked and
+  edited but never *unlinked*; there is no `DELETE /me/payout-account`. The paid-then-settled
+  transition has no PSP behind it. Both are intentional.
+- **`e2e/tests/consumer/account/pay-rent.spec.js` is mock-only for a product reason, not a
+  technical one.** Earlier notes in `tasks/todo.md` said the API "cannot fixture or express" these
+  states; that framing was wrong and led to the feature being queued for backend work it does not
+  want. The correct reason is that there is nothing live to assert, because the feature is off.
+- **At mock deletion (P5c) that spec retires with the mock**, and the surviving live claim is the
+  coming-soon state itself. Do not port the fee-breakdown or receipt assertions to a `live-` twin:
+  they would assert an engine no user reaches.
+
+What *is* live and must keep working is the surrounding tenancy money rail, which is a different
+thing: `RentController` (`/me/rent/payments`, `/me/rent/ledger`, `/me/rent/mandate`), the owner P&L
+in `MeFinancesController`, and the tenant-side reads covered by `live-tenant-finances.spec.js` and
+`live-my-rental.spec.js`.
+
 ## 6. Maker-checker / approval
 - **Rent payment:** no maker-checker - it is an immediate transaction (in production, gated by a real
   PSP authorization instead of the mock).

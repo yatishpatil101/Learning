@@ -156,9 +156,12 @@ export default defineConfig({
     stdout: 'ignore',
     stderr: 'pipe',
     env: {
-      VITE_API_DOMAINS:
-        'auth,property,notification,conversation,review,support,report,visit,contact,saved,savedSearch,plan,deal,rent,flatmate,serviceRequest,verification,document,society,photo,photoRequest,leadNote,fees,team,settings,city,ticket,referral,users,staffActivity,propertyReview,outreach,content,locality,demand,adminContent,note,entitlement,managed,enquiryBoard,finance,analytics,pageview,audit,recentSearch',
-
+      /* `VITE_API_DOMAINS` stood here as a hand-maintained comma list of 45 domain names, and it is
+         gone with the switch it drove. Worth recording what it cost while it existed: a domain that
+         shipped complete but was never added to the list served mocks in every "live" run, silently,
+         and `permissions` was in exactly that state — 46 http providers against 45 listed names. A
+         list that has to agree with a directory will eventually disagree with it, and the run that
+         notices is the one that was supposed to be the evidence. */
       VITE_API_BASE: '/api',
       VITE_PROXY_TARGET: `http://localhost:${API_PORT}`,
     },

@@ -3,27 +3,32 @@ import { open } from '../../helpers/app.js';
 
 /* Connectivity: the offline banner, the *unreachable* hedge, and the list retry (D165).
  *
- * The register's objection to covering this was that it could not be covered: the mock providers
- * never reject and headless `navigator.onLine` is always true, so nothing a spec could do would
- * drive `hooks/useConnectivity.js` out of `'online'`. Both halves of that are answerable, and they
- * are answered differently, which is the point of this file.
+ * The register's objection to covering this was that it could not be covered: headless
+ * `navigator.onLine` is always true, and at the time nothing the page sent could be made to fail,
+ * so nothing a spec could do would drive `hooks/useConnectivity.js` out of `'online'`. Both halves
+ * are answerable, and they are answered differently, which is the point of this file.
  *
  *   offline      `context.setOffline(true)` really does flip `navigator.onLine` and fire the
  *                window events the store subscribes to. No network call is involved at all —
- *                the confident branch is a browser fact, so it is tested as one, on the plain
- *                mock-mode app.
+ *                the confident branch is a browser fact, so it is tested as one.
  *
- *   unreachable  needs a request that leaves the app and fails, and in mock mode there is none:
- *                `page.route` can only intercept what the page actually sends. So these tests put
- *                exactly one domain (`property`) onto the http seam for the duration of the test
- *                — see `goLive()` — and then fault-inject `GET /api/properties`.
+ *   unreachable  needs a request that leaves the app and fails. `page.route` can only intercept
+ *                what the page actually sends, and since M1 the page sends everything over HTTP,
+ *                so fault-injecting `GET /api/properties` is enough on its own.
  *
- * The distinction between those two is the whole feature. `navigator.onLine === true` only means an
- * interface exists, not that the internet is behind it, so a failed request while the browser still
- * believes it is online must produce the hedged "Can't reach the server", never "You're offline".
- * Test 2 asserts `navigator.onLine` is *still true* at the moment the hedged copy is on screen, so
- * it cannot pass by accidentally having gone offline; test 1 asserts the confident copy appears
- * only when it really is false. Neither test can satisfy the other's assertions.
+ * That last point used to require work. Until D256 these tests called a `goLive()` helper that
+ * rewrote `const RAW_DOMAINS = …` inside `services/config.js` on the fly, to put exactly one domain
+ * (`property`) onto the http seam while the rest of the app stayed on mocks. M1 deleted
+ * `RAW_DOMAINS`, so the rewrite silently stopped matching and its own `expect(patched).toBe(true)`
+ * guard began failing — which is the guard working, and is how these three tests came to be red.
+ * The helper is gone rather than repaired: there is no longer a seam to move a domain across.
+ *
+ * The distinction between offline and unreachable is the whole feature. `navigator.onLine === true`
+ * only means an interface exists, not that the internet is behind it, so a failed request while the
+ * browser still believes it is online must produce the hedged "Can't reach the server", never
+ * "You're offline". Test 2 asserts `navigator.onLine` is *still true* at the moment the hedged copy
+ * is on screen, so it cannot pass by accidentally having gone offline; test 1 asserts the confident
+ * copy appears only when it really is false. Neither test can satisfy the other's assertions.
  *
  * And test 3 is the one that stops the banner crying wolf: a 500 means the request arrived, so it
  * is not a connectivity fact and must paint no banner at all — while the list still says something
@@ -92,45 +97,6 @@ const PROBE_PAGE = {
 };
 
 /**
- * Put the `property` domain on the http seam for this page only.
- *
- * `services/config.js` reads `VITE_API_DOMAINS` from `import.meta.env` at module load, which is
- * fixed when the dev server boots — a spec cannot change it, and the suite must keep running
- * against the shared mock-mode server. So the module itself is rewritten in flight: the served
- * source's `RAW_DOMAINS` assignment is replaced, and everything downstream of it (the allow-list
- * parse, the unknown-domain validation, `createProvider`) then runs for real and resolves
- * `property` to `providers/http/propertyProvider.js`.
- *
- * This is a test-only interception — no production file changes, and the rewrite is confined to
- * one `const` on one module. The returned assertion is not optional: without it a regex that
- * stopped matching would leave the app silently on mocks, no request would ever be sent, and a
- * test asserting "the banner appeared" would be asserting nothing at all.
- *
- * @returns {() => void} call after navigating; throws unless the rewrite really was applied.
- */
-async function goLive(page) {
-  let patched = false;
-  await page.route(/\/src\/services\/config\.js(\?.*)?$/, async (route) => {
-    // Drop the conditional headers so Vite cannot answer 304 with an empty body.
-    const headers = { ...route.request().headers() };
-    delete headers['if-none-match'];
-    delete headers['if-modified-since'];
-    const response = await route.fetch({ headers });
-    const source = await response.text();
-    const next = source.replace(/const RAW_DOMAINS = [^;]*;/, "const RAW_DOMAINS = 'property';");
-    if (next !== source) patched = true;
-    await route.fulfill({
-      status: 200,
-      headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store' },
-      body: next,
-    });
-  });
-  return () => {
-    expect(patched, 'services/config.js was never rewritten — the app is still on mocks, so this test would assert nothing').toBe(true);
-  };
-}
-
-/**
  * Fault-inject the one endpoint `/listings` reads.
  *
  * Scoped to `/api/properties*` rather than `/api/**` on purpose: the dev server also serves
@@ -177,11 +143,9 @@ test.describe('Connectivity banner (D165)', () => {
   });
 
   test('a request that never reaches the server hedges — and never claims the user is offline', async ({ page }) => {
-    const assertPatched = await goLive(page);
     const api = await faultInjectProperties(page, 'abort');
 
     await open(page, '/listings');
-    assertPatched();
 
     await expect(banner(page)).toContainText(UNREACHABLE_TITLE);
 
@@ -201,11 +165,9 @@ test.describe('Connectivity banner (D165)', () => {
   });
 
   test('a server error answers, so no connectivity banner is painted at all', async ({ page }) => {
-    const assertPatched = await goLive(page);
     const api = await faultInjectProperties(page, 'error');
 
     await open(page, '/listings');
-    assertPatched();
 
     /* The read failed and the list says so — this is not a test that quietly passed because nothing
        happened. */
@@ -220,11 +182,9 @@ test.describe('Connectivity banner (D165)', () => {
   });
 
   test('a failed load offers a retry rather than an empty state, and the retry succeeds once the network returns', async ({ page }) => {
-    const assertPatched = await goLive(page);
     const api = await faultInjectProperties(page, 'abort');
 
     await open(page, '/listings');
-    assertPatched();
 
     /* "Showing 0 properties" would be a claim about Pune's inventory, and after a failed read it is
        a false one — so the count line must abstain and the card must offer the one action that can

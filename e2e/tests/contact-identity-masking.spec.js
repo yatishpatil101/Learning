@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { appReady } from '../helpers/app.js';
 
 /* Regression: masked owner numbers must never be used as a storage identity.
  *
@@ -199,30 +198,15 @@ test('owner privacy prefs round-trip on a full number and are isolated per owner
   expect(res.viaMask).toBe(false);
 });
 
-/* D5 (global number-privacy policy): the owner's raw mobile is never handed to a buyer — approval
- * unlocks in-app chat, not the digits. The contact gate therefore reports `ownerHidesNumber: true`
- * unconditionally, mirroring the backend's ContactStatusResponse. This must hold *even when the
- * owner's own hide-number preference is off*, because the policy is global, not per-owner opt-in.
- * Exercised at the provider seam directly: the constant is pure gate logic, and this is the most
- * precise way to pin that the pref no longer drives the signal. */
-test('the contact gate hides the owner number for a buyer regardless of the owner pref (D5)', async ({ page }) => {
-  await page.goto('/');
-  /* Wait for the app's own seed to land before overwriting it. Write first and the boot
-     seed lands afterwards (D129), replacing the two-field listing below with the real
-     catalogue — `P-D5-1` then does not resolve and the gate answers about nothing. */
-  await appReady(page);
-  const gate = await page.evaluate(async () => {
-    const OWNER = '9530047855';
-    const PROP = 'P-D5-1';
-    // A resolvable listing owned by OWNER, in the mock DB the provider reads through getProperty.
-    localStorage.setItem('puneNestDB_v5', JSON.stringify({ listings: [{ id: PROP, ownerMobile: OWNER }] }));
-    // Owner has NOT opted into hiding — the policy must override this.
-    localStorage.setItem('pnOwnerPrefs:' + OWNER, JSON.stringify({ hideNumber: false }));
-    // A buyer viewing the listing, not the owner.
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
-    const m = await import(/* @vite-ignore */ '/src/services/providers/mock/contactProvider.js');
-    return m.contactStatus(PROP);
-  });
-
-  expect(gate.ownerHidesNumber).toBe(true);
-});
+/* RETIRED (D256): "the contact gate hides the owner number for a buyer regardless of the owner
+ * pref (D5)" reached into `services/providers/mock/contactProvider.js` by dynamic import, and that
+ * module went with the mock tree. It is not being ported, because porting it would have pinned a
+ * claim the shipping build does not make: the mock gate returned `ownerHidesNumber: true`
+ * unconditionally, whereas `ContactStatusResponse` derives it from `users.hide_number` per owner.
+ * The two disagreed, and the mock's version was the one under test. What the server actually does
+ * is the thing worth guarding; `ContactGateEndpointsTest` currently only asserts the field
+ * `.exists()`, so the *value* is unpinned on both sides. Recorded as a gap rather than papered
+ * over — see COVERAGE.md.
+ *
+ * Every other test in this file survives untouched: they exercise `lib/contact.js` directly, which
+ * has 38 importers and no mock dependency at all. */

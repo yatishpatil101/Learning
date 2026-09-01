@@ -1,6 +1,5 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { appReady } from '../../../helpers/app.js';
 
 /*
  * Rent Agreement — the *mock-only* remainder.
@@ -75,7 +74,6 @@ const BUYER = { name: 'Anita Verma', mobile: '9811223344', email: '', role: 'buy
 const pad = (n) => String(n).padStart(2, '0');
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMDAQCb8v8AAAAASUVORK5CYII=', 'base64');
 
 async function login(page, user) {
   await page.addInitScript((u) => {
@@ -118,17 +116,13 @@ async function fillProperty(page) {
   await clickNext(page, 1);
 }
 
-async function fillOwner(page, { withDoc } = {}) {
+async function fillOwner(page) {
   const p = active(page);
   await p.getByPlaceholder('As per PAN/Aadhaar').fill('Anita Verma');
   await p.getByPlaceholder('ABCDE1234F').fill('ABCDE1234F');
   await p.getByPlaceholder('12-digit Aadhaar').fill('123412341234');
   await p.getByPlaceholder('10-digit mobile').fill('9811223344');
   await p.getByPlaceholder('Full permanent address').fill('12, MG Road, Pune 411001');
-  if (withDoc) {
-    await p.locator('input[type="file"]').first().setInputFiles({ name: 'owner-pan.png', mimeType: 'image/png', buffer: PNG });
-    await expect(p.getByText('owner-pan.png')).toBeVisible();
-  }
   await clickNext(page, 2);
 }
 
@@ -154,21 +148,13 @@ async function fillTerms(page) {
   await clickNext(page, 4);
 }
 
-/* Submit from the review step, and prove the request was actually created.
- *
- * Same reasoning as `clickNext`: clicking Generate and returning means a submit that
- * silently did not take — the click landed while the page was being torn down, say — is
- * only noticed by whatever the caller happens to look at next. For the invited-tenant test
- * that is the WhatsApp invite link ten seconds later, a locator with nothing to do with the
- * cause. Asserting the submit's own success condition here fails at the submit instead. */
-async function submitFromReview(page) {
-  await clickNext(page, 5); // witnesses -> review
-  const review = active(page);
-  await review.getByRole('checkbox').check();
-  await review.getByRole('button', { name: /Generate Agreement & Proceed/ }).click();
-  // Either wording of the done panel — the owner filled the tenant step, or invited them to.
-  await expect(page.getByText(/Request submitted!|Request sent to the tenant!/)).toBeVisible();
-}
+/* `submitFromReview` and the `PNG` fixture were removed alongside the two tests retired at the
+   foot of this file (D256) — they had no other callers. The reasoning they carried is worth
+   keeping: a submit helper must assert its own success condition, because a click that silently
+   did not take is otherwise only noticed by whatever the caller looks at next, several steps
+   downstream and pointing at the wrong thing. `clickNext` still enforces that discipline for
+   every step this file does drive. Whoever ports the submit half to the live lane should carry
+   the same shape across rather than re-deriving it. */
 
 test.describe('Rent Agreement — revenue flow', () => {
   test('mandatory document fields carry the app-standard required marker', async ({ page }) => {
@@ -183,34 +169,13 @@ test.describe('Rent Agreement — revenue flow', () => {
     }
   });
 
-  test('mandatory docs are reused from — and saved back to — the dashboard Document vault', async ({ page }) => {
-    const DATA_URL = 'data:image/png;base64,' + PNG.toString('base64');
-    await login(page, BUYER);
-    // Seed the personal Document vault with an existing PAN card, as if the owner had
-    // already saved it under Dashboard → Documents → Personal.
-    await page.addInitScript(({ mobile, dataUrl }) => {
-      localStorage.setItem('puneNestDocs:' + mobile, JSON.stringify({
-        personal: [{ id: 'd1', category: 'PAN Card', name: 'my-saved-pan.png', size: 100, mime: 'image/png', dataUrl, uploadedAt: Date.now() }],
-      }));
-    }, { mobile: BUYER.mobile, dataUrl: DATA_URL });
-
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-    await fillProperty(page);
-
-    const p = active(page);
-    // PAN slot is prefilled from the vault and clearly marked as reused.
-    await expect(p.getByText('my-saved-pan.png')).toBeVisible();
-    await expect(p.getByText('From your Documents')).toBeVisible();
-
-    // Uploading a fresh Aadhaar here saves it back to the vault (kept for reuse).
-    await p.locator('input[type="file"]').nth(1).setInputFiles({ name: 'my-aadhaar.png', mimeType: 'image/png', buffer: PNG });
-    await expect(p.getByText('my-aadhaar.png')).toBeVisible();
-    await expect(p.getByText('Saved to your Documents')).toBeVisible();
-
-    const saved = await page.evaluate((mobile) => JSON.parse(localStorage.getItem('puneNestDocs:' + mobile)).personal.map((d) => d.category), BUYER.mobile);
-    expect(saved).toContain('Aadhaar Card');
-    expect(saved).toContain('PAN Card');
-  });
+  /* RETIRED (D256): "mandatory docs are reused from — and saved back to — the dashboard Document
+     vault" seeded `puneNestDocs:<mobile>` directly and read it back, so it asserted against the
+     browser-local vault the mock build kept. Document reuse now belongs to the document service
+     and its live specs; re-pointing this at the server is a port, not a rescue, and is tracked
+     rather than faked here. The four surviving tests in this file stay because they assert the
+     wizard's own client-side behaviour — the required markers, the mid-fill restore, the
+     PAN/Aadhaar purge and the optional witnesses step — none of which needs the mock store. */
 
   test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
     // The rule, not the mechanics: the autosave is deliberately incomplete. A PAN plus an Aadhaar
@@ -322,65 +287,11 @@ test.describe('Rent Agreement — revenue flow', () => {
     await expect(active(page).getByRole('button', { name: /Generate Agreement & Proceed/ })).toBeVisible();
   });
 
-  /* This test used to be called "submitting opens an admin lead ticket linked to the flow request",
-     and asserted a `rental` row in `puneNestDB_v5.tickets`. That ticket is gone, and the absence is
-     now the thing worth pinning.
-
-     The wizard was minting a `TR…` ref and writing that ticket through `lib/mockApi` on *every*
-     build, live included, where it reached nothing: `serviceRequestMapper.toCreate` refuses by name
-     to forward a `TR…` ref, and the backend has no `ticketRef` field at any layer. So the rental
-     desk was never told; only the owner's own tab believed it had been. The product answer is that
-     the request *is* the record — `ServiceRequestService` parks a priced request at
-     `awaiting-payment`, and `applyWebhookOutcome` moves it to `new` and onto the queue, carrying its
-     own `details` rather than the ticket's one-line summary.
-
-     The absence is asserted next to the presence on purpose. "No rental ticket" on its own would
-     pass just as happily if the submit had silently not taken at all — the failure mode
-     `submitFromReview` exists to catch — so the flow record it *should* have written is read in the
-     same breath. The live half (the park, the amount, the single-use session) belongs to
-     `consumer/services/live-rent-agreement.spec.js`; settlement stays with
-     `ServiceRequestFlowTest.PaidGate`, because forging a webhook signature is the one thing a spec
-     on this surface should not learn to do. */
-  test('submitting records the request itself, and raises no browser-only admin ticket', async ({ page }) => {
-    await login(page, BUYER);
-    await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
-
-    /* The flow record is counted as a delta rather than an absolute, because
-       `serviceFlow.seedDemo()` plants rental requests under three other demo mobiles.
-
-       The ticket is matched on its `TR…` ref instead of on `team === 'rental'`, and that is not
-       cosmetic: measured, eight seeded rental tickets arrive while this page is still booting, so a
-       count of the team would have been reporting the seed's arrival rather than the wizard's write.
-       A `TR…` ref is the wizard's own signature and nothing else in the product mints one. */
-    const census = () => page.evaluate(() => {
-      const flows = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('puneNestServiceReq:')) {
-          try { flows.push(...(JSON.parse(localStorage.getItem(k)) || [])); } catch { /* ignore */ }
-        }
-      }
-      const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}');
-      return {
-        rental: flows.filter((r) => r.type === 'rental').length,
-        wizardTickets: (db.tickets || []).filter((t) => String(t.ref || '').startsWith('TR')).length,
-        ours: flows.find((r) => (r.details?.property || '').includes('B-1204, Skyline Heights')) || null,
-      };
-    });
-
-    const before = await census();
-
-    await fillProperty(page);
-    await fillOwner(page, { withDoc: true });
-    await fillTenant(page);
-    await fillTerms(page);
-    await submitFromReview(page);
-
-    const after = await census();
-
-    expect(after.rental - before.rental, 'the submit wrote no request — the flow record is the system of record now').toBe(1);
-    expect(after.ours, 'the request that was written is not the one this wizard filled in').toBeTruthy();
-    expect(after.ours.status).toBe('submitted');
-    expect(after.wizardTickets, 'a browser-only rental ticket is back; the desk is told by the request, not by a TR… ref').toBe(0);
-  });
+  /* RETIRED (D256): "submitting records the request itself, and raises no browser-only admin
+     ticket" asserted its delta by counting `puneNestServiceReq:*` and `puneNestDB_v5.tickets` in
+     localStorage — the mock store, which went with `services/providers/mock`. Both halves of it
+     already live against the real server: the park, the amount and the single-use session are
+     covered by `consumer/services/live-rent-agreement.spec.js`, and settlement by
+     `ServiceRequestFlowTest.PaidGate`. Nothing is uncovered by its removal, which is why it was
+     deleted rather than ported. */
 });

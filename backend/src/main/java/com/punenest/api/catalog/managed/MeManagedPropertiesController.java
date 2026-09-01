@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -77,5 +78,35 @@ public class MeManagedPropertiesController {
     @PostMapping(Routes.MeManagedProperties.PUBLISH)
     public ManagedPropertyDto publish(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.publish(principal.userId(), id);
+    }
+
+    /**
+     * {@code GET /me/managed-properties/{id}/rent-receipts?months=6} — the recent manual rent ledger
+     * for one owned property, newest month first. {@code months} is a page size and is clamped, not
+     * rejected.
+     */
+    @GetMapping(Routes.MeManagedProperties.RENT_RECEIPTS)
+    public List<ManagedRentReceiptDto> rentReceipts(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @RequestParam(required = false) Integer months) {
+        return service.listRentReceipts(principal.userId(), id, months);
+    }
+
+    /**
+     * {@code POST /me/managed-properties/{id}/rent-receipts} — record one month as received;
+     * {@code 201}.
+     *
+     * <p>The body carries a {@code rentMonth} and nothing else: the amount, tenant, landlord and
+     * address on the receipt are snapshotted server-side from the owned property, never taken from
+     * the browser. A month already recorded is {@code 409}, so a double tap converges rather than
+     * minting a second document for one payment.
+     *
+     * <p>This does not touch {@code /me/rent-payments}. Those are the tenant's gateway payments and
+     * their paid state belongs to the payment webhook.
+     */
+    @PostMapping(Routes.MeManagedProperties.RENT_RECEIPTS)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ManagedRentReceiptDto recordRentReceipt(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody ManagedRentReceiptCreateRequest body) {
+        return service.recordRentReceipt(principal.userId(), id, body.rentMonth());
     }
 }
