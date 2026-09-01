@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { approveFlatmates, postAsGroup, switchToTeamUp, openFlatmateFilters } from '../../../helpers/app.js';
+import { approveFlatmates, postAsGroup, switchToTeamUp, openFlatmateFilters, appReady } from '../../../helpers/app.js';
 
 /* Host eligibility tiers on flatmate groups. A sitting tenant seeking a
    replacement flatmate can't produce ownership docs, so they UPLOAD a registered
@@ -24,6 +24,30 @@ async function openGroupModal(page) {
   await page.goto(`${BASE}/flatmates`);
   await page.locator('.sf-card').first().waitFor({ timeout: 10000 });
   await postAsGroup(page);
+}
+
+/* The "attach a verified property" picker is filled from `propertyService.myListings`, which the
+   seam resolves out of the catalogue (`puneNestDB_v5`) — rows with `real === true` and a matching
+   `ownerMobile` — not the `puneNestListings:<mobile>` key `seedUser` writes. That key stopped being
+   the source of truth when My Listings was repointed at the seam, so without this the owner has no
+   inventory and the attach button is never rendered.
+
+   Post-boot, because the app seeds the catalogue on first load and would clobber an init-script
+   write. Read-modify-write the real store; never fall back to '{}', which would wipe it. */
+async function ownListing(page, listing) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ mob, l }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [
+      { ...l, ownerMobile: mob, real: true, createdAt: Date.now() },
+      ...(db.listings || []).filter((p) => p.id !== l.id),
+    ];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { mob: MOBILE, l: listing });
 }
 
 async function fillCore(page, title) {
@@ -82,7 +106,9 @@ test('tenant without an agreement posts identity-only (no host badge)', async ({
 
 test('owner with a verified property can attach it and earns Owner-verified', async ({ page }) => {
   const title = 'Owner room-by-room CCC in Baner';
-  await seedUser(page, { listing: { id: 'p777', title: 'My 2BHK, Baner', locality: 'Baner', status: 'verified' } });
+  const listing = { id: 'p777', title: 'My 2BHK, Baner', locality: 'Baner', status: 'verified', deal: 'rent', price: 38000, bhk: '2 BHK' };
+  await seedUser(page, { listing });
+  await ownListing(page, listing);
   await openGroupModal(page);
   await fillCore(page, title);
   await page.getByRole('button', { name: /Flat owner/i }).click();

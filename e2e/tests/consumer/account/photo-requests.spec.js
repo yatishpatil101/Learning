@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ownerMobileOf } from '../../../helpers/app.js';
+import { appReady, ownerMobileOf } from '../../../helpers/app.js';
 
 /* "Request more photos" is a real demand signal now:
    - Buyer taps "More photos" on a listing → a request is persisted, keyed to the
@@ -50,6 +50,29 @@ test('owner sees photo requests card with Add-photos CTA', async ({ page }) => {
       { id: 'ph1', propId: o.propId, propLabel: '4 BHK Villa for Rent in Magarpatta', buyerName: 'Asha Patil', buyerMobile: '9000000009', requestedAt: Date.now() },
     ]));
   }, { owner, propId: PROP_ID });
+
+  /* Make the owner an owner in the eyes of the seam. The Enquiries tab is gated on
+     `myListings().length > 0`, which resolves the catalogue (`puneNestDB_v5`) rather than the
+     `puneNestListings:<mobile>` key seeded above, and it drops rows without `real` — demo catalogue
+     entries have no live owner, so they are excluded from every owner's dashboard by design. P5000
+     is exactly such a row, so this owner had zero inventory and the tab never rendered.
+
+     Flipping `real` on the row they genuinely own is the smallest honest fix: `ownerMobileOf`
+     already reads the ownership out of properties.json, so nothing here invents a relationship the
+     fixture does not already assert. After boot, because the app seeds the catalogue on first load. */
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ id, m }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    const row = (db.listings || []).find((p) => p.id === id);
+    if (!row) throw new Error('catalogue row ' + id + ' missing');
+    row.real = true;
+    row.ownerMobile = m;
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { id: PROP_ID, m: OWNER_MOBILE });
 
   await page.goto('/dashboard#enquiries', { waitUntil: 'networkidle' });
 

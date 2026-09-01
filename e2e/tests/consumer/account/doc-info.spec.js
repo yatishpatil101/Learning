@@ -47,11 +47,34 @@ async function centre(page, dot) {
   await settle(page);
 }
 
+/* Make the seeded user an owner as far as the seam is concerned.
+
+   The Documents vault renders its owner "Property docs" context off the listings the property
+   service returns, and the mock behind that seam reads the catalogue (`puneNestDB_v5`), not the
+   `puneNestListings:<mobile>` key `login()` writes. Without this the owner had no property, the
+   vault fell back to the personal identity view, and the info dots and Rent Agreement panel these
+   tests hover and click were never rendered.
+
+   After boot: the app seeds the catalogue itself on first load and would overwrite an init script. */
+async function ownListing(page, listing) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.documentElement.dataset.pnBoot === 'ready', null, { timeout: 30000 });
+  await page.evaluate((l) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, real: true }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, listing);
+}
+
 test('desktop: hovering a document info dot reveals its significance tip', async ({ page }) => {
   const errors = trackErrors(page);
 
   await page.setViewportSize({ width: 1280, height: 1400 });
   await login(page, OWNER, [LISTING]);
+  await ownListing(page, LISTING);
   await page.goto(`${BASE}/dashboard#documents`, { waitUntil: 'networkidle' });
   await page.getByText('Document Vault').waitFor({ timeout: 15000 });
 
@@ -76,6 +99,7 @@ test('mobile/touch: tapping a document info dot opens then dismisses the tip', a
   const ctx = await browser.newContext({ ...devices['Pixel 7'], hasTouch: true });
   const page = await ctx.newPage();
   await login(page, OWNER, [LISTING]);
+  await ownListing(page, LISTING);
   await page.goto(`${BASE}/dashboard#documents`, { waitUntil: 'networkidle' });
   await page.getByText('Document Vault').waitFor({ timeout: 15000 });
 
@@ -96,6 +120,7 @@ test('owner Documents vault carries a property-scoped Rent Agreement panel', asy
   // Rent agreements are property-specific, so they live in the owner "Property docs"
   // vault (scoped to the selected property), NOT the tenant "Personal" identity vault.
   await login(page, OWNER, [LISTING]);
+  await ownListing(page, LISTING);
   await page.goto(`${BASE}/dashboard#documents`, { waitUntil: 'networkidle' });
   await page.getByText('Document Vault').waitFor({ timeout: 15000 });
 
@@ -122,6 +147,16 @@ test('a tenant sees their Rent Agreement in a property-scoped My Tenancy vault, 
       status: 'registered', at: Date.now(),
     }]));
   }, TENANT);
+  /* The panel labels itself with the *property's* title, and `TenancyDto` does not carry one —
+     `toRentalCard` takes it from the matching listing and falls back to a generic "Rented home"
+     when the caller has none. The seed above put a `title` on the tenancy blob, which nothing reads
+     any more, so the panel was correctly describing a flat it could not name. Publish the property
+     the tenancy points at so there is something to name it after. */
+  await ownListing(page, {
+    id: 'T-RENT-1', title: 'Rented 2 BHK, Baner', address: 'B-1204, Rohan Leher, Baner',
+    locality: 'Baner', bhk: '2 BHK', deal: 'rent', price: 28000, status: 'approved',
+    ownerMobile: '9800000003',
+  });
   await page.goto(`${BASE}/dashboard#documents`, { waitUntil: 'networkidle' });
   await page.getByText('Document Vault').waitFor({ timeout: 15000 });
 

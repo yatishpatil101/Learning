@@ -34,9 +34,35 @@ async function seedSeeker(page) {
   }, SEEKER);
 }
 
+/* Put the listing where the dashboard actually looks for one.
+
+   The Action Center's owner rows are gated on `isOwner`, which is `listings.length > 0`, and
+   `listings` comes from `propertyService.myListings` now. The mock behind that seam resolves the
+   *catalogue* (`puneNestDB_v5`) and keeps rows marked `real` whose owner matches — it does not read
+   `puneNestListings:<mobile>` any more. Seeding only the per-owner key left the owner with no
+   inventory, so `isOwner` was false, no contact row was ever built, and the Action Center rendered
+   "You're all caught up" while a four-day-old request sat in the store.
+
+   It has to run after boot: the app seeds `puneNestDB_v5` itself on first load and would overwrite
+   an `addInitScript` write. Same shape as `publishToCatalogue` in dashboard.spec.js, which hit this
+   first. */
+async function publishToCatalogue(page, listing, mobile) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ l, m }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, ownerMobile: m, real: true }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { l: listing, m: mobile });
+}
+
 test.describe('Dashboard Action Center', () => {
   test('owner with a stale pending request sees a prioritized "Needs your attention" card', async ({ page }) => {
     await seedOwner(page, { contact: STALE_CONTACT });
+    await publishToCatalogue(page, LISTING, OWNER.mobile);
     await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
 
     const ac = page.locator('[data-testid="action-center"]');
@@ -58,6 +84,7 @@ test.describe('Dashboard Action Center', () => {
 
   test('the Requests sidebar badge reflects pending count from any tab', async ({ page }) => {
     await seedOwner(page, { contact: STALE_CONTACT });
+    await publishToCatalogue(page, LISTING, OWNER.mobile);
     await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
 
     const requestsBtn = page.locator('aside button', { hasText: 'Requests' }).first();

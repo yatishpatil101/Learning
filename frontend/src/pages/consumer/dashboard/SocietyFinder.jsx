@@ -10,9 +10,17 @@ import { useSocietyCatalogue } from '../../../lib/useSocietyCatalogue.js';
  *
  * A searcher looks for a society and "follows" it to get alerted the moment a
  * home is listed there. If it doesn't exist yet, "Add & alert me" MINTS a
- * community society (source: 'demand') and follows it — creating both the
- * society entity AND a demand signal ops can act on. Reuses the same follow +
- * auto-mint funnel as the listing side, so supply and demand grow one graph.
+ * community society and follows it — creating both the society entity AND a
+ * demand signal ops can act on. Reuses the same follow + auto-mint funnel as
+ * the listing side, so supply and demand grow one graph.
+ *
+ * **The demand signal is currently lost on the way to ops.** This used to call
+ * `addCommunitySociety({ source: 'demand' })`, and that field is what puts the "Searcher demand"
+ * chip on Admin ▸ Societies ▸ Candidates instead of "From a listing". `POST /societies` has no
+ * field for where a mint came from — the server's `source` is `curated`/`rera`/`community`, which
+ * is a different question — so every mint now reaches the queue looking like a lister's. Passing
+ * a `source` the server ignores would only make the mock disagree with production. Needs a wire
+ * field; tracked in tasks/todo.md ▸ Needs attention.
  *
  * Membership comes from `useFollows` rather than a read per row (D227). This surface is the
  * clearest reason the follow set had to become a context: it asks "is this followed?" once per

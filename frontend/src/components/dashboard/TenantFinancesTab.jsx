@@ -7,7 +7,7 @@ import Select from '../ui/Select.jsx';
 import { fmtINR } from '../../lib/format.js';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import {
-  toRentalCard,
+  toRentalCards,
 } from '../../lib/data/tenancy.js';
 import {
   myTenancies, myRentPayments, myTenantProfile, myRentAgreements,
@@ -71,10 +71,12 @@ export default function TenantFinancesTab({ user, toast }) {
       myRentPayments(0, MAX_PAGE_SIZE).catch(() => ({ items: [] })),
       myTenantProfile().catch(() => null),
       myRentAgreements().catch(() => []),
-    ]).then(([rows, page, profileRow, agreementRows]) => {
+    ]).then(async ([rows, page, profileRow, agreementRows]) => {
+      if (!alive) return;
+      const tenancies = await toRentalCards(rows);
       if (!alive) return;
       setWallet({
-        tenancies: (rows || []).map((row) => toRentalCard(row)),
+        tenancies,
         payments: page?.items || [],
         profile: profileRow,
         agreements: agreementRows || [],

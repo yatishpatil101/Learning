@@ -71,8 +71,21 @@ test.describe('Tenant profile', () => {
   });
 
   test('re-verify is offered only when the Aadhaar-linked mobile changed', async ({ page }) => {
-    // Seed a verified profile whose KYC was done against a DIFFERENT mobile than
-    // the current account number — i.e. the user later changed their number.
+    /* Seed a verified profile whose KYC was done against a DIFFERENT mobile than the current
+       account number — i.e. the user later changed their number.
+
+       Two keys, because the page assembles this state from two sources and the profile blob alone
+       no longer carries it. `pnTenantProfile:<mobile>` is what the mock rent provider reads, and it
+       supplies `idVerified`; `kyc` is *not* on the wire (`TenantProfileDto` has a server-owned
+       `verified` flag but no record of what was verified), so the masked-number half is assembled
+       from the Aadhaar badge instead. Seeding only the profile left `kyc` null and the prompt could
+       not render whatever the comparison said.
+
+       `mobileMatch: false` is the assertion the badge actually carries. The page reads that
+       tri-state rather than comparing masked strings, because DigiLocker returns no mobile and the
+       http mapper sends `aadhaarMobile: ''` — a string comparison would be `x !== x` on live and
+       could only ever fire here. Recording the server's own verdict is what makes this spec a
+       statement about production and not about the mock. */
     await page.addInitScript(() => {
       const u = { name: 'Yatish', mobile: '9700055010', role: 'buyer', joinedAt: Date.now() };
       localStorage.setItem('puneNestUser', JSON.stringify(u));
@@ -80,6 +93,10 @@ test.describe('Tenant profile', () => {
       localStorage.setItem('pnTenantProfile:9700055010', JSON.stringify({
         name: 'Yatish', employment: '', income: '', occupants: '', moveIn: '', priorLandlord: '', about: '',
         idVerified: true, kyc: { type: 'aadhaar', label: 'Aadhaar', masked: '+91 98\u2022\u2022\u2022 \u2022\u2022\u202288', verifiedAt: Date.now() },
+      }));
+      localStorage.setItem('puneNestAadhaar:9700055010', JSON.stringify({
+        verified: true, source: 'digilocker', aadhaarMobile: '9800000088',
+        maskedAadhaar: 'XXXX XXXX 1234', mobileMatch: false, at: Date.now(),
       }));
     });
     await page.goto(`${BASE}/tenant-profile`, { waitUntil: 'networkidle' });

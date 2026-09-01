@@ -67,7 +67,67 @@ Open items with no ledger row. Anything covered by a decision is cited, not rest
   them needs a target-type the reporter does not currently send.
 - **Outstanding on the two migration commits** (`3e53d87`, `87f2d07`): the reviewer-agent pass,
   the `/simplify` pass, and a `live-*.spec.js` + `e2e/COVERAGE.md` row for the society admin queues.
-  Verified so far: full lint at the 0-error baseline, and 18/18 parity harnesses green.
+  Verified so far: full lint at the 0-error baseline, and 20/20 parity harnesses green.
+- **Searcher demand is no longer distinguishable from lister supply.** `SocietyFinder` used to mint
+  with `source: 'demand'`, which is what put the "Searcher demand" chip on the candidates queue
+  instead of "From a listing". `POST /societies` has no field for where a mint came from — the
+  server's own `source` is `curated`/`rera`/`community`, a different axis — so every mint now
+  reaches ops looking like a lister's, and the question the finder exists to answer ("which
+  societies are people asking for that nobody has listed in?") cannot be answered. Needs a wire
+  field; passing one the server ignores would only make the mock disagree with production.
+
+**The 25 red mock-mode e2e specs: 25 fixed, 0 outstanding**
+
+A wide `tests/admin` + `tests/consumer` run reported **29 failed / 821 passed**. A serial re-run of
+just the red files reproduced 27, so they were not worker contention. A worktree at `cd1018c` — the
+commit before the society-console work — running the *same* files produced a failure list identical
+apart from `doc-viewer-scheme.spec.js`, which a targeted re-run showed to be a flake cluster (all
+three of its tests fluctuate between runs). **None of it was a regression**, including the
+`tenant-profile.spec.js:73` failure previously reported here as one: it fails at `cd1018c` too.
+
+Almost all of them were one class — a spec whose localStorage seed predates a seam migration,
+asserting against a screen that no longer reads the key it seeds. The repair is the same each time:
+boot the app, wait for `appReady`, then write into the store the app has just seeded (an
+`addInitScript` write is overwritten on first load), reading the existing store rather than starting
+from `{}`.
+
+| Seed key the spec wrote | Specs | Fixed in |
+|---|---|---|
+| `puneNestContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
+| `pnTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
+| `puneNestDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
+| `puneNestListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
+| `pnSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
+
+Three of them were not stale seeds but real product defects the stale seeds had been hiding:
+
+- **`toRentalCard` was never given the listing** (`e1a7ca6`). Its docblock says a caller holding the
+  listing should pass it in rather than have the function invent one; all three call sites passed
+  nothing, so every tenant's My Rental card, Rent Wallet and Document Vault described their home as
+  "Rented home".
+- **The flatmate tenancy picker could not name its options** (`22bfc94`). Same root, different
+  surface, and worse: `prefillGroupFromTenancy` derives locality from the title, so with every
+  option reading "My tenancy" the prefill filled in nothing.
+- **"Remove content" did not remove the content** (`a72ab70`). `mock/triageReport` ignored
+  `decision.enforcement`, so a moderator got "Content removed & report closed" while the spam stayed
+  on the hub — and the report left the queue, so nobody would come back to it.
+
+Two society specs were stale in the other direction — asserting behaviour that was deliberately
+removed, so fixing them meant changing the assertion, not the product:
+
+- `community-v2:260` asserted a snapshot of the reported text. `ModerationTab` stopped rendering one
+  on purpose: a report carries a target id, and a snapshot taken at report time goes stale the
+  moment the author edits. It now asserts on the target id, keeping both behavioural assertions.
+- `onboarding-p2:52` asserted that verifying a candidate sets `registration` and `conveyance` true.
+  `verifyCommunitySociety` deliberately stopped doing that — an operator confirming a building
+  exists was silently telling every buyer its conveyance deed was done. It now asserts the
+  verification stamp, which is also what the server records (V105).
+
+Known flaky, not red: `doc-viewer-scheme.spec.js` (:56/:68/:86 fluctuate), `owner-hub.spec.js:79`.
+Known red outside this set and untouched: `live-property-integration.spec.js:689`/`:720` (P6
+deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.spec.js:101`,
+`mobile/phase3.spec.js:157`, `mobile/topbar-scroll.spec.js:61`.
 
 **Data and schema**
 

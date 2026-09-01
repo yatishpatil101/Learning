@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 // Society Hub — Community v2: threaded replies, events/notices calendar, resident
 // WhatsApp group (ops-approved), unified moderation queue, and retro-gated Reviews/Q&A.
@@ -263,22 +264,60 @@ test('ops Remove deletes the reported contribution and closes the report; Dismis
       { id: 'c-bad', kind: 'tip', category: 'General', text: 'SPAM buy cheap followers now', user: 'X', mobile: '9700000009', resident: false, at: Date.now(), helpful: [], replies: [] },
       { id: 'c-ok', kind: 'tip', category: 'General', text: 'Legit tip about parking', user: 'Y', mobile: '9700000008', resident: false, at: Date.now(), helpful: [], replies: [] },
     ] }));
-    localStorage.setItem('pnSocietyReports', JSON.stringify([
-      { id: 'rep-1', slug: s, targetType: 'contribution', targetId: 'c-bad', reason: 'spam', snapshot: 'SPAM buy cheap followers now', by: 'Riya Sharma', mobile: '9876543212', at: Date.now(), status: 'open' },
-    ]));
   }, SLUG);
   await loginAsAdmin(page);
+
+  /* The queue reads `/reports`, not the browser-only `pnSocietyReports` this spec used to seed.
+     That key's writer is gone — a report filed on a hub went into the reporter's own storage and
+     the moderator read the moderator's, so the queue was empty by construction — so seeding it now
+     proves nothing. Seeded into the mock DB's `reports` collection instead, which is what both
+     providers answer from, and after boot because the app writes that store itself on first load. */
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(() => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.reports = [
+      {
+        id: 'rep-1',
+        kind: 'contribution',
+        targetId: 'c-bad',
+        targetTitle: '',
+        targetOwner: 'X',
+        ownerMobile: '9700000009',
+        reason: 'spam',
+        reasonLabel: 'Spam, advertising or a scam',
+        details: 'Looks like spam.',
+        reportedBy: 'Riya Sharma',
+        reporterMobile: '9876543212',
+        url: '',
+        at: Date.now(),
+        status: 'open',
+        actionTaken: '',
+        handledAt: 0,
+      },
+      ...(db.reports || []).filter((r) => r.id !== 'rep-1'),
+    ];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  });
+
   await page.goto(`${BASE}/admin/societies?tab=moderation`);
 
+  /* The row identifies the post by its id, not by a copy of its words. `ModerationTab` stopped
+     rendering a snapshot on purpose: a report carries a target id, and a snapshot taken at report
+     time goes stale the moment the author edits — so asserting on the prose here would be asserting
+     a field the product deliberately dropped. */
   const repBlock = page.locator('div.pn-card', { hasText: 'Reported content' });
-  await expect(repBlock.getByText('SPAM buy cheap followers now')).toBeVisible({ timeout: 8000 });
+  await expect(repBlock.getByText('c-bad')).toBeVisible({ timeout: 8000 });
   await repBlock.getByRole('button', { name: 'Remove content' }).click();
 
   // Report is closed and the target contribution is deleted.
-  await expect(repBlock.getByText('SPAM buy cheap followers now')).toHaveCount(0, { timeout: 8000 });
+  await expect(repBlock.getByText('c-bad')).toHaveCount(0, { timeout: 8000 });
   const state = await page.evaluate(() => ({
     contribs: JSON.parse(localStorage.getItem('pnSocietyContributions') || '{}'),
-    reports: JSON.parse(localStorage.getItem('pnSocietyReports') || '[]'),
+    reports: JSON.parse(localStorage.getItem('puneNestDB_v5') || '{}').reports || [],
   }));
   expect(state.contribs[SLUG].map((c) => c.id)).toEqual(['c-ok']);
   expect(state.reports.find((r) => r.id === 'rep-1').status).not.toBe('open');

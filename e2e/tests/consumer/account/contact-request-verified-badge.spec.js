@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
@@ -24,6 +25,22 @@ test('pending owner contact requests keep the Serious Buyer badge before approva
     }]));
     localStorage.setItem('pnTenantProfile:9000000009', JSON.stringify({ idVerified: true, updatedAt: requestedAt }));
   }, { owner: OWNER, listing: LISTING, requestedAt: Date.now() - 3600000 });
+
+  /* The Enquiries tab only exists for an owner, and ownership is `myListings().length > 0` — which
+     resolves the catalogue (`puneNestDB_v5`) through the property seam, not the
+     `puneNestListings:<mobile>` key seeded above. That key is left in place because it is still
+     what the listing *editor* reads; it is simply no longer what makes someone an owner. Published
+     after boot, since the app seeds the catalogue itself on first load. */
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ l, m }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, ownerMobile: m, real: true }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { l: LISTING, m: OWNER.mobile });
 
   await page.goto(`${BASE}/dashboard#enquiries`, { waitUntil: 'networkidle' });
 

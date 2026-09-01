@@ -139,6 +139,67 @@ const removeReportedTarget = (r) => {
     set(BOARD_KEY, all);
   }
 };
+
+/**
+ * Hide one piece of society UGC because a moderator upheld a complaint about it.
+ *
+ * The mock counterpart of the server's `hide_content` enforcement. `removeReportedTarget` above
+ * cannot be reused directly: it belongs to the retired `pnSocietyReports` queue, whose rows carried
+ * `slug`, `parentId` and `entityId` alongside the target. A `/reports` row carries a `kind` and a
+ * `targetId` and nothing else — deliberately, since the server resolves the rest from its own
+ * tables — so the slug and the parent have to be found rather than read off the report.
+ *
+ * Searching every society for the id is sound because these ids are minted unique across the whole
+ * store, not per society; the scan is over one browser's own contributions, which is a list, not a
+ * table. It stops at the first bucket that owns the id so a coincidental collision cannot delete
+ * two people's posts on one decision.
+ *
+ * Best-effort by design: `false` when nothing matched (the author may have deleted it first, which
+ * is not a failed moderation) so the caller can still close the report.
+ *
+ * @param {string} kind one of `contribution`, `reply`, `question`, `answer`, `board`
+ * @param {string} targetId the id of the row to remove
+ * @returns {boolean} whether something was actually removed
+ */
+export const hideSocietyContent = (kind, targetId) => {
+  const id = String(targetId || '');
+  if (!id) return false;
+
+  const dropFrom = (all, key, pick) => {
+    for (const slug of Object.keys(all || {})) {
+      const next = pick(all[slug] || []);
+      if (next) { set(key, { ...all, [slug]: next }); return true; }
+    }
+    return false;
+  };
+
+  if (kind === 'contribution') {
+    const all = allSocietyContributions();
+    return dropFrom(all, CONTRIB_KEY, (rows) => (rows.some((c) => c.id === id) ? rows.filter((c) => c.id !== id) : null));
+  }
+  if (kind === 'reply') {
+    const all = allSocietyContributions();
+    return dropFrom(all, CONTRIB_KEY, (rows) => (rows.some((c) => (c.replies || []).some((r) => r.id === id))
+      ? rows.map((c) => ((c.replies || []).some((r) => r.id === id) ? { ...c, replies: c.replies.filter((r) => r.id !== id) } : c))
+      : null));
+  }
+  if (kind === 'question') {
+    const all = allSocietyQA();
+    return dropFrom(all, QA_KEY, (rows) => (rows.some((q) => q.id === id) ? rows.filter((q) => q.id !== id) : null));
+  }
+  if (kind === 'answer') {
+    const all = allSocietyQA();
+    return dropFrom(all, QA_KEY, (rows) => (rows.some((q) => (q.answers || []).some((a) => a.id === id))
+      ? rows.map((q) => ((q.answers || []).some((a) => a.id === id) ? { ...q, answers: q.answers.filter((a) => a.id !== id) } : q))
+      : null));
+  }
+  if (kind === 'board') {
+    const all = allSocietyBoard();
+    return dropFrom(all, BOARD_KEY, (rows) => (rows.some((b) => b.id === id) ? rows.filter((b) => b.id !== id) : null));
+  }
+  return false;
+};
+
 export const moderateReport = (id, action) => {
   const u = readUser();
   if (!isOps(u)) return 'forbidden';

@@ -19,6 +19,7 @@
 import { readUser } from '../../../lib/auth.js';
 import { listReports as _list, mutateDb, rawDb } from '../../../lib/mockApi.js';
 import { submitReport as _submit } from '../../../lib/data/reports.js';
+import { hideSocietyContent } from '../../../lib/store.js';
 import { toTargetType, reasonLabel } from '../http/reportMapper.js';
 
 /**
@@ -83,6 +84,7 @@ export async function listReports({ status } = {}) {
 
 export async function triageReport(id, decision) {
   let updated = null;
+  let target = null;
   mutateDb((db) => {
     const r = (db.reports || []).find((x) => x.id === id);
     if (!r) return;
@@ -92,7 +94,18 @@ export async function triageReport(id, decision) {
     // log instead, so this has no live counterpart. Reopening clears it, matching the old queue.
     if (decision?.status === 'open') r.actionTaken = '';
     else if (decision?.actionTaken !== undefined) r.actionTaken = decision.actionTaken;
+    target = { kind: r.kind || 'listing', targetId: r.targetId };
     updated = { ...r };
   });
+  /* `hide_content` is an instruction, not a label. Live it is what actually takes the post down —
+     the status alone only closes the complaint — and ignoring it here made the mock disagree with
+     the server on the one thing moderation is for: a moderator pressed "Remove content", the queue
+     said "Content removed & report closed", and the spam stayed on the society hub. That is not one
+     of this file's three permissive asymmetries; those all fail safe, and this one fails open.
+
+     Society kinds only, because they are the ones whose content this browser holds. A listing
+     report is enforced against a row the mock catalogue owns differently, and nothing in the
+     product asks this queue to take a listing down. */
+  if (target && decision?.enforcement === 'hide_content') hideSocietyContent(target.kind, target.targetId);
   return updated;
 }

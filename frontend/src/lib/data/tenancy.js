@@ -12,6 +12,7 @@
 
 import { digits } from '../contact.js';
 import { thisMonth } from '../rentPay.js';
+import { getPropertiesByIds } from '../../services/propertyService.js';
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
 
@@ -63,6 +64,31 @@ export function toRentalCard(row, listing) {
     leaseEnd: row?.endDate || '',
     status: row?.status || 'active',
   };
+}
+
+/**
+ * Every tenancy a caller has just fetched, named after the flat it is for.
+ *
+ * `toRentalCard` takes the listing as an optional second argument and falls back to a generic
+ * "Rented home" without one — and no caller was passing it, so a tenant's rental hub, wallet and
+ * document vault all described their home as "Rented home". `TenancyDto` is right not to carry the
+ * title (copying the listing's own words onto the lease lets a renamed property disagree with
+ * itself), which means the properties have to be fetched, and a tenant does not own the flat so it
+ * is never in their `listings`.
+ *
+ * One batched call for the whole set rather than one per row, and a failure is swallowed: the
+ * fallback label is worse than the title, but far better than a hub that renders nothing because
+ * the property lookup was unavailable.
+ *
+ * @param {object[]} rows `rentService.myTenancies()` rows
+ * @returns {Promise<object[]>} the same rows as rental cards
+ */
+export async function toRentalCards(rows) {
+  const list = rows || [];
+  const ids = [...new Set(list.map((r) => r?.propId || r?.propertyId).filter(Boolean))];
+  const props = ids.length ? await getPropertiesByIds(ids).catch(() => []) : [];
+  const byId = new Map((props || []).map((p) => [p.id, p]));
+  return list.map((row) => toRentalCard(row, byId.get(row?.propId || row?.propertyId)));
 }
 
 /**

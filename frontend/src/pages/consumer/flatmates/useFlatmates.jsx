@@ -7,6 +7,7 @@ import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
 import { getMyRequest, getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
+import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import * as propertyService from '../../../services/propertyService.js';
 import * as rentService from '../../../services/rentService.js';
@@ -203,9 +204,19 @@ export function useFlatmates() {
      which is what the seam offers and the only version of this that survives contact with a real
      API. Ended tenancies are dropped here because `myTenancies()` takes no arguments and so cannot
      be asked to omit them, not because the distinction is a rendering preference: a finished tenancy
-     is still a real one and other surfaces need it. */
+     is still a real one and other surfaces need it.
+
+     Through `toRentalCards` because a `TenancyDto` names no property — it carries the flat's id and
+     nothing else about it, deliberately, so that renaming a property cannot leave the lease
+     disagreeing with itself. Without the resolved property every option in this picker reads "My
+     tenancy", so a tenant with two of them cannot tell which is which, and the prefill that follows
+     derives its locality from the title and so filled in nothing. `toRentalCards` resolves the whole
+     set in one batched property read and keeps `id`, `rent`, `ownerMobile` and `status` as they came
+     off the wire, which is everything the picker and the prefill go on to use. */
   const [myTenancies, myTenanciesStatus, , retryMyTenancies, myTenanciesError] = useAsyncList(
-    () => rentService.myTenancies().then((list) => list.filter((tenancy) => tenancy.status !== 'ended')),
+    () => rentService.myTenancies()
+      .then((list) => list.filter((tenancy) => tenancy.status !== 'ended'))
+      .then(toRentalCards),
     [user?.mobile, groupOpen],
     !!user,
   );

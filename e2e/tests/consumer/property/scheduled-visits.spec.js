@@ -1,6 +1,7 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
+import { appReady } from '../../../helpers/app.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 /* `id` is the account id the visit store keys its buckets on (src/lib/store/visits.js, D30). A
@@ -45,6 +46,27 @@ async function loginOwner(page) {
     // The owner's own visit-request bucket — where a real booking against their listing lands.
     localStorage.setItem('puneNestPropVisitReqs:' + u.id, JSON.stringify(v));
   }, { u: OWNER, l: [LISTING], v: VISITS });
+
+  /* …and the listing again, into the catalogue, because that is where the property seam looks. The
+     dashboard decides whether this account is an owner from `propertyService.myListings`, which the
+     mock resolves out of `puneNestDB_v5` filtered to `real === true` rows with a matching owner —
+     not the `puneNestListings:<mobile>` key above, which stopped being the source of truth when My
+     Listings was repointed at the seam. With no inventory the owner surfaces (Visits, Requests)
+     never render and every assertion below is made against the seeker dashboard.
+
+     Post-boot, because the app seeds the catalogue itself on first load and would clobber an
+     init-script write. Read-modify-write the real store; never fall back to '{}', which would
+     discard every other row. */
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate((l) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [{ ...l, createdAt: Date.now() }, ...(db.listings || []).filter((p) => p.id !== l.id)];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, LISTING);
 }
 
 test.describe('Scheduled Visits', () => {

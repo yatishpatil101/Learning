@@ -7,9 +7,8 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const OWNER = { name: 'Owner Test', mobile: '9811100011', email: '', role: 'owner', joinedAt: Date.now() };
 const PROP_ID = 'PN-OWN-REAL';
 
-/* isOwner is derived from hasListings(), not the user's role field — seed one posted
-   listing so the dashboard routes to the owner P&L (OwnerFinances), not the tenant
-   Rent Wallet. */
+/* isOwner is derived from the listings the property seam returns, not the user's role field — so
+   the dashboard routes to the owner P&L (OwnerFinances) rather than the tenant Rent Wallet. */
 async function loginOwner(page) {
   await page.addInitScript((u) => {
     localStorage.setItem('puneNestUser', JSON.stringify(u));
@@ -20,11 +19,38 @@ async function loginOwner(page) {
   }, OWNER);
 }
 
+/* ...and the seam reads the catalogue, not `puneNestListings:<mobile>`, which is why the key above
+   is no longer enough on its own. Without this the owner had no inventory, Finances fell through to
+   the tenant Rent Wallet, and every assertion here was made against the wrong screen.
+
+   Post-boot, because the app seeds `puneNestDB_v5` on first load and would clobber an init script.
+   The third test in this file already did this by hand for its overdue-dues fixture; this is the
+   same write, hoisted so the two tests that only need ownership can share it. */
+async function ownListing(page) {
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ mob, propId }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [
+      {
+        id: propId, title: 'Owned 2 BHK, Baner', ownerMobile: mob, real: true, status: 'approved',
+        deal: 'rent', locality: 'Baner', bhk: '2 BHK', price: 28000, createdAt: Date.now(),
+      },
+      ...(db.listings || []).filter((p) => p.id !== propId),
+    ];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { mob: OWNER.mobile, propId: PROP_ID });
+}
+
 test.describe('Dashboard — owner Finances (property P&L)', () => {
   test('renders KPI tiles and the Set-up-ROI CTA in place of a blank tile', async ({ page }) => {
     const errors = trackErrors(page);
     await loginOwner(page);
     await page.setViewportSize({ width: 390, height: 844 });
+    await ownListing(page);
     await page.goto(`${BASE}/dashboard#finances`, { waitUntil: 'networkidle' });
 
     // On mobile the KPI carousel is the visible copy (the desktop grid is lg-only).
@@ -42,6 +68,7 @@ test.describe('Dashboard — owner Finances (property P&L)', () => {
 
   test('opens the Add-transaction modal from the Activity tab', async ({ page }) => {
     await loginOwner(page);
+    await ownListing(page);
     await page.goto(`${BASE}/dashboard#finances`, { waitUntil: 'networkidle' });
 
     await page.getByRole('tab', { name: 'Activity' }).click();

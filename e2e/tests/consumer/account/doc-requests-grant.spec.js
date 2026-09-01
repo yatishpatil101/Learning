@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { appReady } from '../../../helpers/app.js';
 
 /* Owner grants a buyer's document request from the dashboard Leads inbox.
    This exercises the path `useDashboardData.decideDocReqs` drives — the inbox read and the
@@ -37,8 +38,36 @@ function seedOwnerWithPendingRequest(page) {
   }, { OWNER, BUYER, PROP, PNG });
 }
 
+/* The owner-gated Leads tab is decided by what the property seam returns, and the seam reads the
+   catalogue (`puneNestDB_v5`) filtered to `real === true` rows owned by this mobile — not the
+   `puneNestListings:<mobile>` key seeded above, which stopped being the source of truth when My
+   Listings was repointed at propertyService. Without this row the owner has no inventory, the
+   Leads tab never renders, and the Documents sub-tab click below finds nothing.
+
+   Post-boot, because the app seeds the catalogue itself on first load and would clobber an init
+   script write. Read-modify-write the real store — never fall back to '{}', which would wipe it. */
+async function ownListing(page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await appReady(page);
+  await page.evaluate(({ mob, propId }) => {
+    const KEY = 'puneNestDB_v5';
+    const raw = localStorage.getItem(KEY);
+    if (!raw) throw new Error('mock store missing after appReady()');
+    const db = JSON.parse(raw);
+    db.listings = [
+      {
+        id: propId, title: '2 BHK Flat in Baner', ownerMobile: mob, real: true, status: 'approved',
+        deal: 'sale', locality: 'Baner', bhk: '2 BHK', price: 9500000, createdAt: Date.now(),
+      },
+      ...(db.listings || []).filter((p) => p.id !== propId),
+    ];
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }, { mob: OWNER, propId: PROP });
+}
+
 test('owner grants a document request from the dashboard, through the seam', async ({ page }) => {
   await seedOwnerWithPendingRequest(page);
+  await ownListing(page);
   await page.goto('/dashboard#enquiries', { waitUntil: 'networkidle' });
 
   // Open the "Documents" sub-tab, which lists only document requests with their category preview.

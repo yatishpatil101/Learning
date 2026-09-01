@@ -12,7 +12,7 @@ import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respond
 import { isHttpDomain } from '../../services/config.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
 import { myTenancies, myRentAgreements, rentLedger } from '../../services/rentService.js';
-import { toRentalCard } from '../../lib/data/tenancy.js';
+import { toRentalCards } from '../../lib/data/tenancy.js';
 import { openDocUrl } from '../../lib/openDoc.js';
 
 /* Owner-side document packs (property-based). Uses the richer domain category model so the
@@ -243,10 +243,12 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
     Promise.all([
       myTenancies().catch(() => []),
       myRentAgreements().catch(() => []),
-    ]).then(([rows, agreementRows]) => {
+    ]).then(async ([rows, agreementRows]) => {
+      if (!alive) return;
+      const tenancies = await toRentalCards(rows);
       if (!alive) return;
       setRental({
-        tenancies: (rows || []).map((row) => toRentalCard(row)),
+        tenancies,
         agreements: agreementRows || [],
         /* Who paid, by tenancy. A rent-ledger row names its tenancy and not its payer, which is
            right — the payer is a fact about the lease, and repeating it on every payment would let

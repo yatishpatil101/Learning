@@ -6,7 +6,7 @@ import HScroll from '../../../components/ui/HScroll.jsx';
 import { Card, SectionHead } from './components.jsx';
 import { fmtINR } from '../../../lib/format.js';
 import {
-  toRentalCard, tenancyStatus,
+  toRentalCards, tenancyStatus,
 } from '../../../lib/data/tenancy.js';
 import {
   myRentPayments, getMandate, myTenantProfile, myTenancies, myRentAgreements,
@@ -43,9 +43,11 @@ export default function MyRentalPanel({ user, toast }) {
       getMandate().catch(() => null),
       myTenantProfile().catch(() => null),
       myRentAgreements().catch(() => []),
-    ]).then(([rows, page, mandateRow, profileRow, agreementRows]) => {
+    ]).then(async ([rows, page, mandateRow, profileRow, agreementRows]) => {
       if (!alive) return;
-      setTenancies((rows || []).map((row) => toRentalCard(row)));
+      const cards = await toRentalCards(rows);
+      if (!alive) return;
+      setTenancies(cards);
       setRent({
         payments: page?.items || [],
         mandate: mandateRow,
