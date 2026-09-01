@@ -1,17 +1,17 @@
 /**
- * The Pricing, SLA and page-view analytics tabs, against the live API.
+ * The Pricing, SLA and page-view analytics **endpoint contracts**, against the live API.
  *
- * ## Why only five of the eight tabs are here
+ * ## What this file owns, and what its sibling owns
  *
- * `admin/analytics.spec.js` covers all eight, but it runs on the mock config, and for three of
- * those tabs that is the only honest place to run them: Seasonal is generated in the browser and
- * has no server to talk to, and Geography and Supply Gap already have live coverage of their own
- * endpoints elsewhere. Pricing, SLA, Traffic, Engagement and Anonymous surfers read the API, so
- * they are the ones that need asserting against a real database.
+ * `admin/live-analytics-page.spec.js` owns the page: the tab strip, URL sync, deep links, the CSV
+ * export, the no-remount rule, per-tab rendering and the illustrative-data labelling. This file
+ * owns what the server promises, and the two UI tests here are the ones that exist to prove the
+ * page is talking to it at all.
  *
- * Running the whole mock file under `playwright.live.config.js` would have executed the generated
- * tabs under a filename claiming otherwise, which is the failure mode the `live-` prefix exists to
- * prevent.
+ * Both files used to be one, `admin/analytics.spec.js`, on the mock config. It was converted once
+ * Geography turned out to have been live since register 36 and Seasonal turned out to be
+ * illustrative by decision rather than by backlog — so the "until they follow" this file's header
+ * used to rely on described an event that was never coming.
  *
  * ## What these tests are actually protecting
  *
@@ -28,14 +28,11 @@
  *
  * `services/config.js` falls back to the mock provider with a `console.warn` — not an error — when
  * an http provider is missing. So a UI test asserting static column headers would stay green while
- * the tab read localStorage, which is the failure this file's `live-` prefix claims to rule out.
+ * the tab read localStorage, which is the failure the `live-` prefix claims to rule out.
  * Each of the two UI tests therefore asserts a value only the database holds: a measured locality's
  * asking rate and buy count, and the title of the oldest listing in the real review queue. Neither
- * can be reproduced by a provider reading `db.json`.
- *
- * The `Sample` chips are deliberately **not** asserted here. They render from browser-generated
- * data in both modes, so they are a rendering contract, and `admin/analytics.spec.js` is where
- * rendering contracts belong — duplicating them live would cost a browser launch to learn nothing.
+ * can be reproduced by a provider reading `db.json`. That is why those two stayed here when the
+ * rest of the rendering moved — they are discriminators, not renders.
  *
  * ## Why the numbers are not asserted absolutely
  *

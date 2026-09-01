@@ -102,6 +102,74 @@ red); and `TrafficTab`'s "no sessions" empty state was dead code, because the so
 the full five-channel vocabulary — an unvisited window drew five zero-slices, which reads as a
 measurement rather than an absence.
 
+### 38 — Geo/cities end-state
+
+**Decided 2026-08-22:** server-own it fully. Seed the four coming-soon cities as `live = false`
+rows, add an admin write path for `cities.live`, and let `GET /cities` become the single source of
+roster, liveness and inventory. Retire `CITY_GEO.live` and the `settings.geo.cities[].live`
+override rather than carrying both.
+
+### 39 — Audit tab end-state
+
+**Decided 2026-08-22:** keep the audit tab, read-only. No clear/reset controls are part of Phase 5;
+it closes only as a server-backed history surface.
+
+### 40 — Post-on-behalf on Staff Activity
+
+**Decided 2026-08-22:** keep post-on-behalf visible on Staff Activity. Server audit alone is not the
+whole answer; the operator-facing activity surface keeps that event as a first-class item.
+
+### 41 — Static-analysis close-out order
+
+**Decided 2026-08-22:** Phase 5 targets Sonar first and does **not** block on choosing Checkmarx vs
+CodeQL. The scanner choice stays an open hardening item after Phase 5's functional close.
+
+### 42 — What the second administrator is shown before approving an account *(closes Q20/D206)*
+
+**Decided 2026-08-23:** add `createdBy` to the pending-approval response and show it in the queue;
+keep the mobile masked *there*, and unmask it only on the deliberate single-account view that is
+already audited per look.
+
+D200 stopped one administrator minting a colleague alone, and the mechanism holds — there is no way
+to obtain a usable administrator without a second human. What that human was signing was the weak
+part: `pendingApprovals()` returned `masked(user)` and **no `createdBy` at all**, so a checker could
+not tell a colleague's onboarding from a maker minting an account on a handset they control. The
+second key attested "this record may have access"; it now attests "this person may have access".
+
+Credentials were already out of the maker's hands (staff stay passwordless until they redeem an
+invite through `POST /auth/staff-invite/redeem`, V71), so this is the remaining half. The mobile
+stays masked in the queue for the reason `pendingApprovals` gives itself — a screen listing one
+unmasked number per waiting colleague is a small bulk-export surface wearing the clothes of a
+to-do list — and the single-account view is where a checker who has a reason to look pays the
+audit cost for looking. Option 3 (accept and detect) was rejected: it is defensible only while
+every administrator is known personally, which is exactly the assumption D200's row said would stop
+holding.
+
+### 43 — The `claimLinkOpened` chip on the admin property card
+
+**Decided 2026-08-23:** build it server-side. Record the claim-link open and serve it.
+
+Only the mock ever set it, so against the live backend the "Opened" chip is permanently dark and
+tells an operator the owner never opened the link whether or not they did — a control that reports
+a fact nobody measures. Deleting it was the cheaper honest answer and was rejected: the desk chases
+owners who went quiet, and "sent but never opened" is the one signal that separates a bad number
+from a busy person. Needs a beacon on the claim-link landing route and a column to record the hit.
+
+### 44 — `/admin/property-reviews`: verdict granularity, filtering, attribution
+
+**Decided 2026-08-23**, closing the three loose ends left by D217 (*the propertyReview mock that
+copied the business rules and not the access rules*):
+
+- **(a) One verdict per property.** Per-document verify/reject is dropped rather than built. It was
+  a mock-only capability with no server behind it, and a console that offers a decision the server
+  cannot record is worse than one that offers fewer.
+- **(b) `status` becomes a query parameter.** The queue fetches everything and filters in the
+  browser today, which is over-fetching a moderation surface — the filter moves to the server.
+- **(c) The reviewer gets a display handle.** The response carries the raw UUID and the console
+  renders it, so attribution is technically present and practically unreadable. Serve a name
+  alongside the id; the id stays, because audit reads the id and people read the name.
+
+
 ---
 
 ## Still genuinely undecided
@@ -109,11 +177,11 @@ measurement rather than an absence.
 | Question | Why it is open |
 |----------|----------------|
 | Should a guard enforce `VITE_API_DOMAINS`? | Three domains have now shipped complete and been left off the hand-maintained list, so their live specs quietly exercised the mocks (D36's `analytics` is the latest; see `tasks/lessons.md`). A sibling of `frontend/scripts/check-provider-cycle.mjs` could fail the build when a `providers/http/*Provider.js` exists whose domain is absent. What blocks it is that absence is sometimes *deliberate* — `user` has an http provider and is intentionally mocked (see the user-restore row in `e2e/COVERAGE.md`) — so the guard needs a documented opt-out list, and an opt-out list that is itself hand-maintained may only move the problem. |
-| Checkmarx or CodeQL? | Neither is configured; Checkmarx is commercial. CodeQL is the free native equivalent. See `docs/migration/06-code-quality.md`. |
 | Caching layer | None exists. Per D133: measure the real call count first — no cache until a profiler asks for one. |
 | Does the "first verification" Featured perk survive? | Needs `featured_until` + a reason + a grant ledger, and a call on giving paid placement away. Recommendation: record as intentionally dropped. |
 | Should a buyer see "Posted by PuneNest"? | `PropertyResponse` omits `adminPipeline` from consumer reads on purpose. If it is a trust signal, the contract needs a public boolean that is not the pipeline. |
 | Who owns the concierge fixtures? | All 38 seeded properties have `posted_by_admin = false`, so the post-on-behalf surface is empty on live. Needs seed rows per pipeline stage against a known-green baseline. |
+| Does the Duplicates tab get a server, or get dropped? | It is the last feature on `/admin/properties` with no backend at all. `findDuplicateClusters` and `resolveDuplicate` in `frontend/src/lib/data/properties-admin.js` run union-find over the browser-local store and "merge" by archiving into `localStorage`; the only callers are `DuplicatesTab.jsx` and one KPI tile. The backend has `ListingDuplicateProbe` (which sets `duplicateFlag`/`flagReason` on write) and `POST /me/listings/duplicate-check`, but **no cluster read and no merge write** — so an operator who merges a cross-owner duplicate today changes nothing any other person can see, and the change is gone when they clear their browser. This is why `e2e/tests/admin/properties.spec.js` survives after `live-properties-console` landed: it is the only thing left holding that file on the mock. Either the server grows a cluster endpoint and a merge endpoint, or the tab comes out. What it must not stay is a control that looks like it did something. |
 
 
 

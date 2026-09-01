@@ -12,7 +12,10 @@ import java.time.Instant;
  * signals below, which are computed server-side from the unmasked data.
  *
  * @param reward       the human label the referrer was promised
- * @param rewardAmount what that label costs, whole rupees (spec fix S54)
+ * @param rewardAmount the magnitude of that label — a count of **owner contacts**, not money. It
+ *                     read "whole rupees" here until D31b, which moved the server onto the unit the
+ *                     label and the browser had always used; {@code Referral} carries the full
+ *                     account of why the column can hold two eras of the offer at once
  * @param channel      which side of the marketplace the referred party joined on — not how the link
  *                     was shared, which is {@code shareChannel} (D60)
  * @param shareChannel how the link reached the referee, or null when unknown; null is the common

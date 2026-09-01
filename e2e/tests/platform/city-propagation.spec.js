@@ -8,39 +8,54 @@ import { appReady } from '../../helpers/app.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-// Force the active city and mark it live in the mock DB, then reload so CityContext picks it up.
+// Mark a city live in the mock roster, tell the app, then pick it the way a shopper does.
 // `appReady` first: every caller reaches this straight off a `goto`, and the store is written
 // one microtask past the point any navigation wait resolves (D129).
 async function selectCity(page, city) {
   await appReady(page);
   await page.evaluate((c) => {
-    localStorage.setItem('puneNestCity', c);
+    const defaultCities = [
+      { slug: 'pune', name: 'Pune', live: true },
+      { slug: 'mumbai', name: 'Mumbai', live: false },
+      { slug: 'bengaluru', name: 'Bengaluru', live: false },
+      { slug: 'delhi-ncr', name: 'Delhi NCR', live: false },
+      { slug: 'hyderabad', name: 'Hyderabad', live: false },
+    ];
     // No `|| '{}'`. This is a read-modify-write: an empty fallback is written straight back,
     // wiping every listing, society and setting, and the damage only surfaces later as a
     // blank page nobody connects to this line.
     const raw = localStorage.getItem('puneNestDB_v5');
     if (!raw) throw new Error('mock store missing after appReady()');
     const db = JSON.parse(raw);
-    db.settings = db.settings || {};
-    db.settings.geo = db.settings.geo || {};
-    db.settings.geo.cities = db.settings.geo.cities || {};
-    db.settings.geo.cities[c] = { ...(db.settings.geo.cities[c] || {}), live: true };
+    db.cities = Array.isArray(db.cities) && db.cities.length ? db.cities : defaultCities;
+    const row = db.cities.find((cityRow) => cityRow.name === c);
+    if (!row) throw new Error(`city missing from roster: ${c}`);
+    row.live = true;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
+    window.dispatchEvent(new CustomEvent('punenest-settings-change'));
   }, city);
-  await page.reload();
-  /* Wait for the reloaded page to have actually *read* the liveness we just wrote.
-     `lib/geoConfig.js` fetches the geo policy at boot and answers from its built-in defaults
-     until that lands — and in those defaults every city but Pune is waitlisted. So a reload
-     resolves, and the h1 says "Mumbai" because the active city comes from `puneNestCity`, while
-     the app still believes Mumbai is not live. A caller that changes the policy again inside that
-     window overwrites a reading the app never took, and the assertion it then makes is about a
-     transition that never happened. `geoPolicySettled()` is the module's own "the boot window is
-     over" signal; awaiting it is the difference between forcing a city and forcing a city the app
-     has agreed to. */
-  await page.evaluate(async () => {
-    const geoConfig = await import('/src/lib/geoConfig.js');
-    await geoConfig.geoPolicySettled();
-  });
+
+  /* Then wait for the app to have *read* that, by watching the one place the roster is visible:
+     the city dropdown lists live cities by name and files the rest under "Coming soon" with a
+     "Soon" badge, so `exact: true` matches only once the app agrees the city is launched.
+
+     This used to force `puneNestCity`, reload, and await `geoPolicySettled()`. The await was a
+     no-op: an `import()` from inside `page.evaluate` hands back a module whose cache is cold, so
+     the promise settles instantly against a policy nobody has fetched. The reload then raced the
+     boot fetch, and a caller that toggled the city off inside that window was asserting on a
+     transition the app never saw — `CityContext` only reverts a shopper it once believed was on a
+     live city. Selecting through the UI removes the race instead of waiting it out, and it is what
+     a shopper does anyway. */
+  const pill = page.getByRole('button', { name: /^City: / }).first();
+  const list = page.getByRole('listbox', { name: 'Select city' });
+  const option = list.getByRole('button', { name: city, exact: true });
+  await expect(async () => {
+    if (!(await list.isVisible())) await pill.click();
+    await expect(option).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+
+  await option.click();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(city);
 }
 
 test('Pune (has inventory) shows the full home experience', async ({ page }) => {
@@ -88,13 +103,15 @@ test('admin taking the viewed city offline reverts the shopper to Pune (no manua
   await selectCity(page, 'Mumbai');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Mumbai');
 
-  // Simulate the admin toggling Mumbai off in the shared geo store, exactly like
-  // updateSettings does: flip live -> false, then fire the in-tab event.
+  // Simulate the admin toggling Mumbai off in the shared city roster, exactly like the
+  // city provider does: flip live -> false, then fire the in-tab event.
   await page.evaluate(() => {
     const raw = localStorage.getItem('puneNestDB_v5');
     if (!raw) throw new Error('mock store missing'); // read-modify-write: never fall back to {}
     const db = JSON.parse(raw);
-    db.settings.geo.cities.Mumbai = { ...(db.settings.geo.cities.Mumbai || {}), live: false };
+    const row = (db.cities || []).find((city) => city.name === 'Mumbai');
+    if (!row) throw new Error('Mumbai missing from roster');
+    row.live = false;
     localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
     window.dispatchEvent(new CustomEvent('punenest-settings-change'));
   });

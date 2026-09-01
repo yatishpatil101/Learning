@@ -120,10 +120,11 @@ export async function getMovePack() {
 /**
  * `GET /geo` — public, and a fourth route rather than more of `/flags`.
  *
- * Same argument `/move-pack` makes: this block is a per-city roster of coordinates, a bounding box
- * and an ordered list, and `/flags` would drop two thirds of it. Public because the block decides
- * what a logged-out visitor is shown — which cities open rather than waitlist, where a map centres,
- * whether locality search is fenced — while the document it lives in also carries the fee table.
+ * Same argument `/move-pack` makes: this block is per-city coordinates, bounding boxes and an
+ * ordered list, and `/flags` would drop most of it. Public because the block decides what a
+ * logged-out visitor is shown — where a map centres and whether locality search is fenced — while
+ * the document it lives in also carries the fee table. City launch state is served separately by
+ * `GET /cities`.
  * Verified against the contract's `/geo` (`getGeoPolicy`, schema `GeoPolicy`) and
  * `common/settings/GeoPolicyController.java`.
  *

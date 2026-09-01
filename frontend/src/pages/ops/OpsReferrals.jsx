@@ -125,7 +125,8 @@ export default function OpsReferrals() {
             <p className="mt-1 max-w-2xl text-gray-400">
               Referral decisions release money, and the offline store disagrees with the server about
               what a referral is — it knows a <code>flagged</code> status the server does not,
-              carries phone numbers the server masks, and pays a perk where the server pays rupees.
+              carries phone numbers the server masks, and grants its reward by looking the referrer
+              up by that same number, which the wire no longer carries.
               A desk shown that data would be approving something else. Enable the
               <code className="mx-1">referral</code> domain to work the queue.
             </p>

@@ -5,21 +5,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The contract's {@code GeoPolicy} — where the platform operates, and which places it will not
- * suggest.
+ * The contract's {@code GeoPolicy} — the map coverage and the places the platform will not suggest.
  *
- * <p>Public, because every part of it decides what a <em>logged-out visitor</em> is shown: which
- * cities the navbar offers, where a map centres, whether a locality search box is fenced to the
- * city bounds, and which places are hidden from every suggestion box in the product. The block
- * lives in the admin-only settings document alongside the fee table and the permission map, so an
- * administrator-only reader could never be the client's source for it.
+ * <p>Public, because every part of it decides what a <em>logged-out visitor</em> is shown: where a
+ * map centres, whether a locality search box is fenced to the city bounds, and which places are
+ * hidden from every suggestion box in the product. City launch status is the business of
+ * {@code GET /cities}; this block lives in the admin-only settings document alongside the fee table
+ * and the permission map, so an administrator-only reader could never be the client's source for it.
  *
  * <p><strong>Every field is an override, and absent means "use the built-in default".</strong> The
- * client ships {@code CITY_GEO} — a centre, a bounding box and a launch status per city — and this
- * response is merged over it. That is why there is no seeded {@code geo} row and why {@code {}} is
- * the correct answer for a fresh install rather than a broken one: an operator who has never opened
- * the Maps panel has not disagreed with anything. It also means this endpoint can never be the
- * reason a map fails to centre.
+ * client ships {@code CITY_GEO} — a centre and a bounding box per city — and this response is
+ * merged over it. That is why there is no seeded {@code geo} row and why {@code {}} is the correct
+ * answer for a fresh install rather than a broken one: an operator who has never opened the Maps
+ * panel has not disagreed with anything. It also means this endpoint can never be the reason a map
+ * fails to centre.
  *
  * <p><strong>Malformed values are dropped rather than forwarded</strong>, the same way {@code GET
  * /flags} drops non-booleans and {@code GET /move-pack} drops non-integer prices. The stored
@@ -43,23 +42,21 @@ public record GeoPolicyResponse(
         List<BlacklistEntry> blacklist) {
 
     /**
-     * One city's overrides.
+     * One city's map overrides.
      *
-     * <p>All three fields are independently nullable because the panel writes them independently:
-     * taking a city live is one control, redrawing its bounding box is another, and an operator who
+     * <p>Both fields are independently nullable because the panel writes them independently:
+     * recentering a city is one control, redrawing its bounding box is another, and an operator who
      * has done one has not implied anything about the other.
      *
      * <p>{@code center} and {@code bounds} are dropped as a unit when incomplete rather than
      * repaired. A box missing an edge is not a smaller box, and a centre missing a longitude is not
      * a point.
      *
-     * @param live   whether the city is launched. Null means the built-in status stands — today
-     *     that is Pune only
      * @param center the map centre, or null to use the built-in one
      * @param bounds the coverage box, or null to use the built-in one
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record CityGeo(Boolean live, LatLng center, Bounds bounds) {
+    public record CityGeo(LatLng center, Bounds bounds) {
     }
 
     /**

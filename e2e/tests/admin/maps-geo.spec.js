@@ -52,32 +52,6 @@ test.describe('Maps & Places admin control', () => {
     }).toBe(false);
   });
 
-  test('per-city live toggle persists to settings.geo.cities[*].live', async ({ page, login }) => {
-    await login.asAdmin();
-    await page.goto('/admin/settings?tab=maps');
-
-    // Pune ships live by default.
-    const puneLive = page.getByRole('switch', { name: /Set Pune live/i });
-    await expect(puneLive).toBeVisible();
-    await expect(puneLive).toHaveAttribute('aria-checked', 'true');
-
-    // Turning Pune off persists live:false.
-    await puneLive.click();
-    await expect(puneLive).toHaveAttribute('aria-checked', 'false');
-    await expect.poll(async () => (await readGeo(page))?.cities?.Pune?.live).toBe(false);
-
-    // Restore Pune to live.
-    await puneLive.click();
-    await expect.poll(async () => (await readGeo(page))?.cities?.Pune?.live).toBe(true);
-
-    // A "coming soon" city can be promoted to live from the same panel.
-    await page.getByRole('button', { name: /Mumbai/ }).first().click();
-    const mumbaiLive = page.getByRole('switch', { name: /Set Mumbai live/i });
-    await expect(mumbaiLive).toHaveAttribute('aria-checked', 'false');
-    await mumbaiLive.click();
-    await expect.poll(async () => (await readGeo(page))?.cities?.Mumbai?.live).toBe(true);
-  });
-
   test('boundary editor renders with a fail-soft outline hint under the demo Map ID', async ({ page, login, consoleErrors }) => {
     // The visual boundary editor now highlights a searched place's REAL Google boundary
     // polygon (data-driven styling) — but only with a proper vector Map ID. Under the

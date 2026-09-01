@@ -214,7 +214,8 @@ public class AdminSettingsService {
     }
 
     /**
-     * Refuse a patch that names a key in {@link #UNSUPPORTED_KEYS}.
+     * Refuse a patch that names a key in {@link #UNSUPPORTED_KEYS}, or the one retired nested key
+     * (see {@link #rejectRetiredCityLive}).
      *
      * <p>A {@code null} value is refused alongside a real one. Elsewhere in this method a null means
      * "I am not changing this" and is skipped, but a client that sends {@code customRoles} at all —
@@ -227,6 +228,37 @@ public class AdminSettingsService {
                 throw new ValidationException("'" + key + "' is not supported by this server: it "
                         + "would be stored and enforced by nothing. Back-office access is decided by "
                         + "role, team and the 'permissions' allow-list. Nothing was saved.");
+            }
+        }
+        rejectRetiredCityLive(patch);
+    }
+
+    /**
+     * Refuse {@code geo.cities.*.live}, which moved to {@code PATCH /admin/cities/{slug}}.
+     *
+     * <p>The same argument as {@link #UNSUPPORTED_KEYS}, one level down. City launch state used to
+     * live in this document, and {@code GET /geo} used to publish it; it is now a column on
+     * {@code cities} served by {@code GET /cities}, because a value that decides what a logged-out
+     * visitor sees cannot have an administrator-only reader. Nothing reads the old key any more —
+     * so accepting it would store a launch decision that never launches anything, and the operator
+     * would have no way to tell. That is precisely the D67 failure mode, and a stale console bundle
+     * is exactly the client that would hit it.
+     *
+     * <p>Nested rather than added to the top-level set because {@code geo} itself is very much
+     * supported: it still carries {@code enforceCityLimit}, the per-city map centre and bounding
+     * box, and the blacklist. Only this one leaf is dead.
+     */
+    private static void rejectRetiredCityLive(Map<String, Object> patch) {
+        if (!(patch.get("geo") instanceof Map<?, ?> geo)
+                || !(geo.get("cities") instanceof Map<?, ?> cities)) {
+            return;
+        }
+        for (Map.Entry<?, ?> entry : cities.entrySet()) {
+            if (entry.getValue() instanceof Map<?, ?> city && city.containsKey("live")) {
+                throw new ValidationException("'geo.cities." + entry.getKey() + ".live' is no longer "
+                        + "stored here: city launch state is a column on the city roster. Use PATCH "
+                        + "/admin/cities/{slug} instead, and read it back from GET /cities. Nothing "
+                        + "was saved.");
             }
         }
     }

@@ -21,6 +21,68 @@ Where things live:
 
 ## In flight
 
+### Phase 5 finish plan
+
+- [x] **Lock the remaining Phase-5 decisions** — done 2026-08-22. Geo/cities is server-owned end to
+      end (register 38); the audit tab stays read-only (39); post-on-behalf stays visible on Staff
+      Activity (40); Sonar is the Phase-5 target and the Checkmarx-vs-CodeQL choice is explicitly
+      deferred past functional close (41).
+- [ ] **Finish the real admin migration debt** — convert/delete the remaining live-worthy admin
+      specs (`properties`, `consolidation`, `finance`, `post-on-behalf`, `post-on-behalf-fixes`,
+      `localities`, `property-recheck-queue`, `enquiries`, `settings`, `finance-disclosure`,
+      `societies`, `maps-geo`, `duplicates`) and leave only deliberate mock-side keepers.
+- [ ] **Clear the last cross-cutting live runtime pins to mock code** — consumer/service entry
+      points, city propagation/runtime geo, staff login, admin dashboard/topbar helpers, and the app
+      boot path (`main.jsx`) so a live build no longer needs the mock store to exist.
+- [ ] **Burn down the remaining consumer legacy suite by dependency cluster** — services/read-mostly
+      flows first, then property/search/account, then the stateful flatmates/list-property/society
+      remainder.
+- [ ] **Finish the last platform holdout and flip the default config** — `platform/city-propagation`
+      live or intentionally retired, then `playwright.config.js` points at the live backend.
+- [ ] **Delete the mock in one controlled cut (P5c)** — remove `services/providers/mock/*`,
+      `lib/mockApi*`, the mock-only stand-ins in `lib/data/**`, the Vite mock-persistence route, and
+      the deliberate mock-only keeper specs once nothing live depends on them.
+- [ ] **Hardening / close-out** — backend tests in CI, Sonar wired, scanner decision recorded,
+      bundle measured before/after the deletions, and docs/coverage brought to the true live end-state.
+
+**Admin wave (P5b) — in progress.** `tests/ops` needed no wave at all (see below). `tests/admin`
+now has **20 legacy files** left after `analytics` and `content` moved. The first pass that sized
+this wave over-counted real debt: several of those files are now verified to be deliberate mock-only
+keepers rather than conversion work — `command-palette`, `flatmate-moderation-reach`,
+`societies-queues`, `services-moderation`, `flatmates`, `listing-freshness`; and `notes` is a
+mock spec **as well as** a live one by design, because it catches the same validation rules in a
+seconds-fast suite while `live-notes` proves the seam reaches Postgres and survives a second
+account. The remaining *actual* conversion work is smaller than the raw file count makes it look.
+
+The expensive ones are still the seeders — `post-on-behalf-fixes` (6 seed sites),
+`property-recheck-queue` (5), `post-on-behalf` (4).
+
+- ✅ **`analytics` (21 tests) → `admin/live-analytics-page.spec.js`.** Its header claimed Geography
+  and Seasonal both computed in the browser and the file would follow "when they follow"; Geography
+  has been live since register 36 and Seasonal is illustrative **by decision**, so there was no
+  event to wait for. The sibling `live-analytics.spec.js` keeps the endpoint contracts and the two
+  UI discriminators that prove the page is not silently on the mock. 34/34 live, coverage gate
+  clean. The conversion earned its keep immediately: a page-wide "no `0h`" assertion failed,
+  because `0h` is legitimately on the SLA tab from the generated Service Fulfillment and Concierge
+  panels — invisible under the mock, and now scoped to the `Avg time to review` tile.
+
+- ✅ **`content` (7 tests) → `admin/live-content-desk.spec.js`.** This desk had live data paths on
+  both halves already — `adminContentService` for banners / FAQs / announcements, and `reviewService`
+  for the Reviews tab — so the mock file was a real gap rather than a deliberate hold-back. The
+  existing `tests/live-admin-content.spec.js` already owned the seam and the two Reviews-tab console
+  decisions, so the conversion split cleanly: the sibling keeps the contract and moderation queue,
+  the new file owns the four-tab shell, the banners counter, the FAQs tab, the create form and the
+  route guards. The run earned its keep immediately: the mock spec's happy-path create filled only a
+  headline and passed, while the live API answered `422 A banners item needs 'image'`; the desk now
+  pins that refusal, names the offending field, and keeps the dialog open. Verified: 17/17 green
+  across both live content specs together.
+
+Remaining conversion targets, largest first: `properties` (39), `consolidation` (14),
+`finance` (14), `post-on-behalf` (12), `post-on-behalf-fixes` (10), `localities` (9),
+`property-recheck-queue` (9), `enquiries` (9), `settings` (7), `finance-disclosure` (7),
+`societies` (6), `maps-geo` (4), `duplicates` (1). The other legacy admin files now have an
+explicit reason to stay mock-side and are no longer counted as migration debt.
+
 **Mock retirement.** All 18 seam domains have live consumers. Phases 0–4 are done; Phase 5 (retiring
 `lib/mockApi.js` and the `lib/data/**` stores) is in progress. Remaining work is enumerated as
 numbered rows in the ledger, in damage order. The consumer-first slice just closed is rent-agreement
@@ -35,6 +97,20 @@ Two things that are true and are not going to change soon:
   it. It is set per machine, not in the repo.
 
 ### Closed recently
+
+- **The ops folder needed no conversion wave, and one of its five specs was pinning a lie.** All
+  five remaining legacy `tests/ops/*.spec.js` are deliberate mock-mode residue — route guards, which
+  are properties of the router, and the "this desk needs the live API" panels, which are mock-mode
+  truths that exist nowhere else. Each carries a header saying so and dies with the mock provider at
+  P5c. What the read *did* find is that `/ops/referrals` justified shutting itself with a
+  disagreement that no longer exists: "pays a perk where the server pays rupees" was reversed by
+  **D31b**, which moved the server onto the browser's unit, so both pay owner contacts now. The
+  claim survived in four places — the operator-facing panel, `http/referralProvider.js`'s header
+  (which contradicted its own next paragraph), `ReferralDto.rewardAmount`'s `@param`, and the mock
+  spec asserting the panel word-for-word, which is what held it in place. All four now state the
+  half that survived: the mock grants a listing slot by looking the referrer up on a phone number
+  the wire no longer carries. Verified: mock ops 14/14, live referrals 5/5, backend compile, lint
+  0 errors, i18n OK.
 
 - **The buyer's half of the document gate is on the server (D123 closed).** Uncommitted at the time
   of writing; verified below. `POST /documents/requests` now carries the buyer's *whole* category

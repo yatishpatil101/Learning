@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import { Save, Download, Trash2, History, AlertTriangle } from 'lucide-react';
+import { listCities, updateCityLive } from '../../services/cityService.js';
+import { onGeoChange } from '../../lib/geoConfig.js';
 import { getSettings, updateSettings } from '../../services/settingsService.js';
 import { logAudit, listAudit, clearAudit } from '../../lib/mockApi.js';
 import { classNames } from '../../lib/format.js';
@@ -79,10 +81,44 @@ const humanize = (k) =>
     .replace('Sms', 'SMS')
     .replace('Emi', 'EMI');
 
+/**
+ * Alphabetical, deliberately — not live-first the way `GET /cities` serves it.
+ *
+ * The consumer picker wants live cities at the top; this panel is a row of pills the operator is
+ * clicking. Re-sorting on `live` would make a city jump out from under the cursor the instant it was
+ * toggled, so "launch two cities in a row" becomes a game of chase (and a WCAG 3.2.2 change-on-input
+ * hazard). A stable order costs nothing here: there are five of them.
+ */
+const sortCities = (rows = []) => [...rows].sort(
+  (a, b) => String(a.name || '').localeCompare(String(b.name || '')),
+);
+
+function stripGeoLive(geo = {}) {
+  const { cities: _oldCities, ...restGeo } = geo;
+  const cities = geo.cities && typeof geo.cities === 'object'
+    ? Object.fromEntries(
+      Object.entries(geo.cities)
+        .filter(([, value]) => value && typeof value === 'object')
+        .map(([name, value]) => {
+          const { live: _live, ...rest } = value;
+          return [name, rest];
+        })
+        .filter(([, value]) => Object.keys(value).length),
+    )
+    : undefined;
+  return {
+    ...restGeo,
+    ...(cities ? { cities } : {}),
+  };
+}
+
 export default function AdminSettings() {
   const { toast } = useToast();
   const { adminFlags, setFlag } = useAdminFlags();
   const [settings, setSettings] = useState(null);
+  const [cityRoster, setCityRoster] = useState([]);
+  const [cityRosterError, setCityRosterError] = useState(false);
+  const [pendingCity, setPendingCity] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [tab, setTab] = useTabParam(['general', 'fees', 'maps', 'flags', 'audit'], 'general');
   const [flagSubTab, setFlagSubTab] = useState('application');
@@ -99,6 +135,54 @@ export default function AdminSettings() {
       .catch(() => { if (alive) setLoadError(true); });
     return () => { alive = false; };
   }, []);
+
+  /**
+   * The curated city roster, and its launch state.
+   *
+   * A failure is recorded rather than swallowed. The panel below cannot show a roster it does not
+   * have, and the alternative — falling back to a client-side guess at the city list — invents the
+   * `slug` that the write path uses as a key. Showing an operator a launch toggle built on a guessed
+   * identifier is worse than showing them nothing: the switch would appear to work.
+   *
+   * Deliberately `listCities()` and not `geoConfig.getCities()`, even though the latter is already
+   * cached and free. That cache falls back to the built-in roster when the fetch fails — correct for
+   * the navbar, which needs *a* city picker more than it needs an accurate one, and exactly wrong
+   * here, where the fallback would hand this screen the guessed slugs it must not write against.
+   */
+  const loadCityRoster = useCallback(async () => {
+    try {
+      const rows = await listCities();
+      setCityRoster(sortCities(Array.isArray(rows) ? rows : []));
+      setCityRosterError(false);
+    } catch {
+      setCityRoster([]);
+      setCityRosterError(true);
+    }
+  }, []);
+
+  useEffect(() => { loadCityRoster(); }, [loadCityRoster]);
+
+  /**
+   * Re-read the roster whenever the shared geo cache refreshes.
+   *
+   * Without this the console holds a third copy of the truth — the server, `geoConfig`'s cache, and
+   * this component's state — and only the first two ever reconcile. A second admin's change, or our
+   * own optimistic value diverging from what the server actually stored, would then sit here
+   * indefinitely on the very screen an operator opens to check.
+   */
+  useEffect(() => onGeoChange(loadCityRoster), [loadCityRoster]);
+
+  /**
+   * A stable identity for the Maps panel's `geo` prop.
+   *
+   * `settings.geo || {}` written inline is a new object on every render, and the panel re-syncs its
+   * centre/bounds form whenever that prop changes identity. This screen now re-renders far more
+   * often than it used to — once when the roster lands, and again on every launch toggle — so
+   * without the memo an operator who is halfway through typing a bounding box loses it the moment
+   * they flip a city live. Most acute on an install whose operator has never opened the Maps panel,
+   * where `settings.geo` is genuinely absent and the `|| {}` fires every time.
+   */
+  const geo = useMemo(() => settings?.geo || {}, [settings?.geo]);
 
   useEffect(() => {
     if (tab === 'audit') setAudit(listAudit());
@@ -195,13 +279,49 @@ export default function AdminSettings() {
   // Google Places geo policy (city limit + blacklist) — persisted to settings.geo
   // and read live by lib/geoConfig.js across every locality search in the app.
   const saveGeo = (nextGeo, detail) => {
-    setSettings((s) => ({ ...s, geo: nextGeo }));
+    const sanitized = stripGeoLive(nextGeo);
+    setSettings((s) => ({ ...s, geo: sanitized }));
     persist(
-      { geo: nextGeo },
+      { geo: sanitized },
       detail || 'Maps settings saved',
       'Maps & Places',
       detail || 'Updated geo policy',
     );
+  };
+
+  /**
+   * Launch or pause one city (`PATCH /admin/cities/{slug}`).
+   *
+   * Optimistic, and the rollback reverts **only the row that failed**. Restoring a snapshot of the
+   * whole roster would be a stale-closure clobber with real consequences on this screen: toggle
+   * Mumbai, toggle Bengaluru before Mumbai's request returns, and if Mumbai fails the snapshot
+   * restore would also un-show Bengaluru's successful launch — leaving the operator looking at a
+   * "coming soon" city that is live, and one click away from taking it offline for real.
+   *
+   * `pendingCity` keeps a second click out while the first is in flight. Without it a double-click
+   * reads `live` from the optimistic row and sends the opposite value, and which of the two the
+   * server applies last is a network coin-flip.
+   */
+  const saveCityLaunchState = async (city, live) => {
+    if (pendingCity) return false;
+    setPendingCity(city.slug);
+    setCityRoster((rows) => sortCities(rows.map((row) => (
+      row.slug === city.slug ? { ...row, live } : row
+    ))));
+    try {
+      await updateCityLive(city.slug, live);
+    } catch {
+      setCityRoster((rows) => sortCities(rows.map((row) => (
+        row.slug === city.slug ? { ...row, live: !live } : row
+      ))));
+      toast('That change was not saved. Please try again.', 'error');
+      return false;
+    } finally {
+      setPendingCity(null);
+    }
+    logAudit('Maps & Places', `${city.name} marked ${live ? 'live' : 'coming soon'}`);
+    toast(`${city.name} marked ${live ? 'live' : 'coming soon'}`);
+    return true;
   };
 
   // Confirmation-gated app flag toggle
@@ -358,7 +478,14 @@ export default function AdminSettings() {
             Control the Google Places API: limit suggestions to the shopper&rsquo;s selected city and
             blacklist localities or societies. Applies to every locality / area search across the app.
           </p>
-          <MapsGeoPanel geo={settings.geo || {}} onSave={saveGeo} />
+          <MapsGeoPanel
+            geo={geo}
+            cities={cityRoster}
+            citiesUnavailable={cityRosterError}
+            pendingCity={pendingCity}
+            onSave={saveGeo}
+            onToggleCityLive={saveCityLaunchState}
+          />
         </div>
       )}
 

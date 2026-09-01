@@ -15,9 +15,10 @@ import lombok.Getter;
  * So "which cities exist" and "which of them are live" are two different questions, and {@link #live}
  * is the answer to the second.
  *
- * <p>Reference data — seeded, never written by application code, so no setters. {@code listing_count}
- * is deliberately unmapped: it is one of the unmaintained counters, and this feature computes the
- * count on read instead (see {@code catalog.property.ListingCounts}).
+ * <p>Curated reference data. The roster itself is seeded, while {@link #live} is admin-owned at
+ * runtime because launching a city is an operational decision. {@code listing_count} is deliberately
+ * unmapped: it is one of the unmaintained counters, and this feature computes the count on read
+ * instead (see {@code catalog.property.ListingCounts}).
  */
 @Entity
 @Table(name = "cities")
@@ -38,6 +39,18 @@ public class City {
      */
     @Column(name = "live", nullable = false)
     private boolean live;
+
+    /**
+     * Launch or pause one curated city from the back office.
+     *
+     * <p>Package-private on purpose. The rest of this entity has no setters because the roster is
+     * seeded, and this one exception exists for exactly one caller — {@code CityAdminService}, in
+     * this package. Making it public would put "take a city offline" within reach of any bean that
+     * can load a {@code City}, which is the opposite of what the class comment claims.
+     */
+    void setLive(boolean live) {
+        this.live = live;
+    }
 
     protected City() {
         // JPA

@@ -1,35 +1,50 @@
-/* /admin/analytics — the eight-tab reporting surface.
+/**
+ * `/admin/analytics` — the page itself, against the live API.
  *
- * ## What changed and why
+ * ## What this file is, and why it is not `admin/analytics.spec.js` any more
  *
- * Mechanically: the shared `login` fixture replaces a private `loginAsAdmin`, relative paths
- * replace a hardcoded `http://localhost:5173` (which ignored `BASE_URL`, so this file silently
- * tested the wrong server whenever the port moved), and three `waitForTimeout` sleeps are gone —
- * a fixed delay is both slower than it needs to be and a flake waiting for a slow machine.
+ * The mock version of this file guarded the page's own behaviour: the tab strip, URL sync, deep
+ * links, the CSV export, the no-remount rule, and the illustrative-data labelling. It stayed on the
+ * mock config behind a header saying Geography and Seasonal "still compute in the browser" and the
+ * file would follow "when they follow".
  *
- * Substantively, three tests were asserting less than they appeared to:
+ * Neither half held. Geography has read `listLocalities()` — `GET /localities`, with measured
+ * `listingCount`, `demand` and `ratePerSqft` — since register 36. And Seasonal is illustrative **by
+ * decision**, not by backlog: seasonality needs several years of history the platform has not
+ * lived through, so it renders a seeded PRNG behind a `SampleTabNotice` and is expected to keep
+ * doing so. There was never going to be an event to wait for.
  *
- * - **The CSV export** clicked the button and ended with the comment "no JS error thrown after
- *   click". Nothing checked that. A handler that threw would have been caught by `consoleErrors`
- *   only if the test had asked for it, and one that silently produced no file would have passed
- *   either way. It now waits for the download and checks the filename.
- * - **The anonymous-surfer KPI tiles** looped over `.pn-card .text-2xl` asserting each value was
- *   non-negative. With zero tiles the loop body never runs, so a tab that rendered nothing passed.
- *   The count is now anchored first.
- * - **"does not show Conversion tab"** is a bare `toHaveCount(0)`, which a failed page load
- *   satisfies for free. It is now paired with the tab that is supposed to be there.
+ * ## Why the rendering assertions belong here rather than on the mock config
  *
- * ## Why this is not (yet) a live spec
+ * `admin/live-analytics.spec.js` — which stays, and owns the **endpoint contracts** — argues that
+ * the `Sample` chips "render from browser-generated data in both modes, so they are a rendering
+ * contract" and duplicating them live "would cost a browser launch to learn nothing". That is right
+ * about the data source and wrong about the risk.
  *
- * Six of the eight tabs now read the API: Traffic, Engagement and Anonymous surfers joined Pricing,
- * SLA and Supply Gap. Geography and Seasonal still compute in the browser, so under
- * `playwright.live.config.js` those two would silently exercise localStorage under a name claiming
- * otherwise. The file stays on the mock config until they follow; what it guards there is the
- * page's own behaviour — tab strip, URL sync, deep links, export, and the copy on each card.
- * `admin/live-analytics.spec.js` covers the ported tabs against a real backend.
- * Recorded in tasks/todo.md.
+ * The labelling guard exists to catch a tab that **has since become real** still wearing its
+ * banner, and the converse — a tab quietly reverting to generated numbers with the banner gone.
+ * Both of those transitions happen on the live build, because that is where a tab becomes real.
+ * Traffic and Anonymous surfers already made that journey once. Asserting the rule only against
+ * localStorage checks it in the one place it cannot be violated.
+ *
+ * The same argument covers the per-tab render tests, more plainly: under the mock every tab draws
+ * from `db.json`, so "Engagement tab renders its charts" says nothing about whether `EngagementTab`
+ * survives the shape the API actually returns. Here it does.
+ *
+ * ## What is deliberately NOT re-asserted here
+ *
+ * The endpoint contracts, and the two tabs whose *figures* `live-analytics.spec.js` already pins to
+ * server values (`Pricing tab renders the figures the server sent`, `SLA tab renders the backlog
+ * the server sent`). Those are the discriminators that prove the page is not silently on the mock
+ * — `services/config.js` falls back with a `console.warn`, not an error — and they are asserted
+ * once, there. The `Anonymous surfers` KPI-tile sweep went the same way: that file's
+ * "renders the null contract as a dash, not as 0%" is the stronger version of it.
  */
-import { test, expect } from '../../fixtures/base.js';
+import { test, expect } from '../../fixtures/live.js';
+import { API, authHeaders } from '../../helpers/liveAuth.js';
+
+/** The seeded admin, as used by the other live admin specs. */
+const admin = () => authHeaders('9000000000');
 
 /** Every tab in the strip, in render order. Named once so the "all eight" test cannot drift. */
 const TABS = ['Traffic', 'Engagement', 'Anonymous surfers', 'Geography', 'Supply Gap', 'Pricing', 'SLA', 'Seasonal'];
@@ -114,37 +129,20 @@ test('switching tabs does not remount: the days selector keeps its value', async
   await page.getByRole('tab', { name: 'Traffic' }).click();
   // Still 30 days: the tab panel is swapped, not the page. Asserting the value *before* the round
   // trip as well means a selector that never took the change cannot pass by never changing.
+  //
+  // Live this is a stronger claim than it was on the mock: changing the window refetches
+  // `GET /admin/analytics/traffic?days=30`, so a remount would be visible as a second request for
+  // the default window rather than merely as a reset control.
   await expect(page.getByLabel('Traffic window')).toContainText('30 days');
 });
 
-// ─── The remaining seven tabs ───
+// ─── The remaining tabs render against real payloads ───
 
 test('Engagement tab renders its charts', async ({ page, login }) => {
   await openAnalytics(page, login, 'engagement');
   await expect(page.getByText('Avg. session duration')).toBeVisible();
   await expect(page.getByText('Bounce rate')).toBeVisible();
   await expect(page.getByText('Top pages by views')).toBeVisible();
-});
-
-test('Anonymous Surfers tab renders KPI tiles with non-negative values', async ({ page, login }) => {
-  await openAnalytics(page, login, 'surfers');
-  await expect(page.getByText('Anonymous share')).toBeVisible();
-  await expect(page.getByText('Anonymous sessions')).toBeVisible();
-
-  const tiles = page.locator('.pn-card .text-2xl');
-  // Anchor the count. Without this the loop below asserts nothing at all when the tab renders no
-  // tiles, which is the failure it was written to catch.
-  const count = await tiles.count();
-  expect(count).toBeGreaterThan(0);
-  for (let i = 0; i < count; i++) {
-    const txt = (await tiles.nth(i).textContent()).trim();
-    // An em dash is a legitimate value here: the two rate tiles are null when the window held no
-    // sessions to divide by, and printing 0% would assert a measurement that was never taken.
-    // Only the numeric case is range-checked, so this stays a real assertion rather than an
-    // `|| true` that any string satisfies.
-    if (txt === '\u2014') continue;
-    expect(parseFloat(txt.replace(/[^0-9.]/g, ''))).toBeGreaterThanOrEqual(0);
-  }
 });
 
 test('Geography tab renders locality charts', async ({ page, login }) => {
@@ -170,14 +168,53 @@ test('Pricing tab renders KPI tiles and tables', async ({ page, login }) => {
   await expect(page.getByText('Locality Pricing Breakdown')).toBeVisible();
 });
 
-test('Pricing tab labels the cards it cannot measure', async ({ page, login }) => {
-  await openAnalytics(page, login, 'pricing');
-  // The six-month trend and the per-listing table are generated — PuneNest keeps no price history
-  // and the endpoint reports per locality. Both must say so, or the tab reads as all-measured.
-  const trend = page.locator('.pn-card').filter({ hasText: 'Price trend' });
-  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
-  const positions = page.locator('div').filter({ hasText: /^Listing Price Position/ }).first();
-  await expect(positions.getByText('Sample', { exact: true }).first()).toBeVisible();
+test('SLA tab renders the review KPI row and targets', async ({ page, login }) => {
+  await openAnalytics(page, login, 'sla');
+  await expect(page.getByText('Listings reviewed')).toBeVisible();
+  await expect(page.getByText('Avg time to review')).toBeVisible();
+  await expect(page.getByText('Longest Waiting Listings')).toBeVisible();
+  await expect(page.getByText('SLA Targets')).toBeVisible();
+});
+
+test('Seasonal tab renders the demand pattern and events', async ({ page, login }) => {
+  await openAnalytics(page, login, 'seasonal');
+  await expect(page.getByText('Monthly demand pattern')).toBeVisible();
+  await expect(page.getByText('Key seasonal events')).toBeVisible();
+  await expect(page.getByText('Year-over-year demand growth')).toBeVisible();
+});
+
+// ─── Unmeasured values are reported as unmeasured ───
+
+test('SLA tab reports an unmeasured turnaround as unrecorded, not as zero', async ({ page, login, request }) => {
+  /* The rule, which is the server's now: a turnaround nobody recorded renders as "not recorded" and
+     never as `0h`, which would claim instantaneous review. The expectation is taken from the
+     endpoint rather than hardcoded, so this asserts *the screen agrees with the server* instead of
+     asserting a fact about the seed — and it fails loudly, naming the value, on the day the seed
+     gains an audit trail, rather than quietly changing subject. */
+  const res = await request.get(`${API}/admin/analytics/sla`, { headers: await admin() });
+  expect(res.ok()).toBeTruthy();
+  const { avgHoursToReview } = await res.json();
+
+  await openAnalytics(page, login, 'sla');
+  expect(
+    avgHoursToReview,
+    'the e2e seed records no review decisions, so this is expected to be null; if it is a number '
+      + 'the assertion below is the wrong one and the test needs rewriting, not relaxing',
+  ).toBeNull();
+
+  /* Scoped to the one tile, and the scoping is load-bearing rather than tidiness. `0h` **is** on
+     this tab legitimately: the Service Fulfillment and Concierge Pipeline panels are generated by
+     `lib/data/analytics-extra.js`, and against a live build's sparser store their averages round to
+     zero. Those cards carry a `Sample` chip and are asserted separately below. A page-wide
+     `toHaveCount(0)` on `0h` therefore fails for a reason that has nothing to do with the rule —
+     which is how it failed when this test was first written live, and is worth recording because
+     the mock config could never have shown it. */
+  const reviewTile = page.locator('div.rounded-xl').filter({ hasText: 'Avg time to review' });
+  await expect(reviewTile).toHaveCount(1);
+  await expect(reviewTile).toContainText('not recorded');
+  // The specific wrong answer this guards against. A `|| 0` creeping back into `hours()` — whose
+  // own comment promises "Never `0h`" — reads as a real measurement of a review that was never timed.
+  await expect(reviewTile).not.toContainText('0h');
 });
 
 test('Pricing tab shows a dash, not the market rate, where nothing was measured', async ({ page, login }) => {
@@ -205,43 +242,6 @@ test('Pricing tab shows a dash, not the market rate, where nothing was measured'
   await expect(dashRow.locator('td').nth(1)).toContainText('₹');
 });
 
-test('SLA tab renders the review KPI row and targets', async ({ page, login }) => {
-  await openAnalytics(page, login, 'sla');
-  await expect(page.getByText('Listings reviewed')).toBeVisible();
-  await expect(page.getByText('Avg time to review')).toBeVisible();
-  await expect(page.getByText('Longest Waiting Listings')).toBeVisible();
-  await expect(page.getByText('SLA Targets')).toBeVisible();
-});
-
-test('SLA tab reports unmeasured turnaround as unrecorded, not as zero', async ({ page, login }) => {
-  await openAnalytics(page, login, 'sla');
-  // The mock has no audit log, so it cannot know when a listing was decided. Rendering `0h` there
-  // would claim instantaneous review; this is the assertion that stops a `|| 0` creeping back in.
-  await expect(page.getByText('not recorded').first()).toBeVisible();
-});
-
-test('SLA tab labels the panels it cannot measure', async ({ page, login }) => {
-  await openAnalytics(page, login, 'sla');
-  // Service tickets and the concierge pipeline are a different domain with no audit trail, and a
-  // weekly compliance line needs snapshots nothing writes. All three are checked for the chip
-  // rather than merely for being on screen — asserting visibility would keep passing if someone
-  // deleted the label, which is the only thing separating these panels from the measured ones.
-  const trend = page.locator('.pn-card').filter({ hasText: 'Weekly SLA compliance trend' });
-  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
-
-  for (const panel of ['Service Fulfillment', 'Concierge Pipeline']) {
-    const card = page.locator('div').filter({ hasText: new RegExp(`^${panel}`) }).first();
-    await expect(card.getByText('Sample', { exact: true }).first()).toBeVisible();
-  }
-});
-
-test('Seasonal tab renders the demand pattern and events', async ({ page, login }) => {
-  await openAnalytics(page, login, 'seasonal');
-  await expect(page.getByText('Monthly demand pattern')).toBeVisible();
-  await expect(page.getByText('Key seasonal events')).toBeVisible();
-  await expect(page.getByText('Year-over-year demand growth')).toBeVisible();
-});
-
 // ─── Illustrative-data labelling ───
 
 /* Seasonal has no measured source at all: PuneNest holds nothing like the multi-year history a
@@ -253,6 +253,9 @@ test('Seasonal tab renders the demand pattern and events', async ({ page, login 
  * illustrative — both read the page-view aggregates now — and the banner went with the generator.
  * The pairing is the point: a tab either draws measured data or says it does not, and the same
  * change has to move both. Any tab reintroduced on generated numbers belongs back in this loop.
+ *
+ * Asserted here rather than on the mock config because the transition it guards — a tab becoming
+ * real — only happens on the live build.
  */
 for (const [tab, heading] of [['seasonal', 'Seasonal']]) {
   test(`${heading} tab is marked as illustrative`, async ({ page, login }) => {
@@ -271,3 +274,33 @@ for (const [tab, heading] of [['traffic', 'Traffic'], ['surfers', 'Anonymous sur
     await expect(page.getByText('Illustrative data.')).toHaveCount(0);
   });
 }
+
+/* The `Sample` chips on Pricing and SLA. These label the individual cards that are generated on a
+ * tab whose other cards are measured, which is the harder case to keep honest: a whole-tab banner
+ * is obvious when it goes, a per-card chip is not. Both tabs mix the two, and the mixture is the
+ * reason the chip has to be asserted rather than the card's presence — asserting visibility would
+ * keep passing if someone deleted the label. */
+test('Pricing tab labels the cards it cannot measure', async ({ page, login }) => {
+  await openAnalytics(page, login, 'pricing');
+  // The six-month trend and the per-listing table are generated — PuneNest keeps no price history
+  // and the endpoint reports per locality. Both must say so, or the tab reads as all-measured.
+  const trend = page.locator('.pn-card').filter({ hasText: 'Price trend' });
+  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
+  const positions = page.locator('div').filter({ hasText: /^Listing Price Position/ }).first();
+  await expect(positions.getByText('Sample', { exact: true }).first()).toBeVisible();
+});
+
+test('SLA tab labels the panels it cannot measure', async ({ page, login }) => {
+  await openAnalytics(page, login, 'sla');
+  // Service tickets and the concierge pipeline are a different domain with no audit trail, and a
+  // weekly compliance line needs snapshots nothing writes.
+  const trend = page.locator('.pn-card').filter({ hasText: 'Weekly SLA compliance trend' });
+  await expect(trend.getByText('Sample', { exact: true })).toBeVisible();
+
+  for (const panel of ['Service Fulfillment', 'Concierge Pipeline']) {
+    const card = page.locator('div').filter({ hasText: new RegExp(`^${panel}`) }).first();
+    await expect(card.getByText('Sample', { exact: true }).first()).toBeVisible();
+  }
+});
+
+

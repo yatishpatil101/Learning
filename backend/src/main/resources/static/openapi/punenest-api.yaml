@@ -1575,7 +1575,7 @@ paths:
   /geo:
     get:
       tags: [Catalog & Search]
-      summary: Where the platform operates, and which places it will not suggest
+      summary: Map coverage and place-suppression policy
       security: []
       operationId: getGeoPolicy
       responses:
@@ -1583,12 +1583,11 @@ paths:
           description: >-
             The `geo` block of `AdminSettings`, projected and narrowed.
 
-            Public because every part of it decides what a logged-out visitor is shown: which
-            cities the switcher offers and which answer with a waitlist prompt, where a map
+            Public because every part of it decides what a logged-out visitor is shown: where a map
             centres, whether a locality search box is hard-fenced to the city bounds or merely
             biased toward them, and which places are hidden from every suggestion box in the
             product. `GET /admin/settings` cannot serve it — that document also carries the fee
-            table and the permission map.
+            table and the permission map. City launch status is served on `GET /cities`, not here.
 
             **Why not another key on `/flags`.** Same answer as `/move-pack`: that endpoint is
             typed map-of-boolean and drops everything else on purpose. Two of this block's three
@@ -9103,6 +9102,36 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /admin/cities/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Admin & Analytics]
+      summary: Update one city's launch state
+      operationId: adminUpdateCity
+      # S28 (tech debt D192/D13): guarded by `settings:write`, the same atom as editing the platform
+      # settings document — so an administrator narrowed by BackOfficeAccessService gets a 403 here
+      # even though `x-roles` says admin.
+      description: >-
+        Admin-only control for whether a curated city is launched. This is deliberately separate from
+        `PUT /admin/settings`: the settings document still owns map bounds and the blacklist, but the
+        city roster and each city's `live` bit are served from the `cities` catalogue itself.
+        Requires the `settings:write` permission in addition to the admin role. Every call writes a
+        `city.update` audit row carrying `beforeLive` and `afterLive`, including when the value is
+        unchanged. `slug` is matched exactly, as published by `GET /cities`.
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CityAdminUpdate' }
+      responses:
+        '204': { description: Saved }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/permission-catalogue:
     get:
       tags: [Admin & Analytics]
@@ -11369,6 +11398,13 @@ components:
         mobile: { $ref: '#/components/schemas/Mobile' }
         city: { type: string }
         email: { type: string, format: email }
+    CityAdminUpdate:
+      type: object
+      required: [live]
+      properties:
+        live:
+          type: boolean
+          description: Whether the city is launched for shoppers.
     Fees:
       type: object
       description: Transparent fee/charges breakdown for a deal.
@@ -14322,13 +14358,14 @@ components:
     GeoPolicy:
       type: object
       description: >
-        Where the platform operates, and which places it will not suggest.
+        Map coverage and place-suppression policy.
 
 
-        **Every field is an override.** The client ships a built-in centre, bounding box and launch
-        status per city, and merges this document over them. So an empty object is the correct
-        answer for an install whose operator has never opened the Maps panel — not a broken one —
-        and an unreachable server leaves the client on its defaults rather than on nothing.
+        **Every field is an override.** The client ships a built-in centre and bounding box per city,
+        and merges this document over them. City launch status is served separately by `GET /cities`.
+        So an empty object is the correct answer for an install whose operator has never opened the
+        Maps panel — not a broken one — and an unreachable server leaves the client on its defaults
+        rather than on nothing.
 
 
         **Values that do not typecheck are dropped rather than forwarded**, as on `/flags` and
@@ -14351,7 +14388,8 @@ components:
             usually much shorter than the city list. An entry with nothing set is omitted entirely.
           additionalProperties: { $ref: '#/components/schemas/GeoCityOverride' }
           example:
-            Pune: { live: true }
+            Pune:
+              center: { lat: 18.553, lng: 73.86 }
         blacklist:
           type: array
           description: >
@@ -14363,15 +14401,10 @@ components:
     GeoCityOverride:
       type: object
       description: >
-        One city's overrides. All three are independently optional because the panel writes them
-        independently: taking a city live is one control and redrawing its box is another, and an
-        operator who did one has implied nothing about the other.
+        One city's map overrides. Both are independently optional because the panel writes them
+        independently: recentering a city and redrawing its box are separate edits, and an operator
+        who did one has implied nothing about the other.
       properties:
-        live:
-          type: boolean
-          description: >
-            Whether the city is launched. Absent means the built-in status stands — today that is
-            Pune only, with every other city answering with a waitlist prompt.
         center:
           type: object
           description: >
@@ -15081,9 +15114,9 @@ components:
         geo:
           type: object
           description: >
-            Coverage and locality-search policy — which cities are live, where each one centres and
-            how far it extends, whether search is fenced to those bounds, and which places to hide
-            from every suggestion box.
+            Coverage and locality-search policy — where each city centres and how far it extends,
+            whether search is fenced to those bounds, and which places to hide from every suggestion
+            box.
 
 
             Listed here as documentation, not as a constraint: `additionalProperties: true`

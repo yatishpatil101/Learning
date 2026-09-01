@@ -57,14 +57,26 @@ test('status filter narrows the enquiries table', async ({ page, login }) => {
   await login.asAdmin();
   await page.goto('/admin/enquiries');
 
+  /* The counts are read off the screen rather than written down here. They used to be `60 shown`
+     and `13 shown`, which are `db.json` magnitudes — so the test failed whenever anyone added a
+     seed row, and the repair was always to edit the literal, which taught nobody anything. The
+     behaviour worth pinning is that the filter *narrows*: fewer rows after than before, at least
+     one left, and nothing outside the chosen status leaking through. All three survive a reseed. */
   const shown = page.getByText(/\d+ shown/);
-  await expect(shown).toHaveText('60 shown');
+  const count = async () => Number((await shown.innerText()).match(/\d+/)[0]);
+
+  await expect(shown).toBeVisible();
+  const before = await count();
+  expect(before).toBeGreaterThan(0);
 
   // Open the custom status dropdown and pick "New".
   await page.getByLabel('Filter by status').click();
   await page.getByRole('option', { name: 'New', exact: true }).click();
 
-  await expect(shown).toHaveText('13 shown');
+  await expect(shown).not.toHaveText(`${before} shown`);
+  const after = await count();
+  expect(after).toBeGreaterThan(0);
+  expect(after).toBeLessThan(before);
   // No responded/closed rows leak through the "new" filter.
   await expect(page.getByText('responded', { exact: true })).toHaveCount(0);
 });

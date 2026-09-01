@@ -22,9 +22,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p><strong>The endpoint exists because the write was real and the read was not.</strong> The
  * admin console's Maps panel saved to the settings document and was told it succeeded, because it
  * had; every consumer then read a stale copy out of its own browser's local storage. So the
- * assertions that carry weight are the round trips — a city taken live, a bounding box redrawn, a
+ * assertions that carry weight are the round trips — a bounding box redrawn, a map recentered, a
  * place blacklisted — each written by an admin and read back with no token, because that is the
- * pairing the old arrangement broke.
+ * pairing the old arrangement broke. City launch state is now proved on {@code /cities} and its
+ * admin write route instead.
  *
  * <p>The other half is what the route refuses to say. It is anonymous, and the block it projects
  * sits in a document holding the fee table and the permission map, so "only geo" is asserted as
@@ -35,15 +36,6 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
 
-    /**
-     * The admin whose saves this test makes, so its audit rows can be found again.
-     *
-     * <p>Every {@code save()} below goes through {@code PUT /admin/settings}, and {@code AuditService}
-     * writes under {@code REQUIRES_NEW} — so those rows commit straight past this class's rollback
-     * and would otherwise pile up in the developer's database, run after run. Deleted by actor
-     * rather than by action, because {@code settings.update} is a row other tests legitimately write
-     * and none of them are this test's to remove.
-     */
     /**
      * The admin whose saves this test makes.
      *
@@ -121,22 +113,22 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     }
 
     /**
-     * A city taken live by an admin is live for a visitor with no account.
+     * A city's map overrides are visible to a visitor with no account.
      *
-     * <p>The reason the route was built, in its most consequential form: this boolean decides
-     * whether a city's switcher entry opens the product or a waitlist prompt. Before it, launching
-     * a city reached only the browser that launched it.
+     * <p>The route still exists for the two facts the browser cannot bundle honestly: where a city
+     * centres and how far its Places fence extends. Those remain admin-owned settings and have to
+     * reach an anonymous browser from the server.
      */
     @Test
-    void aCityTakenLiveIsVisibleToAnAnonymousClient() throws Exception {
+    void cityMapOverridesAreVisibleToAnAnonymousClient() throws Exception {
         save("""
-                {"cities":{"Mumbai":{"live":true,"center":{"lat":19.076,"lng":72.8777}}}}""");
+                {"cities":{"Mumbai":{"center":{"lat":19.076,"lng":72.8777}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cities.Mumbai.live").value(true))
                 .andExpect(jsonPath("$.cities.Mumbai.center.lat").value(19.076))
-                .andExpect(jsonPath("$.cities.Mumbai.center.lng").value(72.8777));
+                .andExpect(jsonPath("$.cities.Mumbai.center.lng").value(72.8777))
+                .andExpect(jsonPath("$.cities.Mumbai.live").doesNotExist());
     }
 
     /**
@@ -193,17 +185,15 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
      * suggestions would quietly start including the next district. Dropping the box falls back to
      * the built-in one, which is closed.
      *
-     * <p>The sibling {@code live} survives, because the operator did set that and the two controls
-     * are independent.
+     * <p>No sibling field survives because launch state no longer travels on this route.
      */
     @Test
     void anIncompleteBoundingBoxIsDroppedRatherThanForwarded() throws Exception {
         save("""
-                {"cities":{"Pune":{"live":true,"bounds":{"north":18.7,"east":74.0,"west":73.6}}}}""");
+                {"cities":{"Pune":{"bounds":{"north":18.7,"east":74.0,"west":73.6}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cities.Pune.live").value(true))
                 .andExpect(jsonPath("$.cities.Pune.bounds").doesNotExist());
     }
 
@@ -219,12 +209,11 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     @Test
     void anInvertedBoundingBoxEnclosesNothingAndIsDropped() throws Exception {
         save("""
-                {"cities":{"Pune":{"live":true,\
+                {"cities":{"Pune":{\
                 "bounds":{"north":18.4,"south":18.7,"east":74.0,"west":73.6}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cities.Pune.live").value(true))
                 .andExpect(jsonPath("$.cities.Pune.bounds").doesNotExist());
     }
 
@@ -239,11 +228,10 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     @Test
     void aCoordinateOffTheGlobeIsDroppedRatherThanClamped() throws Exception {
         save("""
-                {"cities":{"Pune":{"live":true,"center":{"lat":200,"lng":73.85}}}}""");
+                {"cities":{"Pune":{"center":{"lat":200,"lng":73.85}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cities.Pune.live").value(true))
                 .andExpect(jsonPath("$.cities.Pune.center").doesNotExist());
     }
 
@@ -258,7 +246,7 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     @Test
     void aCityWhoseEveryOverrideWasRefusedIsOmitted() throws Exception {
         save("""
-                {"cities":{"Nashik":{"live":"yes","center":{"lat":"north"}}}}""");
+                {"cities":{"Nashik":{"center":{"lat":"north"}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
@@ -305,14 +293,16 @@ class GeoPolicyEndpointTest extends AbstractApiTest {
     @Test
     void editingOneCityLeavesTheOthersStanding() throws Exception {
         save("""
-                {"enforceCityLimit":false,"cities":{"Pune":{"live":true},"Nashik":{"live":false}}}""");
+                {"enforceCityLimit":false,"cities":{"Pune":{"center":{"lat":18.55,"lng":73.86}},
+                "Nashik":{"bounds":{"north":20.1,"south":19.9,"east":73.9,"west":73.6}}}}""");
         save("""
-                {"cities":{"Nashik":{"live":true}}}""");
+                {"cities":{"Nashik":{"center":{"lat":19.99,"lng":73.79}}}}""");
 
         mvc.perform(get(Routes.Geo.BASE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enforceCityLimit").value(false))
-                .andExpect(jsonPath("$.cities.Pune.live").value(true))
-                .andExpect(jsonPath("$.cities.Nashik.live").value(true));
+                .andExpect(jsonPath("$.cities.Pune.center.lat").value(18.55))
+                .andExpect(jsonPath("$.cities.Nashik.bounds.north").value(20.1))
+                .andExpect(jsonPath("$.cities.Nashik.center.lat").value(19.99));
     }
 }

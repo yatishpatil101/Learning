@@ -153,9 +153,9 @@ test('admin services page loads without errors', async ({ page, login, consoleEr
   expect(consoleErrors).toHaveLength(0);
 });
 
-/* The /admin/analytics load-without-errors sweep lives in analytics.spec.js.
-   The copy that used to sit here was byte-identical, so it bought a second
-   admin login and page load for nothing. */
+/* The /admin/analytics load-without-errors sweep lives in admin/live-analytics-page.spec.js,
+   which is where analytics.spec.js was converted to. The copy that used to sit here was
+   byte-identical, so it bought a second admin login and page load for nothing. */
 
 // ─── Enquiries module ───
 

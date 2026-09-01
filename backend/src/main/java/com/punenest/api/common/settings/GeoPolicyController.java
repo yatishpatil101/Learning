@@ -14,12 +14,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code GET /geo} — where the platform operates, and which places it will not suggest.
+ * {@code GET /geo} — the map coverage and the places the platform will not suggest.
  *
  * <p><strong>Why a public route exists at all.</strong> The {@code geo} block decides what a
- * logged-out visitor is shown: which cities the navbar offers and which answer with a waitlist
- * prompt, where a map centres, whether a locality search box is hard-fenced to the city bounds or
- * merely biased toward them, and which places are hidden from every suggestion box in the product.
+ * logged-out visitor is shown: where a map centres, whether a locality search box is hard-fenced to
+ * the city bounds or merely biased toward them, and which places are hidden from every suggestion
+ * box in the product.
  * It lives in the settings document, which is admin-only in both directions because the same
  * document carries the fee table and the permission map — so an administrator-only reader cannot be
  * the client's source for it.
@@ -34,11 +34,11 @@ import tools.jackson.databind.ObjectMapper;
  * in production and under every test run, which is to say in both environments where it mattered.
  *
  * <p><strong>Every field is an override.</strong> The client ships the built-in {@code CITY_GEO} —
- * a centre, a bounding box and a launch status per city — and merges this response over it. There
- * is deliberately no seeded {@code geo} row, so a fresh install answers {@code {}} and gets the
- * built-in policy, which is the correct reading of an operator who has never opened the Maps panel.
- * That is also what makes this endpoint safe to fail: an unreachable server leaves the client on
- * defaults rather than on nothing.
+ * a centre and a bounding box per city — and merges this response over it. City launch status now
+ * comes from {@code GET /cities}. There is deliberately no seeded {@code geo} row, so a fresh
+ * install answers {@code {}} and gets the built-in policy, which is the correct reading of an
+ * operator who has never opened the Maps panel. That is also what makes this endpoint safe to fail:
+ * an unreachable server leaves the client on defaults rather than on nothing.
  *
  * <p><strong>Scope is one block, and narrower than the block.</strong> Not {@code fees}, not
  * {@code permissions}, not {@code adminFlags} — the same line {@code /flags} and {@code /move-pack}
@@ -130,7 +130,7 @@ public class GeoPolicyController {
     }
 
     /**
-     * Per-city overrides, keyed by the name the client knows the city by.
+     * Per-city map overrides, keyed by the name the client knows the city by.
      *
      * <p>A city whose entry survives projection with nothing set is omitted rather than published
      * as three nulls. "The operator opened this city's panel once" is not a fact the client can act
@@ -146,13 +146,10 @@ public class GeoPolicyController {
             if (city == null || !city.isObject()) {
                 return;
             }
-            JsonNode live = city.get("live");
             GeoPolicyResponse.CityGeo projected = new GeoPolicyResponse.CityGeo(
-                    live != null && live.isBoolean() ? live.booleanValue() : null,
                     latLng(city.get("center")),
                     bounds(city.get("bounds")));
-            if (projected.live() != null || projected.center() != null
-                    || projected.bounds() != null) {
+            if (projected.center() != null || projected.bounds() != null) {
                 out.put(entry.getKey(), projected);
             }
         });

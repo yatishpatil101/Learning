@@ -2429,6 +2429,9 @@ public final class Routes {
         /** Admin only — the platform configuration document. GET reads it, PUT merges into it. */
         public static final String SETTINGS = "/admin/settings";
 
+        /** Admin only — one curated city's launch state. */
+        public static final String CITY_BY_SLUG = "/admin/cities/{slug}";
+
         /**
          * Admin only — every per-account permission the server actually enforces (D192/D13).
          *

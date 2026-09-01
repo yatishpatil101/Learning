@@ -153,9 +153,9 @@ ensureMockDb()
        it is ready now. */
     document.documentElement.dataset.pnBoot = 'ready';
 
-    /* Fetch the operator's geo policy — which cities are live, where each centres and how far it
-       extends, whether locality search is fenced to those bounds, which places to hide from every
-       suggestion box.
+    /* Fetch the operator's map policy and city roster — where each city centres and how far it
+       extends, which cities are live, whether locality search is fenced to those bounds, which
+       places to hide from every suggestion box.
 
        Inside the gate, not at module scope, because in mock mode this reads the store that
        `ensureMockDb` seeds; fired before it resolves, it would find nothing and silently fall back

@@ -78,7 +78,10 @@ public final class BackOfficePermissions {
     /** {@code GET /admin/settings} — admin only. */
     public static final String SETTINGS_READ = "settings:read";
 
-    /** {@code PUT /admin/settings} — admin only. The one that can edit every other policy. */
+    /**
+     * {@code PUT /admin/settings} and {@code PATCH /admin/cities/{slug}} — admin only. The one that
+     * can edit every other policy, and now also the one that takes a city live or offline.
+     */
     public static final String SETTINGS_WRITE = "settings:write";
 
     /** {@code GET /users}, {@code GET /users/{id}} — staff and admin. */

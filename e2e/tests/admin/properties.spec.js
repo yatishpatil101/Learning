@@ -42,7 +42,24 @@
  * `AdminProperties.jsx` is hybrid. Its data path is provider-swappable, and as of D27 so is the
  * Pipeline tab — the board reads `adminPipeline` and writes through
  * `propertyService.setPipelineStage`. What still holds this file on the mock is the Duplicates tab
- * and its KPI, which have no server home. Recorded in `tasks/todo.md`.
+ * and its KPI, which have no server home. Recorded in `tasks/todo.md`, and now as a decision row in
+ * `tasks/DECISIONS-NEEDED.md`: `findDuplicateClusters` runs union-find over the browser store and
+ * "merge" archives into `localStorage`, so an operator who merges a cross-owner duplicate today
+ * changes nothing anyone else can see. Either the server grows a cluster read and a merge write, or
+ * the tab comes out.
+ *
+ * ## What `admin/live-properties-console.spec.js` now proves better than this file does
+ *
+ * That spec asserts the same shell against the live API, and in two places asserts something this
+ * one structurally cannot: the KPI numbers and the row counter are checked against an independent
+ * `GET /admin/properties`, where here they are compared to the store the page had just read — true
+ * whatever the server thinks. These seven are therefore **redundant, kept only because deleting
+ * them would leave the Duplicates tests stranded in a file with no context**: `loads without JS
+ * errors`, `shows PageHeader with title and subtitle`, `Export CSV downloads a file named for the
+ * active tab`, `all seven KPI cards render`, six of the seven parametrised KPI jumps (**not**
+ * `the Duplicate KPI jumps to its tab`), `the strip is exactly the nine supply tabs…`, and
+ * `switching tabs moves the selection rather than adding to it`. When the Duplicates decision
+ * lands, this file collapses to whatever that decision leaves behind.
  *
  * **Correction.** This list used to open with *"every `logAudit` line this console writes"*. Those
  * lines are gone: every moderation call on this page goes to the server, and the server records its

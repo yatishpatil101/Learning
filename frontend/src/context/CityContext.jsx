@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { DEFAULT_CITY, getCities, getCityLive, onGeoChange } from '../lib/geoConfig.js';
 
 /* PuneNest city system (ports PNCity from auth.js). City is persisted in
-   `puneNestCity`; which cities are live is governed by the admin Maps settings
-   (settings.geo.cities[name].live, defaulting to Pune-only), read live via
+   `puneNestCity`; which cities are live is governed by the curated city roster
+   (`GET /cities`, defaulting to Pune-only when unreachable), read live via
    lib/geoConfig.js. Non-live cities are "coming soon" and route demand into
    `pnCityRequests` (same shape the back-office reads). Selecting a non-live city
    opens the waitlist modal and shows the bottom waitlist banner. */

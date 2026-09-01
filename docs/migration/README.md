@@ -187,9 +187,10 @@ Each phase ends green before the next starts. UI instability on this branch is a
   gone. Absent still means enabled (`flags[key] !== false`), which is what lets the response carry
   only explicit decisions and makes a failed fetch survivable.
 
-  **Still open for `geo`, and the shape of the fix is not what it looked like.** The working
-  assumption was "point the city picker at the existing public `GET /cities` and the liveness problem
-  goes away". It does not, and building it would have broken the waitlist funnel:
+  **Closed for `geo` (2026-08-22), and the shape of the fix was not what it looked like.** The
+  working assumption was "point the city picker at the existing public `GET /cities` and the
+  liveness problem goes away". It did not, and building only that would have broken the waitlist
+  funnel:
 
   - `GET /cities` serves the `cities` **table**, which holds one row (Pune). The picker's roster of
     five lives in the `CITY_GEO` constant in `geoConfig.js`, and the four "coming soon" entries are
@@ -200,13 +201,29 @@ Each phase ends green before the next starts. UI instability on this branch is a
     `/flags` just closed, wearing different clothes; `GET /cities` does not address it.
   - There is no admin write path for `cities.live` at all (no route constant, no controller).
 
-  So the honest fix is a piece of work in its own right: seed the four coming-soon cities as
-  `live = false` rows, give the admin console a way to flip that column, and let `GET /cities` become
-  the single answer to roster **and** liveness **and** inventory — retiring `CITY_GEO.live`, the
-  `settings.geo.cities[].live` override and the hardcoded "only Pune has data" together. A cities
-  table that does not list the cities you can join a waitlist for is the actual defect underneath.
-  Until then `platform/city-propagation.spec.js` stays on the legacy suite; it is not blocked on
-  test plumbing.
+  So the honest fix was a piece of work in its own right, and it is now done: the four coming-soon
+  cities are seeded as `live = false` rows in `R__seed_reference_data.sql`, `PATCH
+  /admin/cities/{slug}` gives the admin console a way to flip that column (settings-write permission,
+  audited), and `GET /cities` is the single answer to roster **and** liveness **and** inventory.
+  `CITY_GEO.live` survives only as the fail-soft fallback for a boot window or an unreachable server;
+  the `settings.geo.cities[].live` override is gone from the response, the projection and the admin
+  write path alike — `settings.geo` is now bounds and blacklist only, and sending the retired key to
+  `PUT /admin/settings` is a 422 that names the route which replaced it. A cities table that did not
+  list the cities you can join a waitlist for was the actual defect underneath.
+  `platform/city-propagation.spec.js` is no longer blocked by it.
+
+  Two consequences worth stating rather than leaving to be rediscovered:
+
+  - **`live` is set on INSERT only.** The seed's `ON CONFLICT` no longer reasserts it. It had to
+    stop: `R__` files are re-applied whenever their checksum changes, most of this one is generated
+    by `gen-catalogue-seed.mjs`, and reasserting the column would have silently un-launched every
+    city ops had launched on the next locality regeneration. The e2e reset is unaffected — it
+    truncates before it replays, so every row takes the INSERT path.
+  - **No backfill migration ships with this.** One would only be needed for an environment where an
+    operator had already launched a city through the old Maps panel, and there is none: the live API
+    is not yet the default in any deployment, and the only stored `geo.cities[].live` values are
+    fixtures. If that stops being true before cut-over, the fix is a one-time `V___` backfill
+    (`MigrationSeedGuardTest.BACKFILLS` exists to permit exactly that), not a change here.
 
   ### P5b wave 1 — `platform` (in progress, 2026-08-13)
 

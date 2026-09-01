@@ -4,10 +4,16 @@
  *
  * **Live-only, like `ticketProvider`.** `lib/mockApi.js`'s referral store cannot express this
  * endpoint's answers: it has a `flagged` status the server does not know, it hands out unmasked
- * mobile numbers the server deliberately withholds, and its Approve pays a perk (a listing slot,
- * or +15 contacts) where the server pays rupees. Translating those would mean inventing a second
- * fraud vocabulary and keeping it in step by hand, which is the thing D184 refused. `OpsReferrals`
- * gates on `isHttpDomain('referral')` and states why it is shut.
+ * mobile numbers the server deliberately withholds, and its Approve grants a listing slot the
+ * contract has no field for — by looking the referrer up on a phone number that is no longer on the
+ * wire. Translating those would mean inventing a second fraud vocabulary and keeping it in step by
+ * hand, which is the thing D184 refused. `OpsReferrals` gates on `isHttpDomain('referral')` and
+ * states why it is shut.
+ *
+ * This paragraph used to end "…pays a perk where the server pays rupees". D31b reversed that half:
+ * the server moved onto the browser's unit rather than the other way round, so both now pay owner
+ * contacts and the rupee disagreement no longer exists. The other two stand, and so does the perk
+ * one once it is stated accurately — a listing slot is not a thing `ReferralSummaryDto` can carry.
  *
  * ## Both mobiles are masked and stay masked
  *

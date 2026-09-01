@@ -18,6 +18,13 @@
  * public surface renders them, and a leftover row makes a failure diagnosable afterwards. Every
  * assertion is a delta or a lookup by this run's own id, never a count of the whole table.
  *
+ * ## The split with `tests/admin/live-content-desk.spec.js`
+ *
+ * This file owns the seam and the two Reviews-tab console decisions below. Its sibling owns the
+ * desk around them — the four-tab shell, the banners counter, the FAQs tab, the create form and the
+ * route guards — which had no live coverage until `admin/content.spec.js` was converted. Neither
+ * re-asserts the other; the sibling's header states the division from its side.
+ *
  * Fixtures: ACTORS.admin (9000000000), ACTORS.buyer (9700000001).
  */
 import { test, expect } from '@playwright/test';

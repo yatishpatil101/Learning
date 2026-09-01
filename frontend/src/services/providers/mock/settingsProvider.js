@@ -131,6 +131,9 @@ export async function getMovePack() {
  * a component binds to a field that exists in development and vanishes in production. Nothing loses
  * access: the admin console reads the whole entry through `getSettings()`.
  *
+ * City launch state deliberately does **not** travel here any more: `/geo` is bounds + blacklist and
+ * the roster's `live` bit is served by `GET /cities` in both modes.
+ *
  * What this deliberately does *not* mirror is the server's hardening — a half-written `center`, an
  * inverted `bounds`, a one-character `term`. Those are defences against a malformed stored
  * document, and the mock store is written only by this app's own admin panel. Reproducing them here
@@ -140,6 +143,19 @@ export async function getGeo() {
   const doc = await mockGetSettings();
   const geo = doc?.geo;
   if (!geo || typeof geo !== 'object') return {};
+  const cities = geo.cities && typeof geo.cities === 'object'
+    ? Object.fromEntries(
+      Object.entries(geo.cities)
+        .filter(([, value]) => value && typeof value === 'object')
+        .map(([name, value]) => {
+          const next = {};
+          if (value.center && typeof value.center === 'object') next.center = value.center;
+          if (value.bounds && typeof value.bounds === 'object') next.bounds = value.bounds;
+          return [name, next];
+        })
+        .filter(([, value]) => Object.keys(value).length),
+    )
+    : {};
   const blacklist = Array.isArray(geo.blacklist)
     ? geo.blacklist
         .filter((entry) => entry && typeof entry === 'object')
@@ -147,7 +163,7 @@ export async function getGeo() {
     : [];
   return {
     enforceCityLimit: geo.enforceCityLimit,
-    cities: geo.cities && typeof geo.cities === 'object' ? geo.cities : {},
+    cities,
     blacklist,
   };
 }

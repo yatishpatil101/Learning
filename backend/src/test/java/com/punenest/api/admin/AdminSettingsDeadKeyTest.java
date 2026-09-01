@@ -170,4 +170,47 @@ class AdminSettingsDeadKeyTest extends AbstractApiTest {
 
         assertThat(save(token, "{\"customRoles\":" + CUSTOM_ROLES + "}")).isEqualTo(403);
     }
+
+    // -----------------------------------------------------------------------------------------
+    // The second dead key: geo.cities.*.live, retired to PATCH /admin/cities/{slug}
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * City launch state moved to the {@code cities} table, because a value that decides what a
+     * <em>logged-out</em> visitor sees cannot have an administrator-only reader. The old key is now
+     * read by nothing, which puts it in exactly the same category as {@code customRoles}: accepting
+     * it would store a launch decision that launches nothing, and answer 200 while doing it.
+     */
+    @Test
+    @DisplayName("geo.cities.*.live is refused, and points at the route that replaced it")
+    void theRetiredCityLiveKeyIsRefused() throws Exception {
+        mvc.perform(put(Routes.Admin.SETTINGS)
+                        .header(HttpHeaders.AUTHORIZATION, admin("9877720007"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"geo\":{\"cities\":{\"Mumbai\":{\"live\":true}}}}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("/admin/cities/{slug}")));
+    }
+
+    /**
+     * The counterweight, and the one that matters most here: {@code geo} is not dead. Bounds and the
+     * blacklist are still written through this endpoint, and a nested check that over-reached would
+     * take the Maps panel down with it.
+     */
+    @Test
+    @DisplayName("the rest of the geo block still saves normally")
+    void geoBoundsAndBlacklistStillSave() throws Exception {
+        String token = admin("9877720008");
+
+        assertThat(save(token, """
+                {"geo":{"enforceCityLimit":true,"cities":{"Mumbai":{"center":{"lat":19.076,\
+                "lng":72.8777}}},"blacklist":[{"id":"bl1","term":"Camp"}]}}"""))
+                .isEqualTo(200);
+
+        mvc.perform(get(Routes.Admin.SETTINGS).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.geo.cities.Mumbai.center.lat").value(19.076))
+                .andExpect(jsonPath("$.geo.blacklist[0].term").value("Camp"));
+    }
 }

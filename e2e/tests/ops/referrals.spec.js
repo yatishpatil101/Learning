@@ -28,8 +28,15 @@ test('the fraud desk says why it is shut rather than showing referrals it did no
 
   /* The specific reason matters more than the panel. These decisions release money, and the
      offline store would have the desk approving something with a different status vocabulary,
-     different privacy rules and a different reward - so nothing that looks like a queue is shown. */
-  await expect(page.getByText(/pays a perk where the server pays rupees/i)).toBeVisible();
+     different privacy rules and a different reward - so nothing that looks like a queue is shown.
+
+     This assertion used to read /pays a perk where the server pays rupees/, and pinned a reason
+     that had stopped being true: D31b moved the *server* onto the browser's unit, so both pay
+     owner contacts now. A shut work surface justifying itself with a disagreement that no longer
+     exists is worse than an unexplained one - it invites someone to check, find it wrong, and
+     conclude the whole panel is stale. What is asserted now is the half that survived: the mock
+     grants by looking the referrer up on a phone number the wire no longer carries. */
+  await expect(page.getByText(/looking the referrer up by that same number/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0);
   await expect(page.getByRole('table')).toHaveCount(0);
 });

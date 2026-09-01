@@ -19,10 +19,11 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
  * — so it was inert in every production build and under every Playwright run alike. The one
  * environment it functioned in was a second browser profile on a developer's own machine.
  *
- * `GET /geo` closes that. The writes below go through `PUT /admin/settings`, the only writer there
- * is; the reads are whatever the browser makes of `GET /geo` at boot. Nothing here touches what the
- * page reads. That is the point — a city is only live if the person taking it live and the person
- * shopping are looking at the same document.
+ * `GET /geo` closes the map-policy half of that. The city roster now closes the launch-status half:
+ * map bounds and the blacklist still write through `PUT /admin/settings`, while launch state writes
+ * through `PATCH /admin/cities/{slug}` and reads back through `GET /cities`. Nothing here touches
+ * what the page reads. That is the point — a city is only live if the person taking it live and the
+ * person shopping are looking at the same server-owned roster.
  *
  * ## Why the restore is a fixture, and why it restores key by key
  *
@@ -36,10 +37,16 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
  * spec touched and putting it back explicitly. Arrays are the exception — they replace whole, which
  * is why `blacklist` can be restored by writing the old list.
  *
- * A city that had no override before goes back as `{ live: false }` rather than disappearing. That
- * is a merge's closest reachable equivalent of absent, and it is the same answer every reader gives
- * for an unlisted city, since the built-in defaults in the client's `CITY_GEO` have Pune live and
- * nothing else.
+ * A city that had no override before is restored by overwriting the two fields this spec can set —
+ * `center` and `bounds` — with the values it had, which is to say `null` each. That is a merge's
+ * closest reachable equivalent of absent: the server drops an incomplete `center`/`bounds` on
+ * projection, so a city restored this way is published exactly as an unlisted one is.
+ *
+ * It used to be `{ live: false }`, back when launch state lived in this document. It no longer does
+ * — it is a column on the city roster, written through `PATCH /admin/cities/{slug}` (see the
+ * `cities` fixture below) — and `PUT /admin/settings` now answers 422 to the retired key rather than
+ * storing something nothing reads. Restoring it here would fail the teardown, which is the correct
+ * outcome and the reason this comment is longer than the line it explains.
  *
  * The snapshot is read from `GET /admin/settings` rather than from `GET /geo`, because `/geo` is
  * deliberately the *narrower* projection: it withholds the operator's private `note` on each
@@ -84,7 +91,10 @@ const test = base.extend({
       const restore = {};
       if (touchedCities.size) {
         restore.cities = Object.fromEntries(
-          [...touchedCities].map((name) => [name, before.cities?.[name] ?? { live: false }]),
+          [...touchedCities].map((name) => [
+            name,
+            before.cities?.[name] ?? { center: null, bounds: null },
+          ]),
         );
       }
       if (touchedBlacklist) restore.blacklist = before.blacklist ?? [];
@@ -93,6 +103,42 @@ const test = base.extend({
       // quietly unfence locality search for every spec that ran afterwards.
       if (touchedEnforce) restore.enforceCityLimit = before.enforceCityLimit ?? true;
       if (Object.keys(restore).length) await write(restore);
+    }
+  },
+
+  cities: async ({}, use) => {
+    let before;
+    const touched = new Set();
+
+    const read = async () => {
+      const res = await fetch(`${API}/cities`);
+      if (!res.ok) throw new Error(`reading cities failed (${res.status})`);
+      return await res.json();
+    };
+
+    const write = async (slug, live) => {
+      const res = await fetch(`${API}/admin/cities/${slug}`, {
+        method: 'PATCH',
+        headers: await authHeaders(ACTORS.admin),
+        body: JSON.stringify({ live }),
+      });
+      if (!res.ok) throw new Error(`writing city ${slug} failed (${res.status})`);
+    };
+
+    const set = async (slug, live) => {
+      if (before === undefined) {
+        before = Object.fromEntries((await read()).map((city) => [city.slug, city.live === true]));
+      }
+      touched.add(slug);
+      await write(slug, live);
+    };
+
+    await use({ set });
+
+    if (before !== undefined) {
+      for (const slug of touched) {
+        await write(slug, before[slug] === true);
+      }
     }
   },
 });
@@ -104,9 +150,16 @@ const fetchGeo = (page) =>
     return { status: res.status, json: await res.json() };
   });
 
+/** Read `GET /cities` from the page's own origin, unauthenticated — the roster the client makes from. */
+const fetchCities = (page) =>
+  page.evaluate(async () => {
+    const res = await fetch('/api/cities');
+    return { status: res.status, json: await res.json() };
+  });
+
 test.describe('geo policy reaches the browser', () => {
   test('the route is public, and publishes nothing but the geo block', async ({ page, geo }) => {
-    await geo.set({ enforceCityLimit: true, cities: { Mumbai: { live: true } } });
+    await geo.set({ enforceCityLimit: true, cities: { Mumbai: { center: { lat: 19.076, lng: 72.8777 } } } });
 
     // A real navigation first: `page.evaluate` on `about:blank` has no origin to resolve `/api`
     // against, and the failure ("Failed to parse URL") looks nothing like the missing page it is.
@@ -115,7 +168,8 @@ test.describe('geo policy reaches the browser', () => {
 
     expect(status).toBe(200);
     expect(json.enforceCityLimit).toBe(true);
-    expect(json.cities.Mumbai.live).toBe(true);
+    expect(json.cities.Mumbai.center.lat).toBe(19.076);
+    expect(json.cities.Mumbai.live).toBeUndefined();
     // The settings document also holds fees, flags, movePack and the site block. None of them are
     // this route's business, and an anonymous caller must not receive them by accident.
     expect(json.fees).toBeUndefined();
@@ -148,7 +202,7 @@ test.describe('geo policy reaches the browser', () => {
     expect(JSON.stringify(json)).not.toContain('duplicate of an existing society');
   });
 
-  test('a city taken live on the server is a destination, not a waitlist prompt', async ({ page, geo }) => {
+  test('a city taken live on the server is a destination, not a waitlist prompt', async ({ page, cities }) => {
     // The "before" is asserted against the same UI, so a pass below cannot be the picker simply
     // never gating anything.
     await page.goto('/');
@@ -158,7 +212,7 @@ test.describe('geo policy reaches the browser', () => {
     await expect(page.getByRole('heading', { name: /Join the Mumbai waitlist/i })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
 
-    await geo.set({ cities: { Mumbai: { live: true } } });
+    await cities.set('mumbai', true);
     await page.reload();
 
     await pill.click();
@@ -170,11 +224,11 @@ test.describe('geo policy reaches the browser', () => {
     await expect(pill).toHaveAttribute('aria-label', 'City: Mumbai');
   });
 
-  test('taking a city live is visible without a reload', async ({ page, geo }) => {
+  test('taking a city live is visible without a reload', async ({ page, cities }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
 
-    await geo.set({ cities: { Mumbai: { live: true } } });
+    await cities.set('mumbai', true);
 
     // The event the admin console fires on save. In production the operator is in the console and
     // the shopper is elsewhere; what this asserts is the half that has to work either way — that
@@ -233,15 +287,19 @@ test.describe('geo policy reaches the browser', () => {
     expect(matched.one).toBe(false);
   });
 
-  test('a city the operator has never touched keeps its built-in policy', async ({ page, geo }) => {
+  test('a city the operator has never touched keeps its built-in policy', async ({ page, cities }) => {
     // `settings.geo` has no seeded row: the defaults live in the client's `CITY_GEO`, and the
     // stored document is overrides only. So an override for one city must say nothing about any
     // other, and Pune — which nobody has ever configured — must still be live with its localities.
-    await geo.set({ cities: { Mumbai: { live: true } } });
+    await cities.set('mumbai', true);
 
     await page.goto('/');
     const { json } = await fetchGeo(page);
     expect(json.cities.Pune).toBeUndefined();
+
+    const { status, json: cityJson } = await fetchCities(page);
+    expect(status).toBe(200);
+    expect(cityJson.find((city) => city.slug === 'mumbai')?.live).toBe(true);
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
     await expect(page.getByRole('button', { name: 'Baner', exact: true })).toBeVisible();
