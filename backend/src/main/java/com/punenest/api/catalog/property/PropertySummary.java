@@ -3,6 +3,7 @@ package com.punenest.api.catalog.property;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Card projection for search/lists (contract {@code PropertySummary}). This is the lightweight
@@ -20,6 +21,8 @@ import java.time.Instant;
  * @param area         built area value
  * @param areaUnit     area unit (default sqft)
  * @param possession   possession state ({@link PropertyPossession}), nullable when not stated
+ * @param landUse      permitted zoning for plots/farm land; null for buildings (see the component
+ *                     javadoc below for why a card needs it)
  * @param locality     display locality name (the slug is the filter key, not this)
  * @param localitySlug curated locality key (FK to {@code localities.slug}); the value the
  *                     {@code locality} search facet matches on. Nullable when the listing's
@@ -86,6 +89,66 @@ public record PropertySummary(
         String areaUnit,
         String furnishing,
         String possession,
+        /**
+         * Permitted zoning for an open plot or farm land ({@code residential|commercial|industrial|
+         * agricultural|mixed}); {@code null} for anything with a building on it, which is the
+         * common case.
+         *
+         * <p>On the card because {@link Property#getLandUse()} calls it "a search facet, not a
+         * detail — a buyer must be able to exclude the zoning they cannot use before they ever
+         * open a listing", and a facet the list payload does not carry cannot filter a list. V95
+         * shipped the column and the detail shape; this half was missed, so the browser filtered
+         * plots by {@code LANDUSE_ZONES[hashId(id) % 4]} and a buyer who excluded agricultural
+         * land was served a set chosen by a hash of the slug.
+         *
+         * <p>Same failure and same remedy as {@code societySlug} above. Zoning decides whether a
+         * plot can legally be built on at all, so a fabricated answer here is not a bad
+         * recommendation, it is a bad purchase.
+         */
+        String landUse,
+        /**
+         * The eleven attributes below exist for exactly the reason {@code landUse} above does, and
+         * were missing for exactly the same reason. V95 gave every one of them a column and a
+         * {@link ListingFacets} predicate, so the database can already filter on them — but the
+         * card shape carried none of them, and the listings grid filters client-side over this
+         * shape. A predicate the payload cannot express is a predicate the grid cannot honour.
+         *
+         * <p>What the grid did instead was invent them. Every one of these was derived in the
+         * browser from {@code fnvHash(listing.id)}: age as {@code (h >> 16) % 26}, floor as
+         * {@code (h >> 20) % 41}, the pet policy as {@code (h >> 8) % 3 === 0}, and the society's
+         * verification status as {@code (h >> 12) % 2 === 0} — a coin flip, tuned to look like a
+         * plausible 50% so nobody would notice. A buyer filtering for "conveyance done" was being
+         * served listings selected by arithmetic on a slug.
+         *
+         * <p>These are on the card and not merely on the detail shape because each one is a
+         * <em>filter</em>. {@code PropertyResponse} reasoned that their job "is to be filtered on
+         * — which now happens in SQL"; that holds only once the client actually asks SQL to do it.
+         * Until then the card must carry what the card filters on, or the fallback is fabrication.
+         *
+         * <p>Null is meaningful and must survive the round trip: a null {@code ageYears} means the
+         * owner never stated an age, which is not the same as a new building, and a null
+         * {@code facing} means unknown, which is not a direction. {@code tenants} and
+         * {@code sharing} are {@code NOT NULL} jsonb arrays that default to empty — empty means
+         * "no restriction stated", not "no tenants permitted".
+         */
+        Integer ageYears,
+        Integer floor,
+        Integer totalFloors,
+        String facing,
+        String room,
+        List<String> tenants,
+        String availableFrom,
+        boolean pets,
+        List<String> sharing,
+        /**
+         * The society has been verified as a real, registered body, and its conveyance (transfer of
+         * land title from builder to society) is complete. Legal facts about a named society, not
+         * opinions about a listing — which is why a fabricated value here was the worst of the set.
+         * Both are narrow-only filters server-side: false never widens a result, so a false here is
+         * safe, and an invented true was not.
+         */
+        boolean societyVerified,
+        boolean conveyanceDone,
         String locality,
         String localitySlug,
         String societySlug,

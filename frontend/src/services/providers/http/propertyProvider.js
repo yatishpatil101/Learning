@@ -249,13 +249,28 @@ export async function createListingOnBehalf(ownerMobile, ownerName, listing) {
 }
 
 /**
- * Owner-scoped edit. The mock's admin callers also route through this; against the API it is
- * `/me/listings/{id}`, so a non-owner gets a 404 by design (existence is never confirmed to a
- * stranger). Editing a foundation field (price/bhk/type/locality/deal) reverts the listing to
- * `pending` server-side — the same rule the mock implements in the UI.
+ * Owner-scoped edit — `PATCH /me/listings/{id}`, so a non-owner gets a 404 by design (existence is
+ * never confirmed to a stranger). Editing a foundation field (price/bhk/type/locality/deal) reverts
+ * the listing to `pending` server-side, the same rule the mock implements in the UI.
+ *
+ * Staff correcting a listing they do not own want {@link updateListingAsModerator} instead. They
+ * used to come through here, which worked on mocks — the mock store has no owner check — and 404'd
+ * against the API for every listing the moderator did not happen to own, i.e. all of them.
  */
 export async function updateListingFields(id, patchBody) {
   return toViewModel(await patch(`/me/listings/${encodeURIComponent(id)}`, toListingUpdate(patchBody)));
+}
+
+/**
+ * `PATCH /properties/{id}/admin` — a moderator correcting somebody else's listing.
+ *
+ * Cross-owner and audited, and deliberately *not* a re-moderation trigger: the route leaves the
+ * listing's status alone, because the person making the change is the person who would otherwise
+ * have to re-approve it. Returns the listing with contacts revealed, so the same `toViewModel` the
+ * owner path uses gives the console a row it can render without a second read.
+ */
+export async function updateListingAsModerator(id, patchBody) {
+  return toViewModel(await patch(`/properties/${encodeURIComponent(id)}/admin`, toListingUpdate(patchBody)));
 }
 
 /** Soft-delete. The mock's `deleteListing` is also non-destructive, so the semantics already match. */

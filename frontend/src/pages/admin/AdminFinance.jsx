@@ -192,6 +192,10 @@ export default function AdminFinance() {
     .reduce((s, m) => s + m.rent + m.subscriptions + m.featured + m.services, 0);
 
   const fees = (settings.fees) || {};
+  /* The one thing `settings` is still read for. `null` rather than a default rate: an unset
+     percentage is not 18%, and the row label branches on null so it says "GST collected on rent"
+     without quoting a number the settings document never stated. */
+  const gstPercent = Number.isFinite(fees.gstPercent) ? fees.gstPercent : null;
   const {
     payoutsMeasured, refundsMeasured, serviceOrdersCounted,
     mrr, monthRevenue, users, payingUsers, gstCollected, pendingSettlement, plans,
@@ -229,6 +233,50 @@ export default function AdminFinance() {
     ['Month', 'Rent fees', 'Subscriptions', 'Featured', 'Services', 'Total'],
     (series || []).map((m) => [m.month, m.rent, m.subscriptions, m.featured, m.services,
       m.rent + m.subscriptions + m.featured + m.services]),
+  );
+
+  /* Exports what is on screen, not what was fetched: `txRows` is post-filter, so an operator who
+     narrowed to one party gets that party's rows rather than a hundred unrelated ones. */
+  const doTxExport = () => exportCsv(
+    'punenest-transactions.csv',
+    ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status', 'Method'],
+    txRows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status, r.method || '']),
+  );
+
+  /* "Platform take", not "Amount". The figure is the platform's cut, not the sum that changed
+     hands — a ₹22,000 rent payment appears here as the few hundred rupees of fee on it, and a
+     column called Amount invited every reader to add these up into a revenue number that would be
+     off by two orders of magnitude. */
+  const txCols = [
+    { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-gray-400">{r.id}</span> },
+    { key: 'date', header: 'Date', render: (r) => <span className="text-xs text-gray-400">{r.date}</span> },
+    { key: 'party', header: 'Party', render: (r) => <span>{r.party}</span> },
+    /* The wire sends `kind` — the revenue source — and the console has always shown a label.
+       Falling back to the raw kind means a source this build has not been taught about still
+       renders, rather than leaving a blank cell that looks like missing data. */
+    { key: 'kind', header: 'Type', render: (r) => <span className="text-xs">{KIND_LABELS[r.kind] || r.kind}</span> },
+    { key: 'amount', header: 'Platform take', className: 'font-semibold', render: (r) => <span className={r.amount < 0 ? 'text-red-400' : ''}>{fmtINR(r.amount)}</span> },
+    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
+    { key: 'actions', header: '', render: (r) => <button onClick={() => setDetail(r)} aria-label={`Open transaction ${r.id}`} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Eye className="h-3.5 w-3.5" /></button> },
+  ];
+
+  const txCard = (r) => (
+    <div className="pn-card p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-semibold">{r.party}</div>
+          <div className="mt-0.5 font-mono text-xs text-gray-500">{r.id} · {r.date}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className={`font-semibold ${r.amount < 0 ? 'text-red-400' : ''}`}>{fmtINR(r.amount)}</div>
+          <div className="mt-1"><Badge status={r.status} /></div>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
+        <span className="text-xs text-gray-400">{KIND_LABELS[r.kind] || r.kind}</span>
+        <button onClick={() => setDetail(r)} className="pn-btn pn-btn-ghost py-1 text-xs"><Eye className="h-3.5 w-3.5" />Details</button>
+      </div>
+    </div>
   );
 
   return (
@@ -414,7 +462,58 @@ export default function AdminFinance() {
       )}
 
       {/* Transactions ledger */}
-      {optionEnabled('finance.transactions') && <LedgerPanel />}
+      {optionEnabled('finance.transactions') && (
+        <div className="pn-card p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h3 className="font-bold">Recent transactions</h3>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party or type…" className="pn-input py-1 text-xs sm:w-48" />
+              {/* Built from the rows in hand rather than a hardcoded list, so a revenue source the
+                  server starts sending is filterable the day it appears. */}
+              <Select
+                size="sm"
+                value={txType}
+                onChange={setTxType}
+                ariaLabel="Filter by type"
+                className="[--dd-sm-w:200px]"
+                options={[{ value: '', label: 'All types' }, ...txTypes.map((k) => ({ value: k, label: KIND_LABELS[k] || k }))]}
+              />
+              {/* Exactly the settlement vocabulary the server speaks. `closed` was the mock's word
+                  and `refunded` names a state no row can hold while there is no refund path; both
+                  would answer 400, so offering them would ship a filter that cannot succeed. */}
+              <Select
+                size="sm"
+                value={txStatus}
+                onChange={setTxStatus}
+                ariaLabel="Filter by status"
+                className="[--dd-sm-w:128px]"
+                options={[
+                  { value: '', label: 'All statuses' },
+                  { value: 'paid', label: 'Paid' },
+                  { value: 'pending', label: 'Pending' },
+                  { value: 'failed', label: 'Failed' },
+                ]}
+              />
+              <button onClick={doTxExport} className="pn-btn pn-btn-ghost py-1 text-xs"><Download className="h-3.5 w-3.5" />CSV</button>
+            </div>
+          </div>
+          <Table columns={txCols} rows={txRows} pageSize={15} label="transactions" empty="No transactions match." mobileCard={txCard} />
+        </div>
+      )}
+
+      {/* Transaction detail */}
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `Transaction · ${detail.id}` : ''} size="md">
+        {detail ? (
+          <dl className="space-y-2 text-sm">
+            {[['ID', detail.id], ['Date', detail.date], ['Party', detail.party], ['Type', KIND_LABELS[detail.kind] || detail.kind], ['Platform take', fmtINR(detail.amount)], ['Status', detail.status], ['Method', detail.method || '—']].map(([k, v]) => (
+              <div key={k} className="flex justify-between border-b border-white/5 py-1.5">
+                <dt className="text-gray-400">{k}</dt>
+                <dd className="font-medium">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </Modal>
     </div>
   );
 }

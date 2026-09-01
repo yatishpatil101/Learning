@@ -237,6 +237,55 @@ export function toViewModel(p) {
     reminderCount: p.adminPipeline?.reminderCount ?? 0,
 
     construction: translateConstruction(CONSTRUCTION_FROM_WIRE, p.possession, 'from the server'),
+
+    // Permitted zoning for plots and farm land; null for buildings. V95 added the column with a
+    // CHECK on the five legal zones under the comment "search facets the browser used to invent",
+    // but only the server half was ever wired — this mapper dropped the field, so `landUseOf()`
+    // in matchers.js fell through to `LANDUSE_ZONES[hashId(p.id) % 4]` and every live land listing
+    // published a zone derived from a hash of its slug. p5124 is `residential` in Postgres and was
+    // rendering as `mixed`. Zoning is a legal attribute of the plot, not a display detail, so a
+    // fabricated one is a misstatement to the buyer rather than a cosmetic defect.
+    landUse: p.landUse ?? null,
+
+    /* The rest of the set `landUse` belonged to. Every one of these had a column and a SQL
+       predicate since V95, and every one was dropped here and then invented in the browser from
+       `fnvHash(p.id)` — age as `(h >> 16) % 26`, floor as `(h >> 20) % 41`, the society's
+       verification status as a `(h >> 12) % 2` coin flip. The listings grid filters client-side
+       over this object, so a field this mapper omits is a field the grid must guess at.
+
+       `?? null` rather than `?? <default>` throughout, deliberately. Null here means "the owner
+       never stated it", which is a different fact from any particular value: a null age is not a
+       new building and a null facing is not north. Downstream renders "Not specified" for null
+       and filters must exclude it rather than coerce it — see listingsResultsPipeline, where
+       `?? 0` used to turn every unstated age into "brand new".
+
+       `tenants` and `sharing` are NOT NULL jsonb arrays server-side, so [] is the real value and
+       means "no restriction stated". Array.isArray rather than `?? []` because a non-array
+       truthy value reaching `tenantLabel` throws and takes the whole grid down. */
+    ageYears: p.ageYears ?? null,
+    floor: p.floor ?? null,
+    totalFloors: p.totalFloors ?? null,
+    facing: p.facing ?? null,
+    room: p.room ?? null,
+    tenants: Array.isArray(p.tenants) ? p.tenants : [],
+    availableFrom: p.availableFrom ?? null,
+    pets: p.pets ?? false,
+    sharing: Array.isArray(p.sharing) ? p.sharing : [],
+    societyVerified: p.societyVerified ?? false,
+    conveyanceDone: p.conveyanceDone ?? false,
+
+    /* Not a server field: there is no `share_type` column and no ListingFacets facet for it.
+       It is *derived*, but from stated facts rather than from a hash — a PG states its occupancy
+       (`sharing`), a flatmate share states its room arrangement (`room`), and a listing that
+       states neither is an ordinary rental. That distinction previously came from
+       `h % 2 === 0 ? 'flatmates' : 'pg'`, which re-tagged any small rental as a PG on a coin
+       flip, under a comment conceding the motive: "Small rentals are always a PG or flatmate
+       share so the filter has stock". Stock is not a reason to relabel someone's home.
+
+       Derivation is honest here in a way the hash was not, because it is falsifiable: if the
+       owner states no occupancy and no room type, this is null and the listing does not appear
+       under the PG or Flatmates chips at all. */
+    shareType: (Array.isArray(p.sharing) && p.sharing.length) ? 'pg' : (p.room ? 'flatmates' : null),
   };
 }
 

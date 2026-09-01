@@ -167,6 +167,19 @@ export const setPipelineStage = async (id, stage) => (await provider()).setPipel
 export const deleteListing = async (id) => (await provider()).deleteListing(id);
 export const updateListingFields = async (id, patch) => (await provider()).updateListingFields(id, patch);
 
+/**
+ * Staff/admin: correct **somebody else's** listing in place.
+ *
+ * Separate from {@link updateListingFields} because the two are different routes with different
+ * rules, not the same write under two names. `updateListingFields` is `/me/listings/{id}` and is
+ * owner-scoped, so a moderator calling it about a stranger's listing gets a 404 by design. This one
+ * is `PATCH /properties/{id}/admin`: cross-owner, audited, and — the behavioural difference that
+ * matters — it does **not** revert the listing to `pending`. Re-moderation exists so an owner's
+ * change is seen by a moderator before it goes live; here the moderator *is* the change, and
+ * reverting would push their own correction into their own queue.
+ */
+export const updateListingAsModerator = async (id, patch) => (await provider()).updateListingAsModerator(id, patch);
+
 // Admin/owner: soft-delete. Backed by PATCH /properties/{id}/archive|restore in http mode.
 export const archiveListing = async (id, reason) => (await provider()).archiveListing(id, reason);
 export const restoreListing = async (id) => (await provider()).restoreListing(id);

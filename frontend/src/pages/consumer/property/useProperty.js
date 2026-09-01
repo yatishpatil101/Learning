@@ -184,7 +184,12 @@ export default function useProperty() {
     if (p.form?.plotZone) highlights.push(['layout-grid', tr('property.zoneLabel', { zone: p.form.plotZone })]);
     if (p.ownershipVerified) highlights.push(['file-check', tr('property.clearTitleHl')]);
   } else {
-    highlights.push(['compass', tr('property.facingLabel', { facing: deriveFacing(p) })]);
+    // Guarded because `deriveFacing` no longer invents a direction when none was stated: it
+    // returns '' and `property.facingLabel` is "{{facing}} Facing", so an unguarded push
+    // rendered a pill reading " Facing" — and, worse, spent one of the four slots in
+    // `highlights.slice(0, 4)` doing it, displacing a real signal.
+    const facing = deriveFacing(p);
+    if (facing) highlights.push(['compass', tr('property.facingLabel', { facing })]);
     if (p.amenities?.includes('security')) highlights.push(['shield-check', tr('property.security247')]);
     if (p.amenities?.includes('power')) highlights.push(['zap', tr('property.powerBackup')]);
   }

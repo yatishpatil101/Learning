@@ -47,8 +47,14 @@ invention, and **no migration** — every figure the console draws is already in
 - [x] Backend route tests, including the 403 for a non-admin and the ledger's status mapping
 - [x] `financeService.js` + both providers; `finance` added to `config.js` and `playwright.live.config.js`
 - [x] `AdminFinance.jsx` off `rawDb`/`buildTransactions`/`buildRevenueSeries`/`rentFeeRevenue`
-- [ ] e2e: mock spec updated, live spec added, `COVERAGE.md` row — **the one box still open.** There is
-  no `live-finance.spec.js` and no coverage row, so the console is built and unverified end to end.
+- [x] e2e: mock spec updated, live spec added, `COVERAGE.md` row
+
+**Closed 2026-08-19.** The last box had been ticked in code and was failing in fact: the port
+extracted the settlement ledger into a `<LedgerPanel />` that was never written, and dropped the
+`gstPercent` binding along with the arithmetic it came from. `/admin/finance` threw on render and
+mounted blank, so all 9 live assertions and 21 mock ones were red against a console that could not
+draw. The panel is inlined again (`6041145`); 34 mock + 9 live tests pass. **The lesson is that a
+ticked box on a build step is not evidence — only the run is.**
 
 ## Needs attention
 
@@ -130,10 +136,8 @@ still undecided · `wa-pricing` → resolved.
 
 ## Next up
 
-The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32 and 25 are built.
-**Item 20 (finance console) is built but not verified end to end** — every box above is ticked except
-its e2e row, so the console draws live figures that no spec has ever checked. **Item 36 is
-part-built:** Pricing and SLA now read `/admin/analytics/pricing` and `/admin/analytics/sla` through
+The ledger's damage order. Items 35, 24, 23, 33, 34, 29, 31b, 19, 27, 26, 32, 25 and 20 are built;
+**20 is now verified end to end as well.** **Item 36 is part-built:** Pricing and SLA now read `/admin/analytics/pricing` and `/admin/analytics/sla` through
 `services/analyticsService.js`, and the six tabs with nothing to read from — Traffic, Engagement,
 Anonymous surfers, Geography, Supply gap, Seasonal — carry a banner saying so rather than being
 deleted or left to pass as measurement.
@@ -152,6 +156,8 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
+| 2026-08-19 | Ledger 20 closed: the finance console's settlement panel restored, 34 mock + 9 live tests green |
+| 2026-08-19 | Listing attributes stopped being fabricated from `fnvHash(id)` — twelve fields now read from the server |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
 | 2026-08-16 | D230–D234, and the closing summary of the autonomous window (`8cecfe5`..`45f9168`) |

@@ -1301,3 +1301,114 @@ SELECT 'f1c70004-0000-4000-8000-000000000004'::uuid, 'society', s.id::text,
        '{}'::jsonb, NULL
 FROM public.societies s WHERE s.slug = 'golden-springs-panchshil-baner'
 ON CONFLICT (id) DO NOTHING;
+
+-- BATCH F: canonical-type stock + a deliberately photoless listing (added 2026-08-21)
+--
+-- The home-search dropdown and the listings Property-type filter both offer the six
+-- canonical Buy types from frontend/src/data/propertyTypes.js, but Postgres had stock for
+-- only three of them: there was no Independent House and no Farm Land anywhere in the
+-- seed, and the only plots were 'Plot' (the legacy string). A filter option that can never
+-- return a row is indistinguishable from a filter option that is broken, so
+-- live-search-property-types.spec.js had been faking its stock into puneNestDB_v5 - the
+-- mock store the live app does not read - and passing while proving nothing.
+--
+-- All four are featured=true. That has no visual effect on a tile; it only pins them to
+-- page 1 under the real relevance sort, so the type-filter assertions do not depend on
+-- where a given row happens to land in a 100-row page.
+--
+-- p5131 uses 'Open Plot' rather than the legacy 'Plot' deliberately: SEARCH_TYPES matches
+-- key 'plot' on BOTH substrings, so keeping one row of each proves the filter still
+-- recognises legacy stock instead of silently dropping it the day someone tidies the
+-- taxonomy.
+--
+-- p5131 is also the only approved commercially-zoned plot in the seed. land_use is read by
+-- the Land-use filter, and before this batch the frontend never read the column at all -
+-- propertyMapper dropped it and landUseOf() fell back to a hash of the slug, so every land
+-- listing advertised a zone the server had never stated. p5124 is 'residential' in Postgres
+-- and was rendering as 'mixed'. Zoning is a legal attribute of the land, so the mapper now
+-- reads it and this row gives the 'Commercial' option something true to match.
+--
+-- p5132's 'agricultural' is stated rather than left NULL even though landUseOf() would infer
+-- it from the Farm Land type: the inference is a display fallback and the assertion should
+-- be pinned to the column, otherwise the test passes if the column is ignored again.
+--
+-- p5133 carries images '[]' and cover_image NULL on purpose. It is the fixture for D188:
+-- <img src=""> is not an image-less image - the browser resolves the empty string against
+-- the document URL and re-downloads the whole HTML page as a photo, once per card. Nothing
+-- else in the seed has zero photos, so without this row that regression cannot be caught
+-- live. Do not "fix" this row by giving it a picture.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005130', 'p5130', 'f1c70000-0000-4000-8000-000000000010', '3 BHK Independent House for sale in Baner', 'buy', 'Independent House', 3, 12500000, 'total', true, 1850, 'sqft', 1520, 'semi-furnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5602, 73.7861, '3 BHK Independent House available on sale in Baner, Pune. Zero brokerage - deal directly with the verified owner.', '["parking", "security", "power", "garden"]', '["https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, true, 3, 132, 5, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005131', 'p5131', 'f1c70000-0000-4000-8000-000000000010', 'Open Plot for sale in Baner', 'buy', 'Open Plot', NULL, 9800000, 'total', true, 2600, 'sqft', NULL, NULL, 'ready-to-move', 'commercial', 'Baner', 'baner', 'Pune', 18.5595, 73.7802, 'Commercially zoned open plot on sale in Baner, Pune. Clear title, zero brokerage - deal directly with the verified owner.', '["power", "security"]', '["https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, true, 3, 88, 3, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005132', 'p5132', 'f1c70000-0000-4000-8000-000000000010', 'Farm Land for sale in Baner', 'buy', 'Farm Land', NULL, 6400000, 'total', true, 21780, 'sqft', NULL, NULL, 'ready-to-move', 'agricultural', 'Baner', 'baner', 'Pune', 18.5641, 73.7745, 'Farm Land available on sale near Baner, Pune. Clear title, zero brokerage - deal directly with the verified owner.', '["power"]', '["https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', true, true, true, true, 2, 61, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30'),
+ ('f1c70000-0000-4000-8000-000000005133', 'p5133', 'f1c70000-0000-4000-8000-000000000010', '2 BHK Flat for sale in Baner', 'buy', 'Flat', 2, 7200000, 'total', true, 910, 'sqft', 760, 'unfurnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5588, 73.7890, '2 BHK Flat available on sale in Baner, Pune. Photos coming soon. Zero brokerage - deal directly with the verified owner.', '["parking", "lift", "security"]', '[]', NULL, 'owner', 'approved', true, true, true, true, 2, 44, 1, '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- BATCH G: real values for the attributes the browser used to invent (added 2026-08-21)
+--
+-- Every column set below has existed since V95 and every one had a ListingFacets predicate,
+-- but all of them were NULL or at their default, so the frontend manufactured a value from
+-- fnvHash(slug) and filtered on that. Wiring the mapper without this batch would have been
+-- worse than leaving the fabrication in place: eleven filters would have gone to zero stock,
+-- which is precisely the pressure that produced the fabrication in the first place ("Small
+-- rentals are always a PG or flatmate share so the filter has stock").
+--
+-- The old fabrication was not merely fictional, it was broken. fnvHash returns a uint32 and
+-- the derivations used a SIGNED >>, so for any slug whose hash has the high bit set - about
+-- half the catalogue, and 14 of the 17 rows checked - `(h >> 16) % 26` went NEGATIVE. Those
+-- listings advertised an age of -18 years and a floor of -31, were dropped from any narrowed
+-- Age or Floor search (a negative can never be >= a lower bound of 0), and got
+-- `availableFrom = ['now','15','30'][-2]` = undefined, so they matched no availability option
+-- at all. `(h >> 14) % 5 < 2` is true for every negative remainder, so the same rows were
+-- unconditionally badged "conveyance done" rather than the ~40% the comment claimed. The
+-- author had diagnosed exactly this hazard one line away, on PG_SHARING ("a signed >> would
+-- go negative for hashes >= 2^31"), and fixed it there alone.
+--
+-- These are UPDATEs, not INSERTs, on purpose: they add facts to listings that already exist
+-- rather than adding rows, so no count assertion anywhere moves. Values are chosen to
+-- CONTRADICT what the hash produced wherever the field is filterable, so a test pinned to an
+-- exact set fails if anything ever starts deriving these again. The seeded sets are also
+-- deliberately small - three society-verified rows against the roughly thirty the coin flip
+-- produced - which is what makes an exact-set assertion a discriminator rather than a
+-- coincidence.
+--
+-- Rows left NULL are as meaningful as the rows filled in. p5010 (villa) and p5130
+-- (independent house) state nothing: an independent house has no society to verify and no
+-- floor to be on, and the detail page must render "Not specified" rather than a number. Keep
+-- at least one such row or the "unstated" path stops being covered.
+
+-- Buy: age / floor / facing, and the two society trust flags.
+--   age_years present:  p5133=1, p5130=2, p5023=3, p5008=6, p5120=9, p5013=18
+--     -> narrowing Age to 0-3 yields exactly {p5133, p5130, p5023}
+--   floor present:      p5013=2, p5133=3, p5023=5, p5008=9, p5120=11
+--     -> narrowing Floor to 8+ yields exactly {p5008, p5120}
+--   society_verified:   {p5120, p5133, p5023}
+--   conveyance_done:    {p5120, p5008, p5023}
+-- p5133 is the ordinary Indian case worth keeping: a new building whose society is registered
+-- but whose conveyance has not completed. That is exactly the pair of facts a buyer is trying
+-- to separate, and the hash decided them independently at 50% and 40%.
+UPDATE public.properties SET age_years = 9,  floor = 11, total_floors = 14, facing = 'East',       society_verified = true,  conveyance_done = true  WHERE slug = 'p5120';
+UPDATE public.properties SET age_years = 1,  floor = 3,  total_floors = 12, facing = 'North-East', society_verified = true,  conveyance_done = false WHERE slug = 'p5133';
+UPDATE public.properties SET age_years = 3,  floor = 5,  total_floors = 8,  facing = 'North',      society_verified = true,  conveyance_done = true  WHERE slug = 'p5023';
+UPDATE public.properties SET age_years = 6,  floor = 9,  total_floors = 9,  facing = 'West',       society_verified = false, conveyance_done = true  WHERE slug = 'p5008';
+UPDATE public.properties SET age_years = 18, floor = 2,  total_floors = 5,  facing = 'South',      society_verified = false, conveyance_done = false WHERE slug = 'p5013';
+-- Independent house: an age, but no society and no floor in a building it does not sit in.
+UPDATE public.properties SET age_years = 2 WHERE slug = 'p5130';
+-- p5010 (villa) is left entirely unstated on purpose. Do not fill it in.
+
+-- Rent: letting policy, availability and the PG / flatmate distinction.
+--   tenants 'family':   {p5121, p5123}          available_from 'now': {p5121, p5007}
+--   tenants 'company':  {p5123, p5014}          pets allowed:         {p5122, p5033}
+--   shareType 'pg':        {p5007, p5033}   (occupancy stated in `sharing`)
+--   shareType 'flatmates': {p5122, p5014}   (room stated, no occupancy)
+-- p5033 and p5122 invert what the coin flip said - it called p5033 a flatmate share and p5122
+-- a PG - so the PG and Flatmates chips cannot both pass by accident. p5000 states no policy at
+-- all and must stay that way: it is the row proving an unstated listing is no longer
+-- re-labelled to fill a filter.
+UPDATE public.properties SET age_years = 5,  tenants = '["family"]'::jsonb, available_from = 'now', pets = false WHERE slug = 'p5121';
+UPDATE public.properties SET age_years = 12, tenants = '["bachelor-male"]'::jsonb, available_from = '15', pets = true, room = 'single' WHERE slug = 'p5122';
+UPDATE public.properties SET age_years = 7,  tenants = '["family", "company"]'::jsonb, available_from = '30', pets = false WHERE slug = 'p5123';
+UPDATE public.properties SET age_years = 4,  floor = 1,  total_floors = 6,  facing = 'South', room = 'shared', tenants = '["bachelor-female"]'::jsonb, available_from = 'now', pets = false, sharing = '["triple"]'::jsonb WHERE slug = 'p5007';
+UPDATE public.properties SET age_years = 15, floor = 12, total_floors = 12, facing = 'East',  room = 'shared', tenants = '["bachelor-male", "bachelor-female"]'::jsonb, available_from = '15', pets = true, sharing = '["double", "triple"]'::jsonb WHERE slug = 'p5033';
+UPDATE public.properties SET age_years = 8,  floor = 6,  total_floors = 10, room = 'single', tenants = '["company"]'::jsonb, available_from = '30', pets = false WHERE slug = 'p5014';
+-- p5000 (villa, rent) states no tenant policy, no availability and no share type. Do not fill it in.

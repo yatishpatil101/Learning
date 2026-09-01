@@ -50,6 +50,17 @@ export function computeResults({ all, df, sort, urlQ, locNameBySlug, tr }) {
   // (e.g. commercial rents above the residential-friendly ceiling) are silently
   // hidden. A value typed below/above the ceiling stays a concrete cap.
   const openHi = (hi, ceil) => (hi === ceil ? Infinity : hi);
+  /* Range test for an attribute the owner may never have stated.
+     Null is excluded rather than coerced. These reads were `(p.ageYears ?? 0)`, which treated
+     an unstated age as brand new and an unstated floor as ground — so a listing with no stated
+     age silently satisfied "0 to N" and silently vanished the moment the user raised the lower
+     thumb off zero, having never been a real match either way. That mattered less when both
+     values were fabricated for every listing and null never occurred.
+     This also matches the server: `PropertySpecs` compares with `cb.ge`/`cb.le`, and SQL
+     comparisons against NULL are never true, so the database already excludes unstated values
+     from a narrowed range. The caller only applies this filter when the range is off its
+     defaults, so an unstated value is dropped only from a search the user actively narrowed. */
+  const inRange = (v, lo, hi) => v != null && v >= lo && v <= hi;
   // The full filter pipeline, parameterised by whether the locality constraint is
   // dropped. Dropping localities powers the "no exact matches — showing nearby"
   // relaxation when a locality + a near-point contradict (e.g. a home-search
@@ -80,12 +91,12 @@ export function computeResults({ all, df, sort, urlQ, locNameBySlug, tr }) {
     if (df.deal === 'buy') {
       if (df.avail && rel('availability')) list = list.filter((p) => (df.avail === 'ready' ? p.construction === 'ready' : p.construction !== 'ready'));
       if (df.constr.size && rel('construction')) list = list.filter((p) => df.constr.has(p.construction));
-      if ((df.age[0] !== 0 || df.age[1] !== 25) && rel('age')) list = list.filter((p) => (p.ageYears ?? 0) >= df.age[0] && (p.ageYears ?? 0) <= openHi(df.age[1], RANGE.age[1]));
-      if ((df.floor[0] !== 0 || df.floor[1] !== 40) && rel('floor')) list = list.filter((p) => (p.floor ?? 0) >= df.floor[0] && (p.floor ?? 0) <= openHi(df.floor[1], RANGE.floor[1]));
+      if ((df.age[0] !== 0 || df.age[1] !== 25) && rel('age')) list = list.filter((p) => inRange(p.ageYears, df.age[0], openHi(df.age[1], RANGE.age[1])));
+      if ((df.floor[0] !== 0 || df.floor[1] !== 40) && rel('floor')) list = list.filter((p) => inRange(p.floor, df.floor[0], openHi(df.floor[1], RANGE.floor[1])));
     }
     if (df.deal === 'rent') {
       if (df.room.size && rel('room')) list = list.filter((p) => p.room && df.room.has(p.room));
-      if (df.tenants.size && rel('tenants')) list = list.filter((p) => (p.tenants || []).some((t) => df.tenants.has(t)));
+      if (df.tenants.size && rel('tenants')) list = list.filter((p) => (Array.isArray(p.tenants) ? p.tenants : []).some((t) => df.tenants.has(t)));
       if (df.availFrom && rel('availFrom')) {
         list = list.filter((p) => {
           if (df.availFrom === 'now') return p.availableFrom === 'now';
@@ -95,8 +106,8 @@ export function computeResults({ all, df, sort, urlQ, locNameBySlug, tr }) {
         });
       }
       if (df.pets && rel('amenities')) list = list.filter((p) => p.pets);
-      if ((df.age[0] !== 0 || df.age[1] !== 25) && rel('age')) list = list.filter((p) => (p.ageYears ?? 0) >= df.age[0] && (p.ageYears ?? 0) <= openHi(df.age[1], RANGE.age[1]));
-      if ((df.floor[0] !== 0 || df.floor[1] !== 40) && rel('floor')) list = list.filter((p) => (p.floor ?? 0) >= df.floor[0] && (p.floor ?? 0) <= openHi(df.floor[1], RANGE.floor[1]));
+      if ((df.age[0] !== 0 || df.age[1] !== 25) && rel('age')) list = list.filter((p) => inRange(p.ageYears, df.age[0], openHi(df.age[1], RANGE.age[1])));
+      if ((df.floor[0] !== 0 || df.floor[1] !== 40) && rel('floor')) list = list.filter((p) => inRange(p.floor, df.floor[0], openHi(df.floor[1], RANGE.floor[1])));
     }
 
     if (df.near) {

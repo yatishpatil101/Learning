@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
-import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, setPipelineStage, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
+import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, setPipelineStage, updateListingAsModerator, archiveListing, restoreListing } from '../../services/propertyService.js';
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
@@ -436,7 +436,10 @@ export default function AdminProperties() {
     toast(noted.error ? 'Listing flagged \u2014 but the internal note could not be saved' : 'Listing flagged', noted.error ? 'error' : undefined);
     refresh();
   };
-  const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhk || '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
+  /* `bhkNum`, not the rendered `bhk`. The card label is "3 BHK" (and "" for a plot, because 0 is
+     the catalogue's not-a-bedroom-count marker), and seeding the box with that string meant the
+     value going back out was prose where the contract wants an integer. */
+  const openEdit = (l) => { setEdit({ id: l.id, title: l.title || '', price: l.price ?? '', area: l.area ?? '', bhk: l.bhkNum ? String(l.bhkNum) : '', type: l.type || '', locality: l.locality || '', deal: l.deal || 'buy', status: l.status || 'pending', _ref: l }); };
   /**
    * Field edits and a status change are two different operations against the API — `ListingUpdate`
    * deliberately omits `status` so a PATCH cannot self-escalate — so a modal that changes both has
@@ -452,8 +455,28 @@ export default function AdminProperties() {
     if (Number.isNaN(price) || price <= 0) return toast('Enter a valid price', 'error');
     if (area !== '' && (Number.isNaN(area) || area < 0)) return toast('Area must be a positive number', 'error');
     if (!loc) return toast('Locality is required', 'error');
+    /* This field was sent as `bhk` and `toListingUpdate` reads `bhkNum`, so on live builds every
+       BHK correction was deleted from the request body while the toast said it had saved. The cost
+       was doubled because `bhk` is a *foundation* field: the listing kept the wrong configuration
+       **and** never earned the re-review that changing one is supposed to trigger, so a 2BHK
+       corrected to 3BHK went on being searchable under the wrong number indefinitely.
+
+       Both names go out. `bhkNum` is what the wire mapper reads; `bhk` is the label the mock store
+       renders straight from the patch. An empty box is omitted rather than sent as 0, because 0 is
+       a real value here — the marker for plots and studios — and writing it on an untouched blank
+       would silently reclassify a flat as having no bedrooms. An admin who means 0 can type it. */
+    const bhkRaw = String(edit.bhk ?? '').trim();
+    const bhkNum = bhkRaw === '' ? undefined : Number(bhkRaw);
+    if (bhkNum !== undefined && (!Number.isInteger(bhkNum) || bhkNum < 0)) {
+      return toast('Configuration must be a whole number of bedrooms', 'error');
+    }
+    const bhkPatch = bhkNum === undefined ? {} : { bhkNum, bhk: bhkNum ? `${bhkNum} BHK` : '' };
     try {
-      await updateListingFields(edit.id, { title, price, area: area || edit._ref.area, bhk: edit.bhk.trim(), type: edit.type.trim(), locality: loc, deal: edit.deal });
+      /* The moderator route, not the owner's. This modal edits whatever listing the desk clicked,
+         and `/me/listings/{id}` resolves owner-scoped — so against the API it answered 404 for
+         every listing the moderator did not personally own, which is all of them. It passed in mock
+         mode throughout, because the mock store has no owner to check. */
+      await updateListingAsModerator(edit.id, { title, price, area: area || edit._ref.area, ...bhkPatch, type: edit.type.trim(), locality: loc, deal: edit.deal });
       if (edit.status && edit.status !== edit._ref.status) await setListingStatus(edit.id, edit.status);
     } catch (err) {
       toast(`Could not save: ${err.message}`, 'error');

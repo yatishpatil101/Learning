@@ -215,6 +215,10 @@ export const setPipelineStage = async (id, stage) => { await _setPipelineStage(i
 
 export const deleteListing = (id) => Promise.resolve(_deleteListing(id));
 export const updateListingFields = (id, patch) => Promise.resolve(_updateListingFields(id, patch));
+/* The mock store has no owner check, so both routes are the same write here. They are still two
+   exports, because the seam is the contract: a caller that picks the wrong one has to be wrong in
+   mock mode too, or the mistake only ever shows up against the API. */
+export const updateListingAsModerator = (id, patch) => Promise.resolve(_updateListingFields(id, patch));
 export const archiveListing = (id, reason) => Promise.resolve(_archiveListing(id, reason));
 export const restoreListing = (id) => Promise.resolve(_restoreListing(id));
 

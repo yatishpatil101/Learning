@@ -40,7 +40,11 @@ export function PropertyEditModal({ edit, setEdit, onSubmit }) {
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Configuration (BHK)</span>
-            <input value={edit.bhk} onChange={(e) => setEdit({ ...edit, bhk: e.target.value })} className="pn-input" />
+            {/* Numeric, like Price and Area beside it. Free text let a moderator type "Studio" or
+                "3 BHK" into a field the contract stores as an integer — a box that can express
+                something the server cannot is how a silently-discarded edit starts. Blank is the
+                catalogue's way of saying the unit has no bedroom count (plot, studio). */}
+            <input type="number" min="0" step="1" value={edit.bhk} onChange={(e) => setEdit({ ...edit, bhk: e.target.value })} className="pn-input" />
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-300">Property type</span>

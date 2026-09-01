@@ -1,5 +1,5 @@
-import { test, expect } from '../../fixtures/live.js';
-import { API, authHeaders, apiLogin, uniqueMobile } from '../../helpers/liveAuth.js';
+import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders, apiLogin, uniqueMobile, signIn } from '../../helpers/liveAuth.js';
 
 /*
    The four moderation decisions, against the real API.
@@ -235,4 +235,68 @@ test('the queue shows what the public catalogue will not', async () => {
 
   const publicList = await fetch(`${API}/properties?size=100`);
   expect((await publicList.json()).content.some((p) => p.id === id)).toBe(false);
+});
+
+/*
+   The one test in this file that goes through the screen.
+
+   Everything above talks to the API directly, which is right for the decisions -- their rules live
+   in the service. This one cannot, because both defects it pins live *between* the screen and the
+   API, where an API-level test steps straight over them.
+
+     1. The modal called `updateListingFields`, which is `PATCH /me/listings/{id}` -- the **owner's**
+        route, resolved owner-scoped. A moderator correcting somebody else's listing is not its
+        owner, so the API answered 404 for every listing on the desk. `PATCH /properties/{id}/admin`
+        had existed and gone unused since slice 6.
+     2. The corrected configuration was sent as `bhk`, and `toListingUpdate` reads `bhkNum`, so even
+        on a listing the moderator did own the field was deleted from the request body on its way
+        out. The PATCH succeeded carrying nothing, and the console said "Listing updated".
+
+   Both passed every mock spec over this modal, and for the same reason: the mock provider's
+   `updateListingFields` is `Object.assign(listing, patch)`, which has no owner to check and accepts
+   any key it is handed.
+
+   The status assertion at the end is not incidental. A moderator edit is the one write that
+   deliberately does *not* send the listing back for review -- reverting would push the moderator's
+   own correction into the moderator's own queue -- so a fix that reached the API through the owner
+   route would save the number and take the listing off search, which is a different bug rather than
+   the absence of this one.
+*/
+test('a moderator can correct a BHK on a listing they do not own', async ({ page }) => {
+  const title = `BHK correction ${Date.now()}`;
+  const { id, headers } = await freshListing(title);
+
+  /* Approve first, so the last two assertions can tell "stayed live" apart from "was never live".
+     The listing is owned by a mobile this run minted; the admin below is a different person, which
+     is the whole point. */
+  expect((await status(id, { status: 'approved' })).status).toBe(200);
+  expect(await publicView(id)).toBe(200);
+
+  await signIn(page, ACTORS.admin, { screen: 'staff' });
+  await page.goto('/admin/properties');
+  /* Search by the title this test minted, so the row is this listing and not whichever one the
+     seed happens to sort first. */
+  await page.getByPlaceholder('Search title, owner, locality').first().fill(title);
+  await page.locator('[title="Edit"]').first().click();
+  await expect(page.getByRole('dialog', { name: 'Edit listing' })).toBeVisible();
+
+  /* Seeded from the number, not from the "2 BHK" label the card renders -- the box is numeric
+     because the contract stores an integer. */
+  const bhkBox = page.getByLabel('Configuration (BHK)');
+  await expect(bhkBox).toHaveValue('2');
+  await bhkBox.fill('3');
+  await page.getByRole('button', { name: /Save changes/i }).click();
+  /* The modal closes only on a write the API accepted; a refusal leaves it open with a toast. */
+  await expect(page.getByRole('dialog', { name: 'Edit listing' })).toHaveCount(0);
+
+  /* Read back from the API rather than from the screen. The console re-renders from its own
+     refresh, and a value that only ever existed in the browser is exactly what defect 2 looked
+     like. */
+  const after = await (await fetch(`${API}/me/listings/${id}`, { headers })).json();
+  expect(Number(after.bhk)).toBe(3);
+
+  /* And the difference from the owner path: the correction does not cost the owner their listing's
+     visibility while a second moderator re-approves what the first one just fixed. */
+  expect(after.status).toBe('approved');
+  expect(await publicView(id)).toBe(200);
 });
