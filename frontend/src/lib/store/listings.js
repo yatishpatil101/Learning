@@ -37,6 +37,9 @@ export const updateListing = (id, patch) => {
    seven facets: price, bhk, propertyType(wire `type`), locality, deal, furnishing,
    possession. Mapped to this store's field names, `propertyType`→`type` and the
    possession facet is carried by the seed's `construction` field (see tileMeta.js).
+   `address` (D219) is the one member that is not a search facet at all: it is the
+   duplicate key's input, so editing it is how a listing moves onto somebody else's
+   flat. It is re-checked and stays live, like price.
    Excludes derived projections (localitySlug/bhkNum) and non-facet fields
    (title/area/facing/floor/age) the server leaves as ordinary, non-reverting edits.
    Pinned to the server by `frontend/scripts/check-listing-foundation.mjs` (npm run
@@ -47,7 +50,7 @@ export const updateListing = (id, patch) => {
    live rule the UI enforces is editPolicy.js's copy. The only consumer of THIS export is the
    gate script above, which regex-parses the array out of this file to hold all three copies in
    sync — so the constant stays exported even though nothing imports it. */
-export const LISTING_FOUNDATION_FIELDS = ['deal', 'locality', 'bhk', 'type', 'price', 'furnishing', 'construction'];
+export const LISTING_FOUNDATION_FIELDS = ['deal', 'locality', 'bhk', 'type', 'price', 'furnishing', 'construction', 'address'];
 export const isListingApproved = (id) => {
   const l = getListing(id);
   return !!(l && /approved|verified|live/i.test(String(l.status || '')));

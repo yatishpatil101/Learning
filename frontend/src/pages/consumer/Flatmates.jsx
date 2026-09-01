@@ -11,7 +11,8 @@ import GroupModal from './flatmates/GroupModal.jsx';
 import AadhaarVerifyModal from '../../components/auth/AadhaarVerifyModal.jsx';
 import OwnerConsentModal from '../../components/auth/OwnerConsentModal.jsx';
 import Empty from './flatmates/Empty.jsx';
-import ReportModal, { SHARE_REPORT_REASONS } from '../../components/ReportModal.jsx';
+import ReportModal from '../../components/ReportModal.jsx';
+import { SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { useFlatmates, emptyFilters, MAP_MAX_AREAS } from './flatmates/useFlatmates.jsx';
 const FlatmateMap = lazy(() => import('./flatmates/FlatmateMap.jsx'));
 

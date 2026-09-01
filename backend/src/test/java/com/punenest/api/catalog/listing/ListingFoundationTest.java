@@ -83,8 +83,15 @@ class ListingFoundationTest extends AbstractApiTest {
     /**
      * Foundation fields whose edit <strong>stays live</strong>: re-checked, but still approved and
      * still in search, because the listing is still the same property (Q14).
+     *
+     * <p>{@code address} is here for a different reason from the other three and is deliberately not
+     * a search facet: it is what the duplicate key is derived from, so editing it is how a listing
+     * moves onto an address another owner already holds (D219). Being in this set rather than the
+     * one above is the whole of the decision — an address correction is overwhelmingly a typo fix,
+     * and taking the listing dark for one would price honesty at a day offline.
      */
-    private static final Set<String> STAYS_LIVE = Set.of("price", "furnishing", "possession");
+    private static final Set<String> STAYS_LIVE =
+            Set.of("price", "furnishing", "possession", "address");
 
     /**
      * Facets that legitimately do not cost a re-review, each for a reason about the facet rather
@@ -235,6 +242,19 @@ class ListingFoundationTest extends AbstractApiTest {
         assertStaysLiveAndQueuesRecheck("{\"price\":31000}", "price");
         assertStaysLiveAndQueuesRecheck("{\"furnishing\":\"furnished\"}", "furnishing");
         assertStaysLiveAndQueuesRecheck("{\"possession\":\"ready-to-move\"}", "possession");
+    }
+
+    /**
+     * The fourth stays-live field, which no buyer filters on (D219). An owner who edits the address
+     * has either corrected a typo or moved the listing onto a flat somebody else is already selling,
+     * and the two are indistinguishable from the text. The duplicate probe only speaks when the
+     * second case actually collides with a live listing; this re-check is raised either way, so the
+     * desk sees the edit rather than only its consequences.
+     */
+    @Test
+    @DisplayName("an address edit stays live and queues a re-check, naming the field")
+    void anAddressEditStaysLiveAndQueuesARecheck() throws Exception {
+        assertStaysLiveAndQueuesRecheck("{\"address\":\"Flat 902, C Wing, Rohan Nilay\"}", "address");
     }
 
     /**

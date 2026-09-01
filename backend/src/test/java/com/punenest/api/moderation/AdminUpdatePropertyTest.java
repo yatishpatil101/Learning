@@ -159,10 +159,18 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.description").value("Only this changed."));
     }
 
-    /** The owner's raw number stays behind the one endpoint that emits it. */
+    /**
+     * The response carries the owner's raw number, and this test was reversed to say so.
+     *
+     * <p>It previously asserted masking. The desk that corrects somebody else's listing is the desk
+     * that then rings them about it, and a moderator denied the number here fetches it from
+     * somewhere the platform cannot log — so the mask was protecting the audit trail from the
+     * disclosure rather than the owner from staff. Reversing it was a decision, not a regression,
+     * which is why the assertion is now equally strict in the other direction.
+     */
     @Test
-    @DisplayName("the response masks the owner's mobile")
-    void ownerContactIsMasked() throws Exception {
+    @DisplayName("the response carries the owner's mobile, because the corrector is the caller")
+    void ownerContactIsRevealed() throws Exception {
         User owner = user("9871110008", Roles.Wire.OWNER, "Owner");
         User staff = user("9871110009", Roles.Wire.STAFF, "Ops");
         Property listing = approvedListing(owner);
@@ -172,8 +180,7 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"negotiable\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(content -> assertThat(content.getResponse().getContentAsString())
-                        .doesNotContain("9871110008"));
+                .andExpect(jsonPath("$.owner.mobile").value("9871110008"));
     }
 
     @Test

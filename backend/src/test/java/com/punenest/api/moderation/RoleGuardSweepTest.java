@@ -74,6 +74,7 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.POST, id(Routes.Moderation.PROPERTY_FLAG), "staff"),
                 new Guarded(HttpMethod.DELETE, id(Routes.Moderation.PROPERTY_FLAG), "staff"),
                 new Guarded(HttpMethod.POST, id(Routes.Moderation.VERIFICATION_DECISION), "staff"),
+                new Guarded(HttpMethod.PATCH, id(Routes.Moderation.VERIFICATION_CHECKLIST), "staff"),
                 // Abuse queue. POST /reports is deliberately absent: anyone signed in may file.
                 new Guarded(HttpMethod.GET, Routes.Moderation.REPORTS, "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Moderation.REPORT_BY_ID), "staff"),
@@ -166,9 +167,16 @@ class RoleGuardSweepTest extends AbstractApiTest {
     }
 
     /**
-     * Valid bodies for the write routes. {@code @PreAuthorize} runs before argument resolution, so a
-     * guard failure would surface as 403 regardless — but supplying real bodies keeps the
-     * "staff is admitted" case honest, since that one has to reach the handler to prove anything.
+     * Valid bodies for the write routes, and they have to be genuinely valid.
+     *
+     * <p>This comment used to claim {@code @PreAuthorize} runs before argument resolution, so the
+     * body did not matter for the refusal case. It does not: {@code @PreAuthorize} is a method
+     * interceptor on the controller bean, and Spring MVC binds and validates the body <em>before</em>
+     * it invokes that method. D218's checklist route proved it by answering <strong>422</strong> to
+     * a buyer — the fallback body below failed {@code @NotBlank} and the request never reached the
+     * guard. Every other case here passes only because its fallback body happens to satisfy the
+     * handler's constraints, so a new guarded route with a required field needs an entry here or it
+     * will fail this sweep while being perfectly well guarded.
      */
     private static String bodyFor(String path) {
         if (path.contains("/reviews/")) {
@@ -179,6 +187,9 @@ class RoleGuardSweepTest extends AbstractApiTest {
         }
         if (path.endsWith("/decision")) {
             return "{\"decision\":\"approve\"}";
+        }
+        if (path.endsWith("/checklist")) {
+            return "{\"item\":\"Index II\",\"pass\":true}";
         }
         if (path.equals(Routes.Users.STAFF)) {
             return "{\"name\":\"Probe\",\"mobile\":\"9123456780\","

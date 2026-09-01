@@ -1250,6 +1250,15 @@ public final class Routes {
         public static final String VERIFICATION_DECISION = PROPERTY_VERIFICATION + "/decision";
 
         /**
+         * Staff/admin — tick one checklist line as checked, or untick it (D218).
+         *
+         * <p>Not participant-scoped, unlike the thread it sits beside: the checklist is the
+         * reviewer's working record of what they have inspected, and an owner who could tick their
+         * own would be marking their own homework.
+         */
+        public static final String VERIFICATION_CHECKLIST = PROPERTY_VERIFICATION + "/checklist";
+
+        /**
          * The ownership gate (D190). GET is participant-scoped — an owner must be able to see which
          * of the three required facts their listing is still waiting on — while POST, which grants
          * the badge, is staff/admin. One path, two guards, so the mappings are method-level.
@@ -1261,6 +1270,20 @@ public final class Routes {
 
         /** Staff/admin — list verification case files (D91). */
         public static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
+
+        /**
+         * The owner's own side of the same queue (D218).
+         *
+         * <p>Not a filter on {@link #ADMIN_PROPERTY_REVIEWS}: that route is guarded by
+         * {@code properties:read}, and the whole point of this one is that it needs no back-office
+         * grant at all — it is scoped by the caller's id, so there is nothing to leak. Same reason
+         * every other {@code /me/**} route exists alongside its {@code /admin/**} counterpart.
+         *
+         * <p>It earns its place over N calls to {@code GET /properties/{id}/verification} because
+         * the owner dashboard renders a status chip and an unread badge on every listing card at
+         * once; without this, a twenty-listing dashboard is twenty requests.
+         */
+        public static final String ME_PROPERTY_REVIEWS = "/me/property-reviews";
 
         /**
          * POST is open to any signed-in user (file a report); GET is staff/admin (read the queue).
@@ -1307,6 +1330,45 @@ public final class Routes {
          * where it can be read off the routing table.
          */
         public static final String ADMIN_PROPERTIES = "/admin/properties";
+
+        /**
+         * Staff/admin — the moderation console's headline counts, over every listing.
+         *
+         * <p>A separate route rather than a field on {@link #ADMIN_PROPERTIES}, because the two
+         * answer different questions and only one of them pages. The queue read is clamped to 100
+         * rows, so a console folding its own counters out of the returned page reports "how many
+         * pending listings are in the newest hundred" under the label "Pending" — and the number
+         * stops moving at exactly the backlog size that makes it worth reading.
+         *
+         * <p>Same guard as the queue ({@code properties:read}): the counts are a strictly coarser
+         * view of rows that endpoint already returns, so a second, weaker lock on the same
+         * cupboard would be no lock.
+         */
+        public static final String ADMIN_PROPERTIES_SUMMARY = ADMIN_PROPERTIES + "/summary";
+
+        /**
+         * Staff/admin — move a staff-created listing along the owner hand-back funnel.
+         *
+         * <p>Under {@code /properties/{id}} rather than {@code /admin/properties/{id}} because it
+         * acts on the listing itself, exactly like {@link #PROPERTY_STATUS} and
+         * {@link #PROPERTY_FEATURED} beside it. {@code /admin/properties} is the collection an
+         * operator browses and adds to; the per-listing verbs have always lived on the listing.
+         */
+        public static final String PROPERTY_PIPELINE = Properties.BY_ID + "/pipeline";
+
+        /**
+         * Staff/admin — chase this listing's owner, and the record of every previous chase.
+         *
+         * <p>{@code POST} composes a message from a template and hands back a link the staff
+         * member's WhatsApp opens; {@code GET} is the outreach history the Follow-up tab renders.
+         *
+         * <p>Singular {@code /outreach} rather than {@code /messages}, because {@code /messages}
+         * already means something on this platform — the buyer-owner conversation thread — and the
+         * two are opposites. That one is a conversation between two users the platform merely
+         * carries; this is the platform itself pursuing somebody who has not yet replied and may
+         * never. Sharing a noun would invite sharing a surface.
+         */
+        public static final String PROPERTY_OUTREACH = Properties.BY_ID + "/outreach";
 
         /**
          * Ops — the demand board: every contact request on the platform, newest first.
@@ -1584,6 +1646,17 @@ public final class Routes {
          * a different vocabulary, and the document in between granted nothing.
          */
         public static final String PERMISSION_CATALOGUE = "/admin/permission-catalogue";
+
+        /**
+         * Staff/admin — the outreach template library, filtered by channel.
+         *
+         * <p>Served rather than bundled for the same reason as {@link #PERMISSION_CATALOGUE}: a list
+         * the console holds its own copy of is a list that drifts. Here the drift would be worse
+         * than a stale label, because the console does not merely display these — it picks one by
+         * id and asks the server to render it. A template the bundle knows about and the database
+         * does not is a send that fails at the last step, in front of an owner on the phone.
+         */
+        public static final String MESSAGE_TEMPLATES = "/admin/message-templates";
 
         /**
          * Staff/admin — CMS rows of one type. {@code {type}} is the discriminator across the four

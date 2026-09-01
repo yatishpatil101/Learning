@@ -4,6 +4,7 @@ import { AlertTriangle, Ban, Building2, CheckCircle2, Download, Eye, Flag, Searc
 import { logAudit, addInternalNote } from '../../lib/mockApi.js';
 import { listReports, triageReport } from '../../services/reportService.js';
 import { canTriage } from '../../services/providers/http/reportMapper.js';
+import { LISTING_REPORT_REASONS, OWNER_REPORT_REASONS, SHARE_REPORT_REASONS } from '../../lib/reportReasons.js';
 import { fmtNum, classNames, timeAgo } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -39,22 +40,59 @@ const STATUS_OPTS = [
   { value: 'dismissed', label: 'Dismissed' },
 ];
 
-const REASON_OPTS = [
-  { value: '', label: 'All reasons' },
-  { value: 'fake', label: 'Fake / Duplicate' },
-  { value: 'inaccurate', label: 'Inaccurate info' },
-  { value: 'fraud', label: 'Fraud / Scam' },
-  { value: 'impersonation', label: 'Impersonation' },
-  { value: 'offensive', label: 'Offensive' },
-  { value: 'spam', label: 'Spam' },
-];
+/**
+ * The reason filter, derived from the vocabularies reporters actually choose from.
+ *
+ * This list used to be hand-written, and it was wrong in both directions. It offered `inaccurate`
+ * and `offensive` — codes no report can carry, because neither appears in any of the three
+ * `ReportModal` vocabularies the server validates against, so selecting either always emptied the
+ * queue and looked like "no such complaints". And it omitted nine codes reports *do* carry:
+ * `sold`, `unavailable`, `pricing`, `broker`, `brokerage`, `abuse`, `fakelistings`, `filled`,
+ * `inappropriate` and `other`. On an Indian rental marketplace "posted by a broker, not the owner"
+ * is among the commonest complaints filed, and it was not filterable at all.
+ *
+ * That is the same defect `STATUS_OPTS` above had with its phantom `resolved`, three lines away,
+ * fixed on its own while this list was left alone. Hand-maintained mirrors of a vocabulary drift
+ * one at a time. So this one is not maintained: it is *derived* from the exact arrays the modal
+ * offers and the backend's `ReportReasons` mirrors, and cannot drift without the modal changing.
+ *
+ * Keyed by tab because reasons are per target type — the server's rule is "this reason must be
+ * valid *for this target type*". `pricing` is a meaningful complaint about a listing and meaningless
+ * about a person; `impersonation` the reverse. Offering the union would reintroduce, as a filter,
+ * exactly the nonsensical pairings the server refuses to store.
+ */
+const REASON_OPTS = {
+  listings: [{ value: '', label: 'All reasons' }, ...LISTING_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
+  users: [{ value: '', label: 'All reasons' }, ...OWNER_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
+  posts: [{ value: '', label: 'All reasons' }, ...SHARE_REPORT_REASONS.map(([value, label]) => ({ value, label }))],
+};
+
+/**
+ * Which `kind` each tab is responsible for.
+ *
+ * There are three because the wire has always had three. `toViewModel` maps `targetType: 'post'` to
+ * `kind: 'share'`, and every flatmate report — room, group or seeker — is filed as one. The queue
+ * had only two tabs and asked `kind === 'listing' ? … : kind === 'user'`, so a `share` row matched
+ * neither branch and **rendered in no tab at all**: filed correctly, stored correctly, and
+ * invisible to the moderators whose job it was.
+ *
+ * It hid behind a second bug. Flatmates.jsx used to send `kind='user'` with the *post* vocabulary,
+ * which the server would have rejected outright and the mock stored anyway — so these reports
+ * surfaced under "Reported users", mislabelled but reachable. Fixing the wire mapping is what made
+ * them disappear, which is the ordinary way a latent gap becomes visible.
+ *
+ * `review` is deliberately absent. `ReportReasons` knows the target type, but nothing in the client
+ * files one into this domain — society reviews go through `reportSocietyContent` and their own
+ * queue. A tab with no path to it would be furniture.
+ */
+const TAB_KIND = { listings: 'listing', users: 'user', posts: 'share' };
 
 export default function AdminReports() {
   const { toast } = useToast();
   const { optionEnabled } = useAdminFlags();
   const [searchParams] = useSearchParams();
   const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['listings', 'users'], 'listings');
+  const [tab, setTab] = useTabParam(['listings', 'users', 'posts'], 'listings');
   const [statusF, setStatusF] = useState('');
   const [reasonF, setReasonF] = useState('');
   const [dateRange, setDateRange] = useState('');
@@ -79,6 +117,25 @@ export default function AdminReports() {
     const oid = searchParams.get('open');
     if (oid) { const r = all.find((x) => x.id === oid); if (r) setDetail(r); }
   }, [all, searchParams]); // eslint-disable-line
+
+  /**
+   * A reason filter does not survive a tab change.
+   *
+   * The two tabs offer different vocabularies, so a reason chosen on one is frequently not a legal
+   * complaint on the other. Left standing it would filter on a code no row in the new tab can
+   * carry, and the moderator would read an empty queue as "no reports here" rather than "you are
+   * filtering by something that cannot exist here".
+   *
+   * Derived rather than an effect. An effect would have to run *after* the tab change has painted,
+   * so there would be one frame showing an empty table, a "0 of N" count and the raw code in the
+   * trigger (`Select` falls back to `String(value)` when the value matches no option) — which is
+   * the exact misreading this exists to prevent, just briefly. Deriving also keeps `hasFilters`
+   * honest: an effect leaves `reasonF` set for that frame, so "Clear all filters" would offer to
+   * clear a filter that is no longer being applied. `reasonF` is kept rather than cleared, so
+   * going back to the original tab restores the moderator's filter instead of silently dropping it.
+   */
+  const reasonOpts = REASON_OPTS[tab] || REASON_OPTS.listings;
+  const activeReason = reasonOpts.some((o) => o.value === reasonF) ? reasonF : '';
 
   /**
    * Triage one report.
@@ -162,27 +219,28 @@ export default function AdminReports() {
       open: list.filter((r) => r.status === 'open').length,
       listings: list.filter((r) => r.kind === 'listing').length,
       users: list.filter((r) => r.kind === 'user').length,
+      posts: list.filter((r) => r.kind === 'share').length,
       closed: list.filter((r) => r.status !== 'open').length,
     };
   }, [all]);
 
   const rows = useMemo(() => {
-    let list = (all || []).filter((r) => tab === 'listings' ? r.kind === 'listing' : r.kind === 'user');
+    let list = (all || []).filter((r) => r.kind === TAB_KIND[tab]);
     if (statusF) list = list.filter((r) => r.status === statusF);
-    if (reasonF) list = list.filter((r) => r.reason === reasonF);
+    if (activeReason) list = list.filter((r) => r.reason === activeReason);
     if (dateRange) {
       const cutoff = Date.now() - Number(dateRange) * 86400000;
       list = list.filter((r) => r.at >= cutoff);
     }
     if (q) { const n = q.toLowerCase(); list = list.filter((r) => JSON.stringify(r).toLowerCase().includes(n)); }
     return list;
-  }, [all, tab, statusF, reasonF, dateRange, q]);
+  }, [all, tab, statusF, activeReason, dateRange, q]);
 
-  const hasFilters = statusF || reasonF || dateRange || q;
+  const hasFilters = statusF || activeReason || dateRange || q;
   const clearFilters = () => { setStatusF(''); setReasonF(''); setDateRange(''); setQ(''); };
 
   // Reset selection when filters or tab change
-  useEffect(() => { setSelected(new Set()); }, [tab, statusF, reasonF, dateRange, q]);
+  useEffect(() => { setSelected(new Set()); }, [tab, statusF, activeReason, dateRange, q]);
 
   if (!all) return <Loading />;
 
@@ -209,7 +267,12 @@ export default function AdminReports() {
         <>
           {tab === 'listings'
             ? <button onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
-            : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
+            : tab === 'posts'
+              /* `hide_content`, not `suspend_account`. A flatmate post is content, and the offending
+                 thing is the post — suspending the person who wrote it is a different, heavier
+                 decision that the listings tab does not make either. */
+              ? <button onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Take down"><Ban className="mr-0.5 inline h-3 w-3" />Take down</button>
+              : <button onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className="rounded-lg border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs text-red-300" title="Suspend user"><Ban className="mr-0.5 inline h-3 w-3" />Suspend</button>}
           <button onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="rounded-lg border border-brand-teal/30 bg-brand-teal/10 px-2 py-1 text-xs text-brand-teal" title="Resolve"><CheckCircle2 className="mr-0.5 inline h-3 w-3" />Resolve</button>
           <button onClick={() => act(r.id, 'dismissed')} className="rounded-lg border border-white/10 px-2 py-1 text-xs text-gray-300 hover:bg-white/5" title="Dismiss"><XCircle className="mr-0.5 inline h-3 w-3" />Dismiss</button>
         </>
@@ -247,7 +310,7 @@ export default function AdminReports() {
     },
     {
       key: 'target',
-      header: tab === 'listings' ? 'Property' : 'User / Owner',
+      header: tab === 'listings' ? 'Property' : tab === 'posts' ? 'Flatmate post' : 'User / Owner',
       render: (r) => {
         const repeatCount = (targetCounts[r.targetId] || 1);
         return (
@@ -277,10 +340,29 @@ export default function AdminReports() {
     },
     {
       key: 'reporter',
+      /**
+       * The reporter, when we are allowed to name them.
+       *
+       * Live, we never are. `ReportResponse` omits `reporterId` deliberately — the queue tells a
+       * moderator *what* was complained about and *why*, not *who* complained, because naming the
+       * reporter to every member of ops is how a complaint becomes a reprisal. The http mapper
+       * therefore resolves `reportedBy` to `''` on every row.
+       *
+       * The fallback is "Withheld", not "Anonymous", and the difference is the whole point. The
+       * reporter is *not* anonymous: `reports.reporter_id` is NOT NULL and drives the duplicate
+       * check. The platform knows exactly who filed this. "Anonymous" would tell a moderator the
+       * reporter chose not to identify themselves — and an unattributable complaint is a much
+       * easier one to dismiss. "Withheld" says the true thing: somebody is on the hook for this
+       * report, and it isn't your business who.
+       *
+       * The mock denormalises a name onto the row, so this column only ever looked populated
+       * because it was being fed invented data. When the mock goes at P5c the `||` branch becomes
+       * the only branch.
+       */
       header: 'Reported by',
       render: (r) => (
         <div>
-          <div>{r.reportedBy || 'Anonymous'}</div>
+          <div>{r.reportedBy || 'Withheld'}</div>
           {r.reporterMobile ? <div className="text-xs text-gray-400">{r.reporterMobile}</div> : null}
         </div>
       ),
@@ -330,7 +412,9 @@ export default function AdminReports() {
           {r.details ? <span className="text-gray-400"> — {r.details}</span> : null}
         </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-500">
-          <span className="truncate">By {r.reportedBy || 'Anonymous'}{r.reporterMobile ? ` · ${r.reporterMobile}` : ''}</span>
+          {/* "Withheld", matching the table column and the detail drawer — see the `reporter`
+              column for why the distinction from "Anonymous" matters. */}
+          <span className="truncate">By {r.reportedBy || 'Withheld'}{r.reporterMobile ? ` · ${r.reporterMobile}` : ''}</span>
           <span className="shrink-0">{timeAgo(r.at)}</span>
         </div>
         <div className="mt-3 border-t border-white/5 pt-3">
@@ -343,13 +427,16 @@ export default function AdminReports() {
   const doExport = () => exportCsv(
     `punenest-reports-${tab}.csv`,
     ['ID', 'Kind', 'Target', 'Reason', 'Reporter', 'Reported', 'Status', 'Action Taken'],
-    rows.map((r) => [r.id, r.kind, r.targetTitle || r.targetId, r.reasonLabel, r.reportedBy, fmtDate(r.at), r.status, r.actionTaken || '']),
+    // Same "Withheld" as every on-screen surface. A blank cell in an exported sheet is read as
+    // missing data rather than as withheld data, which is the ambiguity the wording exists to avoid.
+    rows.map((r) => [r.id, r.kind, r.targetTitle || r.targetId, r.reasonLabel, r.reportedBy || 'Withheld', fmtDate(r.at), r.status, r.actionTaken || '']),
   );
 
   const KPIS = [
     { label: 'Open reports', value: fmtNum(kpis.open), icon: Flag, clickTab: null, color: 'text-amber-400' },
     { label: 'Reported properties', value: fmtNum(kpis.listings), icon: Building2, clickTab: 'listings', color: 'text-brand-teal' },
     { label: 'Reported users', value: fmtNum(kpis.users), icon: UserX, clickTab: 'users', color: 'text-rose-400' },
+    { label: 'Reported posts', value: fmtNum(kpis.posts), icon: Flag, clickTab: 'posts', color: 'text-violet-400' },
     { label: 'Closed', value: fmtNum(kpis.closed), icon: CheckCircle2, clickTab: null, color: 'text-emerald-400' },
   ];
 
@@ -357,12 +444,12 @@ export default function AdminReports() {
     <div>
       <PageHeader
         title="Reports & Moderation"
-        subtitle="Review reported properties and users, and take action."
+        subtitle="Review reported properties, users and flatmate posts, and take action."
         actions={<button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>}
       />
 
       {/* KPI tiles */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {KPIS.map((k) => (
           <div key={k.label} onClick={k.clickTab ? () => setTab(k.clickTab) : undefined} className={classNames('pn-card p-4', k.clickTab && 'cursor-pointer hover:bg-white/5 transition')}>
             <div className="flex items-start justify-between">
@@ -375,7 +462,7 @@ export default function AdminReports() {
 
       {/* Tabs */}
       <HScroll fadeColor="var(--brand-card, #1a1730)" wrapClassName="mb-4" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
-        {[['listings', 'Reported properties', kpis.listings, 'reports.properties'], ['users', 'Reported users & owners', kpis.users, 'reports.users']].map(([id, label, count, flag]) => (
+        {[['listings', 'Reported properties', kpis.listings, 'reports.properties'], ['users', 'Reported users & owners', kpis.users, 'reports.users'], ['posts', 'Reported flatmate posts', kpis.posts, 'reports.posts']].map(([id, label, count, flag]) => (
           optionEnabled(flag) ? (
             <button key={id} onClick={() => setTab(id)} className={classNames('flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition', tab === id ? 'bg-brand-teal text-ink' : 'text-gray-300 hover:text-white')}>
               {label} <span className="opacity-70">({fmtNum(count)})</span>
@@ -399,10 +486,14 @@ export default function AdminReports() {
           </div>
           <div className="flex w-full gap-2 sm:w-1/2">
             <div className="w-1/2">
-              <Select value={statusF} onChange={setStatusF} options={STATUS_OPTS} ariaLabel="Filter by status" />
+              {/* `searchable={false}` on both: `Select` turns itself into a search combobox at eight
+                  options and autofocuses the input, which on mobile summons the keyboard over a
+                  bottom sheet of eight items. Both reason lists are exactly eight, status is five,
+                  so without this the two filters sitting side by side would behave differently. */}
+              <Select value={statusF} onChange={setStatusF} options={STATUS_OPTS} searchable={false} ariaLabel="Filter by status" />
             </div>
             <div className="w-1/2">
-              <Select value={reasonF} onChange={setReasonF} options={REASON_OPTS} ariaLabel="Filter by reason" />
+              <Select value={activeReason} onChange={setReasonF} options={reasonOpts} searchable={false} ariaLabel="Filter by reason" />
             </div>
           </div>
         </div>
@@ -413,7 +504,7 @@ export default function AdminReports() {
               <XCircle className="h-3.5 w-3.5" /> Clear all filters
             </button>
           )}
-          <span className="text-xs text-gray-500 ml-auto">{rows.length} of {(all || []).filter((r) => tab === 'listings' ? r.kind === 'listing' : r.kind === 'user').length}</span>
+          <span className="text-xs text-gray-500 ml-auto">{rows.length} of {(all || []).filter((r) => r.kind === TAB_KIND[tab]).length}</span>
         </div>
       </div>
 
@@ -448,7 +539,7 @@ export default function AdminReports() {
                 ['Owner', detail.targetOwner || '—'],
                 ['Owner mobile', detail.ownerMobile || '—'],
                 ['Reason', detail.reasonLabel || detail.reason],
-                ['Reported by', detail.reportedBy || 'Anonymous'],
+                ['Reported by', detail.reportedBy || 'Withheld'],
                 ['Reporter mobile', detail.reporterMobile || '—'],
                 ['Reported', fmtDate(detail.at)],
                 ['Handled at', detail.handledAt ? fmtDate(detail.handledAt) : '—'],

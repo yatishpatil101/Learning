@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useAsyncList from '../../../hooks/useAsyncList.js';
+import { MAX_PAGE_SIZE } from '../../../services/apiLimits.js';
 import { listEnquiries } from '../../../lib/mockApi.js';
 import { listProperties } from '../../../services/propertyService.js';
 import { listVisits, myVisitRequests, rescheduleVisit, updateVisitStatus } from '../../../services/visitService.js';
@@ -10,7 +11,9 @@ import { isHttpDomain } from '../../../services/config.js';
 import { getPhotoReqs } from '../../../lib/photoRequests.js';
 import { getFlatmateRequests, decideFlatmateRequest } from '../../../lib/data/flatmates.js';
 import {
-  ensureOwnerReview, addPropReviewReply, markPropReviewRead,
+  listMyPropertyReviews, getPropertyReview, markPropertyReviewRead, addPropertyReviewMessage,
+} from '../../../services/propertyReviewService.js';
+import {
   getRecentProps,
 } from '../../../lib/store.js';
 import {
@@ -59,7 +62,15 @@ export function useDashboardData({ user, toast }) {
   const [flatmateReqs, setFlatmateReqs] = useState([]);
   const [reviewProp, setReviewProp] = useState(null);
   const [reviewInput, setReviewInput] = useState('');
-  const [reviewTick, setReviewTick] = useState(0);
+  /* One read for every listing card's verification chip and unread badge, keyed by property id.
+
+     This used to be `ensureOwnerReview` called per listing on every load — which is to say the
+     dashboard *created* a case file for each of the owner's listings just to have something to read
+     back. That is not a read the server offers or should: submitting for verification is the
+     owner's act. `/me/property-reviews` answers the same question in one request without asserting
+     anything, and a listing with no case file is simply absent from the map. */
+  const [reviewsByProp, setReviewsByProp] = useState(() => new Map());
+  const [reviewThread, setReviewThread] = useState(null);
 
   useEffect(() => {
     if (user?.mobile) {
@@ -203,17 +214,41 @@ export function useDashboardData({ user, toast }) {
     });
   };
 
-  const openReview = (propId) => {
-    markPropReviewRead(propId);
-    setReviewProp(propId);
+  /* Open the owner's side of a verification thread.
+
+     Marking read first, then re-reading, rather than clearing the badge locally: the unread count
+     on the card comes from the server, so a local clear would be undone by the next queue read and
+     the badge would flicker back. Ordering matters too — the fetched thread has to be the one taken
+     *after* the write, or the modal opens showing messages the server already considers seen.
+
+     `pid` is a property id, either form; the card passes what it was given. */
+  const openReview = async (pid) => {
+    setReviewProp(pid);
     setReviewInput('');
-    setReviewTick((t) => t + 1);
+    setReviewThread(null);
+    try {
+      await markPropertyReviewRead(pid);
+      setReviewThread(await getPropertyReview(pid));
+      refreshReviews();
+    } catch (err) {
+      toast(`Could not open that verification thread: ${err.message}`, 'error');
+      setReviewProp(null);
+    }
   };
-  const sendReview = () => {
-    if (!reviewInput.trim()) return;
-    addPropReviewReply(reviewProp, reviewInput);
+  const sendReview = async () => {
+    const body = reviewInput.trim();
+    if (!body || !reviewProp) return;
+    // Cleared before the await, deliberately: the owner has stopped composing, and leaving the text
+    // in the box for the duration of the round trip invites a second Enter and a duplicate message.
     setReviewInput('');
-    setReviewTick((t) => t + 1);
+    try {
+      setReviewThread(await addPropertyReviewMessage(reviewProp, body));
+      refreshReviews();
+    } catch (err) {
+      // Put it back — a reply that vanished without being sent is worse than one that refuses.
+      setReviewInput(body);
+      toast(`Could not send that reply: ${err.message}`, 'error');
+    }
   };
 
   /* The dashboard's core read: everything the tabs, the stats row and the owner/tenant decision are
@@ -249,8 +284,6 @@ export function useDashboardData({ user, toast }) {
     const [shownListings, props, enq, mine, onMine] = bundle;
     // Combined owner view: property listings + flatmate/room posts (rooms-aware).
     setListings(shownListings);
-    shownListings.forEach((l) => { if (!l.flatmate) ensureOwnerReview({ id: l.id, title: l.title, loc: l.locality, price: l.price, deal: l.deal }); });
-    setReviewTick((t) => t + 1);
     setEnquiries(enq.slice(0, 8));
     // Enrich each visit from the catalogue we already hold: the owner mobile for the Visits tab's
     // WhatsApp handoff (the visit record only carries the visitor's number), and the listing
@@ -290,10 +323,38 @@ export function useDashboardData({ user, toast }) {
     // list lands — on the first pass it is empty and the retention strip would never appear.
   }, [bundle, searches]);
 
+  /* The verification queue, keyed both ways.
+
+     Keyed by `propertyId` *and* by `slug`, because the card holds a listing whose `id` is the slug
+     where one exists (see `propertyMapper`) while the queue speaks UUIDs — so a single-keyed map
+     would silently miss exactly the listings that have a slug, which is most of them. Indexing both
+     is cheaper and more honest than making every caller remember which id it is holding.
+
+     A failure leaves the map empty rather than raising: the chip and badge are decoration on a page
+     whose real content is the listings, and a dashboard that refuses to render because a badge
+     could not be counted is a worse failure than a missing badge. */
+  const refreshReviews = useCallback(async () => {
+    try {
+      const { items } = await listMyPropertyReviews({ size: MAX_PAGE_SIZE });
+      const bySlug = new Map(listings.map((l) => [l.uuid || l.id, l.id]));
+      const next = new Map();
+      items.forEach((row) => {
+        next.set(row.propertyId, row);
+        const slug = bySlug.get(row.propertyId);
+        if (slug) next.set(slug, row);
+      });
+      setReviewsByProp(next);
+    } catch {
+      setReviewsByProp(new Map());
+    }
+  }, [listings]);
+
+  useEffect(() => { refreshReviews(); }, [refreshReviews]);
+
   return {
     listings, enquiries, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
-    reviewProp, setReviewProp, reviewInput, setReviewInput, reviewTick,
+    reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
     // Load state, so the page can say "we couldn't load this" instead of rendering a plausible

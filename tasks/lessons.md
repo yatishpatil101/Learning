@@ -1,5 +1,341 @@
 # Lessons
 
+## Fixing a bug can make a second one visible by removing its disguise (2026-08-15, wave 4a)
+
+Flatmate reports were being filed with `kind: 'user'` — the wrong target type, which meant they were
+labelled with the owner vocabulary in the admin queue. Wrong, but *there*. Correcting the mapping to
+`kind: 'share'` was unambiguously right and it made every one of those reports vanish from the
+screen, because the queue split its rows two ways over a wire that carries four target types and
+`share` matched neither branch.
+
+So the mislabelling had not been a cosmetic bug sitting next to a structural one. It had been
+**load-bearing**: it was the only reason the reports were reachable at all. The visible defect was
+the disguise on an invisible one, and the fix was what took the disguise off.
+
+Two things follow. First, when you correct a value that routes something, check where it routes to
+*now* — a mapping fix is a re-route, and the new destination may not exist. Second, the gap was not
+found by looking; it was found by **arithmetic**. The spec asserts `open + closed` equals
+`listings + users + posts`, two partitions of the same set, and those two sums could not be made to
+agree while a target type had a row and no tile. An assertion that two independently-computed
+totals match will find a whole missing category, which no amount of "does this element render"
+ever will.
+
+## A deleted file can be load-bearing for a test that never mentions it in code (2026-08-15, wave 4a)
+
+Retiring `e2e/tests/admin/reports.spec.js` removed a spec that was named in
+`SourceTreeHygieneTest.MOJIBAKE_EXEMPT`. Nothing failed. The repo-wide encoding guard skips files on
+a path list, and a path that no longer exists is simply never matched — a stale exemption is silent
+by construction. The frontend and e2e gates cannot see a Java constant, and the backend suite went
+green because the guard's job is to find damaged files, not to police its own exemption list.
+
+Two things were wrong, and only one of them was the dangling path:
+
+- The exemption existed because the old spec asserted the queue renders no mojibake, and it did so
+  by typing the broken sequences as literals — which meant the file had to be excluded from the very
+  guard that looks for them. **An exemption is a hole in a guard.** The replacement builds the same
+  needles with `String.fromCharCode`, so it asserts the same thing while staying protected.
+- The assertion itself was nearly lost. It was in the deleted spec's tail, past the part I had read
+  when deciding what the 55 tests were worth keeping. It survived because the exemption named the
+  file and the name looked stale — the dangling reference is what surfaced the coverage.
+
+Then the guard caught the replacement: writing a comment *explaining* mojibake with a literal
+example is itself mojibake in a source file. Rewording the comment was right; adding the file back
+to the exemption list would have been the same hole in a new place.
+
+**Takeaway: when you delete a file, grep the whole repo for its name, not just its imports.** Path
+strings in config, exemption lists, CI globs and docs are references that no compiler or linter
+checks, and every one of them fails open. `grep_search` for the bare filename across all languages
+takes seconds; this one turned up a real assertion worth porting.
+
+## One string, five places, four rounds of "fixed it" (2026-08-15, mock retirement Phase 5, wave 4a)
+
+The admin reports queue rendered `'Anonymous'` as the fallback for a reporter's name. Live, that
+fallback is the *only* branch — `ReportResponse` deliberately omits `reporterId`, so the mapper
+resolves `reportedBy` to `''` on every row. The copy was wrong on the merits, too: the reporter is
+not anonymous. `reports.reporter_id` is NOT NULL and drives the duplicate-report index. The platform
+knows exactly who filed it. "Anonymous" tells a moderator the complaint is unattributable, which is
+a much easier one to wave away; "Withheld" says the true thing.
+
+It took four passes to change one word, because the string had been copied to five places:
+
+1. the table column,
+2. `REASON_OPTS`' neighbour in the same file — found while fixing #1,
+3. the detail drawer,
+4. the mobile stacked card,
+5. `lib/data/reports.js`, the mock seed (left alone deliberately — it dies at P5c).
+
+Passes 1–3 were each "the fix". Pass 4 was found only because the new live spec asserted
+`getByText('Anonymous')` had **count 0** rather than asserting the good string was present.
+
+Two things worth keeping:
+
+- **Assert the absence of the wrong value, not just the presence of the right one.** A row can
+  render "Withheld" in the column and "Anonymous" in the card, and every positive assertion passes.
+  The negative assertion is what found the fourth copy — and it found it in markup the desktop
+  viewport does not even display, which no amount of careful reading of the rendered page would
+  have caught.
+- **When you fix a duplicated string, grep for the old value before declaring done.** Three separate
+  times the fix was verified by re-reading the code that had just been edited, which can only ever
+  confirm the copy you already knew about.
+
+The same shape produced the sibling defect in this domain: a hand-copied `REASON_LABELS` table that
+had drifted from the vocabularies it was copied from. The durable fix in both cases was to delete
+the duplicate rather than synchronise it — the labels now live in one module (`lib/reportReasons.js`)
+that the modal, the admin filter and both providers import.
+
+## Six ways a suite that was never run had already rotted (2026-08-14, mock retirement Phase 5, D219)
+
+The live suite had 739 tests in 63 files and had never been executed end to end — only ever a file
+at a time. The first full run was 730 passed, 6 failed. Not one of the six was a product bug in the
+work under way; every one was a defect **in the tests**, latent for weeks, and every one was
+structurally invisible to per-file runs. The six sort into three mechanisms, and the mechanisms are
+the lesson, not the fixes.
+
+**A seeded column that nothing read, until something did.** `users.status` shipped in V2 and was
+decorative. V77 made login enforce it. At that instant two specs broke, because they had picked
+fixture names off the seed without checking a column that had never mattered — `Sakshi Iyer` and
+`Riya Rao` are both `suspended`. Nothing announced it. The migration was correct, the specs were
+correct when written, and the pair was wrong. *When a column stops being decorative, every consumer
+that predates the enforcement is a suspect, including test fixtures.*
+
+**Cross-spec mutation on a database that persists for the whole run.** `globalSetup` resets once per
+run, not per file, so any spec that mutates a shared seeded account poisons every later spec reading
+it. `live-property-integration` signed in as Omkar Kulkarni and called the Aadhaar simulate
+endpoint, which sets `users.verified` *and back-fills the badge onto every listing he owns*. He owns
+`p5007` — the anchor `live-verify-payoff` uses as its **unverified** owner. One spec republished
+another spec's control, forty tests earlier. Both files pass alone; together, one fails on an
+assertion about a badge it never touched.
+
+The rule was already written down, in the docstring of `signedInAsNew` in the very helper that spec
+imports: a spec that flips a seeded actor's state is breaking the next spec's premise rather than
+testing a transition. *A convention documented next to the affordance that enforces it is still not
+enforcement.* Worth noting how bad the failure signature is: the symptom appears in an innocent
+file, and bisecting by file never reproduces it.
+
+**Elapsed time as a hidden input.** `signedInAs` caches a session snapshot per mobile per run and
+replays it. Past the 15-minute access-token TTL the replayed token 401s; `http.js` recovers by
+refreshing, which **rotates** the refresh token; the cache still holds the pre-rotation one. Replay
+it and the server sees an already-rotated token presented again — indistinguishable from theft — and
+reuse detection revokes the whole family (ADR-008). The session dies, `ProtectedRoute` bounces to
+`/signin`, and the test fails naming a locator on a screen it never reached, with nothing about auth
+in the error.
+
+The backend was right at every step; the harness was handing it a token it had every reason to
+distrust. *Any run long enough to cross a TTL is a different experiment from a short one.* A single
+file finishes well inside 15 minutes, which is exactly why 63 files of green never showed it, and
+why the one 58-minute run did.
+
+**And a bonus: the same mistake made twice, in two files, one of which had already fixed it.**
+`live-drafting-desk` had been bitten by an unanchored `/[6-9]\d{9}/` PII assertion matching a digit
+run *inside* a longer id, fixed it with lookarounds, and left a comment explaining the trap.
+`live-support-queue` carried the unanchored copy and was bitten by a different long digit run — a
+`Date.now()` stamp another spec had put in a ticket subject. A copied regex does not inherit the
+scar tissue of the file it was copied from. Hoisted to `fixtures/live.js` so there is one copy to be
+right.
+
+**The through-line.** A spec that has never been executed is a claim, not coverage — and a spec
+executed only in isolation is a *weaker* claim than it looks, because isolation suppresses exactly
+the failure modes that shared state and elapsed time produce. Per-file green measures the specs; only
+the full run measures the suite. Run it before trusting it.
+
+## An unconverted page is not just unconverted — it can be a feature aimed at the wrong door (2026-08-15, mock retirement Phase 5, D219)
+
+The owner listing wizard was on the "convert later" list for months, filed under wave 5 as routine
+plumbing. It was not routine. `POST /me/listings` is where the server's duplicate probe runs, so for
+as long as the wizard wrote to localStorage the detector was reachable **only** from admin
+post-on-behalf — a desk of five people — while the abuse it exists to catch arrives through the
+public form and nowhere else. The feature was shipped, tested and green, and pointed at a door
+almost nobody uses.
+
+The lesson is about how conversion work gets prioritised. "Which pages still write to localStorage"
+is the wrong question; **"which server-side behaviour has no caller on the path that actually
+produces the data"** is the right one. The second question found this in one grep — `toListingCreate`
+had exactly one call site — and the first had it queued behind a dozen cosmetic flips.
+
+**Three field-mapping traps, all of which fail silently.** An unmapped key on a write does not
+error; it is simply dropped, so the request succeeds and the value vanishes.
+- Names differ across the seam more than you expect: five address boxes fold into one line, `rera`
+  becomes `reraId`, and a maintenance amount split into a sale field and a rent field has to fold
+  into the entity's single column. Each of these was a live drop.
+- **Absent is not zero.** `floor` is only collected for flats and commercial units. Sending `0` for
+  villas, plots and PGs would give every such listing in one society an identical
+  `(society, floor, bhk)` tuple — and the new ten-minute duplicate sweep would then re-file them
+  against each other forever. The bug would have surfaced as a flood of case notes a week later,
+  attributed to the sweep rather than to the mapper.
+- **An address line without the unit token is a detector aimed at a building.** "Rohan Nilay, Baner"
+  normalises to the same AddressKey for every flat in the tower. A flag on a whole tower is a flag
+  nobody can act on, which is indistinguishable from no detector at all.
+
+**A mock-mode spec cannot see any of this, and that is worth saying out loud in the spec.** The mock
+provider writes to the same localStorage the old code wrote to, so a full regression to pre-seam
+behaviour leaves every mock spec green. The mock spec here asserts what it *can* — the shape of the
+payload handed to the provider — and the claim that the request reached a server is made only live.
+Writing down which half of a behaviour each test can prove is what stops the next person from
+"consolidating" them.
+
+**A field that becomes writable becomes readable, and those are reviewed by different people.**
+The sharpest thing review found was not in the new code at all. `PropertyResponse.address` had been
+an ordinary ungated string for as long as it had existed, and it was safe the entire time for a
+boring reason: nothing could write it. The moment the wizard started sending a composed address —
+with the flat number in it, because the duplicate key is worthless without the unit token — that
+same ungated field became a unit-level address book of every live listing, served to anonymous
+callers. Nothing in the diff touched the response. Nothing in the UI rendered the field, so no
+amount of clicking would have shown it. The mapper's own guard mechanism existed and had been
+applied to the meter number in the previous slice, by the same reasoning, and was simply not
+extended to the field that had just changed category.
+
+The general rule: **when a write path starts populating a column, re-read every projection of that
+column as if it were new.** "Was this field already in the response?" is the wrong question — it was
+already there and already fine. The question is what it now contains. A column that used to hold
+nothing, or held something coarse, does not announce that it has started holding an identifier.
+
+**Two smaller versions of the same shape, both worth remembering.** A per-tick ceiling over an
+*unordered* query does not sample — under a stable plan it returns the same rows every tick, so the
+overflow is not a backlog that catches up, it is a set that is never processed and then ages out of
+the window. The only symptom is a log line that reads like a queue behind schedule. And a handler
+that gains an `await` gains a double-submit window: it was a few milliseconds of localStorage work,
+it is now a phone on a train. Here that was especially pointed, because two POSTs from one owner
+produce exactly the duplicate the new detector cannot see — `findDuplicateCandidates` excludes the
+caller's own listings by design.
+
+**A live spec that has never been run is not coverage, it is a claim.** D218's verification-thread
+spec was written, reviewed, cited in COVERAGE.md and merged without a backend ever having been up.
+On its first execution it failed — it decided a case file that had never been opened, because
+creating a listing does not open one and only the duplicate probe and an explicit submit do. The
+spec was missing a call the real console makes. Nothing was wrong with the server; the spec had
+simply never met it. That is a distinct failure mode from a flaky test and it does not announce
+itself: a red suite is loud, an unexecuted suite is silent and reads as green in every summary
+above it. The same run also surfaced a mapper divergence the mock-mode wizard spec caught — the
+wizard was sending a numeric field as the form's string, which the mock provider stores verbatim
+while the http mapper coerces, so the two sides of the seam disagreed about a value the duplicate
+signal depends on. **Both bugs were in specs and mappers written the same day, by someone who
+believed the work was finished.** Run the thing before writing the row in the coverage table.
+
+## Four ways a green suite lied (2026-08-14, mock retirement Phase 5, D218)
+
+D218 shipped an ordering column, a duplicate detector and a staff-only note lane. Every one of the
+four things that went wrong got past a fully green test run, and each got past it differently.
+
+**A comment can be load-bearing and false.** Three separate comments I wrote asserted facts that
+were not true and were the *reason* for the code they sat above: that `lastMessageAt` was "null
+until the first message" (it is never null), that a `BigDecimal.toString()` hazard justified a
+normalisation step (no BigDecimal is in that signal), and that the new column would diverge from
+`updated_at` (it cannot yet — every writer of one writes the other). The third one had spawned a
+test asserting a distinction the schema cannot make. Nothing failed, because a comment cannot fail.
+Check the premise, not just the review: **if a comment states a fact, go and read the fact.**
+
+**A test that passes because of a side effect of the fix is not a regression test.** The ordering
+test was written to prove `lastMessageAt` sorts differently from `updated_at`. It could not: the
+only writers that move one move the other. The honest outcome was to rewrite it to assert what is
+true and say in the test, in words, that the distinction does not exist yet and why the column is
+still correct. A test asserting a difference that does not exist will pass today and mislead
+whoever changes it.
+
+**An edit that deletes a newline can comment out the next statement.** A stray edit to `V82` glued
+`update property_reviews …` onto the end of a `--` comment line. The backfill was gone and the
+following `set not null` would have aborted the migration on every database that had not yet run
+it. The suite was green, because the suite's database had already run V81 — **a green suite does not
+exercise a migration that has not run yet.** Read migrations back after editing them, in full.
+
+**A guard clause in a domain method makes every caller a liar unless it reads the outcome.**
+`Property.requestRecheck` returns early on a listing that is not publicly visible. The caller posted
+"Your listing stays live — our team is re-checking these details" regardless, so the owner of a
+pending, off-search listing was told it was live, and a case file was opened holding a note about
+work nobody was doing. Branch on what the domain *did* (`getRecheckRequestedAt() != null`), never on
+what the request asked for.
+
+Two smaller ones from the same day. `Number('N/A')` is `NaN`, `NaN` serialises to `null`, and the
+contract reads `null` as *cleared* — so a non-numeric input did not fail validation, it silently
+erased a good value; coerce with `Number.isFinite`, and omit rather than send. And an ops screen
+that computes its answer locally will render **"no duplicate clusters — supply looks clean"** in
+http mode forever: a surface that asserts a false negative about real supply is worse than no
+surface, because a moderator will believe it.
+
+## A mock that copies the business rules and not the access rules (2026-08-15, mock retirement Phase 5, D217)
+
+The `propertyReview` mock provider was written by reading `PropertyVerificationService` and
+reproducing what it *does*: a blank message is a 400, a missing case file is a 404, an owner cannot
+decide their own listing. All correct. What it did not copy was who the server lets in at all —
+`participantProperty` on the thread, `PROPERTIES_READ` on the queue, `PROPERTIES_WRITE` on the
+decision — because those live in an annotation and a shared helper rather than in the method body
+you are transcribing from. The result passed code review, and the security pass found that in any
+mock build a signed-**out** visitor could approve a listing (deciding also writes
+`properties.status`, so that publishes it), a stranger could post into someone else's case file and
+have it stored as the **owner's own** message, and any session could page the entire staff queue.
+
+The reflex is to discount all of that as "it's only the mock". Two reasons not to. The demo build is
+a real artifact that real people are shown, and localStorage seeded with other actors' data is not a
+defence when the product UI itself renders it without devtools. The more expensive reason is the
+second-order one: **screens are built in mock mode.** A permissive mock means the forbidden and
+empty states are written against behaviour the API will never produce, and they are first exercised
+in production, by the person they lock out.
+
+So the rule for a seam mock is that access rules are part of the contract being mirrored, not
+scaffolding around it — and the guard has to copy the server's *shape*, not just its intent. This
+one answers **404, not 403**, for a non-participant, because a 403 confirms the listing exists and
+is under review; a mock that 403s teaches a screen to render an error the live API does not send,
+which is the same failure in the opposite direction.
+
+Two details that made the guards subtly wrong on the first attempt. `myOwnerId()` and
+`ownerIdOfProperty()` both answer `null` when they cannot resolve an identity, so the obvious
+`ownerIdOfProperty(listing) === myOwnerId()` makes an anonymous session the owner of every
+unattributed listing, and 403s a staff member over two unknowns; only a *resolved* match counts. And
+`mySide()` resolves any non-internal session to `'owner'`, which is what turned a missing
+participant check into misattribution rather than mere over-exposure — the stranger's message did
+not arrive as a stranger's, it arrived as the owner's.
+
+## The default branch of a normaliser must not be the destructive one (2026-08-15, D217)
+
+`decidePropertyReview` accepts the wire's `approve`/`reject` and the mock store's
+`approved`/`rejected`, so it normalises. The obvious form:
+
+```js
+const verb = input.startsWith('approve') ? 'approve' : 'reject';
+```
+
+is a rejection for every typo, every `undefined`, every capitalised `Approve` — the destructive,
+owner-visible, audit-logged side. It also silently removes a guard that already existed: the server
+refuses anything that is not exactly `approve` or `reject` with a 400, and this converts that 400
+into a successful rejection before the request is ever sent. A two-way normaliser over asymmetric
+outcomes needs three branches, and the third throws.
+
+The throw itself is worth shaping: raise the `ApiError` the server would have sent, not a bare
+`Error` with the function name in the message. A caller branching on `err.status` then handles the
+local guard and the remote one identically, and the two providers stay interchangeable in their
+failure modes as well as their successes.
+
+## The DPDP guard reviews your feature before you do (2026-08-15, mock retirement Phase 5, wave 4)
+
+D216 added `outbound_message` and `message_template`. The feature compiled, its own eight
+tests were green, and the full suite then failed with *"2 column(s) in the migrated schema
+look like personal data and are not classified"*. `ErasureCoverageTest` reads the migrated
+schema, matches every column name against a vocabulary, and demands that a human place each
+match in `ERASED`, `RETAINED` or `GAPS` with a reason. It found `outbound_message.recipient_mobile`
+and `message_template.name` the moment the migration ran, which is the earliest anyone could
+have asked the question and long before the feature reached a user.
+
+The two answers were genuinely different, which is the point of forcing them to be written
+separately. `message_template.name` is the label of a piece of outreach copy — identical for
+every owner it is ever sent to, written by this platform, no data subject behind it — so it is
+`RETAINED` with that sentence. `outbound_message` is the opposite: the row records that a named
+person was contacted on their number. The tempting fix is to null `recipient_mobile` and keep
+the row as evidence, and it is wrong, because `body` holds the rendered message. *"Hi Ramesh,
+could you send photographs of your flat in Kothrud?"* is personal data in free text, where no
+future column-name sweep will ever find it. A half-erased row is worse than either alternative:
+the data is still there and the classification says it is not. So the sweep deletes the row.
+
+**Adding a table to `ERASED` is three edits, not one.** The map entry is the claim; a seed row
+in `seedEverySweptTable` is what makes the claim provable; and a `SWEPT_ROW` where-clause is how
+the verifier finds the row afterwards. Miss the third and the failure is
+`select count(*) from outbound_message where null` — *"column index is out of range: 1, number
+of columns: 0"* — which reads like a JDBC bug and is really the test saying it does not know how
+to identify the subject in your new table.
+
+The wider lesson is about where a check belongs. Nothing about erasure was on the plan for a
+messaging feature. The classification list did not have to be consulted, remembered, or found;
+it ran on the schema and failed the build. A checklist in a document would have been read once,
+during the first feature that touched personal data, and never again.
+
 ## A masked field is not an editable field (2026-08-14, mock retirement Phase 5, wave 4)
 
 `GET /users` publishes mobiles through `MobileMask` — `9733798115` becomes `97XXXXX115`. The Edit

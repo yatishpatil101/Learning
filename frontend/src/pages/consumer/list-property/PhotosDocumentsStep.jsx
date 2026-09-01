@@ -10,7 +10,7 @@ const PhotosDocumentsStep = ({
   form, set, errors, toggleInArray,
   photos, handlePhotoUpload, removePhoto, setPhotoCategory,
   video, videoName, handleVideoUpload, setVideo, setVideoName,
-  documents, handleDocUpload, prevStep, submitProperty, onReset,
+  documents, handleDocUpload, prevStep, submitProperty, onReset, posting,
 }) => {
   const { t } = useTranslation();
   return (
@@ -133,7 +133,7 @@ const PhotosDocumentsStep = ({
 
                   <div className="flex justify-between lp-step-actions">
                     <button onClick={prevStep} className="btn-outline px-6 py-3.5 min-h-[44px] rounded-xl text-gray-300 font-semibold text-sm flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('listProperty.back')}</button>
-                    <button onClick={submitProperty} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20"><CheckCircle2 className="w-4 h-4" /> {t('listProperty.photosDocs.submitProperty')}</button>
+                    <button onClick={submitProperty} disabled={posting} aria-busy={posting} className="btn-teal px-8 py-3.5 min-h-[44px] rounded-xl text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-60 disabled:cursor-not-allowed"><CheckCircle2 className="w-4 h-4" /> {posting ? t('listProperty.photosDocs.submitting') : t('listProperty.photosDocs.submitProperty')}</button>
                   </div>
                 </div>
   );

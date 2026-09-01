@@ -110,6 +110,15 @@ const SCREENS = {
 };
 
 /**
+ * How long a cached snapshot may be replayed before it is re-established from scratch.
+ *
+ * Under the access token's 15-minute TTL (`JwtProperties.accessTtl`) with room to spare, because
+ * the cost of being wrong is asymmetric: a needless re-sign-in costs a few seconds, while replaying
+ * an expired token costs the *rest of the run* for that account. See {@link signedInAs}.
+ */
+const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
  * Sign in once per mobile per run, then replay the stored session into later pages.
  *
  * Still worth having even though the send cooldown is 0 under the `e2e` profile: a sign-in is a
@@ -119,29 +128,54 @@ const SCREENS = {
  *
  * Both storage areas are captured because "remember me" decides which one `lib/auth.js` writes to,
  * and no spec should depend on that choice.
+ *
+ * ## Why the snapshot expires
+ *
+ * A snapshot is a *copy* of tokens the app then goes on to rotate, so it ages badly in a way that
+ * is invisible until a run is long enough:
+ *
+ * 1. The cached access token passes its 15-minute TTL, so the next call 401s.
+ * 2. `services/http.js` recovers exactly as designed - refresh, retry - and the server **rotates**
+ *    the refresh token. The live page now holds R2; this cache still holds R1.
+ * 3. The next test replays R1. The server sees an already-rotated token presented again, which is
+ *    indistinguishable from a stolen one, and does the correct thing: reuse detection revokes the
+ *    whole family (ADR-008, `RefreshTokenRepository`).
+ * 4. Refresh now fails outright, `logoutUser()` fires, and `ProtectedRoute` bounces to `/signin` -
+ *    so the test fails on the *next* screen it opens, naming a locator, with nothing about auth in
+ *    the error at all.
+ *
+ * None of that is a backend bug; step 3 is a security control working. It is this cache handing the
+ * server a token it had every reason to distrust. Re-establishing the session past
+ * {@link SESSION_MAX_AGE_MS} keeps an expired token from ever being presented, so no rotation
+ * happens behind the cache's back and there is nothing to replay.
+ *
+ * Found by the first full live run (D219): 63 files of per-file green never showed it, because a
+ * single file finishes well inside the TTL. Only the 58-minute whole-suite run crossed it, and only
+ * for the one account signed in early and reused late.
  */
 const sessions = new Map();
 
 export async function signedInAs(page, mobile) {
-  if (sessions.has(mobile)) {
+  const saved = sessions.get(mobile);
+  if (saved && Date.now() - saved.at < SESSION_MAX_AGE_MS) {
     // Storage is origin-scoped, so a document from the origin must exist before writing to it.
     await page.goto('/');
-    await page.evaluate((saved) => {
-      for (const [k, v] of Object.entries(saved.local)) localStorage.setItem(k, v);
-      for (const [k, v] of Object.entries(saved.session)) sessionStorage.setItem(k, v);
-    }, sessions.get(mobile));
+    await page.evaluate((snapshot) => {
+      for (const [k, v] of Object.entries(snapshot.local)) localStorage.setItem(k, v);
+      for (const [k, v] of Object.entries(snapshot.session)) sessionStorage.setItem(k, v);
+    }, saved);
     await page.goto('/');
     return;
   }
 
   await signIn(page, mobile);
-  sessions.set(
-    mobile,
-    await page.evaluate(() => ({
+  sessions.set(mobile, {
+    at: Date.now(),
+    ...(await page.evaluate(() => ({
       local: Object.fromEntries(Object.entries(localStorage)),
       session: Object.fromEntries(Object.entries(sessionStorage)),
-    })),
-  );
+    }))),
+  });
 }
 
 /**
@@ -170,11 +204,17 @@ export async function apiLogin(mobile, { api = API } = {}) {
   const { status, body } = await send({ mobile, otp: E2E_OTP });
   if (status !== 200) {
     // Naming the likely cause here saves the next person the hour it costs to work out that a
-    // backend on the wrong profile looks identical to a wrong code.
-    throw new Error(
-      `login ${mobile} failed (${status}): ${JSON.stringify(body)} - is the backend running ` +
-        'under BOTH the `dev` and `e2e` profiles?',
-    );
+    // backend on the wrong profile looks identical to a wrong code. But only guess when the guess
+    // fits: a 403 is the server having read the account and refused it, which is the one failure
+    // the profile has nothing to do with. Pointing at the profile there is worse than saying
+    // nothing — it sends the reader to restart the backend instead of reading the message, which
+    // is exactly what it cost when two specs turned out to be signing in as seeded `suspended`
+    // users (the column was decorative until V77 made login enforce it).
+    const hint =
+      status === 403
+        ? ' - the server read this account and refused it; check `status` in the seed'
+        : ' - is the backend running under BOTH the `dev` and `e2e` profiles?';
+    throw new Error(`login ${mobile} failed (${status}): ${JSON.stringify(body)}${hint}`);
   }
   return body;
 }

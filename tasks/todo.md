@@ -182,6 +182,65 @@
   boards, and the mock spec went 7 → 1 (the route guard, which is the router's property, not the
   API's).
 
+- **Wave 4a — the moderation queue went live, and it had never been tested at all.** The two mock
+  specs for `/admin/reports` (`reports` 13 tests, `reports-full` 42) are retired in favour of one
+  live spec of 18, and the arithmetic is the point: **17 of the 55 asserted nothing a broken page
+  could violate.** One ended `expect(true).toBeTruthy()`; one ended `expect(count)
+  .toBeGreaterThanOrEqual(0)`; eleven were wrapped in `if (await x.isVisible().catch(() => false))`,
+  which reports success when the feature is missing; one was named "only open reports have
+  checkboxes" and carried a comment admitting it only checked for JS errors. Three more tested
+  things that cannot exist — a Reopen button (`canTriage` gates on `open`/`reviewing`, so a decided
+  report renders "Decided"), a `resolved` status badge (`resolved` has never been a wire value; the
+  server records that decision as `dismissed`), and `?open=REP5000` against a UUID id space. And
+  **none of the 55 ever triaged a report** — a moderation queue with zero decisions in it. The live
+  spec files its own report over the API and dismisses it from the drawer, last in declaration order
+  so it cannot perturb the seeded counts. **Four product defects fell out of the conversion**, all
+  one family: the queue rendered `'Anonymous'` where live data always falls back, in *five* places,
+  found in four separate rounds — the column, the drawer, the mobile card, and the CSV export's
+  blank cell. What caught the last two was asserting the wrong string is **absent** rather than that
+  the right one is present. The fifth defect was structural: `REASON_OPTS` carried a hand-written
+  set with two codes the server recognises for nothing (so filtering by them always emptied the
+  queue) and omitted nine it does, `broker` among them; and `REASON_LABELS` was a hand-copied flat
+  table that had drifted from the vocabularies it was copied from *and* was wrong by construction,
+  since four codes mean different things per target type. Both are now derived from one module,
+  `frontend/src/lib/reportReasons.js`, which the modal, the filter and both providers import —
+  deleting the duplicate rather than synchronising it. Seed expanded 1 report → 5 (three on p5002 to
+  trip the `3x` escalation badge, two on Rahul, all four statuses present). One hazard recorded:
+  `live-property-integration` files a real report during the same run, so the live spec asserts the
+  property-side KPIs for **internal consistency** rather than absolutely — an absolute count would
+  have been coupled to alphabetical file ordering. Deleting the two specs then turned up **two stale
+  path references that fail open**: `SourceTreeHygieneTest.MOJIBAKE_EXEMPT` and the `EXCLUDE` set in
+  `e2e/scripts/fix-mojibake.mjs` both named `admin/reports.spec.js`, and an exemption list silently
+  never matches a file that no longer exists. Chasing them recovered a real assertion the deletion
+  had thrown away — the queue renders no mojibake — which is now folded into the live spec's first
+  test and builds its needles from code points, so it needs no exemption and stays covered by the
+  guard it is asserting against. Both stale entries removed; `mvn test` 170 classes / 1283 tests / 0
+  failures, `fix-mojibake DRY=1` clean over 2187 files.
+
+  Then a review of the converted screen turned up **a whole tab that did not exist**. Every flatmate
+  report — room, group or seeker — goes over the wire as `targetType: 'post'` → `kind: 'share'`, and
+  the queue split its rows with `kind === 'listing' ? … : kind === 'user'`. Those rows matched
+  neither branch and **rendered in no tab at all**: filed correctly, stored correctly, and invisible
+  to the people whose job is to action them. It had been masked by an older bug in `Flatmates.jsx`
+  that sent `kind: 'user'` — wrong, but *reachable* — so fixing the wire mapping is what made the
+  reports disappear, which is the ordinary way a latent gap becomes visible. The KPI reconciliation
+  in the new spec is what forced it out: `open + closed` counted the post reports and
+  `listings + users` could not, and the two partitions could not be made to agree while a target
+  type had no tile. Fixed with a third tab, a fifth KPI tile, `REASON_OPTS.posts` from
+  `SHARE_REPORT_REASONS`, and a `TAB_KIND` map so the three-way correspondence is written down in
+  one place instead of being re-derived in a ternary; triage there is `hide_content`, not
+  `suspend_account`, because a post is content and its author may have done nothing worse than
+  forget to delete it. Seed 5 → 7 reports (the Wakad room `open`/`filled`, the Kharadi group
+  `reviewing`/`broker` — both pointing at real supply, since `reports.target_id` is plain `text`
+  with no FK because it spans four tables). Spec 18 → 19 tests, green. Three more review findings
+  fixed in the same pass: a `useEffect` clearing the reason filter on a tab change was replaced by
+  **derived state**, because an effect runs after paint and so painted one frame of empty table,
+  "0 of N" and a stale code in the filter trigger — and it also lied about `hasFilters`; both reason
+  `Select`s got `searchable={false}`, because `Select` silently becomes an autofocusing search
+  combobox at 8 options and both lists are exactly 8, which on mobile summons the keyboard over a
+  bottom sheet; and `review` reports were falling through to the *listing* wording, since all three
+  of its codes collide.
+
 - **Wave 3 — the whole mobile suite is live, and six specs stopped inventing their own sessions.**
   All 28 specs in `tests/mobile/**` (~157 tests) moved as one piece and are now `live-*.spec.js`,
   running under the live config's `mobile` (Pixel 7) and `mobile-small` (360×640) projects. The
@@ -212,7 +271,41 @@
   **One capability gap recorded:** `live-ops-field` lost four tests (per-document Verify, Reject,
   View, Add-a-note have no server behind them); the two that survive were kept and retitled.
 
-- **Sandbox-verify plans + L&L together.** `backend/run-local.ps1` (Zulu 25, real `TEST_` keys,
+- **D217 — the `propertyReview` seam, and the mock that had to be made *less* capable and *more*
+  strict.** Four new files (`propertyReviewService.js`, an http provider + mapper, a mock provider)
+  put the property-verification case file behind the seam, ahead of D218 converting
+  `PropertyReviewModal.jsx` and `AdminProperties.jsx`. **Named for a collision it makes twice:**
+  `verificationService` is already the Aadhaar identity badge and `reviewService.listPropertyReviews`
+  is already consumer star-ratings, so the desk read is `listPropertyReviewQueue`. **One backend
+  change went with it** — `PropertyVerificationService.decide()` now composes the owner-facing
+  decision sentence server-side, carried verbatim from `properties-admin.js`, so the copy did not
+  have to move to two places; the explicit `saveAndFlush` in front of it is mutation-proved (drop it
+  and the route 500s, because the new message is a transient child whose id `toResponse` reads
+  before dirty-checking would have assigned it). **The mock is the richer end and almost all of the
+  surplus is unbacked:** per-document verify/reject/annotate has no endpoint (the checklist is
+  read-only `{item, pass}`), `in_review` and `clarification` are inventions, and
+  `/admin/property-reviews` takes a `Pageable` and nothing else — so a "pending only" desk filters a
+  page, not the queue. Recorded as decisions, not built. **What the reviews found, in order.** Code
+  review: the obvious `startsWith('approve') ? … : 'reject'` normalisation made every typo,
+  `undefined` and capitalised `Approve` a **rejection** — the destructive, owner-visible,
+  audit-logged side of a two-way branch — and silently removed the server's 400; both providers now
+  refuse an unrecognised verb. Security review, harder: the mock reproduced the server's *business*
+  rules and none of its *access* rules, so in a demo build a signed-**out** visitor could approve a
+  listing (and deciding publishes it), a stranger could post into someone else's case file and have
+  it stored as the **owner's** own message, and any session could page the whole staff queue. Fixed
+  with one `isParticipant` helper and one `staffOnly`, mirroring the server's deliberate 404-not-403
+  so a screen is never taught an error state the API will not send. ~~**The e2e switch is currently
+  inert** — `propertyReview` is in the live config's `VITE_API_DOMAINS`, but nothing imports the
+  service yet, so no browser has exercised it; that lands with D218. The two behaviours most worth
+  proving live are exactly the ones the mock got wrong: a non-participant read returning 404, and a
+  non-staff decide returning 403.~~ **Closed (D219):** `ops/live-verification-access.spec.js` proves
+  both against the real backend, plus two the plan did not name — that the stranger's 404 is
+  byte-identical to a nonexistent listing's (two distinguishable 404s would restore the oracle the
+  status code was chosen to remove), and that a staffer cannot approve their own listing, which is
+  the one case where every role guard passes and only the maker-checker check stands between a flat
+  and publication.
+
+
   `CASHFREE_ENABLED=true`) + frontend with `VITE_API_DOMAINS` covering `plan`/`serviceRequest`.
   Drive `/checkout?plan=owner2` *and* the rent-agreement wizard through real Cashfree sandbox, and
   confirm the webhook moves each off its pending state. `npm run parity:serviceRequest` also needs
@@ -224,6 +317,67 @@
 
 ## Needs attention (not mine, not yet actioned)
 
+- **A re-check note can be posted on every PATCH, unbounded (D219 review, MEDIUM-2).**
+  `ListingService.apply` calls `caseNotes.post` each time a stays-live foundation field moves, and
+  that note — unlike the internal one — is not body-deduped. One owner looping
+  `PATCH {price: 41000}` / `{price: 41001}` on one approved listing writes a `review_messages` row
+  per request and bumps `lastMessageAt`, which is the desk queue's sort key: ~7k messages an hour,
+  permanently pinned at rank 1 of `findAllForDesk`. Only the global 120/min write limiter bounds it.
+  The fix is to post only when the recheck is *newly* raised, but `ListingService` is at 449 of the
+  450-line guard, so it needs the service split first — which is why this is filed rather than done.
+  Related: `postInternalOnce` scans the whole thread in memory per write, so the same attacker makes
+  each of their own writes more expensive.
+- **`idx_properties_society_unit` (V79) has no reader.** The `(society_id, floor, bhk)` arm was
+  deliberately removed from `findDuplicateCandidates` — a fully client-asserted signal turns the
+  probe into a unit-by-unit census — so the index costs write amplification on every listing
+  insert/update and answers nothing. Either drop it or say in the migration that it is staged for a
+  claim-backed society arm.
+- **`markRead` stamps `readAt` on staff-only notes.** `PropertyVerificationService.markRead` filters
+  on `!actor.userId().equals(message.getSenderId())`, and internal notes have `senderId == null`, so
+  an owner hitting the read receipt marks notes they cannot see as read. No disclosure — both unread
+  counters filter `!isInternal()` — but it corrupts a record the desk reads.
+- **`flagReason` is ungated on the public detail response.** The duplicate probe never writes it, so
+  there is no leak today; the hazard is that routing any future duplicate finding through it instead
+  of through the internal note bypasses the whole oracle-closure design in one line. Worth a comment
+  on the field at least.
+- **No HTTP-level throttle on the verification thread (D218, security finding S4).** A participant
+  can post messages into a case file as fast as they can issue requests; the only cost is a row.
+  Platform-wide gap rather than a listing one — there is no rate limiter in front of any write route
+  — so it is filed here rather than fixed inside `PropertyVerificationService`.
+- **`flatmate_rooms.society_id` has the FK-as-409 shape that D218 fixed for properties.**
+  `FlatmateMapper:197` copies a client-supplied `societyId` straight onto the entity; the FK
+  (`V27__flatmates.sql:153`) does stop the write, but as a constraint violation at flush, so an
+  unknown id answers 409 on a request that conflicts with nothing. Same one-line fix
+  (`existsById` → 404 at the boundary) — left alone because it is a different bounded context and
+  changing a status code there is somebody's contract change.
+- **`toListingUpdate` silently drops keys it does not whitelist** (`http/propertyMapper.js:~330`).
+  That is how three separate admin writes turned into `{}` without anybody noticing, and how
+  `AdminProperties.jsx:428`'s BHK edit (passed as `bhk`, read as `bhkNum`) is discarded. Add a
+  `console.warn` for dropped keys — a whitelist that fails silently is a whitelist that hides bugs.
+- **A second internal-note store is still running in parallel with the server's.**
+  `PropertyReviewModal` posts the moderator's approve/reject note via `submitNote` →
+  `lib/mockApi.addInternalNote` (localStorage), while D218 added `review_messages.internal` on the
+  server. In http mode a note one moderator types is invisible to every other. Post it through the
+  verification thread instead — the wire now carries `internal`, so the plumbing exists.
+- **`mock/propertyReviewProvider` does not reproduce two D218 behaviours:** it never opens a case on
+  create (`ListingService.create` now does), and it has no equivalent of the owner-side 404 when a
+  case holds only internal notes. Both are API-tested, but until the mock matches, mock-mode e2e
+  cannot cover them.
+- **`ListingService` is 17 lines from its 450-line guard, and the reviewer named the extraction.**
+  Two moves, both mechanical: (1) pull `apply()` + `EditImpact` into a `ListingEditRules`
+  collaborator returning `EditImpact` — it is a separate rule ("what does this edit cost"), with its
+  own oracle test (`ListingFoundationTest`) and its own external consumer; (2) move
+  `updateAsModerator` into `ListingArchiveService`, renaming it `ListingModerationService`, because
+  it is cross-owner, resolves unscoped and authorizes by role — the exact inverted rule that class
+  was extracted to isolate. Together those drop `AuditService`, `AuthPrincipal` and `Roles` from
+  `ListingService` and leave it purely owner-scoped. **`frontend/scripts/check-listing-foundation.mjs`
+  parses `ListingService` by path (`SERVICE`, line ~55) and by regex — update it in the same commit
+  or the frontend guard silently reads an empty file and passes.**
+- **V79's `idx_properties_society_unit (society_id, floor, bhk)` is dead.** The society arm was
+  removed from `findDuplicateCandidates` (an owner-supplied society id turns the detector into a
+  census oracle), so nothing queries it, and V79's comment still describes "the society branch of
+  the rule" as if it existed. Drop the index and the comment in whichever migration next touches
+  `properties`.
 - **Standing ruling — `spring.jpa.open-in-view=false` (D185), approved 2026-08-10.** No controller
   returns an entity; every handler maps to a DTO inside the service transaction. The accepted trade
   is that a silent N+1 becomes a loud `LazyInitializationException`. If a 500 appears from
@@ -291,6 +445,115 @@
 
 Newest first. **A finished slice gets one index line, not a narrative** (see the rule at the top).
 Entries below are collapsed to that form once committed — git history holds the full write-up.
+
+### 2026-08-15 — D219: the duplicate detector meets the path that actually produces listings
+
+Three parts, all closing D218 review findings. **(1)** `ListingDuplicateSweep` re-probes the last
+twenty minutes of signal-carrying listings every ten minutes, because the in-transaction probe runs
+under READ COMMITTED and two simultaneous submissions are invisible to each other — the detector
+caught the careless and missed the coordinated (HIGH-3). `postInternalOnce` compares bodies, so the
+sweep cannot spam a case file.
+
+**(2)** `address` became a **re-check** field rather than a foundation one (S8): an edit stays live
+and searchable but raises a work item, since it is the field the address arm of the probe hashes
+and it was previously going live with no moderation at all.
+
+**(3)** The owner listing wizard now writes through the seam. `persistListing` posts to
+`addListing`/`updateListingFields` instead of localStorage, which is what puts the server's
+duplicate probe in front of the path that produces almost every listing — until now it was reachable
+only from admin post-on-behalf. The localStorage write survives as a mirror for edit prefill, the
+browser-side dedup and the documents shelf, none of which have crossed the seam yet.
+
+**Review found one thing worth the whole exercise.** `address` carries the flat number — it has to,
+because `AddressKey` is exact and an address that stops at the building flags a tower rather than a
+unit — and `PropertyResponse.address` was ungated, so wiring the wizard would have published a
+unit-level address book of every live listing to anonymous callers. That defeats the contact gate
+outright: a stranger holding "A-902, Rohan Nilay" does not need the owner's phone number. It is now
+behind the same `PrivateFieldVisibility` as the meter number, which costs nothing because nothing
+rendered it (`toViewModel` never read it back) and is asserted on both the owner route and the
+public one. Also from review: the sweep query is now `order by created_at` — unordered with a
+per-tick ceiling means a stable arbitrary subset is swept forever and the rest ages out of the
+window; the submit button has a re-entrancy guard, since posting became a network round trip and a
+double-tap manufactures the one duplicate `findDuplicateCandidates` excludes by design (the caller's
+own); `toListingCreate`'s fallback composition gained `street` so the desk and the owner produce the
+same key for the same flat; a create that resolves without an id now fails instead of filing
+everything under a local id that exists on no server; `properties.electricity_meter_no` is now
+classified for DPDP erasure, having matched none of the classifier's tokens; and a live spec
+asserting the duplicate note quotes the meter number was inverted — it never passed, and making it
+pass would have copied a guarded field into free text outside every guard.
+
+**Then the live suite was actually run, and it found two more.** The D218 verification-thread spec
+had never executed against a backend; on its first run one test failed because it decided a case
+that had never been opened. Creating a listing does not open a case file — only the duplicate probe
+and an explicit submit do — so the spec was missing a call the real desk makes (`PropertyReviewModal`
+posts `/verification` on open). The mock-mode wizard spec caught the second: `forTheWire` was sending
+`floor` as the string the form holds, and because the mock provider stores what it is given while
+the http mapper coerces, the two providers would have diverged on a field the duplicate signal
+depends on. Both fixed; D218's three live tests and D219's live wizard test now pass, as do the
+other 34 in `live-property-integration`.
+
+**Plus the auth-guard spec the D217 review asked for**, `ops/live-verification-access.spec.js`, four
+tests. A signed-in stranger gets 404 on every thread route — read, post, mark-read and open — and
+the *bodies* are compared against a nonexistent listing's 404, not just the codes, because two
+distinguishable 404s would restore the existence oracle the status code was chosen to remove. The
+staff-only routes answer 403 instead, which is not an inconsistency: their guard is a role rather
+than a relationship, so `@PreAuthorize` refuses before the id is looked up and nothing about the row
+can leak through a method that was never entered. The fourth is the maker-checker rule, the only
+refusal here about neither — a staffer listing their own flat is a participant *and* holds
+`properties:write`, so every other guard passes and the flat would publish with nobody having read
+it.
+
+**Then the whole live suite was run for the first time — 739 tests, 63 files, 58 minutes — and it
+found six broken specs.** 730 passed. None of the six was a product bug; all six were test defects
+that per-file runs cannot surface, because isolation suppresses exactly the failure modes that
+shared state and elapsed time produce. Two specs signed in as seeded `suspended` users, fixtures
+picked before V77 made login enforce a column that had been decorative since V2. One PII assertion
+matched a `Date.now()` stamp inside a ticket subject, using an unanchored mobile regex whose
+anchored twin already existed one directory away, complete with a comment describing the trap.
+And `live-property-integration`'s Aadhaar-simulate test permanently verified Omkar Kulkarni, who
+owns `p5007` — the listing `live-verify-payoff` uses as its *unverified* control — so one file
+republished another file's premise forty tests earlier, and each passed alone.
+
+The sixth is the one worth keeping: past the 15-minute access-token TTL, `signedInAs`'s cached
+snapshot goes stale, `http.js` refreshes and **rotates** the refresh token, and the next replay hands
+the server a token it has already rotated. Reuse detection does the correct thing and revokes the
+family (ADR-008), the session dies, and the test fails naming a locator on a screen it never
+reached. The backend behaved correctly throughout. The cache now re-establishes past 10 minutes, so
+an expired token is never presented and nothing rotates behind its back. Re-run of all five fixed
+specs — deliberately together with the file that caused the collision — is green: 64 passed.
+
+### 2026-08-14 — D218: the server learns to explain itself, and to notice the same flat twice
+
+Two halves. **(C1)** The re-review explanation moved out of the browser. `PropertyReviewModal` had
+been *typing* "Your recent edits have been reviewed and approved" into the thread, so an edit made
+through any other client produced silence and the sentence claimed a verdict whether or not the
+write had landed. `ListingService.update` now posts it, naming the fields that actually moved —
+and only when `requestRecheck` really raised a work item, because that method refuses on a listing
+that is not publicly visible and the note had been telling owners of pending, off-search listings
+that they were live.
+
+**(C2)** A duplicate detector: `properties.electricity_meter_no` + a normalised `address_key`
+(V80/V81/V82), a probe that runs on create, on a signal-changing edit and on restore-from-archive,
+and a **staff-only note** filed on the colliding listing's case file. The listing is published, not
+refused — a second listing on one meter is often a broker relisting somebody's flat and sometimes a
+genuine re-let, and refusing outright punishes the honest case to catch the dishonest one.
+
+That note needed a lane. `VerificationMessage.internal` is now on the wire; a case holding *only*
+internal notes answers the owner **404, not an empty thread** (an empty thread still discloses the
+file), and the read is gated on the `properties:read` **grant** rather than the bare staff role —
+the one verification route that cannot be gated at the controller, because it is participant-or-staff
+and an owner holds no grants. Staff see it as a separate amber lane, because filtering alone left a
+moderator unable to tell a staff-only finding from something the owner was told: both arrive as
+`from: ops`, in one conversation.
+
+Also: the desk's sort moved to `last_message_at desc, id desc` (V81's `coalesce` + partial index
+could not be used by the planner and had no unique tiebreak — a paging bug); `DuplicatesTab` stops
+rendering "supply looks clean" against a live API it never queries; `ListingCard`'s re-check chip
+was keyed off a field the http mapper never emits, so live owners were told nothing at all.
+
+Backend 170 classes / 1280 tests. New live spec `e2e/tests/ops/live-verification-thread.spec.js`.
+Reviews: `code-reviewer` (12 findings, 9 fixed — it caught that an edit of mine had commented out
+V82's backfill), `react-reviewer` (11, 5 fixed, 6 deferred above), `code-simplifier` (4 applied).
 
 ### 2026-08-12 — wave 14: the tech-debt register closed in one pass, 24 open → 17
 

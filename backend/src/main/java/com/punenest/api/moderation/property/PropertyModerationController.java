@@ -3,10 +3,15 @@ package com.punenest.api.moderation.property;
 import com.punenest.api.catalog.listing.ListingService;
 import com.punenest.api.catalog.listing.ListingUpdate;
 import com.punenest.api.catalog.property.PropertyMapper;
+import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyResponse;
 import com.punenest.api.catalog.property.PropertySearchQuery;
 import com.punenest.api.catalog.property.PropertyService;
+import com.punenest.api.common.trust.BackOfficeVisibility;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.MessageSender;
+import com.punenest.api.common.trust.OutreachCounts;
+import com.punenest.api.common.trust.PrivateFieldVisibility;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
@@ -15,6 +20,8 @@ import com.punenest.api.security.CurrentUser;
 import com.punenest.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -90,15 +97,20 @@ public class PropertyModerationController {
     private final PropertyService propertyService;
     private final PropertyMapper propertyMapper;
     private final OnBehalfListingService onBehalf;
+    private final PropertyModerationSummaryRepository summaries;
+    private final OwnerOutreachService outreach;
 
     public PropertyModerationController(PropertyModerationService service, ListingService listings,
             PropertyService propertyService, PropertyMapper propertyMapper,
-            OnBehalfListingService onBehalf) {
+            OnBehalfListingService onBehalf, PropertyModerationSummaryRepository summaries,
+            OwnerOutreachService outreach) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
         this.propertyMapper = propertyMapper;
         this.onBehalf = onBehalf;
+        this.summaries = summaries;
+        this.outreach = outreach;
     }
 
     /**
@@ -121,10 +133,17 @@ public class PropertyModerationController {
      * {@code approved} is off search, so expressing "waiting for a moderator" as a status would
      * re-impose the exact cost the split was introduced to avoid.
      *
-     * <p>Rendered {@link ContactVisibility#MASKED}, matching {@link #adminUpdate} and for the same
-     * reason: an ops screen has no need of owners' raw numbers, and a list would expose them in
-     * bulk rather than one at a time. {@code GET /properties/{id}} stays the only endpoint that can
-     * emit an unmasked number, and only to a gate-approved caller.
+     * <p>Rendered {@link ContactVisibility#REVEALED}, and this controller reversed itself on that.
+     * It previously masked, on the reasoning that a list exposes numbers in bulk rather than one at
+     * a time. That reasoning was sound about the risk and wrong about the job: the desk this feeds
+     * exists to phone owners whose listings are stuck, and a moderator who cannot read the number
+     * simply looks it up somewhere the platform cannot see, which trades an audited disclosure for
+     * an unaudited one. The mask never protected the owner from staff — it only protected staff
+     * from being recorded.
+     *
+     * <p>What still holds is that this is the <em>only</em> reason to reveal. The gate
+     * ({@code owner|approved|pending|declined|none}) governs seekers, and no amount of back-office
+     * role satisfies it; what governs here is {@code properties:read}, an atom granted per account.
      */
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(PROPERTIES_READ)
@@ -144,9 +163,26 @@ public class PropertyModerationController {
             @PageableDefault(size = 20) Pageable pageable) {
         PropertySearchQuery filters = new PropertySearchQuery(
                 deal, type, locality, bhk, minPrice, maxPrice, furnishing, possession, q, status);
-        return PageResponse.of(
-                propertyService.searchForModeration(filters, archived, recheck, pageable),
-                p -> propertyMapper.toResponse(p, ContactVisibility.MASKED));
+        Page<Property> page = propertyService.searchForModeration(filters, archived, recheck, pageable);
+        OutreachCounts counts = outreach.countsFor(page.getContent());
+        return PageResponse.of(page,
+                p -> propertyMapper.toResponse(p, ContactVisibility.REVEALED,
+                        BackOfficeVisibility.VISIBLE, counts, PrivateFieldVisibility.VISIBLE));
+    }
+
+    /**
+     * {@code GET /admin/properties/summary} (contract {@code propertyModerationSummary}) — the
+     * console's headline counts, over every listing rather than over the page just fetched.
+     *
+     * <p>Takes no filters, deliberately. These are the platform's totals; a strip that narrowed
+     * with the console's search box would be a second rendering of the table's own row count, and
+     * the question it exists to answer — "how much is waiting that I am not looking at" — is
+     * precisely the one a filtered count cannot answer.
+     */
+    @GetMapping(Routes.Moderation.ADMIN_PROPERTIES_SUMMARY)
+    @PreAuthorize(PROPERTIES_READ)
+    public PropertyModerationSummary summary() {
+        return summaries.summary();
     }
 
     /** {@code PATCH /properties/{id}/status} (contract {@code setPropertyStatus}). */
@@ -186,8 +222,8 @@ public class PropertyModerationController {
      *
      * <p>The one moderation route that returns a body, because it is the one that changes fields
      * the moderator chose rather than a status they can already see. Rendered
-     * {@link ContactVisibility#MASKED}: an ops screen has no need of the owner's raw number, and
-     * {@code GET /properties/{id}} stays the only endpoint that emits one.
+     * {@link ContactVisibility#REVEALED}, like {@link #queue} — a moderator correcting somebody
+     * else's listing is the caller most likely to need to ring them about it.
      *
      * <p>The work is delegated to {@link ListingService#updateAsModerator}, which owns the single
      * copy of the {@code ListingUpdate} field mapping — see this class's Javadoc.
@@ -196,8 +232,10 @@ public class PropertyModerationController {
     @PreAuthorize(PROPERTIES_WRITE)
     public PropertyResponse adminUpdate(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody ListingUpdate body) {
-        return propertyMapper.toResponse(
-                listings.updateAsModerator(principal, id, body), ContactVisibility.MASKED);
+        Property updated = listings.updateAsModerator(principal, id, body);
+        return propertyMapper.toResponse(updated, ContactVisibility.REVEALED,
+                BackOfficeVisibility.VISIBLE, outreach.countsFor(List.of(updated)),
+                PrivateFieldVisibility.VISIBLE);
     }
 
     /**
@@ -211,22 +249,88 @@ public class PropertyModerationController {
      * one route where the caller names somebody else as the owner of what they create. See
      * {@link OnBehalfListingService}.
      *
-     * <p>Rendered {@link ContactVisibility#MASKED}, like every other response on this controller.
-     * The operator typed the owner's number a moment ago, so masking it back hides nothing they do
-     * not know; what it does is keep the rule "no ops surface emits a raw number" true without
-     * exceptions, and an exception is what a later reader would copy.
+     * <p>Rendered {@link ContactVisibility#REVEALED}, like every other response on this controller.
+     * Here it is not even a disclosure: the operator typed this number into the request a moment
+     * ago, so masking it on the way back would have hidden a value from the only person who already
+     * had it, while making the response inconsistent with the queue the new listing lands in.
      */
     @PostMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(POST_ON_BEHALF_WRITE)
     @ResponseStatus(HttpStatus.CREATED)
     public PropertyResponse createOnBehalf(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody OnBehalfListingRequest body) {
-        return propertyMapper.toResponse(onBehalf.create(principal, body), ContactVisibility.MASKED);
+        // NONE rather than a lookup: the listing did not exist a moment ago, so nobody can have
+        // chased its owner about it. Querying would be a round trip guaranteed to return zero.
+        return propertyMapper.toResponse(onBehalf.create(principal, body), ContactVisibility.REVEALED,
+                BackOfficeVisibility.VISIBLE, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    }
+
+    /**
+     * {@code POST /properties/{id}/pipeline} — move a staff-posted listing along the owner
+     * hand-back funnel.
+     *
+     * <p>{@link #POST_ON_BEHALF_WRITE}, matching {@link #createOnBehalf}: the funnel only exists for
+     * listings that route created, and reporting on a liability belongs with the power to open it.
+     *
+     * <p>Rendered {@link BackOfficeVisibility#VISIBLE} — the caller is the desk the funnel is for,
+     * and returning the listing without the stage it was just moved to would make the response
+     * useless for the board that issued the call.
+     */
+    @PostMapping(Routes.Moderation.PROPERTY_PIPELINE)
+    @PreAuthorize(POST_ON_BEHALF_WRITE)
+    public PropertyResponse advancePipeline(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody PipelineRequest body) {
+        Property moved = onBehalf.advance(principal, id, body.stage());
+        return propertyMapper.toResponse(moved, ContactVisibility.REVEALED,
+                BackOfficeVisibility.VISIBLE, outreach.countsFor(List.of(moved)),
+                PrivateFieldVisibility.VISIBLE);
+    }
+
+    /** Body of {@code advancePropertyPipeline}. */
+    public record PipelineRequest(@NotBlank String stage) {
+    }
+
+    /**
+     * {@code POST /properties/{id}/outreach} — chase this listing's owner.
+     *
+     * <p>Returns the composed message and a {@code handoffLink} the console opens, which is where
+     * the send actually happens: WhatsApp opens on the staff member's own device with the text
+     * typed out and they press send. See {@link com.punenest.api.common.trust.MessageSender} for why
+     * the server records this as {@code prepared} rather than claiming a delivery it cannot witness.
+     *
+     * <p>{@link #POST_ON_BEHALF_WRITE}. The atom is named for creating listings on somebody's
+     * behalf, and this is the same power pointed at the same people: it puts a message on a member
+     * of the public's personal phone, in the platform's name, unprompted. An operator trusted to
+     * manufacture a listing under a stranger's number is trusted to message that number; an operator
+     * granted only {@code properties:write} — moderating supply that already exists — is not.
+     */
+    @PostMapping(Routes.Moderation.PROPERTY_OUTREACH)
+    @PreAuthorize(POST_ON_BEHALF_WRITE)
+    public MessageSender.Prepared chaseOwner(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @Valid @RequestBody OutreachRequest body) {
+        return outreach.chase(principal, id, body.templateId());
+    }
+
+    /**
+     * {@code GET /properties/{id}/outreach} — every chaser sent to this listing's owner.
+     *
+     * <p>Readable with {@link #PROPERTIES_READ} rather than the write atom that produced the rows,
+     * because the point of a shared log is that the colleague about to phone this owner can check
+     * whether somebody already has. Gating the history behind the permission to add to it would
+     * leave exactly the person who should back off unable to find out.
+     */
+    @GetMapping(Routes.Moderation.PROPERTY_OUTREACH)
+    @PreAuthorize(PROPERTIES_READ)
+    public List<OwnerOutreachService.OwnerOutreachEntry> outreachHistory(@PathVariable String id) {
+        return outreach.history(id);
+    }
+
+    /** Body of {@code sendOwnerOutreach}. */
+    public record OutreachRequest(@NotBlank String templateId) {
     }
 
     /** Body of {@code setPropertyStatus} (schema {@code PropertyStatusUpdate}). */
-    public record StatusRequest(@NotBlank String status, String reason) {
-    }    /** Body of {@code flagProperty} (schema {@code ReasonRequest}). */
+    public record StatusRequest(@NotBlank String status, String reason) {    }    /** Body of {@code flagProperty} (schema {@code ReasonRequest}). */
     public record ReasonRequest(String reason) {
     }
 }

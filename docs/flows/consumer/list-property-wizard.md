@@ -120,10 +120,19 @@ advance on any error (scrolling to the first error via `scrollToError`).
   1. `validateStep3` must pass (no identity/Aadhaar precondition — posting is L1-only).
   2. New post over quota is blocked; edit with an identity change opens the identity guard modal.
   3. `hashPhotos(photos)` computes perceptual hashes (browser) for duplicate detection.
-  4. `persistListing` builds the record with `status: 'pending'`, `statusClass: 'pill-pending'`,
-     writes to `db.listings` (`mutateDb`) and the per-user store (`addListing`), pushes an "under
-     review" notification, and (sale only) stores docs via `addDocument`.
-  5. Confetti + success screen. A brand-new **rent** listing stays on the success screen, because
+  4. `persistListing` builds the record with `status: 'pending'`, `statusClass: 'pill-pending'`, then
+     **writes it through the seam** (D219): `addListing` on create, `updateListingFields` on edit.
+     That request is the only place the server can run its duplicate probe, so this is what puts the
+     detector in front of the path that produces almost every listing. `forTheWire` adapts the
+     record on the way out — the five address boxes fold into one unit-bearing `address` line,
+     `floor` is omitted rather than sent as 0, the deal-split maintenance pair folds into one
+     `maintenance`, `rera` is renamed `reraId`, and `electricityConsumerNo` is lifted out of
+     `strongIds` for the request only. On create the server's id is adopted if it differs.
+  5. It then mirrors into localStorage (`mutateDb`, `addListing`) for edit prefill, the browser-side
+     dedup and the documents shelf, pushes an "under review" notification, and (sale only) stores
+     docs via `addDocument`. The mirror write sits inside its own try/catch — losing it is
+     survivable, losing the save is not — so a quota failure cannot take the listing down with it.
+  6. Confetti + success screen. A brand-new **rent** listing stays on the success screen, because
      the split-flat offer (`PostSuccessSplitNudge`) lives there; everything else auto-navigates to
      `/dashboard` after 3.2s.
 
@@ -138,6 +147,10 @@ advance on any error (scrolling to the first error via `scrollToError`).
   the record so cards/detail read them without reaching into `record.form`.
 
 ### Duplicate prevention (`evaluateListingDedup`)
+This is the **browser-side** half, and it only ever sees this browser's localStorage. The
+authoritative check is the server's `ListingDuplicateProbe`, which runs inside `POST /me/listings`
+(reached since D219) and again every ten minutes from `ListingDuplicateSweep`, because two
+simultaneous submissions are invisible to each other inside one transaction.
 - **Hard block:** same owner + same physical unit (electricity meter / PMC tax id / society+unit+
   pincode) -> `persistListing` returns `{ ok:false, blocked:true, existingId }`, the wizard shows the
   duplicate guard and points the owner to the existing listing.
@@ -235,6 +248,9 @@ live listing + identity edit-> identity guard + quota interaction
 - **Duplicate (same owner):** hard block + duplicate guard modal pointing to the existing listing.
 - **Duplicate (different owner / same photos):** posts but is `duplicateFlag`ged and opens an Ops
   thread.
+- **The save itself fails:** the seam write is awaited outside the localStorage try/catch, so a
+  rejected `POST /me/listings` surfaces as a toast and the wizard stays put rather than showing a
+  success screen for a listing that does not exist.
 - **Identity change on edit:** `showIdentityGuard` modal before finalizing (quota implication).
 - **Per-step validation:** each `nextStep` blocks advance and scroll-focuses the first error; Step 2
   additionally requires a map placement (`locationSet`).

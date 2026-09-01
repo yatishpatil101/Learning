@@ -29,8 +29,18 @@ public record PropertyReviewResponse(
     /**
      * One thread message (contract {@code VerificationMessage}).
      *
+     * <p>{@code internal} is only ever {@code true} for a staff reader: the owner's copy of the
+     * thread has internal messages filtered out entirely, so for them the field is uniformly
+     * {@code false} and carries nothing. It exists because filtering alone left staff unable to tell
+     * a staff-only finding from something the owner was actually told — both arrived as
+     * {@code from: "ops"}, in one conversation, under a heading that says the owner can read it. A
+     * moderator acting on that misreading is the same disclosure the filter was added to prevent,
+     * one step later.
+     *
      * @param from {@code owner} or {@code ops}, derived server-side from the sender
+     * @param internal staff-only; the owner never receives a message where this would be true
      */
-    public record MessageEntry(String id, String from, String body, Instant at, boolean read) {
+    public record MessageEntry(String id, String from, String body, Instant at, boolean read,
+            boolean internal) {
     }
 }

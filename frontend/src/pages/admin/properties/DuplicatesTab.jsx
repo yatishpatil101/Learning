@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Copy, Check, X, MapPin, User, Calendar, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { findDuplicateClusters, resolveDuplicate, dismissDuplicate } from '../../../lib/data/properties-admin.js';
+import { isHttpDomain } from '../../../services/config.js';
 import { logAudit } from '../../../lib/mockApi.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 
@@ -90,6 +91,26 @@ export default function DuplicatesTab({ onRefresh }) {
 
   return (
     <div>
+      {/* Clustering here is a localStorage computation over the mock store; there is no endpoint
+          behind it. Against the live API it therefore reads nothing and renders "supply looks
+          clean" unconditionally -- an ops surface asserting a false negative about real supply,
+          which is worse than no surface at all, because a moderator will believe it.
+
+          The server does detect duplicates as of D218, but files each finding as a staff-only note
+          on the listing's own case file rather than as a cluster; there is no admin duplicates
+          endpoint yet. Until there is, say so. (tasks/todo.md) */}
+      {isHttpDomain('property') ? (
+        <p className="pn-card flex items-start gap-2 p-8 text-sm text-gray-400">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
+          <span>
+            <strong className="text-gray-200">Duplicate clustering is not available against the live API.</strong>
+            {' '}Findings are filed on each listing&apos;s verification case file as a staff-only note — open the
+            listing from the review queue to see them. This tab reads a local-only computation, so an empty
+            result here would mean nothing.
+          </span>
+        </p>
+      ) : (
+      <>
       <p className="pn-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-gray-400">
         <Copy className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
         <span>Listings that look like the <strong className="text-gray-200">same physical property</strong> — matched by electricity meter / tax ID, structured address, or perceptually similar photos. Keep the best one and archive the rest, or dismiss if they're genuinely different.</span>
@@ -126,6 +147,8 @@ export default function DuplicatesTab({ onRefresh }) {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

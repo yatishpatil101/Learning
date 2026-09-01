@@ -247,20 +247,29 @@ class PropertyModerationQueueTest extends AbstractApiTest {
     }
 
     /**
-     * Owners' numbers are masked, as on every ops surface. A list is the sharper case than the
-     * single-listing {@code adminUpdate} that set the precedent: it would leak the whole catalogue's
-     * contacts in one response rather than one at a time.
+     * The queue emits owners' raw numbers, and this test asserts the reversal rather than the
+     * original rule.
+     *
+     * <p>It used to assert masking, on the argument that a list leaks the whole catalogue's contacts
+     * in one response rather than one at a time. That is true and was still the wrong call: the desk
+     * reading this queue exists to ring owners whose listings are stuck, and a moderator denied the
+     * number here obtains it from somewhere the platform does not log. Masking protected the audit
+     * trail from the disclosure, not the owner.
+     *
+     * <p>The assertion is deliberately equality against the seeded number rather than
+     * "does not contain X". A mask that happened to be the identity function would pass the weaker
+     * form, and so would a bug that dropped the field to null.
      */
     @Test
-    @DisplayName("owner contact is masked in the queue")
-    void ownerContactIsMasked() throws Exception {
+    @DisplayName("owner contact is revealed in the queue, because the desk phones owners")
+    void ownerContactIsRevealed() throws Exception {
         User owner = user("9850000012", "owner");
         User staff = user("9850000013", "staff");
         listing(owner, "Pending flat", PropertyStatus.PENDING);
 
         mvc.perform(get("/admin/properties").header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].owner.mobile").value(org.hamcrest.Matchers.not("9850000012")));
+                .andExpect(jsonPath("$.content[0].owner.mobile").value("9850000012"));
     }
 
     /**

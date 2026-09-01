@@ -90,6 +90,91 @@ for (const [kind, expected] of [['listing', 'property'], ['user', 'user'], ['sha
   }
 }
 
+// ─── The vocabularies themselves, set against set ─────────────────────────────────────────────
+/**
+ * The check above pins the *routing*; this one pins the *contents*.
+ *
+ * `ReportReasons.java` and `lib/reportReasons.js` are two hand-maintained copies of the same three
+ * sets, and the only thing that had ever tied them together was a Javadoc line saying "Mirrors
+ * LISTING_REPORT_REASONS". That is not a check. The ops queue's reason filter had already drifted
+ * from these lists in exactly the way an unchecked mirror drifts — it offered two codes the server
+ * recognises for nothing (so filtering by either always emptied the queue and read as "no such
+ * complaints") and omitted nine it does. Fixing that instance left the *mechanism* untouched: one
+ * more hand-copied list, one more chance to drift.
+ *
+ * Read off the Java source rather than an endpoint because there is no endpoint — the vocabulary is
+ * a validation rule, not a resource, and inventing `GET /report-reasons` to make this testable
+ * would add a public surface for the benefit of a script. Parsing is narrow and brittle *on
+ * purpose*: it matches the exact `Set.of(…)` shape, and if somebody reformats the field into
+ * something this cannot read, the parse fails loudly instead of silently comparing against an empty
+ * set and passing.
+ *
+ * A code missing on the server is a 400 the user meets after typing out a complaint. A code missing
+ * on the client is a rule nobody can invoke — invisible, and the direction that hides for years.
+ * Both are failures.
+ */
+{
+  const javaPath = new URL(
+    '../../backend/src/main/java/com/punenest/api/moderation/report/ReportReasons.java',
+    import.meta.url,
+  );
+  const { readFileSync } = await import('node:fs');
+  let java = '';
+  try {
+    java = readFileSync(javaPath, 'utf8');
+  } catch {
+    failures.push(`could not read ReportReasons.java at ${javaPath.pathname} — if the backend moved, this check needs its path updated, not deleting`);
+  }
+
+  /** `Set.of("a", "b", OTHER)` → `['a','b','other']`. `OTHER` is the one non-literal member. */
+  const javaSet = (field) => {
+    const m = java.match(new RegExp(`${field}\\s*=\\s*\\n?\\s*Set\\.of\\(([^)]*)\\)`));
+    if (!m) return null;
+    return m[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => (s === 'OTHER' ? 'other' : s.replace(/^"|"$/g, '')));
+  };
+
+  const reasons = await load('../src/lib/reportReasons.js');
+  const pairs = [
+    ['FOR_PROPERTY', 'LISTING_REPORT_REASONS', 'property'],
+    ['FOR_USER', 'OWNER_REPORT_REASONS', 'user'],
+    ['FOR_POST', 'SHARE_REPORT_REASONS', 'post'],
+  ];
+
+  for (const [field, exportName, targetType] of pairs) {
+    const server = javaSet(field);
+    if (!server) {
+      failures.push(`could not parse \`${field}\` out of ReportReasons.java — the field was reformatted past what this check can read, which is a signal to fix the parse, not to drop the comparison`);
+      continue;
+    }
+    const client = reasons[exportName].map(([code]) => code);
+
+    for (const code of client) {
+      if (!server.includes(code)) {
+        failures.push(`\`${exportName}\` offers "${code}", which \`${field}\` does not accept — the server 400s that pairing, so a user picking it loses the complaint they just wrote out`);
+      }
+    }
+    for (const code of server) {
+      if (!client.includes(code)) {
+        failures.push(`\`${field}\` accepts "${code}" for ${targetType} but \`${exportName}\` never offers it — a rule nobody can invoke, which is the direction that hides`);
+      }
+    }
+
+    const dupes = client.filter((c, i) => client.indexOf(c) !== i);
+    if (dupes.length) failures.push(`\`${exportName}\` lists ${dupes.join(', ')} twice — a select with two identical values`);
+  }
+
+  /* `review` has a server vocabulary and no client one: nothing in the app files a report against a
+     review. Asserted rather than ignored, so that if a Report-this-review control ever appears, the
+     absence stops being deliberate and this line starts failing. */
+  if ('REVIEW_REPORT_REASONS' in reasons) {
+    failures.push('a client vocabulary for `review` now exists — add it to the table above so it is diffed against `FOR_REVIEW` (fake, abuse, other) like the other three');
+  }
+}
+
 // ─── The create body must carry only what the schema declares ─────────────────────────────────
 const body = toReportCreate({
   kind: 'listing',

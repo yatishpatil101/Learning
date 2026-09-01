@@ -35,11 +35,15 @@
    3. The run must contain at least one non-ASCII character, so ASCII text is
       never even considered.
 
-   ## The one exclusion
+   ## The exclusions
 
-   `e2e/tests/admin/reports.spec.js` contains three of these sequences **on
-   purpose**: it asserts an exported CSV does *not* contain them, which is a guard
-   against this very bug. Repairing it would delete the test. */
+   Only this script and `scan-encoding.mjs` are excluded: they name these sequences
+   in order to find them, so repairing them would delete the detector.
+
+   `e2e/tests/admin/reports.spec.js` used to be excluded too, for asserting an
+   exported CSV does *not* contain them. That spec was retired; its successor,
+   `admin/live-reports.spec.js`, makes the same assertion but builds the sequences
+   from code points, so it needs no exclusion and stays covered by the guard. */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
@@ -51,7 +55,6 @@ const DRY = process.env.DRY === '1';
 const EXTENSIONS = /\.(java|js|jsx|ts|tsx|mjs|cjs|sql|py|css|scss|html|json|yaml|yml|md)$/;
 
 const EXCLUDE = new Set([
-  'e2e/tests/admin/reports.spec.js',
   'e2e/scripts/fix-mojibake.mjs',
   'e2e/scripts/scan-encoding.mjs',
 ]);

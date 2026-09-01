@@ -55,6 +55,12 @@ export default function useListProperty() {
   const [showIdentityGuard, setShowIdentityGuard] = useState(false);
   // Duplicate-property guard — the owner already has this unit listed.
   const [showDupGuard, setShowDupGuard] = useState(false);
+  /* D219 turned posting into a network write, which widened the double-click window from a few
+     milliseconds of localStorage work into a full round trip on a phone. Two POSTs mean two rows,
+     and this is the one duplicate the duplicate detector cannot help with: `findDuplicateCandidates`
+     excludes the caller's own listings by design, so the slice built to catch duplicates would be
+     manufacturing the single kind it is blind to. */
+  const [posting, setPosting] = useState(false);
   const [dupExistingId, setDupExistingId] = useState('');
   /* Freemium quota is fixed for this page load — a new post over the limit is
      paywalled; editing an existing listing never is.
@@ -256,11 +262,21 @@ export default function useListProperty() {
     // the store stays synchronous; failures degrade to no image signal.
     let photoHashes = [];
     try { photoHashes = await hashPhotos(photos); } catch { photoHashes = []; }
-    const res = persistListing({ form, user, editId, documents, photos, photoHashes });
+    const res = await persistListing({ form, user, editId, documents, photos, photoHashes });
     // Same owner already has this exact property live → stop and point them to it.
     if (res && res.ok === false && res.blocked) {
       setDupExistingId(res.existingId || '');
       setShowDupGuard(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    /* The save crosses the seam now, so it can fail for reasons the browser cannot fix — a
+       rejected field, an expired session, a server that is down. Say so and leave the form
+       exactly as it is: the draft is still saved, so nothing the owner typed is lost, and they
+       can press Post again. Confetti over a listing that was never created would be worse than
+       any error message. */
+    if (res && res.ok === false) {
+      toast(res.error || 'Could not save your listing. Please try again.', 'error');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -280,13 +296,20 @@ export default function useListProperty() {
   };
 
   const submitProperty = () => {
+    if (posting) return;
     const err = validateStep3(form, documents, photos);
     if (Object.keys(err).length) { setErrors(err); scrollToError(err); return; }
 
     if (!editId && !canPost) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     if (editId && editChanges?.identityChanged) { setShowIdentityGuard(true); return; }
 
-    finalizeListing();
+    /* `finalizeListing` is async and nothing awaits it here, so an unhandled rejection anywhere
+       after the save would leave `posting` stuck true and the button dead. Clear it in `finally`
+       and surface the failure, rather than trusting every line in between not to throw. */
+    setPosting(true);
+    finalizeListing()
+      .catch(() => toast('Could not post your listing. Please try again.', 'error'))
+      .finally(() => setPosting(false));
   };
 
   const submitFlatmate = () => {
@@ -321,6 +344,7 @@ export default function useListProperty() {
     isResidential, isLand, isCommercial, isHouse, isPg,
     money, setDepositMonths,
     nextStep, prevStep, openResetConfirm, confirmReset, submitProperty, submitFlatmate,
+    posting,
     activeListingCount, listingLimit: planListingLimit,
   };
 }

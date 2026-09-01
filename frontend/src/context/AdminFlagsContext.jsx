@@ -14,7 +14,7 @@ const DEFAULT_ADMIN_FLAGS = {
   services: { enabled: true, priority: true, teamRouting: true, staffAssignment: true },
   enquiries: { visits: true, deals: true, funnelTime: true },
   content: { enabled: true, cityDemand: true, banners: true, faqs: true, announcements: true, reviews: true },
-  reports: { properties: true, users: true },
+  reports: { properties: true, users: true, posts: true },
   flatmates: { seekers: true, groups: true, applications: true },
   staffActivity: { enabled: true, kpis: true, leaderboard: true },
 };

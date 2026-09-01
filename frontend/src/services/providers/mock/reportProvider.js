@@ -19,7 +19,7 @@
 import { readUser } from '../../../lib/auth.js';
 import { listReports as _list, mutateDb } from '../../../lib/mockApi.js';
 import { submitReport as _submit } from '../../../lib/data/reports.js';
-import { REASON_LABELS } from '../http/reportMapper.js';
+import { toTargetType, reasonLabel } from '../http/reportMapper.js';
 
 export async function createReport(report) {
   const u = readUser();
@@ -31,9 +31,11 @@ export async function createReport(report) {
     ownerName: report?.targetOwner,
     ownerMobile: report?.ownerMobile,
     reason: report?.reason,
-    // Resolved from the same table the http mapper uses, so both providers label a reason
-    // identically — the label is presentation text the client owns on both sides.
-    reasonLabel: REASON_LABELS[report?.reason] || report?.reason,
+    // Resolved through the same function the http mapper uses, so both providers label a reason
+    // identically — the label is presentation text the client owns on both sides. Passed the *target
+    // type* and not just the code, because `spam` on a listing and `spam` from an owner are
+    // different complaints with different wording.
+    reasonLabel: reasonLabel(report?.reason, toTargetType(kind)),
     details: report?.details || '',
     reportedBy: u?.name || 'User',
     reporterMobile: u?.mobile || '',

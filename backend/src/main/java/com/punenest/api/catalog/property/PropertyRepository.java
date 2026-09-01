@@ -103,6 +103,122 @@ public interface PropertyRepository
     List<UUID> findIdsByOwnerId(@Param("ownerId") UUID ownerId);
 
     /**
+     * Listings by <em>other</em> owners that look like the same unit as the one being written (V79).
+     *
+     * <p>Two independent signals, OR'd, because they fail in opposite directions and neither is
+     * available on every listing:
+     *
+     * <ul>
+     *   <li>the electricity meter number — near-certain when both sides have one, and most do not;</li>
+     *   <li>normalised address within a locality — the one that fires when the meter is null, which
+     *       is the common case. See {@link AddressKey} for what "normalised" means.</li>
+     * </ul>
+     *
+     * <p><strong>Why there is no society arm.</strong> {@code (society_id, floor, bhk)} is the
+     * highest-precision signal available for flats, and it was here, and it had to come out. The
+     * reason is that {@code society_id} is <em>asserted by the client</em> on create and update.
+     * There is a foreign key, so the id has to name a society that exists — but that is a check on
+     * the id, not on the claim, and nothing links an owner to the society they name. Every real
+     * society in Pune is an id an attacker may legitimately supply. Feed the probe one with a floor
+     * and a BHK and the flag it raises tells you whether that unit is listed — including listings
+     * still {@code pending}, which no public route will admit exist. Repeat, and you have a
+     * unit-by-unit census of the building. A signal an attacker can supply in full is not a signal
+     * about the world; it is a query. Bring it back when an owner has to prove they belong to a
+     * society before naming it, and the arm becomes what its precision suggests.
+     *
+     * <p><strong>Absent signals match nothing, and no guard is needed to make that true.</strong>
+     * The obvious worry is that a listing with no meter number matches every other listing with no
+     * meter number. It does not: SQL equality against {@code NULL} is <em>unknown</em>, never true,
+     * so an arm whose parameter is null simply drops out of the OR. Explicit {@code :param is not
+     * null} guards were tried here and removed — they read as load-bearing while doing nothing, and
+     * a guard that cannot fail is worse than no guard, because the next reader trusts it. What this
+     * does depend on is every arm staying a plain {@code =}; a {@code coalesce} added later to
+     * "handle nulls" would turn absence into a match. {@code ListingNoticesTest} holds that line.
+     *
+     * <p><strong>Only other owners, and only live listings.</strong> {@code owner.id <> :ownerId}
+     * because the same person listing their own flat twice is a housekeeping mistake, not fraud, and
+     * flagging it to ops teaches them to ignore the flag. Rejected and archived listings are
+     * excluded because a duplicate of something already taken down is not a live conflict.
+     *
+     * <p>Capped by the caller via {@link Pageable}: the answer to "is this a duplicate" needs one
+     * row, and the ops note names a couple. An unbounded {@code List} here is one bad address key
+     * away from loading a locality into memory.
+     *
+     * <p><strong>Deliberately unordered.</strong> Both OR arms are backed by their own partial index
+     * (V79), which Postgres combines with a bitmap OR — but only while it is free to return rows in
+     * whatever order it finds them. Adding {@code order by p.created_at} makes an ordered walk of
+     * {@code properties} the cheapest way to produce the first two rows, so the common case, a
+     * create that matches nothing, scans the whole table before answering "no". Every create and
+     * every signal-changing edit would pay it. The caller sorts the couple of rows it gets back,
+     * which is where sorting two things belongs.
+     */
+    @Query("""
+            select p from Property p
+            where p.owner.id <> :ownerId
+              and p.archived = false
+              and p.status in :statuses
+              and (
+                    p.electricityMeterNo = :meter
+                 or (p.addressKey = :addressKey and p.localitySlug = :localitySlug)
+              )
+            """)
+    List<Property> findDuplicateCandidates(
+            @Param("ownerId") UUID ownerId,
+            @Param("statuses") Collection<String> statuses,
+            @Param("meter") String meter,
+            @Param("addressKey") String addressKey,
+            @Param("localitySlug") String localitySlug,
+            Pageable pageable);
+
+    /**
+     * Recently created listings that carry something for the duplicate probe to compare — the input
+     * to the catch-up sweep.
+     *
+     * <p><strong>Why a sweep exists at all.</strong> {@link #findDuplicateCandidates} runs inside
+     * the transaction that creates the listing, under {@code READ COMMITTED}, so it cannot see a
+     * sibling submission that has not committed yet. Two identical listings posted in the same
+     * second therefore each read a world without the other and neither is flagged — which is the
+     * precise shape of the abuse the probe exists to catch, since a broker uploading one flat twice
+     * does it from a script, not by hand a day apart.
+     *
+     * <p>The window is deliberately generous relative to the sweep's period, so that a listing is
+     * re-read a couple of times rather than exactly once: a sweep tick that dies mid-run, or a
+     * deploy that lands between two ticks, would otherwise leave a permanent hole in coverage at a
+     * cost of one indexed range scan.
+     *
+     * <p>The signal predicate is the same early-out {@code ListingDuplicateProbe#flag} applies for
+     * itself, hoisted into SQL: most listings carry neither a meter number nor an address key, and
+     * fetching them only to return immediately would make the sweep's cost the create rate rather
+     * than the rate of listings it can actually say something about.
+     *
+     * <p><strong>The ordering is load-bearing, unlike {@link #findDuplicateCandidates}'s absence of
+     * one.</strong> There the result is capped at two rows and order is genuinely irrelevant. Here
+     * the caller passes a per-tick ceiling, and an unordered page under a stable plan returns the
+     * <em>same</em> arbitrary subset every tick — so once the window holds more listings than the
+     * ceiling (a bulk import, a seed backfill, a launch-day spike) the remainder is never swept and
+     * then ages out of the window forever. Oldest-first makes the overflow a backlog the next tick
+     * inherits rather than rows that are silently dropped, and the only symptom of getting this
+     * wrong would have been a log line that reads like a queue catching up.
+     *
+     * <p>There is no index on {@code created_at}; the plan is a bitmap-OR over the two partial
+     * signal indexes with the window applied as a filter, so cost tracks the total number of
+     * signal-carrying listings rather than the window. That is fine at this size and is the thing
+     * to look at first if this ever shows up in slow-query logs.
+     */
+    @Query("""
+            select p from Property p
+            where p.createdAt >= :since
+              and p.archived = false
+              and p.status in :statuses
+              and (p.electricityMeterNo is not null or p.addressKey is not null)
+            order by p.createdAt asc
+            """)
+    List<Property> findRecentSignalCarrying(
+            @Param("since") Instant since,
+            @Param("statuses") Collection<String> statuses,
+            Pageable pageable);
+
+    /**
      * Stamp {@code owner_verified} onto every listing an owner holds — the write that makes the
      * identity badge visible to buyers, called when DigiLocker confirms.
      *

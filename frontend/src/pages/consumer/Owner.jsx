@@ -31,7 +31,8 @@ import { getEntityReviews, addEntityReview } from '../../lib/store.js';
 import { getEntityReviewSummary } from '../../services/reviewService.js';
 import { messagesLinkForProp } from '../../lib/chat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
-import ReportModal, { OWNER_REPORT_REASONS } from '../../components/ReportModal.jsx';
+import ReportModal from '../../components/ReportModal.jsx';
+import { OWNER_REPORT_REASONS } from '../../lib/reportReasons.js';
 
 /* Demo reviews shown before any real one is posted. Names stay as written — they
    are people's names, not copy — but the review text and relative dates are keyed

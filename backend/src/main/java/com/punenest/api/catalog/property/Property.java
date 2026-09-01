@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
@@ -185,6 +187,31 @@ public class Property extends SoftDeleteEntity {
     @Setter
     private String address;
 
+    /**
+     * The unit's electricity meter number, if the owner gave one (V79).
+     *
+     * <p>Optional and kept that way: an owner in a society on a single bulk meter has no number to
+     * give, and a listing form that insists on one turns a wiring arrangement into a reason an
+     * honest owner cannot list. Its only reader is the duplicate probe, which skips nulls.
+     *
+     * <p>Not emitted in any listing response. It is the one field on this row that names a
+     * real-world account a stranger could act on — a meter number plus a surname is enough to
+     * impersonate a consumer at the utility — and the duplicate rule reads it server-side, so
+     * nothing outside the platform ever needs to see it.
+     */
+    @Column(name = "electricity_meter_no")
+    @Setter
+    private String electricityMeterNo;
+
+    /**
+     * {@link #address}, normalised for comparison (V79). Server-derived on every write — see
+     * {@code AddressKey} — and never accepted from a client, because a client that chooses its own
+     * key chooses which listings it collides with.
+     */
+    @Column(name = "address_key")
+    @Setter
+    private String addressKey;
+
     @Column(name = "pincode")
     @Setter
     private String pincode;
@@ -283,6 +310,67 @@ public class Property extends SoftDeleteEntity {
     /** Which fields raised the pending re-check, accumulated across edits (Q14). */
     @Column(name = "recheck_reason")
     private String recheckReason;
+
+    /**
+     * Whether staff created this listing on an owner's behalf rather than the owner posting it.
+     *
+     * <p>The flag that decides whether the onboarding funnel applies at all. An owner who posted
+     * their own listing has already done the thing the funnel exists to chase, so a stage on such a
+     * row would put it on a board it can never leave.
+     */
+    @Column(name = "posted_by_admin", nullable = false)
+    private boolean postedByAdmin = false;
+
+    /**
+     * How far through {@link PipelineStage} the hand-back has got, or null if not applicable.
+     *
+     * <p>Nullable rather than defaulting to {@code listed}, because null and {@code listed} say
+     * different things: null is "this listing was never ours to hand over", {@code listed} is "it is
+     * ours and we have not started". Thirty-eight seeded rows are the former.
+     */
+    @Column(name = "pipeline_stage")
+    private String pipelineStage;
+
+    /**
+     * Everything about the hand-back that is not the stage — currently just {@code postedByStaff},
+     * the id of the staff member who created the listing.
+     *
+     * <p>JSONB because V3 chose it: the stage is the hot filter and has its own indexed column, and
+     * the rest is read one listing at a time on a desk. Storing the staff <em>id</em> rather than
+     * their name, so a colleague changing their display name does not silently rewrite history.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "admin_pipeline", nullable = false)
+    private Map<String, Object> adminPipeline = new LinkedHashMap<>();
+
+    /**
+     * Record that staff created this listing for {@code staffId}, and open the funnel at
+     * {@link PipelineStage#LISTED}.
+     */
+    public void markPostedOnBehalf(String staffId) {
+        this.postedByAdmin = true;
+        this.pipelineStage = PipelineStage.LISTED;
+        this.adminPipeline = new LinkedHashMap<>(this.adminPipeline);
+        this.adminPipeline.put("postedByStaff", staffId);
+    }
+
+    /**
+     * Move the hand-back to {@code stage}.
+     *
+     * <p>Backwards is allowed. The stages record what has actually come back from an owner, and
+     * that can be undone — a document turns out to be the wrong flat, a claim link goes to a stale
+     * number. A forward-only funnel would leave the desk with no way to say so except to lie, and a
+     * board everyone knows is optimistic is worse than no board.
+     */
+    public void moveToStage(String stage) {
+        this.pipelineStage = stage;
+    }
+
+    /** The staff member who created this listing on the owner's behalf, or null. */
+    public String getPostedByStaff() {
+        Object value = adminPipeline.get("postedByStaff");
+        return value == null ? null : value.toString();
+    }
 
     @Column(name = "verified", nullable = false)
     @Setter

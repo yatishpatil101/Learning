@@ -1069,6 +1069,136 @@ paths:
       responses:
         '200': { description: Toggled }
         '404': { $ref: '#/components/responses/NotFound' }
+  /properties/{id}/pipeline:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Move a staff-posted listing along the owner hand-back funnel
+      operationId: advancePropertyPipeline
+      description: >
+        Staff sometimes create a listing *for* an owner who phoned it in. It goes live owned by an
+        account its owner has never signed into, and this funnel is the record of handing it over:
+        documents arrive, photographs are uploaded, identity is checked, a claim link goes out, and
+        the owner claims the account.
+
+
+        Stages may be walked **backwards**. They record what has actually come back from an owner,
+        and that can be undone — a document turns out to be the wrong flat, a claim link goes to a
+        stale number. A forward-only funnel would leave the desk no way to say so except to lie, and
+        a board everyone knows is optimistic is worse than no board.
+
+
+        `409` when the listing was posted by its own owner: it has already arrived where the funnel
+        is trying to get to, so a stage on it would be an item that can never be cleared.
+
+
+        Carries `postOnBehalf:write` rather than `properties:write`, matching
+        `createListingOnBehalf`. The desk that may create a listing in a stranger's name is the desk
+        that must report on handing it back; splitting the two across permissions would let somebody
+        open that liability without being accountable for closing it.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage]
+              properties:
+                stage:
+                  type: string
+                  enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed]
+      responses:
+        '200':
+          description: The listing, with its updated `adminPipeline`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Property' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /properties/{id}/outreach:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    post:
+      tags: [Moderation]
+      summary: Prepare a WhatsApp message chasing this listing's owner
+      operationId: prepareOwnerOutreach
+      description: >
+        Renders one of the approved templates against this listing, its owner and the calling staff
+        member, records it, and returns a `wa.me` link that opens WhatsApp with the message already
+        typed out.
+
+
+        **The status is always `prepared`, and that is not a placeholder.** The send is WhatsApp
+        click-to-chat from the staff member's own device — a real mechanism, needing no Business
+        Solution Provider and no template approval, but one this server cannot witness. It knows the
+        message was composed and handed to a human. Reporting `sent` would be the platform asserting
+        delivery in the very record meant to be the evidence for it.
+
+
+        The caller supplies a template id and nothing else. A request carrying the message body
+        would let any staff account send arbitrary text to a member of the public over the
+        platform's name, which is a materially larger power than choosing from a library. Variables
+        are substituted server-side from the database; a placeholder with no value is left standing
+        as literal text, so the gap is visible in the preview rather than silently swallowed.
+
+
+        `409` when the owner has no mobile on file, because there is nowhere to send it. `400` for
+        an unknown or retired template id.
+
+
+        Carries `postOnBehalf:write` rather than `properties:write`: this puts a message on a
+        member of the public's personal phone in the platform's name — the same power, aimed at the
+        same people, as creating a listing under their number.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [templateId]
+              properties:
+                templateId:
+                  type: string
+                  description: An id from `GET /admin/message-templates`.
+                  example: wa-photos
+      responses:
+        '200':
+          description: The prepared message and the link that sends it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreparedMessage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Moderation]
+      summary: What this listing's owner has already been told
+      operationId: listOwnerOutreach
+      description: >
+        Newest first. The reason this endpoint exists is collision: before it, two staff members
+        chasing the same owner on the same morning had no way to discover each other, because the
+        console counted reminders in the browser's own copy of the data and the WhatsApp panel
+        recorded nothing at all.
+
+
+        Ordering is by preparation time and is dependable to the message rather than to the
+        transaction, which matters because the question being asked is "what was this owner told
+        last?".
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: The messages prepared for this listing's owner, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OutreachEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /properties/{id}/flag:
     parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
     post:
@@ -1796,6 +1926,37 @@ paths:
       responses:
         '200': { description: Decided }
         '403': { $ref: '#/components/responses/Forbidden' }
+  # D218: the checklist gained a write. `property_review_checklist.pass` shipped in V5 and, like
+  # `ownership_verified` before it, no code path ever wrote it — the reviewer's working record was
+  # seeded and then frozen, so the console kept its ticks in browser storage where the next reviewer
+  # to open the case could not see them. Staff-only, and refused to the listing's own owner: the
+  # ticks are what the colleague who approves the listing reads before deciding.
+  /properties/{id}/verification/checklist:
+    parameters: [ { $ref: '#/components/parameters/PropertyId' } ]
+    patch:
+      tags: [Moderation]
+      summary: Tick or untick one verification checklist line (admin)
+      operationId: setVerificationChecklist
+      description: >
+        Addresses the line by its `item` text rather than an id: the items are seeded from a fixed
+        per-deal list and the column is immutable, so the text is as stable as a surrogate key and
+        survives a client holding a cached case file. One line per call, deliberately — the console
+        ticks items as the reviewer works down the list, and a whole-list PUT would make every tick
+        a last-write-wins race against a second reviewer on the same case.
+      x-roles: [staff, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChecklistUpdate' }
+      responses:
+        '200':
+          description: Updated case file
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   # D190/Q15: the ownership gate. `properties.ownership_verified` shipped in V1 and no code path
   # ever wrote it — the badge the home page sells the product on was decorative. These writes are
   # how it is earned and withdrawn; the read is how an owner finds out what is missing. Every write
@@ -1920,53 +2081,34 @@ paths:
           description: Paged case files, most recently updated first
           content:
             application/json:
-              # Deliberately NOT `PageEnvelope`, and deliberately spelled out inline rather than
-              # given a reusable name. This is the only paged handler in the tree that returns a
-              # Spring Data `Page` directly instead of mapping it through `PageResponse`, so what
-              # reaches the wire is Spring's own envelope: `number` where all twenty-odd other
-              # lists say `page`, `sort` as an object rather than the `field,dir` string, and six
-              # further fields no caller asked for. Recorded as it actually serialises, because a
-              # contract describing the envelope we wish we had is worse than one that admits the
-              # exception — Spring Data itself logs, on every call, that this shape carries no
-              # stability guarantee. The fix is to change the handler to `PageResponse.of(...)`;
-              # that is a breaking change to a live ops screen and belongs in its own slice, and
-              # leaving no `$ref` here is what stops the shape being adopted by anything else in
-              # the meantime.
-              schema:
-                type: object
-                properties:
-                  content:
-                    type: array
-                    items: { $ref: '#/components/schemas/PropertyReviewSummary' }
-                  number: { type: integer, description: 'Zero-based page index — `page` everywhere else.', example: 0 }
-                  size: { type: integer, example: 20 }
-                  numberOfElements: { type: integer, description: 'Items on this page.', example: 1 }
-                  totalElements: { type: integer, format: int64, example: 137 }
-                  totalPages: { type: integer, example: 7 }
-                  first: { type: boolean }
-                  last: { type: boolean }
-                  empty: { type: boolean }
-                  sort:
-                    type: object
-                    properties:
-                      empty: { type: boolean }
-                      sorted: { type: boolean }
-                      unsorted: { type: boolean }
-                  pageable:
-                    type: object
-                    properties:
-                      offset: { type: integer, format: int64 }
-                      pageNumber: { type: integer }
-                      pageSize: { type: integer }
-                      paged: { type: boolean }
-                      unpaged: { type: boolean }
-                      sort:
-                        type: object
-                        properties:
-                          empty: { type: boolean }
-                          sorted: { type: boolean }
-                          unsorted: { type: boolean }
+              schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  # D218: the owner's half of the same queue. Added with its first caller, not after it.
+  /me/property-reviews:
+    get:
+      tags: [Moderation]
+      summary: My listings under review
+      operationId: listMyPropertyReviews
+      description: >
+        The caller's own verification case files, most recently updated first. Carries no `x-roles`
+        and needs none: the query is scoped to the caller's user id, so there is no row it can
+        return that the caller does not already own, and a user with no listings gets an empty page
+        rather than a 403.
+
+
+        It exists instead of N calls to `getPropertyVerification` because the owner dashboard
+        renders a verification chip and an unread badge on every listing card at once — without it,
+        a twenty-listing dashboard is twenty requests, and nineteen of them 404.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: Paged case files for the caller's listings, most recently updated first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyReviewQueuePage' }
   # S30 (slice 9): PATCH /reports/{id} ADDED.
   #
   # The contract shipped an abuse queue that could be written to (POST) and read (GET) but never
@@ -2012,6 +2154,42 @@ paths:
   # No new column: `reviews.status` already carries moderation state, and every read filters
   # status = 'published' -- including the rating aggregate -- so 'rejected' removes the review from
   # the listing and from the score it was moving. See V18 for the reasoning in full.
+  /admin/properties/summary:
+    get:
+      tags: [Moderation]
+      summary: Moderation headline counts
+      operationId: propertyModerationSummary
+      description: >
+        The console's KPI strip, counted by the database over every listing.
+
+
+        A separate operation rather than a field on `listPropertiesForModeration`, because only one
+        of the two pages. The queue read is clamped to 100 rows, and the console used to fold its
+        counters out of whatever that returned — so "Total", "Pending" and "Flagged" all silently
+        meant "of the newest hundred", and stopped moving at exactly the backlog size that makes
+        them worth reading. An undrained queue looked identical to a calm one.
+
+
+        Takes no filters, deliberately. These are the platform's totals, not the current query's: a
+        moderator narrowed to one locality still needs to know that four hundred listings are
+        waiting overall, and a strip that followed the filters would be a second rendering of the
+        table's own row count.
+
+
+        `total` covers every un-archived listing, `sold` and `rented` included — a closed deal is
+        still inventory. `archived` is the one counter outside that floor. `recheck` counts the
+        stays-live queue (Q14), which raises none of the other counters because those listings are
+        approved and in search. There is no `Under Review` counter: `PropertyStatus` has no such
+        value.
+      x-roles: [staff, admin]
+      responses:
+        '200':
+          description: Counts over the whole table
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyModerationSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /admin/properties:
     get:
       tags: [Moderation]
@@ -2024,7 +2202,19 @@ paths:
         unapproved listing: `searchProperties` pins `status='approved' AND archived=false`
         unconditionally — it takes no principal, so it cannot relax for staff — and `myListings` is
         scoped to the caller's own account. Unlike `searchProperties`, `status` here *widens*.
-        Owner contact is masked, as on every ops surface.
+
+
+        **Owner contact is raw here, not masked**, and this endpoint changed its mind about that.
+        It shipped masked, on the argument that a list leaks the whole catalogue's contacts at once
+        rather than one at a time. The argument was right about the risk and wrong about the work:
+        the desk reading this queue exists to ring owners whose listings are stuck, and a moderator
+        denied the number here gets it from somewhere this platform cannot log. The mask never stood
+        between the owner and staff — only between the disclosure and the audit trail.
+
+
+        This is not the contact gate relaxing. The gate (`owner|approved|pending|declined|none`) is
+        the owner's decision about one seeker, and no back-office role satisfies it. What applies
+        here is `properties:read`, granted per account and revocable per account.
       x-roles: [staff, admin]
       parameters:
         - { name: deal, in: query, schema: { $ref: '#/components/schemas/DealIntent' } }
@@ -2097,8 +2287,10 @@ paths:
         typed themselves.
 
 
-        The listing is born `pending` like any other. Owner contact is masked on the response, as on
-        every ops surface.
+        The listing is born `pending` like any other. Owner contact comes back raw, which here is
+        barely a disclosure: the operator typed that number into this very request a moment ago.
+        Masking it on the way out would have hidden a value from the only person who already had it,
+        and left this response disagreeing with the queue the listing lands in.
       x-roles: [staff, admin]
       requestBody:
         required: true
@@ -2107,7 +2299,7 @@ paths:
             schema: { $ref: '#/components/schemas/OnBehalfListingCreate' }
       responses:
         '201':
-          description: The created listing, owner contact masked
+          description: The created listing
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
@@ -6133,6 +6325,44 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/BackOfficePermission' }
+  /admin/message-templates:
+    get:
+      tags: [Admin & Analytics]
+      summary: The approved copy staff may send to owners
+      operationId: listMessageTemplates
+      description: >
+        Served rather than bundled into the console, for the same reason as the permission
+        catalogue: a screen must not be able to offer a template the server would refuse. Outreach
+        requests name a template by id and never carry a body, so this list *is* the set of things
+        that can be said.
+
+
+        Returned with `body` un-rendered, placeholders intact, so the console can show a live
+        preview as the operator picks. The substitution itself happens server-side at send.
+
+
+        Guarded on staff role alone, with no permission atom, and that is a considered omission
+        rather than an oversight: this is copy. It names no owner, no listing and no account, so
+        there is nothing here to grant access to. The atom lives on the endpoint that *sends*.
+
+
+        Retired templates are withheld rather than deleted, because the messages already prepared
+        from them stay readable in the outreach log and a dangling reference there would be worse
+        than an unused row here.
+      x-roles: [staff, admin]
+      parameters:
+        - name: channel
+          in: query
+          schema: { type: string, enum: [whatsapp, sms, email], default: whatsapp }
+      responses:
+        '200':
+          description: Active templates for the channel, grouped by category then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MessageTemplate' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /admin/audit-log:
     get:
       tags: [Admin & Analytics]
@@ -7145,6 +7375,13 @@ components:
             video: { type: string, format: uri }
             address: { type: string }
             pincode: { type: string }
+            electricityMeterNo:
+              type: string
+              description: >-
+                The unit's electricity meter number (V79). Present only on the owner's own
+                `/me/listings` views and on the staff moderation surfaces; absent entirely from the
+                public listing response, because a meter number names a live utility account and is
+                one of the few values here a stranger could act on rather than merely read.
             views: { type: integer, description: Denormalized view counter }
             enquiries: { type: integer, description: Denormalized enquiry counter }
             featured: { type: boolean }
@@ -7183,23 +7420,96 @@ components:
             docsCount: { type: integer }
             owner:
               type: object
-              description: Owner summary; contact number masked until the contact-gate is passed.
+              description: Owner summary; contact number masked unless the reader is entitled to it.
               properties:
                 id: { type: string }
                 name: { type: string }
-                mobile: { type: string, description: Masked (e.g. 98XXXXX210) until unlocked }
+                mobile:
+                  type: string
+                  description: >-
+                    Masked (e.g. `98XXXXX210`) by default. Raw for a seeker who has passed the
+                    contact gate on this listing, and raw on the moderation desk
+                    (`listPropertiesForModeration` and the operations that return a listing from it)
+                    for a caller holding `properties:read` — two different entitlements that happen
+                    to render the same, which is why this is one field and not two.
                 verified: { type: boolean }
             adminPipeline:
               type: object
-              description: Admin post-on-behalf onboarding pipeline (staff-created listings).
+              nullable: true
+              description: >
+                Admin post-on-behalf onboarding pipeline (staff-created listings).
+
+
+                **Absent for every audience but staff.** This says which listings the platform
+                manufactured rather than received, and names the staff member who did it — it is for
+                the desk that does the work. Consumer and owner surfaces omit the key entirely
+                rather than sending an empty object, because an empty object would still disclose
+                that such a thing exists.
+
+
+                Also absent, even for staff, on listings the owner posted themselves: there is no
+                hand-back to report on, and an object of all-false flags would put the listing on the
+                board as work that never completes.
               properties:
                 postedByAdmin: { type: boolean }
-                postedByStaff: { type: [string, 'null'] }
+                postedByStaff:
+                  type: [string, 'null']
+                  description: >
+                    User id of the staff member who created the listing. An id rather than a name so
+                    a colleague changing their display name does not silently rewrite history.
                 pipelineStage: { type: string, enum: [listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed] }
-                claimLinkSent: { type: boolean }
-                photosUploaded: { type: boolean }
-                aadhaarVerified: { type: boolean }
-                reminderCount: { type: integer }
+                claimLinkSent:
+                  type: boolean
+                  description: Derived — true once `pipelineStage` has reached `claim_sent`.
+                photosUploaded:
+                  type: boolean
+                  description: Derived — true once `pipelineStage` has reached `photos_uploaded`.
+                aadhaarVerified:
+                  type: boolean
+                  description: >
+                    Derived — true once `pipelineStage` has reached `aadhaar_verified`. The three
+                    derived flags are not stored: each asks "has the funnel got this far", which the
+                    stage already answers, and a second copy could only ever disagree with it.
+                reminderCount:
+                  type: integer
+                  description: >
+                    How many chasers have gone to this owner: a count over the outbound messages
+                    themselves, not a column, so it cannot drift from the messages actually
+                    prepared. See `listOwnerOutreach` for what those messages were.
+
+
+                    `0` on the response to `createListingOnBehalf`, which is correct rather than
+                    unimplemented: nobody can have chased an owner about a listing that did not
+                    exist a moment ago. Everywhere else this object appears, the count is real —
+                    and everywhere it would not be, the whole object is absent instead.
+    PropertyModerationSummary:
+      type: object
+      description: >
+        Moderation KPI counts over the whole `properties` table. Every counter except `archived` is
+        floored to un-archived rows.
+      required: [total, approved, pending, flagged, featured, recheck, archived]
+      properties:
+        total:
+          type: integer
+          description: Every un-archived listing, `sold` and `rented` included — a closed deal is still inventory.
+        approved: { type: integer, description: Live and in search. }
+        pending:
+          type: integer
+          description: >
+            Awaiting a first moderation decision. `pending` is the only spelling of that state;
+            `PropertyStatus` has no `Under Review`.
+        flagged: { type: integer, description: Taken out of search by a moderator. }
+        featured: { type: integer, description: Promoted onto the home page. }
+        recheck:
+          type: integer
+          description: >
+            Approved listings with a stays-live re-check owed (Q14). Counted apart because these
+            rows are live, un-archived and in search, so they raise none of the other counters —
+            a moderator watching `pending` would never learn the queue existed.
+        archived:
+          type: integer
+          description: Soft-deleted. The one counter that is not a subset of `total`.
+
     Locality:
       type: object
       properties:
@@ -7469,6 +7779,18 @@ components:
         amenities: { type: array, items: { type: string } }
         images: { type: array, items: { type: string, format: uri } }
         description: { type: string }
+        # The four duplicate-detection inputs (V79). None is required: an owner in a society on a
+        # bulk meter has no meter number, a plot has no floor, and a standalone building has no
+        # society. The rule reads whichever of them are present and stays silent otherwise.
+        address: { type: string, description: Street address; normalised server-side into a duplicate key }
+        floor: { type: integer, description: Which floor the unit is on }
+        societyId: { type: string, format: uuid, description: The society this unit sits in }
+        electricityMeterNo:
+          type: string
+          description: >-
+            The unit's electricity meter number. Write-mostly: the duplicate probe reads it
+            server-side, and it is returned only to the listing's owner and to staff, never on the
+            public listing response.
     ListingUpdate:
       allOf:
         - $ref: '#/components/schemas/ListingCreate'
@@ -7601,6 +7923,84 @@ components:
         email: { type: string, format: email }
         role: { $ref: '#/components/schemas/Role' }
         team: { $ref: '#/components/schemas/Team' }
+    MessageTemplate:
+      # D216: one row of message_template. Operational copy, held in the database rather than as
+      # Java constants so it can be corrected without a deploy.
+      type: object
+      description: >
+        One piece of approved outreach copy. `body` arrives un-rendered, with `{placeholder}` tokens
+        intact, so a console can preview it as the operator chooses; substitution happens on the
+        server at send, from the listing and its owner, never from anything the client supplies.
+      required: [id, channel, category, name, body]
+      properties:
+        id:
+          type: string
+          description: >-
+            A slug, not a UUID, and deliberately: it is written by hand into outreach requests and
+            read in the log, so it is meant to be legible.
+          example: wa-photos
+        channel: { type: string, enum: [whatsapp, sms, email] }
+        category:
+          type: string
+          enum: [onboarding, reminder, notification, advice, verification]
+          description: What the message is for, used to group the picker.
+        name: { type: string, example: 'Photo request' }
+        body:
+          type: string
+          description: >-
+            The template text. Known placeholders are `{owner_name}`, `{owner_mobile}`, `{title}`,
+            `{locality}`, `{price}`, `{listing_id}`, `{staff_name}` and `{claim_link}`. A token with
+            no value is left standing as literal text rather than blanked, so an unresolved variable
+            is visible in the preview instead of arriving at an owner as a missing word.
+    PreparedMessage:
+      # D216: the result of prepareOwnerOutreach.
+      type: object
+      description: >
+        A message the server has rendered, recorded, and handed back for a human to send.
+      required: [id, body, status, handoffLink]
+      properties:
+        id: { type: string, format: uuid, description: The ledger row, as returned by `listOwnerOutreach`. }
+        body:
+          type: string
+          description: The rendered text, exactly as it will appear on the owner's phone.
+        status:
+          type: string
+          enum: [prepared, sent, failed]
+          description: >-
+            Always `prepared` today. `sent` and `failed` exist because the transmitter is a seam:
+            substituting a Business Solution Provider for click-to-chat would change which of these
+            a row can reach and nothing else about this contract. Until then the server declines to
+            claim delivery it cannot observe.
+        handoffLink:
+          type: string
+          format: uri
+          description: >-
+            A `wa.me` link addressed to the owner's own number, carrying the rendered body. Opening
+            it is the send.
+          example: 'https://wa.me/919876543210?text=Hi%20Ramesh...'
+    OutreachEntry:
+      # D216: one row of outbound_message, as read back by listOwnerOutreach.
+      type: object
+      description: >
+        One message prepared for this listing's owner. This log is what a colleague reads before
+        picking up the phone, which is why `preparedBy` names a person rather than "the platform".
+      required: [id, templateId, channel, body, status, preparedBy, preparedAt]
+      properties:
+        id: { type: string, format: uuid }
+        templateId: { type: string, example: wa-photos }
+        channel: { type: string, enum: [whatsapp, sms, email] }
+        body: { type: string, description: The rendered text as it was at the time it was prepared. }
+        status: { type: string, enum: [prepared, sent, failed] }
+        preparedBy:
+          type: string
+          format: uuid
+          description: The staff account that prepared it.
+        preparedAt:
+          type: string
+          format: date-time
+          description: >-
+            Wall-clock time at insert, not transaction start, so two messages prepared in one unit of
+            work still order against each other. Ordering is the point of this list.
     BackOfficePermission:
       # D192/D13: one entry of the catalogue served by GET /admin/permission-catalogue. Mirrors
       # security/BackOfficePermissions.Permission.
@@ -7787,6 +8187,18 @@ components:
         notes: { type: string }
         decidedAt: { type: string, format: date-time }
 
+    ChecklistUpdate:
+      # D218. `item` is the line's text, matching PropertyReview.checklist[].item exactly.
+      type: object
+      description: One verification checklist line, ticked or unticked.
+      required: [item]
+      properties:
+        item: { type: string, example: 'Property tax receipt' }
+        pass:
+          type: boolean
+          default: false
+          description: 'Omitted is treated as false — "not stated" and "not checked" are the same fact here.'
+
     OwnershipVerification:
       # D190/Q15: the case file behind the Ownership Verified badge.
       #
@@ -7866,6 +8278,13 @@ components:
       # S34: the wire shape of one message in the clarification thread. `from` is derived
       # server-side by comparing the sender to the listing owner, never sent by the client - a
       # client-supplied `from` would let an owner post a message that appeared to come from ops.
+      #
+      # D218: `internal` marks a staff-only message. It is only ever true in a staff response - the
+      # owner's copy has internal messages filtered out entirely, so for them it is uniformly false
+      # and carries nothing. It exists because filtering alone left staff unable to tell a staff-only
+      # finding from something the owner was actually told: both arrive as `from: ops`, in one
+      # conversation. A moderator acting on that misreading is the same disclosure the filter exists
+      # to prevent, one step later.
       type: object
       properties:
         id: { type: string }
@@ -7873,21 +8292,82 @@ components:
         body: { type: string }
         at: { type: string, format: date-time }
         read: { type: boolean }
+        internal: { type: boolean, description: Staff-only; never true in an owner's copy. }
     PropertyReviewSummary:
       # D91: one row of the ops verification queue. Not `PropertyReview` with fields dropped — the
       # queue deliberately carries neither `checklist` nor `messages`, because a hundred case files
       # each dragging their whole clarification thread along is a page nobody can render and a
-      # thread nobody reads at that width. `updatedAt` exists only here, and only because it is
-      # what the queue is ordered by: the row that has gone longest without a reply is the one ops
-      # needs to see first, and a sort key the client cannot read is a sort it cannot explain.
+      # thread nobody reads at that width.
+      #
+      # D218: the queue is ordered by `last_message_at desc, id desc`, which is NOT on this schema.
+      # `updatedAt` is rendered because a moderator wants to know how stale a case is, but it is no
+      # longer the sort key: it moves for anything that dirties the row, whereas the desk triages by
+      # who is waiting for a reply. Sorting client-side on `updatedAt` will not reproduce the server
+      # order; page through it instead.
       type: object
       description: One listing under review, as it appears in the ops queue.
       properties:
         propertyId: { type: string }
         status: { $ref: '#/components/schemas/PropertyStatus' }
         reviewer: { type: string }
+        unread:
+          type: integer
+          description: >
+            D218. Messages waiting on the side reading this row, counted from the opposite end
+            depending on which queue served it: on `/admin/property-reviews` it is the owner's
+            unread messages, on `/me/property-reviews` it is ops'. Same rule — a message is unread
+            to the side that did not send it — which is also what `markVerificationRead` writes.
+            Deliberately not reader-scoped on the ops queue: that desk is shared, so counting "what
+            I personally have not opened" would make a colleague's reply look like new owner mail.
+          example: 2
         decidedAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    PropertyReviewQueuePage:
+      # The one non-house page envelope in the tree, named (D218) only because a second route now
+      # returns it and 40 lines of copied YAML is a worse guard than a name. The name is
+      # deliberately un-generic: nothing else can `$ref` it without either lying about its item type
+      # or renaming it, which is the same protection the inline copy gave.
+      #
+      # This is what Spring Data's own `Page` serialises to, and it is not the shape the other
+      # twenty-odd lists use: `number` where they say `page`, `sort` as an object rather than the
+      # `field,dir` string, and six further fields no caller asked for. Recorded as it actually is,
+      # because a contract describing the envelope we wish we had is worse than one that admits the
+      # exception — Spring Data itself logs on every call that this shape carries no stability
+      # guarantee. The fix is `PageResponse.of(...)` in the handlers; that breaks a live ops screen
+      # and belongs in its own slice.
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/PropertyReviewSummary' }
+        number: { type: integer, description: 'Zero-based page index — `page` everywhere else.', example: 0 }
+        size: { type: integer, example: 20 }
+        numberOfElements: { type: integer, description: 'Items on this page.', example: 1 }
+        totalElements: { type: integer, format: int64, example: 137 }
+        totalPages: { type: integer, example: 7 }
+        first: { type: boolean }
+        last: { type: boolean }
+        empty: { type: boolean }
+        sort:
+          type: object
+          properties:
+            empty: { type: boolean }
+            sorted: { type: boolean }
+            unsorted: { type: boolean }
+        pageable:
+          type: object
+          properties:
+            offset: { type: integer, format: int64 }
+            pageNumber: { type: integer }
+            pageSize: { type: integer }
+            paged: { type: boolean }
+            unpaged: { type: boolean }
+            sort:
+              type: object
+              properties:
+                empty: { type: boolean }
+                sorted: { type: boolean }
+                unsorted: { type: boolean }
     Report:
       type: object
       properties:

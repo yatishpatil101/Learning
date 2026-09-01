@@ -159,7 +159,11 @@ public class ManagedPropertyService {
         ListingCreate listing = new ListingCreate(
                 m.getTitle(), m.getDeal(), m.getPropertyType(), m.getBhk(), m.getPrice(),
                 null, null, null, m.getArea(), m.getAreaUnit(), m.getFurnishing(),
-                m.getLocality(), CITY, null, null, null, null, null, null, null);
+                m.getLocality(), CITY, null, null, null, null, null, null, null,
+                // address / floor / societyId / electricityMeterNo: a managed record is the owner's
+                // private file on a property they already hold, so there is no duplicate to detect
+                // and nothing here to carry into these.
+                null, null, null, null);
         // A managed record is captured freely (furnishing is free-text, price may be zero); the
         // marketplace contract is stricter. Publish is the boundary, so re-run the listing's own
         // bean-validation here — ListingService.create does not (only @Valid at a controller does) —

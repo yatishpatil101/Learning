@@ -3,7 +3,10 @@ package com.punenest.api.catalog.listing;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyMapper;
 import com.punenest.api.catalog.property.PropertyResponse;
+import com.punenest.api.common.trust.BackOfficeVisibility;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.OutreachCounts;
+import com.punenest.api.common.trust.PrivateFieldVisibility;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
@@ -51,7 +54,9 @@ public class MeListingsController {
     public PageResponse<PropertyResponse> myListings(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(listingService.myListings(principal.userId(), pageable),
-                p -> propertyMapper.toResponse(p, ContactVisibility.MASKED));
+                p -> propertyMapper.toResponse(p, ContactVisibility.MASKED,
+                        BackOfficeVisibility.HIDDEN, OutreachCounts.NONE,
+                        PrivateFieldVisibility.VISIBLE));
     }
 
     /** {@code POST /me/listings} — create a listing; {@code 201}, status forced pending, owner = caller. */
@@ -60,14 +65,16 @@ public class MeListingsController {
     public PropertyResponse create(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody ListingCreate body) {
         return propertyMapper.toResponse(
-                listingService.create(principal.userId(), body), ContactVisibility.MASKED);
+                listingService.create(principal.userId(), body), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 
     /** {@code GET /me/listings/{id}} — a single owned listing by slug-or-id; {@code 404} if not owned. */
     @GetMapping(Routes.MeListings.BY_ID)
     public PropertyResponse getMine(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return propertyMapper.toResponse(
-                listingService.getMine(principal.userId(), id), ContactVisibility.MASKED);
+                listingService.getMine(principal.userId(), id), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 
     /**
@@ -80,6 +87,7 @@ public class MeListingsController {
     public PropertyResponse update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody ListingUpdate body) {
         return propertyMapper.toResponse(
-                listingService.update(principal.userId(), id, body), ContactVisibility.MASKED);
+                listingService.update(principal.userId(), id, body), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 }

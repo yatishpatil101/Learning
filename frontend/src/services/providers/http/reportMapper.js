@@ -54,6 +54,11 @@
  * - `reasonLabel` → resolved locally from `REASON_LABELS`, because it is presentation text that
  *   belongs with the vocabulary the client already ships.
  */
+import {
+  LISTING_REPORT_REASONS,
+  SHARE_REPORT_REASONS,
+  OWNER_REPORT_REASONS,
+} from '../../../lib/reportReasons.js';
 
 /** Client `kind` → wire `targetType`. */
 const KIND_TO_TARGET = {
@@ -99,31 +104,69 @@ export function toTargetType(kind) {
 }
 
 /**
- * Every reason label the three modal vocabularies ship, flattened.
+ * Reason code → the words the reporter actually read, indexed by what they were reporting.
  *
- * One table rather than three, because a label is looked up by key alone once the report is in the
- * queue — the queue does not know which modal produced it. Keys are unique across the three sets
- * except where they genuinely mean the same thing (`spam`, `broker`, `fake`, `other`).
+ * This used to be one flat table, hand-copied from the three modal vocabularies, with a note
+ * claiming the colliding keys "genuinely mean the same thing". They do not, and the table was wrong
+ * in two separate ways because of it.
+ *
+ * *Wrong by drift:* `abuse` was written here as "Abusive or offensive behaviour" while the modal
+ * offered "Abusive or harassing behaviour", and `fakelistings` as "Posting fake listings" against
+ * the modal's "Listings are fake or unavailable". A moderator filtering the queue and a reporter
+ * filing the complaint were reading different words for one code. Two copies of a vocabulary drift;
+ * that is what copies do.
+ *
+ * *Wrong by design:* four codes are shared across vocabularies **under different wording**, because
+ * they describe different things. `spam` from an owner is a stream of irrelevant messages, on a
+ * listing a duplicate listing, on a flatmate post a duplicate post. A flat table has to pick one,
+ * so a spammy flatmate post was labelled "Spam or duplicate listing" in the ops queue — the wrong
+ * noun for what the reporter clicked. Same for `fake`, `broker` and `unavailable`.
+ *
+ * The label is therefore a function of `(reason, targetType)`, exactly as validity is — see
+ * `ReportReasons.java`, which rejects a reason that is not legal for the target type. `toViewModel`
+ * has the target type in hand, so there is no reason to resolve on the code alone.
+ *
+ * Derived from `lib/reportReasons.js`. It cannot drift from the modal any more, because it *is* the
+ * modal's data.
+ */
+const LABELS_BY_TARGET = {
+  property: Object.fromEntries(LISTING_REPORT_REASONS),
+  post: Object.fromEntries(SHARE_REPORT_REASONS),
+  user: Object.fromEntries(OWNER_REPORT_REASONS),
+  /* Spelled out rather than left to the flattened fallback below. `ReportReasons.FOR_REVIEW` is
+     `fake`/`abuse`/`other`, and all three collide with vocabularies whose wording is about a
+     listing or a person: a review reported as `fake` would otherwise read "Fake photos or
+     misleading info", which is the wrong noun for a review and the exact class of mislabelling
+     this table was restructured to remove. There is no modal to derive these from — reviews are
+     reported from the review card, not a picker — so they are written out here. */
+  review: {
+    fake: 'Fake or dishonest review',
+    abuse: 'Abusive or offensive review',
+    other: 'Something else',
+  },
+};
+
+/**
+ * Every label, flattened — the fallback only, never the first choice.
+ *
+ * One caller needs it: an unrecognised target type — a code shipped by a newer server than this
+ * bundle — lands here rather than rendering a raw code at a moderator. Every target type the
+ * client knows about has its own entry above.
+ *
+ * Listing wording wins the collisions, because listings are the overwhelming majority of the queue
+ * and it is the least surprising default. Anything that can name its target type should not be
+ * reading this.
  */
 export const REASON_LABELS = {
-  // listing
-  sold: 'Already sold or rented out',
-  fake: 'Fake photos or misleading info',
-  unavailable: 'Owner not responding / unreachable',
-  pricing: 'Overpriced / incorrect price',
-  spam: 'Spam or duplicate listing',
-  broker: 'Posted by a broker / not the owner',
-  // user
-  impersonation: 'Fake or impersonated profile',
-  fraud: 'Suspected fraud or scam',
-  brokerage: 'Asked for brokerage / advance payment',
-  abuse: 'Abusive or offensive behaviour',
-  fakelistings: 'Posting fake listings',
-  // post (flatmates)
-  filled: 'Already filled / no longer available',
-  inappropriate: 'Inappropriate or offensive content',
-  other: 'Something else',
+  ...LABELS_BY_TARGET.post,
+  ...LABELS_BY_TARGET.user,
+  ...LABELS_BY_TARGET.property,
 };
+
+/** Reason code → display text for the thing it was filed against. Falls back before it gives up. */
+export const reasonLabel = (reason, targetType) =>
+  LABELS_BY_TARGET[targetType]?.[reason] || REASON_LABELS[reason] || reason || '';
+
 
 /** ISO instant → epoch ms. 0 for a missing date, so a sort never produces NaN. */
 function epoch(iso) {
@@ -151,7 +194,7 @@ export function toViewModel(r) {
     targetOwner: '',
     reportedBy: '',
     reason: r.reason || '',
-    reasonLabel: REASON_LABELS[r.reason] || r.reason || '',
+    reasonLabel: reasonLabel(r.reason, r.targetType),
     details: r.details || '',
     status: r.status || 'open',
     // Mock-only free text: the server keeps the moderator's words in the audit log, not on the row.

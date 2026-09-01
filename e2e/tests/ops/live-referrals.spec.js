@@ -49,7 +49,10 @@ const PAIRS = {
   },
   clawback: {
     referrer: { mobile: '9470744469', name: 'Meera Deshpande' },
-    referee: { mobile: '9158026750', name: 'Riya Rao' },
+    // Active, Aadhaar-verified, no listings — the same shape as every other referee here. It was
+    // Riya Rao, who is one of the six seeded `suspended` accounts; login has enforced that column
+    // since V77, so she could no longer sign in to be referred.
+    referee: { mobile: '9318202961', name: 'Vikram Rao' },
   },
   risk: {
     referrer: { mobile: '9708919481', name: 'Omkar Kulkarni' },

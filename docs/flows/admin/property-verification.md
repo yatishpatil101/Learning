@@ -207,6 +207,27 @@ exact spot a server transaction must own atomically.
   `in_review` (reject-then-resubmit loop).
 - **Intermediate states** `in_review` and `clarification` are refinements of "pending", not new
   top-level stages.
+- **A staffer cannot decide their own listing.** `PropertyVerificationService.decide` compares the
+  caller against `property.owner` and answers 403 *before* `requireCase`, because this is the one
+  case where every other guard passes: a staffer listing their own flat is a participant in the
+  thread *and* holds `properties:write`, so the listing would publish with nobody having read it.
+  Pinned live in `e2e/tests/ops/live-verification-access.spec.js`, which also decides the same case
+  as a second staffer — without that half, a route broken for everyone would satisfy the refusal.
+
+### Who may read the case file, and what a refusal says
+
+Two different shapes, for two different reasons.
+
+| Route | Not a participant, not staff | Why |
+|---|---|---|
+| `GET/POST /properties/{id}/verification`, `/messages`, `/read` | **404** | The guard is a *relationship*. A 403 would confirm that a listing with that id exists and is under review — the fact a competitor walking ids would probe for. The refusal has to be indistinguishable from "no such case", **including the response body**: two distinguishable 404s restore the oracle the status code was chosen to remove. |
+| `POST /verification/decision`, `PATCH /verification/checklist`, `GET /admin/property-reviews` | **403** | The guard is a *role*. `@PreAuthorize` refuses before the id is looked up, so the response cannot leak anything about the row — and these are routes a non-staff caller has no legitimate reason to have found. |
+
+The owner is a participant in their own review, which is why the thread routes carry no `x-roles` in
+the contract (spec fix S28) — role-gating them would have locked owners out of the conversation
+about their own listing. The one thing an owner is *not* shown is a case file whose every message is
+staff-only: that answers **404 rather than an empty thread**, because an empty thread still tells
+them a file has been opened on them (D218).
 
 ## 7. State machine
 

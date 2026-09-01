@@ -7,8 +7,10 @@ import com.punenest.api.catalog.property.PropertyMapper;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertySort;
 import com.punenest.api.catalog.property.PropertyStatus;
+import com.punenest.api.catalog.society.SocietyRepository;
 import com.punenest.api.common.audit.AuditService;
 import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.trust.ListingCaseNotes;
 import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
@@ -77,14 +79,21 @@ public class ListingService {
     private final PropertyRepository properties;
     private final UserRepository users;
     private final LocalityResolver localities;
+    private final SocietyRepository societies;
     private final PropertyMapper propertyMapper;
+    private final ListingCaseNotes caseNotes;
+    private final ListingDuplicateProbe duplicates;
     private final AuditService audit;
 
     public ListingService(PropertyRepository properties, UserRepository users,
-            LocalityResolver localities, PropertyMapper propertyMapper, AuditService audit) {
+            LocalityResolver localities, SocietyRepository societies, PropertyMapper propertyMapper,
+            ListingCaseNotes caseNotes, ListingDuplicateProbe duplicates, AuditService audit) {
         this.properties = properties;
         this.users = users;
+        this.caseNotes = caseNotes;
+        this.duplicates = duplicates;
         this.localities = localities;
+        this.societies = societies;
         this.propertyMapper = propertyMapper;
         this.audit = audit;
     }
@@ -117,6 +126,7 @@ public class ListingService {
         // Everything the client may say. PropertyMapper's allowlist decides what that is, so the
         // "deliberately absent" set in ListingCreate's Javadoc is enforced rather than described.
         propertyMapper.applyTo(in, p);
+        requireSociety(in.societyId());
 
         // Everything it may not. These three are why a listing cannot be born approved or
         // attributed to someone else.
@@ -136,7 +146,10 @@ public class ListingService {
         // is an accepted outcome — see LocalityResolver — and simply leaves the listing out of
         // locality facets until curated.
         p.setLocalitySlug(localities.resolve(in.locality(), in.lat(), in.lng()));
-        return properties.saveAndFlush(p);
+        duplicates.reindex(p);
+        properties.saveAndFlush(p);
+        duplicates.flag(p);
+        return p;
     }
 
     /**
@@ -149,16 +162,54 @@ public class ListingService {
      * <p>When one PATCH does both, the revert wins and no re-check is raised: a full re-moderation
      * looks at the whole listing, so queueing the attribute change separately would put the same
      * edit in front of a moderator twice.
+     *
+     * <p>Either outcome also posts a line into the owner's verification thread saying what happened
+     * and why. That sentence used to be composed in the browser and written to localStorage, which
+     * meant the owner's own explanation for why their listing had gone dark lived on one machine and
+     * the ops desk — the people who would have to answer for it — never saw it at all.
      */
     @Transactional
     public Property update(UUID userId, String idOrSlug, ListingUpdate in) {
         Property p = resolveOwned(userId, idOrSlug)
                 .orElseThrow(() -> NotFoundException.of("Listing"));
+        List<Object> signalBefore = duplicates.signalOf(p);
         EditImpact impact = apply(p, in);
+        duplicates.reindex(p);
         if (impact.remoderationRequired()) {
             p.revertToPending();
+            caseNotes.post(p.getId(), p.getDeal(),
+                    "You changed something fundamental about this listing, so it has gone back "
+                    + "for review and is off search until a moderator approves it. We usually get to "
+                    + "these within a day.");
         } else if (impact.recheckOnly()) {
             p.requestRecheck(impact.rechecked());
+            /* Branch on the work item the domain actually raised, not on the impact that asked for
+             * one. requestRecheck refuses on a listing that is not publicly visible, because "stays
+             * live" means nothing for a listing that is already off search and already in front of a
+             * moderator. Posting the note regardless told the owner of a pending listing that it was
+             * live, and opened a case file with no work item behind it. Reading the outcome rather
+             * than re-testing isPubliclyVisible() keeps one copy of that rule, in the entity. */
+            if (p.getRecheckRequestedAt() != null) {
+                caseNotes.post(p.getId(), p.getDeal(), "You updated: "
+                        + String.join(", ", impact.rechecked())
+                        + ". Your listing stays live \u2014 our team is re-checking these details and will "
+                        + "confirm shortly.");
+            }
+        }
+        /* Re-probe only when the edit actually moved one of the signals. Probing on every PATCH
+         * would re-post the same warning every time an owner touched their description; probing
+         * never would leave the obvious evasion open, since an owner can be approved at one address
+         * and then edit their way onto somebody else's.
+         *
+         * Last, after the status has settled, because the note quotes it. An approved listing whose
+         * PATCH both moves a signal and changes an identity field is pending by the time this
+         * transaction commits, and a note written before the revert would tell a moderator the
+         * listing is "already live -- decide whether it should stay up" about a listing that is not.
+         * The dedupe makes the ordering matter twice over: postInternalOnce compares message bodies,
+         * so the same collision described once as approved and once as pending is two notes for one
+         * finding. */
+        if (!duplicates.signalOf(p).equals(signalBefore)) {
+            duplicates.flag(p);
         }
         return p;
     }
@@ -188,6 +239,12 @@ public class ListingService {
         Property p = (id != null ? properties.findById(id) : properties.findBySlug(idOrSlug))
                 .orElseThrow(() -> NotFoundException.of("Listing"));
         apply(p, in);
+        // The key is recomputed so this listing stays findable by a *later* probe, but no probe is
+        // run on this edit and that asymmetry with update() is deliberate. The duplicate note exists
+        // to get a human to look; here a human is already looking, and is the one making the change.
+        // Filing them a work item about their own correction is the same mistake as reverting their
+        // own edit into their own queue, which the paragraph above explains at length.
+        duplicates.reindex(p);
         audit.record(principal, "property.adminUpdate", "property", p.getId().toString(),
                 "owner", p.getOwner() == null ? null : p.getOwner().getId().toString());
         return p;
@@ -272,6 +329,17 @@ public class ListingService {
             recheckOnly = true;
             rechecked.add("possession");
         }
+        // D219. The one field here a buyer cannot filter on, and it is in this set for a different
+        // reason: `address` is what AddressKey derives the duplicate signal from, so an edit to it is
+        // how a listing moves onto an address somebody else already holds. The probe below already
+        // notices and files a note — but only when the collision exists, and a moderator reading
+        // "possible duplicate" has no way to tell an honest correction from an owner who typed their
+        // way onto a neighbour's flat. The re-check names the field and is raised either way.
+        if (in.address() != null && !in.address().equals(p.getAddress())) {
+            p.setAddress(in.address());
+            recheckOnly = true;
+            rechecked.add("address");
+        }
 
         // Non-foundation fields: applied without triggering re-moderation.
         if (in.title() != null) {
@@ -313,6 +381,16 @@ public class ListingService {
         if (in.description() != null) {
             p.setDescription(in.description());
         }
+        if (in.floor() != null) {
+            p.setFloor(in.floor());
+        }
+        if (in.societyId() != null) {
+            requireSociety(in.societyId());
+            p.setSocietyId(in.societyId());
+        }
+        if (in.electricityMeterNo() != null) {
+            p.setElectricityMeterNo(in.electricityMeterNo());
+        }
 
         // Re-bind the curated slug only when the display locality actually changed — deliberately not
         // on a lat/lng-only edit. Coordinates are non-foundation (no re-moderation), so re-resolving
@@ -326,28 +404,26 @@ public class ListingService {
     }
 
     /**
-     * Soft-delete a listing (contract {@code archiveProperty}). Permitted for the listing's owner or
-     * for staff/admin (moderation); anyone else gets {@code 404} — the spec declares no {@code 403}
-     * here, and hiding existence avoids listing enumeration. Never a hard delete.
+     * Refuse a society id that names nothing, on both the create and the update path.
+     *
+     * <p>Not a duplicate of {@code properties_society_id_fkey}, which does already stop the write —
+     * but stops it as a constraint violation surfacing at flush, which is a {@code 409} on a request
+     * that is not a conflict with anything. An owner who sends a stale id gets a 404 naming what was
+     * not found, and the error shape stops depending on which of two writes reaches the database
+     * first.
+     *
+     * <p>Existence is also all that can be checked here today, and it is worth being clear that it is
+     * the weaker half of the problem. The FK already rules out ids that name nothing; what neither it
+     * nor this can rule out is an owner naming a society that <em>does</em> exist and has nothing to
+     * do with them, which puts their listing on that society's hub and into its count. Closing that
+     * needs a claim linking an owner to a society — the same missing claim that took the society arm
+     * out of the duplicate probe (see {@code PropertyRepository#findDuplicateCandidates}). When it
+     * exists, it goes here.
      */
-    @Transactional
-    public Property archive(AuthPrincipal principal, String idOrSlug, String reason) {
-        Property p = resolvePermitted(principal, idOrSlug);
-        p.archive(reason);
-        return p;
-    }
-
-    /**
-     * Restore an archived listing (contract {@code restoreProperty}). Same owner-or-staff/admin rule;
-     * per the domain rule the status is reset to {@code pending} so the un-archived listing is
-     * re-moderated before it can go live again.
-     */
-    @Transactional
-    public Property restore(AuthPrincipal principal, String idOrSlug) {
-        Property p = resolvePermitted(principal, idOrSlug);
-        p.restore();
-        p.revertToPending();
-        return p;
+    private void requireSociety(UUID societyId) {
+        if (societyId != null && !societies.existsById(societyId)) {
+            throw NotFoundException.of("Society");
+        }
     }
 
     /** Owner-scoped resolve (UUID → id, else slug); empty for a row the caller doesn't own. */
@@ -356,23 +432,6 @@ public class ListingService {
         return id != null
                 ? properties.findByIdAndOwner_Id(id, userId)
                 : properties.findBySlugAndOwner_Id(idOrSlug, userId);
-    }
-
-    /**
-     * Resolve any listing (across owners) and authorize the caller as owner or staff/admin, else
-     * {@code 404}. Used by archive/restore, which staff/admin may perform on any listing.
-     */
-    private Property resolvePermitted(AuthPrincipal principal, String idOrSlug) {
-        UUID id = parseUuid(idOrSlug);
-        Property p = (id != null ? properties.findById(id) : properties.findBySlug(idOrSlug))
-                .orElseThrow(() -> NotFoundException.of("Listing"));
-        boolean isOwner = p.getOwner().getId().equals(principal.userId());
-        boolean isModerator = Roles.Wire.STAFF.equals(principal.role())
-                || Roles.Wire.ADMIN.equals(principal.role());
-        if (!isOwner && !isModerator) {
-            throw NotFoundException.of("Listing");
-        }
-        return p;
     }
 
     /** {@code true} when two nullable numerics are equal by value (BigDecimal scale-insensitive). */

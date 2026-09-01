@@ -5,8 +5,10 @@ import com.punenest.api.catalog.property.Furnishing;
 import com.punenest.api.catalog.property.PropertyPossession;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Partial listing update (contract {@code ListingUpdate} — {@code allOf ListingCreate} with every
@@ -28,6 +30,10 @@ import java.util.List;
  * @param reraId       MahaRERA id, nullable
  * @param possession   possession state ({@link PropertyPossession}), nullable = not stated
  * @param images       image URLs, nullable
+ * @param address      street address, nullable; re-normalised into the duplicate key on every write
+ * @param floor        which floor the unit is on, nullable
+ * @param societyId    the society this unit sits in, nullable
+ * @param electricityMeterNo the unit's meter number, nullable; never returned to the public
  */
 public record ListingUpdate(
         String title,
@@ -51,5 +57,11 @@ public record ListingUpdate(
                 message = PropertyPossession.PATTERN_MESSAGE) String possession,
         List<String> amenities,
         List<String> images,
-        String description) {
+        String description,
+        // Bounded to match ListingCreate; both columns are indexed, and an over-long value is a 500
+        // rather than a 422 without this. See the note there.
+        @Size(max = 300) String address,
+        Integer floor,
+        UUID societyId,
+        @Size(max = 64) String electricityMeterNo) {
 }

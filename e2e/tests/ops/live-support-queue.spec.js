@@ -1,4 +1,4 @@
-import { expect, test } from '../../fixtures/live.js';
+import { expect, MOBILE, test } from '../../fixtures/live.js';
 import { API, apiLogin } from '../../helpers/liveAuth.js';
 
 /* Ops → Support queue, against the live API (D51).
@@ -116,9 +116,13 @@ test.describe('Ops → Support queue (live)', () => {
     /* The withheld field. Priya has a real ten-digit mobile in `users`, and
        `GET /support/tickets/{id}` shows it to this very caller — so its absence here is the
        schema's decision rather than an accident of what the fixture happened to hold. A list is the
-       shape that gets exported, and this list is the whole platform's support traffic. */
+       shape that gets exported, and this list is the whole platform's support traffic.
+
+       `MOBILE` is anchored for a reason — see `fixtures/live.js`. The queue is every ticket on the
+       platform, including ones other specs raised with a `Date.now()` stamp in the subject, and a
+       millisecond timestamp contains a ten-digit run that looks exactly like a mobile. */
     const table = await page.getByRole('table').innerText();
-    expect(table).not.toMatch(/(?:\+91[\s-]?)?[6-9]\d{9}/);
+    expect(table).not.toMatch(MOBILE);
 
     expect(consoleErrors).toEqual([]);
   });

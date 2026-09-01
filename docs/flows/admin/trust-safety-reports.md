@@ -1,6 +1,6 @@
 # Flow: Trust & Safety - Reports & Moderation
 
-> The moderation queue for user-submitted reports against listings and users: triage each report,
+> The moderation queue for user-submitted reports against listings, users and flatmate posts: triage each report,
 > take action (take down a listing / suspend a user) or dismiss, and keep an audit trail.
 > **Status:** documented from React source - **Primary role(s):** admin / manager (staff with the Reports module)
 
@@ -15,13 +15,13 @@
   verification queue missed. Repeated reports on one target are an escalation cue.
 
 ## 2. Entry points
-- **Routes:** `/admin/reports`. Tabs: `listings` and `users`. Deep link `?open=<reportId>` opens the
+- **Routes:** `/admin/reports`. Tabs: `listings`, `users` and `posts`. Deep link `?open=<reportId>` opens the
   detail modal.
 - **Tiles / triggers:** admin dashboard "open reports" signal; per-row actions (take down / suspend /
   resolve / dismiss / reopen); bulk resolve / dismiss bar.
 - **Source components:**
   - `src/pages/admin/AdminReports.jsx` - queue, filters, single + bulk actions, detail modal.
-  - `src/lib/data/reports.js` - `submitReport` (intake) + `REPORT_REASONS`.
+  - `src/lib/data/reports.js` - `submitReport` (intake).
   - Report intake UI: the shared `src/components/ReportModal.jsx`, reused by the property detail page
     (via a thin `src/pages/consumer/property/ReportModal.jsx` adapter), Flatmates posts, Messages,
     and the public owner profile. The modal takes a `reasons` prop, so each surface supplies its own
@@ -52,14 +52,40 @@
   ownerMobile (digits), reason, reasonLabel, details, reportedBy, reporterMobile (digits),
   url, at: Date.now(), status: 'open', actionTaken: '', handledAt: 0 }
 ```
-- **Reasons** are per-surface and exported from `src/components/ReportModal.jsx`:
-  `LISTING_REPORT_REASONS` (the default, property listings), `SHARE_REPORT_REASONS` (Flatmates
-  seeker/room/group posts), `OWNER_REPORT_REASONS` (owner profiles and chat). `REPORT_REASONS` in
-  `src/lib/data/reports.js` is a leftover export with no importers. The admin filter still lists its
-  own moderation reason set (`fake`, `inaccurate`, `fraud`, `impersonation`, `offensive`, `spam`), so
-  the intake<->filter enum mismatch (data-model inconsistency #7) is now a three-way mismatch.
-- **`kind` routing:** rooms report as `kind: 'listing'` (admin listings queue); flatmate seekers and
-  groups report as `kind: 'user'` (admin users queue).
+- **Reasons** are per-surface and exported from `src/lib/reportReasons.js`:
+  `LISTING_REPORT_REASONS` (the modal's default, property listings), `SHARE_REPORT_REASONS`
+  (Flatmates seeker/room/group posts), `OWNER_REPORT_REASONS` (owner profiles and chat). They lived
+  in `src/components/ReportModal.jsx` until the reports slice; they moved because the ops queue and
+  the http mapper need them too, and a services-layer module should not import from `components/`.
+  A fourth, byte-identical copy of the listing set survived as `REPORT_REASONS` in
+  `src/lib/data/reports.js` with no importers — deleted, because an unimported duplicate sitting in
+  the file the mock writer calls is the one a future edit lands in.
+- **The three-way mismatch is closed.** The admin filter used to carry its own hand-written
+  moderation set (`fake`, `inaccurate`, `fraud`, `impersonation`, `offensive`, `spam`) — two of those
+  codes existed in no vocabulary at all, so filtering by them always emptied the queue, and nine
+  codes reports genuinely carry were unfilterable. It now derives its options from the two
+  vocabularies above, per tab, and an inapplicable selection is *derived* away rather than cleared,
+  so the tab never paints a frame filtered by a code its rows cannot carry — and returning to the
+  original tab restores the filter. Labels are
+  resolved the same way: `reportMapper.reasonLabel(reason, targetType)` indexes the vocabularies by
+  target type, because `spam` on a listing ("duplicate listing"), on a flatmate post ("duplicate
+  post") and from an owner ("irrelevant messages") are different complaints. Data-model
+  inconsistency #7 is resolved.
+- **The reporter is never named to the queue.** `ReportResponse` deliberately omits `reporterId`, so
+  the http mapper resolves `reportedBy` to `''` and every live row falls back. The fallback reads
+  **"Withheld"**, not "Anonymous": `reports.reporter_id` is NOT NULL and drives the duplicate index,
+  so the platform knows exactly who filed the report — telling a moderator it was anonymous would
+  suggest an unattributable complaint, which is a far easier one to dismiss. The string is rendered
+  in four places (table column, detail drawer, mobile card and the CSV export, where a blank cell
+  would read as missing rather than withheld); `admin/live-reports` asserts that "Anonymous" appears
+  **nowhere** on the page, which is what caught the last two copies.
+- **`kind` routing:** rooms, flatmate seekers and groups all report as `kind: 'share'` →
+  `targetType: 'post'`, and land in the admin **posts** tab. That tab arrived late: the queue split
+  its rows with `kind === 'listing' ? … : kind === 'user'`, so `share` rows matched neither branch
+  and rendered in no tab at all. It was masked by an older bug in `Flatmates.jsx`, which sent
+  `kind: 'user'` — wrong, but *visible*, under the owner vocabulary. Fixing the mapping is what made
+  the reports vanish. `TAB_KIND` in `AdminReports.jsx` is now the single place the three-way
+  correspondence is written down, so a fourth target type cannot be added without confronting it.
 - Every new report starts `status: 'open'` with no action taken.
 
 ### 5.2 Triage states & moderator actions
@@ -74,6 +100,7 @@ The `act(id, status, actionTaken)` handler (`AdminReports.jsx`) is the single mu
 |---------|--------|-------------|--------|
 | Take down (listings tab) | `actioned` | `Listing taken down` | records the takedown decision |
 | Suspend (users tab) | `actioned` | `User suspended` | records the suspend decision |
+| Take down (posts tab) | `actioned` | `Post taken down` | `hide_content`, not `suspend_account` — a post is content, and its author may have done nothing worse than forget to delete it |
 | Resolve | `resolved` | `Reviewed, no action needed` | closed, no action |
 | Dismiss | `dismissed` | (unchanged) | closed as not actionable |
 | Reopen | `open` | cleared to `''` | back to the queue |
@@ -88,10 +115,12 @@ The `act(id, status, actionTaken)` handler (`AdminReports.jsx`) is the single mu
 times, so a repeat offender stands out even if each individual report looks minor.
 
 ### 5.4 Filtering, KPIs, and tabs
-- **Tabs** split by `kind`: `listings` vs `users`.
+- **Tabs** split by `kind` via `TAB_KIND`: `listings → listing`, `users → user`, `posts → share`.
 - **Filters:** status (`open|resolved|actioned|dismissed`), reason, date range, and free-text search
   over the whole record (`JSON.stringify(r).includes(q)`).
-- **KPIs:** `open`, `listings`, `users`, `closed` (status != open).
+- **KPIs:** `open`, `listings`, `users`, `posts`, `closed` (status != open). The two partitions
+  (`open + closed` and `listings + users + posts`) must total the same number; the live spec asserts
+  it, and that arithmetic is what would have caught the missing posts tab.
 - Selection resets on any tab/filter change; the header checkbox selects all **open** rows only.
 
 ### 5.5 Bulk actions

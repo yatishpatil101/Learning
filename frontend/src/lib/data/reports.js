@@ -3,17 +3,6 @@
    which reads from the same collection. */
 import { mutateDb } from '../mockApi.js';
 
-// HTML property.html report reasons (exact parity)
-export const REPORT_REASONS = [
-  ['sold', 'Already sold or rented out'],
-  ['fake', 'Fake photos or misleading info'],
-  ['unavailable', 'Owner not responding / unreachable'],
-  ['pricing', 'Overpriced / incorrect price'],
-  ['spam', 'Spam or duplicate listing'],
-  ['broker', 'Posted by a broker / not the owner'],
-  ['other', 'Something else'],
-];
-
 export function submitReport({ listingId, listingTitle, ownerName, ownerMobile, reason, reasonLabel, details, reportedBy, reporterMobile, url, kind }) {
   return mutateDb((db) => {
     if (!db.reports) db.reports = [];
@@ -27,7 +16,11 @@ export function submitReport({ listingId, listingTitle, ownerName, ownerMobile, 
       reason,
       reasonLabel,
       details: String(details || '').trim(),
-      reportedBy: reportedBy || 'Anonymous',
+      /* Empty, not 'Anonymous'. Writing a placeholder into the record makes it *truthy*, so the
+         queue's own fallback can never fire and the stored data quietly outranks the display
+         decision. Whether a withheld reporter reads as "Withheld" belongs to the render layer,
+         which is where the live provider already leaves it. */
+      reportedBy: reportedBy || '',
       reporterMobile: String(reporterMobile || '').replace(/\D/g, ''),
       url: url || '',
       at: Date.now(),

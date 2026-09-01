@@ -1,10 +1,9 @@
 import {
   addListing, updateListing, addRoom, parseAmount,
   getListing, isListingApproved,
-  ensureOwnerReview, addPropReviewAdminNote,
   addCommunityLocality,
 } from '../../../lib/store';
-import { mutateDb } from '../../../lib/mockApi';
+import { addListing as saveListing, updateListingFields as saveListingFields } from '../../../services/propertyService.js';
 import { addDocument } from '../../../lib/data/documents.js';
 import { evaluateListingDedup } from '../../../lib/data/propertyIdentity.js';
 import { evaluateHostEligibility, enqueueFlatmateReview } from '../../../lib/data/flatmates.js';
@@ -27,8 +26,49 @@ const STAYS_LIVE_FORM_TO_WIRE = Object.fromEntries(
   Object.entries(FOUNDATION_STAYS_LIVE_KEYS).flatMap(([wire, formKeys]) => formKeys.map((k) => [k, wire])),
 );
 
+/* The record the app reads, adjusted for the one consumer that is not the app: the API contract.
+   `toListingCreate` picks out the keys it knows and ignores the rest, so this only has to close the
+   gaps where the wizard's name and the contract's name diverge — plus one field the record
+   deliberately does not carry at all. */
+const forTheWire = (record, form, isRent) => ({
+  ...record,
+  /* AddressKey derives the duplicate signal from this one line, so it has to carry the unit token:
+     "Rohan Nilay, Kharadi" names a building, and every flat in it would look like one property.
+     `street` is included because D219 made `address` a re-checked foundation field and the only
+     part of the address line the wizard lets an owner edit afterwards is `street` — leave it out
+     and they could move the listing without the server ever seeing the change it re-checks for.
+     The landmark is not: "opposite the temple" is wayfinding, not identity. */
+  address: [form.flatNumber, form.tower, form.society, form.street]
+    .map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
+  /* `record.floor` is `parseInt(form.floor) || 0`, which collapses two very different blanks onto
+     the same number: "ground floor" and "we never asked". The second is the dangerous one — villas,
+     plots and PGs never render the field, so forwarding 0 for them would hand every such listing in
+     a society the same (society, floor, bhk) tuple, a duplicate signal fabricated out of an input
+     that was never shown, which D219's sweep would then re-file every ten minutes. The guard below
+     is on `form.floor`, not on `record.floor`, precisely because 0 cannot tell the two apart.
+     'Ground' surviving as 0 is correct and intended: the ground floor is a floor, two ground-floor
+     2BHKs in one society are as much of a weak signal as two ninth-floor ones, and the option list
+     offers 'Ground' rather than '0' only because that is what people say. */
+  floor: form.floor === '' || form.floor == null ? undefined : record.floor,
+  // The wizard splits maintenance by deal (and by whether rent includes it); the entity has one column.
+  maintenance: parseAmount(isRent ? (form.rentMaintMode === 'extra' ? form.rentMaintenance : '') : form.monthlyMaintenance) || 0,
+  // The record calls it `rera` and the contract calls it `reraId`; the mismatch dropped it silently.
+  reraId: form.reraId || '',
+  /* Lifted out of `strongIds` for the request only, and kept out of `record` on purpose: the record
+     is buyer-readable (edit prefill, detail page) and a meter number belongs to the owner. */
+  electricityConsumerNo: form.electricityConsumerNo || '',
+});
+
 /* ---------- listing persistence ---------- */
-export const persistListing = ({ form, user, editId, documents, photos, photoHashes }) => {
+/* D219. The write crosses the seam now. Everything below still builds the same flat `record` the
+   rest of the app reads, but the record is no longer *authored* here — it is handed to
+   `propertyService.addListing`, and on the http provider that is `POST /me/listings`, which is the
+   only place the server can run the duplicate probe. Until this slice the probe was reachable from
+   exactly one screen (admin post-on-behalf), so the detector was blind to the people it was
+   written for: owners. The local writes that follow are a mirror, not the system of record — they
+   stay only because `getListing`, `isListingApproved`, `evaluateListingDedup` and `documents.js`
+   still read that key, and pulling them out with the writes would break edit prefill. */
+export const persistListing = async ({ form, user, editId, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
     // Duplicate prevention. Same owner + same physical unit (electricity meter /
@@ -75,7 +115,18 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
     }
     const loc = [form.society, form.locality, 'Pune'].filter(Boolean).join(', ');
 
-    const gallery = [
+    /* The gallery is the owner's own photos when we have a URL that outlives this tab.
+       `uploadPhoto` already crossed the seam in an earlier slice, so on the http photo provider
+       every entry here is a CDN URL and the listing finally carries the pictures the owner chose —
+       until now the record hard-coded four stock images and quietly dropped them.
+       A `data:` URL is filtered out deliberately: in mock mode the "upload" is a base64 read in
+       the browser, and a handful of those is several megabytes of localStorage — the write would
+       blow the quota and lose the whole listing, not just its photos. Offline demo keeps the
+       stock set, which is what it has always shown. */
+    const uploaded = photos
+      .map((p) => p && p.url)
+      .filter((u) => typeof u === 'string' && u !== '' && !u.startsWith('data:'));
+    const gallery = uploaded.length ? uploaded : [
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70',
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=70',
       'https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?auto=format&fit=crop&w=800&q=70',
@@ -224,6 +275,45 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
         : {}),
     };
 
+    /* ---- Cross the seam ------------------------------------------------
+       This is the write of record, and it happens before any of the local bookkeeping below so a
+       server that refuses the listing cannot leave the owner looking at a confetti screen for a
+       property nobody but this browser has. It is deliberately outside the try/catch further down,
+       which exists to swallow a localStorage quota error: losing the mirror is survivable, losing
+       the save is not.
+
+       The edit path sends nothing about re-checks or re-moderation. The server decides that for
+       itself (ListingService.apply returns an EditImpact) — the block below only mirrors the same
+       verdict locally for the readers that still read localStorage, and a client that could
+       *assert* "this edit stays live" would be a client that could edit its way around
+       moderation. */
+    let saved;
+    try {
+      saved = editId
+        ? await saveListingFields(editId, forTheWire(record, form, isRent))
+        : await saveListing(forTheWire(record, form, isRent));
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || 'Could not save your listing.' };
+    }
+    /* A server-created listing gets its id from the server. Adopt it before anything local is
+       written, or the mirror, the notification link and the documents would all be filed under an
+       id that exists on no server — and the owner's first click after posting would 404. On the
+       mock provider the record's own id comes straight back, so nothing moves.
+
+       A create that resolves without an id is treated as a failure rather than quietly kept: the
+       fallback would be `L<timestamp>`, which looks like a working listing on this machine and
+       exists nowhere else. Better to make the owner retry than to hand them a success screen and a
+       dead link. */
+    if (!editId) {
+      if (!saved || !saved.id) {
+        return { ok: false, error: 'Your listing was sent but the server did not confirm it. Please try again.' };
+      }
+      if (String(saved.id) !== record.id) {
+        record.id = String(saved.id);
+        record.viewUrl = `/property/${record.id}`;
+      }
+    }
+
     try {
       // ---- Edit policy (P0 + P3) ----------------------------------------
       // Editing a listing must never silently pull it down. We classify the
@@ -331,44 +421,25 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
         }
       }
 
-      // Persist to the mock API DB
-      mutateDb((db) => {
-        const i = db.listings.findIndex((p) => p.id === listingId);
-        if (i >= 0) db.listings[i] = { ...db.listings[i], ...record };
-        else db.listings.unshift(record);
-      });
-
-      // Persist to per-user store
+      // Mirror into the per-user store — still read by edit prefill, the browser-side dedup and
+      // the documents shelf, none of which have crossed the seam yet.
       if (editId) {
         updateListing(editId, record);
-        // Notify the owner (and open a re-review thread) only when a live listing
-        // was materially edited — soft edits go live silently.
-        if (record.reReview) {
-          ensureOwnerReview(record);
-          const names = record.reReview.fields.map((f) => f.label).join(', ');
-          addPropReviewAdminNote(
-            record.id,
-            `You updated: ${names}. Your listing stays live \u2014 our team is re-checking these details and will confirm shortly.`,
-          );
-        }
+        // The re-review note used to be composed here and written to localStorage, which meant the
+        // sentence explaining why a listing had gone dark existed only on the machine that made the
+        // edit — and was signed "PuneNest" by the very person it was addressed to. The server writes
+        // it now, into the same verification thread ops reads (see ListingService.update).
       } else {
         addListing(record);
-        // A different owner already has this unit live → open an Ops review
-        // thread so the team can confirm ownership before this goes public.
-        if (record.duplicateFlag) {
-          ensureOwnerReview(record);
-          addPropReviewAdminNote(
-            record.id,
-            'Possible duplicate: another owner already has an active listing at this address / electricity meter. Verify ownership before approving.',
-          );
-        }
+        // Likewise the duplicate warning: it was addressed to an ops desk that could not read it.
+        // ListingService.create runs the probe and opens the case.
       }
 
       // Bug #11 fix: Push notification on new listing (mirrors HTML behavior)
       if (!editId) {
         try {
           const notifs = JSON.parse(localStorage.getItem('puneNestNotifications') || '[]');
-          notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Property listed!', desc: `Your ${title} is now under review.`, time: 'Just now', link: viewUrl, unread: true });
+          notifs.unshift({ id: 'n' + Date.now(), type: 'listing', title: 'Property listed!', desc: `Your ${title} is now under review.`, time: 'Just now', link: record.viewUrl, unread: true });
           localStorage.setItem('puneNestNotifications', JSON.stringify(notifs));
         } catch { /* quota */ }
       }
@@ -379,7 +450,7 @@ export const persistListing = ({ form, user, editId, documents, photos, photoHas
         Object.entries(documents).forEach(([category, doc]) => {
           if (!doc) return;
           const tooLarge = (doc.size || 0) > CAP;
-          addDocument(mob, listingId, {
+          addDocument(mob, record.id, {
             category,
             name: doc.name || 'Document',
             size: doc.size || 0,

@@ -14,7 +14,7 @@ const TOOLS = [
    and passport progress. The Rent-o-meter is the "add / value a property" tool,
    not a rival list. Visible to everyone: the tools are the acquisition wedge for
    not-yet-owners, and flatmate posters manage their posts here too. */
-export default function MyPropertiesPanel({ listings, user, toast, REVIEW_STATUS, openReview }) {
+export default function MyPropertiesPanel({ listings, user, toast, REVIEW_STATUS, openReview, reviewsByProp }) {
   return (
     <div className="space-y-6">
       <div className="glass-card rounded-2xl p-6">
@@ -25,7 +25,7 @@ export default function MyPropertiesPanel({ listings, user, toast, REVIEW_STATUS
         <p className="text-gray-400 text-sm mt-1.5 max-w-2xl">Value it, organise its papers, and stay on top of rent — all in one place. List to buyers only when you're ready. It's free.</p>
       </div>
 
-      <MyListingsPanel listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} />
+      <MyListingsPanel listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} />
 
       <div className="dash-tools-row grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Rent-o-meter — "add / value a property" */}

@@ -3,6 +3,7 @@ package com.punenest.api.moderation;
 import com.punenest.api.support.AbstractApiTest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -118,10 +119,15 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.checklist.length()").value(6));
 
         // Re-submitting is idempotent: property_reviews.property_id is UNIQUE, so a double-click
-        // must return the existing case rather than violate the constraint.
+        // must return the existing case rather than violate the constraint. The checklist length is
+        // not evidence of that on its own -- two cases would each carry three lines -- so count the
+        // rows. properties.flush() first, because JdbcTemplate does not trigger a Hibernate flush.
         mvc.perform(post(path(rental, "")).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.checklist.length()").value(3));
+        properties.flush();
+        assertThat(jdbc.queryForObject("select count(*) from property_reviews where property_id = ?",
+                Integer.class, rental.getId())).isEqualTo(1);
     }
 
     @Test
@@ -202,6 +208,44 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("a decision writes its own explanation into the thread, attributed to ops")
+    void aDecisionExplainsItselfInTheThread() throws Exception {
+        User owner = user("9820000512", Roles.Wire.OWNER);
+        User ops = user("9820000513", Roles.Wire.STAFF);
+        Property approved = listing(owner, "rent");
+        Property rejected = listing(owner, "rent");
+
+        mvc.perform(post(path(approved, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(approved, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"approve\",\"note\":\"Index II matched.\"}"))
+                .andExpect(status().isOk())
+                // "ops" is derived from the sender like every other message, not hard-coded on the
+                // decision path — so a staff member deciding cannot be rendered as the owner.
+                .andExpect(jsonPath("$.messages[0].from").value("ops"))
+                // Non-null only because decide() flushes: id and createdAt are assigned at insert.
+                .andExpect(jsonPath("$.messages[0].id").isNotEmpty())
+                .andExpect(jsonPath("$.messages[0].body")
+                        .value("\u2705 Your property has been verified and approved. Index II matched."));
+
+        // The rejection is read back by the *owner*, which is the whole point: the sentence is a
+        // persisted row, not something the deciding console painted on its own screen. A blank note
+        // still owes them a reason and an instruction.
+        mvc.perform(post(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(rejected, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"reject\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get(path(rejected, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].body").value(
+                        "\u26D4 Your property could not be approved.\nReason: It did not meet our"
+                                + " verification requirements.\nPlease address this and reply here"
+                                + " to resubmit."));
+    }
+
+    @Test
     @DisplayName("staff cannot decide the verification of a listing they own")
     void staffCannotDecideTheirOwnListing() throws Exception {
         User staff = user("9820000508", Roles.Wire.STAFF);
@@ -217,5 +261,143 @@ class VerificationThreadTest extends AbstractApiTest {
         properties.flush();
         assertThat(jdbc.queryForObject("select status from properties where id = ?",
                 String.class, own.getId())).isEqualTo(PropertyStatus.PENDING);
+    }
+
+    /**
+     * D218. The checklist was write-only in the wrong direction: seeded at {@code initiate} and then
+     * never touched, so every tick the console recorded lived in the reviewer's own browser. The
+     * case that matters is therefore not "a tick round-trips" but "a <em>second</em> reviewer sees
+     * it" — which is the one browser storage could never satisfy.
+     */
+    @Test
+    @DisplayName("a tick persists, is addressed by item text, and the next reviewer sees it")
+    void tickingAChecklistLineOutlivesTheReviewersSession() throws Exception {
+        User owner = user("9820000514", Roles.Wire.OWNER);
+        User ops = user("9820000515", Roles.Wire.STAFF);
+        User colleague = user("9820000516", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated())
+                // The baseline the rest of this test measures against, stated positively. A filter
+                // for ticked lines returning nothing is also what an absent checklist returns, so
+                // the negative form would have established nothing.
+                .andExpect(jsonPath("$.checklist.length()").value(3))
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(false));
+
+        mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"item\":\"Electricity bill\",\"pass\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(true))
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Index II')].pass").value(false));
+
+        // A different staff member, a different session, a different request.
+        mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(colleague)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(true));
+
+        // Read the column itself, not the response. Both reads above are served from the same
+        // persistence context, so they would pass identically if the tick never left memory — which
+        // is the one failure mode this endpoint exists to rule out. JdbcTemplate does not trigger a
+        // Hibernate auto-flush, so this sees the row only if the write really was flushed.
+        properties.flush();
+        assertThat(jdbc.queryForObject(
+                "select pass from property_review_checklist c join property_reviews r on r.id = c.review_id"
+                        + " where r.property_id = ? and c.item = ?",
+                Boolean.class, listing.getId(), "Electricity bill")).isTrue();
+
+        // Unticking is the same call — a reviewer who ticked the wrong line must be able to undo it
+        // without reopening the case.
+        mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"item\":\"Electricity bill\",\"pass\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checklist[?(@.item == 'Electricity bill')].pass").value(false));
+
+        // An item that is not on this deal's list is a 404, not a silent no-op: a console ticking a
+        // line the server has never heard of is out of step with the case file and should be told.
+        mvc.perform(patch(path(listing, "/checklist")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"item\":\"Encumbrance certificate\",\"pass\":true}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("staff cannot tick the checklist of a listing they own")
+    void staffCannotMarkTheirOwnHomework() throws Exception {
+        User staff = user("9820000517", Roles.Wire.STAFF);
+        Property own = listing(staff, "rent");
+        String token = bearer(staff);
+
+        mvc.perform(post(path(own, "")).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isCreated());
+        mvc.perform(patch(path(own, "/checklist")).header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"item\":\"Index II\",\"pass\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * D218. The owner dashboard needs a status and an unread badge per listing, and until this
+     * route existed the only way to get them was one participant-scoped GET per card — nineteen of
+     * which 404 on a twenty-listing dashboard. What has to hold is the scoping: this is the one
+     * queue route with no role guard at all, so if the owner filter were wrong it would hand every
+     * owner every other owner's case files.
+     */
+    @Test
+    @DisplayName("the owner queue returns only my listings, with ops' unread messages counted")
+    void ownerQueueIsScopedToTheCallerAndCountsTheOtherSide() throws Exception {
+        User owner = user("9820000518", Roles.Wire.OWNER);
+        User stranger = user("9820000519", Roles.Wire.OWNER);
+        User ops = user("9820000520", Roles.Wire.STAFF);
+        Property mine = listing(owner, "rent");
+        Property theirs = listing(stranger, "rent");
+
+        mvc.perform(post(path(mine, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(theirs, "")).header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
+                .andExpect(status().isCreated());
+
+        // One message each way. Only the ops one should count towards the owner's badge — a badge
+        // that counted your own sent messages would never clear.
+        mvc.perform(post(path(mine, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Uploaded the bill.\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(mine, "/messages")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"Thanks, checking now.\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(mine.getId().toString()))
+                .andExpect(jsonPath("$.content[0].unread").value(1));
+
+        // The same page, from the desk's end: the owner's message is the one waiting on ops.
+        mvc.perform(get("/admin/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
+                        .value(1));
+
+        // Reading clears one side only. This is the assertion that would catch `markRead` being
+        // widened to every message, which would silently clear the badge the other side is waiting
+        // on — a bug neither participant could see from their own screen.
+        mvc.perform(post(path(mine, "/read")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].unread").value(0));
+        mvc.perform(get("/admin/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
+                        .value(1));
+
+        // A user with no listings gets an empty page, not a 403: nothing here is privileged.
+        mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
     }
 }

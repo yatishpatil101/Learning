@@ -12,16 +12,6 @@ export * from './store/deals.js';
 export {
   getEntityReviews,
   addEntityReview,
-  getPropReviews,
-  savePropReviews,
-  getPropReview,
-  propReviewStatus,
-  ensureOwnerReview,
-  addPropReviewReply,
-  addPropReviewAdminNote,
-  markPropReviewRead,
-  propReviewUnread,
-  propReviewUnreadTotal,
 } from './store/reviews.js';
 export {
   getFollowedSocieties,

@@ -94,20 +94,24 @@ export const TIER_B_FIELDS = [
    Tier A/B is a client-side UX model: "the edit stays live, we flag it for a quick
    re-check". The server has its own, narrower rule, and since Q14 it has two prices
    rather than one. `ListingService.apply`
-   (backend/…/catalog/listing/ListingService.java) classifies exactly the seven wire
-   fields below — the facets a buyer can filter on, which is the shape a
-   bait-and-switch takes — into two blocks:
+   (backend/…/catalog/listing/ListingService.java) classifies exactly the eight wire
+   fields below — the facets a buyer can filter on, plus the one field a duplicate is
+   detected from — into two blocks:
 
      • OFF SEARCH  — bhk, propertyType, locality, deal. `update` calls
        `Property.revertToPending()`: the listing leaves search until a moderator
        re-approves it. These change what the listing fundamentally *is*, so leaving
        it indexed returns a wrong answer (a 2BHK under 3BHK, a rental under sale).
 
-     • STAYS LIVE  — price, furnishing, possession. `update` calls
+     • STAYS LIVE  — price, furnishing, possession, address. `update` calls
        `Property.requestRecheck()`: a moderator still gets the work item, but the
-       listing keeps `status: approved` and stays in search. These change an attribute
-       of a listing that is still the same property, so the worst case is a briefly
-       out-of-date value on a listing that is genuinely what it claims to be.
+       listing keeps `status: approved` and stays in search. The first three change an
+       attribute of a listing that is still the same property, so the worst case is a
+       briefly out-of-date value on a listing that is genuinely what it claims to be.
+       `address` (D219) is there for a different reason and is not a search facet at
+       all: it is what the server derives the duplicate key from, so editing it is how
+       a listing moves onto a flat another owner already has listed. Its wizard key is
+       `street`.
 
    `ListingFoundationTest` pins both sets behaviourally through the real endpoint.
 
@@ -143,6 +147,7 @@ export const FOUNDATION_STAYS_LIVE_KEYS = {
   price: ['price', 'monthlyRent'],
   furnishing: ['furnishing'],
   possession: ['possession'],
+  address: ['street'],
 };
 
 /** Both halves, for callers that only care that a field is a foundation field at all. */

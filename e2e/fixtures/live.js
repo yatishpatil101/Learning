@@ -74,6 +74,19 @@ export const BASELINE_STAFF = [
   'reports:read', 'reports:write', 'flatmates:read', 'flatmates:write',
 ];
 
+/**
+ * An Indian mobile, and *only* a whole one.
+ *
+ * Shared because the unanchored form is wrong in a way that does not announce itself. Ops screens
+ * are full of long digit runs — request ids, and any subject a spec stamped with `Date.now()` —
+ * and `[6-9]\d{9}` finds a "mobile" inside most of them. The failure it produces is a leak that
+ * was never there, so the assertion gets loosened until it protects nothing, which is the opposite
+ * of what a PII check is for. Both known copies of this pattern have now been bitten by it.
+ *
+ * The lookarounds pin the match to a complete digit run.
+ */
+export const MOBILE = /(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)/;
+
 export const test = base.extend({
   consoleErrors: async ({ page }, use) => {
     const errors = trackErrors(page);

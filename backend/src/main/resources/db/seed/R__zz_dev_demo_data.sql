@@ -464,10 +464,65 @@ INSERT INTO public.notifications (id, user_id, type, title, body, read, link, cr
 INSERT INTO public.reviews (id, target_type, target_id, author_id, rating, title, body, status, context, categories, recommend, created_at, updated_at) VALUES ('f1c70003-0000-4000-8000-000000000001', 'property', '615287b3-7a3b-530f-84aa-773753e8682b', 'f1c70000-0000-4000-8000-000000000001', 4, 'Well kept, honest listing', 'Photos matched the flat. Society is quiet and the owner was upfront about the maintenance dues.', 'published', 'visit', '{"accuracy": 5, "locality": 4, "condition": 4}', true, '2026-08-04 18:00:00+05:30', '2026-08-04 18:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
--- --- report: one open moderation report, on the listing that is already `flagged` ----------
+-- --- report: a moderation queue with all three tabs, all four statuses, and one escalation ----
 -- Deliberately targets p5002 (51897b51…), the one Meera listing seeded as `flagged`, so the
 -- moderation queue and the listing's own status tell the same story instead of contradicting.
+--
+-- WHY SEVEN ROWS AND NOT ONE. The queue has three tabs, a four-value status filter, a per-tab reason
+-- filter and a repeat-offender badge, and one open property report exercises none of them: two tabs
+-- read empty, three of four statuses never render a badge, and the "Closed" KPI is
+-- permanently 0. A spec asserting against that set can only check that hardcoded chrome exists.
+--
+-- The shape is chosen, not arbitrary:
+--   * THREE reports on 51897b51 — one short of nothing, one *over* the threshold. The queue shows a
+--     "3x" escalation badge at `repeatCount >= 3` (AdminReports.jsx), which is the signal that a
+--     listing is being complained about repeatedly rather than once. Two rows would leave that
+--     badge unrendered and unassertable; three is the smallest set that proves it fires.
+--   * ALL FOUR STATUSES across the set — open (…01, …04), reviewing (…02), dismissed (…03),
+--     actioned (…05). `reviewing` and the two terminal states are otherwise unreachable in a read
+--     fixture, because nothing in the suite triages a seeded report.
+--   * ALL THREE TABS non-empty. `TARGET_TO_KIND` maps `property → listing`, `user → user` and
+--     `post → share`, and the queue filters rows by exactly that, so each tab needs a row of its
+--     own target type and cannot be faked with another. The two `post` rows (…06, …07) are the
+--     fixture for the flatmates tab — that target type has been on the wire far longer than the
+--     queue has had a tab to show it, so reports filed from Flatmates.jsx were landing correctly
+--     and rendering nowhere. `filled` is chosen deliberately: it is legal for a post and for
+--     nothing else, so it proves the reason filter is scoped to the tab rather than offering the
+--     union of all three vocabularies.
+--
+-- REASONS ARE PER TARGET TYPE and these are checked against `ReportReasons`: `pricing` and `broker`
+-- are legal complaints about a property, `brokerage` and `abuse` about a person, and they are not
+-- interchangeable — the server validates the reason *against* the target type, so a plausible-
+-- looking cross-pairing here would seed a row the API itself would have rejected with a 400.
+--
+-- NO ROW HERE COLLIDES WITH THE DUPLICATE GUARD. `idx_reports_one_open_per_reporter` is unique on
+-- (reporter_id, target_type, target_id) but PARTIAL on `status IN ('open','reviewing')`. The three
+-- property rows use three different reporters; the two user rows use two different reporters; and
+-- the terminal rows fall outside the index entirely. Reusing a reporter on a live row would fail
+-- the insert silently, because every statement here is `ON CONFLICT DO NOTHING`.
+--
+-- THE REPORTED USER IS RAHUL MEHTA, who is a *target* here and nothing else. No spec triages these
+-- rows — the queue's "Suspend" button carries `enforcement='suspend_account'`, which archives the
+-- account for the remainder of the run, so a spec that wants to exercise enforcement must create
+-- its own report against its own throwaway actor rather than reach for one of these.
 INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000001', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000003', 'fake', 'The same photos appear on another listing in Kothrud at a different price.', 'open', '2026-08-04 12:00:00+05:30', '2026-08-04 12:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000002', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000002', 'pricing', 'Asking price is nearly double what the same society quoted me last month.', 'reviewing', '2026-08-04 13:30:00+05:30', '2026-08-04 13:30:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000003', 'property', '51897b51-f1a2-56ce-9687-2be847ff4dee', 'f1c70000-0000-4000-8000-000000000001', 'broker', 'Person who answered said he handles several flats in the building.', 'dismissed', '2026-08-03 17:15:00+05:30', '2026-08-03 17:15:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000004', 'user', 'f1c70000-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000002', 'brokerage', 'Asked for a two-month brokerage fee before agreeing to a viewing.', 'open', '2026-08-04 09:45:00+05:30', '2026-08-04 09:45:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000005', 'user', 'f1c70000-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000003', 'abuse', 'Rude and threatening messages after I declined the flat.', 'actioned', '2026-08-02 11:20:00+05:30', '2026-08-02 11:20:00+05:30')
+    ON CONFLICT DO NOTHING;
+-- The two post rows target real flatmate supply seeded below — the Wakad shared room
+-- (f1c7000b…02) and the Kharadi group (f1c7000d…01) — rather than an invented id, so a moderator
+-- following the target from the queue lands on something that exists. `reports.target_id` is plain
+-- text with no FK precisely because it spans four tables, which means nothing but care keeps these
+-- pointing at real rows.
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000006', 'post', 'f1c7000b-0000-4000-8000-000000000002', 'f1c70000-0000-4000-8000-000000000002', 'filled', 'Seat was taken weeks ago — host confirmed on call but the post is still up.', 'open', '2026-08-06 15:10:00+05:30', '2026-08-06 15:10:00+05:30')
+    ON CONFLICT DO NOTHING;
+INSERT INTO public.reports (id, target_type, target_id, reporter_id, reason, details, status, created_at, updated_at) VALUES ('f1c70004-0000-4000-8000-000000000007', 'post', 'f1c7000d-0000-4000-8000-000000000001', 'f1c70000-0000-4000-8000-000000000003', 'broker', 'Listed as a tenant looking for flatmates, but he is charging a finder fee per seat.', 'reviewing', '2026-08-06 16:40:00+05:30', '2026-08-06 16:40:00+05:30')
     ON CONFLICT DO NOTHING;
 
 -- --- support: Priya has 1 open ticket carrying 2 messages (hers, then a staff reply) -------

@@ -35,10 +35,16 @@ import { API, apiLogin } from '../../helpers/liveAuth.js';
 
 const STAFF = '9733798115';
 
-/** One host per test — see the anti-broker cap note above. */
+/**
+ * One host per test — see the anti-broker cap note above.
+ *
+ * Every name here must be `status = 'active'` in the seed. That is not a style rule: six seeded
+ * users are `suspended`, and since V77 login enforces the column, so signing in as one fails with a
+ * 403 that reads like a broken fixture. `verifyReject` was Sakshi Iyer, who is one of the six.
+ */
 const HOSTS = {
   verifyApprove: { mobile: '9700000003', name: 'Arjun Rao' },
-  verifyReject: { mobile: '9239397704', name: 'Sakshi Iyer' },
+  verifyReject: { mobile: '9712728163', name: 'Aditya Iyer' },
   publish: { mobile: '9240355264', name: 'Aarav Reddy' },
   remove: { mobile: '9253229149', name: 'Pooja Shah' },
   apply: { mobile: '9272696131', name: 'Rahul Jain' },

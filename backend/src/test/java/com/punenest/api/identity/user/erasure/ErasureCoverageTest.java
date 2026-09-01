@@ -90,6 +90,11 @@ class ErasureCoverageTest extends AbstractApiTest {
             "mobile", "phone", "whatsapp", "email", "name", "holder", "contact",
             // government and financial identity
             "aadhaar", "passport", "ifsc", "upi", "account", "kyc",
+            // utility accounts held in a person's name — a meter number names a live MSEDCL
+            // connection, which is both a subscriber identifier and a way to reach a door. It
+            // matched none of the tokens above ("account" is here, but "electricity_meter_no" does
+            // not contain it), so it arrived in the schema and this guard said nothing.
+            "meter",
             // where a person is
             "address", "pincode", "latitude", "longitude",
             // facts about a person
@@ -147,6 +152,12 @@ class ErasureCoverageTest extends AbstractApiTest {
         // in on this date".
         map.put("otp_codes.mobile", Outcome.ROW_REMOVED);
         map.put("refresh_tokens.token_hash", Outcome.ROW_REMOVED);
+
+        // Outreach the platform prepared to this person (D216). The whole row goes, because the
+        // column that matched the vocabulary is not the difficult one: `body` holds the rendered
+        // message, which names them in free text, and a row with a nulled mobile and an intact
+        // "Hi Ramesh, about your flat in Kothrud" is not erased in any sense a subject would accept.
+        map.put("outbound_message.recipient_mobile", Outcome.ROW_REMOVED);
 
         // KYC. `identity_hash` is listed because it is the part most easily argued into staying —
         // it is the irreversible "one Aadhaar, one account" dedup key, and keeping it would let the
@@ -214,6 +225,11 @@ class ErasureCoverageTest extends AbstractApiTest {
                 "The building the lead is about. The person on the lead is a gap (see GAPS); the "
                         + "building is not personal data.");
         map.put("boost_packs.name", "A product name in the paid-promotion catalogue.");
+        map.put("message_template.name",
+                "The name of a piece of outreach copy, shown to staff in a picker (D216). Catalogue "
+                        + "copy: identical for every owner it is ever sent to, and written by this "
+                        + "platform rather than supplied by anybody. The messages actually prepared "
+                        + "from it are personal and are deleted \u2014 see outbound_message.");
         map.put("cms_services.name", "A CMS content row. Editorial copy, not a person.");
         map.put("service_offerings.name",
                 "The name of a service the platform sells. Catalogue copy, identical for every "
@@ -235,8 +251,30 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "(ErasureRetention, 'listings_and_property_records') and de-identify via "
                         + "the owner reference.");
         map.put("properties.lat", "Listing coordinates. Retained with the listing.");
+        map.put("properties.address_key",
+                "A normalised, token-sorted form of properties.address, derived from it and kept "
+                        + "only so the duplicate probe can compare two doorways (D218). It is "
+                        + "retained for exactly the reason the address it comes from is, and it "
+                        + "cannot outlive it: nothing writes address_key except the derivation, so "
+                        + "clearing this while retaining address would be erasing a cache and not a "
+                        + "fact -- the next edit to the listing would put it straight back. It also "
+                        + "describes a building rather than a person; the only route from it to a "
+                        + "natural person is properties.owner_id, which de-identifies with the "
+                        + "users row like every other listing attribute here.");
         map.put("properties.lng", "Listing coordinates. Retained with the listing.");
         map.put("properties.pincode", "Listing pincode. Retained with the listing.");
+        map.put("properties.electricity_meter_no",
+                "The unit's MSEDCL meter number (V79), collected so the duplicate probe can tell "
+                        + "one flat from the one next door -- it is the one signal on a listing "
+                        + "that a second poster cannot fake by retyping the address. It names a "
+                        + "utility connection rather than a person: the meter belongs to the flat "
+                        + "and survives every tenancy and most sales, so it does not de-identify "
+                        + "when the owner does. Retained with the listing for the same reason "
+                        + "address and address_key are, and reachable only by the owner and by "
+                        + "staff (PrivateFieldVisibility) -- it is never on a public response. "
+                        + "Clearing it on erasure would blind the detector to exactly the listings "
+                        + "most worth re-checking, while leaving the address it corroborates in "
+                        + "place, which erases the evidence and keeps the claim.");
         map.put("documents.file_name",
                 "The name of a document attached to a property or a service request, both of which "
                         + "are retained. Stripping the file name from a retained document leaves an "
@@ -705,6 +743,7 @@ class ErasureCoverageTest extends AbstractApiTest {
             "identity_verifications", "user_id = ?",
             "refresh_tokens", "user_id = ?",
             "otp_codes", "mobile = ?",
+            "outbound_message", "recipient_id = ?",
             "service_request_identities",
             "service_request_id in (select id from service_requests where requester_id = ?)");
 
@@ -791,12 +830,23 @@ class ErasureCoverageTest extends AbstractApiTest {
         jdbc.update("""
                 insert into service_requests (id, requester_id, type, team, status)
                 values (?, ?, 'rent-agreement', 'rental', 'new')
-                """, serviceRequestId, subjectId);
-        jdbc.update("""
+                """, serviceRequestId, subjectId);        jdbc.update("""
                 insert into service_request_identities
                        (service_request_id, party_role, party_index, party_name, pan, aadhaar)
                 values (?, 'tenant', 0, ?, ?, ?)
                 """, serviceRequestId, "Erasable Person", "ABCDE1234F", "123412341234");
+
+        // An outreach message prepared to this person (D216). `prepared_by` is the subject only
+        // because the seed has no second account to hand and the sweep keys off `recipient_id`;
+        // nothing here depends on who sent it. `template_id` points at a row the migration seeds,
+        // so this also proves the delete is not blocked by that reference.
+        jdbc.update("""
+                insert into outbound_message
+                       (channel, template_id, subject_type, subject_id, recipient_id,
+                        recipient_mobile, body, prepared_by)
+                values ('whatsapp', 'wa-photos', 'property', ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), subjectId, mobile,
+                "Hi Erasable Person, could you send photographs of your flat in Kothrud?", subjectId);
     }
 
     private String fileRequest(User subject) throws Exception {

@@ -100,11 +100,15 @@ class SourceTreeHygieneTest {
 
     /**
      * Files that must contain mojibake to do their job, so the encoding guard skips them.
-     * {@code reports.spec.js} asserts an exported CSV is free of these sequences, and
      * {@code fix-mojibake.mjs} is the repair tool that names them.
+     *
+     * <p>{@code e2e/tests/admin/reports.spec.js} used to be listed here for asserting an exported
+     * CSV was free of these sequences. It was retired with the rest of that mock spec; its
+     * successor, {@code admin/live-reports.spec.js}, makes the same assertion but builds the needles
+     * from code points, so it needs no exemption. That is the better shape — an exempt file is one
+     * this guard has stopped protecting.
      */
     private static final Set<String> MOJIBAKE_EXEMPT = Set.of(
-            "e2e/tests/admin/reports.spec.js",
             "e2e/scripts/fix-mojibake.mjs");
 
     @Test
@@ -154,8 +158,8 @@ class SourceTreeHygieneTest {
      * that yields shorter, valid text, the run was mojibake. Genuine accented text fails the decode
      * (a lone high byte is not valid UTF-8) and is left alone, so this does not fire on real names.
      *
-     * <p>{@code reports.spec.js} is exempt because it asserts an exported CSV is free of these
-     * sequences, so it must contain them to do its job.
+     * <p>{@code fix-mojibake.mjs} is exempt because it names these sequences in order to repair
+     * them, so it must contain them to do its job.
      */
     @Test
     @DisplayName("no mojibake or UTF-8 BOM in any source file (tech-debt D19)")

@@ -68,6 +68,7 @@ const STORE_TO_WIRE = {
   price: 'price',
   furnishing: 'furnishing',
   construction: 'possession',
+  address: 'address',
 };
 
 const failures = [];

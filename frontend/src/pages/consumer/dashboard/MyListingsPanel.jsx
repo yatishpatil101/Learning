@@ -22,7 +22,7 @@ import FinalizeDealModal from './myListings/FinalizeDealModal.jsx';
 import VerifyListingsBanner from './myListings/VerifyListingsBanner.jsx';
 import SplitFlatModal from '../flatmates/SplitFlatModal.jsx';
 
-export default function MyListingsPanel({ listings, user, toast, openReview }) {
+export default function MyListingsPanel({ listings, user, toast, openReview, reviewsByProp }) {
   /* Full My Listings tab with lifecycle actions: Mark Under Offer, Finalize, Reopen, Edit, Delete */
   const [listingsState, setListingsState] = useState(listings);
   const [showDealModal, setShowDealModal] = useState(null);
@@ -338,6 +338,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview }) {
                   key={l.id}
                   l={l}
                   dealStatus={dealStatusOf(l)}
+                  review={reviewsByProp?.get(l.id) || null}
                   user={user}
                   leadsFor={leadsFor}
                   featuringOn={featuringOn}

@@ -40,6 +40,7 @@
  *   - the queue itself never shows an identity number or a mobile.
  */
 import { test, expect } from '@playwright/test';
+import { MOBILE } from '../../fixtures/live.js';
 import { API, apiLogin, signIn, uniqueMobile } from '../../helpers/liveAuth.js';
 
 /* A seeded consumer (any account may raise a service request) and a seeded `valuation` staffer —
@@ -74,13 +75,11 @@ const OWNER_PAN = 'ZZZQA1234Z';
 const OWNER_AADHAAR = '999988887777';
 
 /*
- * An Indian mobile, and *only* a whole one.
- *
- * The desk shows request ids with long digit runs in them, and an unanchored `[6-9]\d{9}` finds a
- * "mobile" inside every one. That is the kind of assertion that fires forever and so gets loosened
- * until it protects nothing. The lookarounds pin the match to a complete digit run.
+ * An Indian mobile, and *only* a whole one. The desk shows request ids with long digit runs in
+ * them, and an unanchored `[6-9]\d{9}` finds a "mobile" inside every one. Shared from
+ * `fixtures/live.js`, where the full reasoning lives, after a second spec was bitten by its own
+ * unanchored copy.
  */
-const MOBILE = /(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(?!\d)/;
 
 /* The PAN row of the disclosure panel. `exact` matters: the default `getByText('PAN')` matches a
    substring, case-insensitively, and a party named "Deshpande" contains one. */

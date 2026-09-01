@@ -1,9 +1,12 @@
 package com.punenest.api.catalog.property;
 
-import com.punenest.api.catalog.listing.ListingService;
+import com.punenest.api.catalog.listing.ListingArchiveService;
 import com.punenest.api.catalog.listing.ReasonRequest;
 import com.punenest.api.common.trust.ContactGate;
+import com.punenest.api.common.trust.BackOfficeVisibility;
 import com.punenest.api.common.trust.ContactVisibility;
+import com.punenest.api.common.trust.OutreachCounts;
+import com.punenest.api.common.trust.PrivateFieldVisibility;
 import com.punenest.api.common.web.PageResponse;
 import com.punenest.api.common.web.Routes;
 import com.punenest.api.security.AuthPrincipal;
@@ -23,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The public catalogue surface at {@code /properties}: anonymous search, the featured strip, and
  * single-listing detail (contract {@code security: []}), plus the authenticated archive/restore
  * moderation actions on a listing. Thin by design — it binds the request, delegates to the read
- * ({@link PropertyService}) or write ({@link ListingService}) service, and maps entities to the
+ * ({@link PropertyService}) or archive ({@link ListingArchiveService}) service, and maps entities to the
  * contract records at the edge so the JPA entity never crosses the wire.
  *
  * <p>The public reads are opened in {@code SecurityConfig}; the archive/restore {@code PATCH}es stay
@@ -33,14 +36,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class PropertyController {
 
     private final PropertyService propertyService;
-    private final ListingService listingService;
+    private final ListingArchiveService archiveService;
     private final PropertyMapper propertyMapper;
     private final ContactGate contactGate;
 
-    public PropertyController(PropertyService propertyService, ListingService listingService,
+    public PropertyController(PropertyService propertyService, ListingArchiveService archiveService,
             PropertyMapper propertyMapper, ContactGate contactGate) {
         this.propertyService = propertyService;
-        this.listingService = listingService;
+        this.archiveService = archiveService;
         this.propertyMapper = propertyMapper;
         this.contactGate = contactGate;
     }
@@ -89,7 +92,8 @@ public class PropertyController {
         UUID viewerId = principal != null ? principal.userId() : null;
         UUID ownerId = property.getOwner() != null ? property.getOwner().getId() : null;
         return propertyMapper.toResponse(property,
-                contactGate.visibilityFor(viewerId, property.getId(), ownerId));
+                contactGate.visibilityFor(viewerId, property.getId(), ownerId),
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 
     /**
@@ -98,13 +102,22 @@ public class PropertyController {
      *
      * <p>Masked contact: this is a moderation response, not a contact surface, and a staff archiver is
      * not a gate-approved counterparty.
+     *
+     * <p>Private fields are hidden here for the same reason, and hidden <em>even from the owner</em>,
+     * which is deliberate rather than an oversight. This route answers "did the archive happen"; the
+     * owner reads their own meter number from {@code GET /me/listings/{id}}, which is the surface
+     * their edit form is built on. Withholding it on a route that has no use for it costs the owner
+     * nothing and keeps the number off one more response body — and the alternative, branching the
+     * visibility on whether the caller happens to be the owner, would put a second copy of that
+     * decision here to drift out of step with the one in {@code MeListingsController}.
      */
     @PatchMapping(Routes.Properties.ARCHIVE)
     public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestBody(required = false) ReasonRequest body) {
         String reason = body != null ? body.reason() : null;
         return propertyMapper.toResponse(
-                listingService.archive(principal, id, reason), ContactVisibility.MASKED);
+                archiveService.archive(principal, id, reason), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 
     /**
@@ -114,6 +127,7 @@ public class PropertyController {
     @PatchMapping(Routes.Properties.RESTORE)
     public PropertyResponse restore(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return propertyMapper.toResponse(
-                listingService.restore(principal, id), ContactVisibility.MASKED);
+                archiveService.restore(principal, id), ContactVisibility.MASKED,
+                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.HIDDEN);
     }
 }

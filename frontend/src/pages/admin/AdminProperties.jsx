@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router';
 import { Archive, ArrowUpRight, Building2, Check, CheckCircle2, ClipboardCheck, Clock, Copy, Download, Flag, Star, X } from 'lucide-react';
 import { listForModeration, setListingStatus, toggleFeatured, flagListing, clearFlag, updateListingFields, archiveListing, restoreListing } from '../../services/propertyService.js';
 import { logAudit, setPipelineStage, sendOwnerReminder, sendWhatsappTemplate } from '../../lib/mockApi.js';
-import { ensureReview, getReview, markReviewRead, decideReview, findDuplicateClusters } from '../../lib/data/properties-admin.js';
+import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
+import { findDuplicateClusters } from '../../lib/data/properties-admin.js';
 import { submitNote } from '../../components/ui/InternalNote.jsx';
 import { fmtNum, classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -26,6 +27,14 @@ import DuplicatesTab from './properties/DuplicatesTab.jsx';
 import PropertyReviewModal from './properties/PropertyReviewModal.jsx';
 import { PropertyEditModal, PropertyFlagModal, PropertyArchiveModal, PropertyViewModal, PropertyBulkRejectModal, PropertyRecheckRejectModal } from './properties/PropertyModals.jsx';
 import { STATUS_OPTS, PAGE_LIMIT, KPI_TINTS, PIPELINE_STAGES, fmtAgo, exportCsv } from './properties/constants.js';
+
+/**
+ * The verification routes bind `{id}` as a UUID, and `propertyMapper` sets a listing's `id` to
+ * `slug || id` with the real key on `uuid` — so `listing.id` is the wrong argument for exactly the
+ * listings that have a slug. The moderation and status routes below take either, which is why only
+ * the review calls go through this.
+ */
+const pid = (listing) => listing?.uuid || listing?.id;
 
 const PaginationHint = ({ total }) =>
   total > PAGE_LIMIT ? (
@@ -355,17 +364,20 @@ export default function AdminProperties() {
     const r = recheckRejectReason.trim();
     if (!r) { toast('Add a reason before rejecting', 'error'); return; }
     const target = recheckRejectFor;
-    /* The reason has to go through `decideReview`, not just into the audit log: that is what
-       writes the "⛔ Your property could not be approved. Reason: …" message into the owner's
-       review thread. `setListingStatus`'s third argument is dropped by the mock provider, so
-       without this the modal's promise to tell the owner why is silently unkept — and a takedown
-       an owner cannot see the reason for is a takedown they cannot fix or appeal. Same two lines
-       `submitBulkReject` and the review modal use. */
+    /* One call. The server's decision writes the case file, `properties.status` and the
+       "⛔ Your property could not be approved. Reason: …" message into the owner's thread in one
+       transaction — a takedown an owner cannot see the reason for is one they cannot fix or
+       appeal. This used to be `decideReview` *plus* `setListingStatus`, because the mock's case
+       file and the mock's listing were unrelated records; keeping the second call would now write
+       the same field twice, and the second write is the one that can silently disagree.
+
+       `startPropertyReview` first because deciding requires a case file to exist (404 otherwise),
+       and this queue holds listings that went live without ever being submitted for one. It is
+       idempotent, so it is a no-op for the ones that have. */
     const l = findListing(target.id) || target;
-    ensureReview(l);
-    decideReview(target.id, 'rejected', r);
     try {
-      await setListingStatus(target.id, 'rejected', r);
+      await startPropertyReview(pid(l));
+      await decidePropertyReview(pid(l), 'reject', r);
     } catch (err) {
       toast(`Could not reject: ${err.message}`, 'error');
       return;
@@ -456,9 +468,8 @@ export default function AdminProperties() {
     const results = await Promise.allSettled(selVerIds.map(async (id) => {
       const l = findListing(id);
       if (!l) return;
-      ensureReview(l);
-      decideReview(id, 'approved');
-      await setListingStatus(id, 'approved');
+      await startPropertyReview(pid(l));
+      await decidePropertyReview(pid(l), 'approve');
     }));
     const failed = results.filter((r) => r.status === 'rejected').length;
     const done = results.length - failed;
@@ -474,9 +485,8 @@ export default function AdminProperties() {
     const results = await Promise.allSettled(selVerIds.map(async (id) => {
       const l = findListing(id);
       if (!l) return;
-      ensureReview(l);
-      decideReview(id, 'rejected', reason);
-      await setListingStatus(id, 'rejected', reason);
+      await startPropertyReview(pid(l));
+      await decidePropertyReview(pid(l), 'reject', reason);
     }));
     const failed = results.filter((r) => r.status === 'rejected').length;
     const done = results.length - failed;

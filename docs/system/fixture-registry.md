@@ -81,7 +81,7 @@ One row per domain. These are the statements a spec is allowed to depend on.
 | `savedSearch` | Rahul has **1** listings alert, `daily` / `whatsapp`, `new_count = 0`. | `saved_searches` |
 | `notification` | Rahul has **2** notifications, exactly **1 unread**. | `notifications` |
 | `review` | p5021 carries **1 published** review, rating **4**, `context = visit`. | `reviews` |
-| `report` | p5002 carries **1 open** report, reason `fake`. | `reports` |
+| `report` | The queue carries **7** reports: **3 on p5002** (`open`/`fake`, `reviewing`/`pricing`, `dismissed`/`broker`), **2 on Rahul** (`open`/`brokerage`, `actioned`/`abuse`) and **2 on flatmate posts** — the Wakad shared room (`open`/`filled`) and the Kharadi group (`reviewing`/`broker`). All four statuses present; all three tabs non-empty; p5002's three trip the `3x` escalation badge. | `reports` |
 | `support` | Priya has **1 open** ticket with **2** messages (user, then staff). `staff_unread = true`. | `support_tickets`, `support_ticket_messages` |
 | `deal` | p5021 has **1 active** buy deal with Rahul at 89 00 000, **1** party, and **1 pending** offer. | `deals`, `deal_parties`, `offers` |
 | `rent` | Priya holds an **active** tenancy on p5015 (rent 38 000, deposit 76 000) with **3** instalments: **2 paid, 1 due**. | `tenancies`, `rent_payments` |
@@ -97,6 +97,26 @@ One row per domain. These are the statements a spec is allowed to depend on.
 - **The report targets the listing that is already `flagged`.** The moderation queue and the
   listing's own status then tell the same story; pointing it at an `approved` listing would have
   produced a screen that contradicts itself.
+- **Three reports on p5002, not two.** The queue renders its repeat-offender badge at
+  `repeatCount >= 3`. At two rows the badge never renders and no spec can prove it fires; three is
+  the smallest fixture that distinguishes "complained about once" from "complained about
+  repeatedly", which is the only thing that badge is for.
+- **Rahul is reported but never triaged.** He is a *target* in two rows and that is all. The users
+  tab's "Suspend" button carries `enforcement='suspend_account'`, which archives the account for
+  the rest of the run — so a spec exercising enforcement must file its own report against its own
+  throwaway actor. Reaching for a registry row would suspend the fixture that four other
+  invariants above depend on.
+- **Reasons are per target type, and these were checked against `ReportReasons`.** `pricing` and
+  `broker` are legal about a property, `brokerage` and `abuse` about a person. A cross-paired
+  reason would seed a row the API itself answers with a 400 — a fixture in a state the product
+  cannot produce.
+- **Two post reports, and one of them uses `filled`.** `target_type='post'` is the flatmates tab,
+  which for a long time had no tab at all: the queue split rows two ways over a wire that carries
+  four target types, so these reports were being stored correctly and shown nowhere. `filled` is
+  legal for a post and for nothing else, which makes it the reason that proves the filter is scoped
+  to the tab rather than offering the union of all three vocabularies. Both point at real flatmate
+  supply seeded below rather than invented ids — `reports.target_id` is plain `text` with no foreign
+  key, because it spans four tables, so nothing but care keeps a queue row clickable.
 - **The offer is left `pending`.** An accept/decline spec needs a transition it is allowed to make.
   A fixture parked in a terminal state can only be read, never exercised.
 - **`owner_verified` is derived in the seed, not written by hand.** The dumped catalogue inherited

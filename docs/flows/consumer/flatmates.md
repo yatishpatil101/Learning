@@ -319,8 +319,17 @@ the floor is L1 sign-in (ADR-019).
 
 ### Reporting a post (`ReportModal`)
 Cards pass a target descriptor (`{ id, title, ownerName, ownerMobile, kind }`) to the shared
-platform report modal with the `SHARE_REPORT_REASONS` set. Rooms map to the admin **listings** queue
-(`kind: 'listing'`); seekers and groups to the **users** queue (`kind: 'user'`).
+platform report modal with the `SHARE_REPORT_REASONS` set. Rooms, seekers and groups alike are filed
+as `kind: 'share'` → `targetType: 'post'` on the wire, and surface in the admin queue's
+**Reported flatmate posts** tab.
+
+That tab is newer than the reports themselves. The queue originally had only listings and users, and
+split its rows with `kind === 'listing' ? … : kind === 'user'` - so `share` rows matched neither
+branch and rendered in **no tab at all**. It was masked for a while by a second bug: these cards used
+to send `kind: 'user'`, which put flatmate complaints under "Reported users & owners" wearing the
+wrong vocabulary. Fixing the wire mapping is what made them disappear, which is the ordinary way a
+latent gap becomes visible. Triage on this tab is `hide_content`, not `suspend_account`: a post is
+content, and the person who wrote it may have done nothing worse than forget to take it down.
 
 ### Seat and occupancy lifecycle
 - **Seat-based (legacy spare rooms and groups):** `setGroupSeats` / `setRoomSeats` let the owner

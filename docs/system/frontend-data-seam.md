@@ -54,17 +54,20 @@ a domain flip. Zero results = zero leaks.
 | `flatmate` | `flatmateService.js` | mock + **http** | Live: the flatmates board — `/flatmates/rooms` (+seats/occupants/interest/agreement), `/flatmates/groups` (+seats/join/owner-consent), `/flatmates/posts` (+interest), `/me/flatmate-requests`, `/flatmates/feed`, `/properties/{id}/rooms` + `/split`. Two tabs over **three** resources: move-in reads rooms, team-up reads posts *and* groups. Seats are never inferred from `members.length` — the host sets them. Joining an open-policy group is **already accepted**; a closed one is pending. The server filters on `locality` only, so the other ten facets are applied client-side (D116) |
 | `serviceRequest` | `serviceRequestService.js` | mock + **http** | Live: the customer's own concierge requests — `GET /service-requests` (paged, type-filtered), `GET/POST /service-requests`, `POST /{id}/messages`, `POST /{id}/draft/decision`. `details` is **write-only** (summarised to a string on create, absent from the read shape). Draft/final uploads are multipart to the vault and the signed URLs don't resolve in dev; the per-request document checklist, co-fill invites, unread receipts and staff transitions have no customer endpoint and stay mock-only (D119–D121). **The only domain with a partial mock**: `listServiceRequestQueue`, `takeServiceRequest` and `readServiceRequestIdentities` exist on http *only* (D184) — the drafting desk filters on the server's nine-value status vocabulary, which the mock store cannot speak, so `/ops/drafting-desk` gates on `isHttpDomain('serviceRequest')` and says so rather than showing a queue it cannot filter. `serviceRequest-parity.mjs` names those three as the exception, so a fourth going live-only still fails |
 | `verification` | `verificationService.js` | mock + **http** | Live: the opt-in Aadhaar "Verified" badge — `GET /me/verification/aadhaar` (always 200; a never-tried caller reads `status:'none'`, never 404) and `POST /me/verification/aadhaar` (**202** — a DigiLocker consent handle, *not* a granted badge; the webhook grants). Held once in `VerificationContext`. A badge, never a wall (ADR-019): nothing is withheld for its want — the only place identity has teeth is the server-side contact gate. A start reads back **pending**, never verified; the growth perk and `aadhaarMobile` are mock-only, the latter carried as `''` on the wire (D122) |
+| `propertyReview` | `propertyReviewService.js` | mock + **http** | Live: the property-verification case file — `GET/POST /properties/{id}/verification`, `POST .../messages`, `POST .../read`, `POST .../decision`, and the staff queue `GET /admin/property-reviews`. **Named for the collision it avoids twice over**: `verificationService` is the Aadhaar *identity* badge, and `reviewService.listPropertyReviews` is consumer star-ratings — hence `listPropertyReviewQueue` for the desk. `{id}` is the listing **UUID, never the slug** (`propertyMapper` sets `id = slug || id` and stashes the real one on `uuid`), so callers pass `listing.uuid \|\| listing.id`. Two vocabularies that look like one: the request verb is `approve`/`reject`, the resulting status is `approved`/`rejected`, and an unrecognised verb **throws a 400 on both providers** rather than defaulting — the obvious `startsWith('approve') ? … : 'reject'` makes every typo a rejection, which is the destructive, owner-visible, audit-logged side of the branch. Deciding writes **three** places server-side — the case file, `properties.status`, and an owner-facing sentence posted into the thread — so a console must stop pairing `decideReview` with `setListingStatus`. The mock is the *richer* end for once (per-document verify/reject, `in_review`/`clarification` statuses, a listing snapshot) and none of it has a server: the checklist is read-only `{item, pass}` with no write endpoint, and `/admin/property-reviews` takes a `Pageable` and nothing else, so a "pending only" desk is filtering a page, not the queue. `reviewer` is a raw user **UUID**, not a handle. The mock provider reproduces the server's *access* rules as well as its business ones — participant-or-staff on the thread (404, not 403, so a stranger cannot confirm the listing is under review), staff on the queue and the decision, owner-cannot-decide-their-own — because a permissive mock lets a buyer session publish a listing in the demo and lets screens get built against forbidden states they never render. **D218 added a third party to the thread: nobody.** A message can now be `internal`, and an internal message is filtered out of the owner's copy entirely — so a case holding *only* internal notes answers the owner **404, not an empty thread**, because an empty thread still tells them a file has been opened on them. `internal` is on the wire (and false in every owner-side response) because filtering alone left staff unable to tell a staff-only finding from something the owner was actually told: both arrive as `from: ops`, in one conversation, and a moderator who quotes the first back to an owner has made the disclosure the filter existed to prevent. It renders as a separate amber lane with no `You (PuneNest)` attribution. The read is gated on the `properties:read` **grant** and not the bare staff role — that is the one verification route that cannot be gated at the controller, because it is participant-or-staff and an owner holds no grants at all. D218 also moved the desk's sort to `last_message_at desc, id desc`; note that this currently orders *identically* to `updatedAt` and is still the right column, because it is the write that dirties the row in the first place |
 | `settings` | `settingsService.js` | mock + **http** | Live: the platform configuration document — `GET`/`PUT /admin/settings`, both `x-roles: [admin]`. **The last domain to get a seam, and the one that most needed it**: `AdminFlagsContext` and `AdminSettings.jsx` imported `getSettings`/`updateSettings` straight from `lib/mockApi.js`, so with every domain switched on the admin console *still* read its feature flags, fee schedule and geo policy out of `db.json` — and nothing said so, because a direct import has no switch to look at. No mapper, deliberately: the server stores one row per top-level key and folds them on read, so the key set is open by construction and a mapper would either enumerate it (dropping the next key someone adds) or pass it through. Writes **merge**, on both providers — send only what you actually changed, because a block you did not read is still a block you are asserting. That is not pedantry: `setFlag` used to send the whole `adminFlags` object, so a failed read followed by one toggle would persist the all-`true` defaults over every flag the operator had set. The mock provider deep-merges against the stored document before handing whole blocks to `lib/mockApi`'s shallow spread, matching the server's rule — objects merge key by key, arrays and scalars replace whole (`geo.blacklist` is an ordered list). `getCustomRoles()` answers `[]` on http and that is the correct answer, not a stub: V61 deleted the key and `PUT` returns **422** for it. The optional `If-Match` precondition (D66) is not sent — honouring it is UI work in `AdminSettings.jsx` (surface the 412, re-read, re-apply), and sending the header without that handling turns a rare silent overwrite into a frequent unexplained failure |
 | others (content, admin, listing, …) | — | — | Backend controllers exist; no seam, and the pages import `lib/` directly |
 | `document` | `documentService.js` | mock + **http** | **Owner side only.** Live surface: the vault — `GET /me/documents/{propId}`, multipart `POST` (upload), `DELETE` — and the owner's request inbox — `GET /me/documents/requests`, `PATCH /me/documents/requests/{reqId}` (grant/decline). The wire's `categories[]` collapses to a single `docType` for the inbox row; the requester mobile stays masked; `shareToken`/`expiresAt` are re-send affordances, null until granted. The vault's signed `url` does not resolve in dev, so the bytes live behind the mock's `dataUrl` (D120 pattern). The **buyer's half** (ask → poll → open a shared bundle, token-mediated), the cross-user grant notification, shared-doc counts, the dashboard doc-count badge, rent agreements, and every presentation helper stay on `lib/data/documents.js` (D123). The consumer flip shipped as an **honest subset**: `DocumentsTab` — the owner's per-listing vault, the personal/KYC bucket (`/me/documents/personal`) and the request inbox — reads and writes through the service, and `document` is in the live e2e `VITE_API_DOMAINS`. `useRentAgreement`'s vault reuse, `DocVault` and `PropertyPassport` deliberately stay on `lib/` (the first needs the bytes the signed URL withholds; the last two address mock-only managed-property ids). What the flip left rough — failure states that read as emptiness, the missing loading state, wrong-flat mutation updates, and the request inbox on localStorage (tracked as D125, resolved 2026-08-08) |
 
-Twenty-three domains, twenty-three services, twenty-three mock providers, twenty-three http
-providers — the counts match exactly, and that is the invariant to keep. A provider without a
-service is unreachable; a service without a provider throws. (The table above grew past the
-"eighteen" it was written for as `society`, `photo`, `fees`, `team` and `settings` landed; the
-count is the thing to check, not the adjective.) `document` was foundation-only until its consumer
-flip; it is now wired to `DocumentsTab` and switched on in the live e2e config, on the honest subset
-described in its row above.
+Twenty-nine services, twenty-nine http providers, twenty-six mock providers — and the invariant to
+keep is that the first two match. A provider without a service is unreachable; a service without a
+provider throws. (The table above grew past the "eighteen" and then the "twenty-three" it was
+written for; the count is the thing to check, not the adjective.) The three mock-side gaps are
+deliberate and named: `permissions`, `referral` and `ticket` are http-only, because their mock
+stores cannot speak the server's vocabulary — the same reason `serviceRequest`'s drafting desk is a
+partial mock. Everything else must have both, or the demo build and the live build are different
+products. `document` was foundation-only until its consumer flip; it is now wired to `DocumentsTab`
+and switched on in the live e2e config, on the honest subset described in its row above.
 
 **Having an http provider is not the same as using it, and having a *seam* is not the same as being
 behind one.** Which domains are actually live is decided by `VITE_API_DOMAINS`, and for a long time
@@ -275,6 +278,66 @@ list silently returned at most 100 rows while `warnIfTruncated` compared `totalE
 and stayed quiet for everything in between — the guard that existed to make the ceiling audible was
 muted by the ceiling it was guarding. It is now 100, and the check compares against the rows actually
 returned, which is correct regardless of what either constant says.
+
+## The owner listing wizard crosses the seam (D219)
+
+`addListing` and `updateListingFields` shipped with the moderation slice, but for months their only
+caller was `AdminPostOnBehalf.jsx` — a desk of five people. The owner wizard
+(`list-property/submit.js`) built a record and wrote it straight to localStorage, so the path that
+produces almost every listing on the platform never issued a request at all.
+
+That is not merely an unconverted page. `POST /me/listings` is where `ListingDuplicateProbe` runs,
+so the duplicate detector was structurally blind to the one path the abuse it exists to catch — one
+flat listed twice, by two "owners" — actually arrives through. A detector reachable only from the
+back office is a detector aimed at the wrong door.
+
+Three things this slice had to get right, none of them obvious from the provider signature:
+
+- **The wizard's field names are not the contract's.** The address is five boxes and the wire takes
+  one line; `rera` is `reraId`; maintenance is split into a sale field and a rent field behind a
+  toggle, and the entity has one column; the meter number lives under `electricityConsumerNo` in the
+  owner-private `strongIds` block. None of these fail loudly — an unmapped key is simply dropped, so
+  the write succeeds and the value disappears. `forTheWire` does the adaptation in one place, next
+  to the call, rather than spreading renames through the record builder.
+- **`floor` must be *absent*, not zero.** Villas, plots and PGs never collect a floor. Sending `0`
+  for all of them would hand the server a fabricated `(society, floor, bhk)` tuple that every such
+  listing in one society shares — and the ten-minute duplicate sweep would then re-file them against
+  each other forever.
+- **The edit path sends nothing about re-checks.** `ListingService.apply` decides what an edit costs
+  and returns an `EditImpact`. A client that could assert "this edit stays live" could edit its way
+  around moderation, which is exactly what the foundation-field rules exist to prevent.
+
+The localStorage write survives as a **mirror**, not as the system of record: edit prefill, the
+browser-side dedup (`evaluateListingDedup`) and the documents shelf still read it. It is wrapped in
+its own try/catch for quota errors, and the seam call sits deliberately *outside* that — losing the
+mirror is survivable, losing the save is not.
+
+### Types diverge across the seam before values do
+
+The mock provider stores what it is handed; the http mapper coerces on the way out. So a field sent
+as the string the form holds is a number in live mode and a string in mock mode, and both providers
+answer without complaint. `forTheWire` shipped with exactly that bug on `floor` — caught by a
+mock-mode spec asserting `toBe(9)`, which is worth noting because the *live* run passed it. Anything
+the two providers must agree on has to be normalised on the wizard's side of the seam, not left to
+whichever mapper happens to be downstream.
+
+### The live seam has a third input nobody declares: elapsed time
+
+Mock mode has no tokens, so nothing in it ages. Live mode does, and the seam's test harness cached
+a session snapshot per account and replayed it — correct for the first fifteen minutes and quietly
+wrong afterwards. Past the access token's TTL the replayed token 401s, `services/http.js` recovers
+exactly as designed, and the refresh **rotates**: the live page holds the new token, the cache holds
+the old one. Hand the old one back and the server sees an already-rotated token presented a second
+time, which is what a stolen token looks like, so ADR-008 reuse detection revokes the family. The
+session is then genuinely dead, and the failure surfaces as a route guard redirecting to `/signin`
+on whatever screen happened to be next.
+
+Worth recording here rather than only in the harness, because the shape generalises past tests: any
+holder of a *copy* of a rotating credential — a second tab, a service worker, a retry queue that
+captured headers — is one refresh away from presenting a token the server will read as theft. The
+seam's contract is that tokens are read through `lib/auth.js` at call time, never captured and
+replayed later. Found by the first full live run (D219); a single spec file never runs long enough
+to cross the TTL.
 
 ## The notifications slice
 
@@ -582,11 +645,28 @@ and it appeared in the ops queue under the wrong tab. Fixed at all four call sit
 `post`), and the mapping table in `reportMapper.js` now warns on an unknown kind rather than
 silently guessing.
 
-| Modal reasons | Client `kind` | Wire `targetType` |
-|---|---|---|
-| `LISTING_REPORT_REASONS` | `listing` | `property` |
-| `OWNER_REPORT_REASONS` | `user` | `user` |
-| `SHARE_REPORT_REASONS` | `share` | **`post`** |
+| Modal reasons | Client `kind` | Wire `targetType` | Admin tab |
+|---|---|---|---|
+| `LISTING_REPORT_REASONS` | `listing` | `property` | Reported properties |
+| `OWNER_REPORT_REASONS` | `user` | `user` | Reported users & owners |
+| `SHARE_REPORT_REASONS` | `share` | **`post`** | Reported flatmate posts |
+
+That last row is newer than the rest of the table. Correcting the `kind` was only half the fix:
+the admin queue split its rows with `kind === 'listing' ? … : kind === 'user'`, so once flatmate
+reports carried their honest `share` they matched **neither branch and rendered in no tab at all**.
+The mislabelling had been masking a total absence — wrong but reachable is not obviously worse than
+right and invisible, and it is the reason the gap survived a wire fix. It surfaced from arithmetic
+rather than from a bug report: the live spec asserts `open + closed === listings + users + posts`,
+and before the third tile existed the two partitions could not be made to agree. `TAB_KIND` in
+`AdminReports.jsx` is now the one place that correspondence is written down.
+
+Those three lists now live in `frontend/src/lib/reportReasons.js` rather than inside
+`ReportModal.jsx`, because the admin queue needs the same vocabulary to build its reason filter and
+was carrying a second, drifted copy. Five modules import them. The drift mattered on the merits, not
+just structurally: **the same code means different things to different targets** — `spam` on a
+listing is a duplicate posting, `spam` on a person is who they are; `unavailable` on a listing means
+it is gone, on a person it means they never reply. `reportMapper.reasonLabel(reason, targetType)`
+therefore indexes per target type, and the queue renders the words the reporter actually chose.
 
 ### Three server rules the mock has no equivalent for
 
@@ -619,6 +699,16 @@ against today's copy is worse than one who has to open a tab.
 
 `reasonLabel` is the exception: presentation text the client already ships, resolved locally from
 one flattened table both providers share.
+
+Withholding has to be *said*, and said the same way everywhere. The queue read `reportedBy || ''`
+and rendered "Anonymous", which is a different claim from the one the server is making: the reporter
+is known — `reports.reporter_id` is NOT NULL and backs the duplicate index — merely not disclosed.
+"Anonymous" tells a moderator the complaint is unattributable, and an unattributable complaint is an
+easy one to wave away. It now reads **"Withheld"** in all four places the value surfaces: the table
+column, the detail drawer, the mobile card, and the CSV export — where the fallback had been missing
+altogether, and a blank cell in a spreadsheet reads as *missing* data rather than *withheld* data,
+which is the exact ambiguity the wording exists to remove. `admin/live-reports.spec.js` asserts the
+string "Anonymous" appears nowhere on the page, which is what found the last two copies.
 
 ## The switch-on slice: four providers that were live on paper only
 

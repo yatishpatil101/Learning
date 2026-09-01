@@ -1,5 +1,3 @@
-import { getPropReview } from '../../../lib/store.js';
-
 /* Pure derivations for the consumer Dashboard. No React, no side effects — every
    function takes the container's already-loaded state and returns display data,
    so the container stays a thin orchestrator and this logic is testable in
@@ -24,7 +22,7 @@ export function buildDocGroups(docReqs) {
 // The single "what's waiting on ME" triage list. Every row is a real
 // request/task; sorted stale-first so the oldest, most-at-risk items lead.
 export function buildActionItems({
-  isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings,
+  isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
   scheduledVisits, rental, payEnabledRent,
   decideContact, decideApp, go, decideDocReqs, navigate,
 }) {
@@ -77,8 +75,12 @@ export function buildActionItems({
         ],
       });
     });
-    listings.filter((l) => !l.flatmate && getPropReview(l.id)?.status === 'clarification').forEach((l) => {
-      const rev = getPropReview(l.id);
+    // "Ops is waiting on you" used to be a `clarification` status this file read straight out of
+    // localStorage. The server's review has no such status — what it has is a thread, and the
+    // honest signal is an unread message from ops. Same rule as the listing card's chip, and it
+    // reads the summaries the container already loaded rather than opening a second data source.
+    listings.filter((l) => !l.flatmate && (reviewsByProp?.[l.id]?.unread || 0) > 0).forEach((l) => {
+      const rev = reviewsByProp[l.id];
       actionItems.push({
         id: 'clarify:' + l.id, tone: 'rose', icon: 'alert-circle',
         title: `Action needed on "${l.title}"`,

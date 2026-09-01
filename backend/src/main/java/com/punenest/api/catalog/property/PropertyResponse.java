@@ -66,8 +66,44 @@ public record PropertyResponse(
         List<String> images,
         String floorPlan,
         String video,
+        /**
+         * The street address <em>including the unit</em> — owner and staff only, absent for
+         * everyone else ({@link com.punenest.api.common.trust.PrivateFieldVisibility}).
+         *
+         * <p>This field carries the flat number because {@link
+         * com.punenest.api.catalog.listing.AddressKey} needs the unit token to tell one flat from
+         * its neighbour — an address that stops at the building flags a whole tower, which is a
+         * flag nobody can act on. That makes the value useful to a duplicate probe and dangerous
+         * to publish: the contact gate exists so a stranger cannot reach an owner uninvited, and a
+         * stranger holding "A-902, Rohan Nilay" does not need a phone number, they can knock. The
+         * exposure is worst for exactly the listings this platform carries most of — PG and shared
+         * accommodation, where the occupant is often a single woman living alone in that unit.
+         *
+         * <p>Nothing renders it: the public detail page is built from {@code society},
+         * {@code locality} and {@code pincode}, and the frontend's {@code toViewModel} does not
+         * read this field at all. It is emitted only so the owner's edit form can round-trip what
+         * the owner typed, and so the desk can adjudicate a duplicate.
+         *
+         * <p>Absent (NON_NULL) rather than null for the public, so the shape of the response does
+         * not advertise that a field is being withheld.
+         */
         String address,
         String pincode,
+        /**
+         * The unit's electricity meter number — owner and staff only, absent for everyone else
+         * (V79, {@link com.punenest.api.common.trust.PrivateFieldVisibility}).
+         *
+         * <p>Emitted at all only because the owner typed it and must be able to correct it, and
+         * because it is the evidence behind a duplicate flag the desk has to adjudicate. It is not
+         * a listing attribute in the sense the rest of this record is: nothing renders it, nothing
+         * searches on it, and its one consumer is a server-side probe. A meter number names a live
+         * utility account, which makes it one of the few things here a stranger could <em>act</em>
+         * on rather than merely read.
+         *
+         * <p>Absent (NON_NULL) rather than null for the public, so the shape of the response does
+         * not advertise that a field is being withheld.
+         */
+        String electricityMeterNo,
         int views,
         int enquiries,
         boolean featured,
@@ -115,7 +151,40 @@ public record PropertyResponse(
         boolean societyVerified,
         boolean conveyanceDone,
         int docsCount,
-        Owner owner) {
+        Owner owner,
+
+        /**
+         * The post-on-behalf onboarding funnel, or null for every audience but the back office.
+         *
+         * <p>Null rather than an empty object when hidden, so {@code NON_NULL} removes the key
+         * entirely: a consumer response that carried {@code "adminPipeline": {}} would still be
+         * telling anyone reading it that such a thing exists and that this listing has none of it,
+         * which is most of what the field was worth concealing.
+         */
+        AdminPipeline adminPipeline) {
+
+    /**
+     * Post-on-behalf onboarding state (contract {@code Property.adminPipeline}).
+     *
+     * <p>Only {@code postedByAdmin}, {@code pipelineStage} and {@code postedByStaff} are stored.
+     * The three booleans are derived from the stage by {@link PipelineStage#reached} — they ask
+     * "has the funnel got this far", which the stage already answers, and keeping a second copy
+     * would only create the opportunity for the two to disagree.
+     *
+     * @param reminderCount how many chasers have gone to this owner; always 0 until there is a
+     *                      messaging surface to count, and deliberately not a column — it will be
+     *                      a count over the outbound messages themselves, so it cannot drift from
+     *                      the messages actually sent
+     */
+    public record AdminPipeline(
+            boolean postedByAdmin,
+            String postedByStaff,
+            String pipelineStage,
+            boolean claimLinkSent,
+            boolean photosUploaded,
+            boolean aadhaarVerified,
+            int reminderCount) {
+    }
 
     /**
      * Owner summary embedded in the detail (contract {@code Property.owner}). {@code mobile} is the

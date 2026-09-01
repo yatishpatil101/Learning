@@ -1,8 +1,11 @@
 package com.punenest.api.catalog.property;
 
 import com.punenest.api.catalog.listing.ListingCreate;
+import com.punenest.api.common.trust.BackOfficeVisibility;
 import com.punenest.api.common.trust.ContactVisibility;
 import com.punenest.api.common.trust.MobileMask;
+import com.punenest.api.common.trust.OutreachCounts;
+import com.punenest.api.common.trust.PrivateFieldVisibility;
 import com.punenest.api.identity.user.User;
 import java.util.UUID;
 import org.mapstruct.BeanMapping;
@@ -44,7 +47,16 @@ public interface PropertyMapper {
      * purpose: every call site must state which trust posture it is rendering under, so adding a new
      * detail endpoint cannot accidentally inherit "reveal".
      */
-    PropertyResponse toResponse(Property property, @Context ContactVisibility visibility);
+    @Mapping(target = "adminPipeline", expression = "java(toAdminPipeline(property, backOffice, outreach))")
+    @Mapping(target = "electricityMeterNo",
+            expression = "java(privateFields == com.punenest.api.common.trust.PrivateFieldVisibility.VISIBLE"
+                    + " ? property.getElectricityMeterNo() : null)")
+    @Mapping(target = "address",
+            expression = "java(privateFields == com.punenest.api.common.trust.PrivateFieldVisibility.VISIBLE"
+                    + " ? property.getAddress() : null)")
+    PropertyResponse toResponse(Property property, @Context ContactVisibility visibility,
+            @Context BackOfficeVisibility backOffice, @Context OutreachCounts outreach,
+            @Context PrivateFieldVisibility privateFields);
 
     /**
      * Copy the client-settable half of a create body onto a listing the service already constructed.
@@ -82,6 +94,10 @@ public interface PropertyMapper {
     @Mapping(target = "amenities", source = "amenities")
     @Mapping(target = "images", source = "images")
     @Mapping(target = "description", source = "description")
+    @Mapping(target = "address", source = "address")
+    @Mapping(target = "floor", source = "floor")
+    @Mapping(target = "societyId", source = "societyId")
+    @Mapping(target = "electricityMeterNo", source = "electricityMeterNo")
     void applyTo(ListingCreate in, @MappingTarget Property property);
 
     /**
@@ -105,6 +121,35 @@ public interface PropertyMapper {
     /** Opaque-id convention: the wire exposes the UUID as a string. Shared by every id field here. */
     default String map(UUID value) {
         return value == null ? null : value.toString();
+    }
+
+    /**
+     * Hand-written back-office projection — the second trust boundary on this DTO.
+     *
+     * <p>Returns null for every audience but staff, which {@code @JsonInclude(NON_NULL)} turns into
+     * an absent key. Explicit rather than generated for the same reason as {@link #toOwner}: the
+     * condition that decides whether the platform admits it manufactured a listing should be one
+     * readable line, not something a DTO refactor can quietly drop.
+     *
+     * <p>Null is also returned for listings staff never posted, even to staff. There is no funnel to
+     * report on an owner's own listing, and an object of all-false booleans would put it on the
+     * board as work that will never complete.
+     */
+    default PropertyResponse.AdminPipeline toAdminPipeline(Property property,
+            @Context BackOfficeVisibility backOffice, @Context OutreachCounts outreach) {
+        if (backOffice != BackOfficeVisibility.VISIBLE || property == null
+                || !property.isPostedByAdmin()) {
+            return null;
+        }
+        String stage = property.getPipelineStage();
+        return new PropertyResponse.AdminPipeline(
+                true,
+                property.getPostedByStaff(),
+                stage,
+                PipelineStage.reached(stage, PipelineStage.CLAIM_SENT),
+                PipelineStage.reached(stage, PipelineStage.PHOTOS_UPLOADED),
+                PipelineStage.reached(stage, PipelineStage.AADHAAR_VERIFIED),
+                outreach.forSubject(property.getId()));
     }
 
     /**

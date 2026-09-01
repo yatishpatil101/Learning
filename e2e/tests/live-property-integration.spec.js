@@ -20,7 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../helpers/datePicker.helper.js';
 import { IGNORE as SHARED_IGNORE } from '../helpers/console.js';
-import { signIn, signedInAs, authHeaders } from '../helpers/liveAuth.js';
+import { signIn, signedInAs, signedInAsNew, authHeaders } from '../helpers/liveAuth.js';
 
 // A seeded owner with four listings, one of them `flagged`. The flagged row is the point: public
 // `/properties` is floored to approved + non-archived server-side, so a My Listings built from
@@ -29,6 +29,12 @@ import { signIn, signedInAs, authHeaders } from '../helpers/liveAuth.js';
 const OWNER = { mobile: '9470744469', name: 'Meera Deshpande', total: 4, publiclyVisible: 3 };
 /** One of OWNER's seeded, approved listings — the property the deal tests transact on. */
 const OWNER_LISTING = '1078d711-d3eb-5961-ab3c-30d4bdc5f377';
+
+/** A 1×1 PNG. Small enough to sit inline, real enough that the server's sniffing accepts it. */
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /**
  * Console errors that say nothing about this app.
@@ -260,6 +266,97 @@ test.describe('LIVE: property domain against the real API', () => {
     await removeBtn.click();
     expect((await deleted).status()).toBeLessThan(300);
     await expect(page.getByRole('button', { name: 'Upload Sale Deed' })).toBeVisible();
+  });
+
+  test('the owner wizard creates the listing through POST /me/listings (D219)', async ({ page }) => {
+    /* Until D219 the wizard's `persistListing` wrote a record into localStorage and stopped. The
+       page said "Listed Successfully", the listing appeared in My Listings, and nothing had left
+       the browser — so the server's duplicate detector, which runs inside `POST /me/listings`, was
+       reachable only from admin post-on-behalf. The abuse it exists to catch (one flat listed
+       twice, by two "owners") arrives through this form and nowhere else.
+
+       Mock-mode specs cannot see that difference: the mock provider writes to the same localStorage
+       the old code wrote to, so a regression would leave every one of them green. Only the wire
+       distinguishes "the wizard saved" from "the wizard posted".
+
+       This runs as a NEW account, never as OWNER. The database persists for the whole run and
+       `My Listings uses /me/listings` above asserts an exact count of 4 for that seeded owner — a
+       fifth listing filed under them would break a test that has nothing to do with this one. */
+    await signedInAsNew(page);
+
+    /* Step 1 comes from the draft the wizard restores from, the way `live-fees-and-photos.spec.js`
+       does it: those answers are radio pills and chips, and a dozen clicks would say nothing this
+       test is about. `floor` is seeded here rather than clicked because it is one of the three legs
+       of the server's `(society, floor, bhk)` signal, and the leg the wizard holds as a string. */
+    await page.addInitScript(() => {
+      localStorage.setItem('pnDraft:list-property', JSON.stringify({
+        propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
+        floor: '9', availableFrom: '2026-09-01',
+      }));
+    });
+
+    const calls = [];
+    watchApiCalls(page, calls);
+    await page.goto('/list-property');
+
+    const next = page.getByRole('button', { name: /Next Step/i });
+    await next.click();
+
+    /* Step 2 cannot be seeded whole: `useFormDraft` restores `form` but not `locationSet`, and the
+       step fails with `err.location` until the pin has been placed in *this* session. The area
+       search is the cheap way past that gate — `runMapSearch` resolves a known Pune locality from
+       its own coordinate table before it ever calls Google. Address fields are typed after the
+       search on purpose: moving the pin kicks off a reverse-geocode that fills whatever is blank,
+       and typing afterwards both wins and marks the field owner-edited. */
+    await page.getByRole('combobox', { name: /Search a locality/i }).fill('Baner');
+    await page.getByRole('button', { name: 'Search location' }).click();
+
+    // A society name unique to this run: the point of the write is that a *server* row appears, and
+    // a name shared with the seed would make "did it arrive" unanswerable.
+    const society = `Seam Spec Residency ${Date.now()}`;
+    const step2 = { flatNumber: 'A-902', society, pincode: '411045', monthlyRent: '31000', deposit: '90000' };
+    for (const [field, value] of Object.entries(step2)) {
+      await page.locator(`input[data-err="${field}"]`).fill(value);
+    }
+    // The optional meter box has no `data-err` — its placeholder is the stable handle. This is the
+    // strongest duplicate signal the server has, and before D219 an owner had no way to send it.
+    await page.getByPlaceholder(/MSEDCL electricity bill/i).fill(`1800${Date.now()}`.slice(0, 12));
+
+    await next.click();
+
+    // Step 3 — photos are the one hard requirement (`validateStep3`). The upload itself is proven by
+    // `live-fees-and-photos.spec.js`; here it is a precondition for reaching Submit.
+    const photo = page.locator('input[type="file"][accept*="image"]').first();
+    await expect(photo).toBeAttached({ timeout: 20_000 });
+    const uploaded = page.waitForResponse(
+      (r) => r.url().includes('/me/photos') && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await photo.setInputFiles({ name: 'living-room.png', mimeType: 'image/png', buffer: PNG_1PX });
+    expect((await uploaded).status()).toBe(201);
+
+    const created = page.waitForResponse(
+      (r) => /\/api\/me\/listings$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await page.getByRole('button', { name: /Submit Property/i }).click();
+
+    // The decisive assertion. 201 and a server-minted id mean the row exists in Postgres and the
+    // duplicate probe ran over it; anything else means the wizard saved to this tab and lied.
+    const res = await created;
+    expect(res.status(), `API calls: ${calls.join(', ')}`).toBe(201);
+    const body = await res.json();
+    expect(body.id).toBeTruthy();
+
+    await expect(page.locator('text=/Listed Successfully/i')).toBeVisible({ timeout: 20_000 });
+
+    /* And it must come back from the server, not from the localStorage mirror the wizard still
+       keeps for edit prefill. `/dashboard` reads `myListings` through the seam, so a row here is a
+       row the API returned. */
+    const mine = await captureJson(page, /\/api\/me\/listings(\?|$)/);
+    await page.goto('/dashboard');
+    const rows = await lastJson(mine).then((b) => (Array.isArray(b) ? b : (b.content ?? [])));
+    expect(rows.some((r) => String(r.id) === String(body.id))).toBe(true);
   });
 
   test('the session survives a reload (no redirect to signin)', async ({ page }) => {
@@ -2022,10 +2119,25 @@ test.describe('LIVE: identity verification against the real API', () => {
   });
 
   test('the dev-only simulate endpoint finishes the badge where no real webhook lands (D122)', async ({ page }) => {
-    // Runs after the two read/start tests above so it grants only once the "badge is absent" and
-    // "start is pending" facts have been pinned on a fresh seed; the badge grant is durable, which is
-    // exactly the state this test exists to reach.
-    await signedInAs(page, CHATTER.mobile);
+    /* A throwaway account, not `CHATTER`.
+     *
+     * This is the one test in the block that *writes*, and the write is durable and irreversible:
+     * `VerificationService` sets `users.verified` and then back-fills the badge onto every listing
+     * the account holds. Run against a seeded actor it does not merely dirty a row — it silently
+     * republishes their listings as owner-verified for the rest of the run.
+     *
+     * It did. `CHATTER` is Omkar Kulkarni, who owns `p5007`, which is the anchor
+     * `platform/auth/live-verify-payoff.spec.js` uses as its *unverified* owner. That spec passed
+     * alone and failed in the full suite, which is the worst shape a failure can have. The rule was
+     * already written down — see `signedInAsNew` in `helpers/liveAuth.js`, which says a spec that
+     * flips a seeded actor's state is breaking the next spec's premise rather than testing a
+     * transition. This test is that spec, and now obeys it.
+     *
+     * Using a fresh account also drops the ordering constraint this test used to carry: it no
+     * longer has to run after the two read tests to leave their premise intact, because it no
+     * longer touches the account they read.
+     */
+    await signedInAsNew(page);
     await page.goto('/dashboard');
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
 

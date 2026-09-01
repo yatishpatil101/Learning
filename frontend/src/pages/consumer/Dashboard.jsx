@@ -69,7 +69,7 @@ export default function Dashboard() {
   const {
     listings, enquiries, visits, recent, recommended, alertMatches,
     contactReqs, photoReqs, flatmateReqs, docReqs,
-    reviewProp, setReviewProp, reviewInput, setReviewInput,
+    reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
     decideContact, decideDocReqs, decideFlatmateReq, mutateVisit, openReview, sendReview,
     dataStatus, dataError, retryData,
@@ -169,7 +169,7 @@ export default function Dashboard() {
   const scheduledVisits = useMemo(() => visits.filter((v) => v.status === 'scheduled'), [visits]);
   const payEnabledRent = flagEnabled('onlineRentPayment');
   const actionItems = buildActionItems({
-    isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings,
+    isOwner, contactReqs, apps, photoReqs, pendingDocGroups, listings, reviewsByProp,
     scheduledVisits, rental, payEnabledRent,
     decideContact, decideApp, go, decideDocReqs, navigate,
   });
@@ -194,7 +194,7 @@ export default function Dashboard() {
   const renderPanel = () => {
     switch (tab) {
       case 'properties':
-        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} />;
+        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} />;
       case 'rental':
         return <MyRentalPanel user={user} toast={toast} />;
       case 'activity':
@@ -265,6 +265,8 @@ export default function Dashboard() {
       <DashboardReviewModal
         reviewProp={reviewProp}
         setReviewProp={setReviewProp}
+        thread={reviewThread}
+        listing={(listings || []).find((l) => l.id === reviewProp || l.uuid === reviewProp)}
         reviewInput={reviewInput}
         setReviewInput={setReviewInput}
         sendReview={sendReview}

@@ -50,6 +50,18 @@ public class ReviewMessage {
     @Column(name = "body", nullable = false, updatable = false)
     private String body;
 
+    /**
+     * Staff-only: present in the case file ops reads, absent from the owner's copy (V80).
+     *
+     * <p>Exists because the duplicate probe's finding names <em>another</em> listing. Telling the
+     * submitter which one turns their own thread into a lookup for a column the public response
+     * withholds. Immutable for the same reason the body is: a note that could be reclassified after
+     * the fact is not evidence, and a note that could be reclassified <em>towards</em> the owner is a
+     * disclosure with no audit trail.
+     */
+    @Column(name = "internal", nullable = false, updatable = false)
+    private boolean internal;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -62,10 +74,11 @@ public class ReviewMessage {
         // JPA
     }
 
-    ReviewMessage(PropertyReview review, UUID senderId, String body) {
+    ReviewMessage(PropertyReview review, UUID senderId, String body, boolean internal) {
         this.review = review;
         this.senderId = senderId;
         this.body = body;
+        this.internal = internal;
     }
 
     public void markRead() {

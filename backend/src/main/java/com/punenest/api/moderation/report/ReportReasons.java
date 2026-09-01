@@ -20,8 +20,11 @@ import java.util.stream.Stream;
  * service-level check sufficient here and insufficient in V9/V16 — worth keeping straight, because
  * "always push it into the database" is the wrong lesson to draw from those two.
  *
- * <p>Values are the machine codes the frontend already submits (the left element of each
- * {@code ReportModal} pair); the human-readable label is the client's business, not the API's.
+ * <p>Values are the machine codes the frontend already submits (the left element of each pair in
+ * {@code frontend/src/lib/reportReasons.js}); the human-readable label is the client's business,
+ * not the API's. The two sides are diffed set-by-set by {@code frontend/scripts/report-parity.mjs},
+ * which parses the {@code Set.of(…)} literals below — so the mirroring is checked rather than
+ * merely asserted in a comment.
  */
 public final class ReportReasons {
 
@@ -31,7 +34,7 @@ public final class ReportReasons {
     /** Offered for every target type — the escape hatch that keeps {@code details} honest. */
     public static final String OTHER = "other";
 
-    /** Mirrors {@code LISTING_REPORT_REASONS} in {@code components/ReportModal.jsx}. */
+    /** Mirrors {@code LISTING_REPORT_REASONS} in {@code frontend/src/lib/reportReasons.js}. */
     private static final Set<String> FOR_PROPERTY =
             Set.of("sold", "fake", "unavailable", "pricing", "spam", "broker", OTHER);
 

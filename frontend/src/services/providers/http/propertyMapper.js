@@ -112,6 +112,10 @@ export function toViewModel(p) {
     bhk: p.bhk ? `${p.bhk} BHK` : '',
     // Mock: a boolean "has RERA". Wire: the registration number itself (absent when unregistered).
     rera: Boolean(p.reraId),
+    // Owner/staff only — the public response omits it, so on a search card this is simply absent
+    // (D218). Mapped back to the wizard's field name so an owner reopening the edit form sees the
+    // number they typed rather than an empty box that would silently clear it on save.
+    electricityConsumerNo: p.electricityMeterNo ?? undefined,
     // Mock dates are plain `YYYY-MM-DD` and are compared and rendered as such; the wire sends a full
     // ISO instant. Truncating keeps `createdMs`/freshness logic behaving identically in both modes.
     createdAt: p.createdAt ? String(p.createdAt).slice(0, 10) : undefined,
@@ -280,6 +284,18 @@ export function toModerationQuery(filters = {}, sort = 'newest') {
  * them would at best be ignored and at worst imply the client is trusted with them.
  */
 export function toListingCreate(listing = {}) {
+  // The parts the wizard stores separately, assembled into the one line the contract takes. The
+  // server normalises whatever arrives (AddressKey), so the exact assembly matters less than
+  // including the unit token — that is what distinguishes one flat from its neighbour.
+  //
+  // `street` is in the list so this composition matches the one the owner wizard sends (D219). It
+  // has to: AddressKey is deliberately exact rather than fuzzy, and `street` is not a filler token,
+  // so a three-part line and a four-part line for the same flat normalise to two different keys.
+  // The desk posting on behalf of a broker and the real owner posting for themselves is precisely
+  // the pairing the detector exists to catch, and a silent disagreement here is the one way to make
+  // that pair uncatchable while every test stays green. Fields the caller does not have drop out.
+  const composed = [listing.flatNumber, listing.tower, listing.society, listing.street]
+    .map((part) => String(part ?? '').trim()).filter(Boolean).join(', ');
   return {
     title: listing.title,
     deal: listing.deal,
@@ -304,6 +320,23 @@ export function toListingCreate(listing = {}) {
     amenities: listing.amenities,
     images: listing.gallery ?? listing.images,
     description: listing.desc ?? listing.description,
+    // The four duplicate-detection inputs (D218). The wizard has always collected these — they fed
+    // a browser-side dedup check that could only ever see the listings on this one machine. They go
+    // to the server now, where the same question is asked against everybody's listings.
+    address: listing.address || composed || undefined,
+    // Number('N/A') is NaN and NaN serialises to `null`, which the contract reads as "cleared" —
+    // so a non-numeric floor did not fail, it silently erased the one the listing already had.
+    // AdminPostOnBehalf sends exactly that string for a ground/lobby unit. Omit instead: an
+    // unparseable floor is a floor we do not know, and the signal is better off one arm short than
+    // wrong. (The server treats a missing floor as no (society, floor, bhk) signal at all.)
+    floor: Number.isFinite(Number(listing.floor)) && listing.floor !== '' && listing.floor != null
+      ? Number(listing.floor)
+      : undefined,
+    // Only the resolved entity id, never the typed name: the whole value of the
+    // (society, floor, bhk) signal is that `societyId` is a curated key that cannot be fudged by
+    // spelling. An empty string here means the lister typed a name without picking one.
+    societyId: listing.societyId || undefined,
+    electricityMeterNo: listing.electricityConsumerNo || undefined,
   };
 }
 
@@ -313,6 +346,11 @@ export function toListingUpdate(patch = {}) {
   // A PATCH must not resend `city: 'Pune'` just because the caller omitted it — that would be an
   // unrequested write, and on a foundation field it would be an unrequested re-moderation.
   if (patch.city === undefined) delete out.city;
+  // Same reasoning, sharper: `toListingCreate` composes an address out of flat/tower/society, which
+  // is right when all three are in hand and wrong on a partial patch — a body carrying only
+  // `society` would compose a *worse* address than the one already stored and overwrite it. On a
+  // PATCH the address is only ever what the caller actually said it was.
+  if (patch.address === undefined) delete out.address;
   for (const [k, v] of Object.entries(out)) {
     if (v === undefined) delete out[k];
   }

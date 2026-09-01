@@ -2,7 +2,6 @@ import { Link } from 'react-router';
 import Icon from '../../../../components/Icon.jsx';
 import { fmtINR, fmtNum } from '../../../../lib/format.js';
 import { computeQualityScore, qualityTips, qualityColor } from '../../../../lib/qualityScore.js';
-import { getPropReview, propReviewUnread } from '../../../../lib/store.js';
 import { listingFreshness } from '../../../../lib/freshness.js';
 import { canSplitIntoRooms, isFlatSplit, roomsForProperty, splitOccupants } from '../../../../lib/data/flatSplit.js';
 import StatChip from './StatChip.jsx';
@@ -19,13 +18,17 @@ import {
 // `dealStatus` is supplied by the panel from one `/me/deals` read rather than looked up per card.
 // The deal endpoints are owner-scoped and asynchronous, so a card cannot answer this for itself
 // without a request of its own — which on a twenty-listing dashboard is twenty requests.
+//
+// `review` arrives the same way and for the same reason, from one `/me/property-reviews` read: a
+// row of `{ status, unread, updatedAt }`, or `null` for a listing never submitted for verification.
+// It used to be a synchronous localStorage lookup here — against a store the ops desk never wrote
+// to, so an owner and the reviewer had never once seen the same case file.
 export default function ListingCard({
-  l, user, dealStatus = 'active', leadsFor, featuringOn, canFeature, navigate, openReview,
+  l, user, dealStatus = 'active', review = null, leadsFor, featuringOn, canFeature, navigate, openReview,
   onConfirmFresh, onReopen, onMarkUnderOffer, onFinalize, onToggleFeature, onWaReminder, onDelete,
   onSplit, onUnsplit,
 }) {
-  const rev = getPropReview(l.id);
-  const unread = propReviewUnread(l.id);
+  const unread = review?.unread || 0;
   const closed = dealStatus === 'closed';
   const reserved = dealStatus === 'reserved';
   const isSale = l.deal === 'buy' || l.deal === 'sale';
@@ -43,7 +46,7 @@ export default function ListingCard({
   // One status truth: the lifecycle pill is always primary (Live / Under
   // review / Under Offer / Sold / Rented). It stays clickable to open the
   // verification thread when one exists, so we never duplicate it.
-  const hasReview = !closed && !reserved && !!rev;
+  const hasReview = !closed && !reserved && !!review;
   const statusPill = {
     label: STATUS_LABEL[displayStatus] || displayStatus,
     cls: LISTING_STATUS_CLS[displayStatus] || 'bg-white/10 text-gray-300',
@@ -54,9 +57,15 @@ export default function ListingCard({
   // lifecycle pill can't: needs your input, was rejected, or passed.
   let reviewChip = null;
   if (hasReview) {
-    if (rev.status === 'clarification') reviewChip = { label: 'Action needed', cls: 'bg-rose-500/15 text-rose-300', icon: 'alert-circle' };
-    else if (rev.status === 'rejected') reviewChip = { label: 'Rejected', cls: 'bg-rose-500/15 text-rose-300', icon: 'x-circle' };
-    else if (rev.status === 'verified') reviewChip = { label: 'Verified', cls: 'bg-emerald-500/15 text-emerald-300', icon: 'shield-check' };
+    /* "Action needed" is derived from the thread, not from a status.
+
+       The mock had a `clarification` status that it set whenever ops posted a message; the server
+       has no such value, and rightly — it was a fact about the *conversation* stored as a fact
+       about the case. Unread ops messages say the same thing directly, and unlike a status they
+       clear themselves when the owner reads them. */
+    if (unread > 0) reviewChip = { label: 'Action needed', cls: 'bg-rose-500/15 text-rose-300', icon: 'alert-circle' };
+    else if (review.status === 'rejected') reviewChip = { label: 'Rejected', cls: 'bg-rose-500/15 text-rose-300', icon: 'x-circle' };
+    else if (review.status === 'approved') reviewChip = { label: 'Verified', cls: 'bg-emerald-500/15 text-emerald-300', icon: 'shield-check' };
   }
   const StatusTag = statusPill.onClick ? 'button' : 'span';
   /* Letting room by room is only offered on a rent listing the owner already has
@@ -157,8 +166,12 @@ export default function ListingCard({
                 <Icon name={reviewChip.icon} className="w-3 h-3" /> {reviewChip.label}
               </button>
             )}
-            {l.reReview && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold inline-flex items-center gap-1" title="Core details you edited are being re-checked. Your listing stays live.">
+            {/* recheckPending is the server's answer and reReview the mock store's; neither provider
+                emits both, so the chip needs both names to appear in both modes. Until D218 this
+                read `reReview` alone, which the http mapper never sets — so against the live API the
+                owner of a listing under re-check was told nothing at all. */}
+            {(l.recheckPending || l.reReview) && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold inline-flex items-center gap-1" title={l.recheckReason ? `Being re-checked: ${l.recheckReason}. Your listing stays live.` : 'Core details you edited are being re-checked. Your listing stays live.'}>
                 <Icon name="history" className="w-3 h-3" /> Update under review
               </span>
             )}

@@ -371,7 +371,8 @@
       "docsRentPre": "Every document is optional — an",
       "docsRentTerm": "Ownership Proof",
       "docsRentPost": "earns your Verified Owner badge. You can publish now and add it later. JPG, PNG or PDF up to 5MB each.",
-      "submitProperty": "Submit Property"
+      "submitProperty": "Submit Property",
+      "submitting": "Posting…"
     },
     "flatmate": {
       "photosHint": "Add photos of the whole flat/home — the offered room, plus shared spaces like the living room, kitchen and balcony. Listings with photos get far more replies.",

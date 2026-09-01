@@ -27,7 +27,7 @@ const ListProperty = () => {
     geoFillStatus, flyTo, onLocalityChange, onPinMove, locationSet,
     photos, handlePhotoUpload, removePhoto, setPhotoCategory,
     video, videoName, handleVideoUpload, setVideo, setVideoName,
-    documents, handleDocUpload, submitProperty, submitFlatmate,
+    documents, handleDocUpload, submitProperty, submitFlatmate, posting,
   } = vm;
 
   /* ================= SUCCESS ================= */
@@ -175,6 +175,7 @@ const ListProperty = () => {
                   handleDocUpload={handleDocUpload}
                   prevStep={prevStep}
                   submitProperty={submitProperty}
+                  posting={posting}
                   onReset={openResetConfirm}
                 />
               )}

@@ -214,6 +214,20 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
+        // 1b. Outbound messages prepared for this person (D216). Deleted rather than blanked, and
+        //     the reason is `body`: it holds the rendered text, which names them and can quote their
+        //     number, so there is no subset of columns to null that leaves a meaningful row behind.
+        //     Nulling the mobile and keeping the message would be the worst of both — the personal
+        //     data still there, in free text where no future sweep will find it.
+        //
+        //     Nothing here is retained against this. A chaser about a listing is operational
+        //     coordination between colleagues, not a contract and not an obligation; the audit log
+        //     keeps the fact that staff acted, which is the part that answers to somebody else.
+        erased.put("outbound_message", entityManager
+                .createNativeQuery("delete from outbound_message where recipient_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate());
+
         // 2. KYC. The rows are kept because `identity_verifications.user_id` is UNIQUE and its
         //    absence is meaningful ("never verified"), but every field that identifies a person
         //    goes -- including `identity_hash`, the irreversible "one Aadhaar, one account" dedup

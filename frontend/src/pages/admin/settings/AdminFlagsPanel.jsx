@@ -62,6 +62,7 @@ const ADMIN_FLAG_SECTIONS = [
   { section: 'reports', title: 'Reports', desc: 'Abuse reports & content moderation', hasTabFlag: true, options: [
     { key: 'properties', label: 'Reported properties', desc: 'Property abuse reports', cost: 'low' },
     { key: 'users', label: 'Reported users', desc: 'User abuse reports', cost: 'low' },
+    { key: 'posts', label: 'Reported posts', desc: 'Flatmate room, group and seeker posts', cost: 'low' },
   ] },
   { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [
     { key: 'seekers', label: 'Seekers', desc: 'Flatmate seeker posts', cost: 'low' },

@@ -1,8 +1,14 @@
 package com.punenest.api.moderation.property;
 
 import com.punenest.api.catalog.listing.ListingService;
+import com.punenest.api.catalog.property.PipelineStage;
 import com.punenest.api.catalog.property.Property;
+import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.common.audit.AuditService;
+import com.punenest.api.common.error.BadRequestException;
+import com.punenest.api.common.error.ConflictException;
+import com.punenest.api.common.error.NotFoundException;
+import com.punenest.api.common.web.Ids;
 import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import com.punenest.api.identity.user.UserService;
@@ -36,13 +42,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class OnBehalfListingService {
 
     private final ListingService listings;
+    private final PropertyRepository properties;
     private final UserRepository users;
     private final UserService userService;
     private final AuditService audit;
 
-    public OnBehalfListingService(ListingService listings, UserRepository users,
-            UserService userService, AuditService audit) {
+    public OnBehalfListingService(ListingService listings, PropertyRepository properties,
+            UserRepository users, UserService userService, AuditService audit) {
         this.listings = listings;
+        this.properties = properties;
         this.users = users;
         this.userService = userService;
         this.audit = audit;
@@ -73,11 +81,52 @@ public class OnBehalfListingService {
         }
 
         Property created = listings.create(owner.getId(), body.listing());
+        // Open the hand-back funnel. This is the one creation path that produces a listing its owner
+        // has never seen, so it is the only one that owes anybody a hand-over; a listing an owner
+        // posted themselves has already arrived where this funnel is trying to get to.
+        created.markPostedOnBehalf(caller.userId().toString());
 
         audit.record(caller, "property.create_on_behalf", "property", created.getId().toString(),
                 "ownerId", owner.getId().toString(),
                 "ownerMobile", body.ownerMobile(),
                 "ownerProvisioned", String.valueOf(provisioned));
         return created;
+    }
+
+    /**
+     * {@code POST /properties/{id}/pipeline} — move a staff-created listing along the hand-back
+     * funnel.
+     *
+     * <p>Lives here rather than with the moderation verbs because it is the same job as
+     * {@link #create}: this module owns listings the platform posted on somebody else's behalf, from
+     * the phone call that starts them to the moment the owner takes them over. It carries the same
+     * {@code postOnBehalf:write} atom for the same reason — the desk that may create a listing in a
+     * stranger's name is the desk that must report on handing it back, and splitting the two across
+     * permissions would let somebody open that liability without being accountable for closing it.
+     *
+     * <p>Refuses a listing the platform did not post. An owner's own listing has already arrived
+     * where the funnel is trying to get to, so a stage on it would be an item on a board that can
+     * never be cleared. Refusing is also what keeps the board's total honest.
+     */
+    @Transactional
+    public Property advance(AuthPrincipal caller, String propertyId, String stage) {
+        if (!PipelineStage.isValid(stage)) {
+            throw new BadRequestException(
+                    "stage must be one of " + String.join(", ", PipelineStage.ORDER));
+        }
+        Property property = Ids.parseUuid(propertyId)
+                .flatMap(properties::findById)
+                .orElseThrow(() -> NotFoundException.of("Property"));
+        if (!property.isPostedByAdmin()) {
+            throw new ConflictException(
+                    "This listing was posted by its owner, so it has no hand-back to track");
+        }
+
+        String from = property.getPipelineStage();
+        property.moveToStage(stage);
+        audit.record(caller, "property.pipeline", "property", propertyId,
+                "from", String.valueOf(from), "to", stage,
+                "owner", String.valueOf(property.getOwner().getId()));
+        return property;
     }
 }
