@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // /refer is a protected route; log in via localStorage (mock auth) and start
 // from a clean referral-stats slate so the invite counter is deterministic.

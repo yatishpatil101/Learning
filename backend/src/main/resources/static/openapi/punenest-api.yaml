@@ -312,6 +312,35 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PropertySummary' }
+  /properties/trust-stats:
+    get:
+      tags: [Catalog & Search]
+      summary: Verified share of the live catalogue
+      description: >
+        The three trust headlines, counted by the database, for the whole live catalogue or for one
+        locality. Declared before `/properties/{id}` for readability only — Spring ranks an exact
+        path above a template one, so this can never be read as a listing whose id is `trust-stats`.
+
+
+        It exists because the homepage used to derive these numbers in the browser from whichever
+        listings it had already loaded, which made every one of them a statement about the current
+        page dressed up as a statement about the catalogue. The distinct-owner figure was the worst:
+        two pages of the same owner's flats counted as two verified owners.
+      security: []
+      operationId: propertyTrustStats
+      parameters:
+        - name: locality
+          in: query
+          description: >
+            Locality *slug*, not a display name. An unknown slug answers zeroes rather than 404 —
+            this is a headline about a slice, and an empty slice is a real slice.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Counts for the whole catalogue, or for the requested locality
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrustStats' }
   /properties/{id}:
     parameters:
       - { $ref: '#/components/parameters/PropertyId' }
@@ -327,6 +356,40 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Property' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /owners/{id}:
+    get:
+      tags: [Catalog & Search]
+      summary: Public owner profile card
+      description: >
+        The seller card behind a listing. Public, and takes no principal at all: the page shows the
+        same thing to everyone, and the mobile is masked unconditionally because the profile has no
+        listing in context and so no contact gate to consult.
+
+
+        That is the fix, not a limitation. The old page revealed the number to anyone holding an
+        approved request against *any* of this owner's listings, which quietly turned a per-listing
+        grant into a per-person one — approval on a Baner 2BHK saying nothing about the same owner's
+        Kothrud shop.
+
+
+        The owner's listings are deliberately not embedded. They are `GET /properties?owner={id}`,
+        which is the same paged, approved-and-unarchived read as every other catalogue surface — one
+        hard floor, one card shape, one place to get it wrong. There is no `GET /owners`: a
+        downloadable list of the platform's landlords is not a feature.
+      security: []
+      operationId: getOwnerProfile
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The owner's public card
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerProfile' }
+        '404':
+          description: >
+            Unknown, malformed, or belonging to an archived account — one answer for all three, so
+            the route cannot be used to test whether an id exists.
   /localities:
     get:
       tags: [Catalog & Search]
@@ -4331,6 +4394,43 @@ paths:
                       content:
                         type: array
                         items: { $ref: '#/components/schemas/AdminSupportTicket' }
+  /service-waitlist:
+    post:
+      tags: [Services & Support]
+      summary: Join the waitlist for a service that has not launched
+      description: >
+        "Tell me when this launches", from a stranger (D4). Anonymous, and the third unauthenticated
+        body-write on the platform after `/cities/waitlist` and `/society-leads`.
+
+
+        Answers 201 whether or not a row was written, and returns no body. An id would be a
+        reference the caller can never resolve — it cannot read `GET /tickets` — and any
+        acknowledgement that distinguished "recorded" from "already on the list" would confirm to a
+        stranger whether the number they typed is registered. There is deliberately no `GET`: the
+        rows are a page of unverified phone numbers, readable only by ops on the guarded ticket
+        routes.
+
+
+        There is no free-text field, also deliberately. `service` is a slug checked server-side, and
+        the subject and team are derived from it, so nothing a stranger typed reaches a screen a
+        person reads and acts on.
+      security: []
+      operationId: joinServiceWaitlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceWaitlistJoin' }
+      responses:
+        '201': { description: Recorded, or silently deduplicated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: >
+            Too many signups for this mobile within the hour. Capped against the table under an
+            advisory lock rather than in memory, because a budget that resets on deploy is not a
+            budget — and it is the only one of the three controls on this route (IP rate limit, bot
+            challenge, per-mobile cap) that survives the other two being unconfigured.
   /service-requests:
     # Slice-11 spec fix S40. Two changes, one cause: without a list a staff member cannot find the
     # requests the five staff-only operations below act on, and "every service request on the
@@ -7314,6 +7414,17 @@ components:
         lat: { type: number, format: double }
         lng: { type: number, format: double }
         coverImage: { type: string, format: uri }
+        imageCount:
+          type: integer
+          minimum: 0
+          description: >
+            How many photos the listing has — the number, never the photos. The card surface only
+            ever asks "is there enough here", and shipping five URLs per row on a hundred-row page
+            to answer a yes/no is several times the payload for none of the benefit; search results
+            never render a second photo. It exists because the reels feed requires three frames and
+            had no other way to ask: it read `gallery.length` off a list row that has never carried
+            `images`, so every listing scored zero and the feed was permanently empty. Clients that
+            need the photos themselves read `GET /properties/{id}`.
         verified: { type: boolean }
         ownerVerified:
           type: boolean
@@ -8977,6 +9088,15 @@ components:
         customer: { type: string, description: Requester name }
         mobile: { $ref: '#/components/schemas/Mobile' }
         value: { $ref: '#/components/schemas/Money' }
+        quotedValue:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+          description: >
+            What the customer accepted when the ticket came off a priced flow (D3). Read *next to*
+            `value`, never instead of it: `value` is what the desk expects to bill and is ops-owned,
+            `quotedValue` is what was promised at the point of sale and is write-once. A gap between
+            the two is the desk's cue that the job is not the job that was quoted, which is a signal
+            that only exists while both numbers do.
         detail: { type: string, description: Free-text request detail }
         notes:
           type: array
@@ -9009,6 +9129,13 @@ components:
         customer: { type: string, description: Requester name }
         mobile: { $ref: '#/components/schemas/Mobile' }
         value: { $ref: '#/components/schemas/Money' }
+        quotedValue:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+          description: >
+            What this customer accepted, echoed back for the same reason as `mobile` — it is their
+            own number and their own agreed price, and withholding it from the person who agreed to
+            it would make the receipt less useful than the form that produced it (D3).
         detail: { type: string, description: Free-text request detail }
         createdAt: { type: string, format: date-time }
     TicketCreate:
@@ -10239,6 +10366,79 @@ components:
             start: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '22:00' }
             end: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', example: '07:00' }
         language: { type: string, enum: [en, hi, mr] }
+    OwnerProfile:
+      type: object
+      description: >
+        A ceiling, not a projection of convenience. The profile page used to be handed the entire
+        user row — email, where they operate, how long they have been here — so every field here is
+        one somebody decided a stranger may see, and the absent ones are absent on purpose.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        mobile: { $ref: '#/components/schemas/Mobile' }
+        verified:
+          type: boolean
+          description: The person has passed identity verification (Aadhaar/DigiLocker).
+        city: { type: [string, 'null'] }
+        memberSince:
+          type: [integer, 'null']
+          example: 2024
+          description: >
+            The *year* they joined, or null if unrecorded. A year, not a date: "on the platform
+            since 2024" is the trust signal, and a precise join date is an account fact rather than
+            a public one.
+        listingCount:
+          type: integer
+          minimum: 0
+          description: How many live listings they currently hold.
+    TrustStats:
+      type: object
+      description: >
+        Every field is a plain integer and zero is a real answer — an empty slice is a slice, not a
+        missing one, so nothing here is ever null.
+      required: [verifiedListings, totalListings, verifiedOwners]
+      properties:
+        verifiedListings: { type: integer, minimum: 0 }
+        totalListings: { type: integer, minimum: 0 }
+        verifiedOwners:
+          type: integer
+          minimum: 0
+          description: >
+            Distinct owners, counted by the database. Counting rows client-side made two listings
+            from one owner read as two verified owners.
+    ServiceWaitlistJoin:
+      type: object
+      description: >
+        `name` is optional and `mobile` is not — the opposite way round from most forms, because the
+        number is the only thing ops can act on and a name without one is a row nobody can use.
+      required: [service, mobile]
+      properties:
+        service:
+          type: string
+          maxLength: 40
+          description: >
+            A slug from the server's waitlist vocabulary. Rejected with a 400 naming the value rather
+            than silently filed under a default, so a client typo does not become a queue nobody
+            reads.
+        name:
+          type: string
+          maxLength: 120
+          description: What to call them, if they said. Trimmed and capped; blank becomes a fixed placeholder.
+        mobile: { $ref: '#/components/schemas/Mobile' }
+    ContentTranslations:
+      type: object
+      description: >
+        Editor-written translations, keyed language then wire field name (D2) — e.g.
+        `{ "mr": { "question": "...", "answer": "..." } }`. Two levels, strings at the leaves, and
+        nothing else: the shape is fixed rather than free-form so a nested array or a number is
+        refused at deserialisation instead of failing later at the point somebody tried to render it.
+        Only the fields an editor actually translated are present, and only the languages they
+        translated into; a client falls back to the top-level field for anything missing. Empty
+        rather than absent when nothing is translated, so "this row has no translations" and "this
+        row predates translations" stay the same fact.
+      additionalProperties:
+        type: object
+        additionalProperties: { type: string }
     Announcement:
       type: object
       properties:
@@ -10248,6 +10448,7 @@ components:
         severity: { type: string, enum: [info, success, warning] }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
+        translations: { $ref: '#/components/schemas/ContentTranslations' }
     CmsService:
       type: object
       properties:
@@ -10256,6 +10457,7 @@ components:
         icon: { type: string }
         description: { type: string }
         link: { type: string }
+        translations: { $ref: '#/components/schemas/ContentTranslations' }
     Faq:
       type: object
       properties:
@@ -10263,6 +10465,7 @@ components:
         question: { type: string }
         answer: { type: string }
         category: { type: string }
+        translations: { $ref: '#/components/schemas/ContentTranslations' }
     Banner:
       type: object
       properties:
@@ -10271,6 +10474,7 @@ components:
         link: { type: string }
         headline: { type: string }
         position: { type: integer }
+        translations: { $ref: '#/components/schemas/ContentTranslations' }
 
     # ---- Admin & Analytics ----
     AdminKpis:
@@ -10427,6 +10631,8 @@ components:
         image: { type: [string, 'null'] }
         headline: { type: [string, 'null'] }
         position: { type: [integer, 'null'] }
+        # every type
+        translations: { $ref: '#/components/schemas/ContentTranslations' }
     ContentItemWrite:
       type: object
       description: >

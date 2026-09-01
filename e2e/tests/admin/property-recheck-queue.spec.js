@@ -12,11 +12,8 @@
  * blank so the test passed" is the exact failure this file exists to rule out. The seed below
  * therefore *creates* the row it then insists on finding.
  */
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../helpers/console.js';
+import { test, expect } from '../../fixtures/base.js';
 import { appReady } from '../../helpers/app.js';
-
-const BASE = 'http://localhost:5173';
 
 const FIELDS = 'price, furnishing';
 const WAITED_HOURS = 76; // > the 72h breach threshold, so the overdue styling is exercised too
@@ -30,7 +27,7 @@ const WAITED_HOURS = 76; // > the 72h breach threshold, so the overdue styling i
  * from db.json asynchronously, and writing before that lands is overwritten a tick later.
  */
 async function seedRecheck(page, { hoursAgo = WAITED_HOURS, fields = FIELDS } = {}) {
-  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await appReady(page);
   return page.evaluate(([h, f]) => {
     const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
@@ -45,14 +42,14 @@ async function seedRecheck(page, { hoursAgo = WAITED_HOURS, fields = FIELDS } = 
   }, [hoursAgo, fields]);
 }
 
-async function goToRecheckQueue(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-  await page.goto(`${BASE}/admin/properties`);
+async function goToRecheckQueue(page, login) {
+  await login.asAdmin();
+  await page.goto('/admin/properties');
   await appReady(page);
   await page.getByRole('tab', { name: /Re-check Queue/ }).click();
-  await page.waitForTimeout(400);
+  // Replaces `waitForTimeout(400)`: the tab is selected when the panel has swapped, which is the
+  // thing the sleep was waiting for and the thing the next assertion depends on.
+  await expect(page.getByRole('tab', { name: /Re-check Queue/ })).toHaveAttribute('aria-selected', 'true');
 }
 
 /** The card carrying a given listing title. */
@@ -63,9 +60,9 @@ const cardFor = (page, title) => page.locator('.list-card').filter({ hasText: ti
 // ═══════════════════════════════════════════════════════
 
 test.describe('Re-check queue — visibility', () => {
-  test('a queued re-check appears in the tab, which counts it', async ({ page }) => {
+  test('a queued re-check appears in the tab, which counts it', async ({ page, login }) => {
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
 
     // The count in the tab label is the announcement: an admin who never opens this tab still sees
     // that something is waiting. A bare "Re-check Queue" would hide a backlog behind a click.
@@ -74,9 +71,9 @@ test.describe('Re-check queue — visibility', () => {
     await expect(cardFor(page, seeded.title)).toBeVisible();
   });
 
-  test('the row names the changed fields and how long it has waited', async ({ page }) => {
+  test('the row names the changed fields and how long it has waited', async ({ page, login }) => {
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
 
     const card = cardFor(page, seeded.title);
     await expect(card.getByTestId('recheck-fields')).toHaveText(FIELDS);
@@ -86,27 +83,26 @@ test.describe('Re-check queue — visibility', () => {
     await expect(card.getByTestId('recheck-age')).toContainText('waiting');
   });
 
-  test('the strip is visible on other tabs too, because the listing is still live there', async ({ page }) => {
+  test('the strip is visible on other tabs too, because the listing is still live there', async ({ page, login }) => {
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
     await page.getByRole('tab', { name: 'All Listings' }).click();
-    await page.waitForTimeout(400);
+    await expect(page.getByRole('tab', { name: 'All Listings' })).toHaveAttribute('aria-selected', 'true');
     // "All Listings" paginates, and the seeded row need not be on page one — search for it rather
     // than assume, or the assertion below would fail for a reason that has nothing to do with the
     // strip. (Searching is also the honest reproduction: this is how an admin would reach it.)
     await page.getByPlaceholder(/Search title, owner, locality/).first().fill(seeded.title);
-    await page.waitForTimeout(400);
+    await expect(cardFor(page, seeded.title)).toBeVisible();
 
     // On "All Listings" this row looks like any other approved listing. Without the strip there is
     // no way to tell an un-reviewed price change from a verified one.
     await expect(cardFor(page, seeded.title).getByTestId('recheck-strip')).toBeVisible();
   });
 
-  test('loads without JS errors', async ({ page }) => {
-    const errors = trackErrors(page);
+  test('loads without JS errors', async ({ page, login, consoleErrors }) => {
     await seedRecheck(page);
-    await goToRecheckQueue(page);
-    expect(errors).toHaveLength(0);
+    await goToRecheckQueue(page, login);
+    expect(consoleErrors).toHaveLength(0);
   });
 });
 
@@ -115,10 +111,10 @@ test.describe('Re-check queue — visibility', () => {
 // ═══════════════════════════════════════════════════════
 
 test.describe('Re-check queue — moderator actions', () => {
-  test('passing a re-check removes the row and leaves the listing live', async ({ page }) => {
+  test('passing a re-check removes the row and leaves the listing live', async ({ page, login }) => {
     page.on('dialog', (d) => d.accept());
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
 
     await expect(cardFor(page, seeded.title)).toBeVisible();
     await cardFor(page, seeded.title).getByTestId('recheck-pass').click();
@@ -142,9 +138,9 @@ test.describe('Re-check queue — moderator actions', () => {
     expect(after.at).toBe('');
   });
 
-  test('failing a re-check takes the listing down with a reason', async ({ page }) => {
+  test('failing a re-check takes the listing down with a reason', async ({ page, login }) => {
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
 
     await cardFor(page, seeded.title).getByTestId('recheck-fail').click();
     await expect(page.getByRole('heading', { name: /Re-check failed/i })).toBeVisible();
@@ -161,9 +157,9 @@ test.describe('Re-check queue — moderator actions', () => {
     expect(after.pending).toBe(false);
   });
 
-  test('a rejection reason is required', async ({ page }) => {
+  test('a rejection reason is required', async ({ page, login }) => {
     const seeded = await seedRecheck(page);
-    await goToRecheckQueue(page);
+    await goToRecheckQueue(page, login);
 
     await cardFor(page, seeded.title).getByTestId('recheck-fail').click();
     await page.getByRole('button', { name: /Reject listing/i }).click();

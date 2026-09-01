@@ -1,18 +1,13 @@
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../helpers/console.js';
+import { test, expect } from '../../fixtures/base.js';
 
 /* Admin control for the Google Places geo policy (Settings ▸ Maps).
    Verifies the city-limit toggle and the locality/society blacklist persist to
    settings.geo — the same store lib/geoConfig.js reads to bound every locality
-   search across the app. */
+   search across the app.
 
-const BASE = 'http://localhost:5173';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
+   Converted to the shared `login` / `consoleErrors` fixtures and relative paths; the hardcoded
+   `http://localhost:5173` ignored `BASE_URL`, so this file silently tested the wrong server
+   whenever the port moved. */
 
 const readGeo = (page) => page.evaluate(() => {
   const db = JSON.parse(localStorage.getItem('puneNestDB_v5') || 'null');
@@ -20,9 +15,9 @@ const readGeo = (page) => page.evaluate(() => {
 });
 
 test.describe('Maps & Places admin control', () => {
-  test('city-limit toggle and blacklist persist to settings.geo', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/settings?tab=maps`);
+  test('city-limit toggle and blacklist persist to settings.geo', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/settings?tab=maps');
 
     // Panel renders.
     await expect(page.getByRole('heading', { name: /Restrict Places to the selected city/i })).toBeVisible();
@@ -57,9 +52,9 @@ test.describe('Maps & Places admin control', () => {
     }).toBe(false);
   });
 
-  test('per-city live toggle persists to settings.geo.cities[*].live', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/settings?tab=maps`);
+  test('per-city live toggle persists to settings.geo.cities[*].live', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/settings?tab=maps');
 
     // Pune ships live by default.
     const puneLive = page.getByRole('switch', { name: /Set Pune live/i });
@@ -83,23 +78,21 @@ test.describe('Maps & Places admin control', () => {
     await expect.poll(async () => (await readGeo(page))?.cities?.Mumbai?.live).toBe(true);
   });
 
-  test('boundary editor renders with a fail-soft outline hint under the demo Map ID', async ({ page }) => {
+  test('boundary editor renders with a fail-soft outline hint under the demo Map ID', async ({ page, login, consoleErrors }) => {
     // The visual boundary editor now highlights a searched place's REAL Google boundary
     // polygon (data-driven styling) — but only with a proper vector Map ID. Under the
     // built-in DEMO_MAP_ID it must degrade gracefully: the rectangle editor still works
     // and a hint tells the operator how to enable the outline. This asserts that fail-soft
     // path (the live-boundary render itself needs a configured Map ID + Google boundary
     // data, which isn't available in test).
-    const errors = trackErrors(page);
-
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/settings?tab=maps`);
+    await login.asAdmin();
+    await page.goto('/admin/settings?tab=maps');
 
     await expect(page.getByRole('heading', { name: /City coverage/i })).toBeVisible();
     // Fail-soft hint appears because the demo Map ID has no data-driven styling.
     await expect(page.getByText(/set a data-driven/i)).toBeVisible();
 
     // The panel mounted without throwing (boundary layer setup is best-effort/guarded).
-    expect(errors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
   });
 });

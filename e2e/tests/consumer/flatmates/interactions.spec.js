@@ -11,7 +11,7 @@ import { trackErrors } from '../../../helpers/console.js';
       Report modal and a submitted report shows a confirmation toast.
    4. The sort control is the shared Select pill and actually reorders posts. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 
 async function seedUser(page, mobile = MOBILE) {

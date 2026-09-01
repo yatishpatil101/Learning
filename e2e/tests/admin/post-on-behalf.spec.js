@@ -1,18 +1,10 @@
 // @ts-check
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/base.js';
 import { appReady } from '../../helpers/app.js';
 
-const BASE = 'http://localhost:5173';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
-
 test.describe('Admin Post on Behalf', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAsAdmin(page);
+  test.beforeEach(async ({ login }) => {
+    await login.asAdmin();
   });
 
   test('navigates to post-on-behalf from sidebar', async ({ page }) => {
@@ -34,13 +26,13 @@ test.describe('Admin Post on Behalf', () => {
   });
 
   test('validates step 1 - owner details', async ({ page }) => {
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
     await page.getByRole('button', { name: /Next/i }).click();
     await expect(page.getByPlaceholder('Full name of the property owner')).toBeVisible();
   });
 
   test('price field shows Indian comma formatting and moneyWords', async ({ page }) => {
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
 
     // Fill step 1
     await page.getByPlaceholder('Full name of the property owner').fill('Test Owner');
@@ -68,7 +60,7 @@ test.describe('Admin Post on Behalf', () => {
   });
 
   test('deposit month buttons calculate correctly', async ({ page }) => {
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
 
     // Navigate to step 4
     await page.getByPlaceholder('Full name of the property owner').fill('Test Owner');
@@ -99,7 +91,7 @@ test.describe('Admin Post on Behalf', () => {
   });
 
   test('completes full wizard — listing saved as pending with staff tracking', async ({ page }) => {
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
 
     // Step 1
     await page.getByPlaceholder('Full name of the property owner').fill('Rajesh Kumar');
@@ -144,7 +136,7 @@ test.describe('Admin Post on Behalf', () => {
   });
 
   test('posted listing appears in Properties → Verification Queue with staff badge', async ({ page }) => {
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
 
     // Quick fill the wizard
     await page.getByPlaceholder('Full name of the property owner').fill('Badge Test Owner');
@@ -185,7 +177,7 @@ test.describe('Admin Post on Behalf', () => {
 
   test('staff activity page — redesigned with KPIs, filters, and link', async ({ page }) => {
     // First post a listing to generate activity
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
     await page.getByPlaceholder('Full name of the property owner').fill('Activity Test');
     await page.getByPlaceholder('9876543210').fill('9111222333');
     await page.getByRole('button', { name: /Next/i }).click();
@@ -210,7 +202,7 @@ test.describe('Admin Post on Behalf', () => {
     await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 5000 });
 
     // Navigate to Staff Activity page
-    await page.goto(`${BASE}/admin/staff-activity`);
+    await page.goto('/admin/staff-activity');
     await expect(page.getByText('Staff Activity')).toBeVisible();
 
     // KPI cards (visible when staffActivity.kpis flag is on — default: on).
@@ -258,7 +250,7 @@ test.describe('Admin Post on Behalf', () => {
 
   test('staff activity page — disabled module shows fallback', async ({ page }) => {
     // Disable staffActivity.enabled via the mock DB settings
-    await page.goto(`${BASE}/admin/staff-activity`);
+    await page.goto('/admin/staff-activity');
     await appReady(page);
     await page.evaluate(() => {
       // Read-modify-write: `{}` is not a safe fallback here, it is written straight back and
@@ -290,7 +282,7 @@ test.describe('Admin Post on Behalf', () => {
 
   test('Properties → Staff Posted tab shows staff-posted listings with edit', async ({ page }) => {
     // Post a listing first
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+    await page.goto('/admin/post-on-behalf');
     await page.getByPlaceholder('Full name of the property owner').fill('StaffTab Owner');
     await page.getByPlaceholder('9876543210').fill('9222333444');
     await page.getByRole('button', { name: /Next/i }).click();
@@ -314,7 +306,7 @@ test.describe('Admin Post on Behalf', () => {
     await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 5000 });
 
     // Go to Properties page
-    await page.goto(`${BASE}/admin/properties`);
+    await page.goto('/admin/properties');
 
     // Click Staff Posted tab
     await page.getByRole('tab', { name: /Staff Posted/i }).click();

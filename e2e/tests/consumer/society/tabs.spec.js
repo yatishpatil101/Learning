@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 // (no listings / generic society) are hidden. The action/trust sidebar persists across
 // all tabs. Seed society: verified "Skyline Heights, Baner" (has 1 listing + coords).
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SLUG = 'skyline-heights-baner';
 
 async function goto(page, path) {

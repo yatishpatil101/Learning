@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 // Verifies a listing binds to a real society ENTITY (verified pick) and that an
 // unknown name mints a community society + shows the pending-verification hint.
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543211';
 
 async function gotoForm(page) {

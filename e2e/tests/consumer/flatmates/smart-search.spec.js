@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
    Also covers the smarter empty state (active-filter chips + the live query) and the
    per-tab result-count badges. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SEARCH = /Try: girl in baner/i;
 
 test('smart search turns a sentence into filters and clears the raw query', async ({ page }) => {

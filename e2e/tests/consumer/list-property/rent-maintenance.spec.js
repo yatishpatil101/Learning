@@ -7,7 +7,7 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
       UI/store use 'extra', so the amount the owner typed was silently dropped.)
    2. Pill / Toggle selection atoms are keyboard-operable (role + Enter/Space). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 const PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test';
    Assertions are scoped to the DESKTOP sidebar (same pattern as
    type-aware-filters.spec.js). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 const cards = (page) => page.locator('a[href^="/property/"]');

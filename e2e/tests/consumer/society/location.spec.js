@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 // ops moderation queue. All state is localStorage (no backend).
 // Seed society: verified "Skyline Heights, Baner" (lat 18.5602, lng 73.7861).
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SLUG = 'skyline-heights-baner';
 const KYC_MOBILE = '9876543212';
 const RES_MOBILE = '9820011111';

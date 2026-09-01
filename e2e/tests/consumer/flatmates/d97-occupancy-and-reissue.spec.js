@@ -22,7 +22,7 @@ import { test, expect } from '@playwright/test';
    request's share, only the mock provider VM (requestVm.share) reads it back — so it
    is not UI-observable and is covered by code review + the provider VM, not here. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 
 // ---- D97(c) ----------------------------------------------------------------

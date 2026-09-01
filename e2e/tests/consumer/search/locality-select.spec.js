@@ -7,7 +7,7 @@ import { trackErrors } from '../../../helpers/console.js';
    the place's own coords; (2) when Google is unavailable the control silently
    degrades to filtering the static list — no regression, no console errors. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 // Stub the Places (New) autocomplete + details so a typed locality resolves to a

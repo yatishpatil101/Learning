@@ -1,6 +1,5 @@
 // @ts-check
-import { test, expect } from '@playwright/test';
-import { trackErrors } from '../../helpers/console.js';
+import { test, expect } from '../../fixtures/base.js';
 
 /**
  * Ops "Duplicates" merge UI (end-to-end).
@@ -9,16 +8,13 @@ import { trackErrors } from '../../helpers/console.js';
  * the shared mock DB, opens Admin → Properties → Duplicates, and confirms the pair
  * surfaces as one cluster that Ops can resolve by keeping one and archiving the
  * other.
+ *
+ * Converted to the shared `login` / `consoleErrors` fixtures and relative paths; the hardcoded
+ * `http://localhost:5173` ignored `BASE_URL`. Three `waitForTimeout` calls are gone, replaced by
+ * the assertions they were standing in for.
  */
 
-const BASE = 'http://localhost:5173';
 const SOCIETY = 'ZZ Ops Merge Society';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
 
 async function seedCluster(page) {
   await page.evaluate((society) => {
@@ -43,20 +39,19 @@ async function seedCluster(page) {
   }, SOCIETY);
 }
 
-test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', async ({ page }) => {
-  const errors = trackErrors(page);
-
+test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', async ({ page, login, consoleErrors }) => {
   // Log in first so the app boots and seeds the FULL default DB into puneNestDB_v5,
   // then merge our two listings into it. Seeding before boot would write a partial
   // DB (only `listings`) and crash the app on load.
-  await loginAsAdmin(page);
+  await login.asAdmin();
   await seedCluster(page);
-  await page.goto(`${BASE}/admin/properties`);
-  await page.waitForTimeout(1000);
+  await page.goto('/admin/properties');
 
   // Open the Duplicates tab (label carries the live count, e.g. "Duplicates (1)").
-  await page.getByRole('tab', { name: /Duplicates/i }).click();
-  await page.waitForTimeout(400);
+  const tab = page.getByRole('tab', { name: /Duplicates/i });
+  await expect(tab).toBeVisible();
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
 
   // The cluster shows both listings side-by-side.
   await expect(page.getByText('2 BHK by Owner A')).toBeVisible();
@@ -66,10 +61,9 @@ test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', as
   // Keep Owner B's listing → Owner A's is archived as a merged duplicate.
   const keepButtons = page.getByRole('button', { name: /Keep this, archive the rest/i });
   await keepButtons.nth(0).click(); // first column is the NEWEST (Owner B).
-  await page.waitForTimeout(600);
 
   // The cluster is resolved and disappears from the tab.
-  await expect(page.getByText(/No duplicate clusters/i)).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText(/No duplicate clusters/i)).toBeVisible();
 
   // DB reflects the merge: the dropped listing is archived, the kept one is clean.
   const state = await page.evaluate(() => {
@@ -81,5 +75,5 @@ test('Ops can merge a cross-owner duplicate cluster from the Duplicates tab', as
   expect(state.b.archived).toBeFalsy();
   expect(state.b.duplicateFlag).toBeFalsy();
 
-  expect(errors).toHaveLength(0);
+  expect(consoleErrors).toHaveLength(0);
 });

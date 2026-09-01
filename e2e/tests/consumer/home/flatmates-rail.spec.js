@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
    keeps the legacy values working for old deep links — but the CTA names the
    current one, and this spec asserts the current one. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 
 async function seedUser(page) {

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/base.js';
 
 /* D63 / D65 — the money figures that have no path behind them must say so.
  *
@@ -17,14 +17,6 @@ import { test, expect } from '@playwright/test';
  * the server), so the switch is exercised here by patching the seeded DB and reloading.
  */
 
-const BASE = 'http://localhost:5173';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
-
 /* The DB is seeded on first load, so this has to run after a navigation, not in an init script. */
 async function setFinanceFlags(page, finance) {
   await page.evaluate((f) => {
@@ -39,9 +31,9 @@ async function setFinanceFlags(page, finance) {
 const DISCLOSURES = '[data-testid="finance-disclosures"]';
 
 test.describe('admin finance — structural zeros disclose themselves', () => {
-  test('the default screen warns that not every figure is measured', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('the default screen warns that not every figure is measured', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
 
     const panel = page.locator(DISCLOSURES);
     await expect(panel).toBeVisible({ timeout: 5000 });
@@ -51,9 +43,9 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
   /* Each of the three reasons is named, not summarised. "Some numbers are estimates" tells an
      operator nothing they can act on; "no payout has ever been executed" tells them exactly which
      figure to stop trusting and why. */
-  test('all three reasons are named by default', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('all three reasons are named by default', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
 
     const panel = page.locator(DISCLOSURES);
     await expect(panel).toContainText(/no payout has ever been executed/i);
@@ -63,9 +55,9 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
 
   /* The disclosure travels with the figure. A banner alone is read once and then scrolled past;
      the marker beside the row is what is on screen at the moment the number is being read. */
-  test('the payouts and refunds rows are marked in place, and keep their figures', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('the payouts and refunds rows are marked in place, and keep their figures', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
 
     const payouts = page.locator('.pn-card').filter({ hasText: 'Payouts & outstanding' }).last();
     await expect(payouts).toContainText(/Partner payouts \(65%\)/);
@@ -76,9 +68,9 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
     await expect(payouts).toContainText(/₹/);
   });
 
-  test('turning every flag on removes the disclosure without a code change', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('turning every flag on removes the disclosure without a code change', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
     await expect(page.locator(DISCLOSURES)).toBeVisible({ timeout: 5000 });
 
     await setFinanceFlags(page, {
@@ -94,9 +86,9 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
 
   /* The flags are independent: shipping payouts must not silently stop the screen disclosing that
      refunds and service orders are still unbacked. */
-  test('flipping one flag leaves the other two disclosures standing', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('flipping one flag leaves the other two disclosures standing', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
     await expect(page.locator(DISCLOSURES)).toBeVisible({ timeout: 5000 });
 
     await setFinanceFlags(page, { payoutsMeasured: true });
@@ -111,9 +103,9 @@ test.describe('admin finance — structural zeros disclose themselves', () => {
 
   /* An explicit `false` and an absent key must behave identically. Anything else means the default
      depends on whether someone remembered to write the key down. */
-  test('an absent flag is treated as not measured', async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/finance`);
+  test('an absent flag is treated as not measured', async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/finance');
     await setFinanceFlags(page, {});
     await page.reload();
 

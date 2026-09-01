@@ -6,7 +6,7 @@ import { appReady } from '../../helpers/app.js';
    honest city-aware presentation (dynamic copy + "just launched" empty state) and never
    leak Pune localities or listings. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // Force the active city and mark it live in the mock DB, then reload so CityContext picks it up.
 // `appReady` first: every caller reaches this straight off a `goto`, and the store is written

@@ -10,7 +10,7 @@ import { trackErrors } from '../../../helpers/console.js';
    the filter options — searchable offline in list view, no Maps SDK required —
    and layers live Google Places suggestions on top via asyncSearch. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 
 test('registry-only localities are searchable and selectable in the filter', async ({ page }) => {

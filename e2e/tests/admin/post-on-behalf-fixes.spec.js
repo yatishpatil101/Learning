@@ -1,14 +1,6 @@
 // @ts-check
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/base.js';
 import { appReady } from '../../helpers/app.js';
-
-const BASE = 'http://localhost:5173';
-
-async function loginAsAdmin(page) {
-  await page.goto(`${BASE}/staff-login`);
-  await page.getByRole('button', { name: /Admin/i }).first().click();
-  await page.waitForURL('**/admin');
-}
 
 async function fillOwner(page, name = 'Fix Owner', mobile = '9876543210') {
   await page.getByPlaceholder('Full name of the property owner').fill(name);
@@ -17,9 +9,9 @@ async function fillOwner(page, name = 'Fix Owner', mobile = '9876543210') {
 }
 
 test.describe('Post on Behalf — fixes & enhancements', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`${BASE}/admin/post-on-behalf`);
+  test.beforeEach(async ({ page, login }) => {
+    await login.asAdmin();
+    await page.goto('/admin/post-on-behalf');
     await page.evaluate(() => localStorage.removeItem('pn_pob_draft_v1'));
     await page.reload();
   });
@@ -172,8 +164,12 @@ test.describe('Post on Behalf — fixes & enhancements', () => {
   test('draft autosave — refresh mid-wizard offers Resume', async ({ page }) => {
     await page.getByPlaceholder('Full name of the property owner').fill('Draft Owner');
     await page.getByPlaceholder('9876543210').fill('9876500000');
-    // trigger autosave then reload
-    await page.waitForTimeout(300);
+    // Wait for the autosave to actually land rather than sleeping and hoping. A `waitForTimeout`
+    // here would pass on a fast machine even if autosave were removed entirely — the reload below
+    // would simply find no draft and the test would fail for a confusing reason, or pass because
+    // an older draft was still sitting in storage.
+    await expect.poll(async () =>
+      await page.evaluate(() => localStorage.getItem('pn_pob_draft_v1') !== null)).toBe(true);
     await page.reload();
     await expect(page.getByText(/unsaved draft/i)).toBeVisible();
     await page.getByRole('button', { name: /^Resume$/ }).click();

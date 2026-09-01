@@ -12,7 +12,7 @@ import { trackErrors } from '../../../helpers/console.js';
    Native focus-scroll can't be observed under Playwright's synthetic clicks, so this
    asserts the interaction still works end-to-end with zero console errors. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 
 // Stub Places (New) so a typed query resolves to a deterministic place prediction

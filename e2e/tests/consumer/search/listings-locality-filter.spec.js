@@ -7,7 +7,7 @@ import { trackErrors } from '../../../helpers/console.js';
    (Wakad) — never a dead street slug; (2) with Google unavailable the filter falls
    back to the static canonical registry list (no regression, no console errors). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // Stub Places (New) so a typed query resolves to a deterministic street prediction
 // whose place carries a parent-locality label ("Wakad") + coords inside Wakad.

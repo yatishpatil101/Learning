@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
    are scoped to the DESKTOP sidebar (the mobile drawer mounts off-screen and
    appears first in the DOM); option clicks target the portaled listbox. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 /* The real seed DB, injected into localStorage BEFORE app JS runs so the mock
    API hydrates from a populated store (no async /api/__persist race). We append

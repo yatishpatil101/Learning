@@ -9,7 +9,7 @@ import { openFlatmateFilters } from '../../../helpers/app.js';
    and Ops-approved tenant rooms. Rooms are seeded directly (the create path is the
    multi-step list-property wizard, covered elsewhere). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 
 function room(id, extra = {}) {

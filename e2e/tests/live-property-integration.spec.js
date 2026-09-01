@@ -293,6 +293,16 @@ test.describe('LIVE: property domain against the real API', () => {
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
         floor: '9', availableFrom: '2026-09-01',
       }));
+      /* The cookie-consent banner is fixed to the bottom of the viewport at z-1400 and mounts a
+         moment after the page does. Step 2 is long enough that "Next Step" sits at the bottom of
+         the scroll, i.e. exactly underneath it, and Playwright refuses to click through an
+         intercepting element — so the banner silently decides whether this test passes, purely on
+         whether it mounted before or after the click. Consent is seeded (the same pattern as
+         `doc-info.spec.js` / `deals-offers.spec.js`) so the banner never renders and the click is
+         about the wizard rather than about timing. */
+      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+        necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
+      }));
     });
 
     const calls = [];
@@ -310,6 +320,16 @@ test.describe('LIVE: property domain against the real API', () => {
        and typing afterwards both wins and marks the field owner-edited. */
     await page.getByRole('combobox', { name: /Search a locality/i }).fill('Baner');
     await page.getByRole('button', { name: 'Search location' }).click();
+
+    /* Wait for the search to have actually resolved a locality before going on. The fill is async
+       (`applyAddressFill` runs off the reverse-geocode), and without this the test raced it: on a
+       slow lookup `form.locality` was still '' when Next was clicked, `validateStep2` set
+       `err.locality`, and the wizard stayed on step 2 — which then failed further down at
+       `toBeAttached()` on the step-3 photo input, twenty seconds and one very confusing error
+       message away from the actual cause. `Select` marks an unset value with `is-placeholder`, so
+       the absence of that class is the honest "a locality is now selected". */
+    await expect(page.locator('[data-err="locality"] .pn-dropdown__value'))
+      .not.toHaveClass(/is-placeholder/, { timeout: 15_000 });
 
     // A society name unique to this run: the point of the write is that a *server* row appears, and
     // a name shared with the seed would make "did it arrive" unanswerable.

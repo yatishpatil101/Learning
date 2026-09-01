@@ -6,7 +6,7 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
    host can't list the same physical flat twice, and a different host claiming an
    address already claimed still posts but is flagged for the Ops review queue. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 const OTHER = '9800000000';
 

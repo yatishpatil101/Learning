@@ -9,7 +9,7 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
    - Declared without upload → identity tier, no review, no badge.
    - A tenant review with no document is flagged "No document" in the Ops queue. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const TENANT = '9812345678';
 const STAFF = '9900000009';
 

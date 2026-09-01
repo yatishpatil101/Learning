@@ -9,7 +9,7 @@ import { trackErrors } from '../../../helpers/console.js';
    into a report and printed at the end for the QA analysis.
    ───────────────────────────────────────────────────────────────────────────── */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const HERO = '.hero-search-wrap';
 const INPUT = 'input[aria-label="Search localities, societies or landmarks"]';
 const report = [];

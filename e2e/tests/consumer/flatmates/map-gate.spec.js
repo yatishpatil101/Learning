@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
    A proximity deep-link (?near=lat,lng&nearr=km) self-focuses the map and narrows
    the list to posts within the radius — deterministic, no live Places needed. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test('map view opens on the focus gate, not the bubble map', async ({ page }) => {
   await page.goto(`${BASE}/flatmates?view=flatmates`);

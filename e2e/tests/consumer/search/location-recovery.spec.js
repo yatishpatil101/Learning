@@ -10,7 +10,7 @@ import { trackErrors } from '../../../helpers/console.js';
        areas that do) to the proximity intent, and surfaces a dismissible banner.
    All with zero page errors. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const HERO = '.hero-search-wrap';
 const INPUT = 'input[aria-label="Search localities, societies or landmarks"]';
 

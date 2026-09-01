@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { appReady } from '../../../helpers/app.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 /**
  * Duplicate-listing prevention. Drives the real dedup engine

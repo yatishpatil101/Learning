@@ -8,7 +8,7 @@ import { trackErrors } from '../../../helpers/console.js';
    fields (title/locality/rent) + the known owner's number for consent — never the
    trust tier itself. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9820011122';
 
 async function seed(page, { listings = null, tenancies = null } = {}) {

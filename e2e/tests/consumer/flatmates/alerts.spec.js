@@ -17,7 +17,7 @@ import { test, expect } from '@playwright/test';
    through the legacy alias and asserts the normalised value, which is the round-trip
    that would break if an alias were ever dropped. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876500123';
 
 async function seedUser(page, mobile = MOBILE) {

@@ -7,7 +7,7 @@ import { trackErrors } from '../../../helpers/console.js';
    - Clicking a card opens the property DETAILS page directly (/property/:id),
      not the listings search page. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // Console errors that are environmental noise (CDN images, map tiles, favicon).
 

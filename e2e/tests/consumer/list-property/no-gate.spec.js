@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
    is gone — the wizard form is available immediately, verified or not. Identity
    verification is now an opt-in Verified badge, never a wall to posting. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 // Sign the owner in WITHOUT any Aadhaar/badge — they must still reach the form.

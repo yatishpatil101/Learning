@@ -6,7 +6,7 @@ import { trackErrors } from '../../../helpers/console.js';
    stubbed (after the SDK loads) so the tests are deterministic and don't depend
    on live geocoding responses. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 // Replace the SDK's Places library (primary path) and Geocoder (fallback) with

@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
    Flatmates finder. Property Type is now a dropdown, so the presentation-
    agnostic active-filter chip is the source of truth for what is selected. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // [tile title, expected deal, expected chip labels]
 const TILES = [

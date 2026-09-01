@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
    All dropdown/group assertions are scoped to the DESKTOP sidebar (the mobile
    drawer is mounted off-screen and appears first in the DOM). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 const trigger = (page, name) => filters(page).getByRole('button', { name, exact: true });

@@ -22,7 +22,7 @@ import { approveFlatmates, switchToTeamUp } from '../../../helpers/app.js';
    then a board the author cannot find themselves on, which reads as a bug and
    invites them to post the same thing again. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const AUTHOR = { name: 'Review Tester', mobile: '9812340001' };
 const STRANGER = { name: 'Passer By', mobile: '9812340002' };
 

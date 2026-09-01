@@ -8,7 +8,7 @@ import { trackErrors } from '../../../helpers/console.js';
      B — a created group must be manageable in dashboard My Listings.
      C — the owner must NOT be offered to "Join / Request" their own group. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 const TITLE = 'QA group parity ZZZ in Baner';
 

@@ -375,21 +375,38 @@ export const persistListing = async ({ form, user, editId, documents, photos, ph
         }
 
         /* The server's stays-live re-check (Q14), mirrored into the mock store so the moderation
-           queue exists in both modes. `ListingService.update` calls `Property.requestRecheck` for a
-           price/furnishing/possession edit on a publicly visible listing: the listing keeps
-           `approved` and stays in search, and a work item is filed for a moderator.
+           queue exists in both modes.
 
-           Three conditions are copied rather than approximated, because each one is a way for the
-           mock to be *more permissive* than the server and so to pass a test the API would fail:
-             - only when the listing was already approved (`isPubliclyVisible`) — a pending listing
+           When the API answers, its verdict is the one that counts, and it is already in hand:
+           `PropertyResponse` carries `recheckPending`, `recheckReason` and `recheckRequestedAt`
+           (mapped by `propertyMapper`), so `saved` has the answer the server actually recorded.
+           Recomputing it client-side and storing that instead was how this used to work, and it
+           meant the mirror could disagree with the row it mirrors -- silently, and in the direction
+           the client happened to guess. The local computation below is now the fallback for the
+           mock provider, which returns no such fields because it has no server to have decided
+           them.
+
+           The fallback copies three conditions rather than approximating them, because each is a
+           way for the mock to be *more permissive* than the server and so to pass a test the API
+           would fail:
+             - only when the listing was already approved (`isPubliclyVisible`) -- a pending listing
                is in front of a moderator already and a second work item is queue noise;
              - never alongside an off-search change, because re-moderation supersedes a re-check
                (`recheckOnly && !remoderationRequired`) and looks at the whole listing anyway;
              - the timestamp is preserved across edits by `requestRecheckFields`, so age is honest. */
+        const serverRecheck = saved && typeof saved.recheckPending === 'boolean'
+          ? {
+              recheckPending: saved.recheckPending,
+              recheckReason: saved.recheckReason || '',
+              recheckRequestedAt: saved.recheckRequestedAt || '',
+            }
+          : null;
         const staysLiveWireFields = wasApproved && !cls.remoderation.length
           ? [...new Set(cls.staysLive.map((c) => STAYS_LIVE_FORM_TO_WIRE[c.key]).filter(Boolean))]
           : [];
-        if (staysLiveWireFields.length) {
+        if (serverRecheck) {
+          Object.assign(record, serverRecheck);
+        } else if (staysLiveWireFields.length) {
           Object.assign(record, requestRecheckFields(oldListing, staysLiveWireFields));
         } else if (cls.remoderation.length) {
           /* Re-moderation supersedes: the server's `ListingService.update` calls

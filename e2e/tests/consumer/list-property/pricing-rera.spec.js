@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { pickDate } from '../../../helpers/datePicker.helper.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 function seed(page) {

@@ -5,7 +5,7 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
    the flat owner is aware via an OTP sent to the owner's phone. On success the
    group carries an "Owner-consented" trust cue that persists across reload. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 const OWNER = '9700000001';
 

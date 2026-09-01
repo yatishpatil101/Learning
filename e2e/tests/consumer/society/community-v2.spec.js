@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 // WhatsApp group (ops-approved), unified moderation queue, and retro-gated Reviews/Q&A.
 // All state is localStorage (no backend). Seed society: verified "Skyline Heights, Baner".
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const SLUG = 'skyline-heights-baner';
 const KYC_MOBILE = '9876543212';
 const RES_MOBILE = '9820011111';

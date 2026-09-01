@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
    page with that place applied as an ACTIVE locality filter (not just a hidden
    text query) — visible chip, checked sidebar checkbox, and filtered results. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test('clicking "Baner" routes to listings with Baner as an active locality filter', async ({ page }) => {
   await page.goto(`${BASE}/`);

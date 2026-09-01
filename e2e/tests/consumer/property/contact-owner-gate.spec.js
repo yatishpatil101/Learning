@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ownerMobileOf } from '../../../helpers/app.js';
 import { trackErrors } from '../../../helpers/console.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const PROP = 'P5000';                 // approved seed listing
 const OWNER_MOBILE = ownerMobileOf(PROP);   // read from properties.json, never copied
 /* Derived, not spelled out, so a change to the seed data can't leave these three

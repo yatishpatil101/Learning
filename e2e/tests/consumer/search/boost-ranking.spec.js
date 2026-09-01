@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test';
  * out — the promoted listing was never rendered and all three tests failed for a reason that had
  * nothing to do with ranking. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const DB_KEY = 'puneNestDB_v5';
 
 const cards = (page) => page.locator('[href^="/property/"]');

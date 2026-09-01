@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test';
  * `platform/auth/kyc-growth-levers.spec.js`. Re-asserting it here would duplicate that coverage
  * without adding anything; asserting the flatmates-specific entry point does not. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812340000';
 
 async function seedUnverified(page, mobile = MOBILE) {

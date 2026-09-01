@@ -7,7 +7,7 @@ import { postAsGroup, postHavingPlace } from '../../../helpers/app.js';
    or not) reaches every supply form directly; only a signed-OUT guest is routed
    to sign-in. The optional "Verified Seeker" badge lives in a separate flow. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812340000';
 
 async function seedSignedIn(page, mobile = MOBILE) {

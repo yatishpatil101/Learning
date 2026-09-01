@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
      (bathrooms, furnishing, facing, age, parking, deposit) instead of
      fabricating them from BHK / price. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 const SEED_DB = JSON.parse(

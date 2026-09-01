@@ -9,7 +9,7 @@ import { approveFlatmates, postAsGroup, switchToTeamUp, openFlatmateFilters } fr
    posts carry no host badge. The "Verified only" filter surfaces owner-verified and
    Ops-approved tenant groups. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 
 async function seedUser(page, { mobile = MOBILE, listing = null } = {}) {

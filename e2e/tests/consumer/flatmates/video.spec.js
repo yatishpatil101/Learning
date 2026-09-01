@@ -12,7 +12,7 @@ test.use({
   viewport: { width: 1280, height: 900 },
 });
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9700012345';
 const SOCIETY = 'Video Test Society ' + Date.now();
 

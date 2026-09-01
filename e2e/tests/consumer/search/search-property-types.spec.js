@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { trackErrors } from '../../../helpers/console.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 /* The real seed DB the app ships with. We inject this (plus a few SEED-* rows)
    into localStorage BEFORE the app's JS runs, so the mock API hydrates from a

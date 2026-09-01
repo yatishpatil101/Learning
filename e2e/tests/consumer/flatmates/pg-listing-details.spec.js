@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
    (2-/4-wheeler parking amenities are asserted on the commercial flow in
    list-property-types.spec.js, which shares the same amenity data model.) */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 async function gotoForm(page) {

@@ -7,7 +7,7 @@ import { trackErrors } from '../../../helpers/console.js';
    tab was gated behind an owner check that a seeker didn't satisfy, so the tab
    itself was hidden. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 
 async function seedUser(page) {

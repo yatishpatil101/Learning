@@ -7,7 +7,7 @@ import { ownerMobileOf } from '../../../helpers/app.js';
    contacts only": an unverified requester is then offered the opt-in Verified
    badge (native DigiLocker) instead of being walled out. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const PROP = 'P5000';                 // approved seed listing
 const OWNER_MOBILE = ownerMobileOf(PROP);   // read from properties.json, never copied
 const BUYER = '9876543210';           // a different number → treated as a buyer, not the owner

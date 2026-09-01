@@ -106,10 +106,15 @@ class ListingFoundationTest extends AbstractApiTest {
      *       reverting on it would make correcting "2BKH" cost a day offline.</li>
      *   <li>{@code status} — the moderation state itself, owned by moderation rather than by the
      *       owner. Reverting on it would mean approving a listing sends it back to pending.</li>
+     *   <li>{@code owner} — the owner's id, matched with {@code cb.equal(root.get("owner").get("id"),
+     *       UUID.fromString(...))} in {@code PropertySpecs}. It is not a listing attribute at all:
+     *       there is no edit that changes it, because a listing cannot be transferred through
+     *       {@code PATCH /me/listings/{id}}. Ownership moves, when it moves, through a path that
+     *       re-reviews the listing for its own reasons.</li>
      * </ul>
      */
     private static final Set<String> NOT_LISTING_ATTRIBUTES =
-            Set.of("minPrice", "maxPrice", "q", "status");
+            Set.of("minPrice", "maxPrice", "q", "status", "owner");
 
     /** {@code type} is the wire spelling of the entity's {@code propertyType}. */
     private static String toFieldName(String facet) {

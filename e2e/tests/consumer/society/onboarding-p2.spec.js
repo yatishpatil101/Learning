@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // Phase 2 society onboarding: RERA catalogue, admin Candidates + Merge, and
 // searcher-side demand minting + alerts. All state is localStorage (no backend).
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const CONSUMER = '9876543212';
 
 // Two auto-minted community candidates: one unique (verify), one a near-duplicate

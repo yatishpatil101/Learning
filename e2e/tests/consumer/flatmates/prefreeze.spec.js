@@ -12,7 +12,7 @@ import { trackErrors } from '../../../helpers/console.js';
    3. The hero is compact enough that at least one result card is within the first
       viewport on a laptop (inventory no longer sits entirely below the fold). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 
 async function seedUser(page, mobile = MOBILE) {

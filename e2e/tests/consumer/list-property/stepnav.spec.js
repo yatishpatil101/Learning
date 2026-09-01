@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { trackErrors } from '../../../helpers/console.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9876543210';
 
 // Seed an authenticated + Aadhaar-verified owner so the whole-place flow

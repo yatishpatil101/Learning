@@ -6,7 +6,7 @@ import { trackErrors } from '../../../helpers/console.js';
    - Two new matching selects exist: "Looking to share with" and "Room preference".
    - Picking a locality via the dropdown and submitting posts the request. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9811122233';
 
 async function seedUser(page) {

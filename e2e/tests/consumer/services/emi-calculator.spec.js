@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 // The EMI calculator flag is enabled by default; these tests exercise the
 // calculator's own interactive controls (sliders, inputs, lender cards,

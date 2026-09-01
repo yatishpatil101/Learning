@@ -8,7 +8,7 @@ import { trackErrors } from '../../../helpers/console.js';
    screen we surface a one-tap nudge to add the place's parent locality. This spec
    selects Baner, picks a Hinjawadi POI, asserts the nudge, and adds Hinjawadi. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 
 // Stub Places (New) so a typed query resolves to a POI in Hinjawadi (a locality the

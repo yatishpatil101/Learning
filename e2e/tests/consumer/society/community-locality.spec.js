@@ -11,7 +11,7 @@ import { trackErrors } from '../../../helpers/console.js';
    so we can import the real modules in the page). Test 2 covers the admin ops
    loop UI (pending queue → Verify promotes → leaves the queue). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 test('unmatched locality mints a community locality, registers it, and verify promotes it', async ({ page }) => {
   const errors = trackErrors(page);

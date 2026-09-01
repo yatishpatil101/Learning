@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test';
    interactions are scoped to the DESKTOP sidebar (the mobile drawer is mounted
    off-screen and appears first in the DOM). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 const SUBTYPES = [
   ['office', 'Office Space'],

@@ -6,7 +6,7 @@ import { trackErrors } from '../../../helpers/console.js';
    select. The filter panel's OWN scroll container should scroll to reveal it,
    WITHOUT moving the window (guards the page-jump-to-footer regression). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const filters = (page) => page.locator('aside:has(h3:has-text("Filters"))');
 
 // Stub Places (New) so a typed query resolves to a deterministic Pune POI prediction.

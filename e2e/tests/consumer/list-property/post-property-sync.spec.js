@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import * as consumerC from '../../../../frontend/src/pages/consumer/list-property/constants.js';
 import * as adminC from '../../../../frontend/src/pages/admin/post-on-behalf/constants.js';
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 /**
  * These tests lock the two "post a property" flows together: the consumer flow

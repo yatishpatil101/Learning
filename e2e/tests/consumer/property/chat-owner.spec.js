@@ -6,7 +6,7 @@ import { ownerMobileOf } from '../../../helpers/app.js';
    - After approval: it becomes "Chat with Owner", routing into /messages and opening
      an active conversation tied to that property. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const PROP = 'P5000';                 // approved seed listing
 const OWNER_MOBILE = ownerMobileOf('P5000'); // read from properties.json, never copied
 const BUYER = '9876543210';           // a different number → a buyer, not the owner

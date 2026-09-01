@@ -2284,3 +2284,239 @@ only the third is real work:
   destination heading, not just the URL — or it will pass while proving nothing.
 
 Not started, because the live suite was running and two Playwright suites must not run at once.
+
+### `admin/consolidation.spec.js` converted, and the reason it cannot be promoted to live yet
+
+Eighteen tests became fourteen. The conversion was the routine part — the shared `login` fixture in
+place of a private `loginAsAdmin`, relative paths in place of a hardcoded `http://localhost:5173`
+(which ignored `BASE_URL`, so this file silently tested the wrong server whenever the port moved),
+and anchor assertions in place of four `waitForTimeout(500)` sleeps.
+
+The part worth recording is what the anchors found. Every assertion in the file was
+`toHaveCount(0)` or `toBeHidden()`, because the file's job was to keep a round of removals removed.
+That is the weakest shape a test can have: a page that fails to load, a route that 404s, a login
+that silently did not happen and a typo'd selector all produce zero matches, and all of them pass.
+
+And one of them *was* vacuous. `expect(page.getByRole('button', { name: 'Conversion' }))
+.toHaveCount(0)` had been passing since it was written, but `Tabs` renders `role="tab"`, not plain
+buttons — so that assertion would have gone on passing with the Conversion tab sitting in plain
+sight. It is now asserted by role `tab`, and anchored on `Traffic` being visible first.
+
+**Not promoted to live, deliberately.** `AdminAnalytics`, `AdminContent`, `AdminFinance`,
+`AdminEnquiries` and `AdminServices` all still import from `lib/mockApi.js` and read nothing from
+the API. Running these under `playwright.live.config.js` would execute exactly the same
+localStorage-backed pages under a name claiming otherwise, which is worse than leaving them
+honestly labelled. The two surfaces this file touches that *are* live-backed —
+`/admin/staff-activity` and the audit log it cross-links — already have `admin/live-staff-activity.spec.js`.
+The blocker is the pages, not the spec.
+
+### Survey: the last consumer `lib/mockApi` call sites
+
+Read-only survey done while the live suite was running. Eight sites remain, not six — the earlier
+count missed `useDashboardData.js` and `list-property/submit.js`. Each is classified by whether a
+server path exists today, because that is the only thing that decides whether it is work or a note.
+
+| Site | Call | Server path? |
+|---|---|---|
+| `Contact.jsx:38` | `rawDb().listings.find(p => p.id === ref)` | **Yes — repointable** |
+| `StaffLogin.jsx:149,164` | `getTeamMemberByMobile(mobile)` | Probably (`/auth/staff-login`, `/auth/me`) — needs a shape check |
+| `dashboard/MyListingsPanel.jsx:244,251` | `confirmListingFresh(id)` | **No** |
+| `dashboard/MyListingsPanel.jsx:258` | `sendWhatsappTemplate(id, 'wa-dormant')` | **No** (already recorded) |
+| `listings/NotifyMeCard.jsx:50` | `addDemandAlert({...})` | **No** (already recorded) |
+| `Listings.jsx:6` | `logSearchIntent` | **No** |
+| `dashboard/useDashboardData.js:4` | `listEnquiries` | Needs a survey |
+| `list-property/submit.js:19` | `requestRecheckFields`, `clearedRecheckFields` | Needs a survey |
+
+**`Contact.jsx` is a clean repoint and should be done first.** `propertyService.getProperty(id)` is
+already wired to an http provider, and `providers/http/propertyMapper.js` L101-L149 already renames
+the server shape into exactly the fields this page reads — `type` from `propertyType` (L101),
+`bhkNum` from `bhk` (L117), and the flat `owner` / `ownerId` / `ownerMobile` trio from the nested
+`owner` object (L147-149). The mobile arrives already masked (`PropertyResponse` trust rule,
+ADR-019), which is what the page renders anyway via `maskPhone`. The only real change is that the
+lookup becomes asynchronous: today it is a `useMemo` over a synchronous `rawDb()`, and it has to
+become `useState` + `useEffect` with a null first render. Everything downstream of `refListing`
+already handles `null`, because the page has always had to render without a `?ref=`.
+
+**`confirmListingFresh` is confirmed blocked, not merely unsurveyed.** A search across
+`backend/src/main/java/com/punenest/api/**` for `fresh|Fresh|confirm-fresh|lastConfirmed` returns
+only unrelated matches — webhook replay windows, refresh tokens, and prose. There is no freshness
+endpoint, no route constant, and no column being written. This closes out FINDING 7: the "still
+available?" confirmation an owner gives is a browser-local fact, and the staleness badge computed
+from it is too.
+
+### Wave 5 planning fact: most consumer specs cannot be mechanically moved onto the `login` fixture
+
+Eighty-one spec files opened with a hardcoded `const BASE = 'http://localhost:5173'`. That one line
+is now fixed everywhere (commit `b33b144`) — it was the part that mattered, because it meant those
+files tested whatever was listening on 5173 rather than the server the run was pointed at.
+
+What is *not* mechanical is the rest of the conversion, and it is worth writing down before someone
+plans wave 5 as a find-and-replace.
+
+The admin specs authenticate: they drive `/staff-login`, click **Admin**, and wait for `**/admin`.
+Those are a clean swap to `login.asAdmin()`, and nine of them are converted.
+
+The consumer specs mostly **do not authenticate at all**. They write `puneNestUser` /
+`puneNestUsers` into `localStorage` in an `addInitScript` and let the app boot as though a session
+already existed. A survey of `tests/consumer/property/` (18 files) found zero `mockApi` imports and
+zero real logins — every one that needs a signed-in viewer fabricates one. The same pattern runs
+through `consumer/account/`, `consumer/flatmates/` and `consumer/list-property/`.
+
+That means swapping them to `login.asBuyer()` / `asOwner()` is a **behaviour change, not a
+refactor**: it replaces a fabricated identity with a real authenticated one, which is the right
+end state but which will surface every place the page depended on a field the fabricated user had
+and the real one does not. Each file needs to be run and read, not batch-edited.
+
+The practical consequence for sequencing: **the consumer spec conversion is gated on the consumer
+pages being repointed, not the other way round.** A spec that fabricates a localStorage user is
+testing a page that reads localStorage. Convert the page first, then the spec that guards it.
+
+### Live-suite triage: two failures, two entirely different causes
+
+The full live run stopped at 225/826 with two red tests. Both were re-run in isolation before any
+conclusion was drawn, which is the only reason the second one did not get "fixed".
+
+#### 1. `live-kyc-growth-levers.spec.js:31` — not a defect, and not sleep either
+
+"an unverified user sees the opt-in badge CTA on the dashboard", failed after **12.8 minutes** in a
+file where nothing else takes more than 13 seconds. Re-run in isolation: **passed in 8.3s**, with the
+other three tests in the file green.
+
+The first hypothesis was machine sleep. That was checked rather than assumed, and it was **wrong**:
+`powercfg /q SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` reported the AC standby index already at
+`0x00000000` (never), and `Win32_Battery.BatteryStatus = 2` says the machine was on AC the whole
+time. So sleep was already disabled and cannot explain a 12.8-minute test.
+
+What is left is a stall inside the run itself. Recorded rather than chased: it does not reproduce,
+and a test that passes in 8s in isolation is not evidence of a product bug. Battery-mode standby
+*was* set to 3 minutes and has been zeroed as a precaution; if this recurs on AC, the next step is
+`--trace on` for that one file rather than another full run.
+
+#### 2. `live-property-integration.spec.js:271` — two stacked races in the spec, both now fixed
+
+"the owner wizard creates the listing through POST /me/listings (D219)" failed in the full run and
+again in isolation, so this one was genuine. It reported:
+
+    expect(locator).toBeAttached() failed
+    Locator: locator('input[type="file"][accept*="image"]').first()
+
+which reads as "step 3 never rendered" and says nothing about why. The wizard was in fact still on
+step 2. It took two passes to find both reasons, and the first pass is worth recording because the
+fix was right and the diagnosis was still incomplete.
+
+**Race 1 — the locality fills asynchronously.** The failure screenshot showed the Locality control
+displaying `Baner` **and** carrying a red border and *"Select the locality."* — a field that looks
+filled and is being rejected. `validation.js:48` (`if (!form.locality) err.locality = true;`) is the
+only thing that raises it, so `form.locality` was genuinely `''` when Next was clicked;
+`useListingLocation.js`'s `applyAddressFill` writes it off the reverse-geocode, well after the map
+search returns. The spec had been winning that race by accident. Fixed by waiting for
+`[data-err="locality"] .pn-dropdown__value` to lose `is-placeholder` (`Select.jsx:271-274` puts that
+class on an unset value) — the assertion the test was silently depending on.
+
+**Race 2 — the cookie banner eats the click.** That fix cleared the locality error and the test still
+failed at the same line, which is the useful part: a screenshot only shows what rendered, not what
+was clicked. The Playwright *call log* in `error-context.md` named it outright —
+
+    locator.click: Timeout 15000ms exceeded.
+    - <div class="...fixed inset-x-0 bottom-... z-[1400]..."> subtree intercepts pointer events
+
+`CookieConsent.jsx` is fixed to the bottom of the viewport at z-1400 and mounts a moment after the
+page. Step 2 is long enough that "Next Step" sits at the bottom of the scroll — exactly underneath
+it — and Playwright will not click through an intercepting element. So the banner silently decided
+whether this test passed, purely on whether it mounted before or after the click landed. Fixed by
+seeding `pn_cookie_consent_v1` in the existing `addInitScript`, the same pattern `doc-info.spec.js`
+and `deals-offers.spec.js` already use. Green in 14.8s, down from a 26s failure.
+
+**Lesson worth keeping:** when a click "does nothing", read the call log rather than the screenshot.
+The screenshot shows the state; the call log names the element that intercepted the pointer. The
+first fix here was correct and insufficient, and only the call log distinguished the two.
+
+**Product observation, recorded and deliberately not fixed:** a user who clicks Next while the
+geocode is in flight sees *"Select the locality."* under a box that then fills in with a locality.
+The error is computed on submit and never recomputed when the async fill lands, so it lingers under a
+field that is now valid. Harmless — clicking Next again succeeds — but it is real, confusing UI, and
+it is a product change rather than a test change, so it is written down here rather than made
+unilaterally.
+
+**Second observation, same status:** the consent banner overlapping the wizard's primary action at
+the bottom of a long step is not only a test problem. A real user on a short viewport who has not yet
+dismissed the banner has "Next Step" covered by it. Worth a look at the wizard's bottom padding.
+
+---
+
+## Survey: the last three consumer `mockApi` call sites (D223)
+
+The three remaining consumer-side imports of `lib/mockApi` outside the pages already
+converted. Surveyed to decide, for each, whether it is repointable, blocked, or already
+dead when the live provider is active. Verdicts differ, and only one is actually work.
+
+### Site A -- `useDashboardData.js` -> `listEnquiries` -- BLOCKED, no endpoint
+
+The mock's `collGetter('enquiries')` (`lib/mockApi/collections.js:5-9`) returns the raw
+localStorage array, unfiltered by user. Consumed at `useDashboardData.js:287`,
+`EnquiriesPanel.jsx:183-187,213` and `dashboardData.js:130`.
+
+There is no consumer-facing route to repoint to. The only enquiries route is
+`Routes.Moderation.ADMIN_ENQUIRIES = "/admin/enquiries"` (`Routes.java:1447`), guarded
+`hasAnyRole('STAFF','ADMIN')` plus `REQUIRE_ENQUIRIES_READ` -- a buyer's dashboard cannot
+call it, and should not be able to.
+
+`Routes.java:1437` states the deeper reason outright: "There is no `enquiries` table; the
+console's Enquiries page was a mock-side union of contact requests, chat threads, visits
+and deals." So the consumer panel is not reading a table that exists behind a wrong
+route; it is reading a view that was never modelled server-side at all.
+
+Two further obstacles, recorded so the next attempt does not rediscover them:
+
+- `AdminEnquiryDto.requesterMobile` is always masked, with no unmask parameter. The
+  consumer panel's `tenDigits` check (`EnquiriesPanel.jsx:19-22`) discards masked numbers,
+  so wiring the admin route in would make the verified badge silently vanish rather than
+  fail loudly.
+- Building the union client-side would need four reads per dashboard load and would
+  reimplement, in the browser, a join the server has deliberately not committed to.
+
+Seven directory sweeps confirmed the negative: `controller/`, `web/`, `api/`, and the
+`leads`, `engagement`, `deals` and `moderation` modules. No consumer enquiries route
+exists.
+
+**Next step is a product decision, not a migration task:** either model an enquiries
+projection server-side, or accept that the consumer dashboard's Enquiries panel retires
+with the mock provider. Not actionable in this window.
+
+### Site B -- `submit.js` -> `requestRecheckFields` / `clearedRecheckFields` -- REPOINTABLE
+
+Both are pure functions (`lib/mockApi/properties.js:135-152`) returning
+`{recheckPending, recheckReason, recheckRequestedAt}`. Consumed at `submit.js:390-405`.
+
+This is not a server call site at all. The server write already happens earlier, at
+`submit.js:291-294`; these two functions only compute the three fields the client then
+holds locally. `grep 'recheck'` over `Routes.java` returns 0 matches, but
+`PropertyResponse.java:143-159` carries all three fields and `propertyMapper.js:140-142`
+maps them.
+
+**So the repoint is: read the three fields off the `saved` response already in hand,
+rather than recomputing them.** No field is lost, no new route is needed, and the
+client stops holding an opinion about a value the server has already decided. Small and
+well understood; the only care needed is that the local copy and the response cannot
+disagree afterwards.
+
+### Site C -- `StaffLogin.jsx` -> `getTeamMemberByMobile` -- ALREADY DEAD WHEN LIVE
+
+Both call sites (L149, L164) sit below `if (authIsLive) { ... return; }` at
+`StaffLogin.jsx:116-146`. Live staff sign-in goes through `POST /auth/login`
+(`Routes.java:40`) and never reaches them. `docs/migration/04-modules.md:39` already
+records this as done (2026-08-13).
+
+The import survives only to keep the mock path working, and retires with it. **No work.**
+
+### Summary
+
+| Site | Verdict | Work |
+|---|---|---|
+| `useDashboardData` -> `listEnquiries` | Blocked: no consumer endpoint, and no `enquiries` table to build one on | Product decision |
+| `submit.js` -> recheck fields | Repointable: read the fields off the response already returned | Small |
+| `StaffLogin` -> `getTeamMemberByMobile` | Already dead code under the live provider | None |
+
+The pattern worth carrying forward: "still imports mockApi" and "still depends on the
+mock" are different questions. One of these three is real work, one is a decision nobody
+has made yet, and one has been finished for months.

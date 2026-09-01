@@ -5,7 +5,7 @@ import { trackErrors } from '../../../helpers/console.js';
    wiring (navbar badge, dashboard preview, contact-gated header actions). Seeds
    come from lib/chat.js; a logged-in buyer is required (the route is protected). */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 async function login(page) {
   await page.addInitScript(() => {

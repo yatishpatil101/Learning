@@ -1,6 +1,6 @@
 import NativeSelect from '../../components/ui/NativeSelect.jsx';
 import FieldError from '../../components/ui/FieldError.jsx';
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -10,7 +10,7 @@ import { useScrollReveal } from '../../lib/useScrollReveal.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useFieldErrors } from '../../lib/hooks.js';
 import { maskPhone } from '../../lib/contact.js';
-import { rawDb } from '../../lib/mockApi.js';
+import { getProperty } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
 
 const SUBJECTS = ['Buying this property', 'Renting this property', 'Site visit', 'Home Loan Assistance', 'General enquiry'];
@@ -33,9 +33,24 @@ export default function Contact() {
 
   // When arriving via a "Contact about this property" link (?ref=<id>), look up the
   // listing so we can show what the enquiry is about and prefill sensible defaults.
-  const refListing = useMemo(() => {
-    if (!ref) return null;
-    try { return rawDb().listings.find((p) => p.id === ref) || null; } catch { return null; }
+  //
+  // This used to read `rawDb().listings` synchronously, which meant the enquiry form could only
+  // ever name a listing that happened to be sitting in *this browser's* localStorage — a listing
+  // created on another device, or by another user, resolved to nothing and the page quietly
+  // rendered as though no `?ref=` had been passed. The lookup now goes to the API, so it costs a
+  // render: `refListing` is null on the first pass and arrives on a later one. Everything
+  // downstream already copes with that, because the page has always had to render without a
+  // `?ref=` at all.
+  const [refListing, setRefListing] = useState(null);
+  useEffect(() => {
+    if (!ref) { setRefListing(null); return undefined; }
+    // A `?ref=` that has been changed while a lookup is in flight must not be overwritten by the
+    // answer to the old one.
+    let current = true;
+    getProperty(ref)
+      .then((p) => { if (current) setRefListing(p || null); })
+      .catch(() => { if (current) setRefListing(null); });
+    return () => { current = false; };
   }, [ref]);
   const refTitle = titleOf(refListing);
 
@@ -75,6 +90,25 @@ export default function Contact() {
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const formRef = useRef(null);
   const err = useFieldErrors(formRef);
+
+  /* `presel` / `preMsg` seeded the form's initial state back when the listing was known on the
+     first render. It isn't any more, so the prefill has to be applied when the lookup lands --
+     and applied *carefully*, because by then the user may already be typing. A blanket
+     `setForm({subject, msg})` on arrival would delete a message someone was halfway through
+     writing, which is a worse bug than the one this migration is fixing.
+
+     So the prefill only writes a field it would not be overwriting: the subject when it is still
+     the untouched default, and the message when it is still empty. A user who has typed anything
+     keeps what they typed. The effect keys on the derived strings rather than on `refListing`, so
+     it does not re-run when an unrelated part of the listing changes identity. */
+  useEffect(() => {
+    setForm((prev) => {
+      const next = { ...prev };
+      if (prev.subject === SUBJECTS[0] && presel !== SUBJECTS[0]) next.subject = presel;
+      if (!prev.msg.trim() && preMsg) next.msg = preMsg;
+      return next.subject === prev.subject && next.msg === prev.msg ? prev : next;
+    });
+  }, [presel, preMsg]);
 
   const send = () => {
     const d = digits(form.phone);

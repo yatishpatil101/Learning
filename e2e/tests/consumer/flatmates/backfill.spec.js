@@ -6,7 +6,7 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
    open now; the owner reopens a seat when a flatmate leaves and closes one when
    filled. The group keeps its verification tier across reopen/close. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';
 
 async function seedUser(page, mobile = MOBILE) {

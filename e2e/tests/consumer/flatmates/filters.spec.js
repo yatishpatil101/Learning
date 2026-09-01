@@ -20,7 +20,7 @@ import { pickDate } from '../../../helpers/datePicker.helper.js';
    failure rather than a 404. Alias resolution itself is covered in
    flatmates-discovery.spec.js; this file drives the tabs through the UI. */
 
-const BASE = 'http://localhost:5173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 const visibleLabel = (page, text) => page.locator('label:visible', { hasText: text });
 const MOVE_IN_TAB = /Move in now/i;
