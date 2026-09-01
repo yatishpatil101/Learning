@@ -14,14 +14,14 @@ import {
   KB,
 } from '../../data/assistant.js';
 
-/* Nestor — the always-on PuneNest help assistant. A floating concierge that
+/* Nestor — the always-on Draazy help assistant. A floating concierge that
    explains how the app works, deep-links users to features, and escalates to
    human support. Rules-based (no backend): answers are ranked from the curated
    KB (data/assistant.js) via lib/assistant/match.js. Mounted once in
    ConsumerLayout; visible bottom-right on every consumer page. */
 
-const MSG_KEY = 'pn_nestor_msgs';
-const NUDGE_KEY = 'pn_nestor_nudge';
+const MSG_KEY = 'dz_nestor_msgs';
+const NUDGE_KEY = 'dz_nestor_nudge';
 const NUDGE_TIMEOUT_MS = 6000; // auto-clear the first-visit hint after a few seconds
 /* The hint is an introduction, so it has a budget: two sightings, then never
    again. It used to live in sessionStorage and only record an *explicit* close,
@@ -230,22 +230,22 @@ export default function AssistantWidget() {
   }, [pathname]);
 
   // Lift the FAB above whatever occupies the bottom-right corner on small screens.
-  // --pn-bottom-inset (owned by ConsumerLayout) already accounts for the persistent
+  // --dz-bottom-inset (owned by ConsumerLayout) already accounts for the persistent
   // mobile bottom nav; the offsets below add the *extra* clearance for transient bars
   // that a page raises and the layout can't see:
-  //  · The Property / Society / contact sticky action bar (`.pn-sticky-cta`) — full-width,
+  //  · The Property / Society / contact sticky action bar (`.dz-sticky-cta`) — full-width,
   //    rendered below `lg`, so the FAB must clear it up to the lg breakpoint.
   //  · The CityChrome waitlist bar — only when the current city isn't live (mobile).
   // ponytail: page-owned bars still announce themselves by route rather than raising
-  // the inset var. Fold them into --pn-bottom-inset if a third one shows up.
+  // the inset var. Fold them into --dz-bottom-inset if a third one shows up.
   const detailBar = pathname.startsWith('/property/')
     || pathname === '/society'
     || pathname.startsWith('/society/')
     || pathname === '/contact';
   const cityBar = !isLive(city);
-  let anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
-  if (detailBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
-  else if (cityBar) anchorClass = 'bottom-[calc(var(--pn-bottom-inset)+9rem)] sm:bottom-[calc(var(--pn-bottom-inset)+1.5rem)]';
+  let anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
+  if (detailBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+5.75rem)] lg:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
+  else if (cityBar) anchorClass = 'bottom-[calc(var(--dz-bottom-inset)+9rem)] sm:bottom-[calc(var(--dz-bottom-inset)+1.5rem)]';
   // On phones the collapsed FAB and the full-width consent bar collide, so hide
   // the FAB there while the consent UI is up (desktop keeps it — no overlap).
   const hideClass = cookieBar && !open ? 'max-sm:hidden' : '';
@@ -304,7 +304,7 @@ function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
       ) : null}
       <button
         onClick={onOpen}
-        aria-label="Open Nestor, the PuneNest help assistant"
+        aria-label="Open Nestor, the Draazy help assistant"
         className="group flex h-12 w-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0d9488] to-[#14b8a6] font-semibold text-white shadow-2xl shadow-teal-500/30 transition hover:brightness-110 cursor-pointer sm:h-auto sm:w-auto sm:py-3 sm:pl-3.5 sm:pr-4"
       >
         <Icon name="sparkles" weight="fill" className="h-5 w-5" />

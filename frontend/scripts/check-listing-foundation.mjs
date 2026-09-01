@@ -56,9 +56,9 @@ const repo = join(here, '..', '..');
    450-line ceiling: ListingEditRules decides what an edit costs, ListingService acts on the answer
    (and updateAsModerator deliberately does not). Assertion 1 reads the first, assertion 3 the
    second. Both are matched as literal text, so either file moving is a change here too. */
-const RULES = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingEditRules.java');
-const SERVICE = join(repo, 'backend/src/main/java/com/punenest/api/catalog/listing/ListingService.java');
-const TEST = join(repo, 'backend/src/test/java/com/punenest/api/catalog/listing/ListingFoundationTest.java');
+const RULES = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingEditRules.java');
+const SERVICE = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingService.java');
+const TEST = join(repo, 'backend/src/test/java/com/draazy/api/catalog/listing/ListingFoundationTest.java');
 
 const failures = [];
 let checks = 0;

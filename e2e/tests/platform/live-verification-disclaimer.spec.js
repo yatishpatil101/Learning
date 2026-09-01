@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/live.js';
 import { API } from '../../helpers/liveAuth.js';
 
-/* "Verified by PuneNest" legal scope + the due-diligence acknowledgement, against the live API.
+/* "Verified by Draazy" legal scope + the due-diligence acknowledgement, against the live API.
  *
  * This is a **legal** spec, not a feature spec: what it guards is that the platform's verification
  * badge is never presented as a substitute for a buyer's own title check. That is a promise made in
@@ -42,7 +42,7 @@ test('the sale trust tab carries the verification-scope disclaimer and links to 
   await login.asBuyer();
   await openTrustTab(page, SALE);
 
-  await expect(page.getByText(/What .Verified by PuneNest. means/i).first()).toBeVisible();
+  await expect(page.getByText(/What .Verified by Draazy. means/i).first()).toBeVisible();
   await expect(page.getByText(/independent legal due diligence/i).first()).toBeVisible();
   await expect(page.getByRole('link', { name: /Read the full Disclaimer/i }).first())
     .toHaveAttribute('href', '/disclaimer');
@@ -77,7 +77,7 @@ test('a rental shows the deal-appropriate notice and offers no document request'
   await login.asBuyer();
   await openTrustTab(page, RENT);
 
-  await expect(page.getByText(/What .Verified by PuneNest. means/i).first()).toBeVisible();
+  await expect(page.getByText(/What .Verified by Draazy. means/i).first()).toBeVisible();
   await expect(page.getByText(/leave-.-license agreement/i).first()).toBeVisible();
   /* No request button on a rental: there is no title chain for a tenant to inspect, so offering
    * the action would imply papers exist that were never collected. */

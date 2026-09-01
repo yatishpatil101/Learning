@@ -2,7 +2,7 @@
 /**
  * Community society minting, live.
  *
- * Four screens invite somebody to add a society PuneNest does not have — the lister who cannot find
+ * Four screens invite somebody to add a society Draazy does not have — the lister who cannot find
  * their building, the searcher who wants alerting when a flat comes up in it. Every one of those
  * mints wrote to the adding browser's `localStorage`, so the society existed for exactly one human
  * being: nobody else could find it, follow it or list a flat in it, which is the only reason anybody

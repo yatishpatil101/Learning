@@ -85,14 +85,14 @@ const global = [
   ['Toasts', 'success/error toasts fire and dismiss'],
   ['Loading fallback', 'lazy-route spinner shows, no layout jump'],
   ['Formatting', 'Currency/number/date formatting consistent (lib/format.js)'],
-  ['localStorage mock API', 'CRUD persists across reload (puneNestDB_v1)'],
+  ['localStorage mock API', 'CRUD persists across reload (draazyDB_v1)'],
   ['Responsive breakpoints', '360 / 414 / 768 / 1024 / 1280 all clean'],
   ['Accessibility', 'focus rings, alt text, aria on icon-only buttons, modal focus trap'],
   ['Console/network', 'zero uncaught errors, no 404 assets across a full click-through'],
 ];
 
 const wb = new ExcelJS.Workbook();
-wb.creator = 'PuneNest QA';
+wb.creator = 'Draazy QA';
 wb.created = new Date();
 
 const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };

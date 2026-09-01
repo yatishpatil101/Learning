@@ -3,7 +3,7 @@
  * LIVE: signed-in recent searches against the real API (D248).
  *
  * The "pick up where you left off" rail was a `localStorage` key bucketed by mobile —
- * `pnRecentSearches:<mobile>`. That key *promises* per-account continuity and a browser is the one
+ * `dzRecentSearches:<mobile>`. That key *promises* per-account continuity and a browser is the one
  * place that cannot deliver it: the search a seeker ran on their phone at lunch was simply not
  * there on the laptop that evening, and clearing site data threw the lot away. It is now a server
  * table for signed-in users, and this spec proves the endpoints.

@@ -29,7 +29,7 @@ export function Card({ title, desc, action, children, height = 240 }) {
       : c,
   );
   return (
-    <div className="pn-card p-5">
+    <div className="dz-card p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="font-bold">{title}</h3>

@@ -130,6 +130,6 @@ export function referralLink(code) {
   const c = String(code || '').trim();
   if (!c) return '';
   const origin =
-    (typeof window !== 'undefined' && window.location && window.location.origin) || 'https://punenest.com';
+    (typeof window !== 'undefined' && window.location && window.location.origin) || 'https://draazy.com';
   return `${origin}/signup?ref=${encodeURIComponent(c)}`;
 }

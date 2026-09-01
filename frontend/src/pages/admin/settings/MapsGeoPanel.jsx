@@ -74,7 +74,7 @@ function BlacklistPlaceSearch({ onPick }) {
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => { if (suggs.length) setOpen(true); }}
           placeholder="Search an exact place to blacklist (any city)…"
-          className="pn-input pl-9"
+          className="dz-input pl-9"
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
@@ -83,19 +83,19 @@ function BlacklistPlaceSearch({ onPick }) {
         {loading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-brand-teal" />}
       </div>
       {open && suggs.length > 0 && (
-        <ul className="pn-ac-list" role="listbox" id={listId}>
+        <ul className="dz-ac-list" role="listbox" id={listId}>
           {suggs.map((s) => (
             <li
               key={s.placeId}
               role="option"
               aria-selected={false}
-              className="pn-ac-item"
+              className="dz-ac-item"
               onMouseDown={(e) => { e.preventDefault(); pick(s); }}
             >
-              <MapPin className="pn-ac-pin" />
-              <span className="pn-ac-text">
-                <span className="pn-ac-main">{s.mainText}</span>
-                {s.secondaryText && <span className="pn-ac-sub">{s.secondaryText}</span>}
+              <MapPin className="dz-ac-pin" />
+              <span className="dz-ac-text">
+                <span className="dz-ac-main">{s.mainText}</span>
+                {s.secondaryText && <span className="dz-ac-sub">{s.secondaryText}</span>}
               </span>
             </li>
           ))}
@@ -214,7 +214,7 @@ export default function MapsGeoPanel({
   return (
     <div className="space-y-5">
       {/* City limit toggle */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -232,7 +232,7 @@ export default function MapsGeoPanel({
       </div>
 
       {/* Per-city coverage */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-brand-teal" />
           <h3 className="text-sm font-bold text-white">City coverage</h3>
@@ -305,26 +305,26 @@ export default function MapsGeoPanel({
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm">
             <span className="mb-1 block text-gray-400">Centre latitude</span>
-            <input value={center.lat} onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))} inputMode="decimal" className="pn-input" />
+            <input value={center.lat} onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))} inputMode="decimal" className="dz-input" />
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-gray-400">Centre longitude</span>
-            <input value={center.lng} onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))} inputMode="decimal" className="pn-input" />
+            <input value={center.lng} onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))} inputMode="decimal" className="dz-input" />
           </label>
           {BOUND_FIELDS.map(([k, label]) => (
             <label key={k} className="text-sm">
               <span className="mb-1 block text-gray-400">{label} bound</span>
-              <input value={bounds[k]} onChange={(e) => setBounds((s) => ({ ...s, [k]: e.target.value }))} inputMode="decimal" className="pn-input" />
+              <input value={bounds[k]} onChange={(e) => setBounds((s) => ({ ...s, [k]: e.target.value }))} inputMode="decimal" className="dz-input" />
             </label>
           ))}
         </div>
 
         <div className="mt-5 flex items-center gap-2">
-          <button onClick={saveCity} className="pn-btn pn-btn-primary">
+          <button onClick={saveCity} className="dz-btn dz-btn-primary">
             <Save className="h-4 w-4" /> Save {city} coverage
           </button>
           {hasOverride ? (
-            <button onClick={resetCity} className="pn-btn pn-btn-ghost">
+            <button onClick={resetCity} className="dz-btn dz-btn-ghost">
               <RotateCcw className="h-4 w-4" /> Reset to default
             </button>
           ) : (
@@ -334,7 +334,7 @@ export default function MapsGeoPanel({
       </div>
 
       {/* Blacklist */}
-      <div className="pn-card p-5">
+      <div className="dz-card p-5">
         <div className="flex items-center gap-2">
           <Ban className="h-4 w-4 text-rose-400" />
           <h3 className="text-sm font-bold text-white">Blacklisted localities &amp; societies</h3>
@@ -356,16 +356,16 @@ export default function MapsGeoPanel({
             onChange={(e) => setTerm(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(); }}
             placeholder="…or a name/term to hide (matches any place containing it)"
-            className="pn-input flex-1"
+            className="dz-input flex-1"
           />
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(); }}
             placeholder="Reason (optional)"
-            className="pn-input flex-1"
+            className="dz-input flex-1"
           />
-          <button onClick={addBlacklist} disabled={term.trim().length < 2} className="pn-btn pn-btn-primary shrink-0 disabled:opacity-50">
+          <button onClick={addBlacklist} disabled={term.trim().length < 2} className="dz-btn dz-btn-primary shrink-0 disabled:opacity-50">
             <Plus className="h-4 w-4" /> Add
           </button>
         </div>

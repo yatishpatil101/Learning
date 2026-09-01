@@ -77,7 +77,7 @@ export default function ClaimsTab({ claims, decideClaim, deciding, viewCertifica
   ];
 
   const claimCard = (c) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{c.societyName || titleCase(c.societySlug)}</div>

@@ -298,7 +298,7 @@ export default function EnquiriesPanel({ contactReqs, decideContact, photoReqs =
         ) : null}
       </Card>
 
-      <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur">
+      <div className="dz-docks-under-nav sticky top-[var(--dz-nav-h)] z-20 -mx-4 bg-ink/95 px-4 pt-1 backdrop-blur">
         <SubNav items={items} active={sub} onChange={setSub} variant="underline" />
       </div>
 

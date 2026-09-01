@@ -20,7 +20,7 @@ This is the plain-language version. The binding document is the [Privacy Policy]
 
 ## Who sees what
 
-| Data | Owner you enquire with | Other users | PuneNest staff |
+| Data | Owner you enquire with | Other users | Draazy staff |
 | --- | --- | --- | --- |
 | Name & mobile | Yes | No | Yes |
 | Tenant profile | Yes | No | Yes |
@@ -51,7 +51,7 @@ Under India's DPDP Act you can ask us to:
 
 ## Contact
 
-Data protection queries go to [privacy@punenest.com](mailto:privacy@punenest.com), or raise a ticket at [Support](/support).
+Data protection queries go to [privacy@draazy.com](mailto:privacy@draazy.com), or raise a ticket at [Support](/support).
 
 ## Related
 

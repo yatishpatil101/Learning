@@ -10,7 +10,7 @@ import { test, expect } from '../../fixtures/live.js';
  *
  * The mechanism is split across two files that must stay in step, which is
  * exactly why it needs a test:
- *   - the CSS docks `.pn-cal` at `max-width: 639.98px`;
+ *   - the CSS docks `.dz-cal` at `max-width: 639.98px`;
  *   - `place()` in each dialog bails out at the SAME breakpoint and clears the
  *     inline left/top it writes on wider screens (inline styles would otherwise
  *     beat the stylesheet and leave the sheet floating mid-screen).
@@ -23,7 +23,7 @@ import { test, expect } from '../../fixtures/live.js';
  * viewport-relative, which is the frame a fixed sheet actually lives in.
  */
 
-const dateField = (page) => page.locator('.pn-datefield').first();
+const dateField = (page) => page.locator('.dz-datefield').first();
 const rect = (locator) => locator.evaluate((el) => {
   const r = el.getBoundingClientRect();
   return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
@@ -42,7 +42,7 @@ async function openSheet(page) {
   const field = dateField(page);
   await expect(field).toBeVisible({ timeout: 20_000 });
   await field.click();
-  const cal = page.locator('.pn-cal');
+  const cal = page.locator('.dz-cal');
   await expect(cal).toBeVisible();
   await expectDockedToBottom(page, cal);
   return cal;
@@ -75,7 +75,7 @@ test.describe('Mobile date & time pickers', () => {
     // A sheet whose grid runs off the bottom is unusable, and is exactly what the
     // docking rules exist to prevent.
     const viewport = page.viewportSize();
-    const last = await rect(cal.locator('.pn-cal__day').last());
+    const last = await rect(cal.locator('.dz-cal__day').last());
     expect(last.bottom).toBeLessThanOrEqual(viewport.height);
 
     // Tapping above the sheet (the backdrop) closes it.
@@ -96,17 +96,17 @@ test.describe('Mobile date & time pickers', () => {
     await login.asBuyer();
     await page.goto('/schedule-visit');
 
-    const time = page.locator('.pn-datefield').last();
+    const time = page.locator('.dz-datefield').last();
     await expect(time).toBeVisible({ timeout: 20_000 });
     await time.click();
 
-    /* `.pn-timepicker` reuses the `.pn-cal` shell, so the sheet rules are supposed
+    /* `.dz-timepicker` reuses the `.dz-cal` shell, so the sheet rules are supposed
        to convert both dialogs. Its own `width` declaration sits later in the
        stylesheet at equal specificity and used to beat the full-bleed rule, docking
        a 250px stub against the left edge — hence the explicit width assertion. */
-    const picker = page.locator('.pn-cal');
+    const picker = page.locator('.dz-cal');
     await expect(picker).toBeVisible();
-    await expect(page.locator('.pn-timepicker')).toBeVisible();
+    await expect(page.locator('.dz-timepicker')).toBeVisible();
     await expectDockedToBottom(page, picker);
 
     const viewport = page.viewportSize();

@@ -46,7 +46,7 @@ async function latestInteriorRequest() {
    does. The wrapper div carries the `data-err` anchor. */
 async function pickOption(page, dataErr, label) {
   await page.locator(`[data-err="${dataErr}"]`).click();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 async function fillAndSubmit(page) {

@@ -83,7 +83,7 @@ async function openDesk(page, login) {
 }
 
 /** Our row as it appears on a phone: the queue's card renderer, matched on its own text. */
-const ourCard = (page) => page.locator('button.pn-card').filter({ hasText: OUR_FLAT }).first();
+const ourCard = (page) => page.locator('button.dz-card').filter({ hasText: OUR_FLAT }).first();
 
 test.describe('Drafting desk in the field', () => {
   test.beforeEach(async () => { await seedRequest(); });

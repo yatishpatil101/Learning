@@ -64,8 +64,8 @@ export function AdminFlagsProvider({ children, read = true }) {
     load();
     // Keep flags fresh after edits elsewhere in the console.
     const onChange = () => load();
-    window.addEventListener('punenest-settings-change', onChange);
-    return () => { alive = false; window.removeEventListener('punenest-settings-change', onChange); };
+    window.addEventListener('draazy-settings-change', onChange);
+    return () => { alive = false; window.removeEventListener('draazy-settings-change', onChange); };
   }, [read]);
 
   const setFlag = useCallback(async (section, key, value) => {

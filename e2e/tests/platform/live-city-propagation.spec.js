@@ -6,8 +6,8 @@ import { test, expect } from '../../fixtures/live.js';
  * ## Why this file exists
  *
  * `platform/city-propagation.spec.js` asserted all of this against the mock. To reach a second
- * live city it wrote `live: true` into the `puneNestDB_v5` roster in local storage and fired
- * `punenest-settings-change`. Once `providers/mock/cityProvider.js` was deleted that write had no
+ * live city it wrote `live: true` into the `draazyDB_v5` roster in local storage and fired
+ * `draazy-settings-change`. Once `providers/mock/cityProvider.js` was deleted that write had no
  * reader: it still landed, and it still changed nothing. That is the worse kind of dead test — it
  * does not error, it goes green while asserting about a city that never launches. So the four
  * propagation tests were removed from that file rather than left lying, with the ideas explicitly
@@ -113,11 +113,11 @@ test.describe('a second live city', () => {
     // be left browsing a city the server no longer serves, with a picker that will not offer it
     // back — a dead end reachable only by clearing storage.
     await cities.set('mumbai', false);
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent('punenest-settings-change')));
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('draazy-settings-change')));
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
     await expect(page.getByRole('button', { name: 'Baner', exact: true })).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem('puneNestCity'))).toBe('Pune');
+    expect(await page.evaluate(() => localStorage.getItem('draazyCity'))).toBe('Pune');
   });
 
   test('cancelling the waitlist prompt for a coming-soon city is a true no-op', async ({ page }) => {
@@ -140,6 +140,6 @@ test.describe('a second live city', () => {
     await expect(pill).toHaveAttribute('aria-label', 'City: Pune');
     await expect(page.getByText(/isn't live in/i)).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Pune');
-    expect(await page.evaluate(() => localStorage.getItem('puneNestCity'))).not.toBe('Mumbai');
+    expect(await page.evaluate(() => localStorage.getItem('draazyCity'))).not.toBe('Mumbai');
   });
 });

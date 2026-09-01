@@ -204,7 +204,7 @@ export function searchHelp(query, user, opts = {}) {
    Stored locally for now. When the backend lands this becomes a POST; the shape
    below is what that endpoint should accept. */
 
-const FEEDBACK_KEY = 'pn_help_feedback_v1';
+const FEEDBACK_KEY = 'dz_help_feedback_v1';
 
 function readFeedback() {
   try {
@@ -231,7 +231,7 @@ export function saveFeedback(slug, helpful, comment = '') {
 
 /* ── Recently viewed ─────────────────────────────────────────────────────── */
 
-const RECENT_KEY = 'pn_help_recent_v1';
+const RECENT_KEY = 'dz_help_recent_v1';
 const RECENT_MAX = 5;
 
 export function markViewed(slug) {

@@ -43,7 +43,7 @@ export default function SocietyModals({ ctx }) {
       {/* Sticky mobile action bar — the two primary society actions (Follow / Review)
           otherwise live only in the hero and scroll away on this long page. Mirrors the
           Property page pattern; desktop keeps the hero + sidebar actions. */}
-      <div className="pn-sticky-cta lg:hidden">
+      <div className="dz-sticky-cta lg:hidden">
         <button onClick={onFollow} className={(followed ? 'btn-outline' : 'btn-teal') + ' flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4'}>
           <Icon name={followed ? 'check' : 'bell'} className="w-4 h-4" /> {followed ? t('society.following') : t('society.follow')}
         </button>

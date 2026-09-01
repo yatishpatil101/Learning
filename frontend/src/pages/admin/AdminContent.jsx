@@ -221,7 +221,7 @@ export default function AdminContent() {
   ];
 
   const reviewCard = (r) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{r.user || r.author || 'User'}</div>
@@ -257,10 +257,10 @@ export default function AdminContent() {
       {/* ---- Banners ---- */}
       {tab === 'banners' ? (
         <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Promotional banners shown on the homepage hero. ({activeBanners.length} active, {archivedBanners.length} archived)</p><button onClick={() => openAdd('banner', BLANK_BANNER)} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" />Add banner</button></div>
+          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Promotional banners shown on the homepage hero. ({activeBanners.length} active, {archivedBanners.length} archived)</p><button onClick={() => openAdd('banner', BLANK_BANNER)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add banner</button></div>
           <div className="grid gap-3 md:grid-cols-2">
             {activeBanners.map((b) => (
-              <div key={b.id} className="pn-card flex items-center justify-between gap-4 p-4">
+              <div key={b.id} className="dz-card flex items-center justify-between gap-4 p-4">
                 <div><div className="font-semibold">{b.headline || 'Untitled banner'}</div><div className="mt-0.5 text-xs text-gray-400">Links to {b.link || '—'} · position {b.position ?? '—'}</div></div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => openEdit('banner', b)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Edit2 className="h-3.5 w-3.5" /></button>
@@ -275,7 +275,7 @@ export default function AdminContent() {
               <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived</p>
               <div className="grid gap-3 md:grid-cols-2 opacity-60">
                 {archivedBanners.map((b) => (
-                  <div key={b.id} className="pn-card flex items-center justify-between gap-4 p-4 border-dashed">
+                  <div key={b.id} className="dz-card flex items-center justify-between gap-4 p-4 border-dashed">
                     <div><div className="font-semibold">{b.headline || 'Untitled banner'}</div><div className="mt-0.5 text-xs text-gray-500">Archived</div></div>
                     <button onClick={() => restoreItem('banner', setBanners, b.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
                   </div>
@@ -289,10 +289,10 @@ export default function AdminContent() {
       {/* ---- FAQs ---- */}
       {tab === 'faqs' ? (
         <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Frequently asked questions. ({activeFaqs.length} active)</p><button onClick={() => openAdd('faq', BLANK_FAQ)} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" />Add FAQ</button></div>
+          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Frequently asked questions. ({activeFaqs.length} active)</p><button onClick={() => openAdd('faq', BLANK_FAQ)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add FAQ</button></div>
           <div className="space-y-2">
             {activeFaqs.map((f) => (
-              <div key={f.id} className="pn-card p-4">
+              <div key={f.id} className="dz-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0"><div className="font-semibold">{f.question}</div><div className="mt-1 text-sm text-gray-400 line-clamp-2">{f.answer}</div></div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -309,7 +309,7 @@ export default function AdminContent() {
               <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived</p>
               <div className="space-y-2 opacity-60">
                 {archivedFaqs.map((f) => (
-                  <div key={f.id} className="pn-card p-4 border-dashed">
+                  <div key={f.id} className="dz-card p-4 border-dashed">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0"><div className="font-semibold">{f.question}</div></div>
                       <button onClick={() => restoreItem('faq', setFaqs, f.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
@@ -325,10 +325,10 @@ export default function AdminContent() {
       {/* ---- Announcements ---- */}
       {tab === 'announcements' ? (
         <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Internal/marketing announcements &amp; campaigns. ({activeAnns.length} active)</p><button onClick={() => openAdd('announcement', BLANK_ANN)} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" />New announcement</button></div>
+          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Internal/marketing announcements &amp; campaigns. ({activeAnns.length} active)</p><button onClick={() => openAdd('announcement', BLANK_ANN)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />New announcement</button></div>
           <div className="space-y-2">
             {activeAnns.map((a) => (
-              <div key={a.id} className="pn-card p-4">
+              <div key={a.id} className="dz-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div><div className="flex items-center gap-2"><Megaphone className="h-4 w-4 text-brand-teal" /><span className="font-semibold">{a.title}</span><span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs capitalize">{a.severity || 'info'}</span></div><div className="mt-1 text-sm text-gray-400 line-clamp-2">{a.body}</div></div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -346,7 +346,7 @@ export default function AdminContent() {
               <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived</p>
               <div className="space-y-2 opacity-60">
                 {archivedAnns.map((a) => (
-                  <div key={a.id} className="pn-card p-4 border-dashed">
+                  <div key={a.id} className="dz-card p-4 border-dashed">
                     <div className="flex items-start justify-between gap-3">
                       <div><span className="font-semibold">{a.title}</span></div>
                       <button onClick={() => restoreItem('announcement', setAnns, a.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
@@ -370,39 +370,39 @@ export default function AdminContent() {
       {/* ---- Edit / Add modal ---- */}
       {editModal ? (
         <Modal open={true} onClose={closeMod} title={`${editModal.isNew ? 'Add' : 'Edit'} ${editModal.kind}`} size="md"
-          footer={<><button onClick={closeMod} className="pn-btn pn-btn-ghost">Cancel</button>
+          footer={<><button onClick={closeMod} className="dz-btn dz-btn-ghost">Cancel</button>
             <button onClick={() => {
               if (editModal.kind === 'banner') saveItem('banner', setBanners);
               else if (editModal.kind === 'faq') saveItem('faq', setFaqs);
               else saveItem('announcement', setAnns);
-            }} className="pn-btn pn-btn-primary">Save</button></>}
+            }} className="dz-btn dz-btn-primary">Save</button></>}
         >
           {editModal.kind === 'banner' ? (
             <div className="space-y-3">
               {[['headline', 'Headline'], ['image', 'Image URL'], ['link', 'Link']].map(([k, l]) => (
                 <label key={k} className="block text-sm"><span className="mb-1 block text-gray-400">{l}</span>
-                  <input value={editData[k] || ''} onChange={(e) => setEditData((d) => ({ ...d, [k]: e.target.value }))} className="pn-input" /></label>
+                  <input value={editData[k] || ''} onChange={(e) => setEditData((d) => ({ ...d, [k]: e.target.value }))} className="dz-input" /></label>
               ))}
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Position</span>
-                <input type="number" value={editData.position ?? 0} onChange={(e) => setEditData((d) => ({ ...d, position: Number(e.target.value) }))} className="pn-input" /></label>
+                <input type="number" value={editData.position ?? 0} onChange={(e) => setEditData((d) => ({ ...d, position: Number(e.target.value) }))} className="dz-input" /></label>
             </div>
           ) : editModal.kind === 'faq' ? (
             <div className="space-y-3">
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Question</span>
-                <input value={editData.question || ''} onChange={(e) => setEditData((d) => ({ ...d, question: e.target.value }))} className="pn-input" /></label>
+                <input value={editData.question || ''} onChange={(e) => setEditData((d) => ({ ...d, question: e.target.value }))} className="dz-input" /></label>
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Answer</span>
-                <textarea rows={3} value={editData.answer || ''} onChange={(e) => setEditData((d) => ({ ...d, answer: e.target.value }))} className="pn-input" /></label>
+                <textarea rows={3} value={editData.answer || ''} onChange={(e) => setEditData((d) => ({ ...d, answer: e.target.value }))} className="dz-input" /></label>
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Category</span>
-                <input value={editData.category || ''} onChange={(e) => setEditData((d) => ({ ...d, category: e.target.value }))} className="pn-input" /></label>
+                <input value={editData.category || ''} onChange={(e) => setEditData((d) => ({ ...d, category: e.target.value }))} className="dz-input" /></label>
             </div>
           ) : (
             <div className="space-y-3">
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Title</span>
-                <input value={editData.title || ''} onChange={(e) => setEditData((d) => ({ ...d, title: e.target.value }))} className="pn-input" /></label>
+                <input value={editData.title || ''} onChange={(e) => setEditData((d) => ({ ...d, title: e.target.value }))} className="dz-input" /></label>
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Body</span>
-                <textarea rows={3} value={editData.body || ''} onChange={(e) => setEditData((d) => ({ ...d, body: e.target.value }))} className="pn-input" /></label>
+                <textarea rows={3} value={editData.body || ''} onChange={(e) => setEditData((d) => ({ ...d, body: e.target.value }))} className="dz-input" /></label>
               <label className="block text-sm"><span className="mb-1 block text-gray-400">Severity</span>
-                <select value={editData.severity || 'info'} onChange={(e) => setEditData((d) => ({ ...d, severity: e.target.value }))} className="pn-input">
+                <select value={editData.severity || 'info'} onChange={(e) => setEditData((d) => ({ ...d, severity: e.target.value }))} className="dz-input">
                   <option value="info">Info</option>
                   <option value="success">Success</option>
                   <option value="warning">Warning</option>

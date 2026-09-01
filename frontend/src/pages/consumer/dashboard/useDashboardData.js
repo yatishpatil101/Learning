@@ -87,7 +87,7 @@ export function useDashboardData({ user, toast }) {
      takes no argument.
 
      This was a synchronous localStorage read, and it carried the same defect the photo inbox did:
-     the *requester's* browser wrote `puneNestFlatmateReq:<hostId>` into its own storage and the
+     the *requester's* browser wrote `draazyFlatmateReq:<hostId>` into its own storage and the
      host read that key from theirs. Two origins, one key name, so no real host has ever seen a
      flatmate request — the e2e specs passed only because one browser context played both parts.
 
@@ -168,7 +168,7 @@ export function useDashboardData({ user, toast }) {
      Owner-scoped by the session, so like the contact and document inboxes it takes no argument.
 
      This was a synchronous localStorage read, and it could never have worked: the buyer's browser
-     wrote `puneNestPhotoReq:<ownerMobile>` into *its own* storage, and the owner read that key from
+     wrote `draazyPhotoReq:<ownerMobile>` into *its own* storage, and the owner read that key from
      *theirs*. Two origins, one key name — so no real owner has ever seen a photo request, and the
      e2e spec that covered it passed only because a single browser context played both parts. That
      is the whole reason this domain moved server-side.

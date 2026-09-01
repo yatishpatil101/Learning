@@ -29,7 +29,7 @@ export default function Navbar() {
   const [acctOpen, setAcctOpen] = useState(false);
   /* Help is the one area whose URL carries the language (/hi/help/...), and
      HelpLangRoute treats that prefix as authoritative — it calls changeLanguage()
-     on whatever the URL says, and i18n persists that to `pnLang` device-wide.
+     on whatever the URL says, and i18n persists that to `dzLang` device-wide.
      So an unprefixed /help link here is not untidy, it is a language reset: a
      Hindi reader opening this menu would land on English help and stay English
      everywhere afterwards. Same reason Footer uses this hook. */
@@ -94,8 +94,8 @@ export default function Navbar() {
       title="Go back"
       /* tap-extend, not tap-target: this button *is* the drawn tile, so growing its
          box to 44px would grow the tile too. The transparent ::before keeps the
-         finger target while the square stays at --pn-nav-icon-box. */
-      className="pn-topbar__icon-box tap-extend relative lg:hidden grid place-items-center h-9 w-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
+         finger target while the square stays at --dz-nav-icon-box. */
+      className="dz-topbar__icon-box tap-extend relative lg:hidden grid place-items-center h-9 w-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
     >
       <Icon name="chevron-left" className="w-4 h-4 text-[#14b8a6]" />
     </button>
@@ -108,7 +108,7 @@ export default function Navbar() {
     <div className="flex items-center gap-3 px-1 min-w-0">
       <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-sm font-bold text-white shrink-0">{initial(user)}</span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-white truncate">{user?.name || 'PuneNest User'}</span>
+        <span className="block text-sm font-semibold text-white truncate">{user?.name || 'Draazy User'}</span>
         <span className="block text-xs text-gray-400">{roleLabel(user?.role)}</span>
       </span>
     </div>
@@ -186,10 +186,10 @@ export default function Navbar() {
         const moved = y - lastY;
         if (Math.abs(moved) > DELTA) {
           // Toggled at every width; only the mobile stylesheet reacts to the class.
-          root.classList.toggle('pn-nav-hidden', moved > 0 && y > HIDE_AFTER);
+          root.classList.toggle('dz-nav-hidden', moved > 0 && y > HIDE_AFTER);
           lastY = y;
         } else if (y <= HIDE_AFTER) {
-          root.classList.remove('pn-nav-hidden');
+          root.classList.remove('dz-nav-hidden');
         }
         ticking = false;
       });
@@ -197,7 +197,7 @@ export default function Navbar() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       window.removeEventListener('scroll', onScroll);
-      root.classList.remove('pn-nav-hidden');
+      root.classList.remove('dz-nav-hidden');
     };
   }, []);
 
@@ -241,11 +241,11 @@ export default function Navbar() {
     </a>
     <nav
       ref={navRef}
-      className="pn-topbar pn-safe-x fixed top-0 left-0 right-0 z-50 transition-all duration-500"
+      className="dz-topbar dz-safe-x fixed top-0 left-0 right-0 z-50 transition-all duration-500"
       style={{ background: 'rgba(15,13,26,0.6)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="pn-topbar__row flex items-center justify-between gap-2">
+        <div className="dz-topbar__row flex items-center justify-between gap-2">
           {/* min-w-0 so this side yields first: with Saved / Notifications / Messages
              now inline, a 360px bar showing the city pill AND a compare badge has no
              slack left. Shrinking here truncates the city label rather than pushing
@@ -257,8 +257,8 @@ export default function Navbar() {
                 made the header feel cramped on phones. Below `sm` the wordmark
                 hides and the mark stands alone as the app icon. */}
             <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 flex items-center gap-2 group">
-              <LogoMark className="pn-topbar__icon-box w-9 h-9 shrink-0 text-teal-400 transition-transform duration-300 group-hover:scale-110" />
-              <span className="hidden sm:inline text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">PuneNest</span>
+              <LogoMark className="dz-topbar__icon-box w-9 h-9 shrink-0 text-teal-400 transition-transform duration-300 group-hover:scale-110" />
+              <span className="hidden sm:inline text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Draazy</span>
             </Link>
 
             <div className={`relative${isHome ? '' : ' hidden lg:block'}`} ref={cityRef}>
@@ -269,7 +269,7 @@ export default function Navbar() {
                 aria-expanded={cityOpen}
                 aria-haspopup="listbox"
                 aria-label={`City: ${city}`}
-                className="pn-topbar__pill tap-extend relative flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300 min-w-0"
+                className="dz-topbar__pill tap-extend relative flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300 min-w-0"
               >
                 <Icon name="map-pin" className="w-4 h-4 text-[#14b8a6] shrink-0" />
                 <span className="text-sm font-semibold text-gray-200 truncate">{city}</span>
@@ -335,7 +335,7 @@ export default function Navbar() {
               /* Signed in, this is the target that leaves the phone bar — see the drawer
                  row in `acctItems`. Signed out there is no drawer to move it to, and the
                  same row is only four targets wide, so it stays inline there. */
-              <Link to="/compare" className={'pn-topbar__action tap-target tap-extend relative items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group ' + (isIn ? 'hidden lg:inline-flex' : 'inline-flex')} title="Compare Properties" aria-label="Compare properties">
+              <Link to="/compare" className={'dz-topbar__action tap-target tap-extend relative items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group ' + (isIn ? 'hidden lg:inline-flex' : 'inline-flex')} title="Compare Properties" aria-label="Compare properties">
                 <Icon name="git-compare" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                 {compareCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{compareCount}</span>}
               </Link>
@@ -346,20 +346,20 @@ export default function Navbar() {
                     before the account pill. They used to be `hidden sm:inline-flex`, with
                     phones reaching them through the account drawer — two taps and a
                     context switch for the three screens a returning user checks most.
-                    Below sm they draw at 32px (see .pn-topbar__action) so the row still
+                    Below sm they draw at 32px (see .dz-topbar__action) so the row still
                     fits a 360px bar; above sm the geometry is exactly as before. */}
                 {flagEnabled('savedListings') && (
-                  <Link to="/saved" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
+                  <Link to="/saved" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Saved" aria-label="Saved properties">
                     <Icon name="heart" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                     {savedCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{savedCount}</span>}
                   </Link>
                 )}
-                <Link to="/notifications" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Notifications" aria-label="Notifications">
+                <Link to="/notifications" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Notifications" aria-label="Notifications">
                   <Icon name="bell" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                   {unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-[#f97316] to-[#fb923c] rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">{unreadCount}</span>}
                 </Link>
                 {flagEnabled('inAppMessaging') && (
-                  <Link to="/messages" className="pn-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Messages" aria-label="Messages">
+                  <Link to="/messages" className="dz-topbar__action tap-target tap-extend relative inline-flex items-center justify-center p-2 rounded-xl hover:bg-white/5 transition-all duration-300 group" title="Messages" aria-label="Messages">
                     <Icon name="message-square" className="w-5 h-5 text-gray-300 group-hover:text-white transition-colors" />
                     {chatBadge > 0
                       ? <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 bg-gradient-to-br from-teal-500 to-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-teal-500/30">{chatBadge}</span>
@@ -374,7 +374,7 @@ export default function Navbar() {
                      also pulls the whole action row right, because the row is
                      justify-between and this pill is its last item. 8px is the floor —
                      any less and the chevron reads as jammed against the bezel. */}
-                  <button onClick={(e) => { e.stopPropagation(); setAcctOpen((v) => !v); }} aria-label="Account menu" aria-haspopup="menu" aria-expanded={acctOpen} className="pn-topbar__pill tap-extend relative flex items-center gap-1.5 sm:gap-2 pl-1 pr-2 sm:pr-2.5 py-1 rounded-l-full rounded-r-none sm:rounded-full bg-white/5 border border-r-0 sm:border-r border-teal-400/30 hover:border-teal-400/50 transition-all">
+                  <button onClick={(e) => { e.stopPropagation(); setAcctOpen((v) => !v); }} aria-label="Account menu" aria-haspopup="menu" aria-expanded={acctOpen} className="dz-topbar__pill tap-extend relative flex items-center gap-1.5 sm:gap-2 pl-1 pr-2 sm:pr-2.5 py-1 rounded-l-full rounded-r-none sm:rounded-full bg-white/5 border border-r-0 sm:border-r border-teal-400/30 hover:border-teal-400/50 transition-all">
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-xs font-bold text-white">{initial(user)}</span>
                     <span className="hidden sm:inline text-sm font-semibold text-gray-100">{firstName(user)}</span>
                     <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400" style={{ transform: acctOpen ? 'rotate(180deg)' : '' }} />
@@ -398,7 +398,7 @@ export default function Navbar() {
               /* Visible at every width. It used to be `hidden sm:inline-flex`, with the
                  hamburger drawer carrying Sign In on small phones — now that the drawer
                  is gone this is the only sign-in affordance, so it can't be hidden. */
-              <Link to="/signin" className="pn-topbar__pill tap-extend relative inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
+              <Link to="/signin" className="dz-topbar__pill tap-extend relative inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
                 <Icon name="log-in" className="w-4 h-4" /> Sign In
               </Link>
             )}

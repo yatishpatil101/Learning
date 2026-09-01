@@ -8,7 +8,7 @@
    handful of pure functions and got the entire `lib/mockApi/` module graph evaluated alongside
    them, in a build whose only data source is the live API.
 
-   Nothing here touches `pnConversations`, `rawDb`, or any mock module. The one dependency is
+   Nothing here touches `dzConversations`, `rawDb`, or any mock module. The one dependency is
    `contactService`, which is the seam — a real service call, not a store read. That is the point of
    the boundary: a component needing a timestamp formatted should not thereby load a demo database.
 

@@ -203,7 +203,7 @@ test.describe('geo policy reaches the browser', () => {
     // the shopper is elsewhere; what this asserts is the half that has to work either way — that
     // the client re-reads `GET /geo` on that signal and the roster follows, rather than holding
     // the policy it fetched at boot until somebody reloads.
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent('punenest-settings-change')));
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('draazy-settings-change')));
 
     const pill = page.getByRole('button', { name: /^City: / }).first();
     await pill.click();

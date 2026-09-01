@@ -24,7 +24,7 @@ export const OPTION_INFO = {
   'tag.readyToMove': { title: 'Ready to Move', body: 'Construction is complete — you can occupy the home right after the paperwork, with no waiting period.' },
   'tag.underConstruction': { title: 'Under Construction', body: 'Still being built. Usually cheaper and paid in stages, but you wait for possession and take on completion risk.' },
   'tag.verifiedOwner': { title: 'Verified Owner', body: "The lister's identity has been checked against Aadhaar/phone, so you're dealing with a genuine person — not an anonymous broker." },
-  'tag.ownershipVerified': { title: 'Ownership Verified', body: 'PuneNest has seen documents linking this person to the property, reducing the risk of fake or duplicate listings.' },
+  'tag.ownershipVerified': { title: 'Ownership Verified', body: 'Draazy has seen documents linking this person to the property, reducing the risk of fake or duplicate listings.' },
   'tag.rera': { title: 'RERA Approved', body: 'Registered under the Real Estate Regulatory Authority — the project is legally accountable for timelines, carpet area and quality.' },
   'tag.furnishing': { title: 'Furnishing', body: 'Unfurnished, Semi-furnished (usually wardrobes and fittings) or Furnished (adds beds, sofa and appliances).' },
 

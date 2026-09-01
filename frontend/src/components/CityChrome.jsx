@@ -40,14 +40,14 @@ export default function CityChrome() {
   return (
     <>
       {showBar ? (
-        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--pn-bottom-inset)+18px)] z-[1200] w-[min(680px,calc(100%-24px))]">
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--dz-bottom-inset)+18px)] z-[1200] w-[min(680px,calc(100%-24px))]">
           {/* Phones stack (copy row, then a full-width button row) because the copy
               collapsed to a 1-word column when everything shared one flex line. */}
           <div className="relative flex flex-col gap-2.5 rounded-2xl border border-white/12 bg-[#15122a]/95 px-4 py-3 pr-10 shadow-2xl shadow-black/50 backdrop-blur sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:pr-4">
             <div className="flex items-start gap-2.5 sm:flex-1 sm:min-w-0 sm:items-center">
               <span className="text-lg leading-none">🚧</span>
               <span className="text-[12.5px] leading-snug text-gray-300">
-                PuneNest isn't live in <b className="text-white">{city}</b> yet — join the waitlist and we'll notify you the moment we launch.
+                Draazy isn't live in <b className="text-white">{city}</b> yet — join the waitlist and we'll notify you the moment we launch.
               </span>
             </div>
             <div className="flex items-center gap-2 sm:flex-shrink-0 sm:gap-3">
@@ -85,7 +85,7 @@ export default function CityChrome() {
             // Only relocate when they're stranded on a city that isn't live (a persisted
             // pick, or one an admin took offline) — picking from the dropdown never moved them.
             // Re-read liveness here rather than closing over the render's `live`: a
-            // `punenest-settings-change` arriving mid-POST can launch this very city, and
+            // `draazy-settings-change` arriving mid-POST can launch this very city, and
             // relocating them away from a city that just went live is the wrong move.
             if (!isLive(city)) setCity('Pune');
             toast(msg, 'success');
@@ -176,7 +176,7 @@ function CityModal({ modal, user, onClose, onSubmit }) {
             {isWaitlist ? (
               <>We're launching in <b className="text-brand-teal">{cityName}</b> soon. Join the waitlist and we'll notify you the moment we go live.</>
             ) : (
-              <>Tell us where you'd like PuneNest next. The most-requested cities jump our expansion queue.</>
+              <>Tell us where you'd like Draazy next. The most-requested cities jump our expansion queue.</>
             )}
           </p>
           {!isWaitlist ? (

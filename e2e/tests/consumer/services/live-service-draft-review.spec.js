@@ -19,9 +19,9 @@ import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAu
  *   - `:166` "customer (checker) can approve the draft our team shares" — the draft our team
  *     shares was fabricated client-side one line earlier.
  *   - `:314` "sharing a draft raises a dashboard bell notification" — asserted by reading
- *     `localStorage['pnNotifications:' + mobile]`, which the same browser had just written.
+ *     `localStorage['dzNotifications:' + mobile]`, which the same browser had just written.
  *   - `:332` "request-changes … records the note" — the modal half was a real component claim; the
- *     "records the note" half read `localStorage['puneNestServiceReq:' + mobile]` back.
+ *     "records the note" half read `localStorage['draazyServiceReq:' + mobile]` back.
  *
  * Here the maker is a **real staffer on a real desk**, over HTTP, and every outcome is read back
  * from the server rather than from the browser that caused it.

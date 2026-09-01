@@ -29,7 +29,7 @@ import {
 const PAGE_SIZE = 100;
 
 /** Staged chats: composed, but not sendable until the contact gate opens. */
-const QUEUE_KEY = 'pnPendingRequests';
+const QUEUE_KEY = 'dzPendingRequests';
 
 export async function listConversations() {
   const page = await get('/messages', { size: PAGE_SIZE });
@@ -138,7 +138,7 @@ export async function queuePendingChat(property, { firstMessage, active = false 
     // `propertyId` and lets the server name the owner.
     party: { name: property.owner || 'Owner', role: 'Owner' },
     firstMessage: firstMessage
-      || `Hi, I'm interested in "${property.title || 'this property'}" on PuneNest. Is it still available?`,
+      || `Hi, I'm interested in "${property.title || 'this property'}" on Draazy. Is it still available?`,
   });
   writeQueue(queue);
 }

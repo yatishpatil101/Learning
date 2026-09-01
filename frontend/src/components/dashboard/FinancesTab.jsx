@@ -350,7 +350,7 @@ function OwnerFinances({ user, listings, toast }) {
       </div>
 
       {/* Thumb-zone quick add (mobile only; desktop uses the Add button in Activity).
-          Docked to --pn-bottom-inset rather than a hardcoded bottom-6, and anchored
+          Docked to --dz-bottom-inset rather than a hardcoded bottom-6, and anchored
           bottom-LEFT: the Nestor FAB owns the bottom-right corner at z-1300, so this
           button was both sitting under the bottom nav (z-40 < z-70) and unreachable
           behind the assistant. Same failure the listings filters pill hit. */}
@@ -359,7 +359,7 @@ function OwnerFinances({ user, listings, toast }) {
         onClick={() => setShowTxForm(true)}
         aria-label={t('fin.addTransaction')}
         className="lg:hidden fixed left-4 z-[60] w-14 h-14 rounded-full bg-brand-teal text-ink shadow-xl shadow-black/30 flex items-center justify-center active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-        style={{ bottom: 'calc(var(--pn-bottom-inset) + 1rem)' }}
+        style={{ bottom: 'calc(var(--dz-bottom-inset) + 1rem)' }}
       >
         <Icon name="plus" className="w-6 h-6" />
       </button>

@@ -116,7 +116,7 @@ export default function Menu({ items = [], ariaLabel, className, onNavigate }) {
             <>
               {/* Scrim: a sheet is a modal surface, so the page behind it has to
                   read as dismissed rather than merely covered. */}
-              {sheet ? <div className="pn-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
+              {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div
                 ref={menuRef}
                 role="menu"
@@ -125,7 +125,7 @@ export default function Menu({ items = [], ariaLabel, className, onNavigate }) {
                 className={classNames(
                   'rounded-xl border border-white/10 bg-ink-2 p-1.5 shadow-2xl shadow-black/50',
                   sheet
-                    ? 'pn-action-sheet flex flex-col gap-0.5'
+                    ? 'dz-action-sheet flex flex-col gap-0.5'
                     : 'min-w-[11rem] max-w-[16rem]',
                 )}
               >

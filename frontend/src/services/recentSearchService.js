@@ -13,7 +13,7 @@
  * Anonymous history is not sent anywhere because there is nothing to send it *to*: no account to
  * attach it to, no second device to sync it with, and no screen elsewhere that reads it. The
  * argument that used to keep the signed-in rail local too does not survive contact with the key it
- * was stored under — `pnRecentSearches:<mobile>` already *promises* per-account continuity, and a
+ * was stored under — `dzRecentSearches:<mobile>` already *promises* per-account continuity, and a
  * browser is the one place that cannot deliver it.
  *
  * ### Shape

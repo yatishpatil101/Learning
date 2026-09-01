@@ -35,7 +35,7 @@ export default function LoadError({ message, error, onRetry, className = 'glass-
     <div className={`${className} flex flex-col items-center text-center gap-3`}>
       <Icon name="alert-triangle" className="w-8 h-8 text-amber-400" />
       <p className="text-gray-300 text-sm">{isReachabilityFailure(error) ? t('connectivity.listUnreachable') : message}</p>
-      <button onClick={onRetry} className="pn-control pn-control--action px-4 gap-1.5">
+      <button onClick={onRetry} className="dz-control dz-control--action px-4 gap-1.5">
         <Icon name="refresh-cw" className="w-4 h-4" /> {t('common.retry')}
       </button>
     </div>

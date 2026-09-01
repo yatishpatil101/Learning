@@ -1,4 +1,4 @@
-# Netlify deploy config for the PuneNest PMF-test build.
+# Netlify deploy config for the Draazy PMF-test build.
 # Build the Vite app; publish the static bundle. The `/api` proxy is generated into `_redirects`
 # at build time; the SPA fallback below is the safety net — see both comments further down.
 
@@ -12,7 +12,7 @@
 #   VITE_GA_ID    = G-XXXXXXXXXX
 # (Both are safe to expose; they only gate the temporary test overlay.)
 #
-#   API_ORIGIN    = https://api.punenest.in    ← REQUIRED for any deploy; the build fails without it
+#   API_ORIGIN    = https://api.draazy.in    ← REQUIRED for any deploy; the build fails without it
 #
 # API_ORIGIN is the backend's origin, and setting it is what makes this a working deploy rather
 # than a static site that 200s HTML at every API call. `scripts/gen-redirects.mjs` turns it into a

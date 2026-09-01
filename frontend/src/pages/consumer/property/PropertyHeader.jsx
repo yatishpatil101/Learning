@@ -141,7 +141,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                 </MobileCollapse>
               ) : null}
 
-              {/* PuneNest Assured — collapsed on phones (D141).
+              {/* Draazy Assured — collapsed on phones (D141).
 
                   Every claim in here is a *platform* promise and is byte-for-byte
                   identical on every listing, so it carries no information that helps a

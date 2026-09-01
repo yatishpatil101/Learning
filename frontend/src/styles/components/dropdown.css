@@ -1,4 +1,4 @@
-/* ── Custom dropdown (.pn-dropdown) — ported verbatim from the HTML dropdowns.css
+/* ── Custom dropdown (.dz-dropdown) — ported verbatim from the HTML dropdowns.css
    so the React <Select> matches the enhanced native selects exactly. ── */
 :root {
   --dd-bg: rgba(255, 255, 255, 0.05);
@@ -31,24 +31,24 @@
   --dd-option-hover: rgba(20, 184, 166, 0.14);
 }
 
-.pn-dropdown {
+.dz-dropdown {
   position: relative;
   display: inline-block;
   width: 100%;
   font-size: 0.875rem;
 }
 
-.pn-dropdown--sm {
+.dz-dropdown--sm {
   width: var(--dd-sm-w, auto);
   --dd-trigger-pad: 0 0.7rem;
 }
 
-.pn-dropdown--sm .pn-dropdown__trigger {
+.dz-dropdown--sm .dz-dropdown__trigger {
   font-size: 0.78rem;
   gap: 0.4rem;
 }
 
-.pn-dropdown--sm .pn-dropdown__chev {
+.dz-dropdown--sm .dz-dropdown__chev {
   width: 0.85rem;
   height: 0.85rem;
 }
@@ -58,13 +58,13 @@
    after @tailwind utilities, so a w-* utility on the same element loses to it.
    Stays shrinkable so very narrow phones ellipsis the label instead of wrapping
    the row. */
-.pn-dropdown.pn-dd-sort {
+.dz-dropdown.dz-dd-sort {
   flex: 0 1 126px;
   width: 126px;
 }
 
 @media (min-width: 640px) {
-  .pn-dropdown.pn-dd-sort {
+  .dz-dropdown.dz-dd-sort {
     flex-basis: 10rem;
     width: 10rem;
   }
@@ -74,12 +74,12 @@
    gradient scrim), so it reads as part of the photo — not a strip below it. Stays
    quiet (borderless, 20px tall) with white text for legibility over the image;
    the chevron alone invites a click to change the room type. */
-.pn-dropdown--sm.pn-dd-photocat {
+.dz-dropdown--sm.dz-dd-photocat {
   width: 100%;
   --dd-trigger-pad: 0 0.4rem;
 }
 
-.pn-dd-photocat .pn-dropdown__trigger {
+.dz-dd-photocat .dz-dropdown__trigger {
   height: 20px;
   min-height: 20px;
   background: transparent;
@@ -89,15 +89,15 @@
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-.pn-dd-photocat .pn-dropdown__chev {
+.dz-dd-photocat .dz-dropdown__chev {
   color: rgba(255, 255, 255, 0.9);
 }
 
-.pn-dd-photocat .pn-dropdown__trigger:hover {
+.dz-dd-photocat .dz-dropdown__trigger:hover {
   background: rgba(0, 0, 0, 0.35);
 }
 
-.pn-dropdown__trigger {
+.dz-dropdown__trigger {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -117,35 +117,35 @@
   transition: border-color var(--dd-speed) var(--dd-ease), box-shadow var(--dd-speed) var(--dd-ease), background-color var(--dd-speed) var(--dd-ease);
 }
 
-.pn-dropdown__trigger:hover {
+.dz-dropdown__trigger:hover {
   border-color: var(--dd-border-hover);
   background: var(--dd-bg-hover);
   box-shadow: var(--dd-trigger-shadow-hover);
 }
 
-.pn-dropdown__trigger:disabled {
+.dz-dropdown__trigger:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-.pn-dropdown__value {
+.dz-dropdown__value {
   flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.pn-dropdown__value.is-placeholder {
+.dz-dropdown__value.is-placeholder {
   color: var(--dd-placeholder);
 }
 
-.pn-dropdown__value .pn-dropdown__prefix {
+.dz-dropdown__value .dz-dropdown__prefix {
   color: var(--dd-muted);
   font-weight: 500;
   margin-right: 0.4rem;
 }
 
-.pn-dropdown__chev {
+.dz-dropdown__chev {
   width: 1rem;
   height: 1rem;
   flex-shrink: 0;
@@ -153,17 +153,17 @@
   transition: transform var(--dd-speed) var(--dd-ease), color var(--dd-speed) var(--dd-ease);
 }
 
-.pn-dropdown.is-open>.pn-dropdown__trigger {
+.dz-dropdown.is-open>.dz-dropdown__trigger {
   border-color: var(--dd-accent);
   box-shadow: var(--dd-trigger-shadow-open);
 }
 
-.pn-dropdown.is-open .pn-dropdown__chev {
+.dz-dropdown.is-open .dz-dropdown__chev {
   transform: rotate(180deg);
   color: var(--dd-accent);
 }
 
-.pn-dropdown__menu {
+.dz-dropdown__menu {
   position: absolute;
   left: 0;
   right: 0;
@@ -189,20 +189,20 @@
   transition: opacity var(--dd-speed) var(--dd-ease), transform var(--dd-speed) var(--dd-ease);
 }
 
-.pn-dropdown.is-open .pn-dropdown__menu {
+.dz-dropdown.is-open .dz-dropdown__menu {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
 
-.pn-dropdown__menu--portal {
+.dz-dropdown__menu--portal {
   position: fixed;
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
   pointer-events: none;
 }
 
-.pn-dropdown__menu--portal.is-portal-open {
+.dz-dropdown__menu--portal.is-portal-open {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
@@ -215,7 +215,7 @@
    component stops writing inline geometry (see `sheet` in Select/MultiSelect) and
    these rules take over: full-width, docked to the bottom edge, scrim behind,
    grab handle on top. Desktop never gets the class, so nothing here applies. */
-.pn-dropdown__scrim {
+.dz-dropdown__scrim {
   position: fixed;
   inset: 0;
   z-index: 9998;
@@ -224,7 +224,7 @@
   backdrop-filter: blur(2px);
 }
 
-.pn-dropdown__menu--sheet {
+.dz-dropdown__menu--sheet {
   position: fixed;
   left: 0;
   right: 0;
@@ -234,7 +234,7 @@
   width: auto;
   max-width: none;
   max-height: 70dvh;
-  padding: 0 0.5rem calc(0.5rem + var(--pn-safe-b));
+  padding: 0 0.5rem calc(0.5rem + var(--dz-safe-b));
   border-width: 1px 0 0;
   border-radius: 1.25rem 1.25rem 0 0;
   transform: translateY(100%);
@@ -242,13 +242,13 @@
   transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.pn-dropdown__menu--sheet.is-portal-open {
+.dz-dropdown__menu--sheet.is-portal-open {
   transform: translateY(0);
 }
 
 /* Grab handle. Sticky rather than static because the sheet is itself the
    scrolling element, and a handle that scrolls away can't be dragged. */
-.pn-dropdown__menu--sheet::before {
+.dz-dropdown__menu--sheet::before {
   content: '';
   position: sticky;
   top: 0;
@@ -262,20 +262,20 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-.pn-dropdown__menu--sheet .pn-dropdown__option {
+.dz-dropdown__menu--sheet .dz-dropdown__option {
   white-space: normal;
 }
 
 /* Both the handle and the search box are sticky; park the search below the
    handle so they don't pile up at top: 0. */
-.pn-dropdown__menu--sheet .pn-dropdown__search {
+.dz-dropdown__menu--sheet .dz-dropdown__search {
   top: 1.375rem;
 }
 
 /* Overflow ("More") menu presented as an action sheet on phones — same docking,
    scrim and handle as the dropdown sheet above, but the panel's own look comes
    from utility classes in Menu.jsx. */
-.pn-action-sheet {
+.dz-action-sheet {
   position: fixed;
   left: 0;
   right: 0;
@@ -284,13 +284,13 @@
   z-index: 9999;
   max-height: 70dvh;
   overflow-y: auto;
-  padding-bottom: calc(0.375rem + var(--pn-safe-b));
+  padding-bottom: calc(0.375rem + var(--dz-safe-b));
   border-width: 1px 0 0;
   border-radius: 1.25rem 1.25rem 0 0;
-  animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: dzSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.pn-action-sheet::before {
+.dz-action-sheet::before {
   content: '';
   position: sticky;
   top: 0;
@@ -305,19 +305,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-action-sheet {
+  .dz-action-sheet {
     animation: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-dropdown__menu--sheet {
+  .dz-dropdown__menu--sheet {
     transition: opacity 0.15s linear;
     transform: none;
   }
 }
 
-.pn-dropdown__search {
+.dz-dropdown__search {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -327,7 +327,7 @@
   box-shadow: 0 -9px 0 var(--dd-menu-solid), 0 7px 0 var(--dd-menu-solid);
 }
 
-.pn-dropdown__search input {
+.dz-dropdown__search input {
   width: 100%;
   padding: 0.5rem 0.75rem;
   background: rgba(255, 255, 255, 0.05);
@@ -340,16 +340,16 @@
   transition: border-color var(--dd-speed) var(--dd-ease), box-shadow var(--dd-speed) var(--dd-ease);
 }
 
-.pn-dropdown__search input::placeholder {
+.dz-dropdown__search input::placeholder {
   color: var(--dd-placeholder);
 }
 
-.pn-dropdown__search input:focus {
+.dz-dropdown__search input:focus {
   border-color: var(--dd-accent);
   box-shadow: 0 0 0 3px var(--dd-accent-soft);
 }
 
-.pn-dropdown__option {
+.dz-dropdown__option {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -368,23 +368,23 @@
   transition: background-color 0.15s var(--dd-ease), color 0.15s var(--dd-ease), transform 0.15s var(--dd-ease);
 }
 
-.pn-dropdown__option .opt-icon {
+.dz-dropdown__option .opt-icon {
   width: 1rem;
   height: 1rem;
   color: var(--dd-accent);
   flex-shrink: 0;
 }
 
-.pn-dropdown__option .opt-label {
+.dz-dropdown__option .opt-label {
   flex: 1;
   white-space: nowrap;
 }
 
-.pn-dropdown.dd-type-filter .pn-dropdown__value {
+.dz-dropdown.dd-type-filter .dz-dropdown__value {
   padding-left: 0.3rem;
 }
 
-.pn-dropdown__option .opt-icon {
+.dz-dropdown__option .opt-icon {
   width: 1.05rem;
   height: 1.05rem;
   flex-shrink: 0;
@@ -392,13 +392,13 @@
   transition: color 0.15s var(--dd-ease);
 }
 
-.pn-dropdown__option:hover .opt-icon,
-.pn-dropdown__option.is-active .opt-icon,
-.pn-dropdown__option[aria-selected="true"] .opt-icon {
+.dz-dropdown__option:hover .opt-icon,
+.dz-dropdown__option.is-active .opt-icon,
+.dz-dropdown__option[aria-selected="true"] .opt-icon {
   color: var(--dd-accent);
 }
 
-.pn-dropdown__option .opt-badge {
+.dz-dropdown__option .opt-badge {
   flex-shrink: 0;
   min-width: 1.25rem;
   padding: 0 0.4rem;
@@ -414,19 +414,19 @@
   line-height: 1;
 }
 
-.pn-dropdown__option:hover .opt-badge,
-.pn-dropdown__option.is-active .opt-badge,
-.pn-dropdown__option[aria-selected="true"] .opt-badge {
+.dz-dropdown__option:hover .opt-badge,
+.dz-dropdown__option.is-active .opt-badge,
+.dz-dropdown__option[aria-selected="true"] .opt-badge {
   background: var(--dd-accent);
   color: #04231e;
 }
 
-.pn-dropdown__option .opt-sub {
+.dz-dropdown__option .opt-sub {
   color: var(--dd-muted);
   font-size: 0.78rem;
 }
 
-.pn-dropdown__option .opt-check {
+.dz-dropdown__option .opt-check {
   width: 1rem;
   height: 1rem;
   margin-left: auto;
@@ -436,30 +436,30 @@
   transition: opacity 0.15s var(--dd-ease), transform 0.15s var(--dd-ease);
 }
 
-.pn-dropdown__option:hover,
-.pn-dropdown__option.is-active {
+.dz-dropdown__option:hover,
+.dz-dropdown__option.is-active {
   background: var(--dd-option-hover);
   color: #ffffff;
   transform: translateX(var(--dd-option-slide));
 }
 
-.pn-dropdown__option[aria-selected="true"] {
+.dz-dropdown__option[aria-selected="true"] {
   color: #ffffff;
 }
 
-.pn-dropdown__option[aria-selected="true"] .opt-check {
+.dz-dropdown__option[aria-selected="true"] .opt-check {
   opacity: 1;
   transform: scale(1);
 }
 
-.pn-dropdown__empty {
+.dz-dropdown__empty {
   padding: 0.75rem 0.8rem;
   color: var(--dd-muted);
   font-size: 0.82rem;
   text-align: center;
 }
 
-.pn-dropdown__group {
+.dz-dropdown__group {
   padding: 0.5rem 0.8rem 0.25rem;
   font-size: 0.72rem;
   font-weight: 700;

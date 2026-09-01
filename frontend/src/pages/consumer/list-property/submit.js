@@ -101,15 +101,15 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
    the check is worth writing down because it reads plausible:
 
    - They were never the same function. The seam write is `lib/mockApi/properties.js addListing`,
-     into `db.listings` inside `puneNestDB_v5`; the mirror was `lib/store/listings.js addListing`,
-     into `puneNestListings:<mobile>`. Two stores, two keys.
+     into `db.listings` inside `draazyDB_v5`; the mirror was `lib/store/listings.js addListing`,
+     into `draazyListings:<mobile>`. Two stores, two keys.
    - So the mirror never gated the meter number. In mock mode `forTheWire(record, …)` has been the
      row in `db.listings` all along, which is the row the detail page reads. Deleting the mirror
      changes nothing about that exposure — it is mock-fidelity noise, not a live leak: on the wire
      `electricityMeterNo` is owner/staff-only and the public response omits it (D218).
    - `lib/data/documents.js`, named above as the remaining reader, no longer reads it at all.
 
-   What did still read `puneNestListings:` is entirely inside the mock arm, and all of it survives
+   What did still read `draazyListings:` is entirely inside the mock arm, and all of it survives
    on `db.listings`, which the seam write populates with `ownerMobile`:
    `mock/dealProvider.ownerOf`/`ownsListing` fall through to `ownerIdOfListingId`, and
    `mock/propertyProvider.myListings` never consulted the mirror in the first place. */
@@ -527,13 +527,13 @@ export const persistListing = async ({ form, user, editId, editListing, document
 
     /* No local write here. The re-review note used to be composed at this point and written to
        localStorage, which meant the sentence explaining why a listing had gone dark existed only
-       on the machine that made the edit — and was signed "PuneNest" by the very person it was
+       on the machine that made the edit — and was signed "Draazy" by the very person it was
        addressed to. The server writes it now, into the same verification thread ops reads (see
        ListingService.update). Likewise the duplicate warning, which was addressed to an ops desk
        that could not read it: ListingService.create runs the probe and opens the case. */
 
     /* No local notification here either. "Property listed! Your <title> is now under review." was
-       unshifted onto a `puneNestNotifications` array in this browser — a key the live inbox
+       unshifted onto a `draazyNotifications` array in this browser — a key the live inbox
        (`GET /notifications`) does not read, and never has. The row was therefore invisible on every
        surface that could have shown it: the bell badge counts the server's page, and the
        Notifications page merges server rows with alerts it derives from saved searches. The server

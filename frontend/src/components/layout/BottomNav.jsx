@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-/* Mobile bottom tab bar (below lg). PuneNest's primary wayfinding surface on phones:
+/* Mobile bottom tab bar (below lg). Draazy's primary wayfinding surface on phones:
    the top navbar + hamburger sit in the hardest-to-reach corner, so every navigation
    act used to need a top-right stretch.
 
@@ -16,8 +16,8 @@ import { useAuth } from '../../context/AuthContext.jsx';
    to these routes (video / users / sparkles) so the two menus never disagree.
 
    Presentation is a floating capsule rather than an edge-to-edge bar — see
-   .pn-bottom-nav in index.css. Hidden at lg and up; the desktop navbar is untouched.
-   Mounted by ConsumerLayout, which also sets .has-bottom-nav so --pn-bottom-inset
+   .dz-bottom-nav in index.css. Hidden at lg and up; the desktop navbar is untouched.
+   Mounted by ConsumerLayout, which also sets .has-bottom-nav so --dz-bottom-inset
    reserves the bar's height *and* its floating gap for every other bottom-anchored
    widget. */
 
@@ -36,12 +36,12 @@ function Tab({ to, icon, label, active, onClick, slotRef, ...rest }) {
          end up directly behind these labels. The lighter grey is what keeps them
          readable in that worst case without making an inactive tab look active. */
       className={
-        'pn-bottom-nav__tab relative flex flex-1 flex-col items-center justify-center gap-0.5 min-w-[52px] transition-colors ' +
+        'dz-bottom-nav__tab relative flex flex-1 flex-col items-center justify-center gap-0.5 min-w-[52px] transition-colors ' +
         (active ? 'text-teal-100' : 'text-gray-300')
       }
     >
       <Icon name={icon} className="w-[22px] h-[22px]" weight={active ? 'fill' : 'regular'} />
-      <span className={'pn-bottom-nav__label ' + (active ? 'font-semibold' : 'font-medium')}>{label}</span>
+      <span className={'dz-bottom-nav__label ' + (active ? 'font-semibold' : 'font-medium')}>{label}</span>
     </Link>
   );
 }
@@ -131,7 +131,7 @@ export default function BottomNav() {
     <nav
       ref={navRef}
       aria-label={t('nav.primaryMobile', 'Primary')}
-      className="pn-bottom-nav lg:hidden"
+      className="dz-bottom-nav lg:hidden"
     >
       {/* Active state carries a filled capsule, not just a colour shift — WCAG 1.4.1.
           Rendered first so it paints behind the tabs without either side needing a
@@ -139,7 +139,7 @@ export default function BottomNav() {
           sits on the right slot — a deep-linked route never slides in from x=0. */}
       <span
         aria-hidden="true"
-        className={'pn-bottom-nav__indicator' + (animate ? ' is-animated' : '')}
+        className={'dz-bottom-nav__indicator' + (animate ? ' is-animated' : '')}
         style={{
           transform: `translateX(${rect ? rect.left : 0}px)`,
           width: rect ? `${rect.width}px` : 0,
@@ -168,9 +168,9 @@ export default function BottomNav() {
            label was pure redundancy — the plus glyph is the universal post affordance
            and the link is already named by `aria-label`, so nothing was said twice for
            a screen reader either. Centring the circle is what the free height buys. */
-        className="pn-bottom-nav__tab flex flex-1 flex-col items-center justify-center min-w-[52px]"
+        className="dz-bottom-nav__tab flex flex-1 flex-col items-center justify-center min-w-[52px]"
       >
-        <span className="pn-bottom-nav__fab grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] text-white">
+        <span className="dz-bottom-nav__fab grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-[#0d9488] to-[#14b8a6] text-white">
           <Icon name="plus" className="w-6 h-6 stroke-[2.5]" />
         </span>
       </Link>

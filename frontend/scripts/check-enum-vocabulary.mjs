@@ -67,7 +67,7 @@ const repo = join(here, '..', '..');
 
 /* The contract is hand-written and single-source. The stale copies under the backend build
    directories are output, not source, and are deliberately not read. */
-const SPEC = join(repo, 'backend/src/main/resources/static/openapi/punenest-api.yaml');
+const SPEC = join(repo, 'backend/src/main/resources/static/openapi/draazy-api.yaml');
 
 const failures = [];
 const notes = [];

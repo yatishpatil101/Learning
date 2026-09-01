@@ -56,13 +56,13 @@ export function AppFlagsProvider({ children }) {
     sync();
     // Same-tab: raised by whichever settings provider handled the write, so an admin toggling a flag
     // sees the consumer UI re-gate without a reload.
-    window.addEventListener('punenest-settings-change', sync);
+    window.addEventListener('draazy-settings-change', sync);
     // Cross-tab: the browser's own signal that another tab wrote to local storage. Load-bearing only
     // on the mock path; harmless live, where it costs one extra read of a public endpoint.
     window.addEventListener('storage', sync);
     return () => {
       generation += 1;
-      window.removeEventListener('punenest-settings-change', sync);
+      window.removeEventListener('draazy-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
   }, []);

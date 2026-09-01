@@ -95,7 +95,7 @@ export function buildActionItems({
       actionItems.push({
         id: 'clarify:' + l.id, tone: 'rose', icon: 'alert-circle',
         title: `Action needed on "${l.title}"`,
-        sub: 'PuneNest verification needs more info',
+        sub: 'Draazy verification needs more info',
         at: rev?.updatedAt || null,
         actions: [{ label: 'Respond', icon: 'arrow-right', onClick: () => go('properties') }],
       });

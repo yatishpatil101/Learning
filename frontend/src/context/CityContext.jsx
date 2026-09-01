@@ -2,14 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { DEFAULT_CITY, getCities, getCityLive, onGeoChange } from '../lib/geoConfig.js';
 import { joinCityWaitlist } from '../services/cityService.js';
 
-/* PuneNest city system (ports PNCity from auth.js). City is persisted in
-   `puneNestCity`; which cities are live is governed by the curated city roster
+/* Draazy city system (ports PNCity from auth.js). City is persisted in
+   `draazyCity`; which cities are live is governed by the curated city roster
    (`GET /cities`, defaulting to Pune-only when unreachable), read live via
    lib/geoConfig.js. Non-live cities are "coming soon" and route demand into
    `POST /cities/waitlist`. Selecting a non-live city opens the waitlist modal
    and shows the bottom waitlist banner. */
 const CityContext = createContext(null);
-const CKEY = 'puneNestCity';
+const CKEY = 'draazyCity';
 
 // Live status is resolved from admin settings; `isCityLive` stays exported for
 // back-compat but now delegates to the single source of truth.
@@ -45,15 +45,15 @@ export function CityProvider({ children }) {
        was that a second browser profile on a developer's own machine picked up a geo edit on
        focus. The workaround is gone and so is the staleness it was covering for.
 
-       The other two still fire and still matter: `punenest-settings-change` is dispatched by
+       The other two still fire and still matter: `draazy-settings-change` is dispatched by
        `updateSettings` (and re-fetches the policy, see main.jsx), and `storage` by another tab in
        the same profile. */
     const unsubscribe = onGeoChange(sync);
-    window.addEventListener('punenest-settings-change', sync);
+    window.addEventListener('draazy-settings-change', sync);
     window.addEventListener('storage', sync);
     return () => {
       unsubscribe();
-      window.removeEventListener('punenest-settings-change', sync);
+      window.removeEventListener('draazy-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
   }, []);

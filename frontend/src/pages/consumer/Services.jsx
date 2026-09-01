@@ -44,7 +44,7 @@ const STEPS = [
   ['Move In', 'key-round', 'Close with loans, legal, movers & interiors — all sorted.', 'moveIn'],
 ];
 const TESTI = [
-  ['Aarti & Rohan', 'Bought a 3 BHK in Baner', 'AR', 'We found our flat, got the loan and even the movers — all through PuneNest. Zero brokerage, zero stress.', '#fb923c'],
+  ['Aarti & Rohan', 'Bought a 3 BHK in Baner', 'AR', 'We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress.', '#fb923c'],
   ['Sandeep Kulkarni', 'Rented in Wakad', 'SK', 'Chatted directly with the owner, signed the rent agreement online. The whole thing took two days.', '#14b8a6'],
   ['Meera Joshi', 'Sold & relocated', 'MJ', 'The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully.', '#6366f1'],
 ];
@@ -122,11 +122,11 @@ function useMovePackConfig() {
         .catch(() => {});
     };
     sync();
-    window.addEventListener('punenest-settings-change', sync);
+    window.addEventListener('draazy-settings-change', sync);
     window.addEventListener('storage', sync);
     return () => {
       live = false;
-      window.removeEventListener('punenest-settings-change', sync);
+      window.removeEventListener('draazy-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
   }, []);

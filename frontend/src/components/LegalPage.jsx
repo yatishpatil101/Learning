@@ -42,7 +42,7 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
 
   useEffect(() => {
     const prev = document.title;
-    document.title = `${title} · PuneNest`;
+    document.title = `${title} · Draazy`;
     return () => { document.title = prev; };
   }, [title]);
 
@@ -135,7 +135,7 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
         </nav>
         <p className="text-xs text-gray-600">
           If you have questions about this policy, contact us at{' '}
-          <a href="mailto:legal@punenest.com" className="text-teal-400 hover:underline">legal@punenest.com</a>.
+          <a href="mailto:legal@draazy.com" className="text-teal-400 hover:underline">legal@draazy.com</a>.
         </p>
       </div>
 
@@ -144,7 +144,7 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Back to top"
-          className="fixed bottom-[calc(var(--pn-bottom-inset)+1rem)] left-4 z-[60] w-11 h-11 rounded-full bg-teal-500 text-white shadow-lg shadow-teal-500/25 flex items-center justify-center hover:bg-teal-400 transition-colors lg:bottom-24 lg:left-auto lg:right-6 lg:z-40"
+          className="fixed bottom-[calc(var(--dz-bottom-inset)+1rem)] left-4 z-[60] w-11 h-11 rounded-full bg-teal-500 text-white shadow-lg shadow-teal-500/25 flex items-center justify-center hover:bg-teal-400 transition-colors lg:bottom-24 lg:left-auto lg:right-6 lg:z-40"
         >
           <Icon name="arrow-up" className="w-5 h-5" />
         </button>

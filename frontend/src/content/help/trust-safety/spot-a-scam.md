@@ -27,9 +27,9 @@ They cannot meet you, but they will courier the keys once you send a token amoun
 
 "Three other people are interested, pay ₹5,000 today to block it." Genuine owners hold a property for a visit, not for a stranger's UPI transfer.
 
-### 3. The fake PuneNest fee
+### 3. The fake Draazy fee
 
-Someone asks you to pay a "PuneNest verification charge", "listing unlock fee" or "refundable platform deposit". **We never collect rent, deposits or token amounts**, and we never ask for payment over WhatsApp or UPI. All PuneNest charges appear on an invoice in your [account](/dashboard).
+Someone asks you to pay a "Draazy verification charge", "listing unlock fee" or "refundable platform deposit". **We never collect rent, deposits or token amounts**, and we never ask for payment over WhatsApp or UPI. All Draazy charges appear on an invoice in your [account](/dashboard).
 
 ### 4. The photo mismatch
 

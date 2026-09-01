@@ -60,7 +60,7 @@ export default function InteriorRenovation() {
   const formRef = useRef(null);
   const [form, setForm] = useState({ name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '', scope: '', config: '2 BHK', status: 'Ready to move', budget: 'Under ₹3 Lakh', location: '' });
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft('pnDraft:interior-renovation', form, setForm, { ignore: ['name', 'mobile', 'config', 'status', 'budget'] });
+  const draft = useFormDraft('dzDraft:interior-renovation', form, setForm, { ignore: ['name', 'mobile', 'config', 'status', 'budget'] });
   const err = useFieldErrors(formRef);
 
   // Prefill scope from URL (?scope=kitchen)

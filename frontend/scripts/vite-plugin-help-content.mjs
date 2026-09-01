@@ -302,7 +302,7 @@ function loadTaxonomy(file) {
  */
 export default function helpContentPlugin(options = {}) {
   const root = options.root || process.cwd();
-  const siteUrl = (options.siteUrl || 'https://punenest.com').replace(/\/$/, '');
+  const siteUrl = (options.siteUrl || 'https://draazy.com').replace(/\/$/, '');
   const contentDir = join(root, 'src/content/help');
   const categoriesFile = join(contentDir, 'categories.json');
   const changelogFile = join(root, 'src/content/changelog.md');

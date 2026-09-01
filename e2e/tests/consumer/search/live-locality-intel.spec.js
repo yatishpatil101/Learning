@@ -94,7 +94,7 @@ test.describe('Locality insights', () => {
     /* A curated area with no price/livability series. The page must say so rather than silently
        borrowing a tracked locality's numbers.
 
-       This used to seed `pnCommunityLocalities` with an invented slug. That tier is deleted
+       This used to seed `dzCommunityLocalities` with an invented slug. That tier is deleted
        (register item 24) — free text no longer mints areas — so the case is now reached the way it
        actually occurs in production: one of the ~145 curated localities that `localityIntel.js`
        does not track. Ten are tracked; Lonikand is not, and being real it is a better test of the

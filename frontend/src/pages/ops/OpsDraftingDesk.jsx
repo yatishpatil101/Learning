@@ -310,7 +310,7 @@ export default function OpsDraftingDesk() {
   ];
 
   const card = (r) => (
-    <button type="button" onClick={() => openDetail(r)} className="pn-card block w-full p-3.5 text-left">
+    <button type="button" onClick={() => openDetail(r)} className="dz-card block w-full p-3.5 text-left">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{r.service}</div>
@@ -332,7 +332,7 @@ export default function OpsDraftingDesk() {
         title="Drafting desk"
         subtitle="The live service-request queue, and the parties' identity numbers for a matter you hold."
         actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost">
+          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
@@ -368,11 +368,11 @@ export default function OpsDraftingDesk() {
       {state.status === 'loading' ? <Loading label="Loading the request queue…" /> : null}
 
       {state.status === 'error' ? (
-        <div className="pn-card flex flex-col items-center gap-3 p-8 text-center">
+        <div className="dz-card flex flex-col items-center gap-3 p-8 text-center">
           <p className="text-sm text-gray-300">
             We could not read the request queue. This is not an empty queue — nothing was loaded.
           </p>
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-primary">
+          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
             <RefreshCw className="h-4 w-4" /> Try again
           </button>
         </div>
@@ -390,11 +390,11 @@ export default function OpsDraftingDesk() {
           />
           {totalPages > 1 ? (
             <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="pn-btn pn-btn-ghost disabled:opacity-40">
+              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="dz-btn dz-btn-ghost disabled:opacity-40">
                 <ChevronLeft className="h-4 w-4" /> Previous
               </button>
               <span className="text-gray-400">Page {page + 1} of {totalPages}</span>
-              <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="pn-btn pn-btn-ghost disabled:opacity-40">
+              <button onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="dz-btn dz-btn-ghost disabled:opacity-40">
                 Next <ChevronRight className="h-4 w-4" />
               </button>
             </div>
@@ -478,15 +478,15 @@ export default function OpsDraftingDesk() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="text-sm font-semibold">Parties&rsquo; identity numbers</h4>
                 <div className="flex items-center gap-2">
-                  <button onClick={take} className="pn-btn pn-btn-ghost">
+                  <button onClick={take} className="dz-btn dz-btn-ghost">
                     <Hand className="h-4 w-4" /> Take this request
                   </button>
                   {identityStatus === 'ready' ? (
-                    <button onClick={hide} className="pn-btn pn-btn-ghost">
+                    <button onClick={hide} className="dz-btn dz-btn-ghost">
                       <EyeOff className="h-4 w-4" /> Hide
                     </button>
                   ) : (
-                    <button onClick={reveal} disabled={identityStatus === 'loading'} className="pn-btn pn-btn-primary disabled:opacity-40">
+                    <button onClick={reveal} disabled={identityStatus === 'loading'} className="dz-btn dz-btn-primary disabled:opacity-40">
                       <Eye className="h-4 w-4" /> {identityStatus === 'loading' ? 'Checking…' : 'Reveal'}
                     </button>
                   )}

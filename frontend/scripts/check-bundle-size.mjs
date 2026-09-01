@@ -1,6 +1,6 @@
 /* Critical-path size gate.
  *
- * ~80% of PuneNest traffic is expected on phones, mostly on Indian 4G, where the
+ * ~80% of Draazy traffic is expected on phones, mostly on Indian 4G, where the
  * bytes that must arrive *before first paint* decide whether a visitor waits. Vite
  * only warns about large chunks, and a warning in a 200-line build log is a warning
  * nobody reads — this fails the build instead.

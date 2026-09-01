@@ -19,10 +19,10 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
   const [editingId, setEditingId] = useState(null);
   const [post, setPost] = useState({ name: '', gender: 'female', age: '', occupation: '', budget: '', moveIn: 'now', flatPref: 'any', roomPref: 'any', localities: [], tags: [], note: '', verifiedContactOnly: false });
   const [grp, setGrp] = useState({ title: '', locality: 'Baner', policy: 'women', rent: '', seats: '2', seatsOpen: '1', name: '', note: '', tags: [], role: 'tenant', propertyId: '', agreement: false, agreementDoc: null, consentMobile: '', consentVerified: false });
-  const postDraft = useFormDraft('pnDraft:flatmate-post', post, setPost, { ignore: ['gender', 'moveIn', 'flatPref', 'roomPref', 'verifiedContactOnly'] });
+  const postDraft = useFormDraft('dzDraft:flatmate-post', post, setPost, { ignore: ['gender', 'moveIn', 'flatPref', 'roomPref', 'verifiedContactOnly'] });
   // role/propertyId/agreement are ephemeral eligibility signals — intentionally
   // NOT draft-persisted, so a stale badge claim can't be silently restored later.
-  const grpDraft = useFormDraft('pnDraft:share-group', grp, setGrp, { ignore: ['locality', 'policy', 'seats', 'seatsOpen', 'role', 'propertyId', 'agreement', 'agreementDoc', 'consentMobile', 'consentVerified'] });
+  const grpDraft = useFormDraft('dzDraft:share-group', grp, setGrp, { ignore: ['locality', 'policy', 'seats', 'seatsOpen', 'role', 'propertyId', 'agreement', 'agreementDoc', 'consentMobile', 'consentVerified'] });
   const postFormRef = useRef(null);
   const grpFormRef = useRef(null);
   const postErr = useFieldErrors(postFormRef);
@@ -159,7 +159,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     toast(t('flatmates.markedFilled'));
   };
   // One-tap prefill when an existing customer attaches a property they already
-  // have on PuneNest. We fill only the descriptive fields (title/locality/rent) —
+  // have on Draazy. We fill only the descriptive fields (title/locality/rent) —
   // never the trust signals — so the honest role/agreement/consent flow is unchanged.
   // The group locality select only offers LOCALITIES, so an unknown locality is left
   // at the current value rather than guessed. Rent is copied only from a rent listing
@@ -177,7 +177,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
     }));
     grpErr.clear('title'); if (rent) grpErr.clear('rent');
   };
-  // Tenant track: prefill from a finalised PuneNest tenancy. We know the flat's rent,
+  // Tenant track: prefill from a finalised Draazy tenancy. We know the flat's rent,
   // locality and the owner's mobile — so we also seed the owner-consent field, making
   // the consent-OTP trust step one tap. Consent still requires the owner's OTP; we
   // only pre-fill the number, never mark it verified. Existing user input is kept.
@@ -258,7 +258,7 @@ export function useFlatmateSupply({ refresh, setRooms, user, toast, t, nav: navi
       });
     }
     /* A `pushNotification` stood under an `if (ownerConsent)` here, writing "Owner consent
-       recorded" into a `puneNestNotifications` array the live inbox (`GET /notifications`) never
+       recorded" into a `draazyNotifications` array the live inbox (`GET /notifications`) never
        reads — so the alert existed in this browser and on no surface. The consent itself is
        recorded server-side by the call above, which is the part that mattered. */
     await refresh();

@@ -16,7 +16,7 @@ const MIN_TAP = 44;
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
-      window.localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      window.localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the bar just stays up */ }
   });
 }
@@ -38,19 +38,19 @@ test.describe('Mobile sheets', () => {
   test('the shared modal docks to the bottom edge as a sheet', async ({ page }) => {
     await withConsent(page);
     await page.goto('/listings');
-    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('nav.dz-topbar')).toBeVisible({ timeout: 20_000 });
 
     // Inject the shared panel classes rather than hunting for a modal trigger:
     // this asserts the *rule*, which is what the sheet conversion actually is.
     const box = await page.evaluate(async () => {
       const back = document.createElement('div');
-      back.className = 'pn-modal-backdrop';
+      back.className = 'dz-modal-backdrop';
       const panel = document.createElement('div');
-      panel.className = 'pn-modal';
+      panel.className = 'dz-modal';
       panel.style.height = '200px';
       back.appendChild(panel);
       document.body.appendChild(back);
-      // The sheet slides up via `pnSheetUp`; measuring synchronously would catch it
+      // The sheet slides up via `dzSheetUp`; measuring synchronously would catch it
       // at translateY(100%). Let the entry animation settle before reading geometry.
       await Promise.all(back.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
       const r = panel.getBoundingClientRect();
@@ -73,7 +73,7 @@ test.describe('Mobile sheets', () => {
     await page.goto('/listings');
     const size = await page.evaluate(() => {
       const b = document.createElement('button');
-      b.className = 'pn-modal-x';
+      b.className = 'dz-modal-x';
       document.body.appendChild(b);
       const r = b.getBoundingClientRect();
       b.remove();
@@ -103,7 +103,7 @@ test.describe('Mobile listings controls', () => {
     // ...and it must not be buried under the bottom nav. Asserted present rather than guarded:
     // these tests only run under the mobile projects, where the bottom nav is unconditional, so
     // `if (await nav.count())` could only ever hide its disappearance.
-    const nav = page.locator('nav.pn-bottom-nav');
+    const nav = page.locator('nav.dz-bottom-nav');
     await expect(nav).toBeVisible();
     const navBox = await nav.boundingBox();
     expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(navBox.y + 1);

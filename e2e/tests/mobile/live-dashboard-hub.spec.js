@@ -13,12 +13,12 @@ import { trackErrors } from '../../helpers/console.js';
 
 /* Consent is seeded rather than dismissed: the bar sits at z-1400 over the bottom of the
    viewport, which is exactly where the metrics sheet docks. The session itself now comes from a
-   real sign-in — a hand-written `puneNestUser` object satisfied the mock's auth check but carries
+   real sign-in — a hand-written `draazyUser` object satisfied the mock's auth check but carries
    no token, so against the API every panel on this page would render its signed-out state. */
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the cookie bar just stays up */ }
   });
 }
@@ -78,13 +78,13 @@ test.describe('Mobile dashboard hub', () => {
     await seeAll(page).waitFor({ timeout: 15000 });
     await seeAll(page).click();
 
-    const panel = page.locator('.pn-modal-panel');
+    const panel = page.locator('.dz-modal-panel');
     await expect(panel).toBeVisible();
-    /* The sheet enters with `pnSheetUp` (translateY(100%) -> 0). Measuring
+    /* The sheet enters with `dzSheetUp` (translateY(100%) -> 0). Measuring
        synchronously catches it a full sheet-height below the fold and the
        assertion fails for a reason that has nothing to do with layout. */
     await page.evaluate(() => {
-      const el = document.querySelector('.pn-modal-panel');
+      const el = document.querySelector('.dz-modal-panel');
       if (!el) return undefined;
       return Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
     });

@@ -1,13 +1,13 @@
 /* Owner-phone privacy model (prototype, localStorage).
    Mirrors the static app's auth.js contact-request helpers and uses the SAME
-   storage keys ('puneNestContactReq:<ownerDigits>') so requests are compatible
+   storage keys ('draazyContactReq:<ownerDigits>') so requests are compatible
    across the React and HTML prototypes.
 
    A buyer's request starts as 'pending'. The owner's number stays MASKED until
    the owner approves the request (status 'approved') — or until the viewer is the
    owner themselves (status 'owner'). Owners approve/decline from their dashboard. */
 
-const USER_KEY = 'puneNestUser';
+const USER_KEY = 'draazyUser';
 
 export const digits = (num) => String(num || '').replace(/\D/g, '');
 
@@ -66,7 +66,7 @@ export const myMobile = () => {
 const mobileKey = (prefix, mobile) =>
   isFullMobile(mobile) ? prefix + digits(mobile) : null;
 
-const contactKey = (ownerMobile) => mobileKey('puneNestContactReq:', ownerMobile);
+const contactKey = (ownerMobile) => mobileKey('draazyContactReq:', ownerMobile);
 
 export function getContactReqs(ownerMobile) {
   const key = contactKey(ownerMobile);
@@ -93,12 +93,12 @@ export const isOwnerViewer = (ownerMobile) => {
 };
 
 /* True when the given signed-in user carries the opt-in "Verified" identity badge.
-   Reads the same flag the DigiLocker/OTP verification writes ('puneNestAadhaar:<mobile>').
+   Reads the same flag the DigiLocker/OTP verification writes ('draazyAadhaar:<mobile>').
    A session without a full mobile (loginStaff stores `mobile: ''`) has no badge of its own,
    and must NOT inherit one from a shared bucket — this grants a privilege, so it fails
    closed: no identity means not verified. */
 function isViewerVerified(u) {
-  const key = mobileKey('puneNestAadhaar:', u && u.mobile);
+  const key = mobileKey('draazyAadhaar:', u && u.mobile);
   if (!key) return false;
   try {
     const v = JSON.parse(localStorage.getItem(key));
@@ -171,7 +171,7 @@ export const pendingContactCount = (ownerMobile) =>
    their phone masked even AFTER they approve a contact request — approved buyers
    are routed to in-app chat / callback instead of the raw number. This is a real
    behavior on top of the always-on request gate, not a duplicate of it. */
-const ownerPrefsKey = (mobile) => mobileKey('pnOwnerPrefs:', mobile);
+const ownerPrefsKey = (mobile) => mobileKey('dzOwnerPrefs:', mobile);
 export function getOwnerPrefsFor(mobile) {
   const key = ownerPrefsKey(mobile);
   if (!key) return {};

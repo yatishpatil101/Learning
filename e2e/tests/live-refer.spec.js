@@ -8,7 +8,7 @@
  * that **the product uses them** — and it did not.
  *
  * `Refer.jsx` minted its own code in the browser: four letters of the user's name and the last four
- * digits of their mobile, `NIKH5615`, kept in localStorage under `pnReferralCode:<mobile>`. The
+ * digits of their mobile, `NIKH5615`, kept in localStorage under `dzReferralCode:<mobile>`. The
  * server's is `PUNE-2NQ7`, from `referral_codes` (V23), permanent by design. Every share button,
  * every copied link, every WhatsApp message this product has ever produced carried the first one,
  * and `POST /referrals/redeem` can only resolve the second. The scheme had a front door nobody

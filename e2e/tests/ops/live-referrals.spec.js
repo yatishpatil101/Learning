@@ -8,7 +8,7 @@
  *
  * ## The desk mints its own data
  *
- * `punenest_e2e` seeds **no referrals** — the scheme is a thing users do, not a fixture — so each
+ * `draazy_e2e` seeds **no referrals** — the scheme is a thing users do, not a fixture — so each
  * test redeems one through the public path: the referrer reads their own code from
  * `GET /me/referrals`, the referee posts it to `POST /referrals/redeem`. That is worth more than a
  * fixture would be, because it proves the desk sees what the consumer flow actually produces.

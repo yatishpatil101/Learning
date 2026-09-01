@@ -7,7 +7,7 @@
  *
  * ## Every fixture here is minted through the consumer path
  *
- * `punenest_e2e` seeds five flatmate supply rows and **all five are already `approved`**, so the
+ * `draazy_e2e` seeds five flatmate supply rows and **all five are already `approved`**, so the
  * Pending moderation board is empty at baseline. Seeding straight into the table would prove the
  * board renders; posting through `POST /flatmates/rooms` and `POST /flatmates/groups` proves it
  * shows what the product actually produces — including the D72 default, which is the entire reason

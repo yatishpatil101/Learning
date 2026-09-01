@@ -10,7 +10,7 @@ export default function DailyScorecardPanel({ ops }) {
         <h2 className="text-lg font-bold">Today's scorecard</h2>
         <span className="text-sm text-gray-500">{ops.date} — team performance snapshot</span>
       </div>
-      <div className="mb-6 pn-card p-5">
+      <div className="mb-6 dz-card p-5">
         {/* Metrics grid */}
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 mb-5">
           {[

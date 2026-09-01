@@ -5,7 +5,7 @@
 
 /* Listings map — dark popup content (rendered inside Google InfoWindow). */
 /* Property tile popup: a full-bleed compact clone of the standard Card tile. */
-.pn-mp-card {
+.dz-mp-card {
   display: flex;
   flex-direction: column;
   background: var(--brand-card);
@@ -16,21 +16,21 @@
   text-decoration: none;
 }
 
-.pn-mp-media {
+.dz-mp-media {
   position: relative;
   height: 122px;
   flex: none;
 }
 
-.pn-mp-media img,
-.pn-mp-media .img-empty {
+.dz-mp-media img,
+.dz-mp-media .img-empty {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.pn-mp-deal {
+.dz-mp-deal {
   position: absolute;
   top: 10px;
   left: 10px;
@@ -42,17 +42,17 @@
   letter-spacing: 0.06em;
 }
 
-.pn-mp-deal.is-rent {
+.dz-mp-deal.is-rent {
   background: rgba(13, 148, 136, 0.6);
   color: #ccfbf1;
 }
 
-.pn-mp-deal.is-sale {
+.dz-mp-deal.is-sale {
   background: rgba(5, 150, 105, 0.6);
   color: #d1fae5;
 }
 
-.pn-mp-verified {
+.dz-mp-verified {
   position: absolute;
   bottom: 10px;
   left: 10px;
@@ -66,17 +66,17 @@
   color: #fff;
 }
 
-.pn-mp-verified svg {
+.dz-mp-verified svg {
   width: 14px;
   height: 14px;
 }
 
-.pn-mp-body {
+.dz-mp-body {
   flex: 1 1 auto;
   padding: 10px 12px 11px;
 }
 
-.pn-mp-title {
+.dz-mp-title {
   font-size: 11.5px;
   font-weight: 600;
   color: #e5e7eb;
@@ -86,7 +86,7 @@
   text-overflow: ellipsis;
 }
 
-.pn-mp-price {
+.dz-mp-price {
   margin-top: 3px;
   font-size: 16px;
   font-weight: 800;
@@ -96,14 +96,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-.pn-mp-price span {
+.dz-mp-price span {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0;
 }
 
-.pn-mp-loc {
+.dz-mp-loc {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -112,14 +112,14 @@
   color: #9ca3af;
 }
 
-.pn-mp-loc svg {
+.dz-mp-loc svg {
   width: 12px;
   height: 12px;
   color: var(--teal-3);
   flex-shrink: 0;
 }
 
-.pn-mp-facts {
+.dz-mp-facts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 7px 10px;
@@ -128,26 +128,26 @@
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.pn-mp-fact {
+.dz-mp-fact {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.pn-mp-fact>svg {
+.dz-mp-fact>svg {
   width: 14px;
   height: 14px;
   color: var(--teal-3);
   flex-shrink: 0;
 }
 
-.pn-mp-fact>div {
+.dz-mp-fact>div {
   min-width: 0;
   line-height: 1.15;
 }
 
-.pn-mp-fact b {
+.dz-mp-fact b {
   display: block;
   font-size: 11px;
   font-weight: 700;
@@ -157,7 +157,7 @@
   text-overflow: ellipsis;
 }
 
-.pn-mp-fact span {
+.dz-mp-fact span {
   display: block;
   font-size: 9px;
   color: #6b7280;
@@ -165,13 +165,13 @@
   letter-spacing: 0.03em;
 }
 
-.pn-mp-amen {
+.dz-mp-amen {
   margin-top: 9px;
   padding-top: 9px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.pn-mp-amen-hd {
+.dz-mp-amen-hd {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -180,13 +180,13 @@
   margin-bottom: 6px;
 }
 
-.pn-mp-chips {
+.dz-mp-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
-.pn-mp-chip {
+.dz-mp-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -199,19 +199,19 @@
   color: #ccfbf1;
 }
 
-.pn-mp-chip svg {
+.dz-mp-chip svg {
   width: 11px;
   height: 11px;
   color: var(--teal-3);
 }
 
-.pn-mp-chip.is-more {
+.dz-mp-chip.is-more {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
   color: #9ca3af;
 }
 
-.pn-mp-cta {
+.dz-mp-cta {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -221,12 +221,12 @@
   color: var(--teal-3);
 }
 
-.pn-mp-cta svg {
+.dz-mp-cta svg {
   width: 13px;
   height: 13px;
   transition: transform 0.2s ease;
 }
 
-.pn-mp-card:hover .pn-mp-cta svg {
+.dz-mp-card:hover .dz-mp-cta svg {
   transform: translateX(3px);
 }

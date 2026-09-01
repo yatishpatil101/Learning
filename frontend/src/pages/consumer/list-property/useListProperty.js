@@ -103,7 +103,7 @@ export default function useListProperty() {
   const location = useListingLocation({ setForm, formRef, errors, setErrors });
   const { set, locationSet, setLocationSet } = location;
 
-  const { restored: draftRestored, clear: clearFormDraft, startFresh } = useFormDraft('pnDraft:list-property', form, setForm);
+  const { restored: draftRestored, clear: clearFormDraft, startFresh } = useFormDraft('dzDraft:list-property', form, setForm);
 
   const isFlatmateMode = form.deal === 'rent' && rentMode === 'flatmate';
 

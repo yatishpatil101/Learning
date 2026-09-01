@@ -1,20 +1,20 @@
 {
   "site": {
-    "name": "PuneNest",
-    "legalName": "PuneNest Realty Pvt. Ltd.",
+    "name": "Draazy",
+    "legalName": "Draazy Realty Pvt. Ltd.",
     "city": "Pune",
     "tagline": "Pune's most trusted zero-brokerage platform",
-    "supportEmail": "hello@punenest.com",
+    "supportEmail": "hello@draazy.com",
     "supportPhone": "+91 98765 43210",
     "whatsapp": "+91 98765 43210",
     "supportHours": "Mon–Sat, 9:00 AM – 7:00 PM",
-    "address": "PuneNest, 4th Floor, Trade Tower, Baner Road, Pune 411045",
+    "address": "Draazy, 4th Floor, Trade Tower, Baner Road, Pune 411045",
     "gst": "27ABCDE1234F1Z5",
     "social": {
-      "instagram": "https://instagram.com/punenest",
-      "facebook": "https://facebook.com/punenest",
-      "linkedin": "https://linkedin.com/company/punenest",
-      "twitter": "https://x.com/punenest"
+      "instagram": "https://instagram.com/draazy",
+      "facebook": "https://facebook.com/draazy",
+      "linkedin": "https://linkedin.com/company/draazy",
+      "twitter": "https://x.com/draazy"
     }
   },
   "fees": {

@@ -44,12 +44,12 @@ const SERVICE_OPTION = 'Home Shifting — Local (within Pune)';
  * The quote form's labels are not wired to their controls (`ServiceLanding` renders a bare
  * `<label>` beside each field), so `getByLabel` finds nothing; and the field is not a native
  * `<select>` either — `NativeSelect` keeps the `<option>`-child API but renders the themed
- * `pn-dropdown` widget, so `selectOption` has nothing to act on. Each field is wrapped in a
+ * `dz-dropdown` widget, so `selectOption` has nothing to act on. Each field is wrapped in a
  * `data-err="<name>"` container for the validation highlight, and that is the stable hook. Named
  * here rather than inlined so the next person who hits the same two walls reads the reason once.
  */
 const chooseService = async (page, option) => {
-  await page.locator('[data-err="service"] .pn-dropdown__trigger').click();
+  await page.locator('[data-err="service"] .dz-dropdown__trigger').click();
   await page.getByRole('option', { name: option }).click();
 };
 

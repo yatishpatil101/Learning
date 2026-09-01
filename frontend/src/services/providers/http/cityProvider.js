@@ -15,14 +15,14 @@ export async function listCities() {
 /**
  * Launch or pause one curated city from the back office.
  *
- * Fires `punenest-settings-change` on success, which is what `main.jsx` listens on to re-run
+ * Fires `draazy-settings-change` on success, which is what `main.jsx` listens on to re-run
  * `loadGeoPolicy()`. Without it the operator's own tab would keep serving the old roster from
  * `geoConfig`'s cache until the next full load — the console would disagree with the site it
  * just configured.
  */
 export async function updateCity(slug, body) {
   await patch(`/admin/cities/${encodeURIComponent(slug)}`, body);
-  window.dispatchEvent(new CustomEvent('punenest-settings-change'));
+  window.dispatchEvent(new CustomEvent('draazy-settings-change'));
 }
 
 /**

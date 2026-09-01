@@ -7,7 +7,7 @@
     "startOver": "Start over",
     "startOverAria": "Start over — clear all entered details",
     "page": {
-      "badge": "List with PuneNest",
+      "badge": "List with Draazy",
       "title": "List your property",
       "subtitle": "Reach thousands of genuine buyers and tenants in Pune"
     },
@@ -356,7 +356,7 @@
       "removeVideo": "Remove video",
       "docsHeader": "Property Documents & Verification",
       "docsWhyTitle": "Why we ask for documents",
-      "docsWhyBody1": "Verification is how we keep PuneNest free of fake listings — so genuine buyers trust your property from the first click. Your files are stored securely,",
+      "docsWhyBody1": "Verification is how we keep Draazy free of fake listings — so genuine buyers trust your property from the first click. Your files are stored securely,",
       "docsWhyNeverShown": "never shown to buyers",
       "docsWhyBody2": ", and shared only after",
       "docsWhyYou": "you",
@@ -394,8 +394,8 @@
       "adding": "Adding…",
       "addFailed": "Couldn't add that society. Check your connection and try again.",
       "empty": "Type your society name",
-      "verifiedNote": "Verified society — linked to its PuneNest hub.",
-      "pendingNote": "Added to PuneNest — pending verification by our team."
+      "verifiedNote": "Verified society — linked to its Draazy hub.",
+      "pendingNote": "Added to Draazy — pending verification by our team."
     },
     "locationPicker": {
       "unavailable": "Map picker unavailable"

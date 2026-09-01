@@ -8,11 +8,11 @@ import { test, expect } from '../../../fixtures/live.js';
  * thumbs-down is useless, so it must open the free-text field and offer the
  * support escape hatch instead of silently recording a downvote.
  *
- * Answers persist to `pn_help_feedback_v1`, keyed by slug — so the widget must
+ * Answers persist to `dz_help_feedback_v1`, keyed by slug — so the widget must
  * also reset when the reader moves to a different article.
  */
 
-const ARTICLE = '/help/a/what-is-punenest';
+const ARTICLE = '/help/a/what-is-draazy';
 const feedback = (page) => page.locator('section[aria-labelledby="article-feedback"]');
 
 async function openArticle(page, path = ARTICLE) {
@@ -37,8 +37,8 @@ test.describe('Help article feedback', () => {
     // Still offers the ticket route — "helpful" is not the same as "solved".
     await expect(feedback(page).getByRole('link', { name: /ticket/i })).toBeVisible();
 
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('pn_help_feedback_v1') || '{}'));
-    expect(stored['what-is-punenest']).toMatchObject({ helpful: true });
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('dz_help_feedback_v1') || '{}'));
+    expect(stored['what-is-draazy']).toMatchObject({ helpful: true });
   });
 
   test('a negative answer asks what was missing before recording anything', async ({ page }) => {
@@ -47,8 +47,8 @@ test.describe('Help article feedback', () => {
 
     // The comment form opens; nothing is written yet.
     await expect(feedback(page).getByText('What was missing?')).toBeVisible();
-    const beforeSubmit = await page.evaluate(() => localStorage.getItem('pn_help_feedback_v1'));
-    expect(beforeSubmit == null || !JSON.parse(beforeSubmit)['what-is-punenest']).toBeTruthy();
+    const beforeSubmit = await page.evaluate(() => localStorage.getItem('dz_help_feedback_v1'));
+    expect(beforeSubmit == null || !JSON.parse(beforeSubmit)['what-is-draazy']).toBeTruthy();
 
     // The reader can bail out to support instead of writing prose.
     await expect(feedback(page).getByRole('link', { name: /Contact support/i })).toBeVisible();
@@ -57,8 +57,8 @@ test.describe('Help article feedback', () => {
     await feedback(page).getByRole('button', { name: /Send feedback/i }).click();
 
     await expect(feedback(page).getByText(/Thanks/i)).toBeVisible();
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('pn_help_feedback_v1') || '{}'));
-    expect(stored['what-is-punenest']).toMatchObject({ helpful: false, comment: 'It never explains the contact gate.' });
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('dz_help_feedback_v1') || '{}'));
+    expect(stored['what-is-draazy']).toMatchObject({ helpful: false, comment: 'It never explains the contact gate.' });
   });
 
   test('cancelling the comment form returns to the question without recording', async ({ page }) => {
@@ -67,8 +67,8 @@ test.describe('Help article feedback', () => {
     await feedback(page).getByRole('button', { name: /Cancel/i }).click();
 
     await expect(feedback(page).getByText(/Was “.+” helpful\?/)).toBeVisible();
-    const stored = await page.evaluate(() => localStorage.getItem('pn_help_feedback_v1'));
-    expect(stored == null || !JSON.parse(stored)['what-is-punenest']).toBeTruthy();
+    const stored = await page.evaluate(() => localStorage.getItem('dz_help_feedback_v1'));
+    expect(stored == null || !JSON.parse(stored)['what-is-draazy']).toBeTruthy();
   });
 
   test('an answer persists for that article and does not leak to the next one', async ({ page }) => {
@@ -83,7 +83,7 @@ test.describe('Help article feedback', () => {
     // A different article starts unanswered. The component stays mounted across
     // route changes, so this is exactly where a missing reset would show up.
     const other = await page.locator('a[href*="/help/a/"]').first().getAttribute('href');
-    test.skip(!other || other.includes('what-is-punenest'), 'no second article to navigate to');
+    test.skip(!other || other.includes('what-is-draazy'), 'no second article to navigate to');
     await openArticle(page, other);
     await expect(feedback(page).getByText(/Was “.+” helpful\?/)).toBeVisible();
   });

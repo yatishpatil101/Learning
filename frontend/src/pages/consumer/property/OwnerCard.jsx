@@ -69,7 +69,7 @@ export function OwnerCard({ p, isIn, toast, contactApproved, ownerHidesNumber = 
         <Link to={`/owner/${p.ownerId}`} className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] py-2 sm:min-h-0 rounded-lg border border-white/10 text-slate-300 text-[13px] sm:text-xs font-medium hover:bg-white/5 transition-smooth"><Icon name="user" className="w-3.5 h-3.5" /> {t('property.profile')}</Link>
       </div>
       {contactApproved && !ownerHidesNumber && (
-        <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in your property "${p.title}" listed on PuneNest. Is it still available?`)}`} target="_blank" rel="noopener noreferrer" className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-emerald-600 min-h-[44px] py-2.5 sm:min-h-0 text-sm font-semibold text-white hover:bg-emerald-500 transition">
+        <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in your property "${p.title}" listed on Draazy. Is it still available?`)}`} target="_blank" rel="noopener noreferrer" className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-emerald-600 min-h-[44px] py-2.5 sm:min-h-0 text-sm font-semibold text-white hover:bg-emerald-500 transition">
           <Icon name="message-circle" className="w-4 h-4" /> {t('property.chatOnWhatsapp')}
         </a>
       )}

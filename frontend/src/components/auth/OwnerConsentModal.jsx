@@ -66,14 +66,14 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
 
   return createPortal((
     <div
-      className="pn-modal-backdrop"
+      className="dz-modal-backdrop"
       style={{ zIndex: 300 }}
       role="dialog"
       aria-modal="true"
       aria-label="Confirm the flat owner's consent"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="pn-modal">
+      <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center"><Icon name="badge-check" className="w-5 h-5 text-teal-400" /></div>
@@ -82,7 +82,7 @@ export default function OwnerConsentModal({ ownerMobile, onClose, onVerified }) 
               <p className="text-xs text-slate-400 mt-0.5">We'll text the flat owner a code to confirm they're aware you're seeking a replacement.</p>
             </div>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
         </div>
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[11px] text-slate-400 mb-4 flex items-start gap-2">

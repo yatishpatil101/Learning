@@ -58,7 +58,7 @@ export function Stat({ icon, bg, fg, value, label, trend, onClick, ariaLabel }) 
 export function SubNav({ items, active, onChange, variant = 'pill' }) {
   if (!items || items.length < 2) return null;
 
-  // Underline variant reuses the app-wide `.pn-detail-tab` style (same as the shared
+  // Underline variant reuses the app-wide `.dz-detail-tab` style (same as the shared
   // <Tabs variant="underline"> used in Finances, property detail, etc.) so every tab
   // strip reads as one standard. Count badges are kept — they carry live lead volume.
   if (variant === 'underline') {
@@ -71,7 +71,7 @@ export function SubNav({ items, active, onChange, variant = 'pill' }) {
             role="tab"
             aria-selected={active === it.key}
             onClick={() => onChange(it.key)}
-            className={'pn-detail-tab' + (active === it.key ? ' is-active' : '')}
+            className={'dz-detail-tab' + (active === it.key ? ' is-active' : '')}
           >
             {it.icon ? <Icon name={it.icon} className="w-4 h-4" /> : null}
             <span>{it.label}</span>

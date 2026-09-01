@@ -87,7 +87,7 @@ test('a followed society the bundle has never heard of is described, not merely 
 
 test('the panel does not invent a managed tag for a society nobody has claimed', async ({ page, request }) => {
   /* The other field the row draws, and the one with teeth: "Managed" claims a committee is running
-     this building on PuneNest. A freshly minted society is `unclaimed`, and the tag must be absent
+     this building on Draazy. A freshly minted society is `unclaimed`, and the tag must be absent
      — a panel that read `claimStatus` off the wrong record, or off a stub where the field does not
      exist at all, could produce it from nothing. The status is read back over HTTP rather than
      assumed, so the test fails loudly if a mint's meaning ever changes. */

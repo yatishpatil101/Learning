@@ -411,7 +411,7 @@ export default function AdminSettings() {
   const exportAudit = () => {
     if (!audit.length) { toast('Nothing to export'); return; }
     exportCsv(
-      'punenest-audit-log.csv',
+      'draazy-audit-log.csv',
       ['When', 'Actor', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
       audit.map((a) => [a.at, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
     );
@@ -469,7 +469,7 @@ export default function AdminSettings() {
   /* Stacked-card fallback below `sm` (see Table.jsx). Read-only log, so the card is
      purely informational — no actions to size up. */
   const auditCard = (a) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <span className="font-mono text-xs font-semibold text-gray-200" title={a.actor}>{shortId(a.actor)}</span>
         <span className="shrink-0 rounded-md border border-indigo-400/25 bg-indigo-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-indigo-300">{a.action}</span>
@@ -499,16 +499,16 @@ export default function AdminSettings() {
 
       {/* General */}
       {tab === 'general' && (
-        <div className="pn-card max-w-2xl p-5">
+        <div className="dz-card max-w-2xl p-5">
           <div className="grid gap-4 sm:grid-cols-2">
             {SITE_FIELDS.map(([k, label]) => (
               <label key={k} className="text-sm">
                 <span className="mb-1 block text-gray-400">{label}</span>
-                <input value={settings.site[k] ?? ''} onChange={(e) => setSite(k, e.target.value)} className="pn-input" />
+                <input value={settings.site[k] ?? ''} onChange={(e) => setSite(k, e.target.value)} className="dz-input" />
               </label>
             ))}
           </div>
-          <button onClick={saveSite} className="pn-btn pn-btn-primary mt-5">
+          <button onClick={saveSite} className="dz-btn dz-btn-primary mt-5">
             <Save className="h-4 w-4" /> Save details
           </button>
         </div>
@@ -517,26 +517,26 @@ export default function AdminSettings() {
       {/* Fees */}
       {tab === 'fees' && (
         <div className="max-w-xl space-y-5">
-          <div className="pn-card p-5">
+          <div className="dz-card p-5">
             <div className="space-y-3">
               {Object.entries(settings.fees).map(([k, v]) => (
                 <label key={k} className="flex items-center justify-between gap-4 text-sm">
                   <span className="text-gray-300">{humanize(k)}</span>
                   <div className="flex items-center gap-1">
                     {!k.toLowerCase().includes('percent') && <span className="text-gray-500">&#8377;</span>}
-                    <input type="number" value={v} onChange={(e) => setFee(k, e.target.value)} className="pn-input w-32 text-right" />
+                    <input type="number" value={v} onChange={(e) => setFee(k, e.target.value)} className="dz-input w-32 text-right" />
                     {k.toLowerCase().includes('percent') && <span className="text-gray-500">%</span>}
                   </div>
                 </label>
               ))}
             </div>
-            <button onClick={saveFees} className="pn-btn pn-btn-primary mt-5">
+            <button onClick={saveFees} className="dz-btn dz-btn-primary mt-5">
               <Save className="h-4 w-4" /> Save fees
             </button>
           </div>
 
           {/* Move-in Pack — prices + launch toggle for the consumer /services bundle */}
-          <div className="pn-card p-5">
+          <div className="dz-card p-5">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-100">Move-in Pack</h3>
@@ -553,12 +553,12 @@ export default function AdminSettings() {
                   <span className="text-gray-300">{MOVE_PACK_LABELS[k]}</span>
                   <div className="flex items-center gap-1">
                     <span className="text-gray-500">&#8377;</span>
-                    <input type="number" value={movePack.items?.[k] ?? 0} onChange={(e) => setMovePackItem(k, e.target.value)} className="pn-input w-32 text-right" />
+                    <input type="number" value={movePack.items?.[k] ?? 0} onChange={(e) => setMovePackItem(k, e.target.value)} className="dz-input w-32 text-right" />
                   </div>
                 </label>
               ))}
             </div>
-            <button onClick={saveMovePack} className="pn-btn pn-btn-primary mt-5">
+            <button onClick={saveMovePack} className="dz-btn dz-btn-primary mt-5">
               <Save className="h-4 w-4" /> Save Move-in Pack
             </button>
           </div>
@@ -654,7 +654,7 @@ export default function AdminSettings() {
               </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={exportAudit} className="pn-btn pn-btn-ghost">
+              <button onClick={exportAudit} className="dz-btn dz-btn-ghost">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>

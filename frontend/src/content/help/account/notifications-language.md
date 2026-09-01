@@ -11,7 +11,7 @@ tags: [notifications, alerts, language, i18n]
 
 ## Notification channels
 
-PuneNest can reach you three ways:
+Draazy can reach you three ways:
 
 - **In-app** — the bell in the top bar and the [Notifications](/notifications) page
 - **SMS** — OTPs and time-critical updates only
@@ -35,7 +35,7 @@ Manage all of them under **Dashboard → Settings → Notifications**.
 
 ## Changing language
 
-PuneNest is available in **English, हिन्दी and मराठी**. Switch from the globe icon in the top bar, or under **Dashboard → Settings → Language**.
+Draazy is available in **English, हिन्दी and मराठी**. Switch from the globe icon in the top bar, or under **Dashboard → Settings → Language**.
 
 Your choice is remembered on that device. Note that listing descriptions are shown in the language the owner wrote them in — we translate the interface, not user-written content.
 

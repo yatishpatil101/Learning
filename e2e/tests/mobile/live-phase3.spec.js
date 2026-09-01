@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /* Phase 3 of the mobile-only design work:
-     - every bottom-anchored FAB docks to --pn-bottom-inset instead of hard-coding
+     - every bottom-anchored FAB docks to --dz-bottom-inset instead of hard-coding
        an offset, so nothing hides behind the tab bar
      - the control height ramps to the 44px touch floor, which lifts every
        dropdown option and shared field at once
@@ -20,7 +20,7 @@ const MIN_TAP = 44;
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
-      window.localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      window.localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the bar just stays up */ }
   });
 }
@@ -35,10 +35,10 @@ test.describe('Mobile control sizing', () => {
   test('a dropdown option is a real target, not a 40px sliver', async ({ page }) => {
     await page.goto('/listings');
     const height = await page.evaluate(() => {
-      // Appended bare rather than inside .pn-dropdown__menu: the menu is hidden
+      // Appended bare rather than inside .dz-dropdown__menu: the menu is hidden
       // until opened, which would collapse the measurement to zero.
       const opt = document.createElement('button');
-      opt.className = 'pn-dropdown__option';
+      opt.className = 'dz-dropdown__option';
       opt.textContent = 'x';
       document.body.appendChild(opt);
       const r = opt.getBoundingClientRect().height;
@@ -71,7 +71,7 @@ test.describe('Bottom-anchored widgets', () => {
 
     const [box, inset, viewport] = await Promise.all([
       fab.boundingBox(),
-      page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pn-bottom-inset')) || 0),
+      page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dz-bottom-inset')) || 0),
       page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight })),
     ]);
 
@@ -88,7 +88,7 @@ test.describe('Mobile pickers', () => {
     await page.goto('/listings');
     const r = await page.evaluate(async () => {
       const cal = document.createElement('div');
-      cal.className = 'pn-cal is-open';
+      cal.className = 'dz-cal is-open';
       cal.style.height = '260px';
       document.body.appendChild(cal);
       await Promise.all(cal.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
@@ -114,7 +114,7 @@ test.describe('Sticky primary actions', () => {
     // number field is the first thing this screen renders and the thing the submit belongs to.
     await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 15_000 });
     const position = await page.evaluate(() => {
-      const el = document.querySelector('.pn-auth-submit');
+      const el = document.querySelector('.dz-auth-submit');
       return el ? getComputedStyle(el).position : null;
     });
     // The button only renders once an OTP has been requested; assert the rule
@@ -122,7 +122,7 @@ test.describe('Sticky primary actions', () => {
     if (position === null) {
       const rule = await page.evaluate(() => {
         const probe = document.createElement('div');
-        probe.className = 'pn-auth-submit';
+        probe.className = 'dz-auth-submit';
         document.body.appendChild(probe);
         const p = getComputedStyle(probe).position;
         probe.remove();

@@ -88,12 +88,12 @@ test('typing a landmark commits a point, not a string, and unfolds the distance 
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Near a Place"))').first();
   await group.locator('h4.fg-header').first().click();
-  await group.locator('.pn-dropdown__trigger').first().click();
+  await group.locator('.dz-dropdown__trigger').first().click();
 
-  const menu = page.locator('.pn-dropdown__menu--portal');
+  const menu = page.locator('.dz-dropdown__menu--portal');
   await expect(menu).toBeVisible();
   // Empty state first: the field asks for input rather than pretending to have results.
-  await expect(menu.locator('.pn-dropdown__empty')).toContainText(/Type to search/i);
+  await expect(menu.locator('.dz-dropdown__empty')).toContainText(/Type to search/i);
 
   await menu.locator('input').fill('Hinj');
   const option = menu.locator('[role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
@@ -102,7 +102,7 @@ test('typing a landmark commits a point, not a string, and unfolds the distance 
 
   // The menu closes and the trigger now reads back the place that was picked.
   await expect(menu).toHaveCount(0);
-  await expect(group.locator('.pn-dropdown__trigger').first()).toContainText('Hinjawadi IT Park');
+  await expect(group.locator('.dz-dropdown__trigger').first()).toContainText('Hinjawadi IT Park');
 
   /* A point, not a search term: the radius slider only renders when the filter is holding
      coordinates, and the active-filter chip is how the rest of the page learns about it. */

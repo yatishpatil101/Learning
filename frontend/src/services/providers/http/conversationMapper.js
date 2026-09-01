@@ -45,7 +45,7 @@ export function toMessage(m, viewerId) {
  */
 export function toViewModel(c, viewerId) {
   if (!c) return null;
-  const name = c.counterpartyName || 'PuneNest user';
+  const name = c.counterpartyName || 'Draazy user';
   const messages = Array.isArray(c.messages) ? c.messages.map((m) => toMessage(m, viewerId)) : [];
   return {
     id: c.id,

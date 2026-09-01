@@ -12,7 +12,7 @@ import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
  *
  * ## Why this looks nothing like the seeded version
  *
- * The mock spec drove modal → DigiLocker → assert on `puneNestDB_v5`, because the mock granted the
+ * The mock spec drove modal → DigiLocker → assert on `draazyDB_v5`, because the mock granted the
  * badge inline and rewrote the catalogue in the same tick. Live, the browser cannot earn a badge at
  * all — the grant arrives on a signed webhook — so a UI-driven version of that test is not merely
  * awkward, it is impossible without faking the thing under test.
@@ -29,7 +29,7 @@ import { API, authHeaders, signedInAsNew } from '../../../helpers/liveAuth.js';
  * ## The half that was NOT ported, deliberately
  *
  * The seeded spec also asserted a one-off free 7-day Featured slot on first verification, guarded by
- * `puneNestFirstFeaturePerk:<mobile>` so it could not be farmed. **No such thing exists on the
+ * `draazyFirstFeaturePerk:<mobile>` so it could not be farmed. **No such thing exists on the
  * backend.** There is no `featured_until`, no `featured_reason` and no perk ledger — `featured` is a
  * plain boolean an admin toggles in moderation. Building it would mean inventing a schema and a
  * monetization rule (handing out paid placement for free) inside a migration task, so it is raised

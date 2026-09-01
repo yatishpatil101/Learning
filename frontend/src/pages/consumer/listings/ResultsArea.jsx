@@ -64,7 +64,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
         { value: 'price-high', label: t('listings.sortPriceHigh') },
         { value: 'newest', label: t('listings.sortNewest') },
       ]}
-      className="pn-dd-sort"
+      className="dz-dd-sort"
       ariaLabel={t('listings.sortAria')}
     />
   );
@@ -112,7 +112,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                   the (tall) results column so it stays stuck under the header across the
                   whole list — a short wrapper would cap its sticky travel. */}
               <div className="sm:hidden mb-2 list-reveal" style={{ animationDelay: '180ms' }}>{countLine}</div>
-              <div className="pn-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
+              <div className="dz-docks-under-nav sm:hidden sticky top-[64px] z-30 -mx-4 mb-3.5 px-4 py-2 flex items-center justify-between gap-2 bg-[#0d0b1a]/85 backdrop-blur border-b border-white/5">
                 {viewToggles}
                 {sortSelect}
               </div>
@@ -299,7 +299,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                   controls bar is pinned to the *top* of the page — the hardest place
                   to reach one-handed. This pill puts the same action in the thumb arc
                   without moving the bar (which still carries context on scroll).
-                  lg:hidden + docked to --pn-bottom-inset, so it clears the bottom nav
+                  lg:hidden + docked to --dz-bottom-inset, so it clears the bottom nav
                   and never renders on desktop. Anchored bottom-LEFT: the Nestor FAB owns
                   the bottom-right corner and literally intercepted taps on this pill when
                   it sat there (caught by mobile-sheets-and-actions.spec.js). */}
@@ -308,7 +308,7 @@ export default function ResultsArea({ f, set, localities, aiQuery, setAiQuery, s
                 onClick={onOpenFilters}
                 aria-label={activeChips.length ? t('listings.filtersActiveAria', { count: activeChips.length }) : t('listings.filters')}
                 className={'filter-fab lg:hidden fixed z-[60] inline-flex items-center gap-2 h-11 pl-3.5 pr-4 rounded-full text-[13px] font-semibold tracking-tight text-white' + (activeChips.length ? ' is-active pr-2.5' : '')}
-                style={{ bottom: 'calc(var(--pn-bottom-inset) + 0.75rem)' }}
+                style={{ bottom: 'calc(var(--dz-bottom-inset) + 0.75rem)' }}
               >
                 <Icon name="sliders-horizontal" className="w-[18px] h-[18px] text-teal-300" />
                 {t('listings.filters')}

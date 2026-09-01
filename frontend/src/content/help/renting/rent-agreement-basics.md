@@ -50,7 +50,7 @@ Costs, as a rough guide:
 
 ## Getting one made
 
-You can use your own lawyer, or use the [PuneNest rent agreement service](/services/rent-agreement) — drafting, e-stamping, Aadhaar-based e-signing and doorstep delivery from ₹999. See [The rent agreement service](/help/a/rent-agreement-service).
+You can use your own lawyer, or use the [Draazy rent agreement service](/services/rent-agreement) — drafting, e-stamping, Aadhaar-based e-signing and doorstep delivery from ₹999. See [The rent agreement service](/help/a/rent-agreement-service).
 
 > [!NOTE]
 > This article is general information, not legal advice. For anything contested, consult a lawyer.

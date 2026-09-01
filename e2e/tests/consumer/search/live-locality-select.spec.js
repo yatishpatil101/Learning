@@ -73,7 +73,7 @@ async function stubPlacesOff(page) {
 }
 
 /**
- * `/list-property` is behind `ProtectedRoute`. The mock copy got in by writing `puneNestUser` to
+ * `/list-property` is behind `ProtectedRoute`. The mock copy got in by writing `draazyUser` to
  * localStorage, which is not a session: with no token `GET /auth/me` answers 401, the user is
  * nulled and the route redirects to `/signin?next=/list-property`, so `.lp-meter` never appears.
  * Both tests in this file died there — before reaching the Places stubs below, which is why the
@@ -89,8 +89,8 @@ async function gotoStep2(page) {
      necessary: `count()` does not retry, so against a portalled menu still one frame from open
      (Select.jsx:178) it returned 0, the click was skipped, and the wizard carried its default type
      through a test that appeared to have chosen one. */
-  await expect(page.locator('.pn-dropdown__menu.is-portal-open')).toBeVisible();
-  const opt = page.locator('.pn-dropdown__option', { hasText: 'Flat / Apartment' });
+  await expect(page.locator('.dz-dropdown__menu.is-portal-open')).toBeVisible();
+  const opt = page.locator('.dz-dropdown__option', { hasText: 'Flat / Apartment' });
   await expect(opt).toHaveCount(1);
   await opt.first().click();
   await page.getByRole('button', { name: /Next Step/i }).click();
@@ -98,8 +98,8 @@ async function gotoStep2(page) {
 }
 
 async function openLocality(page) {
-  await page.locator('[data-err="locality"] .pn-dropdown__trigger').click();
-  await page.locator('.pn-dropdown__search input').waitFor({ timeout: 5000 });
+  await page.locator('[data-err="locality"] .dz-dropdown__trigger').click();
+  await page.locator('.dz-dropdown__search input').waitFor({ timeout: 5000 });
 }
 
 test('typing a non-listed locality shows a live suggestion; picking it sets the value and recenters the map', async ({ page }) => {
@@ -109,13 +109,13 @@ test('typing a non-listed locality shows a live suggestion; picking it sets the 
 
   await openLocality(page);
   // "Pashan" is NOT in the hardcoded shortlist — it must come from live Places.
-  await page.locator('.pn-dropdown__search input').fill('Pashan');
-  const option = page.locator('.pn-dropdown__option', { hasText: 'Pashan' }).first();
+  await page.locator('.dz-dropdown__search input').fill('Pashan');
+  const option = page.locator('.dz-dropdown__option', { hasText: 'Pashan' }).first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
 
   // Value is stored as the locality name, shown on the trigger.
-  await expect(page.locator('[data-err="locality"] .pn-dropdown__value')).toHaveText(/Pashan/, { timeout: 5000 });
+  await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(/Pashan/, { timeout: 5000 });
   // The place's coords recenter the pin (async details resolve → flyTo).
   await expect(page.getByText(/Location set:/i)).toBeVisible({ timeout: 8000 });
   expect(errors, errors.join('\n')).toHaveLength(0);
@@ -128,11 +128,11 @@ test('with Google unavailable the picker falls back to filtering the static list
 
   await openLocality(page);
   // Live search throws → we filter the offline shortlist; "Baner" is in that list.
-  await page.locator('.pn-dropdown__search input').fill('Baner');
-  const option = page.locator('.pn-dropdown__option', { hasText: 'Baner' }).first();
+  await page.locator('.dz-dropdown__search input').fill('Baner');
+  const option = page.locator('.dz-dropdown__option', { hasText: 'Baner' }).first();
   await expect(option).toBeVisible({ timeout: 8000 });
   await option.click();
 
-  await expect(page.locator('[data-err="locality"] .pn-dropdown__value')).toHaveText(/Baner/, { timeout: 5000 });
+  await expect(page.locator('[data-err="locality"] .dz-dropdown__value')).toHaveText(/Baner/, { timeout: 5000 });
   expect(errors, errors.join('\n')).toHaveLength(0);
 });

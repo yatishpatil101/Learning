@@ -15,7 +15,7 @@ import { test, expect } from '../../fixtures/live.js';
 const consent = (page) =>
   page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
     );
   });
@@ -124,7 +124,7 @@ test.describe('Admin shell on a field phone', () => {
        never arrived. Waiting on the cards themselves also supplies the floor the sweep below
        needs -- `toEqual([])` is satisfied by a dashboard with no cards on it, which is the state a
        broken dashboard is in. */
-    const cards = page.locator('.pn-card');
+    const cards = page.locator('.dz-card');
     await expect(cards.first()).toBeVisible({ timeout: 15_000 });
     const count = await cards.count();
     expect(count, 'the admin dashboard must render cards to measure').toBeGreaterThan(0);
@@ -132,7 +132,7 @@ test.describe('Admin shell on a field phone', () => {
     const vw = page.viewportSize().width;
     const overflowing = await page.evaluate((w) => {
       const bad = [];
-      for (const el of document.querySelectorAll('.pn-card')) {
+      for (const el of document.querySelectorAll('.dz-card')) {
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.right > w + 1) {
           bad.push(`${(el.innerText || '').trim().slice(0, 40)} → right=${Math.round(r.right)}`);

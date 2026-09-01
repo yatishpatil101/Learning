@@ -207,14 +207,14 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
       </div>
 
       {changeReq ? (
-        <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label="Request changes" onClick={(e) => { if (e.target === e.currentTarget) setChangeReq(null); }}>
-          <div className="pn-modal">
+        <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label="Request changes" onClick={(e) => { if (e.target === e.currentTarget) setChangeReq(null); }}>
+          <div className="dz-modal">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-lg font-bold text-white">Request changes</h3>
                 <p className="text-xs text-slate-400 mt-0.5">Tell our team what to revise on your {changeReq.service} draft — we'll share an updated version for your approval.</p>
               </div>
-              <button onClick={() => setChangeReq(null)} className="pn-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
+              <button onClick={() => setChangeReq(null)} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
             </div>
             <label className="block text-sm font-medium text-slate-300 mb-2">What would you like changed?</label>
             <textarea autoFocus value={changeNote} onChange={(e) => setChangeNote(e.target.value)} rows={4} className="w-full px-4 py-3 rounded-xl text-white text-sm resize-none border border-white/10 bg-white/[0.03] focus:border-brand-teal-2 outline-none mb-4" placeholder="e.g. Please correct the monthly rent to ₹32,000 and set the lock-in to 6 months." />

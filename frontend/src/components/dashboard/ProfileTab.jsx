@@ -159,13 +159,13 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
     return () => { alive = false; };
   }, [user]);
 
-  // App language is a device-level i18n pref (persisted as `pnLang`). Resolve to
+  // App language is a device-level i18n pref (persisted as `dzLang`). Resolve to
   // the active resource language so the Select reflects what's actually applied.
   const lang = i18n.resolvedLanguage || i18n.language || 'en';
   const changeLang = (v) => {
     i18n.changeLanguage(v);
     /* Two different things are being set, and only one of them is this control's subject.
-       `i18n.changeLanguage` switches the interface for this device (`pnLang`); `language` on the
+       `i18n.changeLanguage` switches the interface for this device (`dzLang`); `language` on the
        preferences document is the language the *platform* writes to this user in — the one their
        emails and WhatsApp messages arrive in. Keeping them in step is the existing behaviour and it
        is the right default, but they are stored in different places for a reason, and only the
@@ -264,7 +264,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `punenest-data-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `draazy-data-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -327,7 +327,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           <label className="text-sm"><span className="mb-1.5 block text-gray-400">Email</span><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fld} placeholder="you@example.com" inputMode="email" /></label>
           <label className="text-sm"><span className="mb-1.5 block text-gray-400">City</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className={fld} /></label>
         </div>
-        <button onClick={save} disabled={!dirty} className="pn-control pn-control--action mt-5 px-5 gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><Icon name="save" className="w-4 h-4" /> Save changes</button>
+        <button onClick={save} disabled={!dirty} className="dz-control dz-control--action mt-5 px-5 gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><Icon name="save" className="w-4 h-4" /> Save changes</button>
 
         <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-start gap-3 min-w-0">
@@ -339,7 +339,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
           </div>
           {aadhaarVerified
             ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 flex-shrink-0"><Icon name="badge-check" className="w-4 h-4" /> Verified</span>
-            : <button onClick={() => setAadhaarOpen(true)} className="pn-control pn-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
+            : <button onClick={() => setAadhaarOpen(true)} className="dz-control dz-control--action gap-2 flex-shrink-0"><Icon name="shield-check" className="w-4 h-4" /> Get verified</button>}
         </div>
       </Card>
 
@@ -356,7 +356,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         </Card>
       )}
 
-      <CollapsibleCard icon="bell" iconCls="text-amber-400" title="Notification Preferences" sub="Control how and when PuneNest reaches you.">
+      <CollapsibleCard icon="bell" iconCls="text-amber-400" title="Notification Preferences" sub="Control how and when Draazy reaches you.">
         <PrefRow title="New property match alerts" desc="Get notified when new listings match your saved searches.">
           <Switch checked={prefs.matchAlerts} onChange={(v) => changePrefs({ matchAlerts: v })} label="New property match alerts" />
         </PrefRow>
@@ -427,12 +427,12 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
       <CollapsibleCard icon="shield" iconCls="text-teal-400" title="Privacy & Account" sub="Manage your data and this account.">
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <div><p className="text-sm text-white font-medium">Download my data</p><p className="text-xs text-gray-500 mt-0.5">Export everything PuneNest has stored for you as a JSON file.</p></div>
-            <button onClick={downloadData} disabled={exporting} aria-busy={exporting} className="pn-control gap-2 flex-shrink-0 disabled:opacity-60"><Icon name="download" className="w-4 h-4" /> {exporting ? 'Preparing…' : 'Download'}</button>
+            <div><p className="text-sm text-white font-medium">Download my data</p><p className="text-xs text-gray-500 mt-0.5">Export everything Draazy has stored for you as a JSON file.</p></div>
+            <button onClick={downloadData} disabled={exporting} aria-busy={exporting} className="dz-control gap-2 flex-shrink-0 disabled:opacity-60"><Icon name="download" className="w-4 h-4" /> {exporting ? 'Preparing…' : 'Download'}</button>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <div><p className="text-sm text-white font-medium">Sign out</p><p className="text-xs text-gray-500 mt-0.5">End your session on this device.</p></div>
-            <button onClick={signOut} className="pn-control gap-2 flex-shrink-0"><Icon name="log-out" className="w-4 h-4" /> Sign out</button>
+            <button onClick={signOut} className="dz-control gap-2 flex-shrink-0"><Icon name="log-out" className="w-4 h-4" /> Sign out</button>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] p-4">
             <div>
@@ -442,8 +442,8 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
                 : <p className="text-xs text-gray-500 mt-0.5">Ask us to erase your account and personal data. We review each request, because some records &mdash; a live tenancy, a settled payment &mdash; belong to the other party too.</p>}
             </div>
             {erasure
-              ? <span className="pn-control gap-2 flex-shrink-0 text-amber-300 border-amber-500/30 cursor-default"><Icon name="clock" className="w-4 h-4" /> Under review</span>
-              : <button onClick={() => { setDelText(''); setDelOpen(true); }} className="pn-control gap-2 flex-shrink-0 text-rose-300 border-rose-500/30 hover:bg-rose-500/10"><Icon name="trash-2" className="w-4 h-4" /> Request</button>}
+              ? <span className="dz-control gap-2 flex-shrink-0 text-amber-300 border-amber-500/30 cursor-default"><Icon name="clock" className="w-4 h-4" /> Under review</span>
+              : <button onClick={() => { setDelText(''); setDelOpen(true); }} className="dz-control gap-2 flex-shrink-0 text-rose-300 border-rose-500/30 hover:bg-rose-500/10"><Icon name="trash-2" className="w-4 h-4" /> Request</button>}
           </div>
         </div>
       </CollapsibleCard>
@@ -455,12 +455,12 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         size="sm"
         footer={(
           <>
-            <button onClick={() => setDelOpen(false)} className="pn-control">Cancel</button>
+            <button onClick={() => setDelOpen(false)} className="dz-control">Cancel</button>
             <button
               onClick={confirmDelete}
               disabled={erasing || delText.trim().toUpperCase() !== 'ERASE'}
               aria-busy={erasing}
-              className="pn-control pn-control--action bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="dz-control dz-control--action bg-rose-500 hover:bg-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Icon name="trash-2" className="w-4 h-4" /> {erasing ? 'Submitting…' : 'Submit request'}
             </button>

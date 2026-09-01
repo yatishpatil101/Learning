@@ -6,7 +6,7 @@
  * ## Why this domain exists
  *
  * Until D31b the browser owned the owner-contact quota outright: `lib/store/contactQuota.js` kept a
- * `pnContactsUsed:<mobile>` counter in localStorage, added `+15` per referral it had also counted
+ * `dzContactsUsed:<mobile>` counter in localStorage, added `+15` per referral it had also counted
  * locally, and decided — synchronously, before any network call — whether the user was allowed to
  * ask for another owner's number. Every one of those three facts was a browser's opinion. Clearing
  * site data restored the quota; a second device never knew about the first; and the referral bonus

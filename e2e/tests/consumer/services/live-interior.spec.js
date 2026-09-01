@@ -15,7 +15,7 @@
  *
  * The one claim the mock structurally could not make is the prefill. `form` is initialised from
  * `isIn ? user?.name : ''` (`InteriorRenovation.jsx:61`); mock-side `user` is whatever the test
- * wrote into `puneNestUser`, so asserting it proves localStorage round-trips and nothing else.
+ * wrote into `draazyUser`, so asserting it proves localStorage round-trips and nothing else.
  * Live it is `GET /auth/me`. That pairs with the override rule above to make a complete statement:
  * the form *opens* addressed to the session, and the customer may then redirect it — here we prove
  * the default, there they prove it is not sticky.
@@ -83,7 +83,7 @@ test.describe('interior & renovation landing, live', () => {
 
     /* Compared against what the API just returned rather than a literal, so a reseed cannot turn a
        real regression into a passing test — and a page that had gone back to reading
-       `puneNestUser` cannot pass by coincidence of the fixture using the same name. */
+       `draazyUser` cannot pass by coincidence of the fixture using the same name. */
     await expect(page.locator('input[data-err="name"]')).toHaveValue(user.name);
     await expect(page.locator('[data-err="mobile"] input')).toHaveValue(new RegExp(user.mobile.slice(-10)));
   });

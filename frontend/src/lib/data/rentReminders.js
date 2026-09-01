@@ -1,6 +1,6 @@
 /* Rent-month arithmetic for the owner's Rent Panel.
 
-   This module used to be the rent ledger: a `puneNestRentLog:<mobile>` bucket in localStorage that
+   This module used to be the rent ledger: a `draazyRentLog:<mobile>` bucket in localStorage that
    recorded which months an owner had collected, minted receipts from whatever the browser happened
    to know at print time, and pushed a fake notification alongside. All of that now lives behind
    `services/managedService.js` (`listRentReceipts` / `recordRentReceipt`), because a receipt is a

@@ -5,7 +5,7 @@ import Icon from './Icon.jsx';
 import LogoMark from './brand/LogoMark.jsx';
 import { getCookieConsent } from './CookieConsent.jsx';
 
-/* "Add PuneNest to your home screen" — the in-app install nudge.
+/* "Add Draazy to your home screen" — the in-app install nudge.
  *
  * Two mechanisms, because the platforms genuinely differ and no amount of code
  * hides that:
@@ -22,7 +22,7 @@ import { getCookieConsent } from './CookieConsent.jsx';
  * exactly where a home-screen icon is worth having.
  */
 
-const KEY = 'pn_install_prompt_v1';
+const KEY = 'dz_install_prompt_v1';
 const VERSION = 1;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -31,7 +31,7 @@ const DAY = 24 * 60 * 60 * 1000;
    dismissal count, so the last entry is also the terminal state. */
 const COOLDOWNS = [7 * DAY, 14 * DAY, Infinity];
 
-/* Ask only once someone is actually *using* PuneNest, not on arrival.
+/* Ask only once someone is actually *using* Draazy, not on arrival.
    Counted in page views rather than seconds because a timer measures patience,
    not interest — 30s of a stranger reading the hero is not intent, while three
    pages in is someone who came here to look at homes. The count persists, so a
@@ -146,7 +146,7 @@ export default function InstallPrompt() {
   if (gone || cookieBar || !engaged || (!deferred && !ios)) return null;
 
   return (
-    <div className="pn-safe-x fixed inset-x-0 bottom-[var(--pn-bottom-inset)] z-[1350] flex justify-center p-3 lg:hidden pointer-events-none">
+    <div className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1350] flex justify-center p-3 lg:hidden pointer-events-none">
       <div
         role="dialog"
         aria-label={t('install.title')}

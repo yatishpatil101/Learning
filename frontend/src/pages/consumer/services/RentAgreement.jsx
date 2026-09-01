@@ -178,7 +178,7 @@ export default function RentAgreement() {
                       <div className="mt-3 space-y-2">
                         {myInvites.map((inv) => (
                           <a key={inv.inviteId} href={inv.href || invitePath(inv.inviteId)} className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/4 border border-white/8 hover:border-emerald-400/30">
-                            <span className="text-gray-200 text-xs">{tr('services.ra.pendingInvite.from', { name: inv.fromName || 'A PuneNest user' })}{inv.property ? ' · ' + inv.property : ''}</span>
+                            <span className="text-gray-200 text-xs">{tr('services.ra.pendingInvite.from', { name: inv.fromName || 'A Draazy user' })}{inv.property ? ' · ' + inv.property : ''}</span>
                             <span className="text-emerald-300 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">{tr('services.ra.pendingInvite.cta')} <Icon name="arrow-right" className="w-3.5 h-3.5" /></span>
                           </a>
                         ))}

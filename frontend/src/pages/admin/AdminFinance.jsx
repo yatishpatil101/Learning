@@ -103,7 +103,7 @@ function monthLabel(iso) {
  *
  * So the marker is attached to the figure, not printed instead of it: the row keeps its number and
  * gains a reason. Which markers show now travels **with the finance payload** rather than in the
- * settings document — the server owns these flags (`punenest.finance.*`), and putting them beside
+ * settings document — the server owns these flags (`draazy.finance.*`), and putting them beside
  * the figures they qualify means a figure and its disclosure can no longer arrive from two
  * different reads and disagree. Absent still means "not measured": the default has to be today's
  * truth, because a disclosure that defaults to "measured" is a lie told by a typo.
@@ -227,7 +227,7 @@ export default function AdminFinance() {
   ];
 
   const doRevenueExport = () => exportCsv(
-    'punenest-revenue.csv',
+    'draazy-revenue.csv',
     ['Month', 'Subscriptions', 'Featured', 'Services', 'Total'],
     (series || []).map((m) => [m.month, m.subscriptions, m.featured, m.services,
       m.subscriptions + m.featured + m.services]),
@@ -236,7 +236,7 @@ export default function AdminFinance() {
   /* Exports what is on screen, not what was fetched: `txRows` is post-filter, so an operator who
      narrowed to one party gets that party's rows rather than a hundred unrelated ones. */
   const doTxExport = () => exportCsv(
-    'punenest-transactions.csv',
+    'draazy-transactions.csv',
     ['ID', 'Date', 'Party', 'Type', 'Platform take', 'Status'],
     txRows.map((r) => [r.id, r.date, r.party, KIND_LABELS[r.kind] || r.kind, r.amount, r.status]),
   );
@@ -262,7 +262,7 @@ export default function AdminFinance() {
   ];
 
   const txCard = (r) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{r.party}</div>
@@ -275,7 +275,7 @@ export default function AdminFinance() {
       </div>
       <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
         <span className="text-xs text-gray-400">{KIND_LABELS[r.kind] || r.kind}</span>
-        <button onClick={() => setDetail(r)} className="pn-btn pn-btn-ghost py-1 text-xs"><Eye className="h-3.5 w-3.5" />Details</button>
+        <button onClick={() => setDetail(r)} className="dz-btn dz-btn-ghost py-1 text-xs"><Eye className="h-3.5 w-3.5" />Details</button>
       </div>
     </div>
   );
@@ -283,10 +283,10 @@ export default function AdminFinance() {
   return (
     <div>
       <PageHeader title="Finance" subtitle="Revenue, subscriptions, transactions and platform economics." actions={
-        <button onClick={doRevenueExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
+        <button onClick={doRevenueExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Revenue CSV</button>
       } />
 
-      {/* Deliberately not `pn-card`: that class sets the `background` and `border` shorthands and is
+      {/* Deliberately not `dz-card`: that class sets the `background` and `border` shorthands and is
           declared after `@tailwind utilities` at equal specificity, so it would silently overwrite
           the amber and render this as an ordinary panel. Same recipe as the help-page callout. */}
       {disclosures.length > 0 && (
@@ -311,7 +311,7 @@ export default function AdminFinance() {
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {KPIS.map((k) => (
-          <div key={k.label} className="pn-card p-3">
+          <div key={k.label} className="dz-card p-3">
             <div className="flex items-start justify-between gap-1">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><k.icon className="h-3.5 w-3.5" /></span>
             </div>
@@ -325,7 +325,7 @@ export default function AdminFinance() {
 
       {/* Deal Pipeline cross-reference */}
       <div className="mb-5">
-        <div className="pn-card p-4 flex items-center justify-between max-w-sm">
+        <div className="dz-card p-4 flex items-center justify-between max-w-sm">
           <div>
             <div className="text-sm font-bold text-gray-200">Deal Pipeline</div>
             <div className="mt-0.5 text-xs text-gray-400">Track deal GMV in Enquiries</div>
@@ -339,7 +339,7 @@ export default function AdminFinance() {
       {/* Charts row */}
       {optionEnabled('finance.charts') && (
         <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-bold">Revenue by month</h3>
               <Select
@@ -366,7 +366,7 @@ export default function AdminFinance() {
             />
             {!serviceOrdersCounted && <NotMeasured>{t('adminFinance.servicesQuoted')}</NotMeasured>}
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <h3 className="mb-3 font-bold">Revenue mix (this month)</h3>
             <DoughnutChart
               labels={['Subscriptions', 'Services', 'Featured']}
@@ -381,7 +381,7 @@ export default function AdminFinance() {
       {/* MRR line + panels */}
       {optionEnabled('finance.models') && (
         <div className="mb-5 grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <h3 className="mb-3 font-bold">MRR growth</h3>
             <LineChart
               labels={slicedSeries.map((m) => monthLabel(m.month))}
@@ -393,7 +393,7 @@ export default function AdminFinance() {
                 says which one it is drawing rather than letting the reader assume. */}
             <p className="mt-2 text-xs text-gray-500">{t('adminFinance.mrrChartBasis')}</p>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <h3 className="mb-2 text-sm font-bold">Subscriptions</h3>
             <p className="mb-3 text-xs text-gray-500">Active paid plans</p>
             {(plans || []).length === 0 ? (
@@ -415,7 +415,7 @@ export default function AdminFinance() {
             </div>
           </div>
           <div className="space-y-4">
-            <div className="pn-card p-4">
+            <div className="dz-card p-4">
               <h3 className="mb-1 text-sm font-bold">Net position</h3>
               <p className="mb-2 text-xs text-gray-500">This month</p>
               <FlowRow
@@ -444,11 +444,11 @@ export default function AdminFinance() {
 
       {/* Transactions ledger */}
       {optionEnabled('finance.transactions') && (
-        <div className="pn-card p-4">
+        <div className="dz-card p-4">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h3 className="font-bold">Recent transactions</h3>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party or type…" className="pn-input py-1 text-xs sm:w-48" />
+              <input value={txQ} onChange={(e) => setTxQ(e.target.value)} placeholder="Search party or type…" className="dz-input py-1 text-xs sm:w-48" />
               {/* Built from the rows in hand rather than a hardcoded list, so a revenue source the
                   server starts sending is filterable the day it appears. */}
               <Select
@@ -483,7 +483,7 @@ export default function AdminFinance() {
                   { value: 'failed', label: 'Failed' },
                 ]}
               />
-              <button onClick={doTxExport} className="pn-btn pn-btn-ghost py-1 text-xs"><Download className="h-3.5 w-3.5" />CSV</button>
+              <button onClick={doTxExport} className="dz-btn dz-btn-ghost py-1 text-xs"><Download className="h-3.5 w-3.5" />CSV</button>
             </div>
           </div>
           <Table columns={txCols} rows={txRows} pageSize={15} label="transactions" empty="No transactions match." mobileCard={txCard} />

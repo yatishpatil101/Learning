@@ -35,7 +35,7 @@ function StatTile({ tile }) {
   return (
     <Link
       to={tile.href}
-      className={`pn-card group relative flex flex-col gap-3 p-4 transition hover:-translate-y-0.5 hover:border-white/20 ${
+      className={`dz-card group relative flex flex-col gap-3 p-4 transition hover:-translate-y-0.5 hover:border-white/20 ${
         tile.attention && has ? 'border-amber-400/30' : ''
       }`}
     >
@@ -285,7 +285,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across PuneNest" />
+      <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening across Draazy" />
 
       {/* Three panels used to sit on this page — Smart Alerts, SLA Health and the Daily Ops
           Scorecard — and all three were generated in the browser. `slaMetrics()` and
@@ -328,13 +328,13 @@ export default function AdminDashboard() {
         <span className="text-sm text-gray-500">System status pulled live from your settings</span>
       </div>
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <div className="pn-card p-5">
+        <div className="dz-card p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">Platform health</h3>
               <div className="text-xs text-gray-500">Services, integrations &amp; system switches</div>
             </div>
-            <Link to="/admin/settings" className="pn-btn pn-btn-ghost text-sm">
+            <Link to="/admin/settings" className="dz-btn dz-btn-ghost text-sm">
               Manage
             </Link>
           </div>
@@ -351,7 +351,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="pn-card p-5">
+        <div className="dz-card p-5">
           <div className="mb-3">
             <h3 className="font-bold">Quick actions</h3>
             <div className="text-xs text-gray-500">Jump to common tasks</div>
@@ -386,13 +386,13 @@ export default function AdminDashboard() {
          off screen. One property, and the truncation that was always there starts
          working. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="pn-card min-w-0 p-5">
+        <div className="dz-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">Pending verification</h3>
               <div className="text-xs text-gray-500">Approve or reject new listings</div>
             </div>
-            <Link to="/admin/properties" className="pn-btn pn-btn-ghost text-sm">
+            <Link to="/admin/properties" className="dz-btn dz-btn-ghost text-sm">
               View all
             </Link>
           </div>
@@ -409,7 +409,7 @@ export default function AdminDashboard() {
                       {l.locality} · {fmtINR(l.price)} · {l.owner}
                     </div>
                   </div>
-                  <Link to="/admin/properties" className="pn-btn pn-btn-primary text-xs">
+                  <Link to="/admin/properties" className="dz-btn dz-btn-primary text-xs">
                     Review
                   </Link>
                 </div>
@@ -423,13 +423,13 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        <div className="pn-card min-w-0 p-5">
+        <div className="dz-card min-w-0 p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">Latest service requests</h3>
               <div className="text-xs text-gray-500">Across all teams</div>
             </div>
-            <Link to="/admin/services" className="pn-btn pn-btn-ghost text-sm">
+            <Link to="/admin/services" className="dz-btn dz-btn-ghost text-sm">
               View all
             </Link>
           </div>

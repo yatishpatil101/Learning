@@ -42,7 +42,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         {isResidential() && !pg && (
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.bhk')}</label>
-                            <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'pn-invalid-group' : ''}`} data-err="bhk">
+                            <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'dz-invalid-group' : ''}`} data-err="bhk">
                               {['1', '2', '3', '4'].map((n) => (
                                 <Pill key={n} selected={form.bhk === n} onClick={() => set('bhk', n)} className="px-5 py-2.5">{n === '4' ? '4+' : n}</Pill>
                               ))}
@@ -88,7 +88,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                           <div>
                             <label className={lbl3}>{tr('listProperty.fields.bathrooms')}</label>
-                            <div className={`flex flex-wrap gap-2.5 ${errors.bathrooms ? 'pn-invalid-group' : ''}`} data-err="bathrooms">
+                            <div className={`flex flex-wrap gap-2.5 ${errors.bathrooms ? 'dz-invalid-group' : ''}`} data-err="bathrooms">
                               {['1', '2', '3', '4'].map((n) => (
                                 <Pill key={n} selected={form.bathrooms === n} onClick={() => set('bathrooms', n)} className="px-5 py-2.5">{n === '4' ? '4+' : n}</Pill>
                               ))}
@@ -134,7 +134,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                           <label className={lbl3}>{areaLabel} *</label>
                           <div className="relative">
                             <input inputMode="decimal" maxLength={9} value={form.carpetArea} onChange={(e) => set('carpetArea', toDecimal(e.target.value))} data-err="carpetArea"
-                              placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-20 ${errors.carpetArea ? 'pn-invalid' : ''}`} />
+                              placeholder={tr('listProperty.ph.eg1050')} className={`${fld} pr-20 ${errors.carpetArea ? 'dz-invalid' : ''}`} />
                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium bg-white/5 px-3 py-1 rounded-lg">
                               {isLand() ? (unitOptions.find(([v]) => v === form.areaUnit)?.[1] || unitOptions[0][1]) : 'sq.ft.'}
                             </div>
@@ -219,7 +219,7 @@ export default function PropertyDetailsWhole({ form, set, onPropertyType, errors
                         <div className="mb-6">
                           <label className={lbl3}>{tr('listProperty.fields.sharingTypes')}</label>
                           <p className="text-gray-600 text-xs mb-3 leading-relaxed">{PG_SHARING_HELP}</p>
-                          <div className={`flex flex-wrap gap-3 ${errors.sharing ? 'pn-invalid-group' : ''}`} data-err="sharing">
+                          <div className={`flex flex-wrap gap-3 ${errors.sharing ? 'dz-invalid-group' : ''}`} data-err="sharing">
                             {PG_SHARING.map(([v, l]) => (
                               <Pill key={v} selected={(form.sharing || []).includes(v)} onClick={() => toggleInArray('sharing', v)} className="px-5 py-2.5">{l}</Pill>
                             ))}

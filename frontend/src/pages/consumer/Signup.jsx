@@ -114,7 +114,7 @@ export default function Signup() {
     setCreateError(null);
     try {
       await register({
-        name: name.trim() || 'PuneNest User',
+        name: name.trim() || 'Draazy User',
         mobile: mobile.value,
         email: email.trim(),
         role,
@@ -125,7 +125,7 @@ export default function Signup() {
       if (ref) {
         /* Tell whoever is serving, and only them. This line used to be preceded by a direct
            `setReferredBy(ref)` into the mock store, which ran on every build: a live sign-up wrote
-           `pnReferredBy:<mobile>`, a key nothing on a live build reads, beside the call that does
+           `dzReferredBy:<mobile>`, a key nothing on a live build reads, beside the call that does
            the real attributing. That local write belonged to the mock's answer to this same
            request, so it moved below the seam and went with the mock (P5c). This page does not
            reach past the seam to do it.
@@ -257,7 +257,7 @@ export default function Signup() {
                 </div>
               </div>
 
-              <button type="submit" disabled={creating || done} className="pn-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+              <button type="submit" disabled={creating || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
                 {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.accountCreated')}</>
                   : creating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.creatingAccount')}</>
                   : <>{t('auth.createAccount')} <ArrowRight className="w-4 h-4" /></>}

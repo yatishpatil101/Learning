@@ -38,10 +38,10 @@ export default function Home() {
           no amount of content trimming could beat.
 
           Home is selfPadded in ConsumerLayout, so it reserves the fixed navbar itself:
-          --pn-nav-h plus this section's own gap. The gaps are chosen so that ≥768px
+          --dz-nav-h plus this section's own gap. The gaps are chosen so that ≥768px
           resolves to exactly the 109px this used to hardcode — desktop is unchanged —
           while phones inherit the shorter bar and gain the difference. */}
-      <section className="hero-bg relative lg:min-h-[100dvh] flex items-center justify-center pt-[calc(var(--pn-nav-h)+28px)] sm:pt-[calc(var(--pn-nav-h)+37px)] pb-7 sm:pb-16">
+      <section className="hero-bg relative lg:min-h-[100dvh] flex items-center justify-center pt-[calc(var(--dz-nav-h)+28px)] sm:pt-[calc(var(--dz-nav-h)+37px)] pb-7 sm:pb-16">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="shape shape-1" />
           <div className="shape shape-2" />

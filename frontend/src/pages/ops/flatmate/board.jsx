@@ -165,12 +165,12 @@ export function BoardState({ state, onRetry, empty }) {
   if (state.status === 'loading') return <Loading />;
   if (state.status === 'error') {
     return (
-      <div className="pn-card flex items-start gap-3 p-6 text-sm text-gray-300">
+      <div className="dz-card flex items-start gap-3 p-6 text-sm text-gray-300">
         <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
         <div>
           <div className="font-semibold text-gray-100">This queue could not be read.</div>
           <p className="mt-1 max-w-2xl text-gray-400">{state.error}</p>
-          <button type="button" onClick={onRetry} className="pn-btn pn-btn-ghost mt-3">
+          <button type="button" onClick={onRetry} className="dz-btn dz-btn-ghost mt-3">
             <RefreshCw className="h-4 w-4" />Try again
           </button>
         </div>
@@ -178,7 +178,7 @@ export function BoardState({ state, onRetry, empty }) {
     );
   }
   if (!state.items.length) {
-    return <div className="pn-card p-10 text-center text-sm text-gray-500">{empty}</div>;
+    return <div className="dz-card p-10 text-center text-sm text-gray-500">{empty}</div>;
   }
   return null;
 }

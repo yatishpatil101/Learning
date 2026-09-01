@@ -1,7 +1,7 @@
 import LogoMark from '../brand/LogoMark.jsx';
 
 /* Compact brand + trust strip shown only on mobile (AuthShell renders it `<lg`).
-   Mobile hides the desktop left panel, so this restores PuneNest branding and the
+   Mobile hides the desktop left panel, so this restores Draazy branding and the
    trust differentiators that drive real-estate conversion. Styled as an "edge-lit
    proptech" header: glowing brand badge + a live status pill + trust chips. Chips
    use bg tints (not nested bordered boxes) per the app's design-consistency rules. */
@@ -16,7 +16,7 @@ export default function MobileAuthIntro({ eyebrow, tagline, chips = [] }) {
       ) : null}
       <div className="flex items-center justify-center gap-2.5 mb-3">
         <LogoMark className="auth-brand-badge w-9 h-9 shrink-0 text-teal-400" />
-        <span className="text-2xl font-bold tracking-tight text-white">PuneNest</span>
+        <span className="text-2xl font-bold tracking-tight text-white">Draazy</span>
       </div>
       {tagline ? <p className="text-gray-400 text-[13px] leading-relaxed mb-4 px-3">{tagline}</p> : null}
       {chips.length ? (

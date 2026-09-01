@@ -28,7 +28,7 @@ export default function Tabs({ items, initial, active: controlledActive, onChang
               role="tab"
               aria-selected={active === i.key}
               onClick={() => select(i.key)}
-              className={classNames('pn-detail-tab', active === i.key ? 'is-active' : '')}
+              className={classNames('dz-detail-tab', active === i.key ? 'is-active' : '')}
             >
               {i.icon ? <Icon name={i.icon} className="w-4 h-4" /> : null}
               <span>{i.label}</span>

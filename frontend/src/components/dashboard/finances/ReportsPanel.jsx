@@ -34,7 +34,7 @@ export default function ReportsPanel({ basis, summary, onEditBasis }) {
       </div>
 
       <Card className="p-5 sm:p-6">
-        <SectionHead icon="home" title={t('fin.ownershipBasis')} sub={t('fin.ownershipBasisSub')} action={<button onClick={onEditBasis} className="pn-control pn-control--ghost px-3 gap-1.5"><Icon name="pencil" className="w-4 h-4" /> {t('fin.edit')}</button>} />
+        <SectionHead icon="home" title={t('fin.ownershipBasis')} sub={t('fin.ownershipBasisSub')} action={<button onClick={onEditBasis} className="dz-control dz-control--ghost px-3 gap-1.5"><Icon name="pencil" className="w-4 h-4" /> {t('fin.edit')}</button>} />
         {basis?.purchasePrice ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[

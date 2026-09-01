@@ -210,9 +210,9 @@ test.describe('LIVE: property domain against the real API', () => {
     await expect(first).toBeVisible({ timeout: 15000 });
     const slug = (await first.getAttribute('href')).split('/').pop();
 
-    // Key must match CompareContext (`puneNestCompare`) — seeding the wrong key would leave the
+    // Key must match CompareContext (`draazyCompare`) — seeding the wrong key would leave the
     // page empty and the test would pass while proving nothing.
-    await page.evaluate((s) => localStorage.setItem('puneNestCompare', JSON.stringify([s])), slug);
+    await page.evaluate((s) => localStorage.setItem('draazyCompare', JSON.stringify([s])), slug);
     const byId = page.waitForResponse(
       (r) => r.url().includes(`/api/properties/${slug}`) && r.status() === 200,
       { timeout: 20000 },
@@ -369,7 +369,7 @@ test.describe('LIVE: property domain against the real API', () => {
        test is about. `floor` is seeded here rather than clicked because it is one of the three legs
        of the server's `(society, floor, bhk)` signal, and the leg the wizard holds as a string. */
     await page.addInitScript(() => {
-      localStorage.setItem('pnDraft:list-property', JSON.stringify({
+      localStorage.setItem('dzDraft:list-property', JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
         floor: '9', availableFrom: '2026-09-01',
       }));
@@ -380,7 +380,7 @@ test.describe('LIVE: property domain against the real API', () => {
          whether it mounted before or after the click. Consent is seeded (the same pattern as
          `doc-info.spec.js` / `deals-offers.spec.js`) so the banner never renders and the click is
          about the wizard rather than about timing. */
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
         necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
       }));
     });
@@ -408,7 +408,7 @@ test.describe('LIVE: property domain against the real API', () => {
        `toBeAttached()` on the step-3 photo input, twenty seconds and one very confusing error
        message away from the actual cause. `Select` marks an unset value with `is-placeholder`, so
        the absence of that class is the honest "a locality is now selected". */
-    await expect(page.locator('[data-err="locality"] .pn-dropdown__value'))
+    await expect(page.locator('[data-err="locality"] .dz-dropdown__value'))
       .not.toHaveClass(/is-placeholder/, { timeout: 15_000 });
 
     // A society name unique to this run: the point of the write is that a *server* row appears, and
@@ -494,20 +494,20 @@ test.describe('LIVE: property domain against the real API', () => {
     expect(rows.some((r) => String(r.id) === String(body.id))).toBe(true);
 
     /* …and the browser must not be keeping a second copy of it. `persistListing` used to mirror
-       every write into `puneNestListings:<mobile>` as well, which is a different store from the one
-       the seam writes (`db.listings` inside `puneNestDB_v5`) and was read only by the mock arm. On a
+       every write into `draazyListings:<mobile>` as well, which is a different store from the one
+       the seam writes (`db.listings` inside `draazyDB_v5`) and was read only by the mock arm. On a
        live build it was a private duplicate of a server row, with no reader and no way to stay in
        step — the shape a stale "My Listings" takes the first time an owner edits from a second
        device. Asserted here rather than in a unit test because the claim is about what the wizard
        leaves behind in a real browser after a real post, which is exactly what mock specs cannot
        see: there, the mirror and the seam are both localStorage and a regression stays green.
 
-       Every `puneNestListings:*` key is scanned rather than the signed-in owner's alone, because the
+       Every `draazyListings:*` key is scanned rather than the signed-in owner's alone, because the
        store keys by whatever `readUser()` holds and asserting on a re-derived mobile would make this
        a test of the key format. The context is fresh per test, so anything found here was written by
        this post. */
     const mirrored = await page.evaluate(() => Object.keys(localStorage)
-      .filter((k) => k.startsWith('puneNestListings:'))
+      .filter((k) => k.startsWith('draazyListings:'))
       .flatMap((k) => {
         try { return JSON.parse(localStorage.getItem(k) || '[]') || []; } catch { return []; }
       }));
@@ -810,7 +810,7 @@ test.describe('LIVE: notifications against the real API', () => {
     await expect(page.locator('h1')).toBeVisible({ timeout: 15000 });
 
     const seeded = await page.evaluate(() => {
-      const key = Object.keys(localStorage).find((k) => k.startsWith('pnNotifications:'));
+      const key = Object.keys(localStorage).find((k) => k.startsWith('dzNotifications:'));
       if (!key) return null;
       try { return JSON.parse(localStorage.getItem(key)); } catch { return 'unparseable'; }
     });
@@ -926,7 +926,7 @@ test.describe('LIVE: conversations against the real API', () => {
     // localStorage is empty. In http mode they must never render: they are indistinguishable from
     // real threads, cannot be replied to, and would be messages nobody sent.
     const seededIds = await page.evaluate(() => {
-      try { return (JSON.parse(localStorage.getItem('pnConversations') || '[]') || []).map((c) => c.id); }
+      try { return (JSON.parse(localStorage.getItem('dzConversations') || '[]') || []).map((c) => c.id); }
       catch { return []; }
     });
     expect(seededIds).not.toContain('c1');
@@ -1019,7 +1019,7 @@ async function tokenFor(page, mobile) {
   // areas are checked because "remember me" decides which one `lib/auth.js` writes to, and no spec
   // should depend on that choice.
   const token = await page.evaluate(() => {
-    const raw = localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens');
+    const raw = localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens');
     return JSON.parse(raw || 'null')?.accessToken;
   });
   expect(token, `no access token cached for ${mobile}`).toBeTruthy();
@@ -1179,7 +1179,7 @@ async function openReviewsSection(page) {
  *
  * **And the write happens at most once, ever.** `ReviewService` enforces one review per author per
  * target and answers `409` on a second — correctly, since a review is an opinion and a user has one.
- * So this tolerates both outcomes: `201` and `409`. Since the live run resets `punenest_e2e` to its
+ * So this tolerates both outcomes: `201` and `409`. Since the live run resets `draazy_e2e` to its
  * seeded baseline before the first test, `201` is now the expected path every time; the `409` arm
  * stays because it costs one condition and it is what keeps this passing if you re-run against a
  * database on purpose (`E2E_SKIP_RESET=1`) while debugging a failure.
@@ -1781,7 +1781,7 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
     /* `PageEnvelope` names the current page `page`, not Spring's raw `number`. Four providers read
        the wrong one behind a fallback that hid it, so this is asserted on the wire. */
     const saved = await page.evaluate(async () => {
-      const tokens = JSON.parse(localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens') || 'null');
+      const tokens = JSON.parse(localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens') || 'null');
       const res = await fetch('/api/me/saved?size=5', { headers: { Authorization: `Bearer ${tokens.accessToken}` } });
       return res.json();
     });
@@ -2070,7 +2070,7 @@ test.describe('LIVE: rent, tenancies and property finances against the real API'
      and showed only settled money. Both defects it pinned down — a localStorage read nothing wrote,
      and a `entry.settlement || 'Settled'` fallback that labelled a *failed* charge as received —
      died with the endpoint and the panel. There is no successor assertion to write here: no rent
-     reaches PuneNest, so there are no receipts for an owner to be shown correctly or incorrectly.
+     reaches Draazy, so there are no receipts for an owner to be shown correctly or incorrectly.
      The one thing worth guarding is that nothing calls the withdrawn route again, and the
      coming-soon test above already does that. */
 });
@@ -2679,7 +2679,7 @@ test.describe('LIVE: identity verification against the real API', () => {
     const { simulate, after } = await page.evaluate(async () => {
       // The dev affordance is a backend tool, not a service method, so it is called on the raw wire
       // with the session token `services/http.js` would otherwise attach.
-      const tokens = JSON.parse(localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens') || 'null');
+      const tokens = JSON.parse(localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens') || 'null');
       const res = await fetch('/api/me/verification/aadhaar/simulate', {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.accessToken}` },

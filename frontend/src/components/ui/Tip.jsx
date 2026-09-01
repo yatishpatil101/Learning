@@ -19,7 +19,7 @@ export default function Tip({ k, title, body, children }) {
   const [pos, setPos] = useState(null);
   const anchorRef = useRef(null);
   const tipRef = useRef(null);
-  const idRef = useRef('pn-tip-' + Math.random().toString(36).slice(2, 9));
+  const idRef = useRef('dz-tip-' + Math.random().toString(36).slice(2, 9));
   const id = idRef.current;
 
   // Touch-only devices report `hover: none` — there we open on tap instead of hover/focus.
@@ -90,13 +90,13 @@ export default function Tip({ k, title, body, children }) {
           ref={tipRef}
           id={id}
           role="tooltip"
-          className="pn-tip"
+          className="dz-tip"
           style={pos
             ? { top: pos.top, left: pos.left, visibility: 'visible' }
             : { top: 0, left: 0, visibility: 'hidden' }}
         >
-          {info.title ? <p className="pn-tip-title">{info.title}</p> : null}
-          {info.body ? <p className="pn-tip-body">{info.body}</p> : null}
+          {info.title ? <p className="dz-tip-title">{info.title}</p> : null}
+          {info.body ? <p className="dz-tip-body">{info.body}</p> : null}
         </div>,
         document.body,
       ) : null}

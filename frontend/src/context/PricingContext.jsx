@@ -4,7 +4,7 @@ import { PRICING_DEFAULTS, getPricing } from '../services/settingsService.js';
 const PricingContext = createContext(null);
 
 /**
- * Reactive access to what PuneNest sells and for how much (`settings.fees`).
+ * Reactive access to what Draazy sells and for how much (`settings.fees`).
  *
  * ## Where these come from, and why it changed
  *
@@ -102,13 +102,13 @@ export function PricingProvider({ children }) {
     sync();
     // Same-tab: raised by whichever settings provider handled the write, so an admin changing a
     // price sees the consumer UI requote without a reload.
-    window.addEventListener('punenest-settings-change', sync);
+    window.addEventListener('draazy-settings-change', sync);
     // Cross-tab: the browser's own signal that another tab wrote to local storage. Load-bearing
     // only on the mock path; harmless live, where it costs one extra read of a public endpoint.
     window.addEventListener('storage', sync);
     return () => {
       generation += 1;
-      window.removeEventListener('punenest-settings-change', sync);
+      window.removeEventListener('draazy-settings-change', sync);
       window.removeEventListener('storage', sync);
     };
   }, [active]);

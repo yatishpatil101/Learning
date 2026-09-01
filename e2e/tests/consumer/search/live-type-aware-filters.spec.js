@@ -174,7 +174,7 @@ test('Near a Place: selecting a place reveals the Distance / Commute control', a
 
   // Type to get a live Google suggestion (no static seed list) and pick it.
   await aside.getByRole('button', { name: 'Search a place near your locality' }).click();
-  await page.locator('.pn-dropdown__menu--portal input').fill('Hinj');
+  await page.locator('.dz-dropdown__menu--portal input').fill('Hinj');
   await page.getByRole('option', { name: /Hinjawadi IT Park/ }).click();
 
   // The redesigned segmented control + slider + presets now appear.

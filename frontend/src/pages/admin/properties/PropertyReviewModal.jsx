@@ -363,7 +363,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
    * This used to be a third private copy of the substitution rule with its own variable table, and
    * it disagreed with the other two on every value that mattered:
    *
-   *   staff_name    was the literal string 'You', so the preview read "- You, PuneNest" while the
+   *   staff_name    was the literal string 'You', so the preview read "- You, Draazy" while the
    *                 owner received the sender's real name. The one word in the message that says
    *                 who is contacting them was the one word the preview got wrong.
    *   claim_link    pointed at /claim/{id}, a route this application has never had. The server
@@ -390,7 +390,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
     locality: listing.locality || '',
     price: String(listing.price ?? ''),
     listing_id: pid(listing),
-    staff_name: user?.name || 'PuneNest',
+    staff_name: user?.name || 'Draazy',
     claim_link: `${window.location.origin}/signin`,
   });
 
@@ -462,17 +462,17 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
         footer={
           <>
             {review.status === 'approved' ? (
-              <Link to={liveHref(review)} target="_blank" rel="noopener noreferrer" className="pn-btn pn-btn-ghost mr-auto">
+              <Link to={liveHref(review)} target="_blank" rel="noopener noreferrer" className="dz-btn dz-btn-ghost mr-auto">
                 <ExternalLink className="h-4 w-4" /> Open live listing
               </Link>
             ) : (
               <span className="mr-auto text-xs text-gray-500 italic">Not yet published</span>
             )}
-            <button onClick={handleClose} className="pn-btn pn-btn-ghost">Close</button>
-            <button onClick={reviewReject} disabled={busy} className="pn-btn pn-btn-danger">
+            <button onClick={handleClose} className="dz-btn dz-btn-ghost">Close</button>
+            <button onClick={reviewReject} disabled={busy} className="dz-btn dz-btn-danger">
               <XCircle className="h-4 w-4" /> {rejectMode ? 'Confirm rejection' : 'Reject\u2026'}
             </button>
-            <button onClick={reviewApprove} disabled={busy} className="pn-btn pn-btn-success">
+            <button onClick={reviewApprove} disabled={busy} className="dz-btn dz-btn-success">
               <CheckCircle className="h-4 w-4" /> Approve &amp; publish
             </button>
           </>
@@ -546,7 +546,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                   </div>
                 ))}
               </div>
-              <button onClick={approveEdits} className="pn-btn pn-btn-success mt-3">
+              <button onClick={approveEdits} className="dz-btn dz-btn-success mt-3">
                 <CheckCircle className="h-4 w-4" /> Approve edits
               </button>
             </div>
@@ -597,7 +597,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                   /* An internal message is one the owner cannot see -- the server filters it out of
                      their copy entirely -- so it must not be laid out as part of a conversation the
                      heading above says the owner is party to. Left as an ordinary ops bubble
-                     labelled "You (PuneNest)", a moderator reads the duplicate-probe finding and
+                     labelled "You (Draazy)", a moderator reads the duplicate-probe finding and
                      reasonably concludes the owner has already been told. That misreading is the
                      same disclosure the filter exists to prevent, one step later. */
                   if (m.internal) {
@@ -616,7 +616,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
                     <div key={m.id} className={classNames('flex', me && 'justify-end')}>
                       <div className={classNames('max-w-[80%] whitespace-pre-wrap rounded-xl border px-3 py-2 text-sm', me ? 'border-teal-400/30 bg-teal-500/15 text-teal-50' : 'border-white/10 bg-white/5 text-gray-100')}>
                         {m.body}
-                        <div className="mt-1 text-[11px] text-gray-400">{me ? 'You (PuneNest)' : review.owner} {'\u00B7'} {fmtAgo(m.at)}</div>
+                        <div className="mt-1 text-[11px] text-gray-400">{me ? 'You (Draazy)' : review.owner} {'\u00B7'} {fmtAgo(m.at)}</div>
                       </div>
                     </div>
                   );
@@ -626,8 +626,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
               )}
             </div>
             <div className="mt-2.5 flex items-stretch gap-2">
-              <textarea value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') reviewSend(); }} rows={2} placeholder={'Ask for a clarification or share a note for the owner\u2026'} className="pn-input flex-1 resize-none" />
-              <button onClick={reviewSend} title="Send" className="pn-btn pn-btn-primary"><Send className="h-4 w-4" /></button>
+              <textarea value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') reviewSend(); }} rows={2} placeholder={'Ask for a clarification or share a note for the owner\u2026'} className="dz-input flex-1 resize-none" />
+              <button onClick={reviewSend} title="Send" className="dz-btn dz-btn-primary"><Send className="h-4 w-4" /></button>
             </div>
           </div>
 
@@ -659,7 +659,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh }) {
           {rejectMode ? (
             <div className="rounded-2xl border border-rose-400/30 bg-white/[0.03] p-4">
               <label className="mb-1 block text-sm text-gray-300">Reason for rejection (sent to the owner)</label>
-              <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder={'Be specific: which document or detail is missing/invalid and what the owner should fix\u2026'} className="pn-input resize-none" />
+              <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder={'Be specific: which document or detail is missing/invalid and what the owner should fix\u2026'} className="dz-input resize-none" />
             </div>
           ) : null}
 

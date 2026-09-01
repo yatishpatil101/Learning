@@ -69,7 +69,7 @@ export default function InternalNote({ entityType, entityId, value, onChange, sh
           onChange={(e) => onChange(e.target.value)}
           rows={2}
           placeholder="Add a note for the team... (visible only to admins/staff)"
-          className="mt-2 pn-input resize-none text-sm"
+          className="mt-2 dz-input resize-none text-sm"
         />
       )}
 

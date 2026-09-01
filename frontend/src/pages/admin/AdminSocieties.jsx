@@ -274,7 +274,7 @@ export default function AdminSocieties() {
 
      `logAudit` unshifted a sentence onto `db.auditLog` in this browser's localStorage, capped at
      200 rows. Exactly one screen ever read that array: Admin ▸ Settings ▸ Audit log. Every write
-     underneath these ten lines goes to `lib/store/societyAdmin.js`, which uses its own `pnSociety*`
+     underneath these ten lines goes to `lib/store/societyAdmin.js`, which uses its own `dzSociety*`
      keys and never reaches the server — so these rows described changes no other operator could
      see, in a log no other operator could read.
 
@@ -497,7 +497,7 @@ export default function AdminSocieties() {
   /* Opens from the server's copy, not from the directory row beside it. The four public facts do
      appear on that row, but `adminNote` does not and never will — it is moderator prose about a
      named building, deliberately kept off the payload every anonymous reader gets. Reading it from
-     `pnSocietyOverlay` was what made the note private to whichever browser typed it. */
+     `dzSocietyOverlay` was what made the note private to whichever browser typed it. */
   const openEdit = async (s) => {
     let row;
     try {
@@ -560,7 +560,7 @@ export default function AdminSocieties() {
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {KPIS.map((k) => (
-          <div key={k.label} onClick={() => setTab(k.tab)} className="pn-card p-4 cursor-pointer hover:bg-white/5">
+          <div key={k.label} onClick={() => setTab(k.tab)} className="dz-card p-4 cursor-pointer hover:bg-white/5">
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><k.icon className="h-4 w-4" /></span>
@@ -578,7 +578,7 @@ export default function AdminSocieties() {
       </HScroll>
 
       <p className="mb-2 text-xs text-gray-400">
-        {tab === 'claims' ? 'RWA / committee requests to manage a society. Approving flips the public hub to “Managed on PuneNest”.'
+        {tab === 'claims' ? 'RWA / committee requests to manage a society. Approving flips the public hub to “Managed on Draazy”.'
           : tab === 'residents' ? 'Residents proving they live in a society. Verifying grants a Resident badge on their reviews & answers.'
             : tab === 'candidates' ? 'Auto-minted community societies (from listings & searcher demand) awaiting review. Verify the real ones; merge duplicates into a canonical society — listings & followers redirect automatically.'
               : tab === 'moderation' ? 'Community moderation queue. Review resident reports on society content, approve/reject proposed resident WhatsApp group links (approved links are shared with verified residents only — never the public), and confirm resident-proposed location corrections (anti-scam gate).'
@@ -602,7 +602,7 @@ export default function AdminSocieties() {
 
       {edit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setEdit(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Edit society" className="pn-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Edit society" className="dz-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1">{edit.name}</h3>
             <p className="text-gray-400 text-sm mb-4">Overlay edits — override the catalogue without touching source data.</p>
             <div className="space-y-3">
@@ -629,7 +629,7 @@ export default function AdminSocieties() {
 
       {merge && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setMerge(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Merge society" className="pn-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Merge society" className="dz-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><GitMerge className="h-5 w-5 text-brand-teal" />Merge duplicate</h3>
             <p className="text-gray-400 text-sm mb-4">Fold <span className="text-white font-semibold">“{merge.cand.name}”</span> into a canonical society. Its listings, follows and reviews will read on that society instead; nothing is deleted, and the merge can be undone.</p>
             <label className="block text-sm mb-1 text-gray-300">Merge into</label>
@@ -652,7 +652,7 @@ export default function AdminSocieties() {
 
       {review && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={() => setReview(null)}>
-          <div role="dialog" aria-modal="true" aria-label="Review community details" className="pn-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Review community details" className="dz-card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-1 flex items-center gap-2"><Sparkles className="h-5 w-5 text-amber-300" />Review community details</h3>
             <p className="text-gray-400 text-sm mb-4">Member-suggested details for <span className="text-white font-semibold">“{review.name}”</span>. Applying shows them as <span className="text-white">community-provided</span> (not officially verified).</p>
             <dl className="space-y-1.5 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">

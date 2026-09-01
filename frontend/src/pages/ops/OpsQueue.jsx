@@ -144,9 +144,9 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         <PageHeader
           title={title}
           subtitle={subtitle}
-          actions={<button onClick={reload} className="pn-btn pn-btn-ghost"><RefreshCw className="h-4 w-4" /> Try again</button>}
+          actions={<button onClick={reload} className="dz-btn dz-btn-ghost"><RefreshCw className="h-4 w-4" /> Try again</button>}
         />
-        <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
+        <div className="dz-card flex items-start gap-3 p-5 text-sm text-amber-200">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-semibold">The queue could not be read.</p>
@@ -198,7 +198,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
      table gets a stacked-card fallback below `sm` (see Table.jsx). Claim/Resolve
      are the two actions that must survive to mobile — they're 44px here. */
   const ticketCard = (t) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{t.customer}</div>
@@ -227,7 +227,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
 
   const doExport = () =>
     exportCsv(
-      `punenest-${team || 'requests'}.csv`,
+      `draazy-${team || 'requests'}.csv`,
       ['ID', 'Team', 'Service', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assignee', 'Value', 'Status', 'Created'],
       rows.map((t) => [t.id, t.team, t.service, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.value || 0, t.status, asDate(t.createdAt)]),
     );
@@ -239,10 +239,10 @@ export default function OpsQueue({ title, subtitle, team = null }) {
         subtitle={subtitle}
         actions={
           <>
-            <button onClick={reload} className="pn-btn pn-btn-ghost">
+            <button onClick={reload} className="dz-btn dz-btn-ghost">
               <RefreshCw className="h-4 w-4" /> Refresh
             </button>
-            <button onClick={doExport} className="pn-btn pn-btn-ghost">
+            <button onClick={doExport} className="dz-btn dz-btn-ghost">
               <Download className="h-4 w-4" /> Export CSV
             </button>
           </>
@@ -274,7 +274,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
             onClick={() => setStatus(key)}
             aria-pressed={status === key}
             aria-label={key ? `Show ${label.toLowerCase()} tickets` : 'Show all tickets'}
-            className={classNames('pn-card p-4 text-left transition', status === key ? 'border-brand-teal/40 ring-1 ring-brand-teal/30' : 'hover:bg-white/5')}
+            className={classNames('dz-card p-4 text-left transition', status === key ? 'border-brand-teal/40 ring-1 ring-brand-teal/30' : 'hover:bg-white/5')}
           >
             <div className="text-2xl font-extrabold">{fmtNum(count)}</div>
             <div className="text-xs text-gray-400">{label}</div>
@@ -283,7 +283,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer, ID, detail…" className="pn-input sm:w-72" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer, ID, detail…" className="dz-input sm:w-72" />
         <button
           onClick={() => setMineOnly((v) => !v)}
           className={classNames('inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition', mineOnly ? 'border-brand-teal/40 bg-brand-teal/10 text-brand-teal' : 'border-white/10 text-gray-300 hover:bg-white/5')}
@@ -333,7 +333,7 @@ export default function OpsQueue({ title, subtitle, team = null }) {
                 <Select value={detail.status} onChange={(v) => setTicketStatus(detail.id, v)} options={STATUS_OPTS} ariaLabel="Set status" />
               </label>
               <div className="flex items-end">
-                <button onClick={() => claim(detail)} disabled={detail.assignedTo === meName} className="pn-btn pn-btn-ghost w-full disabled:opacity-60">
+                <button onClick={() => claim(detail)} disabled={detail.assignedTo === meName} className="dz-btn dz-btn-ghost w-full disabled:opacity-60">
                   {detail.assignedTo ? `Assigned: ${detail.assignedTo}` : 'Assign to me'}
                 </button>
               </div>
@@ -354,8 +354,8 @@ export default function OpsQueue({ title, subtitle, team = null }) {
                 )}
               </ul>
               <div className="mt-3 flex gap-2">
-                <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addNote()} placeholder="Add a note…" className="pn-input flex-1" />
-                <button onClick={addNote} className="pn-btn pn-btn-primary">Add</button>
+                <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addNote()} placeholder="Add a note…" className="dz-input flex-1" />
+                <button onClick={addNote} className="dz-btn dz-btn-primary">Add</button>
               </div>
             </div>
           </div>

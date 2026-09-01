@@ -19,7 +19,7 @@ export const updateCityLive = async (slug, live) =>
   (await provider()).updateCity(slug, { live });
 
 /**
- * Ask to be told when PuneNest launches somewhere (`POST /cities/waitlist`).
+ * Ask to be told when Draazy launches somewhere (`POST /cities/waitlist`).
  *
  * This used to be a `localStorage` array, which made it the one demand signal the operator could
  * never see: the shopper's ask was filed in the shopper's own browser. Resolves on 201 and throws

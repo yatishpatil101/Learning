@@ -66,7 +66,7 @@ test.describe('Mobile navbar — context-aware left slot', () => {
     await page.setViewportSize({ width: 360, height: 640 });
     await page.goto(`/listings?deal=rent`);
 
-    const row = page.locator('.pn-topbar__row');
+    const row = page.locator('.dz-topbar__row');
     await expect(row.locator('a:visible, button:visible')).toHaveCount(6);
     await expect(row.locator('a[href="/compare"]')).toBeHidden();
 

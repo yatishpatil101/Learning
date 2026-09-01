@@ -15,7 +15,7 @@ import { fmtINR } from '../../lib/format.js';
 
 const SUBJECTS = ['Buying this property', 'Renting this property', 'Site visit', 'Home Loan Assistance', 'General enquiry'];
 const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^91/, '');
-const WA_SUPPORT = `https://wa.me/919876543210?text=${encodeURIComponent('Hi PuneNest, I need help with a property enquiry.')}`;
+const WA_SUPPORT = `https://wa.me/919876543210?text=${encodeURIComponent('Hi Draazy, I need help with a property enquiry.')}`;
 
 function titleOf(p) {
   if (!p) return '';
@@ -255,10 +255,10 @@ export default function Contact() {
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactWhatsappShort')}</span>
                     <span className="font-semibold hidden lg:inline">{t('misc1.contactWhatsapp')}</span>
                   </a>
-                  <a href="mailto:hello@punenest.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
+                  <a href="mailto:hello@draazy.com" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
                     <Icon name="mail" className="w-4 h-4 text-teal-400 shrink-0" />
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactEmailShort')}</span>
-                    <span className="truncate hidden lg:inline">hello@punenest.com</span>
+                    <span className="truncate hidden lg:inline">hello@draazy.com</span>
                   </a>
                 </div>
                 <p className="mt-3 text-[11px] text-gray-500 flex items-center gap-1.5"><Icon name="shield-check" className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> {t('misc1.contactNoSpam')}</p>
@@ -268,9 +268,9 @@ export default function Contact() {
         </div>
       </div>
 
-      {/* Sticky mobile quick-contact bar — PuneNest support (not the gated owner number).
+      {/* Sticky mobile quick-contact bar — Draazy support (not the gated owner number).
           Hidden on lg where the rail is already visible. The Nestor FAB lifts above it. */}
-      <div className="pn-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
+      <div className="dz-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
         <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
         <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0d1a]"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>
       </div>

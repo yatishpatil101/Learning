@@ -96,10 +96,10 @@ test('picking a place in an unselected locality nudges the user to add it', asyn
   // Select "Baner" from the registry list (no stub yet, so live Places noise can't hijack
   // the pick — Baner is a curated locality present with or without Google).
   await page.locator('aside button[aria-label="Localities"]').click();
-  await page.locator('.pn-dropdown__search input').waitFor({ timeout: 5000 });
-  await page.locator('.pn-dropdown__search input').fill('Baner');
-  await page.locator('.pn-dropdown__option', { hasText: /^Baner$/ }).first().click();
-  await expect(page.locator('aside button[aria-label="Localities"] .pn-dropdown__value'))
+  await page.locator('.dz-dropdown__search input').waitFor({ timeout: 5000 });
+  await page.locator('.dz-dropdown__search input').fill('Baner');
+  await page.locator('.dz-dropdown__option', { hasText: /^Baner$/ }).first().click();
+  await expect(page.locator('aside button[aria-label="Localities"] .dz-dropdown__value'))
     .toHaveText(/Baner/, { timeout: 8000 });
 
   // Now stub Places and pick a Hinjawadi POI in the Near-a-Place field.
@@ -108,10 +108,10 @@ test('picking a place in an unselected locality nudges the user to add it', asyn
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Near a Place"))').first();
   await group.locator('h4.fg-header').first().click();
-  await group.locator('.pn-dropdown__trigger').first().click();
-  await page.locator('.pn-dropdown__menu--portal input').fill('Xion');
-  await page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: 'Xion Mall' }).first().click();
-  await expect(page.locator('.pn-dropdown__menu--portal')).toHaveCount(0);
+  await group.locator('.dz-dropdown__trigger').first().click();
+  await page.locator('.dz-dropdown__menu--portal input').fill('Xion');
+  await page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: 'Xion Mall' }).first().click();
+  await expect(page.locator('.dz-dropdown__menu--portal')).toHaveCount(0);
 
   // The nudge appears: "<place> is in Hinjawadi …" with a one-tap add.
   const addBtn = group.locator('button', { hasText: 'Add Hinjawadi' });
@@ -121,7 +121,7 @@ test('picking a place in an unselected locality nudges the user to add it', asyn
   // Accept it → Hinjawadi joins the localities, and the nudge self-hides.
   await addBtn.click();
   await expect(group.locator('button', { hasText: 'Add Hinjawadi' })).toHaveCount(0);
-  await expect(page.locator('aside button[aria-label="Localities"] .pn-dropdown__value'))
+  await expect(page.locator('aside button[aria-label="Localities"] .dz-dropdown__value'))
     .toHaveText(/Hinjawadi/, { timeout: 8000 });
 
   /* …and the SEARCH changed, not just the label. Both slugs, because the nudge adds a
@@ -147,7 +147,7 @@ test('nudge fires when the near point arrives from a URL (no in-panel pick)', as
   // loc=baner selects Baner; near coords sit in Hinjawadi (a locality NOT selected).
   await page.goto(`${BASE}/listings?loc=${SELECTED}&near=18.5913,73.7389&nearlabel=${encodeURIComponent('Xion Mall')}`);
   await page.locator('aside button[aria-label="Localities"]').waitFor({ timeout: 15000 });
-  await expect(page.locator('aside button[aria-label="Localities"] .pn-dropdown__value'))
+  await expect(page.locator('aside button[aria-label="Localities"] .dz-dropdown__value'))
     .toHaveText(/Baner/, { timeout: 8000 });
 
   // The Near-a-Place group starts expanded (near preset) and the derived nudge shows.
@@ -158,7 +158,7 @@ test('nudge fires when the near point arrives from a URL (no in-panel pick)', as
   // One-tap add resolves the conflict, self-hides the nudge, and widens the query.
   await group.locator('button', { hasText: 'Add Hinjawadi' }).click();
   await expect(group.locator('button', { hasText: 'Add Hinjawadi' })).toHaveCount(0);
-  await expect(page.locator('aside button[aria-label="Localities"] .pn-dropdown__value'))
+  await expect(page.locator('aside button[aria-label="Localities"] .dz-dropdown__value'))
     .toHaveText(/Hinjawadi/, { timeout: 8000 });
   await expect.poll(() => locParam(page), { timeout: 8000 }).toEqual(
     expect.arrayContaining([SELECTED, PLACE_PARENT]),

@@ -12,7 +12,7 @@ const PAGES = [
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
     );
   });
@@ -66,7 +66,7 @@ test.describe('Cookie consent (DPDPA)', () => {
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Accept all' }).click();
     await expect(dialog).toBeHidden();
-    const consent = await page.evaluate(() => JSON.parse(localStorage.getItem('pn_cookie_consent_v1')));
+    const consent = await page.evaluate(() => JSON.parse(localStorage.getItem('dz_cookie_consent_v1')));
     expect(consent.marketing).toBe(true);
     await page.reload();
     await expect(page.getByRole('dialog', { name: 'Cookie preferences' })).toHaveCount(0);
@@ -76,7 +76,7 @@ test.describe('Cookie consent (DPDPA)', () => {
     await page.goto('/');
     const dialog = page.getByRole('dialog', { name: 'Cookie preferences' });
     await dialog.getByRole('button', { name: 'Reject non-essential' }).click();
-    const consent = await page.evaluate(() => JSON.parse(localStorage.getItem('pn_cookie_consent_v1')));
+    const consent = await page.evaluate(() => JSON.parse(localStorage.getItem('dz_cookie_consent_v1')));
     expect(consent.marketing).toBe(false);
     expect(consent.analytics).toBe(false);
     await page.getByRole('button', { name: 'Cookie preferences' }).click();

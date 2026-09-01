@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/* The mobile bottom tab bar — PuneNest's primary wayfinding surface on phones.
+/* The mobile bottom tab bar — Draazy's primary wayfinding surface on phones.
 
    The critical invariant is the last test: the bar must not exist at desktop widths.
    Everything else in this phase is additive, so a desktop regression could only come
@@ -19,7 +19,7 @@ const TABS = [
   { name: /^Services$/, href: '/services' },
 ];
 
-const bar = (page) => page.locator('nav.pn-bottom-nav');
+const bar = (page) => page.locator('nav.dz-bottom-nav');
 
 test.describe('Mobile bottom nav', () => {
   test('renders with all five slots on Home', async ({ page }) => {
@@ -63,7 +63,7 @@ test.describe('Mobile bottom nav', () => {
     // One indicator that travels, not five that cross-fade — so the assertion is that
     // there is exactly one, and that it lands on whichever slot is current.
     test.slow(); // three cold navigations, same reason as the test above.
-    const pill = page.locator('.pn-bottom-nav__indicator');
+    const pill = page.locator('.dz-bottom-nav__indicator');
 
     await page.goto('/listings');
     await expect(pill).toHaveCount(1);
@@ -109,7 +109,7 @@ test.describe('Mobile bottom nav', () => {
 
     await bar(page).getByRole('link', { name: /^Search$/ }).click();
     await expect(page).toHaveURL(/\/listings/);
-    await expect(page.locator('.pn-search-sheet')).toHaveCount(0);
+    await expect(page.locator('.dz-search-sheet')).toHaveCount(0);
 
     /* The destination has to actually be searchable, or this is just a worse sheet.
        The Buy/Rent switch is a radiogroup, not a pair of buttons. */
@@ -121,7 +121,7 @@ test.describe('Mobile bottom nav', () => {
     test.slow(); // three cold navigations.
     for (const route of ['/', '/listings', '/flatmates']) {
       await page.goto(route);
-      await expect(page.locator('.pn-search-sheet'), `${route} should mount no search sheet`).toHaveCount(0);
+      await expect(page.locator('.dz-search-sheet'), `${route} should mount no search sheet`).toHaveCount(0);
     }
   });
 
@@ -157,7 +157,7 @@ test.describe('Mobile bottom nav', () => {
 
     // The caption block spans to the screen edge by design — it is the media's own
     // scrim — so what has to clear the bar is its last line of text, which its
-    // padding-bottom is sized off --pn-bottom-inset to guarantee.
+    // padding-bottom is sized off --dz-bottom-inset to guarantee.
     const lastLine = await page.locator('.reels-page .reel').first()
       .locator('.reel-info p').last().boundingBox();
     expect(lastLine.y + lastLine.height, 'the caption text must end above the bar')

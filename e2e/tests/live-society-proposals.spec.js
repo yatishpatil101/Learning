@@ -5,7 +5,7 @@
  *
  * These three were the most complete pieces of theatre in the product. A resident who spent ten
  * minutes filling in their society's builder, year, tower count and amenities sent that work to
- * `pnSocietySuggestions` in their own browser and nowhere else. The ops queue meant to review it
+ * `dzSocietySuggestions` in their own browser and nowhere else. The ops queue meant to review it
  * read the *reviewer's* browser, so it was permanently empty. Same for the WhatsApp invite — the
  * one control on the page that connects a new neighbour to the people already there — and same for
  * a corrected map pin, so every society imported with a bad coordinate stayed wrong for everybody

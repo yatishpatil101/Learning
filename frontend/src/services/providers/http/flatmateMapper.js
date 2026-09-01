@@ -72,7 +72,7 @@ export const CONFLICT_MARKER = /\s*\(([a-z_]+)\)\s*$/;
  * either side of it is copy and will be rewritten.
  *
  * The other half of this contract is `FlatmateConflicts` in
- * `backend/src/main/java/com/punenest/api/engagement/flatmate/`: it owns the two spellings above
+ * `backend/src/main/java/com/draazy/api/engagement/flatmate/`: it owns the two spellings above
  * and does the appending itself, precisely so no service can put a full stop or a hint after the
  * marker and silently blind this regex — which is end-anchored on purpose, because a message that
  * merely *contains* `already_interested` is not the same claim. `FlatmateConflictsTest` reproduces

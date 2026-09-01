@@ -10,15 +10,15 @@
 }
 
 /* A reel is exactly one viewport minus the top bar. It deliberately does NOT subtract
-   --pn-bottom-inset: the floating tab bar is a capsule sitting *on* the media, and the
+   --dz-bottom-inset: the floating tab bar is a capsule sitting *on* the media, and the
    whole point of that material is that content passes under it — reserving a strip for
    it here is what cut the photo off with a dead band, and cost the reel a sixth of the
    screen. ConsumerLayout's matching `padding-bottom` is dropped by `.route-fullbleed`
    (styles/index.css); the caption below still clears the bar via its own padding.
-   --pn-nav-h already changes at its own breakpoint, so this needs no media query. */
+   --dz-nav-h already changes at its own breakpoint, so this needs no media query. */
 .reels-page .reel-wrap {
-  height: calc(100vh - var(--pn-nav-h));
-  height: calc(100dvh - var(--pn-nav-h));
+  height: calc(100vh - var(--dz-nav-h));
+  height: calc(100dvh - var(--dz-nav-h));
   overflow-y: auto;
   scroll-snap-type: y mandatory;
 }
@@ -28,8 +28,8 @@
 }
 
 .reels-page .reel {
-  height: calc(100vh - var(--pn-nav-h));
-  height: calc(100dvh - var(--pn-nav-h));
+  height: calc(100vh - var(--dz-nav-h));
+  height: calc(100dvh - var(--dz-nav-h));
   scroll-snap-align: start;
   position: relative;
   display: flex;
@@ -104,12 +104,12 @@
 }
 
 /* The action rail carries five items now (like / save / share / view / contact), so it
-   is anchored off --pn-bottom-inset — it must clear the floating tab bar the media now
+   is anchored off --dz-bottom-inset — it must clear the floating tab bar the media now
    runs under — plus the height of the caption block beneath it. */
 .reels-page .rail {
   position: absolute;
   right: 14px;
-  bottom: calc(var(--pn-bottom-inset) + 132px);
+  bottom: calc(var(--dz-bottom-inset) + 132px);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -118,7 +118,7 @@
 
 @media (max-width: 767px) {
   .reels-page .rail {
-    bottom: calc(var(--pn-bottom-inset) + 150px);
+    bottom: calc(var(--dz-bottom-inset) + 150px);
     gap: 14px;
   }
 }
@@ -131,7 +131,7 @@
    separate spans rather than one text node. */
 @media (max-height: 700px) {
   .reels-page .rail {
-    bottom: calc(var(--pn-bottom-inset) + 138px);
+    bottom: calc(var(--dz-bottom-inset) + 138px);
     gap: 12px;
   }
 
@@ -192,20 +192,20 @@
   position: relative;
   z-index: 4;
   width: 100%;
-  padding: 20px 20px calc(var(--pn-bottom-inset) + 14px);
+  padding: 20px 20px calc(var(--dz-bottom-inset) + 14px);
 }
 
 /* Loading / empty notice. Fills the same box a reel would, so the page never collapses
    to a bare dark rectangle between the top overlay and the tab bar. */
 .reels-page .reel-note {
-  height: calc(100vh - var(--pn-nav-h));
-  height: calc(100dvh - var(--pn-nav-h));
+  height: calc(100vh - var(--dz-nav-h));
+  height: calc(100dvh - var(--dz-nav-h));
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 24px 32px calc(var(--pn-bottom-inset) + 24px);
+  padding: 24px 32px calc(var(--dz-bottom-inset) + 24px);
   text-align: center;
   color: #94a3b8;
   font-size: 14px;

@@ -75,7 +75,7 @@ export default function Modal({ open, onClose, title, children, footer, size = '
         aria-label={title}
         {...swipe}
         className={classNames(
-          'pn-modal-panel pn-modal-sheet relative w-full p-0 border border-white/10 shadow-2xl outline-none',
+          'dz-modal-panel dz-modal-sheet relative w-full p-0 border border-white/10 shadow-2xl outline-none',
           'flex max-h-[88dvh] flex-col rounded-t-2xl',
           'sm:block sm:max-h-none sm:rounded-2xl',
           width,
@@ -88,7 +88,7 @@ export default function Modal({ open, onClose, title, children, footer, size = '
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:flex-none sm:px-6 sm:py-5 sm:max-h-[calc(100dvh-12rem)]">{children}</div>
-        {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+var(--pn-safe-b))] sm:px-6 sm:py-4 sm:pb-4">{footer}</div> : null}
+        {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-white/10 px-4 py-3 pb-[calc(0.75rem+var(--dz-safe-b))] sm:px-6 sm:py-4 sm:pb-4">{footer}</div> : null}
       </div>
     </div>,
     document.body,

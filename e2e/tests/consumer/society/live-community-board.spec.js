@@ -3,8 +3,8 @@ import { API, apiLogin, authHeaders, signedInAs, signedInAsNew, uniqueMobile } f
 
 /* The society noticeboard — events and notices — in a browser against the live API.
  *
- * Split out of the retired `community-v2.spec.js`, which seeded `pnSocietyResidents` and
- * `pnSocietyBoard` into localStorage and then read them back. That made "only a verified resident
+ * Split out of the retired `community-v2.spec.js`, which seeded `dzSocietyResidents` and
+ * `dzSocietyBoard` into localStorage and then read them back. That made "only a verified resident
  * may post here" a claim about a JSON blob the browser had written about itself thirty
  * milliseconds earlier: any visitor could have declared themselves a resident and the test would
  * have agreed. Residency is now the server's answer (`iAmResident` comes off

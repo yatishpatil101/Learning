@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/* --pn-bottom-inset is the linchpin of the mobile bottom-chrome system: every
+/* --dz-bottom-inset is the linchpin of the mobile bottom-chrome system: every
    bottom-anchored widget positions from it instead of a hardcoded `bottom-*`.
    These tests assert the thing that actually matters — nothing overlaps the bar.
 
@@ -34,7 +34,7 @@ async function scrollToSettledBottom(page) {
 async function withConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() })
     );
   });
@@ -43,7 +43,7 @@ async function withConsent(page) {
 test.describe('Bottom-chrome inset system', () => {
   test('the layout reserves the bar plus the gap it floats above the edge', async ({ page }) => {
     /* Consent seeded on purpose. Since D189 the wrapper's reservation is
-       `--pn-bottom-inset + --pn-cookie-banner-h`, so an un-dismissed consent bar adds
+       `--dz-bottom-inset + --dz-cookie-banner-h`, so an un-dismissed consent bar adds
        its own (correct, separately-tested) band and this equality would be measuring
        two reservations at once. The bar-vs-gap contract is what this test is for. */
     await withConsent(page);
@@ -51,10 +51,10 @@ test.describe('Bottom-chrome inset system', () => {
     const wrapper = page.locator('.has-bottom-nav');
     await expect(wrapper).toHaveCount(1);
     const pad = await wrapper.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
-    const navBox = await page.locator('nav.pn-bottom-nav').boundingBox();
+    const navBox = await page.locator('nav.dz-bottom-nav').boundingBox();
     const viewportH = page.viewportSize().height;
 
-    expect(navBox.height, 'the bar is still one --pn-bottom-nav-h tall').toBe(56);
+    expect(navBox.height, 'the bar is still one --dz-bottom-nav-h tall').toBe(56);
     /* The bar floats, so reserving only its height would leave the last card sitting in
        the gap underneath it. The reservation that actually matters is the distance from
        the bar's top edge to the bottom of the viewport — assert that rather than a
@@ -67,7 +67,7 @@ test.describe('Bottom-chrome inset system', () => {
     await scrollToSettledBottom(page);
     const clear = await page.evaluate(() => {
       const footer = document.querySelector('.has-bottom-nav > footer');
-      const nav = document.querySelector('nav.pn-bottom-nav');
+      const nav = document.querySelector('nav.dz-bottom-nav');
       return nav.getBoundingClientRect().top - footer.getBoundingClientRect().bottom;
     });
     // Sub-pixel tolerance: the reservation is derived from the bar's height and float
@@ -79,8 +79,8 @@ test.describe('Bottom-chrome inset system', () => {
   test('the assistant FAB sits above the bar, not behind it', async ({ page }) => {
     await withConsent(page);
     await page.goto('/');
-    const fab = page.locator('.pn-assistant-slot > div');
-    const nav = page.locator('nav.pn-bottom-nav');
+    const fab = page.locator('.dz-assistant-slot > div');
+    const nav = page.locator('nav.dz-bottom-nav');
     await expect(fab).toBeVisible();
     const [fabBox, navBox] = [await fab.boundingBox(), await nav.boundingBox()];
     expect(fabBox.y + fabBox.height, 'FAB bottom edge must clear the nav top edge')
@@ -92,7 +92,7 @@ test.describe('Bottom-chrome inset system', () => {
     const consent = page.getByRole('dialog', { name: /cookie preferences/i });
     await expect(consent).toBeVisible();
     const cBox = await consent.boundingBox();
-    const navBox = await page.locator('nav.pn-bottom-nav').boundingBox();
+    const navBox = await page.locator('nav.dz-bottom-nav').boundingBox();
     expect(cBox.y + cBox.height).toBeLessThanOrEqual(navBox.y + 1);
   });
 });

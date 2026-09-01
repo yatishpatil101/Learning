@@ -108,7 +108,7 @@ export default function AreaSearch({
             onKeyDown={onKeyDown}
             onFocus={() => { if (suggestions.length) setOpen(true); }}
             placeholder={placeholder}
-            className={`${fld} w-full ${invalid ? 'pn-invalid' : ''}`}
+            className={`${fld} w-full ${invalid ? 'dz-invalid' : ''}`}
             role="combobox"
             aria-expanded={open}
             aria-controls={listId}
@@ -119,20 +119,20 @@ export default function AreaSearch({
             <Loader2 className="w-4 h-4 text-teal-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
           )}
           {open && suggestions.length > 0 && (
-            <ul className="pn-ac-list" role="listbox" id={listId}>
+            <ul className="dz-ac-list" role="listbox" id={listId}>
               {suggestions.map((s, i) => (
                 <li
                   key={s.placeId}
                   role="option"
                   aria-selected={i === active}
-                  className={`pn-ac-item ${i === active ? 'is-active' : ''}`}
+                  className={`dz-ac-item ${i === active ? 'is-active' : ''}`}
                   onMouseEnter={() => setActive(i)}
                   onMouseDown={(e) => { e.preventDefault(); choose(s); }}
                 >
-                  <MapPin className="pn-ac-pin" />
-                  <span className="pn-ac-text">
-                    <span className="pn-ac-main">{s.mainText}</span>
-                    {s.secondaryText && <span className="pn-ac-sub">{s.secondaryText}</span>}
+                  <MapPin className="dz-ac-pin" />
+                  <span className="dz-ac-text">
+                    <span className="dz-ac-main">{s.mainText}</span>
+                    {s.secondaryText && <span className="dz-ac-sub">{s.secondaryText}</span>}
                   </span>
                 </li>
               ))}

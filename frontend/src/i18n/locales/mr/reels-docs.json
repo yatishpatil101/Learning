@@ -21,7 +21,7 @@
     "shareAria": "हे घर शेअर करा",
     "savedToast": "{{title}} तुमच्या शॉर्टलिस्टमध्ये जतन केले",
     "removedToast": "{{title}} जतन केलेल्यांमधून काढले",
-    "shareText": "PuneNest वर हे घर पाहा: {{title}} · {{price}}",
+    "shareText": "Draazy वर हे घर पाहा: {{title}} · {{price}}",
     "photoAria": "फोटो",
     "badgeRent": "भाडे",
     "badgeSale": "विक्री",
@@ -34,7 +34,7 @@
     "viewingStatus": "{{loc}} मधील {{title}} पाहत आहात"
   },
   "viewDocs": {
-    "watermark": "PuneNest · फक्त पाहण्यासाठी",
+    "watermark": "Draazy · फक्त पाहण्यासाठी",
     "cantPreview": "<1>{{name}}</1> इथे दाखवता येत नाही. ही कागदपत्रे फक्त पाहण्यासाठी आहेत — मालकाला PDF किंवा फोटो म्हणून पुन्हा शेअर करायला सांगा.",
     "thisFile": "ही फाइल",
     "zoomOut": "लहान करा",

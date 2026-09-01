@@ -7,7 +7,7 @@ import { test, expect } from '../../../fixtures/live.js';
  * ## Scope: the Move-in Pack is deliberately NOT here
  *
  * The mock twin's last two tests drove the Move-in Pack by writing `settings.movePack` straight
- * into `puneNestDB_v5`. That is not portable and does not need to be: the pack is already covered
+ * into `draazyDB_v5`. That is not portable and does not need to be: the pack is already covered
  * live and more thoroughly than it ever was in the mock —
  * `live-move-in-pack.spec.js` (5 tests: the booking reaches the ops board with the price the
  * customer accepted, the desk sees what was ordered, the booking leaves the browser, the

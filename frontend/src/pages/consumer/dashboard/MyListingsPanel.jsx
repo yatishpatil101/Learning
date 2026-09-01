@@ -252,7 +252,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
      listing stays live until somebody actually moves in.
 
      Through the seam rather than `lib/data/flatSplit.js`, which is what this called before: that
-     wrote the rooms to `puneNestRoomListings` in the owner's own browser, so a split never left
+     wrote the rooms to `draazyRoomListings` in the owner's own browser, so a split never left
      the device that performed it and no seeker ever saw the supply it created.
 
      The badge is now decided by the server from the parent listing's own status, so there is no
@@ -328,7 +328,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
 
   /* `handleWaReminder` stood here. It called `sendWhatsappTemplate(l.id, 'wa-dormant')` — the last
      caller of that function anywhere in the app — and opened a `wa.me` link to a chaser written in
-     the platform's voice, signed "— PuneNest Team", asking the reader to reply "YES" to reconfirm
+     the platform's voice, signed "— Draazy Team", asking the reader to reply "YES" to reconfirm
      availability. This is the owner's own dashboard and the number was the owner's own, so the
      owner was being handed a message from us, to them, to send to themselves.
 

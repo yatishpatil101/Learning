@@ -14,20 +14,20 @@
 /* DateField — guaranteed DD/MM/YYYY display over a native date picker.
    The wrapper carries the caller's field classes (form-input / field / …) so it
    looks identical to sibling inputs; the native control sits on top, invisible. */
-.pn-datefield {
+.dz-datefield {
   position: relative;
   display: flex;
   align-items: center;
   cursor: pointer;
 }
 
-.pn-datefield.form-input {
+.dz-datefield.form-input {
   height: var(--control-h);
   padding-top: 0;
   padding-bottom: 0;
 }
 
-.pn-datefield__text {
+.dz-datefield__text {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -35,11 +35,11 @@
   text-overflow: ellipsis;
 }
 
-.pn-datefield__text.is-placeholder {
+.dz-datefield__text.is-placeholder {
   color: #6b7280;
 }
 
-.pn-datefield__icon {
+.dz-datefield__icon {
   width: 1rem;
   height: 1rem;
   margin-left: 0.5rem;
@@ -49,14 +49,14 @@
   pointer-events: none;
 }
 
-.pn-datefield:focus-within,
-.pn-datefield:focus {
+.dz-datefield:focus-within,
+.dz-datefield:focus {
   border-color: var(--teal-2);
   box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
   outline: none;
 }
 
-.pn-datefield.is-disabled {
+.dz-datefield.is-disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -64,7 +64,7 @@
 /* ── Custom calendar (DatePickerDialog) — light "Select Date" card, teal accents,
    shown as a dropdown anchored under its field (position set inline by JS).
    Centrally used by every DateField, so the picker looks identical app-wide. ── */
-.pn-cal {
+.dz-cal {
   position: fixed;
   z-index: 2000;
   top: 0;
@@ -90,18 +90,18 @@
   --dd-trigger-height: 34px;
 }
 
-.pn-cal.is-open {
+.dz-cal.is-open {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
-.pn-cal:focus {
+.dz-cal:focus {
   outline: none;
 }
 
 /* Date / time pickers become bottom sheets on phones.
 
-   Both DatePickerDialog and TimePickerDialog render `.pn-cal`, so this one block
+   Both DatePickerDialog and TimePickerDialog render `.dz-cal`, so this one block
    converts both. It matters most inside ScheduleVisitModal, which is itself a
    sheet below 640px: an anchored popup floating over a sheet is a dialog inside a
    dialog, the classic mobile failure point the review flags as P0.
@@ -114,27 +114,27 @@
    values. Keep the two in sync. */
 @media (max-width: 639.98px) {
 
-  .pn-cal {
+  .dz-cal {
     top: auto !important;
     right: 0;
     bottom: 0;
     left: 0 !important;
     width: 100%;
     max-width: none;
-    padding-bottom: calc(14px + var(--pn-safe-b));
+    padding-bottom: calc(14px + var(--dz-safe-b));
     border-radius: 20px 20px 0 0;
     border-bottom: 0;
     transform: translateY(100%);
     transform-origin: bottom center;
   }
 
-  .pn-cal.is-open {
+  .dz-cal.is-open {
     transform: translateY(0);
   }
 
   /* Backdrop without extra markup: a fixed pseudo-element behind the panel, which
      also gives the sheet something to read against on a busy page. */
-  .pn-cal::before {
+  .dz-cal::before {
     content: '';
     position: fixed;
     inset: 0;
@@ -143,7 +143,7 @@
   }
 
   /* Grab handle, matching the modal sheets. */
-  .pn-cal::after {
+  .dz-cal::after {
     content: '';
     position: absolute;
     top: 6px;
@@ -157,19 +157,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-cal {
+  .dz-cal {
     transition: none;
   }
 }
 
-.pn-cal__head {
+.dz-cal__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 13px;
 }
 
-.pn-cal__title {
+.dz-cal__title {
   font-size: 1.22rem;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -177,7 +177,7 @@
   margin: 0;
 }
 
-.pn-cal__badge {
+.dz-cal__badge {
   position: relative;
   width: 44px;
   height: 40px;
@@ -190,7 +190,7 @@
   box-shadow: 0 8px 18px rgba(13, 148, 136, 0.35);
 }
 
-.pn-cal__badge-tab {
+.dz-cal__badge-tab {
   position: absolute;
   top: -4px;
   width: 5px;
@@ -199,15 +199,15 @@
   background: var(--teal-1);
 }
 
-.pn-cal__badge-tab:nth-child(1) {
+.dz-cal__badge-tab:nth-child(1) {
   left: 12px;
 }
 
-.pn-cal__badge-tab:nth-child(2) {
+.dz-cal__badge-tab:nth-child(2) {
   right: 12px;
 }
 
-.pn-cal__badge-num {
+.dz-cal__badge-num {
   font-size: 1.22rem;
   font-weight: 800;
   color: #fff;
@@ -215,14 +215,14 @@
   margin-top: 4px;
 }
 
-.pn-cal__selectors {
+.dz-cal__selectors {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 13px;
 }
 
-.pn-cal__nav {
+.dz-cal__nav {
   flex-shrink: 0;
   width: 28px;
   height: 34px;
@@ -237,43 +237,43 @@
   transition: background 0.18s ease, color 0.18s ease;
 }
 
-.pn-cal__nav:hover {
+.dz-cal__nav:hover {
   background: rgba(20, 184, 166, 0.16);
   color: var(--teal-3);
 }
 
 /* Year is fixed-narrow (only 4 digits) so month gets the room full names need. */
-.pn-cal__dd {
+.dz-cal__dd {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.pn-cal__dd.pn-cal__dd--year {
+.dz-cal__dd.dz-cal__dd--year {
   flex: 0 0 74px;
 }
 
-.pn-cal .pn-cal__dd .pn-dropdown__trigger {
+.dz-cal .dz-cal__dd .dz-dropdown__trigger {
   font-weight: 600;
   font-size: 0.8rem;
   gap: 0.3rem;
 }
 
-.pn-cal .pn-cal__dd .pn-dropdown__chev {
+.dz-cal .dz-cal__dd .dz-dropdown__chev {
   width: 0.85rem;
   height: 0.85rem;
 }
 
-.pn-cal__grid {
+.dz-cal__grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
 }
 
-.pn-cal__grid--head {
+.dz-cal__grid--head {
   margin-bottom: 4px;
 }
 
-.pn-cal__wd {
+.dz-cal__wd {
   text-align: center;
   font-size: 0.58rem;
   font-weight: 700;
@@ -282,11 +282,11 @@
   padding: 3px 0;
 }
 
-.pn-cal__wd.is-sun {
+.dz-cal__wd.is-sun {
   color: var(--teal-3);
 }
 
-.pn-cal__day {
+.dz-cal__day {
   position: relative;
   aspect-ratio: 1 / 1;
   min-height: 31px;
@@ -301,20 +301,20 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.pn-cal__day.is-sun {
+.dz-cal__day.is-sun {
   color: var(--teal-3);
 }
 
-.pn-cal__day.is-muted {
+.dz-cal__day.is-muted {
   color: rgba(255, 255, 255, 0.22);
   font-weight: 500;
 }
 
-.pn-cal__day:hover:not(:disabled):not(.is-selected) {
+.dz-cal__day:hover:not(:disabled):not(.is-selected) {
   background: rgba(20, 184, 166, 0.16);
 }
 
-.pn-cal__day.is-today:not(.is-selected)::after {
+.dz-cal__day.is-today:not(.is-selected)::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -326,24 +326,24 @@
   background: var(--teal-3);
 }
 
-.pn-cal__day.is-selected {
+.dz-cal__day.is-selected {
   background: rgba(20, 184, 166, 0.2);
   color: var(--teal-3);
   font-weight: 800;
   box-shadow: inset 0 0 0 1.5px var(--teal-2);
 }
 
-.pn-cal__day:disabled {
+.dz-cal__day:disabled {
   color: rgba(255, 255, 255, 0.18);
   cursor: not-allowed;
 }
 
-.pn-cal__day:focus-visible {
+.dz-cal__day:focus-visible {
   outline: 2px solid var(--teal-2);
   outline-offset: -2px;
 }
 
-.pn-cal__confirm {
+.dz-cal__confirm {
   width: 100%;
   margin-top: 14px;
   height: 42px;
@@ -360,42 +360,42 @@
   transition: filter 0.18s ease, transform 0.08s ease;
 }
 
-.pn-cal__confirm:hover:not(:disabled) {
+.dz-cal__confirm:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
-.pn-cal__confirm:active:not(:disabled) {
+.dz-cal__confirm:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.pn-cal__confirm:disabled {
+.dz-cal__confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-cal {
+  .dz-cal {
     transition: none;
   }
 }
 
-/* ── Custom time picker (TimePickerDialog) — reuses the .pn-cal card shell so it
+/* ── Custom time picker (TimePickerDialog) — reuses the .dz-cal card shell so it
    looks identical to the calendar; swaps the day grid for hour/minute selects +
    an AM/PM toggle. Centrally used by every TimeField. ── */
 /* The card is narrower than the calendar on a desktop dropdown, but NOT on a
-   phone: the bottom-sheet block above gives `.pn-cal` a full-bleed `width: 100%`,
-   and an unguarded `.pn-timepicker { width: 250px }` later in this file has equal
+   phone: the bottom-sheet block above gives `.dz-cal` a full-bleed `width: 100%`,
+   and an unguarded `.dz-timepicker { width: 250px }` later in this file has equal
    specificity, so it would win and dock a 250px stub against the left edge while
    the calendar next to it goes full width. Guarding by the same breakpoint keeps
    the two dialogs behaving identically, which is what the sheet block claims. */
 @media (min-width: 640px) {
-  .pn-timepicker {
+  .dz-timepicker {
     width: 250px;
   }
 }
 
-.pn-timepicker__readout {
+.dz-timepicker__readout {
   font-size: 0.95rem;
   font-weight: 800;
   letter-spacing: 0.01em;
@@ -405,26 +405,26 @@
   padding: 6px 12px;
 }
 
-.pn-timepicker__row {
+.dz-timepicker__row {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 2px;
 }
 
-.pn-timepicker__unit {
+.dz-timepicker__unit {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.pn-timepicker__colon {
+.dz-timepicker__colon {
   font-weight: 800;
   font-size: 1.05rem;
   color: var(--text);
   padding: 0 1px;
 }
 
-.pn-timepicker__mer {
+.dz-timepicker__mer {
   flex: 0 0 auto;
   display: flex;
   border-radius: 9px;
@@ -432,7 +432,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.pn-timepicker__mer button {
+.dz-timepicker__mer button {
   height: 34px;
   padding: 0 11px;
   border: none;
@@ -445,16 +445,16 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.pn-timepicker__mer button+button {
+.dz-timepicker__mer button+button {
   border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.pn-timepicker__mer button:hover:not(.is-on) {
+.dz-timepicker__mer button:hover:not(.is-on) {
   background: rgba(20, 184, 166, 0.12);
   color: var(--teal-3);
 }
 
-.pn-timepicker__mer button.is-on {
+.dz-timepicker__mer button.is-on {
   background: rgba(20, 184, 166, 0.2);
   color: var(--teal-3);
 }

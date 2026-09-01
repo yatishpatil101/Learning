@@ -230,7 +230,7 @@
 /* The wizard is the longest form in the app. The meter is already sticky, but on
    a phone the full card costs a fifth of the screen for the whole scroll, so shed
    the tier icon, the encouragement line and the milestone scale and let the
-   percentage plus the bar carry the message. `.pn-docks-under-nav` on the element
+   percentage plus the bar carry the message. `.dz-docks-under-nav` on the element
    supplies the top offset, so the meter follows the navbar as it hides and
    returns instead of hard-coding a second copy of that value. */
 @media (max-width: 639.98px) {
@@ -301,9 +301,9 @@ input.form-input {
 }
 
 /* Invalid choice group (pills): each pill takes the same red border + glow as an
-   invalid input (.pn-invalid), so a required pill-group reads exactly like the
+   invalid input (.dz-invalid), so a required pill-group reads exactly like the
    red-outlined text fields (e.g. Locality) on the same form. */
-.pn-invalid-group .radio-pill {
+.dz-invalid-group .radio-pill {
   border-color: #f87171;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, .22);
 }
@@ -725,7 +725,7 @@ input.form-input {
 
 /* List-property "Search an area" autocomplete dropdown — dark, google.com/maps-style
    predictions shown under the search input in the location picker. */
-.pn-ac-list {
+.dz-ac-list {
   position: absolute;
   z-index: 40;
   left: 0;
@@ -742,7 +742,7 @@ input.form-input {
   margin: 0;
 }
 
-.pn-ac-item {
+.dz-ac-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -752,11 +752,11 @@ input.form-input {
   color: #e7e5ee;
 }
 
-.pn-ac-item.is-active {
+.dz-ac-item.is-active {
   background: rgba(45, 212, 191, .14);
 }
 
-.pn-ac-pin {
+.dz-ac-pin {
   width: 16px;
   height: 16px;
   margin-top: 2px;
@@ -764,14 +764,14 @@ input.form-input {
   color: var(--teal-2, #2dd4bf);
 }
 
-.pn-ac-text {
+.dz-ac-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
   line-height: 1.3;
 }
 
-.pn-ac-main {
+.dz-ac-main {
   font-size: 13px;
   font-weight: 600;
   color: #f4f3f8;
@@ -780,7 +780,7 @@ input.form-input {
   text-overflow: ellipsis;
 }
 
-.pn-ac-sub {
+.dz-ac-sub {
   font-size: 11.5px;
   color: #9a97a8;
   white-space: nowrap;

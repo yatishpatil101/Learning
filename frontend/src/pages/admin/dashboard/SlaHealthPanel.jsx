@@ -20,7 +20,7 @@ export default function SlaHealthPanel({ sla }) {
         <h2 className="text-lg font-bold">SLA health</h2>
         <span className="text-sm text-gray-500">Internal ops speed — listing approval, service delivery &amp; concierge pipeline</span>
       </div>
-      <div className="mb-6 pn-card p-5">
+      <div className="mb-6 dz-card p-5">
         {/* KPI row */}
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 mb-5">
           {[

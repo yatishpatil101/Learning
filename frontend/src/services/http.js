@@ -1,5 +1,5 @@
 /**
- * HTTP client for the live PuneNest API.
+ * HTTP client for the live Draazy API.
  *
  * Deliberately built on native `fetch` — the only things a wrapper library would buy us here are
  * interceptors and error normalisation, both of which are ~40 lines against a single known backend.
@@ -20,7 +20,7 @@ import {
 const TRACE_HEADER = 'X-Trace-Id';
 const REFRESH_PATH = '/auth/refresh';
 /** Name of the cross-tab Web Lock that serialises token refreshes. */
-const REFRESH_LOCK = 'punenest:auth-refresh';
+const REFRESH_LOCK = 'draazy:auth-refresh';
 
 /**
  * A failed API call, normalised. `code` is the backend's stable machine-readable string (e.g.
@@ -102,7 +102,7 @@ export function observeReachability(fn) {
  *                                        the answer rather than a transport detail — `POST
  *                                        /societies` replies 201 for a society it minted and 200 for
  *                                        one that already existed, and the screen has to say "Added"
- *                                        or "Already on PuneNest" accordingly. Errors still throw,
+ *                                        or "Already on Draazy" accordingly. Errors still throw,
  *                                        so this never becomes a way to swallow a 4xx
  * @returns {Promise<any>} the parsed JSON body, or null for `204 No Content`
  */

@@ -77,7 +77,7 @@ export async function staffLogin({ email, password, remember = true }) {
  * expires on its own.
  *
  * The server call now does something the client cannot do for itself: revoke the family *and*
- * expire the `__Host-punenest_rt` cookie. `logoutUser()` clears `localStorage`, and an `HttpOnly`
+ * expire the `__Host-draazy_rt` cookie. `logoutUser()` clears `localStorage`, and an `HttpOnly`
  * cookie is by definition beyond its reach — so if the request fails, the browser keeps a live
  * refresh cookie behind a UI that says signed out. Two cases, and only one is real:
  *

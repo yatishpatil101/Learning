@@ -20,7 +20,7 @@ tags: [deposit, rent, negotiation, maintenance]
 | Lock-in | 6–11 months |
 | Maintenance | ₹1.5–₹4 per sq ft per month |
 
-These are market norms, not PuneNest rules. Owners set their own terms.
+These are market norms, not Draazy rules. Owners set their own terms.
 
 ## What actually moves in negotiation
 

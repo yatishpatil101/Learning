@@ -83,7 +83,7 @@ const FlatmateFlow = ({
           <div>
             <label className={lbl}>{isHouse ? t('listProperty.fields.houseBuildingName') : t('listProperty.fields.societyBuilding')}</label>
             {isHouse ? (
-              <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
+              <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={t('listProperty.ph.egGreenVilla')} className={`${fld} ${errors.society ? 'dz-invalid' : ''}`} />
             ) : (
               <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} invalid={!!errors.society} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
             )}
@@ -117,7 +117,7 @@ const FlatmateFlow = ({
             <label className={lbl}>{t('listProperty.fields.yourShareRent')}</label>
             <div className="relative">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-              <input inputMode="numeric" maxLength={10} {...money('rentShare')} data-err="rentShare" placeholder={t('listProperty.ph.egRentShare')} className={`${fld} pl-10 pr-14 ${errors.rentShare ? 'pn-invalid' : ''}`} />
+              <input inputMode="numeric" maxLength={10} {...money('rentShare')} data-err="rentShare" placeholder={t('listProperty.ph.egRentShare')} className={`${fld} pl-10 pr-14 ${errors.rentShare ? 'dz-invalid' : ''}`} />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">{t('listProperty.unit.perMo')}</div>
             </div>
             <FieldError show={!!errors.rentShare}>{t('listProperty.err.rentShare')}</FieldError>

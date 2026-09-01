@@ -170,7 +170,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
       const t = e.target;
       if (panelRef.current?.contains(t)) return;
       if (anchorRef?.current?.contains(t)) return;
-      if (t.closest?.('.pn-dropdown__menu, .pn-dropdown')) return;
+      if (t.closest?.('.dz-dropdown__menu, .dz-dropdown')) return;
       onClose?.();
     };
     document.addEventListener('mousedown', onDown);
@@ -182,7 +182,7 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
     const onKey = (e) => {
       // Let an open month/year <Select> handle Escape first.
       if (e.key === 'Escape') {
-        if (document.querySelector('.pn-dropdown.is-open')) return;
+        if (document.querySelector('.dz-dropdown.is-open')) return;
         e.preventDefault(); onClose?.(); return;
       }
       if (e.key === 'Enter') { if (draft) { e.preventDefault(); onConfirm?.(draft); } return; }
@@ -207,22 +207,22 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
       role="dialog"
       aria-modal="false"
       aria-label={dialogLabel}
-      className={`pn-cal${shown ? ' is-open' : ''}`}
+      className={`dz-cal${shown ? ' is-open' : ''}`}
     >
-      <div className="pn-cal__head">
-        <h3 className="pn-cal__title">{t('ui.selectDateTitle')}</h3>
-        <span className="pn-cal__badge" aria-hidden="true">
-          <span className="pn-cal__badge-tab" /><span className="pn-cal__badge-tab" />
-          <span className="pn-cal__badge-num">{pad(badgeDay)}</span>
+      <div className="dz-cal__head">
+        <h3 className="dz-cal__title">{t('ui.selectDateTitle')}</h3>
+        <span className="dz-cal__badge" aria-hidden="true">
+          <span className="dz-cal__badge-tab" /><span className="dz-cal__badge-tab" />
+          <span className="dz-cal__badge-num">{pad(badgeDay)}</span>
         </span>
       </div>
 
-      <div className="pn-cal__selectors">
-        <button type="button" className="pn-cal__nav" aria-label={t('ui.prevMonth')} onClick={() => goMonth(-1)}>
+      <div className="dz-cal__selectors">
+        <button type="button" className="dz-cal__nav" aria-label={t('ui.prevMonth')} onClick={() => goMonth(-1)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         <Select
-          className="pn-cal__dd"
+          className="dz-cal__dd"
           value={String(view.m)}
           options={monthOptions}
           searchable={false}
@@ -230,29 +230,29 @@ export default function DatePickerDialog({ open, value, anchorRef, min, max, onC
           onChange={(v) => setView((s) => ({ ...s, m: +v }))}
         />
         <Select
-          className="pn-cal__dd pn-cal__dd--year"
+          className="dz-cal__dd dz-cal__dd--year"
           value={String(view.y)}
           options={yearOptions}
           searchable={false}
           ariaLabel={t('ui.year')}
           onChange={(v) => setView((s) => ({ ...s, y: +v }))}
         />
-        <button type="button" className="pn-cal__nav" aria-label={t('ui.nextMonth')} onClick={() => goMonth(1)}>
+        <button type="button" className="dz-cal__nav" aria-label={t('ui.nextMonth')} onClick={() => goMonth(1)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>
 
-      <div className="pn-cal__grid pn-cal__grid--head" aria-hidden="true">
+      <div className="dz-cal__grid dz-cal__grid--head" aria-hidden="true">
         {WEEKDAYS.map((w, i) => (
-          <span key={w} className={`pn-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
+          <span key={w} className={`dz-cal__wd${i === 0 ? ' is-sun' : ''}`}>{w}</span>
         ))}
       </div>
 
-      <div className="pn-cal__grid" role="grid">
+      <div className="dz-cal__grid" role="grid">
         {cells.map((c, i) => {
           const blocked = isBlocked(c.iso);
           const selected = c.iso === draft;
-          const cls = ['pn-cal__day'];
+          const cls = ['dz-cal__day'];
           if (!c.inMonth) cls.push('is-muted');
           if (c.sunday) cls.push('is-sun');
           if (c.iso === today) cls.push('is-today');

@@ -17,7 +17,7 @@
 export default function PropertySkeleton() {
   return (
     <div
-      className="pt-[calc(var(--pn-nav-h)+16px)] sm:pt-[calc(var(--pn-nav-h)+40px)] pb-24"
+      className="pt-[calc(var(--dz-nav-h)+16px)] sm:pt-[calc(var(--dz-nav-h)+40px)] pb-24"
       /* One live region for the whole route, announced once. Without role=status a
          screen reader gets silence between navigation and content; with it on each
          block it would get a dozen announcements. */

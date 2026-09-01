@@ -3,7 +3,7 @@
  *
  * `GET /admin/settings` · `PUT /admin/settings`, both `x-roles: [admin]`.
  *
- * Verified against `backend/src/main/resources/static/openapi/punenest-api.yaml` (`/admin/settings`,
+ * Verified against `backend/src/main/resources/static/openapi/draazy-api.yaml` (`/admin/settings`,
  * the `AdminSettings` schema) and `admin/AdminSettingsService.java`.
  *
  * ## No mapper, deliberately
@@ -55,7 +55,7 @@ export async function updateSettings(patch) {
      twice. It is not an artefact of the mock: `AdminFlagsContext` listens on it so that saving a
      flag on the Settings screen re-gates the admin nav without a reload, and a `storage` event
      cannot do that job because it only fires in *other* tabs. */
-  window.dispatchEvent(new CustomEvent('punenest-settings-change'));
+  window.dispatchEvent(new CustomEvent('draazy-settings-change'));
   return doc && typeof doc === 'object' ? doc : {};
 }
 
@@ -149,7 +149,7 @@ export async function getGeo() {
  * a price a visitor is quoted before they sign in is not a privileged fact, while the document it
  * lives in also carries the permission map. Not `/fees` itself, which answers what a *transaction*
  * costs — brokerage, stamp duty, registration, mostly the state's money, keyed by deal. This is
- * what PuneNest sells. Verified against the contract's `/pricing` (schema `PlatformPricing`) and
+ * what Draazy sells. Verified against the contract's `/pricing` (schema `PlatformPricing`) and
  * `common/settings/PricingController.java`.
  *
  * **A failed read means the bundled defaults, unlike the pack.** The Pack can refuse to sell when

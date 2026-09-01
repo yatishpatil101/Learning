@@ -10,7 +10,7 @@ import { test, expect } from '../../fixtures/live.js';
 const consent = (page) =>
   page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
     );
   });
@@ -166,7 +166,7 @@ test.describe('Haptics', () => {
     await stubVibrate(page);
     await page.addInitScript(() => {
       // The app's own toggle — the same key Settings writes.
-      localStorage.setItem('pnAppPrefs', JSON.stringify({ reduceMotion: true }));
+      localStorage.setItem('dzAppPrefs', JSON.stringify({ reduceMotion: true }));
     });
     await login.asBuyer();
 
@@ -205,10 +205,10 @@ test.describe('Loading skeletons', () => {
        (it read `null` and the guard fired). The rule under test is CSS, not
        timing, so mount a `.skeleton` and read its computed style directly. */
     const shimmerOf = () => page.evaluate(() => {
-      let probe = document.getElementById('pn-shimmer-probe');
+      let probe = document.getElementById('dz-shimmer-probe');
       if (!probe) {
         probe = document.createElement('div');
-        probe.id = 'pn-shimmer-probe';
+        probe.id = 'dz-shimmer-probe';
         probe.className = 'skeleton';
         probe.style.cssText = 'width:40px;height:10px;position:fixed;left:-9999px';
         document.body.appendChild(probe);
@@ -217,7 +217,7 @@ test.describe('Loading skeletons', () => {
     });
 
     // Prove the shimmer runs first, so the assertion below cannot pass vacuously.
-    expect(await shimmerOf(), 'the shimmer must be running to test that it stops').toBe('pnShimmer');
+    expect(await shimmerOf(), 'the shimmer must be running to test that it stops').toBe('dzShimmer');
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
     /* The shimmer is an INFINITE loop, and a loading state is exactly when a

@@ -73,7 +73,7 @@ const CONSENT = { necessary: true, functional: true, analytics: true, marketing:
 /**
  * D19. There is no fixture constructor here any more, and its absence is the assertion.
  *
- * This spec used to seed `pnEntityReviews` into localStorage — a mock-provider store the live app
+ * This spec used to seed `dzEntityReviews` into localStorage — a mock-provider store the live app
  * never reads. Against the real API those two reviews were invisible, so every rating assertion
  * below would have been measuring the server's empty state while appearing to describe a seeded
  * one. The reviews now live in `R__zz_DML_dev_demo_data.sql` as `target_type = 'society'` rows keyed on
@@ -115,7 +115,7 @@ async function findInDirectory(page, slug, name) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await seedStorage(page, { pn_cookie_consent_v1: CONSENT });
+  await seedStorage(page, { dz_cookie_consent_v1: CONSENT });
 });
 
 test('a RERA society hub renders that row\'s real name, locality and specifications', async ({ page }) => {

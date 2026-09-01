@@ -59,7 +59,7 @@ export default function AdminAnalytics() {
   }, [showSupplyGap]);
 
   /*
-   * The other half of the Supply Gap tab: which cities people want PuneNest to launch in.
+   * The other half of the Supply Gap tab: which cities people want Draazy to launch in.
    *
    * A second request rather than a field on the supply-gap report, because they are answers to two
    * different questions against two unrelated tables — localities inside a city we serve, and cities

@@ -21,7 +21,7 @@
     "shareAria": "Share this home",
     "savedToast": "Saved {{title}} to your shortlist",
     "removedToast": "Removed {{title}} from saved",
-    "shareText": "Check this home on PuneNest: {{title}} · {{price}}",
+    "shareText": "Check this home on Draazy: {{title}} · {{price}}",
     "photoAria": "Photo",
     "badgeRent": "Rent",
     "badgeSale": "Sale",
@@ -34,7 +34,7 @@
     "viewingStatus": "Viewing {{title}} in {{loc}}"
   },
   "viewDocs": {
-    "watermark": "PuneNest · View Only",
+    "watermark": "Draazy · View Only",
     "cantPreview": "<1>{{name}}</1> can’t be previewed here. These documents are view-only, so ask the owner to re-share it as a PDF or image to review it.",
     "thisFile": "This file",
     "zoomOut": "Zoom out",

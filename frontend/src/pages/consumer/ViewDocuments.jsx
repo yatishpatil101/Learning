@@ -447,7 +447,7 @@ export default function ViewDocuments({ shared: byToken = false }) {
   const subtitle = errorState ? t(errorState.subKey)
     : (!loading && sub ? t(sub.key, sub.args) : t('viewDocs.loading'));
 
-  // The recipient of a share link may have no PuneNest account at all — that is the whole point of
+  // The recipient of a share link may have no Draazy account at all — that is the whole point of
   // the token — so "back to dashboard" would send them to a sign-in wall. Home is the honest exit.
   const exitTo = byToken ? '/' : '/dashboard';
 

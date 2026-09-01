@@ -44,7 +44,7 @@ test('an anonymous search signal reaches the admin supply-gap report', async ({ 
   expect(after).not.toBeNull();
   expect(after.searches).toBe(beforeSearches + 1);
   // The slug matches no locality, so there is no display name to show. That is the report's most
-  // actionable row -- demand for somewhere PuneNest does not cover -- and the API says so by
+  // actionable row -- demand for somewhere Draazy does not cover -- and the API says so by
   // leaving the name out rather than inventing one.
   expect(after.localityName ?? null).toBeNull();
   expect(after.supply).toBe(0);

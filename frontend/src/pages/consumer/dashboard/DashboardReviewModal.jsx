@@ -1,6 +1,6 @@
 import Icon from '../../../components/Icon.jsx';
 
-/* Owner ↔ PuneNest verification thread modal.
+/* Owner ↔ Draazy verification thread modal.
  *
  * Fully presentational: the case file arrives as `thread`, already fetched and already marked read
  * by `useDashboardData.openReview`. It used to read `getPropReview` out of localStorage itself,
@@ -19,7 +19,7 @@ export default function DashboardReviewModal({ reviewProp, setReviewProp, thread
   const rs = REVIEW_STATUS[thread?.status] || REVIEW_STATUS.in_review;
   return (
     <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-md" onClick={() => setReviewProp(null)}>
-      <div className="pn-modal-panel border border-white/10 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="dz-modal-panel border border-white/10 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0">
             <h3 className="text-white font-bold text-base truncate">{listing?.title || 'Verification'}</h3>
@@ -63,7 +63,7 @@ export default function DashboardReviewModal({ reviewProp, setReviewProp, thread
           </>
         )}
         <div className="mt-3 flex items-center gap-2">
-          <input value={reviewInput} onChange={(e) => setReviewInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') sendReview(); }} placeholder="Reply to PuneNest…" className="flex-1 rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-400/50" />
+          <input value={reviewInput} onChange={(e) => setReviewInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') sendReview(); }} placeholder="Reply to Draazy…" className="flex-1 rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-white outline-none focus:border-teal-400/50" />
           <button onClick={sendReview} disabled={!thread} className="btn-teal px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"><Icon name="send" className="w-4 h-4" /> Send</button>
         </div>
       </div>

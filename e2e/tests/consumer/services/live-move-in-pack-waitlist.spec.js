@@ -66,7 +66,7 @@ async function openHubComingSoon(page) {
 async function packSection(page) {
   await expect(page.locator('a.svc-card')).toHaveCount(9);
   await page.evaluate(() => document.querySelectorAll('.reveal').forEach((el) => el.classList.add('visible')));
-  const section = page.locator('section').filter({ hasText: 'PuneNest Move-in Pack' }).last();
+  const section = page.locator('section').filter({ hasText: 'Draazy Move-in Pack' }).last();
   await expect(section).toBeVisible();
   return section;
 }

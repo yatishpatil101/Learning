@@ -1,4 +1,4 @@
-/* Knowledge base for "Nestor", the PuneNest help assistant.
+/* Knowledge base for "Nestor", the Draazy help assistant.
    Pure data — no backend. Each entry answers a "how do I / how does it work"
    question in the app's voice and offers the matching in-app action(s).
    The matcher (lib/assistant/match.js) ranks entries by keyword overlap, so
@@ -12,10 +12,10 @@
 
 export const ASSISTANT = {
   name: 'Nestor',
-  tagline: 'PuneNest guide',
+  tagline: 'Draazy guide',
   /* First bubble when the panel opens with an empty thread. */
   greeting:
-    "Hi, I'm Nestor — your PuneNest guide. I can show you how anything here works and take you straight to it. What are you looking to do?",
+    "Hi, I'm Nestor — your Draazy guide. I can show you how anything here works and take you straight to it. What are you looking to do?",
 };
 
 /* Top-of-panel chips: the highest-intent starting points. `ask` chips run the
@@ -23,7 +23,7 @@ export const ASSISTANT = {
 export const QUICK_ACTIONS = [
   { label: 'Find a home', icon: 'search', kind: 'nav', to: '/listings' },
   { label: 'List my property', icon: 'plus-circle', kind: 'nav', to: '/list-property' },
-  { label: 'How PuneNest works', icon: 'sparkles', kind: 'ask', text: 'How does PuneNest work' },
+  { label: 'How Draazy works', icon: 'sparkles', kind: 'ask', text: 'How does Draazy work' },
   { label: 'Talk to a human', icon: 'headset', kind: 'ask', text: 'Talk to a human' },
 ];
 
@@ -41,9 +41,9 @@ export const ESCALATION = {
 export const KB = [
   {
     id: 'how-it-works',
-    keywords: ['how', 'work', 'works', 'punenest', 'about', 'what', 'is', 'zero', 'brokerage', 'broker', 'commission', 'fee', 'free', 'direct', 'owner'],
-    q: 'How does PuneNest work?',
-    a: "PuneNest is zero-brokerage: you deal directly with verified owners, so there's no broker fee — ever. Search homes to buy or rent, shortlist what you like, and contact the owner directly. Owners list free; we add trust with identity and document checks.",
+    keywords: ['how', 'work', 'works', 'draazy', 'about', 'what', 'is', 'zero', 'brokerage', 'broker', 'commission', 'fee', 'free', 'direct', 'owner'],
+    q: 'How does Draazy work?',
+    a: "Draazy is zero-brokerage: you deal directly with verified owners, so there's no broker fee — ever. Search homes to buy or rent, shortlist what you like, and contact the owner directly. Owners list free; we add trust with identity and document checks.",
     actions: [
       { label: 'Browse listings', to: '/listings', icon: 'search' },
       { label: 'How owners are verified', icon: 'shield-check', ask: 'How are owners verified' },
@@ -143,8 +143,8 @@ export const KB = [
   {
     id: 'services',
     keywords: ['service', 'services', 'packers', 'movers', 'shifting', 'interior', 'renovation', 'painting', 'legal', 'valuation', 'valuate', 'worth', 'help'],
-    q: 'What services does PuneNest offer?',
-    a: "Beyond search, PuneNest offers home services: packers & movers, interior & renovation, property legal help, property valuation, home loans and rent agreements. Each has upfront pricing and online tracking.",
+    q: 'What services does Draazy offer?',
+    a: "Beyond search, Draazy offers home services: packers & movers, interior & renovation, property legal help, property valuation, home loans and rent agreements. Each has upfront pricing and online tracking.",
     actions: [
       { label: 'All services', to: '/services', icon: 'concierge-bell' },
       { label: 'Property valuation', to: '/services/property-valuation', icon: 'trending-up' },
@@ -154,7 +154,7 @@ export const KB = [
     id: 'pay-rent',
     keywords: ['pay', 'rent', 'online', 'payment', 'card', 'upi', 'transfer', 'monthly', 'landlord'],
     q: 'Can I pay rent online?',
-    a: "Not yet — paying rent through PuneNest is coming. In the meantime, record the home you rent in your Rent Wallet and it works out your yearly total, your deposit and your HRA exemption for you.",
+    a: "Not yet — paying rent through Draazy is coming. In the meantime, record the home you rent in your Rent Wallet and it works out your yearly total, your deposit and your HRA exemption for you.",
     actions: [{ label: 'Rent Wallet', to: '/dashboard?tab=finances', icon: 'wallet' }],
   },
   {
@@ -191,7 +191,7 @@ export const KB = [
   {
     id: 'city',
     keywords: ['city', 'cities', 'mumbai', 'bangalore', 'expand', 'available', 'live', 'waitlist', 'launch', 'other'],
-    q: 'Which cities is PuneNest available in?',
+    q: 'Which cities is Draazy available in?',
     a: "We're Pune-first and going deep here before we expand. If your city isn't live yet, join the waitlist from the banner and we'll notify you the moment we launch — the most-requested cities jump the queue.",
     actions: [{ label: 'Explore Pune homes', to: '/listings', icon: 'search' }],
   },

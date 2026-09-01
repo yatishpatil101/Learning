@@ -27,7 +27,7 @@ export function CompareToggleBar({ p }) {
   // exactly as intended. That logic now lives in lib/share.js so every surface
   // treats a cancel the same way.
   const share = async () => {
-    const status = await shareOrCopy({ title: p.title || 'PuneNest listing' });
+    const status = await shareOrCopy({ title: p.title || 'Draazy listing' });
     if (status === 'copied') toast(t('property.shareCopied'), 'success');
     if (status === 'failed') toast(t('property.shareCopyFail'), 'error');
   };

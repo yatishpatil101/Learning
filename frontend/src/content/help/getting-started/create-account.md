@@ -9,7 +9,7 @@ summary: Sign up with your mobile number, verify it, and choose whether you are 
 tags: [signup, otp, account]
 ---
 
-You can browse PuneNest without an account. You need one to contact owners, save properties, schedule visits or list a property.
+You can browse Draazy without an account. You need one to contact owners, save properties, schedule visits or list a property.
 
 ## Signing up
 
@@ -34,7 +34,7 @@ Sign-in uses the same OTP flow — there is no password to forget. Sessions pers
 
 ## Staff and internal accounts
 
-PuneNest employees sign in at [Staff sign in](/staff-login) with an internal account. Consumer sign-up does not grant staff access, and staff accounts cannot be created from the public site.
+Draazy employees sign in at [Staff sign in](/staff-login) with an internal account. Consumer sign-up does not grant staff access, and staff accounts cannot be created from the public site.
 
 ## Related
 

@@ -122,12 +122,12 @@ export default function OpsReferrals() {
     return (
       <div>
         <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." />
-        <div className="pn-card flex items-start gap-3 p-6 text-sm text-gray-300">
+        <div className="dz-card flex items-start gap-3 p-6 text-sm text-gray-300">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div>
             <div className="font-semibold text-gray-100">The queue could not be read.</div>
             <p className="mt-1 max-w-2xl text-gray-400">{state.error}</p>
-            <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost mt-3">
+            <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost mt-3">
               <RefreshCw className="h-4 w-4" />Try again
             </button>
           </div>
@@ -140,7 +140,7 @@ export default function OpsReferrals() {
 
   const windowed = state.total > state.items.length;
 
-  const doExport = () => exportCsv('punenest-referrals.csv',
+  const doExport = () => exportCsv('draazy-referrals.csv',
     ['ID', 'Referrer', 'Referred', 'Channel', 'Reward', 'Amount', 'Risk', 'Status', 'Aadhaar verified', 'Aadhaar unique', 'Same device', 'Same IP', 'High velocity', 'Redeemed'],
     rows.map((r) => [r.id, r.referrer, r.referred, r.channel, r.reward, r.rewardAmount, r.risk, r.status, r.aadhaarVerified ? 'Yes' : 'No', r.aadhaarUnique ? 'Yes' : 'No', r.sameDevice ? 'Yes' : 'No', r.sameIp ? 'Yes' : 'No', r.velocityHigh ? 'Yes' : 'No', fmtDate(r.at)]));
 
@@ -154,8 +154,8 @@ export default function OpsReferrals() {
   return (
     <div>
       <PageHeader title="Referral Verification" subtitle="Keep referrals genuine — verify before reward." actions={<>
-        <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost"><RefreshCw className="h-4 w-4" />Refresh</button>
-        <button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>
+        <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost"><RefreshCw className="h-4 w-4" />Refresh</button>
+        <button onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>
       </>} />
 
       {windowed && (
@@ -168,7 +168,7 @@ export default function OpsReferrals() {
       {/* 4 stat cards */}
       <div role="group" aria-label="Referral counts" className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {STAT_TILES.map((s) => (
-          <div key={s.label} onClick={s.tab ? () => setTab(s.tab) : undefined} className={classNames('pn-card p-4', s.tab && 'cursor-pointer hover:bg-white/5')}>
+          <div key={s.label} onClick={s.tab ? () => setTab(s.tab) : undefined} className={classNames('dz-card p-4', s.tab && 'cursor-pointer hover:bg-white/5')}>
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{s.label}</div><div className="mt-1 text-2xl font-extrabold">{fmtNum(s.value)}</div></div>
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><s.icon className="h-4 w-4" /></span>
@@ -193,7 +193,7 @@ export default function OpsReferrals() {
       </div>
 
       {/* Table */}
-      <div className="pn-card overflow-x-auto">
+      <div className="dz-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/10 text-left text-xs font-semibold text-gray-400">

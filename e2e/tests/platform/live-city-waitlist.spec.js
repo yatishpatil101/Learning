@@ -6,8 +6,8 @@ import { test, expect } from '@playwright/test';
  * ## What this proves that nothing else did
  *
  * `POST /cities/waitlist` and the `city_waitlist` table shipped, and the form in front of them kept
- * writing to a `pnCityRequests` array in the shopper's own browser. Every ask ever made was
- * therefore recorded in the one place nobody at PuneNest could read, and the shopper was told
+ * writing to a `dzCityRequests` array in the shopper's own browser. Every ask ever made was
+ * therefore recorded in the one place nobody at Draazy could read, and the shopper was told
  * "You're on the Mumbai waitlist 🎉" for a row that existed only until they cleared their cache.
  * The admin console even had a "City Expansion Requests" panel reading that key — which meant it
  * showed the operator the asks *the operator themselves* had made while browsing.

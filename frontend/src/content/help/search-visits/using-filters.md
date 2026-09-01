@@ -36,7 +36,7 @@ Furnishing, parking, pet-friendly, vegetarian-only, gated society, lift, power b
 ## Filters worth knowing about
 
 - **Available from** — hides properties that free up after your move-in date
-- **Posted by owner** — already the default; every PuneNest listing is owner-posted
+- **Posted by owner** — already the default; every Draazy listing is owner-posted
 - **Verified only** — restricts to listings that passed [verification](/help/a/how-we-verify)
 - **Freshness** — surfaces listings confirmed available in the last 7 days
 

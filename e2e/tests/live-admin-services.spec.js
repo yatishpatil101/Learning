@@ -102,7 +102,7 @@ async function readTicket(request, id) {
   return (body?.content || []).find((t) => t.id === id) || null;
 }
 
-/** The themed dropdown is not a native `<select>` — `Select.jsx` renders `pn-dropdown`. */
+/** The themed dropdown is not a native `<select>` — `Select.jsx` renders `dz-dropdown`. */
 const pick = async (page, ariaLabel, option) => {
   await page.getByLabel(ariaLabel, { exact: true }).click();
   await page.getByRole('option', { name: option, exact: true }).click();

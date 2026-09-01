@@ -39,7 +39,7 @@ export default function ScheduleVisit() {
   // second of which the server would reject as a duplicate live visit.
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft('pnDraft:schedule-visit', form, setForm);
+  const draft = useFormDraft('dzDraft:schedule-visit', form, setForm);
   const formRef = useRef(null);
   const err = useFieldErrors(formRef);
 
@@ -163,7 +163,7 @@ export default function ScheduleVisit() {
                   <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
                     {ownerMobile && (() => {
                       const listingName = (propTitle || 'the property').split(' in ')[0];
-                      const text = `Hi, I've requested a ${mode} visit to ${listingName} on ${displayDate(visitDate)} at ${visitTime} (via PuneNest). Could you confirm the slot?`;
+                      const text = `Hi, I've requested a ${mode} visit to ${listingName} on ${displayDate(visitDate)} at ${visitTime} (via Draazy). Could you confirm the slot?`;
                       const href = `https://wa.me/91${(ownerMobile || '').replace(/\D/g, '').replace(/^91/, '')}?text=${encodeURIComponent(text)}`;
                       return (
                         <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2.5 px-4 transition-colors">
@@ -202,7 +202,7 @@ export default function ScheduleVisit() {
                       </div>
                       <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/8">
                         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs">{avatarFor(listing.owner)}</div>
-                        <div className="flex-1"><p className="text-white text-sm font-medium">{listing.owner || t('misc1.svOwner')}</p><p className="text-gray-500 text-xs">{t('misc1.svOwner')}{listing.ownerVerified ? ' · ' + t('misc1.svPuneNestVerified') : ''}</p></div>
+                        <div className="flex-1"><p className="text-white text-sm font-medium">{listing.owner || t('misc1.svOwner')}</p><p className="text-gray-500 text-xs">{t('misc1.svOwner')}{listing.ownerVerified ? ' · ' + t('misc1.svDraazyVerified') : ''}</p></div>
                         <Link to={`/property/${listing.id}`} className="text-teal-400 text-xs hover:text-teal-300">{t('misc1.svView')}</Link>
                       </div>
                     </div>

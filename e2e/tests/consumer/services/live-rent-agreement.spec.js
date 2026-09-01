@@ -50,7 +50,7 @@ import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liv
  *   - **The draft-autosave redaction rule (D159)** is a genuine browser-storage claim and stays in
  *     the mock spec, where `localStorage` is the subject rather than an accident.
  *   - **The published fee schedule** is owned live by the row at `COVERAGE.md:437`; the mock test
- *     that poked `puneNestDB_v5.settings.fees` was a duplicate of it and is deleted, not ported.
+ *     that poked `draazyDB_v5.settings.fees` was a duplicate of it and is deleted, not ported.
  *   - **The sample-draft affordances** (approve, request-changes, the draft-shared bell) cannot
  *     port at all: `ServiceTracker.jsx:138` gates the button on `!isHttpDomain('serviceRequest')`,
  *     so live there is no sample to preview. They stay mock-side as what they are — a demo.
@@ -117,10 +117,10 @@ async function fillTenant(page) {
 
 async function fillTerms(page) {
   const p = active(page);
-  await p.locator('.pn-datefield').click();
-  await page.locator('.pn-cal').waitFor({ state: 'visible' });
+  await p.locator('.dz-datefield').click();
+  await page.locator('.dz-cal').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: todayIso(), exact: true }).first().click();
-  await page.locator('.pn-cal').waitFor({ state: 'detached' });
+  await page.locator('.dz-cal').waitFor({ state: 'detached' });
   await p.getByPlaceholder('e.g. 25000').fill('30000');
   await p.getByPlaceholder('e.g. 100000').fill('150000');
   await clickNext(page, 4);
@@ -229,7 +229,7 @@ test.describe('Rent Agreement — the priced desk, live', () => {
      * `docs` no further than the wizard — `toCreate` builds `{type, details, propertyId?,
      * ticketId?}` and never reads the field — so until this was fixed the owner's branch created
      * the request and uploaded nothing, while the mock spec read the same uploads back out of
-     * `puneNestServiceReq:` and passed. Matched on the real file name rather than a non-empty
+     * `draazyServiceReq:` and passed. Matched on the real file name rather than a non-empty
      * `documents[]`, because a length check would also be satisfied by a placeholder. */
     const settled = (await ownRequests(accessToken)).find((r) => r.id === body.id);
     const names = (settled.documents || []).map((d) => d.name || d.fileName || '').join(',');

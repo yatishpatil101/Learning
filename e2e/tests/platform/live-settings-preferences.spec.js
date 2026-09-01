@@ -7,7 +7,7 @@ import { signIn, uniqueMobile, apiLogin, authHeaders, API } from '../../helpers/
  * ## What this file used to say, and why half of it is now wrong
  *
  * > "Almost everything on this screen is a **device preference** and stays that way after the mock
- * > retires: `pnNotifPrefs:<mobile>`, `pnOwnerPrefs:<mobile>`, `pnLang` and the reduce-motion class
+ * > retires: `dzNotifPrefs:<mobile>`, `dzOwnerPrefs:<mobile>`, `dzLang` and the reduce-motion class
  * > are read straight from localStorage … with no provider in front of them. So the conversion here
  * > is not 'move the state to the server'."
  *
@@ -20,7 +20,7 @@ import { signIn, uniqueMobile, apiLogin, authHeaders, API } from '../../helpers/
  * described the symptom and mistook it for the design.
  *
  * So the notification card **is** now a server document and the conversion **was** "move the state
- * to the server". The rest of the paragraph survives intact: `pnOwnerPrefs`, `pnLang` and the
+ * to the server". The rest of the paragraph survives intact: `dzOwnerPrefs`, `dzLang` and the
  * reduce-motion class genuinely are device preferences with no endpoint behind them, and the tests
  * for those are unchanged.
  *
@@ -49,7 +49,7 @@ test.describe('Dashboard settings', () => {
   /**
    * The channel toggle writes to the server, and the request is asserted rather than assumed.
    *
-   * This test used to read `localStorage.getItem('pnNotifPrefs:<mobile>')` back and assert
+   * This test used to read `localStorage.getItem('dzNotifPrefs:<mobile>')` back and assert
    * `email === false`. That assertion could only ever have proved the browser agreed with itself.
    * What it is really trying to establish is that the switch persisted, and the only evidence of
    * that which a reload cannot fake is a request leaving the tab.
@@ -179,9 +179,9 @@ test.describe('Dashboard settings', () => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');
     await page.getByRole('switch', { name: 'Reduce motion' }).click();
-    await expect(page.locator('html')).toHaveClass(/pn-reduce-motion/);
+    await expect(page.locator('html')).toHaveClass(/dz-reduce-motion/);
     await page.reload();
-    await expect(page.locator('html')).toHaveClass(/pn-reduce-motion/);
+    await expect(page.locator('html')).toHaveClass(/dz-reduce-motion/);
   });
 
   test('Account erasure is a reviewed request, not a self-service delete', async ({ page, login }) => {
@@ -213,7 +213,7 @@ test.describe('Dashboard settings', () => {
     const priv = page.getByRole('switch', { name: 'Keep my number private' });
     await expect(priv).toBeVisible();
 
-    /* This used to read `pnOwnerPrefs:<mobile>` back out of localStorage, which could only ever
+    /* This used to read `dzOwnerPrefs:<mobile>` back out of localStorage, which could only ever
        prove the browser agreed with itself — and once the preference moved onto the account that
        key stopped being written at all, so the assertion would have gone on passing for exactly as
        long as it took someone to notice it was reading a value nothing produced. The evidence a
@@ -320,7 +320,7 @@ test.describe('Dashboard settings', () => {
   });
 
   test('language setting localizes the app shell', async ({ page, login }) => {
-    await page.addInitScript(() => localStorage.setItem('pnLang', 'mr'));
+    await page.addInitScript(() => localStorage.setItem('dzLang', 'mr'));
     await login.asBuyer();
 
     await page.goto('/notifications');
@@ -341,14 +341,14 @@ test.describe('Dashboard settings', () => {
     await expect(page.getByRole('button', { name: 'आढावा' })).toBeVisible();
   });
 
-  test('changing language in Settings persists to pnLang and switches the app', async ({ page, login }) => {
+  test('changing language in Settings persists to dzLang and switches the app', async ({ page, login }) => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');
     // Open the language dropdown and pick Marathi.
     await page.getByRole('button', { name: /App language/i }).click();
     await page.getByRole('option', { name: /मराठी/ }).click();
     // Global pref is written and the sidebar switches live.
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('pnLang'))).toBe('mr');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('dzLang'))).toBe('mr');
     await expect(page.getByRole('button', { name: 'प्रोफाइल व सेटिंग्ज' })).toBeVisible();
   });
 });

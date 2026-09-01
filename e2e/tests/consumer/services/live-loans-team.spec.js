@@ -8,7 +8,7 @@
  * (`live-admin-services.spec.js:210`). But it raises its ticket over the API with the team passed
  * in by hand. Nothing on the live side has ever driven the **consumer** form and checked which desk
  * the enquiry actually landed on — that assertion existed only in the mock suite, where it read the
- * routing key back out of `puneNestDB_v5`.
+ * routing key back out of `draazyDB_v5`.
  *
  * That is the gap this closes, and it is a real one. `team="loans"` is a single prop on
  * `HomeLoans.jsx:49`; if it were dropped or mistyped the page would look identical, the customer
@@ -50,8 +50,8 @@ const LOAN_TYPE = 'Home Purchase Loan';
  * The `data-err` wrapper is the anchor the rest of the suite uses.
  */
 async function pickOption(page, field, label) {
-  await page.locator(`[data-err="${field}"] .pn-dropdown__trigger`).click();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator(`[data-err="${field}"] .dz-dropdown__trigger`).click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 /** Read a desk's queue as the staffer who works it, and hand back the rows. */

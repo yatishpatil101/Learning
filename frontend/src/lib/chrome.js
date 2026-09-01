@@ -10,7 +10,7 @@
    Division of labour, so this file does not quietly become a second stylesheet:
 
      - Dimensions and appearance live in styles/index.css, under the chrome-token
-       block: --pn-nav-h, --pn-bottom-nav-h, --pn-bottom-nav-gap and the insets
+       block: --dz-nav-h, --dz-bottom-nav-h, --dz-bottom-nav-gap and the insets
        derived from them, plus the z-index ladder. CSS owns anything a media query
        needs to change per breakpoint, because JS cannot see breakpoints without
        re-implementing them.
@@ -24,7 +24,7 @@
    breakpoint in two places, which is the bug this module exists to prevent. */
 
 /** Routes that render their own top offset for the fixed navbar, so ConsumerLayout
-    must not add a second one. Each reserves --pn-nav-h itself. */
+    must not add a second one. Each reserves --dz-nav-h itself. */
 const SELF_PADDED = ['/', '/listings', '/property', '/signin', '/signup'];
 
 /** Full-screen experiences: no marketing footer, no floating assistant. */

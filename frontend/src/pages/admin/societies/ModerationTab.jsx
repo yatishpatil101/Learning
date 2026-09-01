@@ -19,7 +19,7 @@ export default function ModerationTab({ reports, waPending, locFixes, decideRepo
   const busy = (id) => Boolean(deciding && deciding.has(id));
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="pn-card p-4">
+      <div className="dz-card p-4">
         <div className="mb-3 flex items-center gap-2"><Flag className="h-4 w-4 text-red-300" /><h3 className="font-bold">Reported content <span className="text-gray-400 font-normal">({reports.length})</span></h3></div>
         {reports.length === 0 ? (
           <p className="text-sm text-gray-400">No open reports. Resident flags on society posts land here.</p>
@@ -50,7 +50,7 @@ export default function ModerationTab({ reports, waPending, locFixes, decideRepo
         )}
       </div>
 
-      <div className="pn-card p-4">
+      <div className="dz-card p-4">
         <div className="mb-3 flex items-center gap-2"><MessageCircle className="h-4 w-4 text-emerald-300" /><h3 className="font-bold">Pending WhatsApp links <span className="text-gray-400 font-normal">({waPending.length})</span></h3></div>
         {waPending.length === 0 ? (
           <p className="text-sm text-gray-400">No links awaiting review. Residents propose group links from the society hub.</p>
@@ -77,7 +77,7 @@ export default function ModerationTab({ reports, waPending, locFixes, decideRepo
         )}
       </div>
 
-      <div className="pn-card p-4">
+      <div className="dz-card p-4">
         <div className="mb-3 flex items-center gap-2"><MapPin className="h-4 w-4 text-teal-300" /><h3 className="font-bold">Location fixes <span className="text-gray-400 font-normal">({locFixes.length})</span></h3></div>
         {locFixes.length === 0 ? (
           <p className="text-sm text-gray-400">No proposed pins. Verified residents suggest corrected society locations from the hub.</p>

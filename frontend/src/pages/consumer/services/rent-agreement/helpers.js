@@ -110,7 +110,7 @@ export const emptyWit = () => ({ w1Name: '', w1Addr: '', w2Name: '', w2Addr: '' 
    and they leave this tab exactly once, on their own call: `identityParties` below feeds
    `PUT /service-requests/{id}/identities`, which the assigned operator alone can read back.
    Everything else gets this treatment first: the `details` payload that call sits beside, the
-   co-fill payload an invited tenant opens, and the `pnDraft:rentAgreement` autosave. Same reasoning
+   co-fill payload an invited tenant opens, and the `dzDraft:rentAgreement` autosave. Same reasoning
    in all three. A PAN plus an Aadhaar plus a name and a permanent address is a complete identity
    set; `localStorage` is plain JSON that any XSS on this origin can read and that the next person on
    a shared, borrowed or resold device inherits; and Aadhaar in particular is not ours to retain or

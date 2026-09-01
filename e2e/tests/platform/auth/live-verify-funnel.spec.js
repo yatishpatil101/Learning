@@ -70,7 +70,7 @@ test('Starting DigiLocker verification hands off to consent and grants no badge'
   await expect(page.getByRole('button', { name: /Get verified/i })).toBeVisible();
   await expect(page.getByText('ID verified', { exact: true })).toHaveCount(0);
 
-  // Open the modal — DigiLocker-only, never an Aadhaar field on a PuneNest page.
+  // Open the modal — DigiLocker-only, never an Aadhaar field on a Draazy page.
   await page.getByRole('button', { name: /Get verified/i }).click();
   const modal = page.getByRole('dialog', { name: 'Get your Verified badge' });
   await expect(modal).toBeVisible();

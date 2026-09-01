@@ -5,7 +5,7 @@
  * ## What this replaces, and why the old spec could not simply be edited
  *
  * The previous version of this file tested a wallet fed by `GET /me/rent-payments` — a ledger of
- * rent the tenant had paid *through PuneNest*. Its most valuable assertion was that a **failed**
+ * rent the tenant had paid *through Draazy*. Its most valuable assertion was that a **failed**
  * charge must not be counted as rent received: three separate pieces of logic (`rentSummary`'s
  * lifetime total, `rentPassport.onTime`, and the literal "On time" the PDF printed against every
  * row) had all been true only because the local store held nothing but successes.
@@ -18,7 +18,7 @@
  * ## What is worth asserting instead
  *
  * The risk moved rather than disappeared. It is now that a self-declared figure gets presented as
- * though PuneNest had verified it — the same class of defect as labelling a failed charge settled,
+ * though Draazy had verified it — the same class of defect as labelling a failed charge settled,
  * one layer up. So two things are load-bearing here:
  *
  *  1. **The totals are the server's, not the browser's.** `RentalTotals` derives them from
@@ -126,7 +126,7 @@ test.describe('Rent Wallet — live', () => {
       await signedInAs(page, ACTORS.tenant);
       await page.goto('/dashboard#finances', { waitUntil: 'networkidle' });
 
-      await expect(page.getByText(/PuneNest does not collect this rent and has not verified it/))
+      await expect(page.getByText(/Draazy does not collect this rent and has not verified it/))
         .toBeVisible({ timeout: 15000 });
 
       await expect(page.getByRole('heading', { name: 'Rent Passport' })).toBeVisible();

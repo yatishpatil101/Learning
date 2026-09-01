@@ -156,7 +156,7 @@ export const feed = async (tab, filters, page, size) => (await provider()).feed(
  * flatmate save points at one of three tables and so cannot carry a `propertyId`.
  *
  * **A save is a key, not a card.** Until this seam existed the shortlist lived in
- * `puneNestFlatmateSaved` and stored the rendered card alongside it: the title, locality, rent and
+ * `draazyFlatmateSaved` and stored the rendered card alongside it: the title, locality, rent and
  * photo were copied in at the moment of the tap. That made the Saved page cheap to draw and
  * permanently capable of lying — a room whose rent changed, or whose host withdrew it, went on
  * showing what it looked like when it was saved. Both providers now store the key alone and join

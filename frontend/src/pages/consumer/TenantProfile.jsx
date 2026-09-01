@@ -25,7 +25,7 @@ export default function TenantProfile() {
   const { verified: badgeVerified, aadhaarMobile, verifiedAt, mobileMatch } = useVerification();
   /* The form opens empty and is filled by the two effects below — the profile from
      `myTenantProfile()`, the identity half from `useVerification()`. It used to seed from a
-     `pnTenantProfile:<mobile>` blob in localStorage, which is the one source here that no longer
+     `dzTenantProfile:<mobile>` blob in localStorage, which is the one source here that no longer
      has anything behind it: the merge below prefers a truthy server value, so a field the server
      had *cleared* (PUT replaces — see `TenantProfileUpdateRequest`) kept showing this browser's
      stale copy, and the copy carried a client-computed `score` for a number the server owns. */

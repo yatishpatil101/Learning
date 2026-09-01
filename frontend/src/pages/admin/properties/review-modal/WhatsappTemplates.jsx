@@ -40,7 +40,7 @@ export default function WhatsappTemplates({ review, waOpen, setWaOpen, waTemplat
               </div>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-xs text-gray-500">Will open WhatsApp with pre-filled message to +91 {review.ownerMobile}</span>
-                <button onClick={handleSendWaTemplate} disabled={busy} className="pn-btn pn-btn-primary inline-flex items-center gap-2 disabled:opacity-50">
+                <button onClick={handleSendWaTemplate} disabled={busy} className="dz-btn dz-btn-primary inline-flex items-center gap-2 disabled:opacity-50">
                   <MessageCircle className="h-4 w-4" /> Send via WhatsApp
                 </button>
               </div>

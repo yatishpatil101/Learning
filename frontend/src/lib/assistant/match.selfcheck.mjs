@@ -26,7 +26,7 @@ assert(r3[0]?.entry.id === 'emi', 'emi query → emi, got ' + r3[0]?.entry.id);
 assert(rankAnswers('xyzzy qwerty').length === 0, 'gibberish → no matches');
 assert(rankAnswers('   ').length === 0, 'blank → no matches');
 
-const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', question: 'Is PuneNest zero brokerage?', answer: 'Yes.' }] });
+const faqR = rankAnswers('zero brokerage', { faqs: [{ id: 'F1', question: 'Is Draazy zero brokerage?', answer: 'Yes.' }] });
 assert(faqR.length > 0, 'faq entries are searchable');
 
 // A curated entry must win over an imported FAQ that duplicates its question,

@@ -2,7 +2,7 @@
  * LIVE integration check for the `society` domain — the directory's rating aggregate.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/live-society-rating.spec.js --config=playwright.config.js
  *
@@ -12,7 +12,7 @@
  * ## Why this file exists, and why it writes a review before it asserts one
  *
  * `Societies.jsx` spent its whole life calling `entityRating('society', …)` — a reduce over the
- * `pnEntityReviews` localStorage bucket, which only the mock provider ever writes. Against a real
+ * `dzEntityReviews` localStorage bucket, which only the mock provider ever writes. Against a real
  * server that read is not wrong, it is *dead*: every card in a 348-society directory says "Not
  * rated yet" no matter what Postgres holds, and the mock suite is green throughout, because in mock
  * mode the bucket is exactly where the reviews are.

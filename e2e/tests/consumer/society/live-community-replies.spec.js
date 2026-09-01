@@ -3,7 +3,7 @@ import { API, apiLogin, authHeaders, signedInAsNew, uniqueMobile } from '../../.
 
 /* Replying to a neighbour's tip, and reporting one, in a browser against the live API.
  *
- * Split out of the retired `community-v2.spec.js`, which seeded `pnSocietyContributions` and read
+ * Split out of the retired `community-v2.spec.js`, which seeded `dzSocietyContributions` and read
  * its own writes back — a thread of one person talking to themselves.
  *
  * The server rules live where they are decided, over HTTP:

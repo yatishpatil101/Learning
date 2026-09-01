@@ -12,7 +12,7 @@
  *
  * What the mock could not assert, and what this file adds, is the **third** state of the form.
  * `form` is initialised from `isIn ? user?.name : ''` (`PropertyValuation.jsx:61`). Mock-side
- * `user` is whatever the test wrote into `puneNestUser`, so a prefill test there proves only that
+ * `user` is whatever the test wrote into `draazyUser`, so a prefill test there proves only that
  * localStorage round-trips. Live it is the session — `GET /auth/me` — which is the claim actually
  * worth making: the certified-report form addresses the person who is signed in, not a name this
  * browser happened to be holding.
@@ -81,7 +81,7 @@ test.describe('property valuation landing, live', () => {
     await expect(form.getByRole('button', { name: 'Request Valuation' })).toBeVisible();
 
     /* Compared against the values the API just returned, not against a literal. A hard-coded
-       'Rohan Sharma' would keep passing if the page had gone back to reading `puneNestUser` and
+       'Rohan Sharma' would keep passing if the page had gone back to reading `draazyUser` and
        the seed happened to use the same name — which is exactly the failure this page's live
        conversion exists to rule out. */
     await expect(form.locator('input[data-err="name"]')).toHaveValue(user.name);

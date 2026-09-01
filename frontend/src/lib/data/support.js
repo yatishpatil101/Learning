@@ -1,13 +1,13 @@
 /* `import { rawDb, saveDb, mutateDb } from '../mockApi.js'` stood here and was never used — not by
    a since-deleted function, but by anything, at any point this file has looked like this. Support
-   tickets have always lived in their own `puneNestSupport` key through the `load`/`save` pair
+   tickets have always lived in their own `draazySupport` key through the `load`/`save` pair
    below, deliberately: the ops side read the same key, and putting them in the main mock DB would
    have coupled a ticket write to the 236 KB seed.
 
    Left in place it was worse than clutter. This file was one of the ~30 that a `mockApi` grep
    reported as a caller, and the retirement work was driven off exactly that grep — so an import of
    three unused symbols made the mock store look one file harder to remove than it was. The store
-   is gone (P5c); this note stays because the `puneNestSupport` key it explains does not. */
+   is gone (P5c); this note stays because the `draazySupport` key it explains does not. */
 import i18n from '../../i18n/index.js';
 
 const CATEGORIES = [

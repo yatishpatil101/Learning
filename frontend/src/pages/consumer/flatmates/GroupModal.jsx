@@ -97,7 +97,7 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
                 ) : null}
                 {myTenanciesStatus === 'ready' && myTenancies && myTenancies.length > 0 && (
                   <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 p-3">
-                    <label className="block text-[11px] font-medium text-teal-200 mb-1.5 inline-flex items-center gap-1.5"><Icon name="key-round" className="w-3.5 h-3.5 text-teal-300" /> {tr('flatmates.rentingThroughPuneNest')}</label>
+                    <label className="block text-[11px] font-medium text-teal-200 mb-1.5 inline-flex items-center gap-1.5"><Icon name="key-round" className="w-3.5 h-3.5 text-teal-300" /> {tr('flatmates.rentingThroughDraazy')}</label>
                     {/* Action-trigger select: value="" keeps it on the prompt so it
                         prefills the form on each pick rather than holding a selection. */}
                     <NativeSelect title={tr('flatmates.prefillFromTenancy')} value="" onChange={(e) => { const t = myTenancies.find((x) => (x.id || x.propId) === e.target.value); if (t) onAttachTenancy(t); }} className="field w-full rounded-full px-4 py-2 text-sm">

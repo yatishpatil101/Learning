@@ -3,7 +3,7 @@
  * Reporting society-hub content, and taking it down, against the live API (D240 slice 6).
  *
  * Every recommendation, reply, question, answer and noticeboard item on a society hub carries a
- * "Report" control. Pressing it wrote a row to `pnSocietyReports` **in the reporting member's own
+ * "Report" control. Pressing it wrote a row to `dzSocietyReports` **in the reporting member's own
  * browser**, and the ops queue meant to read those complaints read the *moderator's* browser. The
  * queue was empty by construction. A recommendation naming a real tradesman with his real mobile
  * number could be reported by fifty neighbours and not one moderator would see a single complaint,

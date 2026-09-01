@@ -82,7 +82,7 @@ function pwaPlugin() {
           urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/assets\/.*-[\w-]{8,}\.(js|css|mjs)$/.test(url.pathname),
           handler: 'CacheFirst',
           options: {
-            cacheName: 'pn-assets',
+            cacheName: 'dz-assets',
             expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 },
           },
         },
@@ -94,7 +94,7 @@ function pwaPlugin() {
           urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/fonts/'),
           handler: 'CacheFirst',
           options: {
-            cacheName: 'pn-fonts',
+            cacheName: 'dz-fonts',
             expiration: { maxEntries: 24, maxAgeSeconds: 60 * 60 * 24 * 365 },
             cacheableResponse: { statuses: [0, 200] },
           },
@@ -106,7 +106,7 @@ function pwaPlugin() {
           urlPattern: ({ url }) => url.origin === 'https://images.unsplash.com',
           handler: 'CacheFirst',
           options: {
-            cacheName: 'pn-images',
+            cacheName: 'dz-images',
             expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 14 },
             cacheableResponse: { statuses: [0, 200] },
           },

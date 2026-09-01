@@ -18,7 +18,7 @@ import { test, expect } from '../../fixtures/live.js';
  *
  * ## Two things the seeded version was not testing
  *
- * Its final two cases ("no page errors with all flags disabled") read `puneNestDB_v1` — a store key
+ * Its final two cases ("no page errors with all flags disabled") read `draazyDB_v1` — a store key
  * three versions stale. `JSON.parse(null)` gave `null`, the guard returned silently, and both tests
  * asserted a page with **all flags enabled** renders without errors, under a name claiming the
  * opposite. They passed for years by testing nothing. The versions below disable the flags for
@@ -215,7 +215,7 @@ test.describe('inAppMessaging flag', () => {
 // The mobile bottom nav also links to /saved, so a bare a[href="/saved"] locator is ambiguous under
 // strict mode. These assertions are about the navbar, so scope them to it rather than loosening the
 // match.
-const navbarSaved = (page) => page.locator('nav:not(.pn-bottom-nav) a[href="/saved"]');
+const navbarSaved = (page) => page.locator('nav:not(.dz-bottom-nav) a[href="/saved"]');
 
 test.describe('savedListings flag', () => {
   test('saved link visible in navbar when enabled and signed in', async ({ page, flags, login }) => {

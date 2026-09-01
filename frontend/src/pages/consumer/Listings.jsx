@@ -340,12 +340,12 @@ export default function Listings() {
       {/* Own top offset (this route is selfPadded), derived from the navbar token plus
           a breathing gap rather than restating the bar's height. The gaps make ≥768px
           resolve to the 92px it hardcoded before; phones inherit the shorter bar. */}
-      <div ref={ptr.ref} className="pt-[calc(var(--pn-nav-h)+8px)] sm:pt-[calc(var(--pn-nav-h)+20px)] pb-20">
+      <div ref={ptr.ref} className="pt-[calc(var(--dz-nav-h)+8px)] sm:pt-[calc(var(--dz-nav-h)+20px)] pb-20">
         {(ptr.pullDistance > 0 || ptr.isRefreshing) && (
           <div
             aria-hidden="true"
             className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
-            style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+            style={{ top: `calc(var(--dz-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
           >
             <Icon
               name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}

@@ -4,15 +4,15 @@
       "id": "basics",
       "order": 1,
       "title": "Start here",
-      "description": "How PuneNest works, and what to do first.",
+      "description": "How Draazy works, and what to do first.",
       "i18n": {
         "hi": {
           "title": "यहाँ से शुरू करें",
-          "description": "PuneNest कैसे काम करता है, और पहले क्या करें।"
+          "description": "Draazy कैसे काम करता है, और पहले क्या करें।"
         },
         "mr": {
           "title": "इथून सुरुवात करा",
-          "description": "PuneNest कसे काम करते आणि आधी काय करावे."
+          "description": "Draazy कसे काम करते आणि आधी काय करावे."
         }
       }
     },
@@ -68,16 +68,16 @@
       "id": "staff",
       "order": 5,
       "title": "Staff & ops",
-      "description": "Internal runbooks. Visible to PuneNest staff only.",
+      "description": "Internal runbooks. Visible to Draazy staff only.",
       "access": "staff",
       "i18n": {
         "hi": {
           "title": "स्टाफ़ और ऑप्स",
-          "description": "आंतरिक रनबुक। केवल PuneNest स्टाफ़ को दिखते हैं।"
+          "description": "आंतरिक रनबुक। केवल Draazy स्टाफ़ को दिखते हैं।"
         },
         "mr": {
           "title": "स्टाफ आणि ऑप्स",
-          "description": "अंतर्गत रनबुक. फक्त PuneNest स्टाफला दिसतात."
+          "description": "अंतर्गत रनबुक. फक्त Draazy स्टाफला दिसतात."
         }
       }
     }
@@ -88,16 +88,16 @@
       "section": "basics",
       "order": 1,
       "title": "Getting started",
-      "description": "What PuneNest is, how zero brokerage works, and how to set up your account.",
+      "description": "What Draazy is, how zero brokerage works, and how to set up your account.",
       "icon": "rocket",
       "i18n": {
         "hi": {
           "title": "शुरुआत करें",
-          "description": "PuneNest क्या है, ज़ीरो ब्रोकरेज कैसे काम करता है, और अपना खाता कैसे बनाएँ।"
+          "description": "Draazy क्या है, ज़ीरो ब्रोकरेज कैसे काम करता है, और अपना खाता कैसे बनाएँ।"
         },
         "mr": {
           "title": "सुरुवात करा",
-          "description": "PuneNest म्हणजे काय, झिरो ब्रोकरेज कसे चालते आणि खाते कसे तयार करावे."
+          "description": "Draazy म्हणजे काय, झिरो ब्रोकरेज कसे चालते आणि खाते कसे तयार करावे."
         }
       }
     },

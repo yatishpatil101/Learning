@@ -11,7 +11,7 @@
  * know, and got wrong in ways an operator could not see:
  *
  * - **Pricing** fell back to the locality's curated market rate whenever it had no listings to
- *   average, so the deviation it printed was exactly zero. A locality PuneNest has never listed a
+ *   average, so the deviation it printed was exactly zero. A locality Draazy has never listed a
  *   single home in rendered as the best-priced place in Pune, indistinguishable from one that is
  *   genuinely well served — which is the one distinction the report exists to draw.
  * - **SLA** drew every turnaround from `rng(314159)`. The "average approval time" on the screen was

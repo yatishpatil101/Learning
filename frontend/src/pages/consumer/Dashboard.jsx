@@ -277,7 +277,7 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Hi, {firstName(user)} <span className="inline-block">👋</span></h1>
-          <p className="text-gray-400 text-sm mt-1">Here's your PuneNest activity.</p>
+          <p className="text-gray-400 text-sm mt-1">Here's your Draazy activity.</p>
         </div>
 
         {/* Mobile section switcher — one row that opens a full sheet of all

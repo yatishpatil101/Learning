@@ -20,7 +20,7 @@ Need a GSTIN on the invoice? Add it under **Dashboard → Billing → Tax detail
 UPI, credit and debit cards, net banking, and wallets. We do not store card details; payments run through our payment gateway.
 
 > [!WARNING]
-> PuneNest only ever collects money through the in-app checkout, and every payment produces an invoice in your account. Anyone asking you to pay a "PuneNest fee" over UPI or WhatsApp is not us. See [Spotting a rental scam](/help/a/spot-a-scam).
+> Draazy only ever collects money through the in-app checkout, and every payment produces an invoice in your account. Anyone asking you to pay a "Draazy fee" over UPI or WhatsApp is not us. See [Spotting a rental scam](/help/a/spot-a-scam).
 
 ## Refunds
 
@@ -51,7 +51,7 @@ Check the billing page first — the descriptor on your statement may differ fro
 
 ## Rent receipts
 
-Rent does not move through PuneNest, so there are no rent receipts to issue. Record what you pay
+Rent does not move through Draazy, so there are no rent receipts to issue. Record what you pay
 under **Dashboard → Rent Wallet** and it works out your yearly total and HRA exemption for you. See
 [Paying rent online](/help/a/paying-rent-online).
 

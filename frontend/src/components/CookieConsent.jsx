@@ -9,7 +9,7 @@ import Switch from './ui/Switch.jsx';
    reopened at any time (consent is as easy to withdraw as to give) by dispatching
    the `pn:open-cookie-preferences` event — the footer link does exactly that. */
 
-const KEY = 'pn_cookie_consent_v1';
+const KEY = 'dz_cookie_consent_v1';
 const VERSION = 1;
 
 export function getCookieConsent() {
@@ -51,13 +51,13 @@ export default function CookieConsent() {
   useEffect(() => {
     const root = document.documentElement;
     if (mode === 'hidden' || !panelRef.current) {
-      root.style.setProperty('--pn-cookie-banner-h', '0px');
+      root.style.setProperty('--dz-cookie-banner-h', '0px');
       return undefined;
     }
 
     const syncHeight = () => {
       const box = panelRef.current?.getBoundingClientRect();
-      root.style.setProperty('--pn-cookie-banner-h', `${Math.ceil(box?.height || 0)}px`);
+      root.style.setProperty('--dz-cookie-banner-h', `${Math.ceil(box?.height || 0)}px`);
     };
 
     syncHeight();
@@ -67,7 +67,7 @@ export default function CookieConsent() {
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', syncHeight);
-      root.style.setProperty('--pn-cookie-banner-h', '0px');
+      root.style.setProperty('--dz-cookie-banner-h', '0px');
     };
   }, [mode]);
 
@@ -85,7 +85,7 @@ export default function CookieConsent() {
   if (mode === 'hidden') return null;
 
   return (
-    <div className="pn-safe-x fixed inset-x-0 bottom-[var(--pn-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
+    <div className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
       <div
         ref={panelRef}
         role="dialog"
@@ -102,7 +102,7 @@ export default function CookieConsent() {
               </div>
               <p className="text-[13px] leading-snug text-gray-300 min-w-0">
                 <span className="font-semibold text-white">Your privacy choices — </span>
-                we use essential cookies to run PuneNest and, with your consent, functional, analytics &amp; marketing
+                we use essential cookies to run Draazy and, with your consent, functional, analytics &amp; marketing
                 cookies to improve it.{' '}
                 <Link to="/privacy" className="text-teal-400 hover:underline whitespace-nowrap">Privacy Policy</Link>
               </p>

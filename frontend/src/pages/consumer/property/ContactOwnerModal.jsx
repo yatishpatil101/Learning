@@ -95,14 +95,14 @@ export function ContactOwnerModal({ p, isIn, onClose, toast }) {
   };
 
   return (
-    <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.contactTheOwner')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pn-modal">
+    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.contactTheOwner')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{t('property.contactTheOwner')}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{t('property.noBrokerageSub')}</p>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label={t('property.close')}><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-11 h-11 rounded-full bg-gradient-to-br from-brand-teal-1 to-brand-indigo-4 flex items-center justify-center text-white font-bold">{(p.owner || 'A')[0]}</div>

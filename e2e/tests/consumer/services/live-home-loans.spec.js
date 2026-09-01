@@ -65,7 +65,7 @@ const PAGE = '/home-loans';
 async function withConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
   });
@@ -87,8 +87,8 @@ const idsOf = (rows) => new Set(rows.map((r) => r.id));
  * `NativeSelect.jsx:44`), so the control has no accessible name at all. `data-err` is the anchor.
  */
 async function pickOption(page, field, label) {
-  await page.locator(`[data-err="${field}"] .pn-dropdown__trigger`).click();
-  await page.locator('.pn-dropdown__option', { hasText: label }).first().click();
+  await page.locator(`[data-err="${field}"] .dz-dropdown__trigger`).click();
+  await page.locator('.dz-dropdown__option', { hasText: label }).first().click();
 }
 
 test.describe('home loans landing, live', () => {

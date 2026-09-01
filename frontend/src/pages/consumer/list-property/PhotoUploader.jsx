@@ -28,7 +28,7 @@ const PhotoUploader = ({
     <div className="mb-6" data-err="photos">
       <label className={lbl3}>{label || t('listProperty.photoUploader.defaultLabel')}</label>
       {hint && <p className="text-gray-500 text-xs mb-3">{hint}</p>}
-      <label className={`upload-zone rounded-2xl p-5 text-center cursor-pointer block ${error ? 'pn-invalid' : ''}`}>
+      <label className={`upload-zone rounded-2xl p-5 text-center cursor-pointer block ${error ? 'dz-invalid' : ''}`}>
         <input type="file" className="hidden" multiple accept="image/*" onChange={handlePhotoUpload} />
         <div className="w-12 h-12 rounded-xl bg-teal-400/10 border border-teal-400/20 flex items-center justify-center mx-auto mb-2.5"><CloudUpload className="w-6 h-6 text-teal-400" /></div>
         <p className="text-white font-medium text-sm mb-0.5">{t('listProperty.photoUploader.dropTitle')}</p>
@@ -80,7 +80,7 @@ const PhotoUploader = ({
                       onChange={(v) => setPhotoCategory(i, v)}
                       options={PHOTO_CATS}
                       ariaLabel={t('listProperty.photoUploader.photoCategoryAria')}
-                      className="w-full pn-dd-photocat"
+                      className="w-full dz-dd-photocat"
                     />
                   </div>
                 </div>

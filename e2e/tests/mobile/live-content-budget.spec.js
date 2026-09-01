@@ -25,7 +25,7 @@ import { test, expect } from '../../fixtures/live.js';
 const consent = (page) =>
   page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
     );
   });
@@ -160,7 +160,7 @@ test.describe('Mobile reach and legibility', () => {
       const bar = document.querySelector('.glass.rounded-2xl');
       if (!bar) return ['toolbar not found'];
       const bad = [];
-      for (const el of bar.querySelectorAll('button, input, .pn-dropdown__trigger')) {
+      for (const el of bar.querySelectorAll('button, input, .dz-dropdown__trigger')) {
         const r = el.getBoundingClientRect();
         if (r.width && r.right > w + 1) {
           bad.push(`${(el.innerText || el.getAttribute('aria-label') || el.tagName).trim().slice(0, 24)} right=${Math.round(r.right)}`);

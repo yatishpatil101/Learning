@@ -56,7 +56,7 @@ function rupeesFrom(text) {
 
 /** The tile whose label is `label`, as a number. */
 async function tileValue(page, label) {
-  const card = page.locator('.pn-card').filter({ hasText: label }).first();
+  const card = page.locator('.dz-card').filter({ hasText: label }).first();
   await expect(card).toBeVisible();
   return rupeesFrom(await card.locator('.text-xl.font-extrabold').first().innerText());
 }
@@ -93,10 +93,10 @@ const EMPTY_TX = 'No transactions match.';
 /** Open a themed custom `Select` by aria-label and choose an option. */
 async function pickSelectOption(page, ariaLabel, optionText) {
   await page.locator(`[aria-label="${ariaLabel}"]`).click();
-  const option = page.locator('.pn-dropdown__option', { hasText: optionText }).first();
+  const option = page.locator('.dz-dropdown__option', { hasText: optionText }).first();
   await expect(option).toBeVisible();
   await option.click();
-  await expect(page.locator('.pn-dropdown__option')).toHaveCount(0);
+  await expect(page.locator('.dz-dropdown__option')).toHaveCount(0);
 }
 
 /** Text of one column across every ledger row. */
@@ -356,7 +356,7 @@ test.describe('the finance console renders what the API returned', () => {
     const panel = page.locator('[data-testid="finance-disclosures"]');
 
     /* Driven off the payload rather than hardcoded to "three disclosures are showing". If the
-       deployment flips `punenest.finance.payouts-measured`, this test follows it instead of
+       deployment flips `draazy.finance.payouts-measured`, this test follows it instead of
        failing — which is what makes it a test of the wiring rather than of the config. */
     await expect(panel).toBeVisible();
     for (const [flag, phrase] of [
@@ -391,7 +391,7 @@ test.describe('finance console UI behaviour', () => {
     for (const label of KPIS) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
-    const values = page.locator('.pn-card .text-xl.font-extrabold');
+    const values = page.locator('.dz-card .text-xl.font-extrabold');
     const count = await values.count();
     expect(count).toBe(KPIS.length);
     for (let i = 0; i < count; i++) {
@@ -419,7 +419,7 @@ test.describe('finance console UI behaviour', () => {
     await expect(page.getByText(KPIS[0])).toBeVisible();
     await expect(page.getByText('Revenue by month')).toBeVisible();
     await expect(page.getByText('Revenue mix (this month)')).toBeVisible();
-    const chart = page.locator('.pn-card', { has: page.getByText('Revenue by month') }).locator('canvas');
+    const chart = page.locator('.dz-card', { has: page.getByText('Revenue by month') }).locator('canvas');
     await expect(chart).toBeVisible();
     const before = await chart.evaluate((canvas) => canvas.toDataURL());
 
@@ -448,7 +448,7 @@ test.describe('finance console UI behaviour', () => {
     await expect(page.locator('tbody tr').first()).toBeVisible();
 
     await page.locator('[aria-label="Filter by status"]').click();
-    const options = page.locator('.pn-dropdown__option');
+    const options = page.locator('.dz-dropdown__option');
     await expect(options.first()).toBeVisible();
     const labels = (await options.allTextContents()).map((s) => s.trim());
 

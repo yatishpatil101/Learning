@@ -4,7 +4,7 @@ import { trackErrors } from '../../../helpers/console.js';
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
 /* Postgres fixtures (seed Batch F), not injected rows. The mock version of this spec
-   wrote a doctored puneNestDB_v5 into localStorage before the app booted; under a live
+   wrote a doctored draazyDB_v5 into localStorage before the app booted; under a live
    `property` domain nothing reads that store, so those two tests were asserting against
    stock that did not exist and would have gone on passing after the search broke.
 
@@ -231,7 +231,7 @@ test('home Rent Shared Room search carries locality + gender into the flatmates 
   // + mobile drawer), so target the visible desktop instance to avoid a
   // strict-mode match on the off-screen drawer copy.
   await expect(page.getByRole('button', { name: 'Women', exact: true })).toHaveClass(/active/);
-  await expect(page.locator('.pn-dropdown__value:visible', { hasText: 'Baner' }).first()).toBeVisible();
+  await expect(page.locator('.dz-dropdown__value:visible', { hasText: 'Baner' }).first()).toBeVisible();
   expect(errors).toHaveLength(0);
 });
 

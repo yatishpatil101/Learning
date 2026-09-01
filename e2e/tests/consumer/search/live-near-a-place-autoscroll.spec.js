@@ -62,8 +62,8 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
 
   const group = filters(page).locator('.filter-group:has(h4:has-text("Near a Place"))').first();
   await group.locator('h4.fg-header').first().click();
-  await group.locator('.pn-dropdown__trigger').first().click();
-  await expect(page.locator('.pn-dropdown__menu--portal')).toBeVisible();
+  await group.locator('.dz-dropdown__trigger').first().click();
+  await expect(page.locator('.dz-dropdown__menu--portal')).toBeVisible();
 
   const scrollState = () => page.evaluate(() => {
     const s = document.querySelector('aside .filter-scroll');
@@ -72,8 +72,8 @@ test('picking a place scrolls the filter panel (not the window) to reveal the di
     return { panel: Math.round(s.scrollTop), winY: window.scrollY, room };
   });
 
-  await page.locator('.pn-dropdown__menu--portal input').fill('Hinj');
-  const option = page.locator('.pn-dropdown__menu--portal [role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
+  await page.locator('.dz-dropdown__menu--portal input').fill('Hinj');
+  const option = page.locator('.dz-dropdown__menu--portal [role="option"]', { hasText: 'Hinjawadi IT Park' }).first();
   /* Bring the option into view BEFORE the baseline, then take it, then click.
      `click()` scrolls its target into view first, and the menu is a portal anchored below a
      trigger that can sit near the bottom of a 620px viewport — so on the runs where the option

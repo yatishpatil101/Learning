@@ -105,11 +105,11 @@ export function FloorPlan({ p }) {
         </div>
       </MobileCollapse>
       {zoom ? (
-        <div className="pn-lightbox" role="dialog" aria-modal="true" aria-label={t('property.floorPlanAlt')} onClick={(e) => { if (e.target === e.currentTarget) setZoom(false); }}>
-          <button className="pn-lb-close" onClick={() => setZoom(false)} aria-label={t('property.close')}><Icon name="x" className="w-6 h-6" /></button>
-          <div className="pn-lb-stage">
+        <div className="dz-lightbox" role="dialog" aria-modal="true" aria-label={t('property.floorPlanAlt')} onClick={(e) => { if (e.target === e.currentTarget) setZoom(false); }}>
+          <button className="dz-lb-close" onClick={() => setZoom(false)} aria-label={t('property.close')}><Icon name="x" className="w-6 h-6" /></button>
+          <div className="dz-lb-stage">
             <img src={planImg} alt={t('property.floorPlanAlt')} />
-            <p className="pn-lb-caption">{t('property.floorPlanAlt')}</p>
+            <p className="dz-lb-caption">{t('property.floorPlanAlt')}</p>
           </div>
         </div>
       ) : null}

@@ -6,11 +6,11 @@ audience: everyone
 order: 2
 featured: true
 updated: 2026-07-28
-summary: We never take a cut of your rent or sale price. Here is what is free, what is paid, and how PuneNest makes money.
+summary: We never take a cut of your rent or sale price. Here is what is free, what is paid, and how Draazy makes money.
 tags: [brokerage, pricing, fees]
 ---
 
-Zero brokerage means exactly one thing: **PuneNest never takes a percentage of your rent, deposit or sale price.** Not from the tenant, not from the owner, not in the background.
+Zero brokerage means exactly one thing: **Draazy never takes a percentage of your rent, deposit or sale price.** Not from the tenant, not from the owner, not in the background.
 
 ## What is always free
 
@@ -39,13 +39,13 @@ You can see current pricing on the [Plans page](/plans), and the detail in [Plan
 There isn't a hidden one, but two things are worth knowing:
 
 1. **Owners set their own terms.** Deposit, notice period and maintenance are negotiated between you and the owner. We do not set or guarantee them.
-2. **Some owners still work with agents offline.** If someone asks you for brokerage after finding a listing here, that is not a PuneNest charge — [report it](/help/a/report-a-listing) and we will act on the listing.
+2. **Some owners still work with agents offline.** If someone asks you for brokerage after finding a listing here, that is not a Draazy charge — [report it](/help/a/report-a-listing) and we will act on the listing.
 
 > [!WARNING]
-> Never pay a token amount, deposit or "booking fee" to anyone claiming to represent PuneNest. We do not collect rent or deposits on an owner's behalf. See [Spotting a scam](/help/a/spot-a-scam).
+> Never pay a token amount, deposit or "booking fee" to anyone claiming to represent Draazy. We do not collect rent or deposits on an owner's behalf. See [Spotting a scam](/help/a/spot-a-scam).
 
 ## Related
 
-- [What is PuneNest?](/help/a/what-is-punenest)
+- [What is Draazy?](/help/a/what-is-draazy)
 - [Plans explained](/help/a/plans-explained)
 - [Invoices, refunds and receipts](/help/a/invoices-and-refunds)

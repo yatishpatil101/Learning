@@ -11,7 +11,7 @@ tags: [ops, support, tickets, escalation, internal]
 ---
 
 > [!IMPORTANT]
-> Internal runbook. Visible to PuneNest staff only.
+> Internal runbook. Visible to Draazy staff only.
 
 ## Priority definitions
 
@@ -33,7 +33,7 @@ Set priority from the **impact**, not from the tone of the message. An angry P3 
 
 ## Auto-escalate to P0
 
-- Any report of money paid to someone claiming to represent PuneNest
+- Any report of money paid to someone claiming to represent Draazy
 - Any allegation of physical threat or harassment involving a visit
 - A payment charged with no invoice record
 - Any contact from law enforcement or a regulator

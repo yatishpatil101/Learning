@@ -37,9 +37,9 @@ const DOC_ICON = {
   'Electricity Bill': 'zap', 'PG Trade License': 'clipboard-list',
 };
 // Plain-language explanation per document, written from the seeker's side —
-// what it proves / what PuneNest checked — not the owner-side upload hints.
+// what it proves / what Draazy checked — not the owner-side upload hints.
 const DOC_PROVES = {
-  'Ownership Proof': 'PuneNest confirmed the person listing genuinely owns this property — you deal with the real owner, not a broker.',
+  'Ownership Proof': 'Draazy confirmed the person listing genuinely owns this property — you deal with the real owner, not a broker.',
   'Society NOC': 'The society permits this home to be let out — no surprise objection after you move in.',
   'Fire NOC': 'Fire / trade safety clearance is in place for this unit.',
   'Shop Act License': 'A valid Shop Act (Gumasta) licence covers commercial use here.',
@@ -73,7 +73,7 @@ const buildDocs = (p, deal) => docsFor(
 ).map((d) => ({
   name: d.key,
   icon: DOC_ICON[d.key] || 'file-check',
-  proves: DOC_PROVES[d.key] || d.hint || 'Checked by PuneNest as part of verifying this listing.',
+  proves: DOC_PROVES[d.key] || d.hint || 'Checked by Draazy as part of verifying this listing.',
 }));
 
 // Owner-approval state for each document, as reflected back to the buyer.
@@ -231,7 +231,7 @@ export function DocumentsSection({ p, user, isIn, toast }) {
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-brand-teal-1/20 flex items-center justify-center flex-shrink-0"><Icon name="shield-check" className="w-6 h-6 text-brand-teal-3" /></div>
             <div>
-              <p className="font-bold text-white text-lg">{isRent ? t('property.verifiedByPuneNest') : t('property.documentBacked')}</p>
+              <p className="font-bold text-white text-lg">{isRent ? t('property.verifiedByDraazy') : t('property.documentBacked')}</p>
               <p className="text-xs text-slate-400 mt-0.5">{isRent ? t('property.docsSubRent') : t('property.docsSubBuy')}</p>
             </div>
           </div>

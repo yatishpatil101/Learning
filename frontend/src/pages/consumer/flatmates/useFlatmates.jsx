@@ -285,7 +285,7 @@ export function useFlatmates() {
     [user?.mobile, groupOpen],
     !!user,
   );
-  /* The signed-in user's active PuneNest tenancies (flats they rented through us). A sitting tenant
+  /* The signed-in user's active Draazy tenancies (flats they rented through us). A sitting tenant
      seeking a replacement can post from one of these in a tap — we already hold the flat's rent,
      locality and the owner's number for consent. Re-read when the modal opens so a tenancy finalised
      mid-session is picked up.

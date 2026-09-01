@@ -19,7 +19,7 @@
  * that happens one layer up, in the contact gate, and the accept/decline buttons that acted on it
  * have been removed with it.
  *
- * What survives is a **client-side staging queue** (`pnPendingRequests`) — a chat the user has
+ * What survives is a **client-side staging queue** (`dzPendingRequests`) — a chat the user has
  * composed but which cannot be sent until the gate opens — and the view model says so with a single
  * boolean, `staged`. That is the same split the anonymous saved-search capture took (D85): stage
  * locally, submit when the server can accept it, and never write a local record that pretends to be

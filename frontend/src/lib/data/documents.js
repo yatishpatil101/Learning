@@ -1,4 +1,4 @@
-/* PuneNest — Documents data module for Dashboard.
+/* Draazy — Documents data module for Dashboard.
    Manages property documents (owner), buyer document requests, and the home-loan checklist.
    Uses the same localStorage keys as the HTML prototype for data interop. */
 
@@ -72,8 +72,8 @@ export const HOME_LOAN_CHECKLIST = [
   'Occupancy Certificate', 'RERA Certificate', 'Possession Letter',
 ];
 
-const docsKey = (mobile) => `puneNestDocs:${mobile || 'anon'}`;
-const docReqKey = (mobile) => `puneNestDocReq:${mobile || 'anon'}`;
+const docsKey = (mobile) => `draazyDocs:${mobile || 'anon'}`;
+const docReqKey = (mobile) => `draazyDocReq:${mobile || 'anon'}`;
 
 function get(k, def) {
   try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch { return def; }

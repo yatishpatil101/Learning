@@ -48,15 +48,15 @@ function ErrorFallback({ error, reference, scope, onRetry }) {
               clears here without losing the rest of the session. Reload is offered alongside
               rather than instead, because the other common cause — a stale lazy chunk after a
               deploy — cannot be fixed by re-rendering the same broken module. */}
-          <button type="button" onClick={onRetry} className="pn-control pn-control--action px-4 gap-1.5">
+          <button type="button" onClick={onRetry} className="dz-control dz-control--action px-4 gap-1.5">
             <Icon name="refresh-cw" className="w-4 h-4" /> {t('common.errorBoundary.tryAgain')}
           </button>
-          <button type="button" onClick={() => window.location.reload()} className="pn-control px-4 gap-1.5">
+          <button type="button" onClick={() => window.location.reload()} className="dz-control px-4 gap-1.5">
             {t('common.errorBoundary.reload')}
           </button>
           {/* A plain anchor, not <Link>: the root boundary sits outside the router, and at that
               point a full document load is what is wanted anyway. */}
-          {atRoot ? <a href="/" className="pn-control px-4 gap-1.5">{t('common.errorBoundary.goHome')}</a> : null}
+          {atRoot ? <a href="/" className="dz-control px-4 gap-1.5">{t('common.errorBoundary.goHome')}</a> : null}
         </div>
         {/* Quotable. The reference is what ties this screen to the console line and to any log
             drain that collects it; the message is included because in dev it usually names the

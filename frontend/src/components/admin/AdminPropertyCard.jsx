@@ -284,12 +284,12 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
             {/* Admin actions */}
             <div className="flex items-center gap-1.5 mt-2">
               {actions.onReminder && (actions.reminderAlways || (l.postedByAdmin && l.status === 'pending')) ? (
-                <button onClick={() => actions.onReminder(l)} className="pn-btn pn-btn-ghost pn-btn-sm" title="Send WhatsApp reminder to owner">
+                <button onClick={() => actions.onReminder(l)} className="dz-btn dz-btn-ghost dz-btn-sm" title="Send WhatsApp reminder to owner">
                   <Bell className="h-3.5 w-3.5" /> Remind
                 </button>
               ) : null}
               {l.recheckPending && actions.onRecheckPass ? (
-                <button onClick={() => actions.onRecheckPass(l)} className="pn-btn pn-btn-primary pn-btn-sm" data-testid="recheck-pass">
+                <button onClick={() => actions.onRecheckPass(l)} className="dz-btn dz-btn-primary dz-btn-sm" data-testid="recheck-pass">
                   <CheckCircle className="h-3.5 w-3.5" /> Looks fine
                 </button>
               ) : null}
@@ -299,7 +299,7 @@ export default function AdminPropertyCard({ listing: l, actions = {}, selectable
                 </button>
               ) : null}
               {(l.status === 'pending' || l.status === 'Under Review') && actions.onReview ? (
-                <button onClick={() => actions.onReview(l)} className="pn-btn pn-btn-primary pn-btn-sm">
+                <button onClick={() => actions.onReview(l)} className="dz-btn dz-btn-primary dz-btn-sm">
                   <ClipboardCheck className="h-3.5 w-3.5" /> Review
                 </button>
               ) : null}

@@ -2,7 +2,7 @@
  * LIVE integration check for the society hub **through the UI**, not through HTTP.
  *
  * Excluded from the default run; needs a backend on :8081 under the `dev,e2e` profiles and the
- * `punenest_e2e` database. Run it explicitly:
+ * `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/live-society-hub.spec.js --config=playwright.config.js
  *

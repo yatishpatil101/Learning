@@ -257,7 +257,7 @@ const Select = forwardRef(function Select({
   };
 
   return (
-    <div ref={rootRef} className={classNames('pn-dropdown', size === 'sm' && 'pn-dropdown--sm', open && 'is-open', className)} data-err={dataErr}>
+    <div ref={rootRef} className={classNames('dz-dropdown', size === 'sm' && 'dz-dropdown--sm', open && 'is-open', className)} data-err={dataErr}>
       <button
         type="button"
         ref={triggerRef}
@@ -265,15 +265,15 @@ const Select = forwardRef(function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
-        className={classNames('pn-dropdown__trigger', invalid && 'pn-invalid pn-shake')}
+        className={classNames('dz-dropdown__trigger', invalid && 'dz-invalid dz-shake')}
         onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={onKeyDown}
       >
-        <span className={classNames('pn-dropdown__value', !selected && 'is-placeholder')}>
-          {prefix ? <span className="pn-dropdown__prefix">{prefix}</span> : null}
+        <span className={classNames('dz-dropdown__value', !selected && 'is-placeholder')}>
+          {prefix ? <span className="dz-dropdown__prefix">{prefix}</span> : null}
             {selected ? selected.label : ph}
         </span>
-        <svg className="pn-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="dz-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
@@ -283,17 +283,17 @@ const Select = forwardRef(function Select({
             <>
               {/* Scrim: a sheet is a modal surface, so the page behind it has to
                   read as dismissed rather than merely covered. */}
-              {sheet ? <div className="pn-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
+              {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div
                 ref={menuRef}
                 {...(sheet ? swipe : null)}
-                className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', sheet && 'pn-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
                 role="listbox"
                 id={listId}
                 aria-label={ariaLabel}
               >
                 {isSearchable ? (
-                  <div className="pn-dropdown__search">
+                  <div className="dz-dropdown__search">
                     <input
                       value={query}
                       onChange={(e) => {
@@ -308,7 +308,7 @@ const Select = forwardRef(function Select({
                 ) : null}
 
                 {visible.length === 0 ? (
-                  <div className="pn-dropdown__empty">
+                  <div className="dz-dropdown__empty">
                     {loading
                       ? t('ui.searching')
                       : (asyncSearch && query.trim().length < 2 ? t('ui.typeToSearch') : noResults)}
@@ -324,7 +324,7 @@ const Select = forwardRef(function Select({
                       onMouseEnter={() => setActiveIndex(i)}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => choose(o)}
-                      className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
+                      className={classNames('dz-dropdown__option', i === activeIndex && 'is-active')}
                     >
                       {o.icon ? <Icon name={o.icon} className="opt-icon" /> : null}
                       <span className="opt-label">
@@ -340,7 +340,7 @@ const Select = forwardRef(function Select({
                 )}
 
                 {usingAsync ? (
-                  <div className="pn-dropdown__attrib">
+                  <div className="dz-dropdown__attrib">
                     <PoweredByGoogle />
                   </div>
                 ) : null}

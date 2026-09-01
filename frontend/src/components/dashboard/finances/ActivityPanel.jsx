@@ -34,7 +34,7 @@ export default function ActivityPanel({ finType, setFinType, typeOpts, filteredT
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div className="w-32 sm:w-36"><Select value={finType} onChange={setFinType} options={typeOpts} className="w-full" /></div>
-        <button onClick={onAdd} className="pn-control pn-control--action px-4 gap-2"><Icon name="plus" className="w-4 h-4" /> {t('fin.add')}</button>
+        <button onClick={onAdd} className="dz-control dz-control--action px-4 gap-2"><Icon name="plus" className="w-4 h-4" /> {t('fin.add')}</button>
       </div>
       <Card className="p-4 sm:p-5">
         {filteredTxs.length === 0 ? (
@@ -42,7 +42,7 @@ export default function ActivityPanel({ finType, setFinType, typeOpts, filteredT
             <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3"><Icon name="receipt-indian-rupee" className="w-6 h-6 text-gray-500" /></div>
             <p className="text-gray-200 text-sm font-medium">{t('fin.noTx')}</p>
             <p className="text-gray-400 text-xs mt-1">{t('fin.noTxSub')}</p>
-            <button onClick={onAdd} className="pn-control pn-control--action px-4 gap-2 mt-4 inline-flex"><Icon name="plus" className="w-4 h-4" /> {t('fin.addTransaction')}</button>
+            <button onClick={onAdd} className="dz-control dz-control--action px-4 gap-2 mt-4 inline-flex"><Icon name="plus" className="w-4 h-4" /> {t('fin.addTransaction')}</button>
           </div>
         ) : (
           <>

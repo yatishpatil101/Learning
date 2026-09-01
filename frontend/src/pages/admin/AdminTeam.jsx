@@ -326,7 +326,7 @@ export default function AdminTeam() {
   /* Stacked-card fallback below `sm` (see Table.jsx). Edit / suspend are 44px here — at 28px in
      the table they were the smallest targets on the page. */
   const memberCard = (m) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-white">{m.name}</div>
@@ -370,14 +370,14 @@ export default function AdminTeam() {
     ) },
     { key: 'waiting', header: t('team.approvals.columns.waitingSince'), render: (m) => <span className="text-gray-300">{waitingSince(m)}</span> },
     { key: 'actions', header: '', className: 'text-right', render: (m) => (
-      <button onClick={() => approveMember(m)} disabled={approving === m.id} className="pn-btn pn-btn-primary">
+      <button onClick={() => approveMember(m)} disabled={approving === m.id} className="dz-btn dz-btn-primary">
         <Check className="h-4 w-4" /> {t('team.approvals.approve')}
       </button>
     ) },
   ];
 
   const approvalCard = (m) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-white">{m.name}</div>
@@ -390,7 +390,7 @@ export default function AdminTeam() {
         <span>{t('team.approvals.columns.waitingSince')}: {waitingSince(m)}</span>
       </div>
       <div className="mt-3 border-t border-white/5 pt-3">
-        <button onClick={() => approveMember(m)} disabled={approving === m.id} className="pn-btn pn-btn-primary w-full">
+        <button onClick={() => approveMember(m)} disabled={approving === m.id} className="dz-btn dz-btn-primary w-full">
           <Check className="h-4 w-4" /> {t('team.approvals.approve')}
         </button>
       </div>
@@ -404,7 +404,7 @@ export default function AdminTeam() {
         subtitle="Create internal accounts and control which admin modules each person can open"
         actions={tab === 'approvals'
           ? null
-          : <button onClick={openNewMember} className="pn-btn pn-btn-primary"><Plus className="h-4 w-4" /> Add member</button>}
+          : <button onClick={openNewMember} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" /> Add member</button>}
       />
 
       <HScroll role="tablist" wrapClassName="mb-4" fadeColor="var(--brand-card, #1a1730)" className="flex gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
@@ -430,12 +430,12 @@ export default function AdminTeam() {
           {/* Maker-checker is a server rule, not a console one: a back-office account created by
               one administrator does not exist until a *different* one approves it. This tab is the
               only place that second signature can be given, which is the gap D205 closes. */}
-          <div className="pn-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-gray-400">
+          <div className="dz-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-gray-400">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
             <span>{t('team.approvals.explainer')}</span>
           </div>
           {pendingError ? (
-            <div className="pn-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-red-300">
+            <div className="dz-card mb-3 flex items-start gap-2.5 p-3.5 text-xs leading-relaxed text-red-300">
               <Info className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{pendingError}</span>
             </div>
@@ -459,8 +459,8 @@ export default function AdminTeam() {
         size="lg"
         footer={memberModal ? (
           <>
-            <button onClick={() => setMemberModal(null)} className="pn-btn pn-btn-ghost">Cancel</button>
-            <button onClick={saveMember} className="pn-btn pn-btn-primary"><Check className="h-4 w-4" /> {memberModal.id ? 'Save changes' : 'Create member'}</button>
+            <button onClick={() => setMemberModal(null)} className="dz-btn dz-btn-ghost">Cancel</button>
+            <button onClick={saveMember} className="dz-btn dz-btn-primary"><Check className="h-4 w-4" /> {memberModal.id ? 'Save changes' : 'Create member'}</button>
           </>
         ) : null}
       >
@@ -469,7 +469,7 @@ export default function AdminTeam() {
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-gray-300">Full name <span className="text-rose-400">*</span></span>
-                <input value={memberModal.name} onChange={(e) => setMemberModal({ ...memberModal, name: e.target.value })} className="pn-input w-full" placeholder="e.g. Rohan Kulkarni" />
+                <input value={memberModal.name} onChange={(e) => setMemberModal({ ...memberModal, name: e.target.value })} className="dz-input w-full" placeholder="e.g. Rohan Kulkarni" />
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-gray-300">Mobile{memberModal.id ? null : <span className="text-rose-400"> *</span>}</span>
@@ -482,7 +482,7 @@ export default function AdminTeam() {
                   onChange={(e) => setMemberModal({ ...memberModal, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                   readOnly={!!memberModal.id}
                   inputMode="numeric"
-                  className={`pn-input w-full${memberModal.id ? ' cursor-not-allowed opacity-60' : ''}`}
+                  className={`dz-input w-full${memberModal.id ? ' cursor-not-allowed opacity-60' : ''}`}
                   placeholder="10-digit number"
                 />
                 {memberModal.id ? (
@@ -491,7 +491,7 @@ export default function AdminTeam() {
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1.5 block text-xs font-semibold text-gray-300">Email (optional)</span>
-                <input value={memberModal.email} onChange={(e) => setMemberModal({ ...memberModal, email: e.target.value })} className="pn-input w-full" placeholder="name@punenest.com" />
+                <input value={memberModal.email} onChange={(e) => setMemberModal({ ...memberModal, email: e.target.value })} className="dz-input w-full" placeholder="name@draazy.com" />
               </label>
             </div>
 

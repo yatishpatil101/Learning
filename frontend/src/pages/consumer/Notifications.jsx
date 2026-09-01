@@ -256,7 +256,7 @@ export default function Notifications() {
         <div
           aria-hidden="true"
           className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
-          style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+          style={{ top: `calc(var(--dz-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
         >
           <Icon
             name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}

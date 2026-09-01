@@ -57,7 +57,7 @@ test('two owners with the same masked form do not share a contact bucket', async
   // '98XXXXX670'. Before the fix that string keyed a bucket ('...:98670'), so a request
   // stored while viewing owner A's listing was read back on owner B's listing.
   const res = await withContact(page, (m) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
     // What the server actually sends: first two + last three digits.
     const mask = (n) => n.slice(0, 2) + 'XXXXX' + n.slice(7);
     const maskedA = mask('9812345670');
@@ -85,7 +85,7 @@ test('two owners with the same masked form do not share a contact bucket', async
 test('real 10-digit owners keep separate contact buckets', async ({ page }) => {
   // The other half of the guarantee: the fix must not merge legitimate identities.
   const res = await withContact(page, (m) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
     m.saveContactReqs('9812345670', [{ id: 'a', status: 'pending', buyerMobile: '9876543210', propId: 'P1' }]);
     m.saveContactReqs('9899999670', [{ id: 'b', status: 'pending', buyerMobile: '9876543210', propId: 'P2' }]);
     return {
@@ -102,7 +102,7 @@ test('real 10-digit owners keep separate contact buckets', async ({ page }) => {
 
 test('a masked owner number neither reads nor writes contact state', async ({ page }) => {
   const res = await withContact(page, (m) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
     const before = Object.keys(localStorage).length;
     const request = m.requestContact('98XXXXX210', 'P5000');
     return {
@@ -125,7 +125,7 @@ test('a masked owner number neither reads nor writes contact state', async ({ pa
 test('the owner of a listing is still recognised by their full number', async ({ page }) => {
   // Guards the fix from over-correcting: real 10-digit identities must keep working.
   const res = await withContact(page, (m) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Owner', mobile: '9530047855' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Owner', mobile: '9530047855' }));
     return {
       isOwner: m.isOwnerViewer('9530047855'),
       // Spacing/punctuation is irrelevant — only the digit count matters.
@@ -154,11 +154,11 @@ test('a session without a mobile does not inherit a shared Verified badge', asyn
   // bypassing an owner's "accept verified contacts only" preference.
   const res = await withContact(page, (m) => {
     // Someone else's badge, sitting in the legacy shared bucket.
-    localStorage.setItem('puneNestAadhaar:anon', JSON.stringify({ verified: true }));
+    localStorage.setItem('draazyAadhaar:anon', JSON.stringify({ verified: true }));
     // An owner who only accepts verified contacts.
-    localStorage.setItem('pnOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
+    localStorage.setItem('dzOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
     // A signed-in session carrying no mobile of its own.
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'No Mobile', mobile: '' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'No Mobile', mobile: '' }));
 
     return { request: m.requestContact('9530047855', 'P5000') };
   });
@@ -171,9 +171,9 @@ test('a real Verified badge still satisfies a verified-only owner', async ({ pag
   // The other side of the guarantee: failing closed must not lock out a genuinely
   // verified buyer.
   const res = await withContact(page, (m) => {
-    localStorage.setItem('pnOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
-    localStorage.setItem('puneNestAadhaar:9876543210', JSON.stringify({ verified: true }));
+    localStorage.setItem('dzOwnerPrefs:9530047855', JSON.stringify({ verifiedContactOnly: true }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Buyer', mobile: '9876543210' }));
+    localStorage.setItem('draazyAadhaar:9876543210', JSON.stringify({ verified: true }));
     return { request: m.requestContact('9530047855', 'P5000') };
   });
 
@@ -182,7 +182,7 @@ test('a real Verified badge still satisfies a verified-only owner', async ({ pag
 
 test('owner privacy prefs round-trip on a full number and are isolated per owner', async ({ page }) => {
   const res = await withContact(page, (m) => {
-    localStorage.setItem('puneNestUser', JSON.stringify({ name: 'Owner', mobile: '9530047855' }));
+    localStorage.setItem('draazyUser', JSON.stringify({ name: 'Owner', mobile: '9530047855' }));
     m.setOwnerPrefs({ hideNumber: true });
     return {
       mine: m.getOwnerPrefs(),

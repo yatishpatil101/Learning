@@ -15,7 +15,7 @@ import { API, apiLogin, signedInAs, signedInAsNew, uniqueMobile } from '../../..
  * The retired mock trio worked around that by keeping both actors in one browser context and
  * one `localStorage`, and it shows in what they were able to assert:
  *
- *   - `rent-agreement.spec.js:307` **wrote** `puneNestRAInvite:9822334455` itself and then
+ *   - `rent-agreement.spec.js:307` **wrote** `draazyRAInvite:9822334455` itself and then
  *     asserted the app redirected with `mobile=9822334455` — a number the test had just put
  *     there. Both halves of that assertion are the browser talking to itself.
  *   - `:342` logged in as the tenant in the *same* context, with a comment conceding "the invite
@@ -100,10 +100,10 @@ async function inviteTenant(page, mobile) {
 
 async function fillTerms(page) {
   const p = active(page);
-  await p.locator('.pn-datefield').click();
-  await page.locator('.pn-cal').waitFor({ state: 'visible' });
+  await p.locator('.dz-datefield').click();
+  await page.locator('.dz-cal').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: todayIso(), exact: true }).first().click();
-  await page.locator('.pn-cal').waitFor({ state: 'detached' });
+  await page.locator('.dz-cal').waitFor({ state: 'detached' });
   await p.getByPlaceholder('e.g. 25000').fill('30000');
   await p.getByPlaceholder('e.g. 100000').fill('150000');
   await clickNext(page, 4);
@@ -171,7 +171,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     test.slow();
 
     /* The tenant's account exists *before* the invite is sent. That is what makes the panel below
-       say "waiting for them to open the invite" rather than "this number isn't on PuneNest yet" —
+       say "waiting for them to open the invite" rather than "this number isn't on Draazy yet" —
        the two are decided by `party.pending`, which is the server answering whether a user row
        exists. A browser cannot know that about someone else's phone number. */
     const tenantMobile = uniqueMobile();
@@ -327,7 +327,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
     expect(page.url()).not.toContain(tenantMobile);
   });
 
-  test('inviting a number with no PuneNest account says so, and asks for a signup rather than a resend', async ({ page }) => {
+  test('inviting a number with no Draazy account says so, and asks for a signup rather than a resend', async ({ page }) => {
     /* Never registered — `uniqueMobile()` without the `apiLogin` the other tests pair it with. */
     const strangerMobile = uniqueMobile();
 
@@ -355,7 +355,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
        basis for the advice the owner is given. "Resend it" would be useless — the link cannot
        open until they sign up. */
     expect(party?.pending, 'the server reports no account behind that number').toBe(true);
-    await expect(page.getByText(/isn.t on PuneNest yet/)).toBeVisible();
+    await expect(page.getByText(/isn.t on Draazy yet/)).toBeVisible();
     await expect(page.getByText('Waiting for them to open the invite')).toHaveCount(0);
 
     /* The server masks the number it echoes back, so the panel cannot become a place to read a
@@ -422,7 +422,7 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
    *
    * Until the server raised this, the only thing that ever notified an invited tenant was
    * `pushNotificationFor` in `useRentAgreement.generate` — a write into `localStorage` under the
-   * key `pnNotifications:<tenant>`, performed by the *owner's* browser. Storage is per-origin and
+   * key `dzNotifications:<tenant>`, performed by the *owner's* browser. Storage is per-origin and
    * per-browser, so that row reached the tenant only when tenant and owner were the same person:
    * true in the mock, never true on live. The invitation was discoverable (`myInvites` puts it on
    * the dashboard) but silent — nothing told the tenant to go and look.

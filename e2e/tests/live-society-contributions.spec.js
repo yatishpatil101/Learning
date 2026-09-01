@@ -3,7 +3,7 @@
  * The society hub's community tab, against the live API (D240 slice 3).
  *
  * Every tip, every recommended electrician and every photo of the actual lobby used to live in
- * `pnSocietyContributions` in the author's own browser. The "community" tab showed each visitor a
+ * `dzSocietyContributions` in the author's own browser. The "community" tab showed each visitor a
  * community of exactly one person: themselves. The single most useful thing on the page — a
  * neighbour's number for a plumber who turns up — was only ever visible to somebody who already
  * had it.

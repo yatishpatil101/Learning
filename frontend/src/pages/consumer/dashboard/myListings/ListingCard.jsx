@@ -25,7 +25,7 @@ import {
 // to, so an owner and the reviewer had never once seen the same case file.
 //
 // `split` is the third of these: `{ rooms, movedIn }` for a flat being let room by room, or `null`.
-// It replaces three synchronous `lib/data/flatSplit.js` calls that read `puneNestRoomListings` —
+// It replaces three synchronous `lib/data/flatSplit.js` calls that read `draazyRoomListings` —
 // this browser's own store, which the API does not write. A split performed against the server
 // therefore never appeared here at all.
 export default function ListingCard({
@@ -98,7 +98,7 @@ export default function ListingCard({
     ? (canFeature
         ? { icon: 'star', label: l.featured ? 'Remove from featured' : 'Feature listing', onClick: () => onToggleFeature(l) }
         : (l.featured
-            ? { icon: 'star', label: 'Featured by PuneNest', disabled: true }
+            ? { icon: 'star', label: 'Featured by Draazy', disabled: true }
             : { icon: 'star', label: 'Feature — upgrade', to: '/plans' }))
     : null;
   /* A "WhatsApp reminder" button stood here, shown on the same two states (`stale`, `dormant`)

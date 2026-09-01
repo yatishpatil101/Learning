@@ -18,7 +18,7 @@ export default function PostSuccessSplitNudge({ listing }) {
   const [done, setDone] = useState(false);
 
   /* Through the seam, like the My Listings copy of this action. It used to call the mock
-     `splitFlat()` directly, which wrote the rooms to this browser's `puneNestRoomListings` — so an
+     `splitFlat()` directly, which wrote the rooms to this browser's `draazyRoomListings` — so an
      owner who accepted the nudge created supply that no seeker could ever be shown.
 
      The owner's identity comes off the token now rather than being passed in from `useAuth`, which

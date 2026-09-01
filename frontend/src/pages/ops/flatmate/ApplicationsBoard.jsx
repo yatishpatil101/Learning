@@ -77,7 +77,7 @@ export default function ApplicationsBoard() {
 
       {board.status === 'ready' && board.items.length ? (
         <>
-        <div className="pn-card overflow-x-auto">
+        <div className="dz-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs font-semibold text-gray-400">

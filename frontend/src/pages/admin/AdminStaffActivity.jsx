@@ -184,7 +184,7 @@ export default function AdminStaffActivity() {
   ];
 
   const activityCard = (a) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-xs font-bold text-indigo-300">
@@ -336,7 +336,7 @@ export default function AdminStaffActivity() {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search staff, action or record…"
             aria-label="Search staff activity"
-            className="pn-input w-full"
+            className="dz-input w-full"
             style={{ paddingLeft: '2.25rem' }}
           />
         </div>

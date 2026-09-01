@@ -423,10 +423,10 @@
   `varchar`, so `'9' > '97' > '89'` and a DB at V97 can report `9`. Always
   `max(version::int) where version ~ '^[0-9]+$'`. Reading the fake answer as "the dev DB is at V9"
   nearly triggered a pointless migration investigation.
-- **The three DBs drift and the dev one is the stale one.** `punenest` (dev) sat at **V76** while
-  `punenest_e2e` was at **V97** — 21 migrations of columns (`room`, `sharing`, `tenants`, `land_use`,
+- **The three DBs drift and the dev one is the stale one.** `draazy` (dev) sat at **V76** while
+  `draazy_e2e` was at **V97** — 21 migrations of columns (`room`, `sharing`, `tenants`, `land_use`,
   `pets`, `available_from`, `quality_score`, `last_confirmed_at`) exist in one and not the other.
-  Never conclude "the server has no such column" from the dev DB; check `punenest_e2e`, or the
+  Never conclude "the server has no such column" from the dev DB; check `draazy_e2e`, or the
   migration files, which are the real source of truth.
 - **`get_errors` on a `.java` file reports the IDE language server's stale view.** Never accept it as
   proof for backend Java — compile. And `mvnw.cmd compile` without `clean` is frequently a no-op, so
@@ -482,7 +482,7 @@
 - **The mock app stores its whole DB under one localStorage key with no merge to defaults**, so
   seeding a partial DB pre-boot white-screens the app. Seed extra rows after boot.
 - **The cookie-consent banner intercepts clicks on bottom-anchored targets.** Any new bottom-click or
-  mobile-FAB spec must seed `pn_cookie_consent_v1`.
+  mobile-FAB spec must seed `dz_cookie_consent_v1`.
 
 ## House style
 

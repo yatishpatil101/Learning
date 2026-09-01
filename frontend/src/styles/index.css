@@ -5,7 +5,7 @@
 
 
 /* ============================================================================
-   PuneNest — design tokens (ported verbatim from theme.css)
+   Draazy — design tokens (ported verbatim from theme.css)
    ============================================================================ */
 :root {
   --brand-dark: #0f0d1a;
@@ -81,15 +81,15 @@
   --btn-primary-shadow-hover: 0 6px 20px rgba(20, 184, 166, 0.35);
 
   /* ── Mobile bottom-chrome system ──────────────────────────────────────────
-     --pn-safe-b   the device's bottom inset (home indicator / gesture bar).
+     --dz-safe-b   the device's bottom inset (home indicator / gesture bar).
                    Only non-zero once index.html carries viewport-fit=cover.
-     --pn-bottom-inset  how much vertical space at the bottom of the viewport is
+     --dz-bottom-inset  how much vertical space at the bottom of the viewport is
                    already claimed by fixed chrome. ConsumerLayout adds
                    .has-bottom-nav on routes that mount the mobile bottom nav;
                    this is the value everywhere else.
 
-     Every bottom-anchored widget positions from --pn-bottom-inset instead of a
-     hardcoded `bottom-*`. Above lg it resolves to --pn-safe-b (0px on desktop), so
+     Every bottom-anchored widget positions from --dz-bottom-inset instead of a
+     hardcoded `bottom-*`. Above lg it resolves to --dz-safe-b (0px on desktop), so
      each calc() collapses to exactly the literal offset it had before.
 
      Z-index ladder, documented once so bottom chrome never re-negotiates it:
@@ -99,7 +99,7 @@
 
      The connectivity banner is the one rung that is TOP chrome, and deliberately so: the bottom
      edge of a phone viewport already carries five fixed layers, and a sixth at 360px would sit on
-     the floating tab bar or its raised centre FAB. Docked to --pn-top-inset it cannot cover either,
+     the floating tab bar or its raised centre FAB. Docked to --dz-top-inset it cannot cover either,
      structurally rather than by promise. It outranks the cookie card because a first-visit consent
      prompt must never be the reason a dropped connection goes unexplained, and sits under blocking
      modals because a dialog already owns the screen while it is up.
@@ -119,32 +119,32 @@
      picked to "just be on top" is how 2000 happened. See design-system.md for this
      same ladder plus the bottom-chrome inventory a new fixed layer must be checked
      against, since two floating controls on one corner intercept each other. */
-  --pn-safe-b: env(safe-area-inset-bottom, 0px);
-  --pn-bottom-nav-h: 56px;
+  --dz-safe-b: env(safe-area-inset-bottom, 0px);
+  --dz-bottom-nav-h: 56px;
   /* The bar floats, so it claims its own height PLUS the gap it hovers above the
-     screen edge by. Both live in tokens because --pn-bottom-inset is derived from
+     screen edge by. Both live in tokens because --dz-bottom-inset is derived from
      them; changing the float here moves every bottom-anchored widget with it. */
-  --pn-bottom-nav-gap: 12px;
+  --dz-bottom-nav-gap: 12px;
   /* How far the bar's bottom edge sits above the viewport bottom — max(), not a sum.
      The float gap and the home-indicator inset are the same thing (breathing room at
-     the bottom edge), so adding them double-counts: in an installed iOS app --pn-safe-b
+     the bottom edge), so adding them double-counts: in an installed iOS app --dz-safe-b
      is 34px, and `gap + safe-b` parked the capsule 46px up — 5.5% of the screen — while
      in-browser (safe-b: 0px) it was 12px. max() takes whichever floor is larger, so the
      browser keeps its 12px and the installed app clears the home indicator by exactly
      the 34px iOS reserves, with no gap stacked on top.
-     One token because the bar's `bottom` and --pn-bottom-inset MUST agree — they were
+     One token because the bar's `bottom` and --dz-bottom-inset MUST agree — they were
      two hand-kept-in-sync calc()s, which is how they drifted apart in the first place. */
-  --pn-bottom-nav-offset: max(var(--pn-bottom-nav-gap), var(--pn-safe-b));
-  --pn-bottom-inset: var(--pn-safe-b);
-  --pn-cookie-banner-h: 0px;
+  --dz-bottom-nav-offset: max(var(--dz-bottom-nav-gap), var(--dz-safe-b));
+  --dz-bottom-inset: var(--dz-safe-b);
+  --dz-cookie-banner-h: 0px;
 
-  /* Top chrome, mirroring the bottom system. --pn-top-inset is where a sticky
+  /* Top chrome, mirroring the bottom system. --dz-top-inset is where a sticky
      sub-header (property/society tabs, listings controls) must dock. It equals the
      navbar height until the navbar slides away on mobile scroll-down, at which
      point it drops to 0 so the sub-header rises to the screen edge instead of
      leaving a hole. Desktop never changes it.
 
-     --pn-nav-h is the ONLY place the bar's height is written down. The row itself,
+     --dz-nav-h is the ONLY place the bar's height is written down. The row itself,
      every page's top padding, the sticky sub-headers and the full-height routes all
      derive from it, so the bar can be resized here and nothing drifts out of sync.
      It used to be duplicated as literals in ten files, including Tailwind classes on
@@ -153,23 +153,23 @@
      The phone value is 10% under what it was; ≥768px deliberately is NOT, so tablet
      and desktop keep the layout they have always had. Every consumer of the token
      inherits that split for free — which is the point of there being one token. */
-  --pn-nav-h: 58px;
-  --pn-top-inset: var(--pn-nav-h);
+  --dz-nav-h: 58px;
+  --dz-top-inset: var(--dz-nav-h);
 
   /* Drawn height of the top bar's pills on a phone — 10% under the 44px tap floor
-     they used to be pinned to. See .pn-topbar__pill below for why the two can
-     differ, and --pn-nav-icon-box for the square controls that scale with it. */
-  --pn-nav-pill-h: 40px;
-  --pn-nav-icon-box: 32px;
+     they used to be pinned to. See .dz-topbar__pill below for why the two can
+     differ, and --dz-nav-icon-box for the square controls that scale with it. */
+  --dz-nav-pill-h: 40px;
+  --dz-nav-icon-box: 32px;
 }
 
 @media (min-width: 768px) {
-  :root { --pn-nav-h: 72px; }
+  :root { --dz-nav-h: 72px; }
 }
 
 /* The bar's real height, driven by the token rather than by utility classes on the
-   element — see --pn-nav-h above. */
-.pn-topbar__row { height: var(--pn-nav-h); }
+   element — see --dz-nav-h above. */
+.dz-topbar__row { height: var(--dz-nav-h); }
 
 /* Top-bar controls (city pill, Sign In, account, Back, the logo tile).
 
@@ -177,7 +177,7 @@
    44px — taller than the very same pills on desktop, on the device with the least
    room to spare. So the phone got the chunkiest chrome, which is backwards.
 
-   The drawn pill drops to --pn-nav-pill-h and .tap-extend puts a transparent 44px
+   The drawn pill drops to --dz-nav-pill-h and .tap-extend puts a transparent 44px
    ::before back under the finger, so WCAG 2.5.8 still holds — the target is still
    44px, it just stops being painted. These pills therefore carry .tap-extend and NOT
    .tap-target: the two set the same property, and .tap-target is declared later in
@@ -185,14 +185,14 @@
 
    Above sm this block is inert and every pill keeps the geometry it has today. */
 @media (max-width: 639.98px) {
-  .pn-topbar__pill { height: var(--pn-nav-pill-h); }
+  .dz-topbar__pill { height: var(--dz-nav-pill-h); }
 
   /* Square controls (logo tile, Back). These keep .tap-target rather than
      .tap-extend: their box is already invisible chrome around a drawn tile, so the
      hit area can simply stay 44px while the tile inside it shrinks. */
-  .pn-topbar__icon-box {
-    height: var(--pn-nav-icon-box);
-    width: var(--pn-nav-icon-box);
+  .dz-topbar__icon-box {
+    height: var(--dz-nav-icon-box);
+    width: var(--dz-nav-icon-box);
   }
 }
 
@@ -203,52 +203,52 @@
    trained this user on. Scrolling up is also the gesture someone makes when they want
    navigation, so the bar arrives exactly when it is wanted.
 
-   Navbar.jsx toggles `.pn-nav-hidden` on <html> unconditionally, which keeps the
+   Navbar.jsx toggles `.dz-nav-hidden` on <html> unconditionally, which keeps the
    JS free of breakpoint logic and makes it resize-safe. Every rule that reacts to
    the class lives inside this max-width block, so on desktop the class is inert —
    that is the desktop-safety argument, and it is structural rather than a
    promise. */
 @media (max-width: 1023.98px) {
-  .pn-topbar { transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .dz-topbar { transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1); }
 
-  .pn-nav-hidden { --pn-top-inset: 0px; }
+  .dz-nav-hidden { --dz-top-inset: 0px; }
 
-  .pn-nav-hidden .pn-topbar { transform: translateY(-100%); }
+  .dz-nav-hidden .dz-topbar { transform: translateY(-100%); }
 
   /* Opt-in for sticky sub-headers. Declared after @tailwind utilities, so it wins
-     over the element's own `top-[var(--pn-nav-h)]` below lg while leaving that
+     over the element's own `top-[var(--dz-nav-h)]` below lg while leaving that
      utility to own desktop untouched. */
-  .pn-docks-under-nav {
-    top: var(--pn-top-inset);
+  .dz-docks-under-nav {
+    top: var(--dz-top-inset);
     transition: top 220ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
 
-  .pn-topbar,
-  .pn-docks-under-nav { transition: none; }
+  .dz-topbar,
+  .dz-docks-under-nav { transition: none; }
 }
 
 /* Set by ConsumerLayout on routes that mount the mobile bottom nav. The nav itself is
-   lg:hidden, so the inset is reset above lg — desktop always resolves to --pn-safe-b (0px)
+   lg:hidden, so the inset is reset above lg — desktop always resolves to --dz-safe-b (0px)
    and every calc() built on it collapses to the literal offset it had before this system. */
 .has-bottom-nav {
-  --pn-bottom-inset: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset));
+  --dz-bottom-inset: calc(var(--dz-bottom-nav-h) + var(--dz-bottom-nav-offset));
   /* Reserving the inset on the layout wrapper keeps the last card / footer of every
      consumer page clear of the bar. One rule; no per-page padding, and no lg reset
      needed because the variable itself already collapses above lg. */
-  padding-bottom: calc(var(--pn-bottom-inset) + var(--pn-cookie-banner-h));
+  padding-bottom: calc(var(--dz-bottom-inset) + var(--dz-cookie-banner-h));
 }
 
 /* The cookie banner is fixed above the bottom chrome. Reserving its real rendered height on the
    layout wrapper lets the footer scroll above it instead of becoming the covered last screenful. */
-.consumer-layout { padding-bottom: var(--pn-cookie-banner-h); }
+.consumer-layout { padding-bottom: var(--dz-cookie-banner-h); }
 
-.consumer-layout.has-bottom-nav { padding-bottom: calc(var(--pn-bottom-inset) + var(--pn-cookie-banner-h)); }
+.consumer-layout.has-bottom-nav { padding-bottom: calc(var(--dz-bottom-inset) + var(--dz-cookie-banner-h)); }
 
 @media (min-width: 1024px) {
-  .has-bottom-nav { --pn-bottom-inset: var(--pn-safe-b); }
+  .has-bottom-nav { --dz-bottom-inset: var(--dz-safe-b); }
 }
 
 /* Full-bleed routes (reels) keep the inset *token* — their own chrome positions off it —
@@ -267,22 +267,22 @@
    inset top highlight is what gives the capsule an edge instead of a flat fill.
 
    Inset from both sides via env() so a rotated phone's notch can't clip it. Height is
-   the token only — the float gap is added by `bottom`, and --pn-bottom-inset above
+   the token only — the float gap is added by `bottom`, and --dz-bottom-inset above
    accounts for both. */
-.pn-bottom-nav {
+.dz-bottom-nav {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 12px);
   right: calc(env(safe-area-inset-right, 0px) + 12px);
-  bottom: var(--pn-bottom-nav-offset);
+  bottom: var(--dz-bottom-nav-offset);
   z-index: 70;
   display: flex;
   align-items: stretch;
-  height: var(--pn-bottom-nav-h);
+  height: var(--dz-bottom-nav-h);
   padding: 0 6px;
   border-radius: 999px;
   /* Tinted with the app's own indigo/teal rather than neutral grey. A neutral glass
      capsule is the generic iOS one; pulling --indigo-1 into the top of the gradient and
-     a teal cast into the shadow is what makes this read as PuneNest chrome and lets it
+     a teal cast into the shadow is what makes this read as Draazy chrome and lets it
      sit next to the teal Post button without looking borrowed.
 
      The alphas are set by the worst case, not the pretty one: a property gallery or a
@@ -303,7 +303,7 @@
    so those browsers get an opaque capsule instead. Firefox on Android and older
    WebViews land here. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .pn-bottom-nav { background: #17142b; }
+  .dz-bottom-nav { background: #17142b; }
 }
 
 /* Travelling active indicator. Geometry (translateX + width) is set inline by
@@ -314,7 +314,7 @@
    Sliding rather than cross-fading is the point: the five tabs are one control, and a
    shape that travels between them says so. Transitioning transform/width instead of
    `left` keeps it on the compositor. */
-.pn-bottom-nav__indicator {
+.dz-bottom-nav__indicator {
   position: absolute;
   top: 6px;
   bottom: 6px;
@@ -330,7 +330,7 @@
 /* Added by BottomNav.jsx one paint after the first measurement — see the comment there.
    Until then the indicator must be able to jump to its measured slot without animating,
    or every page load slides it in from the left edge. */
-.pn-bottom-nav__indicator.is-animated { transition:
+.dz-bottom-nav__indicator.is-animated { transition:
     transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
     width 340ms cubic-bezier(0.32, 0.72, 0, 1),
     opacity 180ms linear; }
@@ -338,13 +338,13 @@
 /* The slide is decorative: it only re-states where the user already is. Cutting it is
    free, so the whole travel goes and only the fade survives. */
 @media (prefers-reduced-motion: reduce) {
-  .pn-bottom-nav__indicator.is-animated { transition: opacity 180ms linear; }
+  .dz-bottom-nav__indicator.is-animated { transition: opacity 180ms linear; }
 }
 
 /* Raised centre action. It breaks the capsule's top edge on purpose — that overlap is
    what makes Post read as the primary act rather than the third of five tabs — and the
    ring keeps it legible where it overhangs onto page content. */
-.pn-bottom-nav__fab {
+.dz-bottom-nav__fab {
   margin-top: -14px;
   box-shadow:
     0 6px 18px rgba(13, 148, 136, 0.45),
@@ -352,23 +352,23 @@
 }
 
 /* Tab height is owned by the token, not by an inline style on the element. The bar
-   and its slots have to shrink together, and --pn-bottom-nav-h is what --pn-bottom-inset
+   and its slots have to shrink together, and --dz-bottom-nav-h is what --dz-bottom-inset
    already reserves against — so a hardcoded height here would silently desync every
    bottom-anchored widget the moment the bar resized. */
-.pn-bottom-nav__tab {
-  height: var(--pn-bottom-nav-h);
+.dz-bottom-nav__tab {
+  height: var(--dz-bottom-nav-h);
   /* Touch feedback. A floating control that doesn't move under the finger reads as a
      picture of a button; the dip is the confirmation, and it costs no layout because
      transform is composited. */
   transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.pn-bottom-nav__tab:active { transform: scale(0.93); }
+.dz-bottom-nav__tab:active { transform: scale(0.93); }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-bottom-nav__tab { transition: none; }
+  .dz-bottom-nav__tab { transition: none; }
 
-  .pn-bottom-nav__tab:active { transform: none; }
+  .dz-bottom-nav__tab:active { transform: none; }
 }
 
 /* 12px, in rem so the label honours the browser/OS font-size setting instead of being
@@ -378,7 +378,7 @@
    declared value is not the value that ships is a trap for the next reader. The
    overflow guard is what makes scaling safe: at large type the label ellipsises
    instead of wrapping and bursting the fixed bar. */
-.pn-bottom-nav__label {
+.dz-bottom-nav__label {
   font-size: 0.75rem;
   letter-spacing: 0.01em;
   /* Not leading-none: line-height 1 is shorter than the font's own ascent+descent, so
@@ -404,22 +404,22 @@
    1024x768 landscape tablet fails both as well, so neither can match. The :root override
    sits after the min-width:768px block at equal specificity, which is what lets it win.
 
-   Overriding the token is now enough: .pn-topbar__row reads its height from --pn-nav-h,
+   Overriding the token is now enough: .dz-topbar__row reads its height from --dz-nav-h,
    so the bar and the sticky sub-headers that dock under it shrink together by
    construction. This used to need a companion rule with a hand-tuned two-class selector
    to out-specify Tailwind's `md:h-[72px]` on the row. */
 @media (orientation: landscape) and (max-height: 500px) and (max-width: 1023.98px) {
   :root {
-    --pn-nav-h: 47px;
-    --pn-bottom-nav-h: 44px;
+    --dz-nav-h: 47px;
+    --dz-bottom-nav-h: 44px;
   }
 
   /* Icon-only. The tab keeps its accessible name via aria-label on the Link, so hiding
      the visible text costs nothing to a screen reader. 44px is the tap-target floor
      exactly, not a value chosen for looks. */
-  .pn-bottom-nav__label { display: none; }
+  .dz-bottom-nav__label { display: none; }
 
-  .pn-bottom-nav__tab {
+  .dz-bottom-nav__tab {
     justify-content: center;
     /* Clears the Post tab's baseline-matching bottom padding, which only exists to
        line its label up with the others — and the labels are gone here. */
@@ -428,13 +428,13 @@
 
   /* The raised centre circle overhangs the capsule by 14px; on a 44px bar that overhang
      would collide with page content, so it drops to the bar's own height and sits flush. */
-  .pn-bottom-nav__fab {
+  .dz-bottom-nav__fab {
     height: 40px;
     width: 40px;
     margin-top: 0;
   }
 
-  .pn-bottom-nav__fab svg {
+  .dz-bottom-nav__fab svg {
     height: 22px;
     width: 22px;
   }
@@ -445,7 +445,7 @@
    has to inset from it. Positioning rather than padding, so the element's own padding
    utilities survive. env() is 0px everywhere else, including desktop. Requires the
    element to be positioned and to not also set an explicit width. */
-.pn-safe-x {
+.dz-safe-x {
   left: env(safe-area-inset-left, 0px);
   right: env(safe-area-inset-right, 0px);
 }
@@ -482,7 +482,7 @@
    and reaching them through a drawer cost two taps and a context switch.
 
    Four painted 44px boxes plus the city pill overflow a 360px bar, so below sm the
-   drawn square drops to --pn-nav-icon-box while .tap-extend keeps a transparent 44px
+   drawn square drops to --dz-nav-icon-box while .tap-extend keeps a transparent 44px
    target under the finger (WCAG 2.5.8 still holds; the target is 44px, it just stops
    being painted). A 32px box plus the row's 12px gap puts adjacent centres exactly
    44px apart, so those targets tile edge-to-edge and never overlap — an overlap here
@@ -493,11 +493,11 @@
    above sm they keep today's painted 44px box unchanged, and the two rules set the
    same properties. Moving this block earlier would silently hand the 44px box back. */
 @media (max-width: 639.98px) {
-  .pn-topbar__action {
+  .dz-topbar__action {
     min-width: 0;
     min-height: 0;
-    height: var(--pn-nav-icon-box);
-    width: var(--pn-nav-icon-box);
+    height: var(--dz-nav-icon-box);
+    width: var(--dz-nav-icon-box);
     padding: 0;
   }
 }
@@ -610,7 +610,7 @@
 
 /* ── Design Language: Reusable control classes ──
    Use these classes for any interactive control to maintain consistent sizing. */
-.pn-control {
+.dz-control {
   height: var(--control-h);
   display: inline-flex;
   align-items: center;
@@ -626,31 +626,31 @@
   cursor: pointer;
 }
 
-.pn-control:hover { background: var(--control-bg-hover); }
+.dz-control:hover { background: var(--control-bg-hover); }
 
-.pn-control.active,
-.pn-control[aria-pressed="true"] {
+.dz-control.active,
+.dz-control[aria-pressed="true"] {
   background: var(--control-bg-active);
   border-color: var(--control-border-active);
   color: #5eead4;
 }
 
-.pn-control--action {
+.dz-control--action {
   font-weight: var(--control-weight-action);
   background: linear-gradient(135deg, var(--teal-1), var(--teal-2));
   border: none;
   color: #fff;
 }
 
-.pn-control--action:hover { filter: brightness(1.08); }
+.dz-control--action:hover { filter: brightness(1.08); }
 
-.pn-control--ghost {
+.dz-control--ghost {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.1);
   color: var(--text-muted);
 }
 
-.pn-control--ghost:hover {
+.dz-control--ghost:hover {
   background: var(--control-bg-hover);
   color: #fff;
 }
@@ -694,7 +694,7 @@ body {
 
    3. Uppercase. Devanagari has no case, so `text-transform: uppercase` is a
       no-op on the glyphs — but it is left alone rather than reset, because the
-      same elements often carry Latin brand names (PuneNest, SLA, OTP) that
+      same elements often carry Latin brand names (Draazy, SLA, OTP) that
       should still uppercase.
    ========================================================================== */
 :lang(hi),
@@ -732,8 +732,8 @@ body {
 :lang(mr) .btn-teal,
 :lang(hi) .btn-outline,
 :lang(mr) .btn-outline,
-:lang(hi) .pn-btn,
-:lang(mr) .pn-btn {
+:lang(hi) .dz-btn,
+:lang(mr) .dz-btn {
   height: auto;
   min-height: 2.5rem;
 }
@@ -765,7 +765,7 @@ h4 { text-wrap: balance; }
    Cards, modals, forms use --radius (16px). Inner elements use 8px. ── */
 .btn-teal,
 .btn-outline,
-.pn-btn { border-radius: 10px !important; }
+.dz-btn { border-radius: 10px !important; }
 
 .badge-verified,
 .badge-rera { border-radius: 6px !important; }
@@ -778,14 +778,14 @@ h4 { text-wrap: balance; }
 .price-marker,
 .rd-val,
 .rd-val-lg,
-.pn-lb-caption,
+.dz-lb-caption,
 [class*="font-extrabold"] { font-variant-numeric: tabular-nums; }
 
 /* ── Active/press feedback on all interactive controls ── */
 button:active:not(:disabled),
 a[role="button"]:active { transform: scale(0.97) translateY(1px); }
 
-.pn-control--action:active { transform: scale(0.97) translateY(1px) !important; }
+.dz-control--action:active { transform: scale(0.97) translateY(1px) !important; }
 
 /* ── Tinted shadows — brand hue instead of pure black ── */
 .property-card:hover {
@@ -1384,14 +1384,14 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   line-height: 1;
 }
 
-/* Attribution footer inside the shared pn-dropdown menu (Select / MultiSelect). */
-.pn-dropdown__attrib {
+/* Attribution footer inside the shared dz-dropdown menu (Select / MultiSelect). */
+.dz-dropdown__attrib {
   margin-top: 2px;
   padding-top: 2px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.pn-dropdown__attrib .pbg { justify-content: flex-start; }
+.dz-dropdown__attrib .pbg { justify-content: flex-start; }
 
 /* Attribution footer inside the hero locality dropdown — kept last, bottom-left, out of focus. */
 .loc-attrib {
@@ -1672,7 +1672,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
     color: #fff;
     margin-top: 2.75rem;
     margin-bottom: 0.75rem;
-    scroll-margin-top: calc(var(--pn-nav-h) + 5rem);
+    scroll-margin-top: calc(var(--dz-nav-h) + 5rem);
   }
 
   .doc-prose h3 {
@@ -1681,7 +1681,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
     color: #e2e8f0;
     margin-top: 1.875rem;
     margin-bottom: 0.5rem;
-    scroll-margin-top: calc(var(--pn-nav-h) + 5rem);
+    scroll-margin-top: calc(var(--dz-nav-h) + 5rem);
   }
 
   .doc-prose h4 {
@@ -1850,7 +1850,7 @@ select option:checked {
   font-weight: 600;
 }
 
-/* .pn-dropdown component (base + .pn-dd-sort/.pn-dd-photocat variants + .pn-action-sheet) moved to styles/components/dropdown.css (Tier 0). */
+/* .dz-dropdown component (base + .dz-dd-sort/.dz-dd-photocat variants + .dz-action-sheet) moved to styles/components/dropdown.css (Tier 0). */
 
 /* .page-btn/.page-btn:hover moved to styles/routes/listings.css (Tier 1). */
 
@@ -1867,13 +1867,13 @@ select option:checked {
   inset: 0;
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-  animation: pnShimmer 1.4s ease-in-out infinite;
+  animation: dzShimmer 1.4s ease-in-out infinite;
 }
 
 /* The shimmer is an INFINITE loop, which is exactly the kind of motion someone
    who asked for less of it does not want — and a loading state is when they are
    least able to look away. Both opt-outs are honoured: the OS-level media query
-   and the app's own Settings ▸ Appearance toggle (html.pn-reduce-motion).
+   and the app's own Settings ▸ Appearance toggle (html.dz-reduce-motion).
 
    Kept next to the animation rather than in the reduced-motion section further
    down, because that section is an explicit allowlist ~3,500 lines away: this
@@ -1884,9 +1884,9 @@ select option:checked {
   .skeleton::after { animation: none; }
 }
 
-html.pn-reduce-motion .skeleton::after { animation: none; }
+html.dz-reduce-motion .skeleton::after { animation: none; }
 
-@keyframes pnShimmer {
+@keyframes dzShimmer {
   100% { transform: translateX(100%); }
 }
 
@@ -1895,17 +1895,17 @@ html.pn-reduce-motion .skeleton::after { animation: none; }
    honoured right here, next to the animation, for the same reason the shimmer's are: the
    reduced-motion allowlist further down is ~1,700 lines away and rules go missing from it.
    The banner still appears instantly when motion is off; only the slide is dropped. */
-.pn-connectivity-card {
-  animation: pnConnectivityIn 200ms cubic-bezier(0.32, 0.72, 0, 1);
+.dz-connectivity-card {
+  animation: dzConnectivityIn 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-connectivity-card { animation: none; }
+  .dz-connectivity-card { animation: none; }
 }
 
-html.pn-reduce-motion .pn-connectivity-card { animation: none; }
+html.dz-reduce-motion .dz-connectivity-card { animation: none; }
 
-@keyframes pnConnectivityIn {
+@keyframes dzConnectivityIn {
   from {
     opacity: 0;
     transform: translateY(-8px);
@@ -1920,7 +1920,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
 /* Staggered "step by step" entrance for listing sections + cards. Matches the
    Home page's .reveal feel (translateY + 0.7s cubic-bezier) but as a keyframe so
    it never fights React re-renders (no remount / no imperative class toggling). */
-@keyframes pnListReveal {
+@keyframes dzListReveal {
   from {
     opacity: 0;
     transform: translateY(36px);
@@ -1934,7 +1934,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
 
 .list-reveal {
   opacity: 0;
-  animation: pnListReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: dzListReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2324,7 +2324,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
 }
 
 /* Property lightbox & virtual tour modal (ported from property.html) */
-.pn-lightbox {
+.dz-lightbox {
   position: fixed;
   inset: 0;
   z-index: 9998;
@@ -2335,16 +2335,16 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   justify-content: center;
   gap: 0.5rem;
   padding: 1rem;
-  animation: pnLbFade 0.25s ease;
+  animation: dzLbFade 0.25s ease;
 }
 
-@keyframes pnLbFade {
+@keyframes dzLbFade {
   from { opacity: 0; }
 
   to { opacity: 1; }
 }
 
-.pn-lb-stage {
+.dz-lb-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2352,7 +2352,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   max-width: 92vw;
 }
 
-.pn-lightbox img {
+.dz-lightbox img {
   max-width: 92vw;
   max-height: 82vh;
   border-radius: 1rem;
@@ -2360,13 +2360,13 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   user-select: none;
 }
 
-.pn-lb-caption {
+.dz-lb-caption {
   color: #cbd5e1;
   font-size: 0.85rem;
   font-weight: 500;
 }
 
-.pn-lb-close {
+.dz-lb-close {
   position: absolute;
   top: 1.25rem;
   right: 1.25rem;
@@ -2382,9 +2382,9 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   transition: all 0.2s ease;
 }
 
-.pn-lb-close:hover { background: rgba(255, 255, 255, 0.16); }
+.dz-lb-close:hover { background: rgba(255, 255, 255, 0.16); }
 
-.pn-lb-nav {
+.dz-lb-nav {
   width: 48px;
   height: 48px;
   flex-shrink: 0;
@@ -2398,12 +2398,12 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   transition: all 0.2s ease;
 }
 
-.pn-lb-nav:hover {
+.dz-lb-nav:hover {
   background: rgba(20, 184, 166, 0.25);
   border-color: rgba(20, 184, 166, 0.5);
 }
 
-.pn-tour-frame {
+.dz-tour-frame {
   width: min(90vw, 960px);
   aspect-ratio: 16 / 9;
   border-radius: 1rem;
@@ -2412,7 +2412,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   background: #000;
 }
 
-.pn-tour-frame iframe {
+.dz-tour-frame iframe {
   width: 100%;
   height: 100%;
   border: 0;
@@ -2513,7 +2513,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   margin-bottom: 1rem;
 }
 
-.pn-modal-backdrop {
+.dz-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -2523,10 +2523,10 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   padding: 1rem;
   background: rgba(5, 4, 12, .72);
   backdrop-filter: blur(4px);
-  animation: pnLbFade 0.25s ease;
+  animation: dzLbFade 0.25s ease;
 }
 
-.pn-modal {
+.dz-modal {
   width: 100%;
   max-width: 480px;
   max-height: 90vh;
@@ -2538,7 +2538,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   padding: 1.5rem;
 }
 
-.pn-modal-x {
+.dz-modal-x {
   width: 36px;
   height: 36px;
   border-radius: 9999px;
@@ -2552,7 +2552,7 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   transition: all 0.2s ease;
 }
 
-.pn-modal-x:hover {
+.dz-modal-x:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
@@ -2563,28 +2563,28 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
    pushed off-screen. Docking to the bottom edge keeps the primary action in
    the thumb arc and lets the body scroll inside a bounded panel instead.
 
-   Every consumer overlay already shares .pn-modal-backdrop/.pn-modal, so this
+   Every consumer overlay already shares .dz-modal-backdrop/.dz-modal, so this
    one block converts all of them at once — no per-modal markup change. The
    whole thing sits inside a max-width query, so >=640px (and therefore every
    desktop viewport) renders byte-for-byte as before. */
 @media (max-width: 639.98px) {
-  .pn-modal-backdrop {
+  .dz-modal-backdrop {
     align-items: flex-end;
     padding: 0;
   }
 
-  .pn-modal {
+  .dz-modal {
     max-width: none;
     max-height: 88dvh;
     /* Square off the edge that now meets the screen bottom. */
     border-radius: 1.25rem 1.25rem 0 0;
     border-bottom: 0;
-    padding: 0.75rem 1rem calc(1.25rem + var(--pn-safe-b));
-    animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+    padding: 0.75rem 1rem calc(1.25rem + var(--dz-safe-b));
+    animation: dzSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   /* Grab handle: the platform signal that a surface is a dismissible sheet. */
-  .pn-modal::before {
+  .dz-modal::before {
     content: '';
     display: block;
     width: 2.25rem;
@@ -2595,30 +2595,30 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
   }
 
   /* 36px close button fails the touch minimum; grow the hit area, not the glyph. */
-  .pn-modal-x {
+  .dz-modal-x {
     width: 44px;
     height: 44px;
   }
 }
 
-@keyframes pnSheetUp {
+@keyframes dzSheetUp {
   from { transform: translateY(100%); }
 
   to { transform: none; }
 }
 
-.pn-sticky-cta {
+.dz-sticky-cta {
   position: fixed;
   left: 0;
   right: 0;
   /* Docks above whatever bottom chrome is already claiming space (mobile bottom nav).
      Resolves to 0 on desktop, i.e. today's `bottom: 0`. */
-  bottom: var(--pn-bottom-inset);
+  bottom: var(--dz-bottom-inset);
   z-index: 60;
   display: flex;
   gap: 0.6rem;
   /* Left/right insets matter in landscape on notched devices now that the document
-     is viewport-fit=cover; the bottom inset is already carried by --pn-bottom-inset. */
+     is viewport-fit=cover; the bottom inset is already carried by --dz-bottom-inset. */
   padding: 0.7rem calc(1rem + env(safe-area-inset-right, 0px)) 0.7rem calc(1rem + env(safe-area-inset-left, 0px));
   background: rgba(15, 13, 26, 0.92);
   backdrop-filter: blur(16px);
@@ -2635,14 +2635,14 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
    flow, so it reserves its own space and can never cover the last field. It
    pins to the bottom edge while the step is taller than the viewport, and
    settles back inline at the end. It docks above whatever bottom chrome is
-   already claiming space via --pn-bottom-inset.
+   already claiming space via --dz-bottom-inset.
 
    Scoped to <1024px to match the bottom nav's breakpoint; above lg the rule is
    inert and the row renders inline exactly as it does today. */
 @media (max-width: 1023.98px) {
   .lp-step-actions {
     position: sticky;
-    bottom: calc(var(--pn-bottom-inset) + 0.5rem);
+    bottom: calc(var(--dz-bottom-inset) + 0.5rem);
     z-index: 60;
     gap: 0.6rem;
     margin-top: 1.25rem;
@@ -2672,11 +2672,11 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
      most. The button is the last child of its form, so sticking it to the bottom
      keeps it in reach while the rest of the form scrolls underneath.
 
-     Auth routes never mount the bottom nav, so --pn-bottom-inset resolves to the
+     Auth routes never mount the bottom nav, so --dz-bottom-inset resolves to the
      safe-area inset alone — no double counting. */
-  .pn-auth-submit {
+  .dz-auth-submit {
     position: sticky;
-    bottom: calc(var(--pn-bottom-inset) + 0.75rem);
+    bottom: calc(var(--dz-bottom-inset) + 0.75rem);
     z-index: 60;
   }
 }
@@ -2719,23 +2719,23 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
 }
 
 /* Shared inline validation (React port of validation.js PNValidate) */
-.pn-invalid,
-.pn-invalid:focus {
+.dz-invalid,
+.dz-invalid:focus {
   border-color: #f87171 !important;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, .22) !important;
 }
 
-.pn-shake { animation: pnShake .38s ease; }
+.dz-shake { animation: dzShake .38s ease; }
 
 /* One-place styling for the inline required-field message (FieldError component). */
-.pn-field-error {
+.dz-field-error {
   color: #f87171;
   font-size: .75rem;
   line-height: 1rem;
   margin-top: .375rem;
 }
 
-@keyframes pnShake {
+@keyframes dzShake {
 
   0%,
   100% { transform: translateX(0); }
@@ -2811,26 +2811,26 @@ html.pn-reduce-motion .pn-connectivity-card { animation: none; }
 .svc-quote { background: rgba(9, 14, 26, .72); }
 
 .svc-quote .field,
-.svc-quote .pn-dropdown__trigger,
+.svc-quote .dz-dropdown__trigger,
 .svc-quote [data-err="mobile"]>div>span,
 .svc-quote [data-err="mobile"]>div>input {
   background: rgba(2, 6, 23, .5);
   border-color: rgba(255, 255, 255, .14);
 }
 
-.svc-quote .pn-dropdown__trigger {
+.svc-quote .dz-dropdown__trigger {
   border-radius: .75rem;
   box-shadow: none;
 }
 
-.svc-quote .pn-dropdown__value.is-placeholder { color: #9ca3af; }
+.svc-quote .dz-dropdown__value.is-placeholder { color: #9ca3af; }
 
-.svc-quote .pn-dropdown__trigger:hover {
+.svc-quote .dz-dropdown__trigger:hover {
   background: rgba(2, 6, 23, .62);
   border-color: rgba(255, 255, 255, .24);
 }
 
-.svc-quote .pn-dropdown.is-open>.pn-dropdown__trigger {
+.svc-quote .dz-dropdown.is-open>.dz-dropdown__trigger {
   border-color: var(--teal-2);
   box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
 }
@@ -3087,7 +3087,7 @@ label.lbl {
 }
 
 /* Property-detail section tabs — left-aligned underline style */
-.pn-detail-tab {
+.dz-detail-tab {
   display: inline-flex;
   align-items: center;
   gap: .5rem;
@@ -3102,9 +3102,9 @@ label.lbl {
   transition: color .2s ease, border-color .2s ease;
 }
 
-.pn-detail-tab:hover { color: #fff; }
+.dz-detail-tab:hover { color: #fff; }
 
-.pn-detail-tab.is-active {
+.dz-detail-tab.is-active {
   color: #5eead4;
   border-bottom-color: var(--teal-2);
 }
@@ -3118,7 +3118,7 @@ label.lbl {
   border-radius: .6rem;
 }
 
-.pn-tip {
+.dz-tip {
   position: fixed;
   z-index: 300;
   max-width: 17rem;
@@ -3129,23 +3129,23 @@ label.lbl {
   border: 1px solid rgba(255, 255, 255, .12);
   box-shadow: 0 18px 44px rgba(0, 0, 0, .55);
   pointer-events: none;
-  animation: pnTipIn .14s ease;
+  animation: dzTipIn .14s ease;
 }
 
-.pn-tip-title {
+.dz-tip-title {
   font-size: .78rem;
   font-weight: 700;
   color: #fff;
   margin-bottom: .2rem;
 }
 
-.pn-tip-body {
+.dz-tip-body {
   font-size: .72rem;
   line-height: 1.45;
   color: #cbd5e1;
 }
 
-@keyframes pnTipIn {
+@keyframes dzTipIn {
   from {
     opacity: 0;
     transform: translateY(2px);
@@ -3158,7 +3158,7 @@ label.lbl {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-tip { animation: none; }
+  .dz-tip { animation: none; }
 }
 
 /* Locality insights page moved to styles/routes/locality.css (Tier 1). */
@@ -3187,9 +3187,9 @@ label.lbl {
 
 .gm-style .gm-style-iw-tc::after { background: var(--brand-card); }
 
-.gm-style .pn-gm-iw-prop .pn-mp-card { width: 268px; }
+.gm-style .dz-gm-iw-prop .dz-mp-card { width: 268px; }
 
-.gm-style .pn-gm-iw-share .pn-sp { width: 252px; }
+.gm-style .dz-gm-iw-share .dz-sp { width: 252px; }
 
 /* Hide the Google fullscreen control. On cloud-styled (mapId) maps the
    fullscreenControl:false option is ignored, so we strip the button here.
@@ -3205,12 +3205,12 @@ label.lbl {
 @media (max-width: 767px) {
 
   .route-messages>footer,
-  .route-messages>.pn-assistant-slot { display: none; }
+  .route-messages>.dz-assistant-slot { display: none; }
 
   /* Focused mobile auth funnel (/signin, /signup, /staff-login): drop the marketing
      footer + floating assistant so nothing overlaps the form CTA. Desktop keeps both. */
   .route-auth>footer,
-  .route-auth>.pn-assistant-slot { display: none; }
+  .route-auth>.dz-assistant-slot { display: none; }
 
   .messages-page {
     padding-top: 0;
@@ -3223,7 +3223,7 @@ label.lbl {
   }
 
   .messages-page .pc-wrap {
-    height: calc(100dvh - var(--pn-nav-h)) !important;
+    height: calc(100dvh - var(--dz-nav-h)) !important;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
@@ -3267,9 +3267,9 @@ label.lbl {
 }
 
 /* Reusable button helpers kept for non-homepage screens (uses design tokens) */
-/* .pn-btn / .pn-btn-* are folded into the button system above (see BUTTON SYSTEM).
+/* .dz-btn / .dz-btn-* are folded into the button system above (see BUTTON SYSTEM).
    Only the input helper remains here. */
-.pn-input {
+.dz-input {
   width: 100%;
   height: var(--control-h);
   border-radius: .75rem;
@@ -3283,21 +3283,21 @@ label.lbl {
   box-sizing: border-box;
 }
 
-.pn-input::placeholder { color: #9ca3af; }
+.dz-input::placeholder { color: #9ca3af; }
 
-.pn-input:focus {
+.dz-input:focus {
   border-color: rgba(20, 184, 166, .5);
   box-shadow: 0 0 0 2px rgba(20, 184, 166, .2);
 }
 
-.pn-card {
+.dz-card {
   border-radius: 1rem;
   border: 1px solid rgba(255, 255, 255, .1);
   background: rgba(255, 255, 255, .05);
 }
 
 /* Modal panel — solid dark bg so content is always readable over any page */
-.pn-modal-panel {
+.dz-modal-panel {
   background: #1a1730;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
@@ -3306,9 +3306,9 @@ label.lbl {
    itself is handled by base/`sm:` Tailwind classes in Modal.jsx; this only adds
    the grab handle and the slide-up, both of which are mobile-only. */
 @media (max-width: 639.98px) {
-  .pn-modal-sheet { animation: pnSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+  .dz-modal-sheet { animation: dzSheetUp 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
 
-  .pn-modal-sheet::before {
+  .dz-modal-sheet::before {
     content: '';
     flex: 0 0 auto;
     width: 2.25rem;
@@ -3326,8 +3326,8 @@ label.lbl {
 @media (prefers-reduced-motion: reduce) {
 
   /* Sheets: keep the position change, drop the slide-up */
-  .pn-modal,
-  .pn-modal-sheet { animation: none; }
+  .dz-modal,
+  .dz-modal-sheet { animation: none; }
 
   /* Hero */
   .hero-bg { animation: none; }
@@ -3388,43 +3388,43 @@ label.lbl {
 
 /* User-toggled "Reduce motion" (Settings ▸ Appearance). Mirrors the OS-level
    reduced-motion rules above so users can opt in regardless of system settings. */
-html.pn-reduce-motion .hero-bg,
-html.pn-reduce-motion .shape,
-html.pn-reduce-motion .shape-1,
-html.pn-reduce-motion .shape-2,
-html.pn-reduce-motion .shape-3,
-html.pn-reduce-motion .shape-4,
-html.pn-reduce-motion .shape-5,
-html.pn-reduce-motion .ticker-ping,
-html.pn-reduce-motion .heart-pop,
-html.pn-reduce-motion .svc-pop,
-html.pn-reduce-motion [class*="ctaFloat"] { animation: none; }
+html.dz-reduce-motion .hero-bg,
+html.dz-reduce-motion .shape,
+html.dz-reduce-motion .shape-1,
+html.dz-reduce-motion .shape-2,
+html.dz-reduce-motion .shape-3,
+html.dz-reduce-motion .shape-4,
+html.dz-reduce-motion .shape-5,
+html.dz-reduce-motion .ticker-ping,
+html.dz-reduce-motion .heart-pop,
+html.dz-reduce-motion .svc-pop,
+html.dz-reduce-motion [class*="ctaFloat"] { animation: none; }
 
-html.pn-reduce-motion .hero-word,
-html.pn-reduce-motion .hero-sub,
-html.pn-reduce-motion .hero-search-wrap,
-html.pn-reduce-motion .hero-chips,
-html.pn-reduce-motion .hero-stats,
-html.pn-reduce-motion .hero-trust,
-html.pn-reduce-motion .hero-ticker {
+html.dz-reduce-motion .hero-word,
+html.dz-reduce-motion .hero-sub,
+html.dz-reduce-motion .hero-search-wrap,
+html.dz-reduce-motion .hero-chips,
+html.dz-reduce-motion .hero-stats,
+html.dz-reduce-motion .hero-trust,
+html.dz-reduce-motion .hero-ticker {
   animation: none;
   opacity: 1;
 }
 
-html.pn-reduce-motion .property-card,
-html.pn-reduce-motion .cat-card,
-html.pn-reduce-motion .card-img-wrap img { transition: none; }
+html.dz-reduce-motion .property-card,
+html.dz-reduce-motion .cat-card,
+html.dz-reduce-motion .card-img-wrap img { transition: none; }
 
-html.pn-reduce-motion .property-card:hover,
-html.pn-reduce-motion .cat-card:hover { transform: none; }
+html.dz-reduce-motion .property-card:hover,
+html.dz-reduce-motion .cat-card:hover { transform: none; }
 
-html.pn-reduce-motion .reveal {
+html.dz-reduce-motion .reveal {
   opacity: 1;
   transform: none;
   transition: none;
 }
 
-html.pn-reduce-motion .list-reveal {
+html.dz-reduce-motion .list-reveal {
   animation: none;
   opacity: 1;
 }
@@ -3464,7 +3464,7 @@ html.pn-reduce-motion .list-reveal {
   ::view-transition-new(root) { animation: none; }
 }
 
-/* pn-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active and .pn-back-search rules below intentionally stay here (not .pn-mdp-scoped). */
+/* dz-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active and .dz-back-search rules below intentionally stay here (not .dz-mdp-scoped). */
 /* Active marker highlight on the map */
 .price-marker.is-active {
   background: #fff;
@@ -3478,7 +3478,7 @@ html.pn-reduce-motion .list-reveal {
 .price-marker.is-active::after { border-top-color: #fff; }
 
 /* Back-to-search button on the property page */
-.pn-back-search {
+.dz-back-search {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -3494,7 +3494,7 @@ html.pn-reduce-motion .list-reveal {
   transition: background 0.15s ease, transform 0.12s ease;
 }
 
-.pn-back-search:hover {
+.dz-back-search:hover {
   background: rgba(13, 148, 136, 0.2);
   transform: translateX(-2px);
 }
@@ -3506,13 +3506,13 @@ html.pn-reduce-motion .list-reveal {
    backstop in case the label ever wraps shorter. Desktop keeps the tighter pill —
    it sits directly above the gallery and 6 extra pixels there push the fold. */
 @media (pointer: coarse) {
-  .pn-back-search {
+  .dz-back-search {
     padding: 11px 16px;
     min-height: 44px;
   }
 }
 
-.pn-back-search svg {
+.dz-back-search svg {
   width: 16px;
   height: 16px;
 }
@@ -3567,12 +3567,12 @@ html.pn-reduce-motion .list-reveal {
   textarea { font-size: 16px !important; }
 }
 /* ============================================================================
-   Mobile bottom-chrome consumers (see the --pn-bottom-inset block near the top).
+   Mobile bottom-chrome consumers (see the --dz-bottom-inset block near the top).
    ============================================================================ */
 
 /* Autosave "Draft saved" flash (lib/hooks.js flashDraftSaved).
 
-   It is created with document.body.appendChild, and --pn-bottom-inset is expanded
+   It is created with document.body.appendChild, and --dz-bottom-inset is expanded
    by `.has-bottom-nav` on ConsumerLayout's wrapper — not on <body> — so a body-level
    child reads the :root value (the bare safe-area inset) and knows nothing about the
    tab bar. It therefore sat at bottom:16px, directly on top of the floating capsule,
@@ -3583,10 +3583,10 @@ html.pn-reduce-motion .list-reveal {
    just above the tab bar (70) and below sheets (1000) — it reports state, it does not
    need to outrank a dialog — and the offset is rebuilt from the same two tokens the
    bar itself uses, guarded by the bar's own breakpoint so desktop is untouched. */
-.pn-autosave-flash {
+.dz-autosave-flash {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 16px);
-  bottom: calc(var(--pn-safe-b) + 16px);
+  bottom: calc(var(--dz-safe-b) + 16px);
   z-index: 90;
   display: flex;
   align-items: center;
@@ -3604,24 +3604,24 @@ html.pn-reduce-motion .list-reveal {
   pointer-events: none;
 }
 
-.pn-autosave-flash__dot {
+.dz-autosave-flash__dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #14b8a6;
 }
 
-.pn-autosave-flash.is-on { opacity: 1; }
+.dz-autosave-flash.is-on { opacity: 1; }
 
 /* Below lg the tab bar owns the bottom edge, so clear it. Every route that
    autosaves a form mounts the bar; the two that do not (messages, auth) pin their
    own control to that edge, which this clears just the same. */
 @media (max-width: 1023.98px) {
-  .pn-autosave-flash { bottom: calc(var(--pn-bottom-nav-h) + var(--pn-bottom-nav-offset) + 16px); }
+  .dz-autosave-flash { bottom: calc(var(--dz-bottom-nav-h) + var(--dz-bottom-nav-offset) + 16px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pn-autosave-flash { transition: none; }
+  .dz-autosave-flash { transition: none; }
 }
 
 /* Home hero search: the "add area" chip on a suggestion row only reads as an ADD

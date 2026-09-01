@@ -41,7 +41,7 @@ function loadSdk() {
  * Resolves when the modal closes — regardless of the payment outcome, which only the webhook can
  * confirm. Rejects only if the SDK itself fails to load or open.
  *
- * <p>**`mock_session_*` never reaches the SDK.** When `punenest.providers.cashfree.enabled` is
+ * <p>**`mock_session_*` never reaches the SDK.** When `draazy.providers.cashfree.enabled` is
  * false the backend's `MockPaymentGateway` mints a deterministic fake order so the pay flow is, in
  * its own words, "fully demoable with no merchant account" — which is what dev, e2e and every
  * screenshot build run on. Handing that id to the real SDK broke that promise from this side: the

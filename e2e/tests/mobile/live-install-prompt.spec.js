@@ -22,7 +22,7 @@ const DAY = 24 * 60 * 60 * 1000;
    asserting that the cookie gate works. */
 async function seedConsent(page) {
   await page.addInitScript((c) => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify(c));
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify(c));
   }, CONSENT);
 }
 
@@ -30,7 +30,7 @@ async function seedConsent(page) {
    in the dismissal ladder without having to act it out. */
 async function seedState(page, over) {
   await page.addInitScript((s) => {
-    localStorage.setItem('pn_install_prompt_v1', JSON.stringify(s));
+    localStorage.setItem('dz_install_prompt_v1', JSON.stringify(s));
   }, { dismissals: 0, lastDismissAt: 0, installed: false, views: 99, version: 1, ...over });
 }
 
@@ -42,7 +42,7 @@ async function seedState(page, over) {
 async function browse(page, routes = ['/', '/listings', '/saved']) {
   for (const r of routes) {
     await page.goto(r);
-    await page.locator('.pn-bottom-nav').waitFor({ state: 'visible' });
+    await page.locator('.dz-bottom-nav').waitFor({ state: 'visible' });
   }
 }
 
@@ -58,7 +58,7 @@ async function fireInstallEvent(page, outcome = 'accepted') {
 }
 
 const card = (page) => page.getByRole('dialog', { name: /one tap away/i });
-const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('pn_install_prompt_v1')));
+const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('dz_install_prompt_v1')));
 
 test.describe('PWA install nudge', () => {
   test('stays hidden on arrival, and appears only once the visitor is using the app', async ({ page }) => {
@@ -161,6 +161,6 @@ test.describe('PWA install nudge', () => {
 
     // A home-screen icon is a phone affordance; on desktop the card would be a
     // banner selling something the user cannot meaningfully act on.
-    await expect(page.locator('.pn-safe-x.z-\\[1350\\]')).toHaveClass(/lg:hidden/);
+    await expect(page.locator('.dz-safe-x.z-\\[1350\\]')).toHaveClass(/lg:hidden/);
   });
 });

@@ -60,7 +60,7 @@ export default function PropertyValuation() {
   const [done, setDone] = useState(false);
   const [form, setForm] = useState({ name: isIn ? user?.name || '' : '', mobile: isIn ? user?.mobile || '' : '', purpose: '', ptype: 'Flat', location: '', area: '' });
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const draft = useFormDraft('pnDraft:property-valuation', form, setForm, { ignore: ['name', 'mobile', 'ptype'] });
+  const draft = useFormDraft('dzDraft:property-valuation', form, setForm, { ignore: ['name', 'mobile', 'ptype'] });
   const err = useFieldErrors(formRef);
 
   // Every Pune locality (curated registry + user-minted community ones) is

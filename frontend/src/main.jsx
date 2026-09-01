@@ -33,13 +33,13 @@ import './styles/index.css';
 import './styles/components/buttons.css';
 import './styles/components/surfaces.css';
 // Global rather than imported by DateField/TimeField. Those are lazy route
-// components, so a component-level import only ships `.pn-cal` inside their
+// components, so a component-level import only ships `.dz-cal` inside their
 // chunk — and the mobile bottom-sheet rules then do not exist for anything that
 // renders picker markup without pulling the component in. That regressed
-// `mobile/phase3.spec.js`, which measures `.pn-cal` on a route with no date
+// `mobile/phase3.spec.js`, which measures `.dz-cal` on a route with no date
 // field: the element came back position:static with no rule matching at all.
 import './styles/components/date-time-fields.css';
-// The custom <Select>/<MultiSelect>/<Menu> dropdown skin (.pn-dropdown), used by
+// The custom <Select>/<MultiSelect>/<Menu> dropdown skin (.dz-dropdown), used by
 // six shared UI components across every route. It sat under the "Listings page"
 // heading in index.css purely because that's the prototype it was ported from.
 import './styles/components/dropdown.css';
@@ -121,7 +121,7 @@ const app = (
 /* The ready marker now means the live-only application has rendered; it is no longer a promise
   that a browser database has been seeded. `loadGeoPolicy` remains asynchronous by design: its
   synchronous readers use built-ins until it arrives, so first paint does not wait on configuration. */
-document.documentElement.dataset.pnBoot = 'ready';
+document.documentElement.dataset.dzBoot = 'ready';
 loadGeoPolicy();
-window.addEventListener('punenest-settings-change', loadGeoPolicy);
+window.addEventListener('draazy-settings-change', loadGeoPolicy);
 createRoot(document.getElementById('root')).render(app);

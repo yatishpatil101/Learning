@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
   // A partial consent object is rejected by CookieConsent and the bar stays
   // mounted at z-1400, silently intercepting taps on anything bottom-anchored.
   await page.addInitScript((c) => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify(c));
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify(c));
   }, consent);
 });
 

@@ -47,7 +47,7 @@ export default function SurfersTab({ report, failed, days }) {
           [num(anonSessions), 'Anonymous sessions', `Out of ${num(totalSessions)} total sessions`],
           [num(signups), 'Signups in period', `Last ${days} days`],
         ].map(([val, label, sub]) => (
-          <div key={label + sub} className="pn-card p-4 text-center">
+          <div key={label + sub} className="dz-card p-4 text-center">
             <p className="text-2xl font-extrabold text-teal-400">{val}</p>
             <p className="mt-1 text-sm font-semibold text-white">{label}</p>
             <p className="mt-0.5 text-xs text-gray-500">{sub}</p>

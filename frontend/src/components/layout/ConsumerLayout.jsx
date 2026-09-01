@@ -54,7 +54,7 @@ function ConsumerLayoutContent() {
   }
 
   /* Every chrome decision for this route, resolved in one place — see lib/chrome.js.
-     `.has-bottom-nav` is what makes --pn-bottom-inset reserve the bar's height, so the
+     `.has-bottom-nav` is what makes --dz-bottom-inset reserve the bar's height, so the
      class and the bar are always mounted together and no widget can be left positioned
      against an inset that isn't there. */
   const { selfPadded, fullBleed, chatRoute, authRoute, showBottomNav, showFooter, showAssistant } = chromeFor(pathname);
@@ -69,7 +69,7 @@ function ConsumerLayoutContent() {
               Docks under the navbar precisely so it can never cover the bottom nav or its raised
               centre FAB — see ConnectivityBanner for why the bottom was the wrong edge (D128). */}
           <ConnectivityBanner />
-          <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--pn-nav-h)]')}>
+          <main id="main-content" className={'consumer-main ' + (selfPadded ? 'flex-1' : 'flex-1 pt-[var(--dz-nav-h)]')}>
             {/* Around the outlet, not around the layout: a page that throws during render takes the
                 page down and leaves the navbar, the bottom nav and the connectivity banner standing,
                 so the reader can simply go somewhere else. Keyed on the pathname, so doing exactly
@@ -81,7 +81,7 @@ function ConsumerLayoutContent() {
           </main>
           {showFooter && <Footer />}
           {/* Nestor help assistant — floating concierge, all consumer pages except full-bleed (reels) */}
-          {showAssistant && <div className="pn-assistant-slot">{<AssistantWidget />}</div>}
+          {showAssistant && <div className="dz-assistant-slot">{<AssistantWidget />}</div>}
           <CityChrome />
           <CookieConsent />
           {/* Home-screen install nudge (mobile only, self-silencing). Not on auth

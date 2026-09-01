@@ -116,12 +116,12 @@ export default function DuplicatesTab({ onRefresh }) {
   const { clusters, truncated } = state;
 
   if (state.status === 'loading') {
-    return <p className="pn-card p-8 text-center text-gray-500">Looking for duplicates…</p>;
+    return <p className="dz-card p-8 text-center text-gray-500">Looking for duplicates…</p>;
   }
 
   if (state.status === 'error') {
     return (
-      <p className="pn-card flex items-start gap-2 p-8 text-sm text-gray-400">
+      <p className="dz-card flex items-start gap-2 p-8 text-sm text-gray-400">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
         <span>
           <strong className="text-gray-200">Could not check for duplicates.</strong>
@@ -134,7 +134,7 @@ export default function DuplicatesTab({ onRefresh }) {
 
   return (
     <div>
-      <p className="pn-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-gray-400">
+      <p className="dz-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-gray-400">
         <Copy className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" />
         <span>Listings that look like the <strong className="text-gray-200">same physical property</strong> — matched by electricity meter / tax ID, structured address, or perceptually similar photos. Keep the best one and archive the rest, or dismiss if they&apos;re genuinely different.</span>
       </p>
@@ -143,7 +143,7 @@ export default function DuplicatesTab({ onRefresh }) {
           one. A pair split across the scan ceiling disappears entirely rather than showing as half
           a cluster, so this is the single condition under which the empty state below is a lie. */}
       {truncated && (
-        <p className="pn-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-amber-300">
+        <p className="dz-card mb-4 flex items-start gap-2 px-4 py-3 text-xs text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             <strong>Only the newest {state.scanned} listings were checked.</strong> Duplicates
@@ -158,11 +158,11 @@ export default function DuplicatesTab({ onRefresh }) {
       </div>
 
       {clusters.length === 0 ? (
-        <p className="pn-card p-8 text-center text-gray-500">No duplicate clusters — supply looks clean.</p>
+        <p className="dz-card p-8 text-center text-gray-500">No duplicate clusters — supply looks clean.</p>
       ) : (
         <div className="space-y-4">
           {clusters.map((cluster) => (
-            <div key={cluster.id} className="pn-card p-4">
+            <div key={cluster.id} className="dz-card p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-300">

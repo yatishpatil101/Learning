@@ -276,7 +276,7 @@ const MultiSelect = forwardRef(function MultiSelect({
   };
 
   return (
-    <div ref={rootRef} className={classNames('pn-dropdown', open && 'is-open', className)} data-err={dataErr}>
+    <div ref={rootRef} className={classNames('dz-dropdown', open && 'is-open', className)} data-err={dataErr}>
       <button
         type="button"
         ref={triggerRef}
@@ -284,14 +284,14 @@ const MultiSelect = forwardRef(function MultiSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
-        className={classNames('pn-dropdown__trigger', invalid && 'pn-invalid pn-shake')}
+        className={classNames('dz-dropdown__trigger', invalid && 'dz-invalid dz-shake')}
         onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={onKeyDown}
       >
-        <span className={classNames('pn-dropdown__value', !summary && 'is-placeholder')}>
+        <span className={classNames('dz-dropdown__value', !summary && 'is-placeholder')}>
           {summary || (placeholder || t('ui.selectPlaceholder'))}
         </span>
-        <svg className="pn-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="dz-dropdown__chev" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
@@ -301,18 +301,18 @@ const MultiSelect = forwardRef(function MultiSelect({
             <>
               {/* Scrim: a sheet is a modal surface, so the page behind it has to
                   read as dismissed rather than merely covered. */}
-              {sheet ? <div className="pn-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
+              {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div
                 ref={menuRef}
                 {...(sheet ? swipe : null)}
-                className={classNames('pn-dropdown__menu', 'pn-dropdown__menu--portal', sheet && 'pn-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
+                className={classNames('dz-dropdown__menu', 'dz-dropdown__menu--portal', sheet && 'dz-dropdown__menu--sheet', portalOpen && 'is-portal-open')}
                 role="listbox"
                 aria-multiselectable="true"
                 id={listId}
                 aria-label={ariaLabel}
               >
                 {isSearchable ? (
-                  <div className="pn-dropdown__search">
+                  <div className="dz-dropdown__search">
                     <input
                       value={query}
                       onChange={(e) => {
@@ -327,7 +327,7 @@ const MultiSelect = forwardRef(function MultiSelect({
                 ) : null}
 
                 {visible.length === 0 ? (
-                  <div className="pn-dropdown__empty">
+                  <div className="dz-dropdown__empty">
                     {loading ? t('ui.searching') : noResults}
                   </div>
                 ) : (
@@ -340,7 +340,7 @@ const MultiSelect = forwardRef(function MultiSelect({
                       disabled={o.disabled}
                       onMouseEnter={() => setActiveIndex(i)}
                       onClick={() => toggle(o)}
-                      className={classNames('pn-dropdown__option', i === activeIndex && 'is-active')}
+                      className={classNames('dz-dropdown__option', i === activeIndex && 'is-active')}
                     >
                       <span className="opt-label">
                         {o.label}
@@ -354,7 +354,7 @@ const MultiSelect = forwardRef(function MultiSelect({
                 )}
 
                 {usingAsync ? (
-                  <div className="pn-dropdown__attrib">
+                  <div className="dz-dropdown__attrib">
                     <PoweredByGoogle />
                   </div>
                 ) : null}

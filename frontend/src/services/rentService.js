@@ -106,7 +106,7 @@ export const tenantsVerified = async (mobiles) => (await provider()).tenantsVeri
 /* --- Self-declared rentals (tenant) --- */
 
 /**
- * The homes the caller says they rent, including ones PuneNest was never involved in.
+ * The homes the caller says they rent, including ones Draazy was never involved in.
  *
  * This is the tenant's answer to the owner's per-property ledger, and it exists because a tenancy
  * row is only ever created when a rent deal closes *on the platform* — so a tenant who found their

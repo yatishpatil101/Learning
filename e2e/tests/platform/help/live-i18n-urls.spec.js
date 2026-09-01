@@ -51,7 +51,7 @@ async function assertLanguageSurvived(page, lang) {
   await expect(page.locator('html'), 'the link dropped the reader back to English')
     .toHaveAttribute('lang', lang);
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('pnLang')),
+    .poll(() => page.evaluate(() => localStorage.getItem('dzLang')),
       { message: 'the device-wide language preference was overwritten' })
     .toBe(lang);
 }
@@ -79,7 +79,7 @@ const DEVANAGARI = /[\u0900-\u097F]/;
 /* Articles that actually have hi/mr translations. An untranslated article
    legitimately falls back to English, so asserting Devanagari on one of those
    would be testing the wrong thing. */
-const TRANSLATED_SLUG = 'what-is-punenest';
+const TRANSLATED_SLUG = 'what-is-draazy';
 
 test.describe('Help URL language prefix', () => {
   for (const lang of ['hi', 'mr']) {
@@ -129,7 +129,7 @@ test.describe('Help URL language prefix', () => {
       /* Regression test for a real defect, and the reason the href check above
          matters. HelpLangRoute treats the URL as authoritative: landing on an
          unprefixed help route calls changeLanguage('en'), and i18n persists that
-         to `pnLang` device-wide. So one footer click used to silently switch the
+         to `dzLang` device-wide. So one footer click used to silently switch the
          entire app to English — not just that page. */
       await openHelp(page, `/${lang}/help`);
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -253,7 +253,7 @@ test.describe('helpPath is the single source of the prefix rule', () => {
         // A locality slug that merely starts with "hi" must not be eaten.
         splitFalsePositive: splitLangPrefix('/hinjawadi'),
         norm: normalizeHelpLang('HI'),
-        alts: alternateUrls('/help/a/x', 'https://punenest.com').map((a) => a.href),
+        alts: alternateUrls('/help/a/x', 'https://draazy.com').map((a) => a.href),
       };
     });
 
@@ -269,9 +269,9 @@ test.describe('helpPath is the single source of the prefix rule', () => {
     expect(out.splitFalsePositive).toEqual({ lang: 'en', rest: '/hinjawadi' });
     expect(out.norm).toBe('hi');
     expect(out.alts).toEqual([
-      'https://punenest.com/help/a/x',
-      'https://punenest.com/hi/help/a/x',
-      'https://punenest.com/mr/help/a/x',
+      'https://draazy.com/help/a/x',
+      'https://draazy.com/hi/help/a/x',
+      'https://draazy.com/mr/help/a/x',
     ]);
   });
 });

@@ -29,7 +29,7 @@ export default function DirectoryTab({ state, query, onQuery, page, pageSize, on
   ];
 
   const dirCard = (s) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{s.name}</div>
@@ -71,7 +71,7 @@ export default function DirectoryTab({ state, query, onQuery, page, pageSize, on
       {state.status === 'loading' ? <Loading label="Loading the directory…" /> : null}
 
       {state.status === 'error' ? (
-        <div role="alert" className="pn-card p-8 text-center text-sm text-gray-300">
+        <div role="alert" className="dz-card p-8 text-center text-sm text-gray-300">
           The directory could not be loaded. This is not an empty catalogue — nothing was read.
         </div>
       ) : null}
@@ -84,7 +84,7 @@ export default function DirectoryTab({ state, query, onQuery, page, pageSize, on
               <button
                 onClick={() => onPage(Math.max(0, page - 1))}
                 disabled={page === 0}
-                className="pn-btn pn-btn-ghost disabled:opacity-40"
+                className="dz-btn dz-btn-ghost disabled:opacity-40"
               >
                 <ChevronLeft className="h-4 w-4" /> Previous
               </button>
@@ -92,7 +92,7 @@ export default function DirectoryTab({ state, query, onQuery, page, pageSize, on
               <button
                 onClick={() => onPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page >= totalPages - 1}
-                className="pn-btn pn-btn-ghost disabled:opacity-40"
+                className="dz-btn dz-btn-ghost disabled:opacity-40"
               >
                 Next <ChevronRight className="h-4 w-4" />
               </button>

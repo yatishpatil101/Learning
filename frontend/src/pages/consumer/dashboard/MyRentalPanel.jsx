@@ -115,9 +115,9 @@ export default function MyRentalPanel({ user }) {
           <div className="w-14 h-14 rounded-2xl bg-brand-teal/10 flex items-center justify-center mx-auto mb-4">
             <Icon name="key-round" className="w-7 h-7 text-brand-teal-3" />
           </div>
-          <h2 className="text-white text-lg font-bold">No rental on PuneNest yet</h2>
+          <h2 className="text-white text-lg font-bold">No rental on Draazy yet</h2>
           <p className="text-gray-400 text-sm mt-1.5 max-w-md mx-auto">
-            When you finalise a home you rent through PuneNest, it appears here — with your rent
+            When you finalise a home you rent through Draazy, it appears here — with your rent
             record, your agreement and deposit options, all in one place.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
@@ -200,7 +200,7 @@ export default function MyRentalPanel({ user }) {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
         {/* Where rent history lives now.
 
-            There is no payment history to show: no rent has ever moved through PuneNest, so any
+            There is no payment history to show: no rent has ever moved through Draazy, so any
             list here would be empty forever, and an HRA receipt issued from it would be a tax
             document asserting a payment the platform never witnessed. The tenant's own record —
             which is honestly labelled as self-entered — lives in the Finances tab. */}
@@ -208,7 +208,7 @@ export default function MyRentalPanel({ user }) {
           <SectionHead
             icon="receipt-indian-rupee"
             title="Rent payments"
-            sub="Paying rent through PuneNest is coming. Until then, keep your own record so your dashboard and HRA figures stay accurate."
+            sub="Paying rent through Draazy is coming. Until then, keep your own record so your dashboard and HRA figures stay accurate."
           />
           <div className="rounded-xl bg-white/[0.03] border border-white/8 p-5 text-center">
             <p className="text-gray-400 text-sm">
@@ -240,7 +240,7 @@ export default function MyRentalPanel({ user }) {
                 <p className="text-gray-500 text-xs mt-2">{agreement.startDate || ''}{agreement.endDate ? ' → ' + agreement.endDate : ''}</p>
               </>
             ) : (
-              <p className="text-gray-400 text-xs">No agreement on record. Register a legally-valid e-agreement — PuneNest handles e-stamp, biometric & doorstep registration.</p>
+              <p className="text-gray-400 text-xs">No agreement on record. Register a legally-valid e-agreement — Draazy handles e-stamp, biometric & doorstep registration.</p>
             )}
             <Link to="/services/rent-agreement" className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl btn-teal text-white text-sm font-semibold"><Icon name="file-text" className="w-4 h-4" /> {agreement ? 'View / renew' : 'Create agreement'}</Link>
           </Card>
@@ -283,7 +283,7 @@ function PendingInvites({ invites }) {
           <div key={inv.inviteId} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/10">
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">
-                From {inv.fromName || 'a PuneNest landlord'}{inv.property ? ` · ${inv.property}` : ''}
+                From {inv.fromName || 'a Draazy landlord'}{inv.property ? ` · ${inv.property}` : ''}
               </p>
               <p className="text-gray-500 text-xs mt-0.5">You fill your tenant details; the rest is view-only.</p>
             </div>

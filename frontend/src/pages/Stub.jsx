@@ -15,8 +15,8 @@ export default function Stub({ title = 'Page not found' }) {
         The page you're looking for doesn't exist or may have moved. Let's get you back on track.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <Link to="/" className="pn-btn pn-btn-primary">Back to home</Link>
-        <Link to="/listings" className="pn-btn pn-btn-ghost">Browse properties</Link>
+        <Link to="/" className="dz-btn dz-btn-primary">Back to home</Link>
+        <Link to="/listings" className="dz-btn dz-btn-ghost">Browse properties</Link>
       </div>
     </div>
   );

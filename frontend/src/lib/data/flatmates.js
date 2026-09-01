@@ -1,9 +1,9 @@
 import { digits as digitsOf, norm } from './identityNorm.js';
 
-const STORE_KEY = 'puneNestFlatmatePosts';
-const GROUPS_KEY = 'puneNestFlatmateGroups';
-const VERIFIED_KEY = 'puneNestSeekerVerified';
-const INTERESTS_KEY = 'puneNestFlatmateInterests';
+const STORE_KEY = 'draazyFlatmatePosts';
+const GROUPS_KEY = 'draazyFlatmateGroups';
+const VERIFIED_KEY = 'draazySeekerVerified';
+const INTERESTS_KEY = 'draazyFlatmateInterests';
 
 const get = (k, def) => {
   try {
@@ -20,11 +20,11 @@ const set = (k, v) => {
   return v;
 };
 
-const PENDING_REQ_KEY = 'pnPendingRequests';
+const PENDING_REQ_KEY = 'dzPendingRequests';
 
 /* Every flatmate ask ends by staging a chat request for the Messages hand-off.
 
-   A bell notification used to be written beside it, into a `puneNestNotifications` array. The
+   A bell notification used to be written beside it, into a `draazyNotifications` array. The
    inbox is `GET /notifications` now and never reads that key, so the write was invisible by
    construction: a seeker was shown a success toast for an alert that existed in one browser and
    that no surface -- not the bell badge, not the Notifications page -- would ever display. The
@@ -41,7 +41,7 @@ export const pushPendingRequest = (req) => {
 
 /** Does this browser already hold the seeker's staged ask for `propertyId`?
 
-    KNOWN GAP. This used to consult `pnConversations` as well, which nothing has written since the
+    KNOWN GAP. This used to consult `dzConversations` as well, which nothing has written since the
     conversation domain went live — so the branch was dead and is gone. What it stood in for is not:
     `drainPendingChats` in `providers/http/conversationProvider.js` EMPTIES this queue once Messages
     is opened and the server accepts the staged chat. After that drain this answers `false`, so a
@@ -145,10 +145,10 @@ export const isPubliclyVisible = (item) => MOD_PUBLIC.includes(item?.modStatus |
 /* =========================================================================
    Anti-broker guardrails. Trust is the product: cap how many live flatmate posts
    one identity can host, and detect two people claiming the same physical flat.
-   Rooms live in their own store (store.js `puneNestRoomListings`); we read that
+   Rooms live in their own store (store.js `draazyRoomListings`); we read that
    key directly here to avoid a store.js <-> flatmates.js import cycle.
    ========================================================================= */
-const ROOMS_KEY = 'puneNestRoomListings';
+const ROOMS_KEY = 'draazyRoomListings';
 const getRoomsRaw = () => {
   const v = get(ROOMS_KEY, []);
   return Array.isArray(v) ? v : [];
@@ -245,7 +245,7 @@ export const setSeekerVerified = (userKey) => {
    flat's owner confirms via OTP that they're aware — turning "trust me" into an
    auditable consent record. Keyed by the OWNER's mobile so the same consent is
    remembered if the tenant reopens the form. */
-const CONSENT_KEY = 'puneNestOwnerConsent';
+const CONSENT_KEY = 'draazyOwnerConsent';
 export const getOwnerConsents = () => get(CONSENT_KEY, {});
 export const setOwnerConsent = (ownerMobile, byMobile) => {
   const map = getOwnerConsents();
@@ -257,7 +257,7 @@ export const setOwnerConsent = (ownerMobile, byMobile) => {
    self-declared, so tenant-tier posts (and any address a different host already
    claimed) land here for Ops to verify. Approve → the post shows Ops-verified;
    reject(+reason) → it shows the review failed. One review per group/room. */
-const REVIEW_KEY = 'puneNestFlatmateReviews';
+const REVIEW_KEY = 'draazyFlatmateReviews';
 // A tenant's uploaded agreement is the artifact Ops verifies. We keep only the
 // metadata + the inline data URL when it's small enough for localStorage; an
 // oversized file is recorded as present-but-not-stored so Ops can still ask for it.
@@ -318,13 +318,13 @@ export const getMyRequest = (userMobile, userName) => {
 /* =========================================================================
    Two stores, because there are two different facts (D181).
 
-   1. `puneNestFlatmateInterests` — **what this browser asked**, per signed-in requester. Page-owned,
+   1. `draazyFlatmateInterests` — **what this browser asked**, per signed-in requester. Page-owned,
       and the reason a done-state survives a reload. It is memory, not truth: it can only ever know
       about asks made from this device, so it is written from the outcome of a call and is NEVER
       consulted to decide whether to make one. Doing that is what made the server's 409 unreachable
       in the first place.
 
-   2. `pnMockFlatmateInterests` — the **mock provider's** stand-in for V27's
+   2. `dzMockFlatmateInterests` — the **mock provider's** stand-in for V27's
       unique index: one request per (requester, kind, target), a second ask
       refused with the same 409 the real API answers. Provider-owned; the page
       must not read it, because in http mode it does not exist.
@@ -357,8 +357,8 @@ export const rememberAsk = (mobile, key) => {
 
 /* ── 2. The provider's ledger and the host inbox are gone ─────────────────────
 
-   `pnMockFlatmateInterests` stood in for V27's unique index, and
-   `puneNestFlatmateReq:<ownerId>` stood in for the host inbox. Both were browser-local and both
+   `dzMockFlatmateInterests` stood in for V27's unique index, and
+   `draazyFlatmateReq:<ownerId>` stood in for the host inbox. Both were browser-local and both
    are now the server's: `GET /me/flatmate-interests` answers the first, and
    `FlatmateSeekerController` (`GET`/`PATCH /me/flatmate-requests`) the second. A host reads their
    inbox on their own device, so a store keyed on an id this browser minted could never have

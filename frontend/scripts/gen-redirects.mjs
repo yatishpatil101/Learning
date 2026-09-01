@@ -59,7 +59,7 @@ if (!raw) {
   // limit of what can be detected here.
   const message =
     'API_ORIGIN is unset, so no /api proxy can be written. Set it to the backend origin, '
-    + 'e.g. API_ORIGIN=https://api.punenest.in';
+    + 'e.g. API_ORIGIN=https://api.draazy.in';
   if (process.env.NETLIFY) {
     throw new Error(`[redirects] ${message} — refusing to publish a build whose every API call `
       + 'would resolve to index.html with a 200.');
@@ -74,7 +74,7 @@ if (!raw) {
   // the rule and one containing a newline appends a redirect of the attacker's choosing.
   throw new Error(
     `[redirects] API_ORIGIN="${raw}" is not a bare https origin. Expected scheme + host (+ optional `
-      + 'port) only, e.g. https://api.punenest.in — no path, no trailing slash, no http.',
+      + 'port) only, e.g. https://api.draazy.in — no path, no trailing slash, no http.',
   );
 } else {
   // `200!` forces the proxy even where a matching static asset exists, so a stray file under

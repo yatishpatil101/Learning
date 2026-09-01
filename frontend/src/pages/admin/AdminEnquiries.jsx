@@ -222,7 +222,7 @@ export default function AdminEnquiries() {
 
   // Mobile card renderers — one per tab (columns differ per record type)
   const enquiryCard = (r) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{r.listing}</div>
@@ -237,7 +237,7 @@ export default function AdminEnquiries() {
   );
 
   const visitCard = (r) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{r.listing}</div>
@@ -252,7 +252,7 @@ export default function AdminEnquiries() {
   );
 
   const dealCard = (r) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{r.listing}</div>
@@ -285,14 +285,14 @@ export default function AdminEnquiries() {
    * per-row audited reveal exists to prevent.
    */
   const doExport = () => {
-    if (tab === 'deals') exportCsv('punenest-deals.csv', ['ID', 'Listing', 'Deal', 'Value', 'Date', 'Status'], rows.map((r) => [r.id, r.listing, r.deal, r.value, fmtWhen(r.at), r.status]));
-    else if (tab === 'visits') exportCsv('punenest-visits.csv', ['ID', 'Listing', 'Customer', 'Mobile', 'When', 'Status'], rows.map((r) => [r.id, r.listing, r.customer, r.mobile, r.when || fmtWhen(r.slot), r.status]));
-    else exportCsv('punenest-enquiries.csv', ['ID', 'Listing', 'Customer', 'Mobile', 'Locality', 'Date', 'Status'], rows.map((r) => [r.id, r.listing, r.customer, r.mobile, r.locality, fmtWhen(r.at), r.status]));
+    if (tab === 'deals') exportCsv('draazy-deals.csv', ['ID', 'Listing', 'Deal', 'Value', 'Date', 'Status'], rows.map((r) => [r.id, r.listing, r.deal, r.value, fmtWhen(r.at), r.status]));
+    else if (tab === 'visits') exportCsv('draazy-visits.csv', ['ID', 'Listing', 'Customer', 'Mobile', 'When', 'Status'], rows.map((r) => [r.id, r.listing, r.customer, r.mobile, r.when || fmtWhen(r.slot), r.status]));
+    else exportCsv('draazy-enquiries.csv', ['ID', 'Listing', 'Customer', 'Mobile', 'Locality', 'Date', 'Status'], rows.map((r) => [r.id, r.listing, r.customer, r.mobile, r.locality, fmtWhen(r.at), r.status]));
   };
 
   return (
     <div>
-      <PageHeader title="Enquiries & Deals" subtitle="Buyer and tenant demand — enquiries, scheduled visits and closed deals." actions={<button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>} />
+      <PageHeader title="Enquiries & Deals" subtitle="Buyer and tenant demand — enquiries, scheduled visits and closed deals." actions={<button onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>} />
 
       {/* KPI tiles */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -301,7 +301,7 @@ export default function AdminEnquiries() {
           if (k.tab === 'deals') return dealsEnabled;
           return true;
         }).map((k) => (
-          <div key={k.label} onClick={() => setTab(k.tab)} className="pn-card cursor-pointer p-4 hover:bg-white/5">
+          <div key={k.label} onClick={() => setTab(k.tab)} className="dz-card cursor-pointer p-4 hover:bg-white/5">
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><k.icon className="h-4 w-4" /></span>
@@ -322,7 +322,7 @@ export default function AdminEnquiries() {
       {/* Filters — search left, dropdowns right */}
       {tab !== 'funnel' && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search listing, customer, mobile…" className="pn-input flex-1 min-w-[200px] max-w-sm" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search listing, customer, mobile…" className="dz-input flex-1 min-w-[200px] max-w-sm" />
           <div className="flex flex-wrap items-center gap-2 ml-auto">
             <div style={{ width: '140px' }}>
               <Select
@@ -391,7 +391,7 @@ export default function AdminEnquiries() {
                 <button
                   onClick={() => reveal(detail, detail._kind)}
                   disabled={revealing === detail.id}
-                  className="pn-btn pn-btn-ghost shrink-0 disabled:opacity-40"
+                  className="dz-btn dz-btn-ghost shrink-0 disabled:opacity-40"
                 ><Unlock className="h-4 w-4" />{revealing === detail.id ? 'Revealing…' : 'Reveal contact'}</button>
               </div>
             ) : null}

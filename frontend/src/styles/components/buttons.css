@@ -1,7 +1,7 @@
 /* ============================================================================
    Button system — Tier 0 (shared across routes)
    Hoisted out of index.css, where it sat under the "Property page" heading even
-   though .btn-* / .pn-btn* are used by components/auth, components/dashboard,
+   though .btn-* / .dz-btn* are used by components/auth, components/dashboard,
    components/society, pages/admin, CityChrome.jsx and ServiceTracker.jsx.
    Loaded from main.jsx after index.css. Note the radius-hierarchy override in
    index.css ("Radius hierarchy") uses !important, so it still wins from there.
@@ -12,13 +12,13 @@
      .btn-secondary → supporting actions (outline/ghost)
      .btn-icon      → compact square icon-only utility button
    Sizes: .btn-sm (32px) · default (40px) · .btn-lg (48px).
-   Legacy classes (.btn-teal/.btn-outline/.pn-btn*) are folded in below so the
+   Legacy classes (.btn-teal/.btn-outline/.dz-btn*) are folded in below so the
    long tail of existing buttons inherits this system without per-file edits.
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 .btn,
 .btn-teal,
 .btn-outline,
-.pn-btn {
+.dz-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -44,7 +44,7 @@
 .btn:focus-visible,
 .btn-teal:focus-visible,
 .btn-outline:focus-visible,
-.pn-btn:focus-visible {
+.dz-btn:focus-visible {
   outline: 2px solid var(--teal-2);
   outline-offset: 2px;
 }
@@ -54,7 +54,7 @@
 .btn.is-disabled,
 .btn-teal:disabled,
 .btn-outline:disabled,
-.pn-btn:disabled {
+.dz-btn:disabled {
   opacity: .55;
   cursor: not-allowed;
   pointer-events: none;
@@ -67,7 +67,7 @@
 /* Tier 1 — primary */
 .btn-primary,
 .btn-teal,
-.pn-btn-primary {
+.dz-btn-primary {
   background: var(--btn-primary-grad);
   color: #fff;
   border-color: transparent;
@@ -76,7 +76,7 @@
 
 .btn-primary:hover,
 .btn-teal:hover,
-.pn-btn-primary:hover {
+.dz-btn-primary:hover {
   box-shadow: var(--btn-primary-shadow-hover);
   filter: brightness(1.05);
   transform: translateY(-1px);
@@ -84,14 +84,14 @@
 
 .btn-primary:active,
 .btn-teal:active,
-.pn-btn-primary:active {
+.dz-btn-primary:active {
   transform: translateY(0);
 }
 
 /* Tier 2 — secondary */
 .btn-secondary,
 .btn-outline,
-.pn-btn-ghost {
+.dz-btn-ghost {
   background: var(--control-bg);
   color: #e5e7eb;
   border-color: rgba(255, 255, 255, .14);
@@ -100,7 +100,7 @@
 
 .btn-secondary:hover,
 .btn-outline:hover,
-.pn-btn-ghost:hover {
+.dz-btn-ghost:hover {
   border-color: rgba(20, 184, 166, .5);
   color: #fff;
   background: rgba(20, 184, 166, .08);
@@ -108,7 +108,7 @@
 
 .btn-secondary:active,
 .btn-outline:active,
-.pn-btn-ghost:active {
+.dz-btn-ghost:active {
   transform: translateY(1px);
 }
 
@@ -132,7 +132,7 @@
 
 /* Sizes */
 .btn-sm,
-.pn-btn-sm {
+.dz-btn-sm {
   height: var(--btn-h-sm);
   padding: 0 .7rem;
   font-size: .8rem;
@@ -155,7 +155,7 @@
 
 /* Color modifiers (apply on primary) */
 .btn-success,
-.pn-btn-success {
+.dz-btn-success {
   background: #10b981;
   color: #052018;
   border-color: transparent;
@@ -163,12 +163,12 @@
 }
 
 .btn-success:hover,
-.pn-btn-success:hover {
+.dz-btn-success:hover {
   filter: brightness(1.08);
 }
 
 .btn-danger,
-.pn-btn-danger {
+.dz-btn-danger {
   background: rgba(244, 63, 94, .15);
   color: #fda4af;
   border-color: rgba(244, 63, 94, .3);
@@ -176,6 +176,6 @@
 }
 
 .btn-danger:hover,
-.pn-btn-danger:hover {
+.dz-btn-danger:hover {
   background: rgba(244, 63, 94, .25);
 }

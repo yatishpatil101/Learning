@@ -2,7 +2,7 @@
    Framework-agnostic (no React) — like places.js — so the core autocomplete, the
    List-Property geocoder and the map display components all read ONE policy:
 
-     • which city is active (the navbar dropdown, persisted as `puneNestCity`),
+     • which city is active (the navbar dropdown, persisted as `draazyCity`),
      • that city's map centre + bounding box,
      • whether Places is HARD-restricted to those bounds (city limit) or merely biased,
      • a blacklist of localities / societies / places to hide from suggestions,
@@ -79,7 +79,7 @@ export const PUNE_BOUNDS = CITY_GEO.Pune.bounds;
 // Active city from the navbar dropdown (CityContext persists it here). Never throws.
 export function getActiveCity() {
   try {
-    return localStorage.getItem('puneNestCity') || DEFAULT_CITY;
+    return localStorage.getItem('draazyCity') || DEFAULT_CITY;
   } catch {
     return DEFAULT_CITY;
   }
@@ -122,7 +122,7 @@ function normaliseCityRoster(rows) {
 
 // Called when the cache changes, so a view that already rendered from the built-ins can
 // re-read. A plain Set rather than an event on `window`: the one thing that needs to know
-// is the city roster, and `punenest-settings-change` would also wake AppFlagsContext into
+// is the city roster, and `draazy-settings-change` would also wake AppFlagsContext into
 // re-fetching a route that has nothing to do with this. Framework-agnostic on purpose —
 // this module has no React in it and is imported by things that are not components.
 const listeners = new Set();
@@ -130,7 +130,7 @@ const listeners = new Set();
 // How many fetches have published, and how many have started. `published` lets a late
 // subscriber catch up (below); `started` is the sequence number that stops an older
 // response from landing on top of a newer one — the admin console fires
-// `punenest-settings-change` on every save, so two saves in quick succession put two
+// `draazy-settings-change` on every save, so two saves in quick succession put two
 // requests in flight and the network decides which returns first.
 let published = 0;
 let started = 0;

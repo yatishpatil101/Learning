@@ -248,7 +248,7 @@ export default function useProperty() {
         });
 
   const waShare = () => {
-    const msg = `${title} ${priceStr} on PuneNest (₹0 brokerage): ${window.location.href}`;
+    const msg = `${title} ${priceStr} on Draazy (₹0 brokerage): ${window.location.href}`;
     window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
   };
 

@@ -1,16 +1,16 @@
 ---
-title: What is PuneNest?
-slug: what-is-punenest
+title: What is Draazy?
+slug: what-is-draazy
 category: getting-started
 audience: everyone
 order: 1
 featured: true
 updated: 2026-07-28
-summary: PuneNest connects tenants and buyers directly with verified property owners in Pune — no brokers, no brokerage.
+summary: Draazy connects tenants and buyers directly with verified property owners in Pune — no brokers, no brokerage.
 tags: [basics, overview, brokerage]
 ---
 
-PuneNest is a Pune-first property marketplace that puts you in touch with **verified owners directly**. There is no broker in the middle, which means no brokerage fee and no one filtering what you get to see.
+Draazy is a Pune-first property marketplace that puts you in touch with **verified owners directly**. There is no broker in the middle, which means no brokerage fee and no one filtering what you get to see.
 
 ## How it is different
 
@@ -40,7 +40,7 @@ Start at [Listing your property](/help/c/listing).
 Rent agreements, packers and movers, legal title checks, home loans and valuations are available as paid add-ons. These are optional — the core marketplace stays free.
 
 > [!NOTE]
-> PuneNest currently operates in Pune and PCMC. We expand to a new city only once supply in the current one is genuinely deep.
+> Draazy currently operates in Pune and PCMC. We expand to a new city only once supply in the current one is genuinely deep.
 
 ## Where to go next
 

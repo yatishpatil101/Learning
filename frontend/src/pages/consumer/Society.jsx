@@ -76,7 +76,7 @@ export default function Society() {
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              {claimed ? <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('society.managedOnPuneNest')}</span> : null}
+              {claimed ? <span className="tag" style={{ background: 'rgba(37,99,235,.9)', color: '#fff', border: 'none' }}><Icon name="shield-check" className="w-3.5 h-3.5" /> {t('society.managedOnDraazy')}</span> : null}
               {verified ? <span className="tag" style={{ background: 'rgba(13,148,136,.85)', color: '#fff', border: 'none' }}><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('society.societyVerified')}</span> : null}
               {iAmResident ? <span className="tag" style={{ background: 'rgba(139,92,246,.85)', color: '#fff', border: 'none' }}><Icon name="home" className="w-3.5 h-3.5" /> {t('society.youLiveHere')}</span> : null}
               <span className="tag" style={{ background: 'rgba(16,185,129,.85)', color: '#fff', border: 'none' }}>{t('society.zeroBrokerageTag')}</span>
@@ -176,7 +176,7 @@ export default function Society() {
           </>
         )}
 
-        <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 mb-6">
+        <div className="dz-docks-under-nav sticky top-[var(--dz-nav-h)] z-30 mb-6">
           <HScroll role="tablist" aria-label={t('society.sectionsAria')} className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
             {tabs.map((tab) => (
               <button
@@ -185,7 +185,7 @@ export default function Society() {
                 role="tab"
                 aria-selected={current === tab.id}
                 onClick={() => selectTab(tab.id)}
-                className={`pn-detail-tab ${current === tab.id ? 'is-active' : ''}`}
+                className={`dz-detail-tab ${current === tab.id ? 'is-active' : ''}`}
               >
                 <Icon name={tab.icon} className="w-4 h-4" /> <span>{t(tab.labelKey)}</span>{tab.count ? <span className="ml-1 text-[11px] font-semibold text-slate-400">{tab.count}</span> : null}
               </button>

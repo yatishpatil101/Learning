@@ -32,7 +32,7 @@ import { test, expect } from '../../fixtures/live.js';
  * here means P5c gets a compile-time reminder rather than a silent coverage loss.
  */
 
-const LANG_KEY = 'pnLang';
+const LANG_KEY = 'dzLang';
 const ANCHOR = 'p5021';
 
 const seedLang = (page, lang) =>
@@ -166,10 +166,10 @@ test.describe('Locale-aware dates', () => {
        at all -- the picker being broken, gated or removed -- left the test passing having proved
        only that an `h1` exists. The date field is unconditional on this route, so its absence is a
        failure worth reporting rather than a reason to stop looking. */
-    const field = page.locator('.pn-datefield').first();
+    const field = page.locator('.dz-datefield').first();
     await expect(field).toBeVisible({ timeout: 15_000 });
     await field.click();
-    const cal = page.locator('.pn-cal');
+    const cal = page.locator('.dz-cal');
     await expect(cal).toBeVisible();
     // The month dropdown must not be sitting in English inside a Hindi page.
     expect(await cal.innerText()).not.toMatch(/\b(January|February|March)\b/);

@@ -73,7 +73,7 @@ const ListProperty = () => {
         {/* Page header.
 
             The badge and the subtitle are desktop-only. They are motivational copy
-            — "List with PuneNest", "Reach thousands of genuine buyers" — aimed at
+            — "List with Draazy", "Reach thousands of genuine buyers" — aimed at
             someone deciding *whether* to post. By the time this route renders that
             decision is already made: the user tapped Post. On a 360x640 phone the
             full header plus the progress meter and step tabs pushed the first form

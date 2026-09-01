@@ -21,8 +21,8 @@
     "statVerified": "Verified Listings",
 
     "aboutTitle": "About the Owner",
-    "aboutBody": "{{name}} is a verified property owner listing directly on PuneNest. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
-    "aboutBodyUnverified": "{{name}} lists directly on PuneNest. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
+    "aboutBody": "{{name}} is a verified property owner listing directly on Draazy. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
+    "aboutBodyUnverified": "{{name}} lists directly on Draazy. No brokers, no commission — you deal with the owner directly from enquiry to handover.",
     "badgeVerifiedOwner": "Verified Owner",
     "badgeNumberProtected": "Number Protected",
 
@@ -54,7 +54,7 @@
     "numberHidden": "Number hidden for the owner's privacy.",
     "requestNumber": "Request number",
   "contactViaListing": "Contact via a listing",
-    "emailSupport": "Email PuneNest support",
+    "emailSupport": "Email Draazy support",
     "scheduleVisit": "Schedule a Visit",
     "visit": "Visit",
 
@@ -68,7 +68,7 @@
     "reportSubtitle": "Our team reviews every report and keeps it confidential.",
     "reportSuccess": "Thanks for flagging this. Our team will review this owner.",
 
-    "waIntro": "Hi {{name}}, I saw your profile on PuneNest and I'm interested in your listings. Are they still available?",
+    "waIntro": "Hi {{name}}, I saw your profile on Draazy and I'm interested in your listings. Are they still available?",
     "waFallbackName": "there"
   }
 }

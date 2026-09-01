@@ -34,7 +34,7 @@ const statusLabelFor = (status) => {
 
 /* The flatmate half of the shortlist, read from the seam.
 
-   It used to be a synchronous `localStorage` read of `puneNestFlatmateSaved`, which stored the
+   It used to be a synchronous `localStorage` read of `draazyFlatmateSaved`, which stored the
    rendered card alongside the key — so this page drew the title, locality and rent a room had at
    the moment it was bookmarked, and went on drawing them after the host changed or withdrew it.
    The saves are now server-side and keys only, so the card is joined on read and is current by
@@ -279,7 +279,7 @@ export default function Saved() {
           aria-hidden="true"
           data-testid="ptr-indicator"
           className="glass-strong pointer-events-none fixed left-1/2 z-40 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full"
-          style={{ top: `calc(var(--pn-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
+          style={{ top: `calc(var(--dz-nav-h) + ${Math.round(ptr.pullDistance)}px)`, opacity: 0.4 + ptr.progress * 0.6 }}
         >
           <Icon
             name={ptr.isRefreshing ? 'loader-2' : 'chevron-down'}
@@ -304,7 +304,7 @@ export default function Saved() {
           </div>
 
           {/* Signed-out shortlists are real: Reels, Compare and the map detail panel
-              all write pnSavedProps while logged out, and Saved is a permanent bottom-nav
+              all write dzSavedProps while logged out, and Saved is a permanent bottom-nav
               tab. Show what's on the device and explain the ceiling, rather than bouncing
               the user to a login wall they never asked for. */}
           {!isIn && (

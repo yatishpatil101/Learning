@@ -27,12 +27,12 @@ import { toViewModelList } from './notificationMapper.js';
 const PAGE_SIZE = 100;
 
 /** Tombstones for dismissed client-derived notifications, per browser. */
-const DISMISSED_KEY = 'pnDismissedNotifs';
+const DISMISSED_KEY = 'dzDismissedNotifs';
 
 /**
  * Read the tombstone set.
  *
- * Keyed only by name, not by mobile, unlike the mock's `pnNotifications:<mobile>`: these ids are
+ * Keyed only by name, not by mobile, unlike the mock's `dzNotifications:<mobile>`: these ids are
  * already unique, so a shared key cannot collide. Sharing it also means the set does not have to be
  * rebuilt when the signed-in user changes. Since `DELETE /notifications/{id}` exists, this now only
  * holds client-derived rows (saved-search matches etc.) that have no server home — real server rows

@@ -66,7 +66,7 @@ export function helpPath(path, lang) {
  * The same page in every language, for hreflang alternates.
  *
  * @param {string} path Unprefixed help path.
- * @param {string} origin Absolute origin, e.g. `https://punenest.com`.
+ * @param {string} origin Absolute origin, e.g. `https://draazy.com`.
  */
 export function alternateUrls(path, origin = '') {
   const base = origin.replace(/\/$/, '');

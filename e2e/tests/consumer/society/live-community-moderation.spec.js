@@ -110,7 +110,7 @@ test('a post removed from the ops queue is gone from the society page a neighbou
   try {
     await signIn(opsPage, ACTORS.admin, { screen: 'staff', role: 'admin' });
     await opsPage.goto(`${BASE}/admin/societies?tab=moderation`);
-    const queue = opsPage.locator('div.pn-card', { hasText: 'Reported content' });
+    const queue = opsPage.locator('div.dz-card', { hasText: 'Reported content' });
     await expect(queue).toBeVisible({ timeout: 20_000 });
     const row = queue.locator('li', { hasText: marker });
     await expect(row).toBeVisible({ timeout: 20_000 });

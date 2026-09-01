@@ -3,7 +3,7 @@
    success/fail → badge_earned — tagged with the `source` surface (post_success, my_listings, …).
    At MVP this is a console log + a capped localStorage ring buffer; swap for a real analytics
    sink when the backend lands. Never throws — instrumentation must not break a user flow. */
-const KEY = 'puneNestKycFunnel';
+const KEY = 'draazyKycFunnel';
 const MAX = 200;
 
 // Defence-in-depth: `extra` is meant for aggregate flags/counts only (e.g. { featured }).

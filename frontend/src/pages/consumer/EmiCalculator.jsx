@@ -84,7 +84,7 @@ export default function EmiCalculator() {
           </div>
 
           {/* Mobile-only sticky result: keeps the primary answer in view while sliders change. */}
-          <div className="pn-docks-under-nav lg:hidden sticky top-[var(--pn-nav-h)] z-30 -mx-4 sm:-mx-6 mb-6 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur-xl">
+          <div className="dz-docks-under-nav lg:hidden sticky top-[var(--dz-nav-h)] z-30 -mx-4 sm:-mx-6 mb-6 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-[11px] text-gray-400 leading-none mb-1.5">{t('misc1.emiMonthlyEmi')}</p>

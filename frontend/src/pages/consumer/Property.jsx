@@ -57,10 +57,10 @@ export default function Property() {
       {/* selfPadded route — reserves the fixed navbar itself, from the token. The gaps
           make ≥768px resolve to the 112px (pt-28) it hardcoded before; phones inherit
           the shorter bar. */}
-      <div className="pt-[calc(var(--pn-nav-h)+16px)] sm:pt-[calc(var(--pn-nav-h)+40px)] pb-24">
+      <div className="pt-[calc(var(--dz-nav-h)+16px)] sm:pt-[calc(var(--dz-nav-h)+40px)] pb-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          <button type="button" onClick={goBackToSearch} className="pn-back-search">
+          <button type="button" onClick={goBackToSearch} className="dz-back-search">
             <Icon name={backToMap ? 'map-pin' : 'arrow-left'} className="w-4 h-4" />
             {backToMap ? tr('property.backToMap') : tr('property.backToResults')}
           </button>
@@ -92,9 +92,9 @@ export default function Property() {
               second fixed element: the bottom-right corner already belongs to the
               assistant FAB, and a full-width desktop bar would sit on top of it (see
               AssistantWidget's `detailBar` offset, which deliberately stops at lg).
-              Mobile keeps the bottom bar (`.pn-sticky-cta`, lg:hidden) — the two are
+              Mobile keeps the bottom bar (`.dz-sticky-cta`, lg:hidden) — the two are
               exact complements and never render together. */}
-          <div className="pn-docks-under-nav sticky top-[var(--pn-nav-h)] z-30 section-mb flex items-stretch">
+          <div className="dz-docks-under-nav sticky top-[var(--dz-nav-h)] z-30 section-mb flex items-stretch">
             <HScroll role="tablist" aria-label={tr('property.tablistAria')} wrapClassName="flex-1 min-w-0" className="flex gap-1 sm:gap-2 border-b border-white/10 bg-ink/80 backdrop-blur-md">
               {tabs.map((t) => (
                 <button
@@ -103,7 +103,7 @@ export default function Property() {
                   role="tab"
                   aria-selected={current === t.id}
                   onClick={() => selectTab(t.id)}
-                  className={`pn-detail-tab ${current === t.id ? 'is-active' : ''}`}
+                  className={`dz-detail-tab ${current === t.id ? 'is-active' : ''}`}
                 >
                   <Icon name={t.icon} className="w-4 h-4" /> <span>{t.label}</span>
                 </button>
@@ -133,14 +133,14 @@ export default function Property() {
       </div>
 
       {/* Sticky mobile CTA bar */}
-      <div className="pn-sticky-cta lg:hidden">
+      <div className="dz-sticky-cta lg:hidden">
         {contactApproved ? (
           flagEnabled('inAppMessaging') ? (
             <Link to={messagesLinkForProp(p)} onClick={() => queuePendingChat(p, { active: true })} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.chat')}
             </Link>
           ) : (
-            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on PuneNest.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-[1.125rem]">
+            <a href={`https://wa.me/91${digits(ownerMob)}?text=${encodeURIComponent(`Hi, I'm interested in "${p.title}" on Draazy.`)}`} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-[1.125rem]">
               <Icon name="message-circle" className="w-4 h-4" /> {tr('property.whatsapp')}
             </a>
           )

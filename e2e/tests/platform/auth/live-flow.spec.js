@@ -57,7 +57,7 @@ test('Sign In does not disclose whether a number is registered', async ({ page }
     // Same screen, same control, either way — no redirect to `/signup`, no "new here?" hint.
     await expect(page.getByLabel('OTP digit 1')).toBeVisible();
     await expect(page).toHaveURL(/\/signin/);
-    await expect(page.getByText(/new to PuneNest/i)).toHaveCount(0);
+    await expect(page.getByText(/new to Draazy/i)).toHaveCount(0);
   }
 });
 
@@ -82,7 +82,7 @@ test('Sign Up enforces OTP, then lands on the dashboard and registers the accoun
 
   /* The account exists on the server.
    *
-   * This used to read `localStorage.puneNestUsers` — the mock's registry, which the sign-up form
+   * This used to read `localStorage.draazyUsers` — the mock's registry, which the sign-up form
    * wrote to itself, so the assertion only ever proved the form could talk to its own browser tab.
    * Asking the API is the version that would fail if the registration never left the client.
    * `apiLogin` returns the stored profile, so the name is checked too: a row created with the
@@ -94,7 +94,7 @@ test('Sign Up enforces OTP, then lands on the dashboard and registers the accoun
 test('After sign-up the destination opens scrolled to the very top', async ({ page }) => {
   // Seed cookie consent so the DPDPA banner doesn't intercept the bottom "Create Account" click.
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
   });
   // Small viewport so the tall auth form is scrollable.
   await page.setViewportSize({ width: 480, height: 700 });
@@ -128,13 +128,13 @@ test('the refresh token is unreadable by scripts, and the session renews anyway'
   // 1. It is not in localStorage. This is the regression that matters: the token used to be stored
   //    beside the access token under the same key, and putting it back would be a one-line change
   //    nothing else would notice.
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestTokens') || '{}'));
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('draazyTokens') || '{}'));
   expect(stored.accessToken).toBeTruthy();
   expect(stored.refreshToken).toBeUndefined();
 
   // 2. Nor anywhere else a script can see. `document.cookie` is the exact view an injected payload
   //    has, so asserting the name is absent from it is the direct statement of what HttpOnly buys.
-  expect(await page.evaluate(() => document.cookie)).not.toContain('punenest_rt');
+  expect(await page.evaluate(() => document.cookie)).not.toContain('draazy_rt');
 
   // 3. It does exist — read through the browser's own jar, which scripts cannot reach. Without this
   //    the two absences above are equally consistent with "no refresh token was ever issued", i.e.
@@ -148,7 +148,7 @@ test('the refresh token is unreadable by scripts, and the session renews anyway'
   //    attack no page-level attribute can prevent, and one the cold-boot restore would carry out
   //    automatically. The name is asked of the server rather than hardcoded because this harness
   //    runs over plain HTTP, where a browser rejects the prefix outright.
-  const jar = (await context.cookies()).find((c) => c.name === 'punenest_rt');
+  const jar = (await context.cookies()).find((c) => c.name === 'draazy_rt');
   expect(jar, 'the refresh cookie was never issued').toBeTruthy();
   expect(jar.httpOnly).toBe(true);
   expect(jar.path).toBe('/');
@@ -168,13 +168,13 @@ test('the refresh token is unreadable by scripts, and the session renews anyway'
    *    happily and the whole test passes while proving nothing. That is what the first run of this
    *    spec did: every request after the "tamper" came back 200. */
   await page.evaluate(() => {
-    const t = JSON.parse(localStorage.getItem('puneNestTokens'));
+    const t = JSON.parse(localStorage.getItem('draazyTokens'));
     const [header, payload, signature] = t.accessToken.split('.');
     const corrupted = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
-    localStorage.setItem('puneNestTokens',
+    localStorage.setItem('draazyTokens',
       JSON.stringify({ ...t, accessToken: [header, payload, corrupted].join('.') }));
   });
-  const tampered = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestTokens')).accessToken);
+  const tampered = await page.evaluate(() => JSON.parse(localStorage.getItem('draazyTokens')).accessToken);
 
   await page.reload();
   // Poll for a token that is both *usable* and *new*. Either half alone is a bug that has already
@@ -192,7 +192,7 @@ test('the refresh token is unreadable by scripts, and the session renews anyway'
   // this can go wrong actually happened.
   await expect
     .poll(async () => {
-      const t = await page.evaluate(() => JSON.parse(localStorage.getItem('puneNestTokens') || '{}').accessToken);
+      const t = await page.evaluate(() => JSON.parse(localStorage.getItem('draazyTokens') || '{}').accessToken);
       if (!t) return 'signed out — the store was cleared instead of renewed';
       if (t === tampered) return 'still the tampered token';
       return /^[\w-]+\.[\w-]+\.[\w-]+$/.test(t) ? 'renewed' : 'replaced by something that is not a JWT';
@@ -224,12 +224,12 @@ test('a session survives web storage being wiped, as it must on Safari after sev
   // The marker has to be readable, or the boot path cannot see it. This is the one cookie in the
   // pair that is deliberately *not* HttpOnly, and asserting it from a script is the direct
   // statement of that — `context.cookies()` would report it either way.
-  expect(await page.evaluate(() => document.cookie)).toContain('punenest_session');
+  expect(await page.evaluate(() => document.cookie)).toContain('draazy_session');
 
   // ITP's eviction: everything a script could have written is gone, the jar is untouched.
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
-  expect(await page.evaluate(() => localStorage.getItem('puneNestTokens'))).toBeNull();
-  expect((await context.cookies()).find((c) => c.name === 'punenest_rt'),
+  expect(await page.evaluate(() => localStorage.getItem('draazyTokens'))).toBeNull();
+  expect((await context.cookies()).find((c) => c.name === 'draazy_rt'),
     'the refresh cookie must outlive the storage wipe — otherwise this proves nothing')
     .toBeTruthy();
 
@@ -238,7 +238,7 @@ test('a session survives web storage being wiped, as it must on Safari after sev
   await expect(page, 'the wiped session was not recovered from the refresh cookie')
     .toHaveURL(/\/dashboard/, { timeout: 20_000 });
   await expect
-    .poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('puneNestTokens') || '{}').accessToken),
+    .poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('draazyTokens') || '{}').accessToken),
       { timeout: 15_000, message: 'no access token was minted from the surviving refresh cookie' })
     .toEqual(expect.stringMatching(/^[\w-]+\.[\w-]+\.[\w-]+$/));
 
@@ -252,9 +252,9 @@ test('a session survives web storage being wiped, as it must on Safari after sev
    * because it is silent and it destroys a credential that was still good. Hence the two
    * assertions below — the persistent tier, and a cookie with an expiry rather than a session
    * cookie (`expires === -1` is Playwright's spelling of "dies with the browser"). */
-  expect(await page.evaluate(() => localStorage.getItem('puneNestTokens')),
+  expect(await page.evaluate(() => localStorage.getItem('draazyTokens')),
     'the recovered session was demoted to the tab-scoped tier').not.toBeNull();
-  const rt = (await context.cookies()).find((c) => c.name === 'punenest_rt');
+  const rt = (await context.cookies()).find((c) => c.name === 'draazy_rt');
   expect(rt.expires, 'the rotated refresh cookie lost its 30-day lifetime').toBeGreaterThan(0);
 });
 
@@ -285,7 +285,7 @@ test('the same rescue does not promote a session the user declined to have remem
      control on the form and Playwright will not click through an intercepting element, so without
      this the test's outcome depends on whether the banner mounted before the click. */
   await page.addInitScript(() => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
     }));
   });
@@ -308,12 +308,12 @@ test('the same rescue does not promote a session the user declined to have remem
    * failure here is legible as "login recorded the wrong thing" rather than as a broken recovery.
    * `expires === -1` is Playwright's spelling of a session cookie: the marker is scoped exactly
    * like the token it describes, so it cannot outlive it and claim a session that is gone. */
-  const hint = (await context.cookies()).find((c) => c.name === 'punenest_session');
+  const hint = (await context.cookies()).find((c) => c.name === 'draazy_session');
   expect(hint?.value, 'login recorded the wrong answer to "remember this device"').toBe('0');
   expect(hint.expires, 'an unremembered session was given a persistent marker').toBe(-1);
 
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
-  expect((await context.cookies()).find((c) => c.name === 'punenest_rt'),
+  expect((await context.cookies()).find((c) => c.name === 'draazy_rt'),
     'the refresh cookie must outlive the storage wipe — otherwise this proves nothing')
     .toBeTruthy();
 
@@ -321,16 +321,16 @@ test('the same rescue does not promote a session the user declined to have remem
   await expect(page, 'the wiped session was not recovered from the refresh cookie')
     .toHaveURL(/\/dashboard/, { timeout: 20_000 });
   await expect
-    .poll(async () => page.evaluate(() => sessionStorage.getItem('puneNestTokens')),
+    .poll(async () => page.evaluate(() => sessionStorage.getItem('draazyTokens')),
       { timeout: 15_000, message: 'no access token was minted from the surviving refresh cookie' })
     .not.toBeNull();
 
   // The two halves of the promotion, asserted separately because they fail independently: the
   // client decides which tier to write, the server decides the cookie's lifetime, and they agree
   // only because the client restated the flag correctly on the way past.
-  expect(await page.evaluate(() => localStorage.getItem('puneNestTokens')),
+  expect(await page.evaluate(() => localStorage.getItem('draazyTokens')),
     'the rescue promoted a declined session to the persistent tier').toBeNull();
-  expect((await context.cookies()).find((c) => c.name === 'punenest_rt').expires,
+  expect((await context.cookies()).find((c) => c.name === 'draazy_rt').expires,
     'the rescue traded a session cookie for a 30-day one the user did not ask for').toBe(-1);
 });
 
@@ -349,13 +349,13 @@ test('signing out leaves nothing that claims a session', async ({ page, context 
   await page.request.post('/api/auth/logout', {
     headers: {
       Authorization: `Bearer ${await page.evaluate(
-        () => JSON.parse(localStorage.getItem('puneNestTokens')).accessToken)}`,
+        () => JSON.parse(localStorage.getItem('draazyTokens')).accessToken)}`,
     },
   });
 
   const jar = await context.cookies();
-  expect(jar.find((c) => c.name === 'punenest_rt'), 'the refresh cookie outlived logout').toBeFalsy();
-  expect(jar.find((c) => c.name === 'punenest_session'), 'the session hint outlived logout').toBeFalsy();
+  expect(jar.find((c) => c.name === 'draazy_rt'), 'the refresh cookie outlived logout').toBeFalsy();
+  expect(jar.find((c) => c.name === 'draazy_session'), 'the session hint outlived logout').toBeFalsy();
 });
 
 /* The sign-out that does not reach the server, which is the case the hint made dangerous.
@@ -373,7 +373,7 @@ test('a sign-out the server never hears about still ends the session here', asyn
   const mobile = uniqueMobile();
   await signIn(page, mobile);
   await page.waitForURL('**/dashboard', { timeout: 20_000 });
-  expect((await context.cookies()).find((c) => c.name === 'punenest_session'),
+  expect((await context.cookies()).find((c) => c.name === 'draazy_session'),
     'no hint to clear — the rest of this test would pass vacuously').toBeTruthy();
 
   await page.route('**/api/auth/logout', (route) => route.abort('connectionfailed'));
@@ -383,13 +383,13 @@ test('a sign-out the server never hears about still ends the session here', asyn
   await page.getByRole('button', { name: 'Log out', exact: true }).and(page.locator(':visible')).click();
 
   await expect
-    .poll(async () => (await context.cookies()).some((c) => c.name === 'punenest_session'),
+    .poll(async () => (await context.cookies()).some((c) => c.name === 'draazy_session'),
       { timeout: 10_000, message: 'the hint survived a sign-out the server never confirmed' })
     .toBe(false);
 
   // The proof that matters: the cookie the server never revoked must not be spendable by a boot.
   await page.goto('/');
   await expect(page).toHaveURL(/\/(signin)?$/, { timeout: 15_000 });
-  expect(await page.evaluate(() => localStorage.getItem('puneNestTokens')),
+  expect(await page.evaluate(() => localStorage.getItem('draazyTokens')),
     'the failed sign-out left a session behind for the next person at this machine').toBeNull();
 });

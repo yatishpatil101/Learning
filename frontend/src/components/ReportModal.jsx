@@ -23,7 +23,7 @@ export default function ReportModal({
   kind = 'listing',
   reasons = LISTING_REPORT_REASONS,
   title = 'Report this listing',
-  subtitle = 'Help us keep PuneNest safe. Reports are confidential.',
+  subtitle = 'Help us keep Draazy safe. Reports are confidential.',
   success = 'Thanks — our team will review this listing.',
   onClose,
   toast,
@@ -82,14 +82,14 @@ export default function ReportModal({
   };
 
   return (
-    <div className="pn-modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pn-modal">
+    <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{title}</h3>
             <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
           </div>
-          <button onClick={onClose} className="pn-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={onClose} className="dz-modal-x" aria-label="Close"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <div className="space-y-2 mb-4">
           {reasons.map(([k, lbl]) => (

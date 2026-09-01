@@ -61,7 +61,7 @@ export default function Footer() {
   /* Help routes are the one place in the app where the URL carries the language
      (/hi/help/...). Linking to the unprefixed path from a prefixed page does not
      merely look untidy: HelpLangRoute reads the prefix and calls changeLanguage()
-     on it, and that write persists to `pnLang` device-wide — so a Hindi reader
+     on it, and that write persists to `dzLang` device-wide — so a Hindi reader
      clicking "FAQ" here used to be reset to English across the whole app. */
   const hp = useHelpPath();
   return (
@@ -78,17 +78,17 @@ export default function Footer() {
           <div className="sm:col-span-2 lg:col-span-1 pb-6 sm:pb-0">
             <Link to="/" className="tap-target sm:min-h-0 sm:min-w-0 inline-flex items-center gap-2.5 mb-4">
               <LogoMark className="w-9 h-9 shrink-0 text-teal-400" />
-              <span className="text-lg font-bold">PuneNest</span>
+              <span className="text-lg font-bold">Draazy</span>
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 sm:mb-5">
               Pune's broker-free property marketplace. Verified owners, zero brokerage, direct contact.
             </p>
             <div className="flex items-center gap-2">
-              <Soc k="facebook" label="PuneNest on Facebook" href="https://www.facebook.com/punenest" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="x" label="PuneNest on X" href="https://x.com/punenest" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="instagram" label="PuneNest on Instagram" href="https://www.instagram.com/punenest" hover="hover:bg-pink-500/10 hover:text-pink-400" />
-              <Soc k="youtube" label="PuneNest on YouTube" href="https://www.youtube.com/@punenest" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
-              <Soc k="linkedin" label="PuneNest on LinkedIn" href="https://www.linkedin.com/company/punenest" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="x" label="Draazy on X" href="https://x.com/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazy" hover="hover:bg-pink-500/10 hover:text-pink-400" />
+              <Soc k="youtube" label="Draazy on YouTube" href="https://www.youtube.com/@draazy" hover="hover:bg-[#f97316]/10 hover:text-[#fb923c]" />
+              <Soc k="linkedin" label="Draazy on LinkedIn" href="https://www.linkedin.com/company/draazy" hover="hover:bg-teal-500/10 hover:text-teal-400" />
             </div>
           </div>
 
@@ -153,9 +153,9 @@ export default function Footer() {
                 <Icon name="phone" className="w-4 h-4 text-teal-500 shrink-0" />
                 <span className="text-sm text-gray-500 group-hover:text-white transition-colors">+91 98765 43210</span>
               </a>
-              <a href="mailto:hello@punenest.com" className="flex items-center gap-2.5 group">
+              <a href="mailto:hello@draazy.com" className="flex items-center gap-2.5 group">
                 <Icon name="mail" className="w-4 h-4 text-teal-500 shrink-0" />
-                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">hello@punenest.com</span>
+                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">hello@draazy.com</span>
               </a>
               <div className="flex items-start gap-2.5">
                 <Icon name="map-pin" className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
@@ -168,7 +168,7 @@ export default function Footer() {
               <div className="flex items-start gap-2.5 pt-1">
                 <Icon name="file-text" className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
                 <span className="text-xs text-gray-600 leading-relaxed">
-                  PuneNest Technologies Pvt. Ltd.<br />
+                  Draazy Technologies Pvt. Ltd.<br />
                   CIN U72900PN2024PTC000000 · GSTIN 27ABCDE1234F1Z5
                 </span>
               </div>
@@ -179,7 +179,7 @@ export default function Footer() {
 
         {/* ── Bottom bar ── */}
         <div className="border-t border-white/5 pt-5 sm:pt-7 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs text-gray-600 order-2 sm:order-1">© 2026 PuneNest. All rights reserved. Made with care in Pune.</p>
+          <p className="text-xs text-gray-600 order-2 sm:order-1">© 2026 Draazy. All rights reserved. Made with care in Pune.</p>
           {/* Standalone links in a row, not prose — so they carry the 44px floor on
               phones. `sm:` puts the original compact footer density back. */}
           <nav className="flex items-center gap-5 order-1 sm:order-2" aria-label="Legal links">

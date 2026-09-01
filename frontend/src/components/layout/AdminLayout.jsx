@@ -88,7 +88,7 @@ function AdminLayoutInner({ variant = 'admin' }) {
           <Link to={variant === 'ops' ? '/ops' : '/admin'} className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
             <LogoMark className="h-8 w-8 shrink-0 text-brand-teal" />
             <span className="font-extrabold">
-              PuneNest
+              Draazy
               <span className="ml-1 text-xs font-medium text-gray-400">{variant === 'ops' ? 'Ops' : 'Admin'}</span>
             </span>
           </Link>
@@ -182,13 +182,13 @@ function AdminLayoutInner({ variant = 'admin' }) {
           </div>
         </header>
         {/* The bottom padding carries the home-indicator inset. The consumer app
-            routes every bottom offset through --pn-safe-b (see the chrome-token block
+            routes every bottom offset through --dz-safe-b (see the chrome-token block
             in index.css); this shell was written without a bottom bar and so never
             picked the pattern up, which leaves the last row of a queue sitting under
             the gesture bar on a notched phone — exactly the row a field-ops user is
             reaching for. `env()` resolves to 0px on desktop and in a browser tab, so
             this is inert everywhere except an installed app on a notched device. */}
-        <main className="flex-1 p-4 pb-[calc(1rem+var(--pn-safe-b))] sm:p-6 sm:pb-[calc(1.5rem+var(--pn-safe-b))]">
+        <main className="flex-1 p-4 pb-[calc(1rem+var(--dz-safe-b))] sm:p-6 sm:pb-[calc(1.5rem+var(--dz-safe-b))]">
           {/* Same placement rationale as the consumer shell: a module that throws must not take
               the sidebar down with it, or a moderator loses the navigation they would use to get
               out of the broken queue. */}

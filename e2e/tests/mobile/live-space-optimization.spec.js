@@ -76,7 +76,7 @@ test.describe('Mobile space optimization', () => {
     await expect(page.getByRole('button', { name: 'Filters', exact: true })).toBeVisible();
     // Navigation controls intact — the bottom tab bar, now that the top bar's
     // hamburger is gone.
-    await expect(page.locator('nav.pn-bottom-nav')).toBeVisible();
+    await expect(page.locator('nav.dz-bottom-nav')).toBeVisible();
   });
 
   test('No console errors across the optimized consumer pages (mobile)', async ({ page }) => {

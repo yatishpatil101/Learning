@@ -44,12 +44,12 @@ const SectionHead = ({ icon, iconCls = 'text-teal-400', title, sub, action }) =>
 
 /* Persist the tenant's basic-salary input so the HRA saver stays populated across
    visits (a small stickiness touch; no PII leaves the device). */
-const basisSalaryKey = (mob) => 'pnHraBasic:' + (mob || 'anon');
+const basisSalaryKey = (mob) => 'dzHraBasic:' + (mob || 'anon');
 
 /* Rent Wallet — the tenant view of Finances.
 
    Everything on this screen is built from what the tenant *told us* they pay. No rent moves
-   through PuneNest, so there is no payment history to read and nothing here is evidence. That is
+   through Draazy, so there is no payment history to read and nothing here is evidence. That is
    not a limitation to work around — it is the whole point: a tenant who found their home through a
    broker, a friend or a noticeboard still gets their yearly total and their HRA arithmetic, which
    is the part that actually saves them money.
@@ -178,7 +178,7 @@ export default function TenantFinancesTab({ user, toast }) {
             <button onClick={() => setEditing({})} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold inline-flex items-center gap-2">
               <Icon name="plus" className="w-4 h-4" /> {t('wallet.addRental')}
             </button>
-            <Link to="/listings?deal=rent" className="pn-control pn-control--ghost px-4 gap-2">
+            <Link to="/listings?deal=rent" className="dz-control dz-control--ghost px-4 gap-2">
               <Icon name="search" className="w-4 h-4" /> {t('wallet.browseRentals')}
             </Link>
           </div>
@@ -221,7 +221,7 @@ export default function TenantFinancesTab({ user, toast }) {
             ))}
           </HScroll>
         )}
-        <button onClick={() => setEditing({})} className="pn-control pn-control--ghost px-3 text-xs gap-1.5">
+        <button onClick={() => setEditing({})} className="dz-control dz-control--ghost px-3 text-xs gap-1.5">
           <Icon name="plus" className="w-4 h-4" /> {t('wallet.addRental')}
         </button>
       </div>
@@ -241,10 +241,10 @@ export default function TenantFinancesTab({ user, toast }) {
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
-            <button onClick={() => setEditing(rental)} className="pn-control pn-control--ghost px-3 text-xs gap-1.5">
+            <button onClick={() => setEditing(rental)} className="dz-control dz-control--ghost px-3 text-xs gap-1.5">
               <Icon name="pencil" className="w-4 h-4" /> {t('wallet.edit')}
             </button>
-            <button onClick={() => onRemove(rental.id)} className="pn-control pn-control--ghost px-3 text-xs gap-1.5 text-rose-300">
+            <button onClick={() => onRemove(rental.id)} className="dz-control dz-control--ghost px-3 text-xs gap-1.5 text-rose-300">
               <Icon name="trash-2" className="w-4 h-4" /> {t('wallet.remove')}
             </button>
           </div>
@@ -340,9 +340,9 @@ export default function TenantFinancesTab({ user, toast }) {
           </div>
           <div className="flex gap-2 flex-shrink-0">
             {flagEnabled('emiCalculator') && (
-              <Link to="/emi-calculator" className="pn-control pn-control--ghost px-3 text-xs gap-1.5"><Icon name="calculator" className="w-4 h-4" /> {t('wallet.emiCalc')}</Link>
+              <Link to="/emi-calculator" className="dz-control dz-control--ghost px-3 text-xs gap-1.5"><Icon name="calculator" className="w-4 h-4" /> {t('wallet.emiCalc')}</Link>
             )}
-            <Link to="/listings?deal=buy" className="pn-control pn-control--action px-4 gap-1.5"><Icon name="home" className="w-4 h-4" /> {t('wallet.homesToBuy')}</Link>
+            <Link to="/listings?deal=buy" className="dz-control dz-control--action px-4 gap-1.5"><Icon name="home" className="w-4 h-4" /> {t('wallet.homesToBuy')}</Link>
           </div>
         </div>
       </Card>
@@ -469,7 +469,7 @@ function RentalForm({ initial, onCancel, onDone, onError }) {
           <button type="submit" disabled={!complete || !datesOrdered || busy} className="btn-teal px-5 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50">
             {t('wallet.save')}
           </button>
-          <button type="button" onClick={onCancel} className="pn-control pn-control--ghost px-4">{t('wallet.cancel')}</button>
+          <button type="button" onClick={onCancel} className="dz-control dz-control--ghost px-4">{t('wallet.cancel')}</button>
         </div>
       </form>
     </Card>

@@ -20,7 +20,7 @@ const REG_MOBILE = '9700000001';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the cookie bar just stays up */ }
   });
 });
@@ -95,7 +95,7 @@ test.describe('Mobile auth keyboard', () => {
 
     for (let i = 1; i <= 6; i++) await page.getByLabel(`OTP digit ${i}`).fill(String(i));
 
-    const submit = page.locator('.pn-auth-submit');
+    const submit = page.locator('.dz-auth-submit');
     await expect(submit).toBeVisible();
     await expect(submit).toBeInViewport();
 
@@ -124,7 +124,7 @@ test.describe('Mobile auth keyboard', () => {
     // is hidden by the `.route-auth > footer` rule rather than unmounted, so this
     // asserts visibility, not presence.
     await page.goto('/signin');
-    await expect(page.locator('nav.pn-bottom-nav')).toHaveCount(0);
+    await expect(page.locator('nav.dz-bottom-nav')).toHaveCount(0);
     await expect(page.locator('footer')).toBeHidden();
   });
 

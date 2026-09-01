@@ -14,7 +14,7 @@ import { trackKyc } from '../../lib/kycTrack.js';
 
    Identity is proven the government-native way — DigiLocker (via Cashfree Secure ID):
      1. We securely redirect the user to DigiLocker.
-     2. The user signs in and enters their Aadhaar + OTP ON DIGILOCKER — never on PuneNest.
+     2. The user signs in and enters their Aadhaar + OTP ON DIGILOCKER — never on Draazy.
      3. The user approves a one-time consent to share their basic KYC.
      4. DigiLocker returns name, DOB, gender, address, photo and the last 4 digits of the
         Aadhaar (masked). We never see or store the full Aadhaar number or the OTP.
@@ -56,7 +56,7 @@ export default function AadhaarVerifyModal({
     // catch, so that a throw from `window.location.assign` cannot be mistaken for a failed start.
     let result;
     try {
-      // Aadhaar + OTP + consent happen on DigiLocker — PuneNest never sees them.
+      // Aadhaar + OTP + consent happen on DigiLocker — Draazy never sees them.
       result = await startVerification({
         aadhaarMobile: signedMobile,
         maskedAadhaar: 'XXXX XXXX 1234',
@@ -85,14 +85,14 @@ export default function AadhaarVerifyModal({
   // otherwise trap its position:fixed in a local stacking context.
   return createPortal((
     <div
-      className="pn-modal-backdrop"
+      className="dz-modal-backdrop"
       style={{ zIndex: 300 }}
       role="dialog"
       aria-modal="true"
       aria-label={t('verify.title')}
       onClick={(e) => { if (e.target === e.currentTarget && step === 'intro') onClose(); }}
     >
-      <div className="pn-modal" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
+      <div className="dz-modal" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
         <div className="flex items-start justify-between gap-3 p-5 pb-4 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0"><Icon name="shield-check" className="w-5 h-5 text-teal-400" /></div>
@@ -102,7 +102,7 @@ export default function AadhaarVerifyModal({
             </div>
           </div>
           {step === 'intro' && (
-            <button onClick={onClose} className="pn-modal-x" aria-label={t('verify.close')}><Icon name="x" className="w-5 h-5" /></button>
+            <button onClick={onClose} className="dz-modal-x" aria-label={t('verify.close')}><Icon name="x" className="w-5 h-5" /></button>
           )}
         </div>
 
@@ -154,7 +154,7 @@ export default function AadhaarVerifyModal({
               </div>
             </div>
 
-            <div className="flex-shrink-0 px-5 pt-4 pb-[calc(1.25rem+var(--pn-safe-b))] border-t border-white/10 bg-[#14121f]">
+            <div className="flex-shrink-0 px-5 pt-4 pb-[calc(1.25rem+var(--dz-safe-b))] border-t border-white/10 bg-[#14121f]">
               <div className="flex flex-col sm:flex-row gap-3">
                 <button type="button" onClick={startDigilocker} className="btn-teal w-full sm:flex-1 px-6 py-3 rounded-xl text-white font-semibold text-sm inline-flex items-center justify-center gap-2">
                   <Icon name="external-link" className="w-4 h-4" /> {t('verify.continue')}

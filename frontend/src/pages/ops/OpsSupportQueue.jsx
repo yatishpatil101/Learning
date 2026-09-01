@@ -186,7 +186,7 @@ export default function OpsSupportQueue() {
   /* Support is worked from a phone as often as a desk, so the table gets the stacked-card fallback
      below `sm` that every other ops queue has (see Table.jsx). */
   const card = (t) => (
-    <button type="button" onClick={() => open(t)} className="pn-card block w-full p-3.5 text-left">
+    <button type="button" onClick={() => open(t)} className="dz-card block w-full p-3.5 text-left">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{t.subject || '(no subject)'}</div>
@@ -209,7 +209,7 @@ export default function OpsSupportQueue() {
         title="Support queue"
         subtitle="Every support conversation on the platform, newest first."
         actions={
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-ghost">
+          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-ghost">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
@@ -239,11 +239,11 @@ export default function OpsSupportQueue() {
       {state.status === 'loading' ? <Loading label="Loading the support queue…" /> : null}
 
       {state.status === 'error' ? (
-        <div className="pn-card flex flex-col items-center gap-3 p-8 text-center">
+        <div className="dz-card flex flex-col items-center gap-3 p-8 text-center">
           <p className="text-sm text-gray-300">
             We could not read the support queue. This is not an empty queue — nothing was loaded.
           </p>
-          <button onClick={() => setNonce((n) => n + 1)} className="pn-btn pn-btn-primary">
+          <button onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
             <RefreshCw className="h-4 w-4" /> Try again
           </button>
         </div>
@@ -264,7 +264,7 @@ export default function OpsSupportQueue() {
               <button
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="pn-btn pn-btn-ghost disabled:opacity-40"
+                className="dz-btn dz-btn-ghost disabled:opacity-40"
               >
                 <ChevronLeft className="h-4 w-4" /> Previous
               </button>
@@ -272,7 +272,7 @@ export default function OpsSupportQueue() {
               <button
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="pn-btn pn-btn-ghost disabled:opacity-40"
+                className="dz-btn dz-btn-ghost disabled:opacity-40"
               >
                 Next <ChevronRight className="h-4 w-4" />
               </button>
@@ -333,9 +333,9 @@ export default function OpsSupportQueue() {
                     onKeyDown={(e) => e.key === 'Enter' && send()}
                     placeholder="Reply to the customer…"
                     aria-label="Reply to the customer"
-                    className="pn-input flex-1"
+                    className="dz-input flex-1"
                   />
-                  <button onClick={send} disabled={!reply.trim()} className="pn-btn pn-btn-primary disabled:opacity-40">
+                  <button onClick={send} disabled={!reply.trim()} className="dz-btn dz-btn-primary disabled:opacity-40">
                     <Send className="h-4 w-4" /> Send
                   </button>
                 </div>

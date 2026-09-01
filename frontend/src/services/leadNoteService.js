@@ -45,7 +45,7 @@
  * thing.
  *
  * This replaced `lib/leadNotes.js`, which kept annotations in localStorage under
- * `puneNestLeadNotes:<ownerDigits>`. That store was per-browser, so an owner who answered enquiries
+ * `draazyLeadNotes:<ownerDigits>`. That store was per-browser, so an owner who answered enquiries
  * on their phone and their laptop kept two disjoint sets of notes and neither was wrong — which is
  * the worst shape a CRM field can have.
  */

@@ -67,7 +67,7 @@ const write = (key, value) => {
    Storing it on the server would also mean the first paint could not honour it, because the class
    has to be on `<html>` before anything animates and the API answer arrives after that.
    ========================================================================= */
-const APP_PREF_KEY = 'pnAppPrefs';
+const APP_PREF_KEY = 'dzAppPrefs';
 
 export const getAppPrefs = () => ({ reduceMotion: false, ...(read(APP_PREF_KEY, {}) || {}) });
 
@@ -81,7 +81,7 @@ export const setAppPrefs = (patch) => {
 /* Reflect appearance prefs onto `<html>` so CSS can react. Safe to call repeatedly. */
 export const applyAppPrefs = (prefs = getAppPrefs()) => {
   if (typeof document === 'undefined') return prefs;
-  document.documentElement.classList.toggle('pn-reduce-motion', !!prefs.reduceMotion);
+  document.documentElement.classList.toggle('dz-reduce-motion', !!prefs.reduceMotion);
   return prefs;
 };
 
@@ -90,7 +90,7 @@ export const applyAppPrefs = (prefs = getAppPrefs()) => {
    Per-user, capped MRU lists. Bucketed by mobile so two people sharing a
    browser do not read each other's trail; 'anon' holds the signed-out one.
    ========================================================================= */
-const recentPropsKey = () => 'pnRecentProps:' + (myMobile() || 'anon');
+const recentPropsKey = () => 'dzRecentProps:' + (myMobile() || 'anon');
 export const getRecentProps = () => read(recentPropsKey(), []);
 export const pushRecentProp = (id) => {
   if (!id) return getRecentProps();
@@ -120,7 +120,7 @@ export const pushRecentProp = (id) => {
    is our own submit handler, and anyone able to put an off-site URL in it can already run script on
    the origin, at which point a chip is the least of it. Restating the server's rule here would give
    two copies to keep in step and no protection in exchange. */
-const recentSearchKey = () => 'pnRecentSearches:' + (myMobile() || 'anon');
+const recentSearchKey = () => 'dzRecentSearches:' + (myMobile() || 'anon');
 export const getRecentSearches = () => read(recentSearchKey(), []);
 export const pushRecentSearch = (rec) => {
   if (!rec || !rec.label || !rec.url) return getRecentSearches();
@@ -135,7 +135,7 @@ export const pushRecentSearch = (rec) => {
    selected areas, filters, open property and scroll — they came from. Kept in
    sessionStorage so it survives a route change AND a refresh, but not a new tab.
    ========================================================================= */
-const LAST_SEARCH_KEY = 'puneNestLastSearch';
+const LAST_SEARCH_KEY = 'draazyLastSearch';
 export const setLastSearch = (ctx) => {
   try { sessionStorage.setItem(LAST_SEARCH_KEY, JSON.stringify(ctx)); } catch { /* ignore */ }
 };

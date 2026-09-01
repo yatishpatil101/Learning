@@ -75,9 +75,9 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
   // that still carries it.
   const isUnderOffer = p.dealStatus === 'reserved' || p.status === 'under-offer';
   const isDealClosed = p.dealStatus === 'closed' || p.status === 'sold' || p.status === 'rented';
-  const postedByPuneNest = !!p.postedByAdmin;
-  const posterLabel = postedByPuneNest ? 'PuneNest' : t('listings.owner');
-  const posterIcon = postedByPuneNest ? 'shield-check' : 'user';
+  const postedByDraazy = !!p.postedByAdmin;
+  const posterLabel = postedByDraazy ? 'Draazy' : t('listings.owner');
+  const posterIcon = postedByDraazy ? 'shield-check' : 'user';
   let title = isPlot ? (p.type && (p.type || '').toLowerCase() !== 'plot' ? p.type : t('listings.titleResidentialPlot')) : p.bhkNum ? `${p.bhkNum} BHK ${p.type}` : p.type;
   if (p.shareType === 'pg') title = t('listings.titlePgHostel');
   else if (p.shareType === 'flatmates') title = t('listings.titleFlatmateShared');
@@ -156,7 +156,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
                 </div>
               ) : null}
               <p className="flex items-center gap-1 text-[11px] mt-3 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-                {postedByPuneNest ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
+                {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
               </p>
             </div>
             <div className="lr-aside">
@@ -252,7 +252,7 @@ const Card = memo(function Card({ p, locName, index = 0, list = false, linkState
           </div>
         ) : null}
         <p className="flex items-center gap-1 text-[11px] mt-3 pt-3 border-t border-white/5 text-gray-500"><Icon name="clock" className="w-3 h-3" /> {t('listings.posted')} {timeAgo(p.createdAt)}
-          {postedByPuneNest ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
+          {postedByDraazy ? <span className="ml-auto inline-flex items-center gap-1 font-medium text-teal-300/90"><Icon name={posterIcon} className="w-3 h-3" /> {posterLabel}</span> : null}
         </p>
       </div>
     </Link>

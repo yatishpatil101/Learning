@@ -1,9 +1,9 @@
 /* App-wide i18n foundation (react-i18next).
 
-   Language is a single, device-level preference persisted under the `pnLang`
+   Language is a single, device-level preference persisted under the `dzLang`
    localStorage key, so the choice is permanent and applies before login — the
    same class of pref as reduce-motion. The language detector reads/caches
-   `pnLang`; `changeLanguage()` (wired to the Settings dropdown) re-renders every
+   `dzLang`; `changeLanguage()` (wired to the Settings dropdown) re-renders every
    `useTranslation()` consumer instantly, app-wide.
 
    Translations live in `locales/<lang>/<namespace>.json`.
@@ -51,7 +51,7 @@ import enHome from './locales/en/home.json';
 import enMisc1 from './locales/en/misc1.json';
 
 export const SUPPORTED_LANGS = ['en', 'mr', 'hi'];
-export const LANG_STORAGE_KEY = 'pnLang';
+export const LANG_STORAGE_KEY = 'dzLang';
 
 /* Shallow merge is correct and load-bearing: each namespace file owns a distinct
    set of top-level keys, and the check script fails the build if two eager files

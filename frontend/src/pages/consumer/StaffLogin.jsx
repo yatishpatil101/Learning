@@ -121,12 +121,12 @@ export default function StaffLogin() {
             <Home className="h-6 w-6 text-white" />
           </div>
           <div>
-            <div className="text-xl font-extrabold">PuneNest</div>
+            <div className="text-xl font-extrabold">Draazy</div>
             <div className="-mt-0.5 text-[11px] text-gray-400">Internal Console</div>
           </div>
         </div>
 
-        <div className="pn-card rounded-2xl p-7">
+        <div className="dz-card rounded-2xl p-7">
           <h1 className="mb-1 text-lg font-bold">Sign in to your workspace</h1>
           <p className="mb-5 text-sm text-gray-400">Admin & service-team access only.</p>
 
@@ -154,7 +154,7 @@ export default function StaffLogin() {
                 type="button"
                 onClick={sendOtp}
                 disabled={otp.sending}
-                className="pn-control pn-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="dz-control dz-control--action w-full justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="h-4 w-4" /> {otp.sending ? 'Sending…' : 'Send OTP'}
               </button>
@@ -186,7 +186,7 @@ export default function StaffLogin() {
                 type="button"
                 onClick={verify}
                 disabled={verifying}
-                className="pn-control pn-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <LogIn className="h-4 w-4" /> {verifying ? 'Signing in…' : 'Verify & sign in'}
               </button>

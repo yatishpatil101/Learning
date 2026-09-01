@@ -6,7 +6,7 @@
  * The response is a bare JSON array of the contract's `Fees` schema — not a `PageResponse` — so
  * there is nothing to unwrap here. One row per deal intent (`rent`, `buy`), ordered by deal.
  *
- * Verified against `backend/src/main/resources/static/openapi/punenest-api.yaml` (`/fees` and the
+ * Verified against `backend/src/main/resources/static/openapi/draazy-api.yaml` (`/fees` and the
  * `Fees` schema) and `catalog/fee/FeeResponse.java`. Field-for-field:
  *
  *   deal · brokerage · platformFee · stampDuty · registration · gst · notes

@@ -19,7 +19,7 @@ export default function TrafficTab({ report, failed, days, setDays }) {
 
   const exportTraffic = () => {
     exportCsv(
-      `punenest-traffic-${days}d.csv`,
+      `draazy-traffic-${days}d.csv`,
       ['Date', 'Sessions', 'Page views', 'Signups'],
       (report?.series || []).map((x) => [x.date, x.sessions, x.pageviews, x.signups]),
     );
@@ -27,13 +27,13 @@ export default function TrafficTab({ report, failed, days, setDays }) {
   };
 
   const picker = (
-    <div className="pn-card mb-4 flex flex-wrap items-center gap-3 p-3">
+    <div className="dz-card mb-4 flex flex-wrap items-center gap-3 p-3">
       <span className="text-sm text-gray-400">Traffic window</span>
       <div style={{ maxWidth: 170 }}>
         <Select value={String(days)} onChange={(v) => setDays(Number(v))} options={RANGE_OPTIONS} ariaLabel="Traffic window" />
       </div>
       <button
-        className="pn-btn pn-btn-ghost ml-auto inline-flex items-center gap-2"
+        className="dz-btn dz-btn-ghost ml-auto inline-flex items-center gap-2"
         onClick={exportTraffic}
         disabled={!report}
       >

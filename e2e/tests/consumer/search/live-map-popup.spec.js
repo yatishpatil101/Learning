@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { API } from '../../../helpers/liveAuth.js';
 
 /* Listings "Map view" marker interaction. Clicking a price marker opens the slide-in Map Detail
-   Panel (`.pn-mdp`) — a compact, richer clone of the property tile — and never a map InfoWindow.
+   Panel (`.dz-mdp`) — a compact, richer clone of the property tile — and never a map InfoWindow.
    (The InfoWindow now only exists on the property-page mini-map, which passes no `onSelect`.)
 
    WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor fabricated a villa in `localStorage` so it
@@ -59,7 +59,7 @@ async function openDrawer(page, label) {
   const marker = page.locator('.price-marker', { hasText: label }).first();
   await marker.waitFor({ timeout: 20000 });
   await marker.click();
-  const drawer = page.locator('.pn-mdp');
+  const drawer = page.locator('.dz-mdp');
   await drawer.waitFor({ timeout: 10000 });
   return drawer;
 }
@@ -71,17 +71,17 @@ test('clicking a map marker opens the detail drawer, not a map InfoWindow', asyn
   // The listings map opens the drawer. The InfoWindow is the thing that must not appear, and the
   // drawer above is the positive anchor that makes this absence mean "instead of" rather than
   // "nothing rendered at all".
-  await expect(page.locator('.pn-gm-iw-prop')).toHaveCount(0);
+  await expect(page.locator('.dz-gm-iw-prop')).toHaveCount(0);
 
   // Same building blocks as the standard tile, richer. The deal word is derived rather than
   // written as `/For Rent|For Sale/` — an alternation over the only two possible values asserts
   // the element is non-empty and nothing else, and would stay green on a drawer that called this
   // sale listing a rental.
-  await expect(drawer.locator('.pn-mdp-deal')).toHaveText(villa.deal === 'buy' ? /For Sale/i : /For Rent/i);
-  await expect(drawer.locator('.pn-mdp-price')).toContainText('₹');
-  await expect(drawer.locator('.pn-mdp-loc')).toContainText('Pune');
+  await expect(drawer.locator('.dz-mdp-deal')).toHaveText(villa.deal === 'buy' ? /For Sale/i : /For Rent/i);
+  await expect(drawer.locator('.dz-mdp-price')).toContainText('₹');
+  await expect(drawer.locator('.dz-mdp-loc')).toContainText('Pune');
   // "Open full page" links to a real property page.
-  await expect(drawer.locator('.pn-mdp-full')).toHaveAttribute('href', /^\/property\//i);
+  await expect(drawer.locator('.dz-mdp-full')).toHaveAttribute('href', /^\/property\//i);
 });
 
 test('the drawer reflects the property that was pinned, not the first one on the map', async ({ page }) => {
@@ -89,13 +89,13 @@ test('the drawer reflects the property that was pinned, not the first one on the
   const drawer = await openDrawer(page, label);
 
   // Identity first. Everything below is only evidence of "the right listing" if this holds.
-  await expect(drawer.locator('.pn-mdp-full')).toHaveAttribute('href', `/property/${villa.slug}`);
-  await expect(drawer.locator('.pn-mdp-title')).toHaveText(`${villa.bhk} BHK ${villa.propertyType}`);
+  await expect(drawer.locator('.dz-mdp-full')).toHaveAttribute('href', `/property/${villa.slug}`);
+  await expect(drawer.locator('.dz-mdp-title')).toHaveText(`${villa.bhk} BHK ${villa.propertyType}`);
   // Derived from the same figure the marker was found by, so a re-priced fixture moves the click
   // target and this assertion together instead of leaving a stale literal behind.
-  await expect(drawer.locator('.pn-mdp-price')).toContainText(drawerPrice(villa.price));
+  await expect(drawer.locator('.dz-mdp-price')).toContainText(drawerPrice(villa.price));
 
-  const facts = drawer.locator('.pn-mdp-fact');
+  const facts = drawer.locator('.dz-mdp-fact');
   await expect(facts.filter({ hasText: `${villa.bhk} Bed` })).toHaveCount(1);
   await expect(facts.filter({ hasText: villa.area.toLocaleString('en-IN') + ' sq.ft' })).toHaveCount(1);
   await expect(facts.filter({ hasText: villa.propertyType })).toHaveCount(1);

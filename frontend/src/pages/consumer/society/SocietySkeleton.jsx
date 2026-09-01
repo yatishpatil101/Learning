@@ -10,7 +10,7 @@
  *   - wrapper     `pt-8 sm:pt-10 pb-24`, `max-w-6xl`
  *   - hero        `rounded-3xl overflow-hidden mb-6 glass`, image `h-56 sm:h-72`
  *   - stats       `grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-8` of `.rd-cell`
- *   - tab strip   `.pn-detail-tab` — .85rem block padding around a .875rem line, ≈48px
+ *   - tab strip   `.dz-detail-tab` — .85rem block padding around a .875rem line, ≈48px
  *   - body        `grid lg:grid-cols-3 gap-8`, content spans 2 with the sidebar beside it
  *
  * `.rd-cell` and `.glass` are defined in the global stylesheet, not in a route

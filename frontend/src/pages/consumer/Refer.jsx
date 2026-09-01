@@ -28,7 +28,7 @@ export default function Refer() {
    *
    * This used to be `const CODE = referralCode()` — a synchronous read of a string the *browser*
    * minted: four letters of the user's name and the last four digits of their mobile, kept under
-   * `pnReferralCode:<mobile>` in localStorage. The server mints `PUNE-AB12` in `referral_codes`
+   * `dzReferralCode:<mobile>` in localStorage. The server mints `PUNE-AB12` in `referral_codes`
    * (V23), permanent by design because "rotating it would break every card and forwarded message
    * already carrying the old one". Two codes for one user is one too many, and the browser's was
    * the one `POST /referrals/redeem` could not resolve — so every link this page has ever produced

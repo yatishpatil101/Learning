@@ -2,7 +2,7 @@
  * LIVE integration check for the last two service domains to reach the toggle: `fees` and `photo`.
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/live-fees-and-photos.spec.js --config=playwright.config.js
  *
@@ -70,7 +70,7 @@ test.describe('Fees — the rent-agreement sidebar prices from the server (live)
     // visitor it exists to convince is actually in.
     await page.goto('/services/rent-agreement');
 
-    const sidebar = page.locator('aside, [class*="sticky"]').filter({ hasText: /PuneNest Service Fee/i }).first();
+    const sidebar = page.locator('aside, [class*="sticky"]').filter({ hasText: /Draazy Service Fee/i }).first();
     await expect(sidebar).toBeVisible({ timeout: 20_000 });
 
     // The two figures the server owns outright. Neither is derived anywhere in the browser any
@@ -86,7 +86,7 @@ test.describe('Fees — the rent-agreement sidebar prices from the server (live)
   test('calls the total an estimate, because the statutory pair is NULL by design', async ({ page }) => {
     await page.goto('/services/rent-agreement');
 
-    const sidebar = page.locator('aside, [class*="sticky"]').filter({ hasText: /PuneNest Service Fee/i }).first();
+    const sidebar = page.locator('aside, [class*="sticky"]').filter({ hasText: /Draazy Service Fee/i }).first();
     await expect(sidebar).toBeVisible({ timeout: 20_000 });
 
     // "Estimated Total" is the visible trace of the wizard having derived stamp duty and
@@ -160,7 +160,7 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     /* The photo input lives on step 3 of the wizard, and `uploadPhoto` has exactly one caller in the
        app (`useListingMedia.js`), so there is no cheaper screen to reach it from.
 
-       Step 1 is seeded through the draft the wizard already restores from (`pnDraft:list-property`,
+       Step 1 is seeded through the draft the wizard already restores from (`dzDraft:list-property`,
        the same key `geocode.spec.js` seeds), because those answers are radio buttons and chips that
        would take a dozen clicks to say nothing interesting.
 
@@ -174,7 +174,7 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
        wins and marks the fields as owner-edited so a late-landing lookup leaves them alone. The
        values are asserted before Next so a clobber fails here rather than as a mystery on step 2. */
     await page.addInitScript(() => {
-      localStorage.setItem('pnDraft:list-property', JSON.stringify({
+      localStorage.setItem('dzDraft:list-property', JSON.stringify({
         propertyType: 'flat', bhk: '2 BHK', bathrooms: '2', carpetArea: '850', deal: 'rent',
         // Step 2's one unseedable-by-typing field: `availableFrom` is a `DateField`, a button that
         // opens a calendar dialog rather than a text input. It is a plain form value like any
@@ -254,7 +254,7 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
  * agreement in the browser; this priced the *product*. Every plan card, paywall, checkout line and
  * referral target read `fee()` out of `lib/store/billing.js`, which consulted a browser-local admin
  * document and fell back to a `FEE_DEFAULTS` constant compiled into the bundle. No signed-out
- * visitor has that document, so live, every price PuneNest quoted came from the constant — and an
+ * visitor has that document, so live, every price Draazy quoted came from the constant — and an
  * operator who changed a price in the back office was told it saved, and it did save, and nothing
  * read it.
  *

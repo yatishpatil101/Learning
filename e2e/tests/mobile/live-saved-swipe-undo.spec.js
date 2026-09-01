@@ -16,7 +16,7 @@ import { test, expect } from '../../fixtures/live.js';
  */
 
 /* Rahul's saved list is seeded server-side, so this spec reads the count rather than writing one.
-   It used to seed `pnSavedProps:<mobile>` into localStorage, which is the *mock* store — against
+   It used to seed `dzSavedProps:<mobile>` into localStorage, which is the *mock* store — against
    the API that key is written by nothing and read by nothing, so the seeding was a no-op and the
    list would have been empty.
 
@@ -29,7 +29,7 @@ const SAVED_COUNT = 2;
 async function seedConsent(page) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'pn_cookie_consent_v1',
+      'dz_cookie_consent_v1',
       JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }),
     );
   });

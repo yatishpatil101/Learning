@@ -84,7 +84,7 @@ export default function CandidatesTab({ candidates, merges, suggestions, suggMap
   ];
 
   const candCard = (s) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{s.name}</div>

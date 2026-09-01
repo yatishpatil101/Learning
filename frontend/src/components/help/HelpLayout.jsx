@@ -53,14 +53,14 @@ export default function HelpLayout({ children, wide = false, title }) {
   useEffect(() => {
     if (!title) return undefined;
     const prev = document.title;
-    document.title = `${title} · PuneNest ${t('help.centre')}`;
+    document.title = `${title} · Draazy ${t('help.centre')}`;
     return () => { document.title = prev; };
   }, [title, t]);
 
   return (
     <div className="min-h-[60vh]">
       {/* Utility bar — search, section links, and the mobile drawer trigger. */}
-      <div className="sticky top-[var(--pn-nav-h)] z-30 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0f0d1a]/80">
+      <div className="sticky top-[var(--dz-nav-h)] z-30 border-b border-white/10 bg-[#0f0d1a]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0f0d1a]/80">
         <div className="mx-auto flex max-w-[88rem] items-center gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
@@ -98,7 +98,7 @@ export default function HelpLayout({ children, wide = false, title }) {
       <div className={`mx-auto w-full px-4 sm:px-6 ${wide ? 'max-w-[88rem]' : 'max-w-[88rem] lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10'}`}>
         {!wide && (
           <aside className="hidden lg:block">
-            <div className="sticky top-[calc(var(--pn-nav-h)+4.5rem)] max-h-[calc(100vh-var(--pn-nav-h)-6rem)] overflow-y-auto py-8 pr-2">
+            <div className="sticky top-[calc(var(--dz-nav-h)+4.5rem)] max-h-[calc(100vh-var(--dz-nav-h)-6rem)] overflow-y-auto py-8 pr-2">
               <HelpSidebar sections={sections} categories={categories} articles={articles} />
               {isStaff(user) && (
                 <p className="mt-8 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-200/80">

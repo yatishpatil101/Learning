@@ -100,16 +100,16 @@ const LocationPricingStep = ({
                      confirms or completes anything we couldn't resolve. */}
                   <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><label className={lbl}>{t('listProperty.fields.locality')}</label><LocalitySelect value={form.locality} onChange={(v) => onLocalityChange(v)} onSelect={(sel) => onLocalityChange(sel.name, sel)} placeholder={t('listProperty.ph.selectLocality')} options={localities} dataErr="locality" invalid={!!errors.locality} /><FieldError show={!!errors.locality}>{t('listProperty.err.locality')}</FieldError></div>
-                    {!land && <div><label className={lbl}>{unitLabel}</label><input autoComplete="address-line2" value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>}
+                    {!land && <div><label className={lbl}>{unitLabel}</label><input autoComplete="address-line2" value={form.flatNumber} maxLength={20} onChange={(e) => set('flatNumber', cleanText(e.target.value))} data-err="flatNumber" placeholder={unitPlaceholder} className={`${fld} ${errors.flatNumber ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.flatNumber}>{commercial ? t('listProperty.err.unitShopNumber') : t('listProperty.err.flatNumber')}</FieldError></div>}
                     {!land && <div><label className={lbl}>{blockLabel}</label><input autoComplete="address-line2" value={form.tower} maxLength={30} onChange={(e) => set('tower', cleanText(e.target.value))} placeholder={blockPlaceholder} className={fld} /></div>}
                     <div><label className={lbl}>{projectLabel}</label>{(!land && !commercial) ? (
                       <SocietySelect value={form.societyId} name={form.society} localityLabel={form.locality} lat={form.propLat} lng={form.propLng} invalid={!!errors.society} placeholder={projectPlaceholder} onChange={({ id, name }) => { set('societyId', id); set('society', name); }} />
                     ) : (
-                      <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={projectPlaceholder} className={`${fld} ${errors.society ? 'pn-invalid' : ''}`} />
+                      <input autoComplete="organization" value={form.society} maxLength={60} onChange={(e) => set('society', cleanText(e.target.value))} data-err="society" placeholder={projectPlaceholder} className={`${fld} ${errors.society ? 'dz-invalid' : ''}`} />
                     )}<FieldError show={!!errors.society}>{projectError}</FieldError></div>
                     <div><label className={lbl}>{t('listProperty.fields.streetRoad')}</label><input autoComplete="address-line1" value={form.street} maxLength={60} onChange={(e) => set('street', cleanText(e.target.value))} placeholder={t('listProperty.ph.egBanerRoad')} className={fld} /></div>
                     <div><label className={lbl}>{t('listProperty.fields.landmark')}</label><input autoComplete="address-line3" value={form.landmark} maxLength={60} onChange={(e) => set('landmark', cleanText(e.target.value))} placeholder={t('listProperty.ph.egDMart')} className={fld} /></div>
-                    <div><label className={lbl}>{t('listProperty.fields.pincodeReq')}</label><input autoComplete="postal-code" inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, ''))} data-err="pincode" placeholder="411045" className={`${fld} ${errors.pincode ? 'pn-invalid' : ''}`} /><FieldError show={!!errors.pincode}>{t('listProperty.err.pincode')}</FieldError></div>
+                    <div><label className={lbl}>{t('listProperty.fields.pincodeReq')}</label><input autoComplete="postal-code" inputMode="numeric" maxLength={6} value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, ''))} data-err="pincode" placeholder="411045" className={`${fld} ${errors.pincode ? 'dz-invalid' : ''}`} /><FieldError show={!!errors.pincode}>{t('listProperty.err.pincode')}</FieldError></div>
                     {!land && (
                       <div className="sm:col-span-2">
                         <label className={lbl}>{t('listProperty.fields.electricityConsumerNo')} <span className="text-gray-500 font-normal">{t('listProperty.optional')}</span></label>
@@ -128,7 +128,7 @@ const LocationPricingStep = ({
                           <label className={lbl3}>{t('listProperty.fields.expectedPrice')}</label>
                           <div className="relative">
                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-                            <input inputMode="numeric" maxLength={12} {...money('price')} data-err="price" placeholder={t('listProperty.ph.egPrice')} className={`${fld} pl-10 pr-4 ${errors.price ? 'pn-invalid' : ''}`} />
+                            <input inputMode="numeric" maxLength={12} {...money('price')} data-err="price" placeholder={t('listProperty.ph.egPrice')} className={`${fld} pl-10 pr-4 ${errors.price ? 'dz-invalid' : ''}`} />
                           </div>
                           <FieldError show={!!errors.price}>{t('listProperty.err.price')}</FieldError>
                           {moneyWords(form.price) && <p className="text-gray-600 text-xs mt-1.5 ml-1">{moneyWords(form.price)}</p>}
@@ -217,7 +217,7 @@ const LocationPricingStep = ({
                                     <label className="block text-xs text-gray-400 mb-1.5">{o.label}</label>
                                     <div className="relative">
                                       <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-                                      <input inputMode="numeric" maxLength={9} value={formatIndian(form.sharingRents?.[o.value])} onChange={(e) => setSharingRent(o.value, e.target.value)} placeholder={t('listProperty.ph.egRent8500')} className={`${fld} pl-10 pr-16 ${errors.monthlyRent ? 'pn-invalid' : ''}`} />
+                                      <input inputMode="numeric" maxLength={9} value={formatIndian(form.sharingRents?.[o.value])} onChange={(e) => setSharingRent(o.value, e.target.value)} placeholder={t('listProperty.ph.egRent8500')} className={`${fld} pl-10 pr-16 ${errors.monthlyRent ? 'dz-invalid' : ''}`} />
                                       <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">{t('listProperty.unit.perBed')}</div>
                                     </div>
                                   </div>
@@ -233,7 +233,7 @@ const LocationPricingStep = ({
                               <label className={lbl3}>{t('listProperty.fields.securityDepositReq')}</label>
                               <div className="relative">
                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-                                <input inputMode="numeric" maxLength={9} {...money('deposit')} data-err="deposit" placeholder={t('listProperty.ph.egDeposit20')} className={`${fld} pl-10 pr-4 ${errors.deposit ? 'pn-invalid' : ''}`} />
+                                <input inputMode="numeric" maxLength={9} {...money('deposit')} data-err="deposit" placeholder={t('listProperty.ph.egDeposit20')} className={`${fld} pl-10 pr-4 ${errors.deposit ? 'dz-invalid' : ''}`} />
                               </div>
                               <FieldError show={!!errors.deposit}>{t('listProperty.err.deposit')}</FieldError>
                               <div className="flex flex-wrap gap-2 mt-2">
@@ -250,7 +250,7 @@ const LocationPricingStep = ({
                           <label className={lbl3}>{t('listProperty.fields.monthlyRent')}</label>
                           <div className="relative">
                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-                            <input inputMode="numeric" maxLength={9} {...money('monthlyRent')} data-err="monthlyRent" placeholder={t('listProperty.ph.egRent32')} className={`${fld} pl-10 pr-16 ${errors.monthlyRent ? 'pn-invalid' : ''}`} />
+                            <input inputMode="numeric" maxLength={9} {...money('monthlyRent')} data-err="monthlyRent" placeholder={t('listProperty.ph.egRent32')} className={`${fld} pl-10 pr-16 ${errors.monthlyRent ? 'dz-invalid' : ''}`} />
                             <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">{t('listProperty.unit.perMonth')}</div>
                           </div>
                           <FieldError show={!!errors.monthlyRent}>{t('listProperty.err.monthlyRent')}</FieldError>
@@ -260,7 +260,7 @@ const LocationPricingStep = ({
                           <label className={lbl3}>{t('listProperty.fields.securityDepositReq')}</label>
                           <div className="relative">
                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-400 font-semibold text-sm">₹</div>
-                            <input inputMode="numeric" maxLength={9} {...money('deposit')} data-err="deposit" placeholder={t('listProperty.ph.egDeposit1L')} className={`${fld} pl-10 pr-4 ${errors.deposit ? 'pn-invalid' : ''}`} />
+                            <input inputMode="numeric" maxLength={9} {...money('deposit')} data-err="deposit" placeholder={t('listProperty.ph.egDeposit1L')} className={`${fld} pl-10 pr-4 ${errors.deposit ? 'dz-invalid' : ''}`} />
                           </div>
                           <FieldError show={!!errors.deposit}>{t('listProperty.err.deposit')}</FieldError>
                           <div className="flex flex-wrap gap-2 mt-2">

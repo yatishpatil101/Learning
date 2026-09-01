@@ -12,7 +12,7 @@
  * never show it: the owner was asked to re-upload papers the platform already held, and the copy
  * they uploaded here was filed nowhere anyone could find it.
  *
- * The mock spec beside this one could not have caught it. It seeds `puneNestDocs:<mobile>` and then
+ * The mock spec beside this one could not have caught it. It seeds `draazyDocs:<mobile>` and then
  * reads the same key back, so both halves of its assertion are the browser talking to itself —
  * the textbook vacuous fake. It is kept for what it still owns (the prefill path, which only has
  * bytes to prefill *from* on a mock build — see below); this file owns the claim that the paper
@@ -112,10 +112,10 @@ test.describe('rent-agreement document vault, live', () => {
       expect(arrived[0].fileName).toBe('live-pan.png');
     }).toPass({ timeout: 15000 });
 
-    /* The other half of "not this browser". Before the fix the wizard wrote `puneNestDocs:<mobile>`
+    /* The other half of "not this browser". Before the fix the wizard wrote `draazyDocs:<mobile>`
        on every deployment; the assertion above would pass on a build that *also* still did that,
        so the absence has to be stated separately or the port is only half proven. */
-    const localCopy = await page.evaluate((m) => localStorage.getItem('puneNestDocs:' + m), mobile);
+    const localCopy = await page.evaluate((m) => localStorage.getItem('draazyDocs:' + m), mobile);
     expect(localCopy, 'the wizard no longer keeps a browser-local copy of the vault').toBeNull();
   });
 

@@ -50,7 +50,7 @@ export default function OpsDashboard() {
     return (
       <div>
         <PageHeader title="My Dashboard" subtitle={role === 'admin' ? 'All service teams' : `Team: ${team}`} />
-        <div className="pn-card flex items-start gap-3 p-5 text-sm text-amber-200">
+        <div className="dz-card flex items-start gap-3 p-5 text-sm text-amber-200">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-semibold">Your queue could not be read.</p>
@@ -87,7 +87,7 @@ export default function OpsDashboard() {
       {/* KPI tiles */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {tiles.map((t) => (
-          <div key={t.label} className="pn-card p-4">
+          <div key={t.label} className="dz-card p-4">
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{t.label}</div><div className="mt-1 text-2xl font-extrabold">{t.value}</div></div>
               <span className={`grid h-9 w-9 place-items-center rounded-xl ${t.tint}`}><t.icon className="h-4 w-4" /></span>
@@ -98,7 +98,7 @@ export default function OpsDashboard() {
 
       {/* Charts */}
       <div className="mb-5 grid gap-4 lg:grid-cols-2">
-        <div className="pn-card p-4">
+        <div className="dz-card p-4">
           <h3 className="mb-1 font-bold">My queue status</h3>
           <p className="mb-3 text-xs text-gray-400">Current workload</p>
           <DoughnutChart
@@ -107,7 +107,7 @@ export default function OpsDashboard() {
             colors={[PALETTE[1], PALETTE[3], PALETTE[2], '#10b981', '#64748b']}
           />
         </div>
-        <div className="pn-card p-4">
+        <div className="dz-card p-4">
           <h3 className="mb-3 font-bold">Resolved — last 8 weeks</h3>
           <BarChart
             labels={['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8']}
@@ -118,12 +118,12 @@ export default function OpsDashboard() {
       </div>
 
       {/* Latest requests (list) */}
-      <div className="pn-card p-4">
+      <div className="dz-card p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-bold">Latest requests for your team</h3>
           <div className="flex gap-2">
-            {team && WORKFLOW_ROUTE[team] && <Link to={WORKFLOW_ROUTE[team]} className="pn-btn pn-btn-ghost py-1 text-xs">Workflow <ArrowRight className="h-3.5 w-3.5" /></Link>}
-            <Link to="/ops/requests" className="pn-btn pn-btn-ghost py-1 text-xs">All tickets <ArrowRight className="h-3.5 w-3.5" /></Link>
+            {team && WORKFLOW_ROUTE[team] && <Link to={WORKFLOW_ROUTE[team]} className="dz-btn dz-btn-ghost py-1 text-xs">Workflow <ArrowRight className="h-3.5 w-3.5" /></Link>}
+            <Link to="/ops/requests" className="dz-btn dz-btn-ghost py-1 text-xs">All tickets <ArrowRight className="h-3.5 w-3.5" /></Link>
           </div>
         </div>
         {recent.length ? (
@@ -136,7 +136,7 @@ export default function OpsDashboard() {
                   <div className="text-xs text-gray-400">{t.id} · {t.assignedTo ? `Assigned to ${t.assignedTo}` : 'Unassigned'}</div>
                 </div>
                 <Badge status={t.status} />
-                <Link to="/ops/requests" className="pn-btn pn-btn-ghost py-1 text-xs">Open</Link>
+                <Link to="/ops/requests" className="dz-btn dz-btn-ghost py-1 text-xs">Open</Link>
               </div>
             ))}
           </div>

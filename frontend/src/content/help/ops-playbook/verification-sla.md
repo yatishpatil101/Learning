@@ -11,7 +11,7 @@ tags: [ops, sla, verification, internal]
 ---
 
 > [!IMPORTANT]
-> Internal runbook. Visible to PuneNest staff only. Do not paste extracts into consumer-facing replies.
+> Internal runbook. Visible to Draazy staff only. Do not paste extracts into consumer-facing replies.
 
 ## Turnaround targets
 

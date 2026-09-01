@@ -23,7 +23,7 @@ They do **not** see your email, your saved properties, your search history, or w
 
 ## Your tenant profile
 
-A completed [tenant profile](/tenant-profile) is the single highest-leverage thing a renter can do on PuneNest. Owners get many enquiries and reply to the ones they can evaluate.
+A completed [tenant profile](/tenant-profile) is the single highest-leverage thing a renter can do on Draazy. Owners get many enquiries and reply to the ones they can evaluate.
 
 Worth filling in:
 

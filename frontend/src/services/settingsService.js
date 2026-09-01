@@ -164,7 +164,7 @@ export const PRICING_DEFAULTS = Object.freeze({
 });
 
 /**
- * What PuneNest sells, and for how much (`settings.fees`).
+ * What Draazy sells, and for how much (`settings.fees`).
  *
  * **A fifth public route.** Live this reads `GET /pricing`, for the reason each of the others reads
  * its own: a price a visitor is quoted before they sign in is not a privileged fact, and the

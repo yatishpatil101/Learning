@@ -38,7 +38,7 @@ const PAYMENT_POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 3000];
 
 // Where the wizard autosaves. Named because two things have to agree on it: the autosave itself and
 // the purge that cleans entries written before the identity numbers were kept out of it.
-const DRAFT_KEY = 'pnDraft:rentAgreement';
+const DRAFT_KEY = 'dzDraft:rentAgreement';
 
 export function useRentAgreement() {
   const rootRef = useScrollReveal();
@@ -180,7 +180,7 @@ export function useRentAgreement() {
      stranger and to any staff account that listed the queue. That is a bulk identity-document dump,
      and Aadhaar in particular is not ours to spread (Aadhaar Act s.29).
 
-     It is also what the `pnDraft:rentAgreement` autosave writes. That is the same threat model on a
+     It is also what the `dzDraft:rentAgreement` autosave writes. That is the same threat model on a
      shorter path: `localStorage`, same origin, written on every keystroke and never expired. Both
      callers get the redacted shape; the raw capture is for the submission and for resolving
      `useFormDraft`'s functional updater against live state, and for nothing else.
@@ -272,7 +272,7 @@ export function useRentAgreement() {
 
   // ── Draft autosave/restore ──
 
-  // Purge on read, not merely on write — the same rule `puneNestOwnerKYC` follows below. Every
+  // Purge on read, not merely on write — the same rule `draazyOwnerKYC` follows below. Every
   // owner who used this wizard before the draft stopped carrying identity numbers already has a PAN
   // and an Aadhaar sitting in their browser, and nothing else ever revisits this key: a change that
   // only stops *new* writes leaves all of them exposed for good.
@@ -308,7 +308,7 @@ export function useRentAgreement() {
   // *not* carry PAN or Aadhaar — see `persistOwnerKYC` — so the owner retypes those two each time.
   useEffect(() => {
     if (mode !== 'owner' || !isIn) return;
-    const key = 'puneNestOwnerKYC:' + digits(user?.mobile || '');
+    const key = 'draazyOwnerKYC:' + digits(user?.mobile || '');
     const kycStr = localStorage.getItem(key);
     let kyc = null;
     try { kyc = kycStr ? JSON.parse(kycStr) : null; } catch { kyc = null; }
@@ -350,7 +350,7 @@ export function useRentAgreement() {
     try {
       const mob = digits(owner.oMobile || user?.mobile || '');
       if (!mob) return;
-      localStorage.setItem('puneNestOwnerKYC:' + mob, JSON.stringify({ name: owner.oName, age: owner.oAge, gender: owner.oGender, email: owner.oEmail, addr: owner.oAddr, mobile: owner.oMobile, at: Date.now() }));
+      localStorage.setItem('draazyOwnerKYC:' + mob, JSON.stringify({ name: owner.oName, age: owner.oAge, gender: owner.oGender, email: owner.oEmail, addr: owner.oAddr, mobile: owner.oMobile, at: Date.now() }));
     } catch { /* ignore */ }
   };
 
@@ -880,7 +880,7 @@ export function useRentAgreement() {
           const invitePath = inviteRouteFor({ id: party?.id, requestId: request?.id });
           const link = new URL(invitePath, window.location.origin).toString();
           const signupLink = new URL(`/signup?next=${encodeURIComponent(invitePath)}`, window.location.origin).toString();
-          const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on PuneNest${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
+          const text = `Hi${invite.invName ? ' ' + invite.invName : ''}, ${details.ownerName} invited you to complete your rent-agreement details on Draazy${property ? ` for ${property}` : ''}. Please sign in (or create an account) first, then open this invite: ${link}\n\nSign up: ${signupLink}`;
           const waLink = `https://wa.me/91${inviteMobile}?text=${encodeURIComponent(text)}`;
           /* The invitee is told by the server. `CoFillParties.invite` raises `service.party-invited`
              through the `Notifier` port, which is the only place quiet hours and notification
@@ -967,7 +967,7 @@ export function useRentAgreement() {
              did not, so on a live build the PAN, Aadhaar, photo and ownership proof the wizard
              insisted on went nowhere. Nothing said so: the request was created, the panel
              appeared, and `documents[]` on the row was `[]`. The mock spec beside this one read
-             the uploads back out of `puneNestServiceReq:` — the browser confirming its own write
+             the uploads back out of `draazyServiceReq:` — the browser confirming its own write
              — so it passed throughout.
 
              Before the checkout modal for the same reason the identity hand-off is: that modal can

@@ -43,10 +43,10 @@
   width: 200%;
   height: 200%;
   background: radial-gradient(circle at 30% 70%, rgba(20, 184, 166, .1) 0%, transparent 50%), radial-gradient(circle at 70% 30%, rgba(13, 148, 136, .15) 0%, transparent 50%);
-  animation: pnPanelGlow 15s ease-in-out infinite;
+  animation: dzPanelGlow 15s ease-in-out infinite;
 }
 
-@keyframes pnPanelGlow {
+@keyframes dzPanelGlow {
 
   0%,
   100% {
@@ -62,7 +62,7 @@
   position: absolute;
   border-radius: 50%;
   opacity: .15;
-  animation: pnFloatShape 8s ease-in-out infinite;
+  animation: dzFloatShape 8s ease-in-out infinite;
 }
 
 .auth-page .floating-shape:nth-child(2) {
@@ -80,7 +80,7 @@
   animation-duration: 9s;
 }
 
-@keyframes pnFloatShape {
+@keyframes dzFloatShape {
 
   0%,
   100% {
@@ -103,7 +103,7 @@
 .auth-page .slide-up {
   opacity: 0;
   transform: translateY(30px);
-  animation: pnSlideUp .7s cubic-bezier(.4, 0, .2, 1) forwards;
+  animation: dzSlideUp .7s cubic-bezier(.4, 0, .2, 1) forwards;
 }
 
 .auth-page .slide-up-delay-1 {
@@ -122,7 +122,7 @@
   animation-delay: .4s;
 }
 
-@keyframes pnSlideUp {
+@keyframes dzSlideUp {
   to {
     opacity: 1;
     transform: translateY(0);
@@ -132,10 +132,10 @@
 .auth-page .slide-right {
   opacity: 0;
   transform: translateX(-40px);
-  animation: pnSlideRight .8s cubic-bezier(.4, 0, .2, 1) forwards;
+  animation: dzSlideRight .8s cubic-bezier(.4, 0, .2, 1) forwards;
 }
 
-@keyframes pnSlideRight {
+@keyframes dzSlideRight {
   to {
     opacity: 1;
     transform: translateX(0);
@@ -208,7 +208,7 @@
   inset: -25%;
   background: radial-gradient(42% 30% at 50% 3%, rgba(45, 212, 191, .30), transparent 70%), radial-gradient(38% 30% at 84% 16%, rgba(20, 184, 166, .22), transparent 72%), radial-gradient(44% 32% at 12% 24%, rgba(13, 148, 136, .22), transparent 72%);
   filter: blur(8px);
-  animation: pnAuroraDrift 22s ease-in-out infinite;
+  animation: dzAuroraDrift 22s ease-in-out infinite;
 }
 
 .auth-page .auth-mobile-bg::after {
@@ -221,7 +221,7 @@
   mask-image: radial-gradient(125% 66% at 50% 0%, #000 20%, transparent 74%);
 }
 
-@keyframes pnAuroraDrift {
+@keyframes dzAuroraDrift {
 
   0%,
   100% {
@@ -253,10 +253,10 @@
   inset: -4px;
   border-radius: 50%;
   background: rgba(45, 212, 191, .45);
-  animation: pnLivePulse 2s ease-out infinite;
+  animation: dzLivePulse 2s ease-out infinite;
 }
 
-@keyframes pnLivePulse {
+@keyframes dzLivePulse {
   0% {
     transform: scale(.5);
     opacity: .7;

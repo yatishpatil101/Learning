@@ -52,7 +52,7 @@ const PaginationHint = ({ total }) =>
  */
 function KpiCard({ label, value, icon: Icon, tint, onClick }) {
   return (
-    <button type="button" onClick={onClick} title={`View ${label} listings`} className="group pn-card p-4 sm:p-5 text-left transition hover:border-brand-teal/40 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-brand-teal/40">
+    <button type="button" onClick={onClick} title={`View ${label} listings`} className="group dz-card p-4 sm:p-5 text-left transition hover:border-brand-teal/40 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-brand-teal/40">
       <div className="flex items-start justify-between">
         <span className={classNames('grid h-10 w-10 place-items-center rounded-xl', KPI_TINTS[tint])}><Icon className="h-5 w-5" /></span>
         <ArrowUpRight className="h-4 w-4 text-gray-500 transition group-hover:text-brand-teal" />
@@ -236,7 +236,7 @@ function QueueBody({ stale, children }) {
  */
 function QueueFailed({ noun, testId }) {
   return (
-    <p className="pn-card p-8 text-center text-gray-400" data-testid={testId}>
+    <p className="dz-card p-8 text-center text-gray-400" data-testid={testId}>
       Could not load the {noun} queue. This is a failed request, not an empty queue — retry before
       acting on it.
     </p>
@@ -988,11 +988,11 @@ export default function AdminProperties() {
 
   // ---- export ----
   const exportCurrentCsv = () => {
-    if (activeTab === 'verify') exportCsv('punenest-verification-queue.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Submitted'], rowsVerify.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.createdAt]));
-    else if (activeTab === 'flagged') exportCsv('punenest-flagged.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Reason'], rowsFlagged.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.flagReason || 'Flagged']));
-    else if (activeTab === 'recheck') exportCsv('punenest-recheck-queue.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Changed fields', 'Queued at', 'Waiting'], rowsRecheck.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.recheckReason || '', l.recheckRequestedAt || '', fmtAgo(l.recheckRequestedAt)]));
-    else if (activeTab === 'featured') exportCsv('punenest-featured.csv', ['ID', 'Title', 'Locality', 'Price', 'Views', 'Enquiries'], rowsFeatured.map((l) => [l.id, l.title, l.locality, l.price, l.views, l.enquiries]));
-    else exportCsv('punenest-listings.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Views', 'Enquiries', 'Deal', 'Status', 'Featured'], rowsAll.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.views, l.enquiries, l.deal, l.status, l.featured ? 'Yes' : 'No']));
+    if (activeTab === 'verify') exportCsv('draazy-verification-queue.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Submitted'], rowsVerify.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.createdAt]));
+    else if (activeTab === 'flagged') exportCsv('draazy-flagged.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Reason'], rowsFlagged.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.flagReason || 'Flagged']));
+    else if (activeTab === 'recheck') exportCsv('draazy-recheck-queue.csv', ['ID', 'Title', 'Locality', 'Price', 'Owner', 'Changed fields', 'Queued at', 'Waiting'], rowsRecheck.map((l) => [l.id, l.title, l.locality, l.price, l.owner, l.recheckReason || '', l.recheckRequestedAt || '', fmtAgo(l.recheckRequestedAt)]));
+    else if (activeTab === 'featured') exportCsv('draazy-featured.csv', ['ID', 'Title', 'Locality', 'Price', 'Views', 'Enquiries'], rowsFeatured.map((l) => [l.id, l.title, l.locality, l.price, l.views, l.enquiries]));
+    else exportCsv('draazy-listings.csv', ['ID', 'Title', 'BHK', 'Type', 'Locality', 'Price', 'Owner', 'Mobile', 'Views', 'Enquiries', 'Deal', 'Status', 'Featured'], rowsAll.map((l) => [l.id, l.title, l.bhk, l.type, l.locality, l.price, l.owner, l.ownerMobile, l.views, l.enquiries, l.deal, l.status, l.featured ? 'Yes' : 'No']));
   };
 
   /* Each tab waits for its own fetch, not for a shared one.
@@ -1049,7 +1049,7 @@ export default function AdminProperties() {
   const renderListTab = (rows, query, setQuery, placeholder, countLabel, extraFilters, cardActions, selectable, selected, onSelect) => (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} className="pn-input sm:w-72" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} className="dz-input sm:w-72" />
         {extraFilters}
         <DealPills value={fDeal} onChange={setFDeal} />
         <DateRangePills value={dateRange} onChange={setDateRange} />
@@ -1059,7 +1059,7 @@ export default function AdminProperties() {
       </div>
       <QueueBody stale={rowsAreStale}>
         {rows.length === 0 ? (
-          <p className="pn-card p-8 text-center text-gray-500">No listings match your filters</p>
+          <p className="dz-card p-8 text-center text-gray-500">No listings match your filters</p>
         ) : (
           <div className="space-y-3">
             {rows.slice(0, PAGE_LIMIT).map((l) => (
@@ -1074,7 +1074,7 @@ export default function AdminProperties() {
 
   return (
     <div>
-      <PageHeader title="Properties" subtitle={verifyOnly ? 'Review, verify and approve every listing before it goes live' : 'Manage, verify and curate every listing'} actions={optionEnabled('properties.csvExport') ? <button onClick={exportCurrentCsv} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" /> Export CSV</button> : null} />
+      <PageHeader title="Properties" subtitle={verifyOnly ? 'Review, verify and approve every listing before it goes live' : 'Manage, verify and curate every listing'} actions={optionEnabled('properties.csvExport') ? <button onClick={exportCurrentCsv} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" /> Export CSV</button> : null} />
 
       {/* KPI cards */}
       {!verifyOnly && (
@@ -1104,8 +1104,8 @@ export default function AdminProperties() {
           {optionEnabled('properties.bulkOps') && selAllIds.length ? (
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
               <span className="font-semibold">{selAllIds.length} selected</span><div className="flex-1" />
-              <button onClick={bulkFeature} className="pn-btn pn-btn-ghost pn-btn-sm"><Star className="h-4 w-4" /> Toggle featured</button>
-              <button onClick={bulkArchive} className="pn-btn pn-btn-danger pn-btn-sm"><Archive className="h-4 w-4" /> Archive selected</button>
+              <button onClick={bulkFeature} className="dz-btn dz-btn-ghost dz-btn-sm"><Star className="h-4 w-4" /> Toggle featured</button>
+              <button onClick={bulkArchive} className="dz-btn dz-btn-danger dz-btn-sm"><Archive className="h-4 w-4" /> Archive selected</button>
             </div>
           ) : null}
           {/* Same treatment the re-check queue already gets: a page smaller than the match is said
@@ -1118,7 +1118,7 @@ export default function AdminProperties() {
             </div>
           )}
           {allFailed ? (
-            <p className="pn-card p-8 text-center text-gray-400" data-testid="all-error">
+            <p className="dz-card p-8 text-center text-gray-400" data-testid="all-error">
               Could not load listings. This is a failed request, not an empty catalogue — retry before
               acting on it.
             </p>
@@ -1135,8 +1135,8 @@ export default function AdminProperties() {
           {optionEnabled('properties.bulkOps') && selVerIds.length ? (
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
               <span className="font-semibold">{selVerIds.length} selected</span><div className="flex-1" />
-              <button onClick={bulkApprove} className="pn-btn pn-btn-success pn-btn-sm"><Check className="h-4 w-4" /> Approve selected</button>
-              <button onClick={() => setBulkRejectOpen(true)} className="pn-btn pn-btn-danger pn-btn-sm"><X className="h-4 w-4" /> Reject selected</button>
+              <button onClick={bulkApprove} className="dz-btn dz-btn-success dz-btn-sm"><Check className="h-4 w-4" /> Approve selected</button>
+              <button onClick={() => setBulkRejectOpen(true)} className="dz-btn dz-btn-danger dz-btn-sm"><X className="h-4 w-4" /> Reject selected</button>
             </div>
           ) : null}
           <QueueTruncated page={verifyQueue.page} noun="listings are awaiting verification" testId="verify-truncated" />
@@ -1205,7 +1205,7 @@ export default function AdminProperties() {
       {activeTab === 'followup' && (
         <div>
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <input value={qFollowUp} onChange={(e) => setQFollowUp(e.target.value)} placeholder={'Search title, owner, locality\u2026'} className="pn-input sm:w-72" />
+            <input value={qFollowUp} onChange={(e) => setQFollowUp(e.target.value)} placeholder={'Search title, owner, locality\u2026'} className="dz-input sm:w-72" />
             <Select value={followUpSub} onChange={setFollowUpSub} options={[{ value: 'all', label: 'All reasons' }, { value: 'stale', label: 'Stale pending' }, { value: 'awaiting', label: 'Awaiting owner' }, { value: 'unconfirmed', label: 'Unconfirmed (stale)' }]} className="sm:w-48" ariaLabel="Filter by reason" />
             <DealPills value={fDeal} onChange={setFDeal} />
             <DateRangePills value={dateRange} onChange={setDateRange} />
@@ -1219,7 +1219,7 @@ export default function AdminProperties() {
             testId="followup-truncated"
           />
           {followUpSub === 'unconfirmed' && (
-            <p className="pn-card px-4 py-3 mb-3 text-xs text-gray-400 flex items-start gap-2">
+            <p className="dz-card px-4 py-3 mb-3 text-xs text-gray-400 flex items-start gap-2">
               <Clock className="h-4 w-4 text-amber-300 shrink-0 mt-0.5" />
               <span>Live listings whose owners haven't confirmed availability in over {30} days. Send a WhatsApp nudge so buyers keep seeing fresh, trustworthy listings.</span>
             </p>
@@ -1231,7 +1231,7 @@ export default function AdminProperties() {
             {activeFollowUpQueue.failed ? (
               <QueueFailed noun="follow-up" testId="followup-error" />
             ) : activeFollowUp.length === 0 ? (
-              <p className="pn-card p-8 text-center text-gray-500">All caught up — no listings need follow-up right now.</p>
+              <p className="dz-card p-8 text-center text-gray-500">All caught up — no listings need follow-up right now.</p>
             ) : (
               <div className="space-y-3">
                 {activeFollowUp.slice(0, PAGE_LIMIT).map((l) => (

@@ -4,7 +4,7 @@ const CONSENT = { necessary: true, functional: true, analytics: true, marketing:
 
 async function withConsent(page) {
   await page.addInitScript((c) => {
-    localStorage.setItem('pn_cookie_consent_v1', JSON.stringify(c));
+    localStorage.setItem('dz_cookie_consent_v1', JSON.stringify(c));
   }, CONSENT);
 }
 
@@ -26,7 +26,7 @@ test.describe('Mobile top bar — hide on scroll', () => {
 
   test('the bar is on screen at the top of the page', async ({ page }) => {
     await page.goto('/');
-    const bar = page.locator('nav.pn-topbar');
+    const bar = page.locator('nav.dz-topbar');
     await expect(bar).toBeVisible();
     const box = await bar.boundingBox();
     expect(box.y).toBeGreaterThan(-1);
@@ -34,17 +34,17 @@ test.describe('Mobile top bar — hide on scroll', () => {
 
   test('scrolling down slides the bar off, scrolling up brings it back', async ({ page }) => {
     await page.goto('/');
-    const bar = page.locator('nav.pn-topbar');
+    const bar = page.locator('nav.dz-topbar');
     const height = (await bar.boundingBox()).height;
 
     await scrollDown(page);
-    expect(await page.evaluate(() => document.documentElement.classList.contains('pn-nav-hidden'))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dz-nav-hidden'))).toBe(true);
     const hidden = await bar.boundingBox();
     // Fully translated out of the viewport.
     expect(hidden.y + hidden.height).toBeLessThan(1);
 
     await scrollUp(page);
-    expect(await page.evaluate(() => document.documentElement.classList.contains('pn-nav-hidden'))).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dz-nav-hidden'))).toBe(false);
     const shown = await bar.boundingBox();
     expect(shown.y).toBeGreaterThan(-1);
     expect(shown.height).toBeCloseTo(height, 0);
@@ -55,19 +55,19 @@ test.describe('Mobile top bar — hide on scroll', () => {
     await scrollDown(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(400);
-    expect(await page.evaluate(() => document.documentElement.classList.contains('pn-nav-hidden'))).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dz-nav-hidden'))).toBe(false);
   });
 
   test('scrolling back up restores the bar and its controls are usable again', async ({ page }) => {
     await page.goto('/');
     await scrollDown(page);
-    expect(await page.evaluate(() => document.documentElement.classList.contains('pn-nav-hidden'))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dz-nav-hidden'))).toBe(true);
 
     // While the bar is away its controls are deliberately unreachable — that is the
     // trade-off hide-on-scroll makes, and the bottom nav carries primary navigation
     // meanwhile. Scrolling up is the recovery gesture.
     await scrollUp(page);
-    const signIn = page.locator('nav.pn-topbar').getByRole('link', { name: /^sign in$/i });
+    const signIn = page.locator('nav.dz-topbar').getByRole('link', { name: /^sign in$/i });
     await expect(signIn).toBeVisible();
     await signIn.click();
     await expect(page).toHaveURL(/\/signin/);
@@ -76,7 +76,7 @@ test.describe('Mobile top bar — hide on scroll', () => {
   test('the listings sub-header rises to the top edge when the bar hides', async ({ page }) => {
     await page.goto('/listings');
     await page.waitForTimeout(800);
-    const sub = page.locator('.pn-docks-under-nav').first();
+    const sub = page.locator('.dz-docks-under-nav').first();
     if (!(await sub.count()) || !(await sub.isVisible())) test.skip(true, 'sub-header not rendered at this width');
 
     const before = (await sub.boundingBox()).y;

@@ -7,7 +7,7 @@
  * The society *directory* is not behind the seam: `data/societies.js` is still the source of the
  * 348 rows the grid lists, and moving that is a much larger change than this one. What was behind
  * nothing at all was the **rating** on those rows. The directory used
- * `entityRating('society', slug)`, a reduce over the `pnEntityReviews` localStorage bucket, which
+ * `entityRating('society', slug)`, a reduce over the `dzEntityReviews` localStorage bucket, which
  * is dead against a live server: the reviews are in Postgres, nothing writes that bucket in live
  * mode, and so every card in the grid renders "Not rated yet" for a society that may have fifty
  * reviews. It does not error and it does not look broken — it looks like a quiet building.
@@ -44,7 +44,7 @@
  *
  * ## Follows (D227)
  *
- * The second thing on this domain is the follow set. It was `pnFollowedSocieties`, a localStorage
+ * The second thing on this domain is the follow set. It was `dzFollowedSocieties`, a localStorage
  * array, which meant following a society on a laptop did not follow it on a phone — and the
  * follower count on the hub, which the server computes from the join table, counted nobody at all
  * because nothing ever wrote a row.

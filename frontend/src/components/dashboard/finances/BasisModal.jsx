@@ -14,8 +14,8 @@ export default function BasisModal({ open, onClose, basisForm, setBasisForm, onS
       onClose={onClose}
       title={t('fin.ownershipBasis')}
       footer={<>
-        <button onClick={onClose} className="pn-control pn-control--ghost px-4">{t('fin.cancel')}</button>
-        <button onClick={() => { onSave(); onClose(); }} className="pn-control pn-control--action px-4 gap-1.5"><Icon name="save" className="w-4 h-4" /> {t('fin.save')}</button>
+        <button onClick={onClose} className="dz-control dz-control--ghost px-4">{t('fin.cancel')}</button>
+        <button onClick={() => { onSave(); onClose(); }} className="dz-control dz-control--action px-4 gap-1.5"><Icon name="save" className="w-4 h-4" /> {t('fin.save')}</button>
       </>}
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

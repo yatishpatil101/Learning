@@ -188,7 +188,7 @@ export default function AdminServices() {
 
   const doExport = () => {
     exportCsv(
-      'punenest-service-requests.csv',
+      'draazy-service-requests.csv',
       ['ID', 'Service', 'Team', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
       rows.map((t) => [t.id, titleOf(t), TEAM_LABEL[t.team] || t.team, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
     );
@@ -295,16 +295,16 @@ export default function AdminServices() {
   const rowActions = (t) => (
     <>
       {t.status === 'open' ? (
-        <button onClick={() => startTicket(t)} className="pn-btn pn-btn-primary px-2.5 py-1 text-xs">
+        <button onClick={() => startTicket(t)} className="dz-btn dz-btn-primary px-2.5 py-1 text-xs">
           <Play className="h-3.5 w-3.5" /> Start
         </button>
       ) : null}
       {t.status === 'in-progress' ? (
-        <button onClick={() => resolveTicket(t)} className="pn-btn pn-btn-primary px-2.5 py-1 text-xs">
+        <button onClick={() => resolveTicket(t)} className="dz-btn dz-btn-primary px-2.5 py-1 text-xs">
           <CheckCircle2 className="h-3.5 w-3.5" /> Resolve
         </button>
       ) : null}
-      <button onClick={() => openTicket(t)} className="pn-btn pn-btn-ghost px-2.5 py-1 text-xs">
+      <button onClick={() => openTicket(t)} className="dz-btn dz-btn-ghost px-2.5 py-1 text-xs">
         <ExternalLink className="h-3.5 w-3.5" /> Open
       </button>
     </>
@@ -353,7 +353,7 @@ export default function AdminServices() {
   ];
 
   const serviceCard = (t) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{titleOf(t)}</div>
@@ -411,7 +411,7 @@ export default function AdminServices() {
         title="Service Requests"
         subtitle="Route, assign and resolve customer service requests"
         actions={
-          <button onClick={doExport} className="pn-btn pn-btn-ghost">
+          <button onClick={doExport} className="dz-btn dz-btn-ghost">
             <Download className="h-4 w-4" /> Export CSV
           </button>
         }
@@ -424,8 +424,8 @@ export default function AdminServices() {
         <Stat label="Total requests" value={fmtNum(kpis.total)} icon={ConciergeBell} />
       </div>
 
-      <div className="pn-card mb-4 flex flex-wrap items-center gap-3 p-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search id, customer, detail…" className="pn-input w-full sm:max-w-[240px]" />
+      <div className="dz-card mb-4 flex flex-wrap items-center gap-3 p-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search id, customer, detail…" className="dz-input w-full sm:max-w-[240px]" />
         {optionEnabled('services.teamRouting') && <Select value={fTeam} onChange={setFTeam} options={TEAM_OPTS} ariaLabel="Filter by team" className="max-w-[200px]" />}
         <Select value={fStat} onChange={setFStat} options={STATUS_OPTS} ariaLabel="Filter by status" className="max-w-[160px]" />
         {optionEnabled('services.priority') && <Select value={fPrio} onChange={setFPrio} options={PRIORITY_OPTS} ariaLabel="Filter by priority" className="max-w-[150px]" />}
@@ -443,10 +443,10 @@ export default function AdminServices() {
         size="lg"
         footer={
           <>
-            <button onClick={closeModal} className="pn-btn pn-btn-ghost">
+            <button onClick={closeModal} className="dz-btn dz-btn-ghost">
               Close
             </button>
-            <button onClick={saveTicket} className="pn-btn pn-btn-primary">
+            <button onClick={saveTicket} className="dz-btn dz-btn-primary">
               <Save className="h-4 w-4" /> Save
             </button>
           </>
@@ -525,7 +525,7 @@ export default function AdminServices() {
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                 rows={2}
                 placeholder="Add an internal note…"
-                className="pn-input mt-3 w-full"
+                className="dz-input mt-3 w-full"
               />
             </div>
           </div>

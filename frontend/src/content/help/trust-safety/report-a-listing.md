@@ -25,7 +25,7 @@ You can also report a person from a message thread, or raise a ticket at [Suppor
 | Reason | Examples |
 | --- | --- |
 | Already rented or sold | Owner confirms it is gone but the listing is still up |
-| Asking for brokerage | Anyone demanding a commission for a PuneNest listing |
+| Asking for brokerage | Anyone demanding a commission for a Draazy listing |
 | Fake or misleading | Wrong photos, wrong address, price bait-and-switch |
 | Requesting advance payment | Token, deposit or "platform fee" before a visit |
 | Discriminatory terms | Refusing tenants by religion, caste, region or marital status |

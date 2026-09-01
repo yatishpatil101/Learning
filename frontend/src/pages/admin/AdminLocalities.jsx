@@ -16,7 +16,7 @@ const coordStr = (l) => (l.lat != null && l.lng != null ? `${(+l.lat).toFixed(4)
  *
  * ## What this screen used to be
  *
- * Its Pending tab listed `pnCommunityLocalities`: areas the *browser* had minted when a lister
+ * Its Pending tab listed `dzCommunityLocalities`: areas the *browser* had minted when a lister
  * typed something the catalogue did not recognise. Two things were wrong with that, and they
  * compounded.
  *
@@ -153,7 +153,7 @@ export default function AdminLocalities() {
 
   /* Stacked-card fallback below `sm` (see Table.jsx). The assign control keeps its 44px target. */
   const queueCard = (l) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{l.title}</div>
@@ -170,7 +170,7 @@ export default function AdminLocalities() {
   );
 
   const dirCard = (l) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{l.name}</div>
@@ -200,7 +200,7 @@ export default function AdminLocalities() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         {KPIS.map((k) => (
-          <div key={k.label} onClick={() => setTab(k.tab)} className="pn-card p-4 cursor-pointer hover:bg-white/5">
+          <div key={k.label} onClick={() => setTab(k.tab)} className="dz-card p-4 cursor-pointer hover:bg-white/5">
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-teal/15 text-brand-teal"><k.icon className="h-4 w-4" /></span>

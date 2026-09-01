@@ -18,7 +18,7 @@
  *     `GET /me/entitlements` read outside the browser rather than against a constant.
  *  3. **`referralRewards` is a server document.** `PUT /admin/settings` writes it, public `GET /flags`
  *     serves it, and the consumer screens read it from there. The mock asserted this by reading
- *     `puneNestDB_v5` out of localStorage, which is a claim about a browser key.
+ *     `draazyDB_v5` out of localStorage, which is a claim about a browser key.
  *
  * Ownership, so nothing here restates a claim that already has a home:
  *  · The quota arithmetic itself — allowance, the derived `used`, idempotent repeat requests, the 422
@@ -221,7 +221,7 @@ test.describe('referralRewards is a server document', () => {
 
     /* Confirmation-gated: the switch alone must not commit. Read back through the public `GET /flags`
        — the same route the consumer screens use — rather than out of a browser key, so an optimistic
-       toggle that never reached the server cannot satisfy it. The mock twin read `puneNestDB_v5`
+       toggle that never reached the server cannot satisfy it. The mock twin read `draazyDB_v5`
        from localStorage, which on a live build is not where the answer lives. */
     await row.click();
     await expect(page.getByText('Disable Referral Rewards?')).toBeVisible();

@@ -2,14 +2,14 @@
  * LIVE integration check for the `society` domain — residency, claims, and who reviews them (D240).
  *
  * Excluded from the default run (`playwright.config.js` `testIgnore`); needs a backend on :8081
- * under the `dev,e2e` profiles and the `punenest_e2e` database. Run it explicitly:
+ * under the `dev,e2e` profiles and the `draazy_e2e` database. Run it explicitly:
  *
  *   cd e2e; npx playwright test tests/live-society-residency.spec.js --config=playwright.config.js
  *
  * ## Why this file is API-level and not a browser walk
  *
- * The society hub does not call these endpoints yet — it is still reading `pnSocietyResidents` and
- * `pnSocietyClaims` out of the browser, which is the whole reason this slice exists. Wiring the hub
+ * The society hub does not call these endpoints yet — it is still reading `dzSocietyResidents` and
+ * `dzSocietyClaims` out of the browser, which is the whole reason this slice exists. Wiring the hub
  * is the last step of the wave, and it needs the routes to be real first. A spec that drove the UI
  * today would therefore be testing localStorage with extra steps.
  *

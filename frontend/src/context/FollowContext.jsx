@@ -7,7 +7,7 @@ import { useAuth } from './AuthContext.jsx';
  *
  * ## Why this exists at all
  *
- * Following was `pnFollowedSocieties`, a localStorage array read synchronously by five separate
+ * Following was `dzFollowedSocieties`, a localStorage array read synchronously by five separate
  * surfaces. Following on a laptop did not follow on a phone, and the hub's follower count — which
  * the server computes from `society_follows` — counted nobody, because nothing ever wrote a row.
  *
@@ -49,7 +49,7 @@ import { useAuth } from './AuthContext.jsx';
 const FollowContext = createContext(null);
 
 /** Where follows for browser-only societies live until the server knows the slug. */
-const LOCAL_KEY = 'pnLocalSocietyFollows';
+const LOCAL_KEY = 'dzLocalSocietyFollows';
 
 const readLocal = () => {
   try {

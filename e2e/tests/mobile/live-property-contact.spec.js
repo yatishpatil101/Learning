@@ -6,7 +6,7 @@ import { trackErrors } from '../../helpers/console.js';
    This is the conversion moment the whole mobile-first pass exists to protect, and
    it is also the one most exposed to the on-screen keyboard: a 640px viewport with
    the keyboard up leaves ~300px usable, so a centred dialog buries its own submit.
-   The fix was to let the shared .pn-modal sheet rules take over below 640px; these
+   The fix was to let the shared .dz-modal sheet rules take over below 640px; these
    tests are what stop that regressing.
 
    Runs under `mobile` (412x915) and `mobile-small` (360x640). Desktop's centred
@@ -21,7 +21,7 @@ const PROP = 'p5000'; // approved seed listing, same one contact-owner-gate.spec
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the cookie bar just stays up */ }
   });
 }
@@ -41,16 +41,16 @@ async function withConsent(page) {
 async function openContactSheet(page, flags) {
   await flags.disable('inAppMessaging');
   await page.goto(`/property/${PROP}`);
-  const cta = page.locator('.pn-sticky-cta').getByRole('button', { name: /contact owner/i });
+  const cta = page.locator('.dz-sticky-cta').getByRole('button', { name: /contact owner/i });
   await cta.waitFor({ timeout: 15000 });
   await cta.click();
-  const panel = page.locator('.pn-modal');
+  const panel = page.locator('.dz-modal');
   await panel.waitFor({ timeout: 10000 });
-  /* The sheet enters with `pnSheetUp` (translateY(100%) -> 0). Measuring synchronously
+  /* The sheet enters with `dzSheetUp` (translateY(100%) -> 0). Measuring synchronously
      catches it mid-slide, a full sheet-height below the fold, and every geometry
      assertion below then fails for a reason that has nothing to do with layout. */
   await page.evaluate(() => {
-    const back = document.querySelector('.pn-modal-backdrop');
+    const back = document.querySelector('.dz-modal-backdrop');
     if (!back) return undefined;
     return Promise.all(back.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
   });
@@ -64,7 +64,7 @@ test.describe('Mobile property contact', () => {
     await withConsent(page);
     await login.asBuyer();
     await page.goto(`/property/${PROP}`);
-    const bar = page.locator('.pn-sticky-cta');
+    const bar = page.locator('.dz-sticky-cta');
     await bar.waitFor({ timeout: 15000 });
 
     const viewportH = page.viewportSize().height;
@@ -85,8 +85,8 @@ test.describe('Mobile property contact', () => {
     await openContactSheet(page, flags);
 
     const geom = await page.evaluate(() => {
-      const panel = document.querySelector('.pn-modal');
-      const back = document.querySelector('.pn-modal-backdrop');
+      const panel = document.querySelector('.dz-modal');
+      const back = document.querySelector('.dz-modal-backdrop');
       const p = panel.getBoundingClientRect();
       const b = back.getBoundingClientRect();
       return {
@@ -119,7 +119,7 @@ test.describe('Mobile property contact', () => {
     await openContactSheet(page, flags);
 
     const r = await page.evaluate(() => {
-      const panel = document.querySelector('.pn-modal');
+      const panel = document.querySelector('.dz-modal');
       return {
         overflowY: getComputedStyle(panel).overflowY,
         scrollH: panel.scrollHeight,
@@ -142,12 +142,12 @@ test.describe('Mobile property contact', () => {
     await login.asBuyer();
     await openContactSheet(page, flags);
 
-    const textarea = page.locator('.pn-modal textarea');
+    const textarea = page.locator('.dz-modal textarea');
     await expect(textarea).toBeVisible();
     await textarea.click();
     await textarea.fill('Is this still available for viewing this weekend?');
 
-    const send = page.locator('.pn-modal').getByRole('button', { name: /send enquiry/i });
+    const send = page.locator('.dz-modal').getByRole('button', { name: /send enquiry/i });
     await send.scrollIntoViewIfNeeded();
     await expect(send).toBeInViewport();
 
@@ -161,14 +161,14 @@ test.describe('Mobile property contact', () => {
     await withConsent(page);
     await login.asBuyer();
     await openContactSheet(page, flags);
-    await expect(page.locator('.pn-modal textarea')).toHaveAttribute('enterkeyhint', 'send');
+    await expect(page.locator('.dz-modal textarea')).toHaveAttribute('enterkeyhint', 'send');
   });
 
   test('the close control clears the touch minimum', async ({ page, login, flags }) => {
     await withConsent(page);
     await login.asBuyer();
     await openContactSheet(page, flags);
-    const box = await page.locator('.pn-modal-x').first().boundingBox();
+    const box = await page.locator('.dz-modal-x').first().boundingBox();
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
   });

@@ -10,9 +10,9 @@ import { API, authHeaders, signedInAsNew, grantAadhaarBadge } from '../../../hel
  *
  * ## What the mock version could not have caught
  *
- * It fabricated the villa in `puneNestDB_v5` and the buyer in `puneNestUser`, then asserted the
+ * It fabricated the villa in `draazyDB_v5` and the buyer in `draazyUser`, then asserted the
  * navigation. Both halves of the ADR-019 pair were therefore statements about localStorage keys the
- * test itself had written a moment earlier — including `puneNestAadhaar:<buyer>`, the flag the mock
+ * test itself had written a moment earlier — including `draazyAadhaar:<buyer>`, the flag the mock
  * gate read. Live, sign-in is a real session (`AuthContext` 401s on a forged one and
  * `ProtectedRoute` bounces it), the badge is granted server-side through the same webhook path a
  * real DigiLocker callback takes, and the listing is seeded row `p5150`.
@@ -71,7 +71,7 @@ async function openDrawer(page, label) {
   await marker.waitFor({ timeout: 20000 });
   await marker.click();
 
-  const drawer = page.locator('.pn-mdp');
+  const drawer = page.locator('.dz-mdp');
   await expect(drawer, 'the marker click did not open the detail drawer').toBeVisible({ timeout: 10000 });
   return drawer;
 }

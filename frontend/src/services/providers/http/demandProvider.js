@@ -46,7 +46,7 @@ const count = (v) => Number(v) || 0;
 const toRow = (row) => ({
   // Absent (NON_NULL) on the row that aggregates signals which carried no locality at all.
   localitySlug: row?.localitySlug ?? null,
-  // Absent when the slug has no row in `localities` — somebody asking for somewhere PuneNest does
+  // Absent when the slug has no row in `localities` — somebody asking for somewhere Draazy does
   // not cover. Kept as null so the table can label it rather than print a slug as a place name.
   localityName: row?.localityName ?? null,
   supply: count(row?.supply),

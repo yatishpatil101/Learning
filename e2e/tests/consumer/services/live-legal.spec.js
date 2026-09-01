@@ -14,12 +14,12 @@ import { appReady } from '../../../helpers/app.js';
 
 const SERVICE_OPTION = 'Stamp Duty & Registration Charges';
 const choose = async (page, field, option) => {
-  await page.locator(`[data-err="${field}"] .pn-dropdown__trigger`).click();
+  await page.locator(`[data-err="${field}"] .dz-dropdown__trigger`).click();
   await page.getByRole('option', { name: option }).click();
 };
 
 const chooseCalculator = async (page, calculator, index, option) => {
-  await calculator.locator('.pn-dropdown__trigger').nth(index).click();
+  await calculator.locator('.dz-dropdown__trigger').nth(index).click();
   await page.getByRole('option', { name: option }).click();
 };
 

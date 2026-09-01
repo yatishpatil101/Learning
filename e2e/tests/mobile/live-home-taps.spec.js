@@ -34,7 +34,7 @@ test.describe('Home tap targets and touch affordances', () => {
     // The panel no longer renders inline on a phone — the bottom nav's Search tab
     // goes to /listings, so that is where its tap targets have to be measured.
     await page.goto('/');
-    const search = page.locator('nav.pn-bottom-nav').getByRole('link', { name: /^Search$/ });
+    const search = page.locator('nav.dz-bottom-nav').getByRole('link', { name: /^Search$/ });
     await expect(search).toBeVisible();
     await search.click();
     await expect(page).toHaveURL(/\/listings/);
@@ -77,7 +77,7 @@ test.describe('Home tap targets and touch affordances', () => {
        five destinations the drawer used to list, and owns Post in its raised centre
        slot. Keeping either here would have been a second, competing copy. */
     await page.goto('/');
-    const bar = page.locator('nav.pn-topbar');
+    const bar = page.locator('nav.dz-topbar');
     await expect(bar.getByRole('button', { name: /toggle menu/i })).toHaveCount(0);
     await expect(page.locator('#mobile-nav')).toHaveCount(0);
     await expect(bar.getByRole('link', { name: /post property/i })).toHaveCount(0);
@@ -87,18 +87,18 @@ test.describe('Home tap targets and touch affordances', () => {
     // The drawer used to be the only sign-in path below sm, so removing it had to
     // come with un-hiding this button — otherwise sign-in became unreachable.
     await page.goto('/');
-    const signIn = page.locator('nav.pn-topbar').getByRole('link', { name: /^sign in$/i });
+    const signIn = page.locator('nav.dz-topbar').getByRole('link', { name: /^sign in$/i });
     await expect(signIn).toBeVisible();
   });
 
   test('top-bar pills are drawn under the tap floor but still hit 44px', async ({ page }) => {
     /* The pills used to be *painted* at 44px because .tap-target sets min-height,
        making the phone's chrome chunkier than the same pills on desktop. They now
-       draw at --pn-nav-pill-h and carry .tap-extend, whose transparent 44px ::before
+       draw at --dz-nav-pill-h and carry .tap-extend, whose transparent 44px ::before
        keeps the finger target — so the drawn box may be smaller than 44 without
        breaking WCAG 2.5.8. This asserts both halves of that trade. */
     await page.goto('/');
-    const pills = page.locator('nav.pn-topbar .pn-topbar__pill');
+    const pills = page.locator('nav.dz-topbar .dz-topbar__pill');
     const n = await pills.count();
     expect(n, 'the top bar should render at least one pill').toBeGreaterThan(0);
 

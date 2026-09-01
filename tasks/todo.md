@@ -46,7 +46,7 @@ That is React StrictMode double-invoking effects in development, and nothing els
 duplicate call site or a twice-mounted tree would have doubled the module-scope three as well. Not a
 defect, and the asymmetry is what rules out the alternatives rather than merely being consistent
 with the diagnosis. `/geo` and `/cities` likewise do not re-fire on client-side navigation: their
-only other trigger is `punenest-settings-change`, dispatched by two admin writers.
+only other trigger is `draazy-settings-change`, dispatched by two admin writers.
 
 The one real finding was `/pricing`, now fixed — see **Shipped**.
 
@@ -121,9 +121,9 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
     inverse of the earlier milestones — not mock *modules* but mock-shaped *data paths* still living
     in `localStorage` next to a working endpoint. Four found, all silent, none failing:
     - **City waitlist was never sent anywhere.** `POST /cities/waitlist` and `city_waitlist` had
-      shipped; `CityContext.requestCity` pushed the ask onto `pnCityRequests` in the shopper's own
+      shipped; `CityContext.requestCity` pushed the ask onto `dzCityRequests` in the shopper's own
       browser and toasted "You're on the Mumbai waitlist 🎉". Every ask since launch was recorded
-      where nobody at PuneNest could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
+      where nobody at Draazy could read it. Now `cityProvider.joinCityWaitlist` (`auth: false` —
       the route is `security: []`, and the point of a waitlist is that the person is not a user
       yet), awaited through the modal so the toast follows the 201 and a rejection keeps the shopper
       on their filled-in form. The form's `name` is gone entirely — not just dropped from the
@@ -133,7 +133,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       justify adding a column, being aggregate-only by design. A waitlist needs a way to reach you
       when the city opens and nothing else, so it now asks for exactly that.
     - **Admin "City Expansion Requests" panel rebuilt on the server's numbers** (`SupplyGapTab`).
-      It had aggregated the same `pnCityRequests` key, so it showed the reading operator the asks
+      It had aggregated the same `dzCityRequests` key, so it showed the reading operator the asks
       *they themselves* had made while browsing — always none on a fresh profile. It was first
       deleted for want of a read endpoint; that was the wrong call, because the panel was the only
       demand signal ops had for deciding where to launch next, so deleting it removed the question
@@ -184,12 +184,12 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       the submit-side half of a documented "every way out is sealed while the POST is in flight"
       invariant. Backend: nothing — `DASHBOARD_READ` duplicating `SUPPLY_GAP_READ` is the
       established per-controller convention across ~18 controllers, not copy-paste.
-    - **`puneNestNotifications` was write-only.** Two call sites minted rows the live inbox
+    - **`draazyNotifications` was write-only.** Two call sites minted rows the live inbox
       (`GET /notifications`) has never read, so the bell badge and Notifications page could not show
       them. `pushNotification` and both writes are gone.
-    - **`pnConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
-      duplicate ask; the live conversation provider queues to `pnPendingRequests` only, which is now
-      the whole check. `pnPendingRequests` and `puneNestCity` are legitimate client state and stay.
+    - **`dzConversations` was read but never written.** `hasLocalThread` consulted it to suppress a
+      duplicate ask; the live conversation provider queues to `dzPendingRequests` only, which is now
+      the whole check. `dzPendingRequests` and `draazyCity` are legitimate client state and stay.
 
     Two live specs asserted the removed behaviour and were corrected rather than deleted:
     `live-analytics-page` (the panel heading — which had only ever passed on its empty state, and
@@ -208,7 +208,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
     only message this modal can render for a 400 is a generic "try again" — untrue and an
     unwinnable loop. `requestCity` throws on a blank city instead of resolving silently.
     **Known gap recorded in `hasLocalThread`:**
-    `drainPendingChats` empties `pnPendingRequests`, after which a repeat `already_interested` 409
+    `drainPendingChats` empties `dzPendingRequests`, after which a repeat `already_interested` 409
     re-stages an ask beside the real server thread; closing it needs an inbox lookup, not another
     browser key.
   - **Security follow-up (existing live endpoint):** a co-fill creation response distinguishes a
@@ -238,7 +238,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       wire). 17 tests, green, now the whole of `playwright.nobackend.config.js`.
 - [x] **Finish the last platform holdout and flip the default config** — both halves landed.
       - **The holdout.** `platform/city-propagation` reached its second live city by writing
-        `live: true` into the mock's `puneNestDB_v5` roster. Once `providers/mock/cityProvider.js`
+        `live: true` into the mock's `draazyDB_v5` roster. Once `providers/mock/cityProvider.js`
         was deleted that write had no reader, so the file went **green while asserting about a city
         that never launched** — the failure mode the whole migration exists to remove. Ported to
         `platform/live-city-propagation.spec.js` (5 tests), which takes Mumbai live through
@@ -259,7 +259,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
         now runs `npm run test:nobackend` (one project) instead of a three-way viewport matrix
         against a default config it cannot satisfy. That is a real reduction in signal, recorded
         here rather than papered over; standing the live lane up in CI is in hardening below.
-      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || punenest_e2e`
+      - **The footgun is now the default.** `global-setup.live.js` resets `E2E_DB_NAME || draazy_e2e`
         at the start of every run, so a bare `npm test` wipes whichever database a concurrent
         session is using. Tolerable while the config was opt-in; named loudly in the config header
         and `e2e/README.md` now that it is what you get by typing the obvious command. The lane
@@ -271,7 +271,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
       mock-persistence route all went with the store, and `config.js` kept no switch. What this pass
       removed is what a deletion of that size leaves behind, and one piece of it was live:
       - **Dead code, in `e2e/helpers`.** `publishListing`, `approveListing` and `setFlags` each began
-        `JSON.parse(localStorage.getItem('puneNestDB_v5'))` and dereferenced the result on the next
+        `JSON.parse(localStorage.getItem('draazyDB_v5'))` and dereferenced the result on the next
         line, so every one of them would now throw on `null` rather than fail a readable assertion.
         None had a caller: `live-consumer-fixes.spec.js` defines its own `publishListing`, which
         POSTs `/me/listings` and PATCHes `/properties/{id}/status` as real actors and is a local
@@ -285,7 +285,7 @@ The one real finding was `/pricing`, now fixed — see **Shipped**.
         and those desks are live, so the comments described a shut screen that is open. Rewritten to
         past tense, keeping the *reason* each gate existed (D184: a hand-maintained second
         vocabulary drifts), because that reason still explains why these desks never had a twin.
-      - `appReady`'s docblock justified `data-pn-boot` by a seeding race that no longer exists; the
+      - `appReady`'s docblock justified `data-dz-boot` by a seeding race that no longer exists; the
         flag stays because the `networkidle` problem it also solves does.
       - Verified: check/lint/build/size/canary all green, both helper modules import, and no spec
         references a removed export. Bundle unchanged at 426.9 KB — every frontend edit was a
@@ -422,7 +422,7 @@ seam reaches Postgres and survives a second account.
   state, left alone deliberately — "fixing" a spec that passes on its own edits the wrong thing).
   The other two were real and neither was a bug in the console:
   - `live-outreach:144` expected the WhatsApp chaser's link to carry Playwright's `BASE_URL`, but
-    the server builds it from `punenest.app.base-url`, which `application-e2e.properties:72` defaults
+    the server builds it from `draazy.app.base-url`, which `application-e2e.properties:72` defaults
     to `:5173` because **`E2E_APP_BASE_URL` was set nowhere in the repo**. So the assertion held only
     on a lane that happens to serve on the default port, and every chaser this lane composed pointed
     an owner at a port with nothing behind it. That is the failure the spec was written to catch —
@@ -471,7 +471,7 @@ Two things that are true and are not going to change soon:
 
 - **The Cashfree sandbox-verify gap has no possible e2e.** The mock provider returns no
   `paymentSessionId`, so no automated run can reach the hosted checkout. It stays manual.
-- **`PUNENEST_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
+- **`DRAAZY_DEV_MACHINE` is mandatory for the `dev` profile.** The backend refuses to boot without
   it. It is set per machine, not in the repo.
 
 ### Consumer wave — `account` (18 files / 94 tests) and `flatmates` (27 files / 118 tests)
@@ -545,7 +545,7 @@ of that and both *reduce* the queue, so they are stated before the lists:
   `live-contact-request-verified-badge` (1 ✅), with isolated verified/unverified buyers and
   the server-projected `requester.verified` bit before approval.
 - [ ] `photo-requests` (2) — **intentionally mock-only**: requests still live exclusively in
-  `puneNestPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
+  `draazyPhotoReq:<ownerMobile>`; no backend model, endpoint, provider, or cross-device read
   exists yet.
 - [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
       counterpart was `live-property-integration.spec.js`, and reading that file confirmed it:
@@ -819,7 +819,7 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 - [x] **Dashboard split UI wired to the seam — done, and it hid a defect.**
   `MyListingsPanel.jsx` called `splitFlat()` from `lib/data/flatSplit.js` (mock) and
   `ListingCard.jsx:74-77` read split state from `getRooms()` → localStorage key
-  `puneNestRoomListings`, so a split performed via the server API never reached the card. Both are
+  `draazyRoomListings`, so a split performed via the server API never reached the card. Both are
   now on the seam (`flatmateService.js` → `splitProperty`/`unsplitProperty`), which is what
   `live-owner-split.spec.js` drives.
   **The defect this was hiding:** `SplitFlatModal` derived the room ceiling with `Number(bhk)`, and
@@ -1027,12 +1027,12 @@ untouched by that branch, and none reaches a database column:
   flag labelled **"Online rent payment"**. `refactor: withdraw the online rent-payment rail`
   removed that flag; the only two surviving mentions of the phrase in `frontend/src` are comments
   explaining that the rail is *not* built. The assertion is a claim about a deleted affordance.
-- `platform/live-settings-preferences.spec.js:327` seeds `pnLang=mr` via `addInitScript`, then
+- `platform/live-settings-preferences.spec.js:327` seeds `dzLang=mr` via `addInitScript`, then
   expects the Marathi heading `सूचना`. The translation exists (`locales/mr/common.json:84`), but
   the captured snapshot shows the whole shell still in English — `Buy`, `Rent`, `Notifications`.
   So the language never switched, while the *same* nav rendered `Saved 3` and `Notifications 1`
   **from the server**. Login and data are correct; only the device-level i18n preference did not
-  take. `pnLang` is localStorage and the translations are Vite-bundled JSON, so nothing on that
+  take. `dzLang` is localStorage and the translations are Vite-bundled JSON, so nothing on that
   path reads the database. Likely `login.asBuyer()` navigating before the init script's language
   is picked up, or the lazy Marathi chunk not being awaited.
 - `admin/live-analytics-page.spec.js:201` expects `/last \d{1,2} \w{3} \d{4}/` in the City
@@ -1202,14 +1202,14 @@ is already covered by the existing reuse-detection specs.
 **"Remember this device for 30 days" meant seven on Safari, and the surviving credential was
 unreachable.** Safari's ITP evicts *script-writable* storage — `localStorage`, IndexedDB, and
 cookies written through `document.cookie` — after seven days without first-party interaction, and
-leaves server-set `Set-Cookie` cookies alone. So `punenest_rt` survived its full 30 days while
-`puneNestUser` and `puneNestTokens` were wiped at seven; and nothing spent the cookie, because a
+leaves server-set `Set-Cookie` cookies alone. So `draazy_rt` survived its full 30 days while
+`draazyUser` and `draazyTokens` were wiped at seven; and nothing spent the cookie, because a
 cold boot with no cached user did not revalidate, and `http.js`'s 401 recovery refuses to refresh
 when there is no access token. That refusal is right for every ordinary request — an absent token
 means signed out — so the fix could not be to loosen it, or every anonymous page view on an
 SEO-driven marketplace would retry through `/auth/refresh`.
 
-Fixed with a second cookie, `punenest_session`, set by the server beside the refresh token and
+Fixed with a second cookie, `draazy_session`, set by the server beside the refresh token and
 deliberately **not** `HttpOnly`: `Path=/`, no identity in it, same `Max-Age`/`Secure`/`SameSite`,
 cleared by the same logout that clears its twin. Being server-set, ITP spares it; being readable,
 `sessionHinted()` can consult it at cold boot; carrying nothing, making it readable costs nothing an
@@ -1231,7 +1231,7 @@ storage holds nothing, gated on a real `localStorage` write probe so the storage
 still degrades to a tab-scoped session rather than writing into a store that throws.
 
 **The refresh cookie's delivery invariant is now enforced at boot instead of assumed (C1).**
-`SameSite=Lax` means the browser only returns `punenest_rt` when the page and the API are the same
+`SameSite=Lax` means the browser only returns `draazy_rt` when the page and the API are the same
 *site*. Two topologies satisfy that and both are now supported deliberately: a path proxy putting the
 UI and `/api` on one origin, or sibling subdomains (`www.` → `api.`), which is cross-origin but
 same-site — `CorsConfig` already sets `allowCredentials` with an env-driven exact origin list, so
@@ -1243,7 +1243,7 @@ That failure is the dangerous kind — the browser withholds the cookie *silentl
 every session dies fifteen minutes after login, and the server log is indistinguishable from a
 visitor who was never signed in. Nothing before production can catch it either, since dev and e2e go
 through the Vite proxy where everything is same-origin by construction. `CookieDeliveryCheck` now
-compares the registrable domain of `punenest.web.public-origin` (`API_PUBLIC_ORIGIN`, mandatory in
+compares the registrable domain of `draazy.web.public-origin` (`API_PUBLIC_ORIGIN`, mandatory in
 prod) against every configured UI origin and refuses to start, with a message naming both topologies
 that would fix it. It skips when the public origin is unset (dev, tests) and when `SameSite=None` has
 been chosen, logging in that case the CSRF debt that choice takes on — `None` buys cross-site
@@ -1253,7 +1253,7 @@ delivery by deleting the argument for `/auth/refresh` having no CSRF token.
 Found by the security review of the ITP work, and it is a finding created *by* that work rather than
 one it merely uncovered. `Secure`, `HttpOnly` and `SameSite` all constrain what a *page* may do with
 a cookie; none of them constrain what another *host* under the registrable domain may put in the
-browser's jar. A `Domain=.punenest.in` cookie named `punenest_rt` is a distinct entry from our
+browser's jar. A `Domain=.draazy.in` cookie named `draazy_rt` is a distinct entry from our
 host-only one, neither our clear nor the client's can remove it, and which one the server is handed
 first is unspecified. Before the ITP restore that was a stubborn logout bug. After it, the cold boot
 *acts* on a surviving session automatically, so the same shadowing became a fully automated session
@@ -1353,7 +1353,7 @@ have been deleted without turning anything red.
 keeps its unprefixed name, so the pre-change cookie at `Path=/api/auth` and the new one at `Path=/`
 share a name at different paths. A browser will not replace one with the other, both are sent, and
 `presented()` correctly refuses to guess — a permanent silent sign-out that a fresh sign-in does not
-fix. Production is immune, because there the rename to `__Host-punenest_rt` means they cannot collide.
+fix. Production is immune, because there the rename to `__Host-draazy_rt` means they cannot collide.
 
 **A pre-existing red found while verifying the above, fixed: every saved-search alert the UI created
 came back label-less.** `live-alert-match-count.spec.js` was 5-of-6 red before any of this work, and
@@ -1730,12 +1730,12 @@ from `{}`.
 
 | Seed key the spec wrote | Specs | Fixed in |
 |---|---|---|
-| `puneNestContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
-| `pnTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
-| `puneNestDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
-| `puneNestDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
-| `puneNestListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
-| `pnSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
+| `draazyContactReq:<mobile>` | `consumer/account/action-center` (2), `consumer/account/contact-request-verified-badge`, `consumer/account/photo-requests` | `9a02fbd` |
+| `dzTenantProfile:<mobile>` alone | `consumer/account/tenant-profile:73` | `1aceaea` |
+| `draazyDocs:<mobile>` | `consumer/account/doc-info` (4), `consumer/account/owner-finances` (2) | `9c2ab72` |
+| `draazyDocs:<mobile>` | `consumer/account/doc-requests-grant` | `bf757af` |
+| `draazyListings:<mobile>` | `consumer/flatmates/eligibility`, `owner-id-inbox`, `prefill` (3), `consumer/property/scheduled-visits` (6) | `51551a9` |
+| `dzSocietyReports`, overlay shape | `consumer/society/community-v2:260`, `consumer/society/onboarding-p2` (2) | (this slice) |
 
 Three of them were not stale seeds but real product defects the stale seeds had been hiding:
 
@@ -1793,7 +1793,7 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
 - `flagReason` is ungated on the public property detail response — moderator-facing prose served to
   anonymous callers.
 - ~~There is no HTTP-level write throttle on any route. Rate limiting exists only on OTP.~~
-  **RESOLVED — `backend/src/main/java/com/punenest/api/security/WriteRateLimitFilter.java` now
+  **RESOLVED — `backend/src/main/java/com/draazy/api/security/WriteRateLimitFilter.java` now
   throttles writes globally, so this entry described a gap that has since been closed.** It
   contradicted the "Needs attention" note further up this file, which already recorded that the
   global write-rate filter limits request volume; the two were written months apart and only the
@@ -1840,7 +1840,7 @@ deferral), `platform/desktop-noleak-guardrails.spec.js` (4), `mobile/landscape.s
 
 **Seam drift — the 2026-08-30 source-diff audit**
 
-A pure source diff of all 21 `http/*Mapper.js` against their DTOs and `punenest-api.yaml`, run because the
+A pure source diff of all 21 `http/*Mapper.js` against their DTOs and `draazy-api.yaml`, run because the
 suite is green and the app is not. Findings are classed by the four signatures in
 `docs/migration/07-seam-verification.md` §2: **A** confident zero · **B** vocabulary drift ·
 **C** silently dropped write · **D** dark surface. The dominant shape is not a broken mapper — most
@@ -1856,7 +1856,7 @@ against the mock's richer object and never re-pointed. Reading only the mappers 
   is not among them. The row stays `due` forever and the owner is never paid. **Rent collection does not
   work in either direction**, and the next item hides it.
 - **`PayRent.jsx:201` totals the ledger unfiltered by status**, so stranded `due`/`overdue`/`failed` rows
-  are added into "₹X received via PuneNest". The tenant side filters correctly
+  are added into "₹X received via Draazy". The tenant side filters correctly
   (`tenantFinance.js:44` `p.settled !== false`); the owner side does not. Class A on money.
 - **3 of the 5 "Pay with" options cannot pay.** `PayRent.jsx:141` lowercases the label onto the wire;
   `PaymentMethods` accepts `upi|netbanking|card|autopay|cash`, so `credit card`, `debit card` and
@@ -1871,12 +1871,12 @@ against the mock's richer object and never re-pointed. Reading only the mappers 
   "not stated". `feesProvider.js:41-42` guards its two fields explicitly and is the only site that does.
 - **`daysUntil` can never be negative** (`RecurringIntervals.nextOccurrenceOnOrAfter` returns
   on-or-after by construction), so the rose overdue list, the `overdueBy` copy and the red `healthOverdue`
-  badge are all unreachable — money at risk is structurally invisible. `punenest-api.yaml:13196` documents
+  badge are all unreachable — money at risk is structurally invisible. `draazy-api.yaml:13196` documents
   it as "negative if overdue", i.e. the contract describes a state the implementation cannot emit.
 - **`ActivityPanel.jsx:18` reads `tx.repeat`; `rentMapper.js:256,295` emits `recurring`.** The "· Recurring"
   tag never renders, so a standing EMI is indistinguishable from a one-off repair.
 - **Both finance exports read a dead localStorage key.** `finances.js:246,264` read `getTransactions()`
-  from `puneNestFin:<mobile>:<propId>`, whose only writer has zero importers. The CSV is a header row; the
+  from `draazyFin:<mobile>:<propId>`, whose only writer has zero importers. The CSV is a header row; the
   PDF — titled "Property Finance Statement", the artefact an owner files tax against — prints ₹0/₹0/₹0.
   Both toast success. `exportTransactionsCSV` also reads mock-shaped `t.repeat` while the live mapper emits
   `recurring`; its export button is live at `FinancesTab.jsx:263`. `getDues` has the same dead read and zero
@@ -2177,7 +2177,7 @@ build or `graphify` during an e2e run.
 **Decided elsewhere** — geo policy → ledger 35 · locality queue → 24 · own-listing dedup → 23 ·
 saved-search count → 33 · society follows → 34 · internal notes → 29 · referral reward → 31b ·
 society binding → 19 · pipeline stages → 27 · managed properties → 32 · `services` CMS type → 26 ·
-admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by PuneNest" badge →
+admin enquiries → 25 · finance console → 20 · analytics tiles → 36 · "Posted by Draazy" badge →
 still undecided · `wa-pricing` → resolved.
 
 **Cluster C product decision needed** — V20 permits a buyer to create a fresh request once an earlier one is
@@ -2236,7 +2236,7 @@ Newest first. One line per slice; the commit is the record.
 | 2026-08-13 | D216: outbound messages and templates, classified by the DPDP erasure guard |
 | 2026-08-13 | Phase 5 pre-port audit — `permissions.js` and `contact.js` need no port, both already enforced server-side |
 | 2026-08-13 | Debt wave 14: four e2e sweeps that died to infrastructure; the flaky set re-derived |
-| 2026-08-13 | Phase 3: the referral retention sweep that had never once run; `punenest_test` reference data restored |
+| 2026-08-13 | Phase 3: the referral retention sweep that had never once run; `draazy_test` reference data restored |
 | 2026-08-13 | The prod profile became a tested contract; the container can be told its port |
 | 2026-08-12 | Debt wave 10: seven write-disjoint lanes, ten register rows closed |
 | 2026-08-12 | D133 closed won't-do; D158 re-verified still blocked — both measurement tasks, both registers wrong |

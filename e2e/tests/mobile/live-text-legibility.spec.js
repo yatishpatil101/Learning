@@ -49,7 +49,7 @@ async function withConsent(page) {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem(
-        'pn_cookie_consent_v1',
+        'dz_cookie_consent_v1',
         JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
       );
     } catch { /* storage unavailable — the bar just stays up */ }

@@ -27,7 +27,7 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
   test('the mobile bottom nav occupies no space on desktop', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('nav.pn-bottom-nav')).toBeHidden();
+    await expect(page.locator('nav.dz-bottom-nav')).toBeHidden();
   });
 
   test('no bottom inset is reserved on desktop', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await page.addInitScript(() => {
       try {
         localStorage.setItem(
-          'pn_cookie_consent_v1',
+          'dz_cookie_consent_v1',
           JSON.stringify({ necessary: 1, functional: 1, analytics: 1, marketing: 1, version: 1, ts: Date.now() }),
         );
       } catch { /* storage blocked — the bar stays up and the assertion below would catch it */ }
@@ -51,7 +51,7 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
   test('the assistant FAB keeps its plain 24px corner offset', async ({ page }) => {
     await page.goto('/');
-    const gap = await page.locator('.pn-assistant-slot > div')
+    const gap = await page.locator('.dz-assistant-slot > div')
       .evaluate((el) => window.innerHeight - el.getBoundingClientRect().bottom);
     // bottom-6 = 24px, i.e. calc(0px + 1.5rem) — the inset system is a no-op here.
     expect(Math.round(gap)).toBe(24);
@@ -83,9 +83,9 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await page.goto('/');
     const r = await page.evaluate(() => {
       const back = document.createElement('div');
-      back.className = 'pn-modal-backdrop';
+      back.className = 'dz-modal-backdrop';
       const panel = document.createElement('div');
-      panel.className = 'pn-modal';
+      panel.className = 'dz-modal';
       panel.style.height = '200px';
       back.appendChild(panel);
       document.body.appendChild(back);
@@ -174,12 +174,12 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
   test('the top bar never hides on scroll, even with the class applied', async ({ page }) => {
     await page.goto('/');
-    const bar = page.locator('nav.pn-topbar');
+    const bar = page.locator('nav.dz-topbar');
     const before = await bar.boundingBox();
 
     // Navbar.jsx toggles this class at every width on purpose; the proof that
     // desktop is safe is that no rule outside the max-width block reads it.
-    await page.evaluate(() => document.documentElement.classList.add('pn-nav-hidden'));
+    await page.evaluate(() => document.documentElement.classList.add('dz-nav-hidden'));
     await page.waitForTimeout(300);
 
     const after = await bar.boundingBox();
@@ -191,13 +191,13 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await page.goto('/listings');
     // The custom property this reads is set on `:root` by the stylesheet, so the honest gate is
     // that the app's own chrome has rendered — the top bar the inset is measured against.
-    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
-    await page.evaluate(() => document.documentElement.classList.add('pn-nav-hidden'));
+    await expect(page.locator('nav.dz-topbar')).toBeVisible({ timeout: 20_000 });
+    await page.evaluate(() => document.documentElement.classList.add('dz-nav-hidden'));
 
     const inset = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--pn-top-inset').trim()
+      getComputedStyle(document.documentElement).getPropertyValue('--dz-top-inset').trim()
     );
-    // Still resolves through --pn-nav-h; only the mobile block rewrites it to 0.
+    // Still resolves through --dz-nav-h; only the mobile block rewrites it to 0.
     expect(inset).not.toBe('0px');
   });
 });
@@ -220,7 +220,7 @@ test.describe('Desktop non-leak — phase 3', () => {
     await page.goto('/listings');
     const r = await page.evaluate(() => {
       const cal = document.createElement('div');
-      cal.className = 'pn-cal is-open';
+      cal.className = 'dz-cal is-open';
       cal.style.cssText = 'height:260px;left:120px;top:80px';
       document.body.appendChild(cal);
       const rect = cal.getBoundingClientRect();
@@ -251,7 +251,7 @@ test.describe('Desktop non-leak — phase 3', () => {
         return out;
       };
       return {
-        submit: probe('pn-auth-submit'),
+        submit: probe('dz-auth-submit'),
         // .lp-meter is sticky at every width by design (predates this work); what
         // must not leak is the mobile compaction that strips it back.
         cheer: probe('lp-meter__cheer', 'p'),
@@ -270,7 +270,7 @@ test.describe('Desktop non-leak — phase 3', () => {
 
   test('dragging the filter drawer does nothing', async ({ page }) => {
     await page.goto('/listings');
-    await expect(page.locator('nav.pn-topbar')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('nav.dz-topbar')).toBeVisible({ timeout: 20_000 });
     const panel = page.locator('.filter-panel');
     if (!(await panel.count())) test.skip(true, 'no filter panel in this build');
 
@@ -295,13 +295,13 @@ test.describe('Desktop non-leak — landscape & dynamic type (phase 4)', () => {
 
   test('1440x900 keeps the 72px navbar row and token', async ({ page }) => {
     // Desktop is deliberately untouched by the phone-only height reduction: the
-    // 10% cut applies to --pn-nav-h below 768px only.
+    // 10% cut applies to --dz-nav-h below 768px only.
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     const r = await page.evaluate(() => ({
-      rowH: document.querySelector('.pn-topbar__row')?.getBoundingClientRect().height,
-      token: getComputedStyle(document.documentElement).getPropertyValue('--pn-nav-h').trim(),
-      inset: getComputedStyle(document.documentElement).getPropertyValue('--pn-top-inset').trim(),
+      rowH: document.querySelector('.dz-topbar__row')?.getBoundingClientRect().height,
+      token: getComputedStyle(document.documentElement).getPropertyValue('--dz-nav-h').trim(),
+      inset: getComputedStyle(document.documentElement).getPropertyValue('--dz-top-inset').trim(),
     }));
     expect(r.rowH).toBe(72);
     expect(r.token).toBe('72px');
@@ -313,7 +313,7 @@ test.describe('Desktop non-leak — landscape & dynamic type (phase 4)', () => {
     // `(orientation: landscape)` rule would have broken.
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto('/');
-    const rowH = await page.evaluate(() => document.querySelector('.pn-topbar__row')?.getBoundingClientRect().height);
+    const rowH = await page.evaluate(() => document.querySelector('.dz-topbar__row')?.getBoundingClientRect().height);
     expect(rowH).toBe(72);
   });
 
@@ -321,19 +321,19 @@ test.describe('Desktop non-leak — landscape & dynamic type (phase 4)', () => {
     // Landscape and short, but 1440 wide: the width guard is the one doing the work.
     await page.setViewportSize({ width: 1440, height: 460 });
     await page.goto('/');
-    const rowH = await page.evaluate(() => document.querySelector('.pn-topbar__row')?.getBoundingClientRect().height);
+    const rowH = await page.evaluate(() => document.querySelector('.dz-topbar__row')?.getBoundingClientRect().height);
     expect(rowH).toBe(72);
   });
 
   test('the phone-only pill shrink does not reach desktop', async ({ page }) => {
-    /* .pn-topbar__pill and .pn-topbar__icon-box only take effect below sm. Above it
+    /* .dz-topbar__pill and .dz-topbar__icon-box only take effect below sm. Above it
        the pills must fall back to their intrinsic padding-driven size, which is what
        lets the same markup serve both without a desktop regression. */
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     const r = await page.evaluate(() => {
-      const pill = document.querySelector('.pn-topbar__pill');
-      const box = document.querySelector('.pn-topbar__icon-box');
+      const pill = document.querySelector('.dz-topbar__pill');
+      const box = document.querySelector('.dz-topbar__icon-box');
       return {
         pillH: pill ? getComputedStyle(pill).height : null,
         boxH: box ? getComputedStyle(box).height : null,
@@ -354,9 +354,9 @@ test.describe('Desktop non-leak — landscape & dynamic type (phase 4)', () => {
   test('the bottom bar and its slots stay absent on desktop', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await expect(page.locator('nav.pn-bottom-nav')).toBeHidden();
+    await expect(page.locator('nav.dz-bottom-nav')).toBeHidden();
     // The tab height is token-driven now; make sure that did not resurrect the bar.
-    expect(await page.locator('.pn-bottom-nav__tab:visible').count()).toBe(0);
+    expect(await page.locator('.dz-bottom-nav__tab:visible').count()).toBe(0);
   });
 });
 
@@ -375,7 +375,7 @@ test.describe('Home featured-first is mobile-only', () => {
     // untouched. The sheet that briefly replaced it on mobile no longer exists.
     await page.goto('/');
     await expect(page.locator('.hero-search-wrap')).toBeVisible();
-    await expect(page.locator('.pn-search-sheet')).toHaveCount(0);
+    await expect(page.locator('.dz-search-sheet')).toHaveCount(0);
   });
 
   test('trust chips and stats stay in the hero, and Browse-by-type stays above Featured', async ({ page }) => {

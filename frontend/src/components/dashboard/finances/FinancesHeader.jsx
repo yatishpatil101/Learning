@@ -26,11 +26,11 @@ export default function FinancesHeader({ finProp, setFinProp, listings, finPerio
         </button>
       </Tip>
       <div className="flex items-center gap-1.5 shrink-0">
-        <button type="button" onClick={onExportCSV} aria-label={t('fin.exportCsv')} title={t('fin.exportCsv')} className="pn-control pn-control--ghost gap-1.5">
+        <button type="button" onClick={onExportCSV} aria-label={t('fin.exportCsv')} title={t('fin.exportCsv')} className="dz-control dz-control--ghost gap-1.5">
           <Icon name="table" className="w-4 h-4 shrink-0" />
           <span className="text-xs font-semibold">CSV</span>
         </button>
-        <button type="button" onClick={onExportPDF} aria-label={t('fin.exportPdf')} title={t('fin.exportPdf')} className="pn-control pn-control--ghost gap-1.5">
+        <button type="button" onClick={onExportPDF} aria-label={t('fin.exportPdf')} title={t('fin.exportPdf')} className="dz-control dz-control--ghost gap-1.5">
           <Icon name="file-text" className="w-4 h-4 shrink-0" />
           <span className="text-xs font-semibold">PDF</span>
         </button>

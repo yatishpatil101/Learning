@@ -50,7 +50,7 @@ export function useFieldErrors(formRef) {
     return false;
   }, [formRef]);
 
-  const cx = useCallback((name) => (errors[name] ? ' pn-invalid pn-shake' : ''), [errors]);
+  const cx = useCallback((name) => (errors[name] ? ' dz-invalid dz-shake' : ''), [errors]);
 
   return { errors, check, clear, clearAll, cx, has: (n) => !!errors[n], msg: (n) => errors[n] || '' };
 }
@@ -144,7 +144,7 @@ export function useAutosave(key, initialState, { debounce = 400 } = {}) {
 }
 
 // ---- useFormDraft: autosave/restore an EXTERNAL form-state object ----
-// Mirrors the prototype's autosave.js: same `pnDraft:*` keys, a restored banner
+// Mirrors the prototype's autosave.js: same `dzDraft:*` keys, a restored banner
 // (via the returned `restored` flag) and a bottom-left "Draft saved" flash.
 // Wraps a form's existing useState so pages need minimal changes.
 function draftHasContent(obj, ignore) {
@@ -161,18 +161,18 @@ function draftHasContent(obj, ignore) {
 
 function flashDraftSaved() {
   if (typeof document === 'undefined') return;
-  let s = document.getElementById('pnAutosaveSaved');
+  let s = document.getElementById('dzAutosaveSaved');
   if (!s) {
     s = document.createElement('div');
-    s.id = 'pnAutosaveSaved';
-    // Presentation and placement live in index.css (.pn-autosave-flash). They used
+    s.id = 'dzAutosaveSaved';
+    // Presentation and placement live in index.css (.dz-autosave-flash). They used
     // to be an inline cssText here, which is how the pill ended up parked on top of
-    // the mobile tab bar: a body-level node cannot see the --pn-bottom-inset that
+    // the mobile tab bar: a body-level node cannot see the --dz-bottom-inset that
     // ConsumerLayout sets on its own wrapper, and JS has no view of the breakpoint
     // that decides whether the bar exists at all. Only the on/off toggle is JS.
-    s.className = 'pn-autosave-flash';
+    s.className = 'dz-autosave-flash';
     const dot = document.createElement('span');
-    dot.className = 'pn-autosave-flash__dot';
+    dot.className = 'dz-autosave-flash__dot';
     s.appendChild(dot);
     s.appendChild(document.createTextNode(' Draft saved'));
     document.body.appendChild(s);

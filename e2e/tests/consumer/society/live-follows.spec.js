@@ -3,7 +3,7 @@ import { signedInAsNew } from '../../../helpers/liveAuth.js';
 
 /* Society follows, once they became an account fact rather than a browser fact (D227).
  *
- * The retired mock twin signed in by writing `puneNestUser` into localStorage — a key the live app
+ * The retired mock twin signed in by writing `draazyUser` into localStorage — a key the live app
  * never reads — and then asserted that five surfaces agree with each other. Every one of those
  * assertions passes against a localStorage array, which is exactly the shape the port was
  * replacing, so agreement alone could never have been the whole test.
@@ -142,7 +142,7 @@ test('adding a society nobody has listed yet mints a real row, and the follow is
      was refused and stashed in the browser-only set would render in that list identically. The
      visible link above is the positive anchor that keeps this emptiness from being the emptiness
      of a panel that never loaded. */
-  const stashed = await page.evaluate(() => localStorage.getItem('pnLocalSocietyFollows'));
+  const stashed = await page.evaluate(() => localStorage.getItem('dzLocalSocietyFollows'));
   expect(JSON.parse(stashed || '[]'), 'a real mint must not leave a browser-only follow behind').toEqual([]);
 });
 

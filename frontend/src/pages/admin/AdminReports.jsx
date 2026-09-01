@@ -420,7 +420,7 @@ export default function AdminReports() {
   const reportCard = (r) => {
     const repeatCount = targetCounts[r.targetId] || 1;
     return (
-      <div className={classNames('pn-card p-3.5', selected.has(r.id) && 'ring-1 ring-teal-400/40')}>
+      <div className={classNames('dz-card p-3.5', selected.has(r.id) && 'ring-1 ring-teal-400/40')}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
             {r.status === 'open' ? (
@@ -456,7 +456,7 @@ export default function AdminReports() {
   };
 
   const doExport = () => exportCsv(
-    `punenest-reports-${tab}.csv`,
+    `draazy-reports-${tab}.csv`,
     ['ID', 'Kind', 'Target', 'Reason', 'Reporter', 'Reported', 'Status', 'Action Taken'],
     // Same "Withheld" as every on-screen surface. A blank cell in an exported sheet is read as
     // missing data rather than as withheld data, which is the ambiguity the wording exists to avoid.
@@ -476,13 +476,13 @@ export default function AdminReports() {
       <PageHeader
         title="Reports & Moderation"
         subtitle="Review reported properties, users and flatmate posts, and take action."
-        actions={<button onClick={doExport} className="pn-btn pn-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>}
+        actions={<button onClick={doExport} className="dz-btn dz-btn-ghost"><Download className="h-4 w-4" />Export CSV</button>}
       />
 
       {/* KPI tiles */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {KPIS.map((k) => (
-          <div key={k.label} onClick={k.clickTab ? () => setTab(k.clickTab) : undefined} className={classNames('pn-card p-4', k.clickTab && 'cursor-pointer hover:bg-white/5 transition')}>
+          <div key={k.label} onClick={k.clickTab ? () => setTab(k.clickTab) : undefined} className={classNames('dz-card p-4', k.clickTab && 'cursor-pointer hover:bg-white/5 transition')}>
             <div className="flex items-start justify-between">
               <div><div className="text-xs text-gray-400">{k.label}</div><div className="mt-1 text-2xl font-extrabold">{k.value}</div></div>
               <span className={classNames('grid h-9 w-9 place-items-center rounded-xl bg-white/5', k.color)}><k.icon className="h-4 w-4" /></span>
@@ -503,7 +503,7 @@ export default function AdminReports() {
       </HScroll>
 
       {/* Filter bar */}
-      <div className="pn-card mb-4 p-3 space-y-2">
+      <div className="dz-card mb-4 p-3 space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative w-full sm:w-1/2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500 pointer-events-none" />
@@ -511,7 +511,7 @@ export default function AdminReports() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search reports…"
-              className="pn-input w-full"
+              className="dz-input w-full"
               style={{ paddingLeft: '2.25rem' }}
             />
           </div>
@@ -543,8 +543,8 @@ export default function AdminReports() {
       {selected.size > 0 && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-teal-400/30 bg-teal-500/10 px-4 py-2.5">
           <span className="text-sm font-medium text-teal-200">{selected.size} selected</span>
-          <button onClick={bulkResolve} className="pn-btn pn-btn-primary px-3 py-1.5 text-xs"><CheckCircle2 className="h-3.5 w-3.5" /> Bulk Resolve</button>
-          <button onClick={bulkDismiss} className="pn-btn pn-btn-ghost px-3 py-1.5 text-xs"><XCircle className="h-3.5 w-3.5" /> Bulk Dismiss</button>
+          <button onClick={bulkResolve} className="dz-btn dz-btn-primary px-3 py-1.5 text-xs"><CheckCircle2 className="h-3.5 w-3.5" /> Bulk Resolve</button>
+          <button onClick={bulkDismiss} className="dz-btn dz-btn-ghost px-3 py-1.5 text-xs"><XCircle className="h-3.5 w-3.5" /> Bulk Dismiss</button>
           <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-gray-400 hover:text-white">Deselect all</button>
         </div>
       )}
@@ -587,10 +587,10 @@ export default function AdminReports() {
               {canTriage(detail) ? (
                 <>
                   {detail.kind === 'listing'
-                    ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down', 'hide_content')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
-                    : <button onClick={() => act(detail.id, 'actioned', 'User suspended', 'suspend_account')} className="pn-btn pn-btn-ghost text-red-300"><Ban className="h-4 w-4" />Suspend</button>}
-                  <button onClick={() => act(detail.id, 'resolved', 'Reviewed, content kept')} className="pn-btn pn-btn-ghost"><CheckCircle2 className="h-4 w-4" />Resolve</button>
-                  <button onClick={() => act(detail.id, 'dismissed')} className="pn-btn pn-btn-ghost text-gray-300"><XCircle className="h-4 w-4" />Dismiss</button>
+                    ? <button onClick={() => act(detail.id, 'actioned', 'Listing taken down', 'hide_content')} className="dz-btn dz-btn-ghost text-red-300"><Ban className="h-4 w-4" />Take down</button>
+                    : <button onClick={() => act(detail.id, 'actioned', 'User suspended', 'suspend_account')} className="dz-btn dz-btn-ghost text-red-300"><Ban className="h-4 w-4" />Suspend</button>}
+                  <button onClick={() => act(detail.id, 'resolved', 'Reviewed, content kept')} className="dz-btn dz-btn-ghost"><CheckCircle2 className="h-4 w-4" />Resolve</button>
+                  <button onClick={() => act(detail.id, 'dismissed')} className="dz-btn dz-btn-ghost text-gray-300"><XCircle className="h-4 w-4" />Dismiss</button>
                 </>
               ) : (
                 /* Same as the row actions: a decided report is terminal server-side, so there is no
@@ -599,7 +599,7 @@ export default function AdminReports() {
                    had gone) and a control that would 409 on click. */
                 <span className="px-2 py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
               )}
-              <button onClick={() => setDetail(null)} className="pn-btn pn-btn-primary ml-auto">Close</button>
+              <button onClick={() => setDetail(null)} className="dz-btn dz-btn-primary ml-auto">Close</button>
             </div>
           </div>
         ) : null}

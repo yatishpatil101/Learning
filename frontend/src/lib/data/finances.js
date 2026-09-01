@@ -1,4 +1,4 @@
-/* PuneNest — Finances data module for Dashboard.
+/* Draazy — Finances data module for Dashboard.
    Persists to localStorage using the same keys as the HTML prototype for data interop.
    Import rawDb/saveDb/mutateDb from mockApi.js if we need DB collections. */
 
@@ -23,11 +23,11 @@ export const CAT_KEYS = {
   'Other expense': 'fin.catOtherExpense',
 };
 
-const finKey = (mobile, propId) => `puneNestFin:${mobile || 'anon'}:${propId || 'all'}`;
-const basisKey = (mobile, propId) => `puneNestFinBasis:${mobile || 'anon'}:${propId || 'all'}`;
-const loanKey = (mobile, propId) => `puneNestFinLoan:${mobile || 'anon'}:${propId || 'all'}`;
-const tenantKey = (mobile, propId) => `puneNestFinTenant:${mobile || 'anon'}:${propId || 'all'}`;
-const budgetKey = (mobile, propId) => `puneNestFinBudget:${mobile || 'anon'}:${propId || 'all'}`;
+const finKey = (mobile, propId) => `draazyFin:${mobile || 'anon'}:${propId || 'all'}`;
+const basisKey = (mobile, propId) => `draazyFinBasis:${mobile || 'anon'}:${propId || 'all'}`;
+const loanKey = (mobile, propId) => `draazyFinLoan:${mobile || 'anon'}:${propId || 'all'}`;
+const tenantKey = (mobile, propId) => `draazyFinTenant:${mobile || 'anon'}:${propId || 'all'}`;
+const budgetKey = (mobile, propId) => `draazyFinBudget:${mobile || 'anon'}:${propId || 'all'}`;
 
 function get(k, def) {
   try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch { return def; }
@@ -252,7 +252,7 @@ export function exportTransactionsCSV(mobile, propId) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `punenest-transactions-${propId || 'all'}.csv`;
+  a.download = `draazy-transactions-${propId || 'all'}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -293,5 +293,5 @@ export async function exportStatementPDF(mobile, propId, title) {
     y += 6;
   });
 
-  doc.save(`punenest-statement-${propId || 'all'}.pdf`);
+  doc.save(`draazy-statement-${propId || 'all'}.pdf`);
 }

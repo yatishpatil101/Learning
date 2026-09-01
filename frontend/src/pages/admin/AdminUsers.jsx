@@ -49,7 +49,7 @@ const ACTION_COPY = {
 
 /** Icon, dot and text colour per timeline `kind`. */
 const TIMELINE_STYLES = {
-  account: { icon: UserPlus, dot: 'bg-emerald-400', color: 'text-emerald-300', title: 'Joined PuneNest' },
+  account: { icon: UserPlus, dot: 'bg-emerald-400', color: 'text-emerald-300', title: 'Joined Draazy' },
   enquiry: { icon: Mail, dot: 'bg-teal-400', color: 'text-teal-300', title: 'Sent an enquiry' },
   visit: { icon: CalendarCheck, dot: 'bg-sky-400', color: 'text-sky-300', title: 'Booked a visit' },
   service: { icon: ConciergeBell, dot: 'bg-amber-400', color: 'text-amber-300', title: 'Requested a service' },
@@ -218,7 +218,7 @@ export default function AdminUsers() {
 
   const doExport = () =>
     exportCsv(
-      'punenest-users.csv',
+      'draazy-users.csv',
       ['ID', 'Name', 'Mobile', 'Role', 'City', 'Listings', 'Joined', 'Verified', 'Status'],
       list.map((u) => [u.id, u.name, u.mobile, u.role, u.city, u.listings || 0, u.joinedAt, u.verified ? 'Yes' : 'No', u.status]),
     );
@@ -291,7 +291,7 @@ export default function AdminUsers() {
   ], [optionEnabled]);
 
   const userCard = (u) => (
-    <div className="pn-card p-3.5">
+    <div className="dz-card p-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -327,7 +327,7 @@ export default function AdminUsers() {
           : `${fmtNum(total)} accounts — owners, buyers and staff.`}
         actions={
           optionEnabled('users.csvExport') && (
-            <button onClick={doExport} className="pn-btn pn-btn-ghost">
+            <button onClick={doExport} className="dz-btn dz-btn-ghost">
               <Download className="h-4 w-4" /> Export CSV
             </button>
           )
@@ -335,7 +335,7 @@ export default function AdminUsers() {
       />
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, email…" className="pn-input sm:w-64" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, mobile, email…" className="dz-input sm:w-64" />
         <Select value={role} onChange={setRole} options={ROLE_OPTS} className="sm:w-40" ariaLabel="Filter by role" />
         <Select value={status} onChange={setStatus} options={STATUS_OPTS} className="sm:w-40" ariaLabel="Filter by status" />
       </div>
@@ -348,11 +348,11 @@ export default function AdminUsers() {
         title={actionModal?.copy?.title || 'Confirm action'}
         footer={
           <>
-            <button onClick={closeAction} className="pn-btn pn-btn-ghost">Cancel</button>
+            <button onClick={closeAction} className="dz-btn dz-btn-ghost">Cancel</button>
             <button
               onClick={confirmAction}
               disabled={busy || (actionModal?.copy?.requiresReason && !noteText.trim())}
-              className="pn-btn pn-btn-primary disabled:opacity-50"
+              className="dz-btn dz-btn-primary disabled:opacity-50"
             >
               {busy ? 'Working…' : 'Confirm'}
             </button>
@@ -380,7 +380,7 @@ export default function AdminUsers() {
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={2}
                 placeholder="Add a note for the team… (visible only to admins and staff)"
-                className="mt-1 pn-input resize-none text-sm"
+                className="mt-1 dz-input resize-none text-sm"
               />
             </label>
             {actionModal.copy.requiresReason && !noteText.trim() && (
@@ -430,13 +430,13 @@ export default function AdminUsers() {
                     rows={2}
                     placeholder="What should the next person know about this account?"
                     aria-label="Add a staff note"
-                    className="pn-input resize-none text-sm"
+                    className="dz-input resize-none text-sm"
                   />
                   <button
                     type="button"
                     onClick={submitUserNote}
                     disabled={savingNote || !userNoteDraft.trim()}
-                    className="pn-btn-primary shrink-0 px-3 py-2 text-xs disabled:opacity-40"
+                    className="dz-btn-primary shrink-0 px-3 py-2 text-xs disabled:opacity-40"
                   >
                     {savingNote ? 'Saving…' : 'Add note'}
                   </button>

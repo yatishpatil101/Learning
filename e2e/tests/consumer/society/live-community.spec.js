@@ -3,7 +3,7 @@ import { API, apiLogin, authHeaders, signedInAsNew, uniqueMobile } from '../../.
 
 /* The society hub's community tab, in a browser, against the live API.
  *
- * The retired mock twin wrote `puneNestUser` and `pnSocietyContributions` into localStorage and
+ * The retired mock twin wrote `draazyUser` and `dzSocietyContributions` into localStorage and
  * then read them back — a community of exactly one person, which is the very thing D240 slice 3
  * moved to the server. Its assertions could not distinguish a working feature from a broken one;
  * `live-contribution-photo.spec.js` opens with the proof, on a photo bug every mock spec passed.

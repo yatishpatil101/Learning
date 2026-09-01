@@ -47,7 +47,7 @@ export default function TimeField({
     <>
       <div
         ref={anchorRef}
-        className={`pn-datefield ${invalid ? 'pn-invalid' : ''} ${disabled ? 'is-disabled' : ''} ${className}`}
+        className={`dz-datefield ${invalid ? 'dz-invalid' : ''} ${disabled ? 'is-disabled' : ''} ${className}`}
         data-err={dataErr}
         role="button"
         tabIndex={disabled ? -1 : 0}
@@ -61,10 +61,10 @@ export default function TimeField({
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); }
         }}
       >
-        <span className={`pn-datefield__text ${!display ? 'is-placeholder' : ''}`}>
+        <span className={`dz-datefield__text ${!display ? 'is-placeholder' : ''}`}>
           {display || ph}
         </span>
-        <Clock className="pn-datefield__icon" aria-hidden="true" />
+        <Clock className="dz-datefield__icon" aria-hidden="true" />
       </div>
       <TimePickerDialog
         open={open}

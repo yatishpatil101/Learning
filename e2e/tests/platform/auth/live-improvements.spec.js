@@ -11,7 +11,7 @@ import { E2E_OTP, uniqueMobile, forgetSessions } from '../../../helpers/liveAuth
  * Three seams did change, and each is worth naming because each is a place the live app is
  * deliberately *different* rather than merely re-plumbed:
  *
- *   1. **User existence.** The seeded spec pre-loaded `puneNestUsers` so a number would be
+ *   1. **User existence.** The seeded spec pre-loaded `draazyUsers` so a number would be
  *      "known". The live API has no such endpoint on purpose — "does this mobile exist?" answered
  *      publicly is a user-enumeration oracle — and provisions an account on first verified login.
  *      So the fixture is gone and, with it, the whole known/unknown distinction the mock enforced.
@@ -25,7 +25,7 @@ import { E2E_OTP, uniqueMobile, forgetSessions } from '../../../helpers/liveAuth
  */
 
 const cityScoped = (page, city) =>
-  page.addInitScript((c) => localStorage.setItem('puneNestCity', c), city);
+  page.addInitScript((c) => localStorage.setItem('draazyCity', c), city);
 
 test.describe('the auth panels are city-aware, and honest about cities we have not launched in', () => {
   /* City selection is still client state; what the panel says about a city is not. These three
@@ -161,10 +161,10 @@ test.describe('polish that is really about safety', () => {
     await page.waitForURL('**/dashboard');
 
     const tiers = await page.evaluate(() => ({
-      userLocal: localStorage.getItem('puneNestUser'),
-      userSession: sessionStorage.getItem('puneNestUser'),
-      tokensLocal: localStorage.getItem('puneNestTokens'),
-      tokensSession: sessionStorage.getItem('puneNestTokens'),
+      userLocal: localStorage.getItem('draazyUser'),
+      userSession: sessionStorage.getItem('draazyUser'),
+      tokensLocal: localStorage.getItem('draazyTokens'),
+      tokensSession: sessionStorage.getItem('draazyTokens'),
     }));
 
     expect(tiers.userLocal).toBeNull();

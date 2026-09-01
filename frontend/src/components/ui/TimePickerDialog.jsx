@@ -56,7 +56,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
     const anchor = anchorRef?.current;
     const panel = panelRef.current;
     if (!anchor || !panel) return;
-    // Mirrors DatePickerDialog: below 640px the shared `.pn-cal` rules dock this
+    // Mirrors DatePickerDialog: below 640px the shared `.dz-cal` rules dock this
     // panel as a bottom sheet, so anchoring must stand down and clear itself.
     if (window.matchMedia('(max-width: 639.98px)').matches) {
       panel.style.left = '';
@@ -99,7 +99,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
       const t = e.target;
       if (panelRef.current?.contains(t)) return;
       if (anchorRef?.current?.contains(t)) return;
-      if (t.closest?.('.pn-dropdown__menu, .pn-dropdown')) return;
+      if (t.closest?.('.dz-dropdown__menu, .dz-dropdown')) return;
       onClose?.();
     };
     document.addEventListener('mousedown', onDown);
@@ -110,7 +110,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
     if (!open) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        if (document.querySelector('.pn-dropdown.is-open')) return; // let an open Select close first
+        if (document.querySelector('.dz-dropdown.is-open')) return; // let an open Select close first
         e.preventDefault(); onClose?.(); return;
       }
       if (e.key === 'Enter') { e.preventDefault(); onConfirm?.(formatTime(draft, format)); }
@@ -129,32 +129,32 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
       role="dialog"
       aria-modal="false"
       aria-label={dialogLabel}
-      className={`pn-cal pn-timepicker${shown ? ' is-open' : ''}`}
+      className={`dz-cal dz-timepicker${shown ? ' is-open' : ''}`}
     >
-      <div className="pn-cal__head">
-        <h3 className="pn-cal__title">{t('ui.selectTimeTitle')}</h3>
-        <span className="pn-timepicker__readout" aria-hidden="true">{to12h(draft)}</span>
+      <div className="dz-cal__head">
+        <h3 className="dz-cal__title">{t('ui.selectTimeTitle')}</h3>
+        <span className="dz-timepicker__readout" aria-hidden="true">{to12h(draft)}</span>
       </div>
 
-      <div className="pn-timepicker__row">
+      <div className="dz-timepicker__row">
         <Select
-          className="pn-cal__dd pn-timepicker__unit"
+          className="dz-cal__dd dz-timepicker__unit"
           value={String(hour12)}
           options={HOUR_OPTIONS}
           searchable={false}
           ariaLabel={t('ui.hour')}
           onChange={(v) => setHour12(+v)}
         />
-        <span className="pn-timepicker__colon" aria-hidden="true">:</span>
+        <span className="dz-timepicker__colon" aria-hidden="true">:</span>
         <Select
-          className="pn-cal__dd pn-timepicker__unit"
+          className="dz-cal__dd dz-timepicker__unit"
           value={String(draft.min - (draft.min % minuteStep))}
           options={minuteOptions(minuteStep)}
           searchable={false}
           ariaLabel={t('ui.minute')}
           onChange={(v) => setMinute(+v)}
         />
-        <div className="pn-timepicker__mer" role="group" aria-label={t('ui.amOrPm')}>
+        <div className="dz-timepicker__mer" role="group" aria-label={t('ui.amOrPm')}>
           {['AM', 'PM'].map((m) => (
             <button
               key={m}
@@ -169,7 +169,7 @@ export default function TimePickerDialog({ open, value, anchorRef, format = '12h
         </div>
       </div>
 
-      <button type="button" className="pn-cal__confirm" onClick={() => onConfirm?.(formatTime(draft, format))}>
+      <button type="button" className="dz-cal__confirm" onClick={() => onConfirm?.(formatTime(draft, format))}>
         {t('ui.confirm')}
       </button>
     </div>,

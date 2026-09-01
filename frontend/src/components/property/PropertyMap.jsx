@@ -111,22 +111,22 @@ function PropertyPopup({ p, locName }) {
   const amenShown = amenities.slice(0, MAX_AMEN_CHIPS);
   const amenMore = amenities.length - amenShown.length;
   return (
-    <div className="pn-mp-card">
-      <div className="pn-mp-media">
+    <div className="dz-mp-card">
+      <div className="dz-mp-media">
         <PropertyImage src={p.image} alt={p.title} loading="lazy" />
-        <span className={'pn-mp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'Rent' : 'Sale'}</span>
-        {verified ? <span className="pn-mp-verified" title={t('pmap.verified')}><Icon name="badge-check" /></span> : null}
+        <span className={'dz-mp-deal ' + (isRent ? 'is-rent' : 'is-sale')}>{isRent ? 'Rent' : 'Sale'}</span>
+        {verified ? <span className="dz-mp-verified" title={t('pmap.verified')}><Icon name="badge-check" /></span> : null}
       </div>
-      <div className="pn-mp-body">
-        <div className="pn-mp-title">{popupTitle(p)}</div>
-        <div className="pn-mp-price">
+      <div className="dz-mp-body">
+        <div className="dz-mp-title">{popupTitle(p)}</div>
+        <div className="dz-mp-price">
           {isRent ? <>₹{(p.price || 0).toLocaleString('en-IN')}<span>/mo</span></> : fmtINR(p.price)}
         </div>
-        <div className="pn-mp-loc"><Icon name="map-pin" /> {loc}, {cityLabelFor(p)}</div>
+        <div className="dz-mp-loc"><Icon name="map-pin" /> {loc}, {cityLabelFor(p)}</div>
         {facts.length ? (
-          <div className="pn-mp-facts">
+          <div className="dz-mp-facts">
             {facts.map((fct, i) => (
-              <div className="pn-mp-fact" key={i}>
+              <div className="dz-mp-fact" key={i}>
                 <Icon name={fct.icon} />
                 <div>
                   <b>{fct.value}</b>
@@ -137,13 +137,13 @@ function PropertyPopup({ p, locName }) {
           </div>
         ) : null}
         {amenShown.length ? (
-          <div className="pn-mp-amen">
-            <div className="pn-mp-amen-hd">{t('pmap.amenities')}</div>
-            <div className="pn-mp-chips">
+          <div className="dz-mp-amen">
+            <div className="dz-mp-amen-hd">{t('pmap.amenities')}</div>
+            <div className="dz-mp-chips">
               {amenShown.map((k) => (
-                <span className="pn-mp-chip" key={k}><Icon name={AMEN_ICON[k] || 'check'} /> {amenLabel(k)}</span>
+                <span className="dz-mp-chip" key={k}><Icon name={AMEN_ICON[k] || 'check'} /> {amenLabel(k)}</span>
               ))}
-              {amenMore > 0 ? <span className="pn-mp-chip is-more">+{amenMore}</span> : null}
+              {amenMore > 0 ? <span className="dz-mp-chip is-more">+{amenMore}</span> : null}
             </div>
           </div>
         ) : null}
@@ -215,7 +215,7 @@ export default function PropertyMap({ properties, locName, focus = [], activeId,
               pixelOffset={IW_OFFSET}
               headerDisabled
               onClose={() => setOpenId(null)}
-              className="pn-gm-iw pn-gm-iw-prop"
+              className="dz-gm-iw dz-gm-iw-prop"
             >
               <PropertyPopup p={openProp} locName={locName} />
             </InfoWindow>

@@ -187,7 +187,7 @@ export default function SocietySelect({
   };
 
   return (
-    <div ref={rootRef} className={`pn-dropdown ${open ? 'is-open' : ''}`} style={{ position: 'relative' }}>
+    <div ref={rootRef} className={`dz-dropdown ${open ? 'is-open' : ''}`} style={{ position: 'relative' }}>
       <input
         value={query}
         maxLength={60}
@@ -201,12 +201,12 @@ export default function SocietySelect({
         aria-autocomplete="list"
         data-err={dataErr}
         placeholder={placeholder || t('listProperty.society.placeholder')}
-        className={`${fld} ${invalid ? 'pn-invalid' : ''}`}
+        className={`${fld} ${invalid ? 'dz-invalid' : ''}`}
       />
 
       {open && (
-        <div className="pn-dropdown__menu" role="listbox" id={listId} aria-label={t('listProperty.society.groupHeading')}>
-          {results.length > 0 && <div className="pn-dropdown__group">{t('listProperty.society.groupHeading')}</div>}
+        <div className="dz-dropdown__menu" role="listbox" id={listId} aria-label={t('listProperty.society.groupHeading')}>
+          {results.length > 0 && <div className="dz-dropdown__group">{t('listProperty.society.groupHeading')}</div>}
           {results.map((s, i) => (
             <button
               type="button"
@@ -216,7 +216,7 @@ export default function SocietySelect({
               onMouseEnter={() => setActive(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => commit(s)}
-              className={`pn-dropdown__option ${i === active ? 'is-active' : ''}`}
+              className={`dz-dropdown__option ${i === active ? 'is-active' : ''}`}
             >
               <span className="opt-label" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
@@ -236,7 +236,7 @@ export default function SocietySelect({
               onClick={createSociety}
               disabled={minting}
               data-testid="society-add-option"
-              className={`pn-dropdown__option ${active === results.length ? 'is-active' : ''}`}
+              className={`dz-dropdown__option ${active === results.length ? 'is-active' : ''}`}
             >
               <Plus className="opt-icon" />
               <span className="opt-label">
@@ -248,12 +248,12 @@ export default function SocietySelect({
           )}
 
           {mintFailed && (
-            <div className="pn-dropdown__empty" role="alert" data-testid="society-add-failed">
+            <div className="dz-dropdown__empty" role="alert" data-testid="society-add-failed">
               {t('listProperty.society.addFailed')}
             </div>
           )}
 
-          {results.length === 0 && !canCreate && <div className="pn-dropdown__empty">{t('listProperty.society.empty')}</div>}
+          {results.length === 0 && !canCreate && <div className="dz-dropdown__empty">{t('listProperty.society.empty')}</div>}
         </div>
       )}
 

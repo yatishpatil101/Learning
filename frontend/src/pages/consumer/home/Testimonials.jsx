@@ -94,7 +94,7 @@ export default function Testimonials() {
                   ))}
                 </div>
                 <p className="text-gray-300 text-sm leading-relaxed mb-5">
-                  The ownership check flagged a disputed property before I paid a token. PuneNest's verification is the real deal — it saved me from a huge mistake.
+                  The ownership check flagged a disputed property before I paid a token. Draazy's verification is the real deal — it saved me from a huge mistake.
                 </p>
               </div>
               <div className="flex items-center gap-3 pt-4 border-t border-white/8">

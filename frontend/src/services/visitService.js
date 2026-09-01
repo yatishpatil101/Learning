@@ -4,7 +4,7 @@
  * ## One visit, two surfaces
  *
  * The mock kept **two** parallel stores: a global `visits` collection in `mockApi`, and per-owner
- * `puneNestPropVisitReqs:<mobile>` buckets in `lib/store`. Booking wrote to both, and each surface
+ * `draazyPropVisitReqs:<mobile>` buckets in `lib/store`. Booking wrote to both, and each surface
  * read a different one — the dashboard calendar read the collection, the review gate read the
  * bucket. Two records for one real-world event, free to disagree the moment either was updated
  * alone.

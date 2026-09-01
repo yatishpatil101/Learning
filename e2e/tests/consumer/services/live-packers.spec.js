@@ -19,7 +19,7 @@
  *     reach, because that spec is signed in;
  *   - and the prefill, which is the claim the mock structurally could not make. `initial` is
  *     `isIn ? user?.name : ''` (`ServiceLanding.jsx:50`). Mock-side `user` is whatever the test
- *     wrote into `puneNestUser`, so asserting it proves localStorage round-trips. Live it is the
+ *     wrote into `draazyUser`, so asserting it proves localStorage round-trips. Live it is the
  *     session, which matters here more than on most pages: the live branch deliberately does *not*
  *     send the form's contact pair to the server (`ServiceLanding.jsx:112-113` — the server copies
  *     name and number off the session instead), so if the prefill and the session ever disagreed
@@ -55,7 +55,7 @@ test.describe('packers & movers landing, live', () => {
     await expect(out).toContainText('₹9,000');
     await expect(out).toContainText('₹18,000');
 
-    await est.locator('.pn-dropdown__trigger').first().click();
+    await est.locator('.dz-dropdown__trigger').first().click();
     await page.getByRole('option', { name: '4 BHK / Villa' }).click();
 
     /* Both bounds, both directions. Asserting only that the text changed would be satisfied by a
@@ -90,7 +90,7 @@ test.describe('packers & movers landing, live', () => {
 
     /* Compared against what the API just returned rather than a literal, so a reseed cannot turn a
        real regression into a passing test — and so a page that had gone back to reading
-       `puneNestUser` cannot pass by coincidence of the fixture using the same name. */
+       `draazyUser` cannot pass by coincidence of the fixture using the same name. */
     await expect(form.locator('input[data-err="name"]')).toHaveValue(user.name);
     await expect(form.locator('[data-err="mobile"] input')).toHaveValue(new RegExp(user.mobile.slice(-10)));
   });

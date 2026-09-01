@@ -3,7 +3,7 @@
  *
  * `GET /admin/finance` · `GET /admin/finance/series` · `GET /admin/finance/transactions`.
  *
- * Verified against `backend/src/main/resources/static/openapi/punenest-api.yaml`
+ * Verified against `backend/src/main/resources/static/openapi/draazy-api.yaml`
  * (`adminFinance`, `adminFinanceSeries`, `adminFinanceTransactions`, and the schemas
  * `AdminFinance`, `AdminFinanceSeriesPoint`, `AdminFinanceTransaction`) and against
  * `admin/AdminMetricsController.java`.
@@ -133,7 +133,7 @@ export async function listFinanceTransactions({
  *
  * `AdminFinance.jsx` is the only caller, and it asks for one bounded page of 100 and then does the
  * search, the type filter and the status filter itself in a `useMemo`, pages the result fifteen at a
- * time, and exports it as `punenest-transactions.csv`. All four of those read the window rather than
+ * time, and exports it as `draazy-transactions.csv`. All four of those read the window rather than
  * the ledger — so past the hundredth transaction "Failed" quietly comes to mean "failed, among the
  * most recent hundred", in the one console where answering about a subset is a money question.
  *

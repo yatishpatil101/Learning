@@ -4,7 +4,7 @@ import { signedInAsNew } from '../../helpers/liveAuth.js';
 /**
  * LIVE — society follows reach the server (D227).
  *
- * Following used to be `pnFollowedSocieties`, a localStorage array that five separate surfaces read
+ * Following used to be `dzFollowedSocieties`, a localStorage array that five separate surfaces read
  * synchronously. The server's idempotent `PUT`/`DELETE` routes and its per-row `followedByMe` had
  * been shipped and had never been called once, so the follower count the hub renders — computed by
  * the server from `society_follows` — counted nobody.
@@ -99,7 +99,7 @@ test.describe('LIVE — society follows', () => {
        on the wire because the envelope names the current page `page`, not Spring's raw `number`,
        and providers have read the wrong one behind a fallback that hid it. */
     const body = await page.evaluate(async () => {
-      const tokens = JSON.parse(localStorage.getItem('puneNestTokens') || sessionStorage.getItem('puneNestTokens') || 'null');
+      const tokens = JSON.parse(localStorage.getItem('draazyTokens') || sessionStorage.getItem('draazyTokens') || 'null');
       const res = await fetch('/api/me/societies/following?size=5', {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       });

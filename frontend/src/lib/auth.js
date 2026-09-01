@@ -1,11 +1,11 @@
 /* Client-side session cache (localStorage / sessionStorage).
-   The signed-in user is cached under 'puneNestUser' and the access token under 'puneNestTokens'.
+   The signed-in user is cached under 'draazyUser' and the access token under 'draazyTokens'.
    Neither is authoritative — the server resolves both — so nothing here is a security boundary;
    it exists so a reload repaints the correct UI before `/auth/me` has answered.
    The refresh token is deliberately absent: it is an HttpOnly cookie, unreadable from here.
    Roles: buyer | owner | admin | staff(+team). Guards are enforced via React route
    wrappers (ProtectedRoute / RoleRoute), not synchronous <head> scripts. */
-const KEY = 'puneNestUser';
+const KEY = 'draazyUser';
 
 // Session-scoped store used when the visitor unchecks "Remember this device":
 // the session is kept only for the life of the tab (sessionStorage) instead of
@@ -54,7 +54,7 @@ export function writeUser(user, remember = true) {
    every trace of it from both tiers. The cookie's lifetime is set server-side
    from that same flag, so the two halves expire together rather than one
    outliving the other. */
-const TOKENS_KEY = 'puneNestTokens';
+const TOKENS_KEY = 'draazyTokens';
 
 export function readTokens() {
   return readKeyed(TOKENS_KEY);
@@ -104,7 +104,7 @@ function tokensRemembered() {
 
    The `__Host-` prefix is not decoration: browsers refuse to store a cookie so named unless it is
    Secure, host-only and `Path=/`, which is what stops a sibling subdomain planting a
-   `Domain=.punenest.in` twin that neither the server's clear nor `clearSessionHint` below could
+   `Domain=.draazy.in` twin that neither the server's clear nor `clearSessionHint` below could
    ever delete. Because it *requires* Secure, the server drops the prefix on the plain-http dev
    profile — so there are two possible names, and the client must not try to predict which one it
    is looking at.
@@ -120,8 +120,8 @@ function tokensRemembered() {
    Preferring the prefixed name when both are present is deliberate: only a host-only, Secure cookie
    can carry it, so it is the one a sibling host cannot have written, and a stale bare cookie left
    over from before the rename must not outrank the real one. */
-const HINT_COOKIE = '__Host-punenest_session';
-const HINT_COOKIE_INSECURE = 'punenest_session';
+const HINT_COOKIE = '__Host-draazy_session';
+const HINT_COOKIE_INSECURE = 'draazy_session';
 const HINT_REMEMBERED = '1';
 const HINT_SESSION = '0';
 
@@ -283,7 +283,7 @@ function writeKeyed(key, value, remember) {
  * The hint cookie is cleared here, not only by the server's `Set-Cookie` on logout, because
  * `authProvider.logout` posts `/auth/logout` best-effort and swallows a `NetworkError`. Without
  * this line a sign-out on a flaky connection clears storage, tells the user they are signed out —
- * and leaves `punenest_session` in the jar beside an unrevoked refresh cookie. The next cold boot
+ * and leaves `draazy_session` in the jar beside an unrevoked refresh cookie. The next cold boot
  * reads the hint, spends the cookie and **signs them back in**; on a shared machine, into the
  * previous user's account. That was impossible before the hint existed, because nothing could
  * refresh without an access token. This is also why deliberately not making the cookie `HttpOnly`

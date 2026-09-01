@@ -490,7 +490,7 @@ export async function feed(tab = 'move-in', filters = {}, page = 0, size = 24) {
 /*
  * `GET /me/flatmate-saves` answers full cards rather than keys, so the Saved page renders what the
  * feed would render for the same row today. That is the whole point of the surface: the shortlist
- * used to live in `puneNestFlatmateSaved`, which cached the title, rent and photo at the moment of
+ * used to live in `draazyFlatmateSaved`, which cached the title, rent and photo at the moment of
  * the tap and went on showing them after the host changed or withdrew the post.
  *
  * Two reads because the two callers are asking different questions at different sizes. The Saved

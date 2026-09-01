@@ -46,11 +46,11 @@ const askedOn = (iso) => {
  *
  * `localitySlug` is null on exactly one row -- the signals that named no locality at all -- and
  * `localityName` is absent when the slug matches no known locality, which is somebody asking for
- * somewhere PuneNest does not cover. Both are labelled rather than hidden.
+ * somewhere Draazy does not cover. Both are labelled rather than hidden.
  *
  * The third panel, "City Expansion Requests", asks a different question from the two above it: they
- * are about localities inside a city PuneNest already serves, and it is about cities it does not.
- * It used to aggregate a `pnCityRequests` array in localStorage, so it could only ever show asks
+ * are about localities inside a city Draazy already serves, and it is about cities it does not.
+ * It used to aggregate a `dzCityRequests` array in localStorage, so it could only ever show asks
  * made from the reading operator's own browser -- on every real console it rendered its empty state
  * while the asks piled up elsewhere. It reads `GET /admin/cities/waitlist` now.
  *
@@ -198,7 +198,7 @@ export default function SupplyGapTab({ supplyGap, cityWaitlist, cityWaitlistFail
         )}
       </div>
 
-      {/* City Expansion Requests — where people want PuneNest to launch next (GET /admin/cities/waitlist) */}
+      {/* City Expansion Requests — where people want Draazy to launch next (GET /admin/cities/waitlist) */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold text-gray-300">City Expansion Requests</h3>
@@ -208,7 +208,7 @@ export default function SupplyGapTab({ supplyGap, cityWaitlist, cityWaitlistFail
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-500 mb-4">People who asked to be told when PuneNest launches in a city it does not serve yet. Counts only — the waitlist holds contact details and this report deliberately does not carry them.</p>
+        <p className="text-xs text-gray-500 mb-4">People who asked to be told when Draazy launches in a city it does not serve yet. Counts only — the waitlist holds contact details and this report deliberately does not carry them.</p>
 
         {cityWaitlistFailed ? (
           <div role="alert" className="text-center py-8 text-sm text-amber-300">
@@ -224,7 +224,7 @@ export default function SupplyGapTab({ supplyGap, cityWaitlist, cityWaitlistFail
         ) : cityRows.length === 0 ? (
           <div className="text-center py-8 text-gray-500 text-sm">
             <div aria-hidden="true" className="text-3xl mb-2">🗺️</div>
-            No city requests yet. These appear when a visitor picks a city PuneNest hasn&apos;t launched in and joins its waitlist.
+            No city requests yet. These appear when a visitor picks a city Draazy hasn&apos;t launched in and joins its waitlist.
           </div>
         ) : (
           <>

@@ -21,8 +21,8 @@ const RECOVERY_MS = 4000;
  * Docked to the TOP, under the navbar, and that is a structural decision rather than a promise:
  * the bottom of a phone viewport already carries the floating tab bar with its raised centre FAB
  * plus four other fixed widgets (city pill 1200, assistant 1300, install prompt 1350, cookie
- * consent 1400), all anchored to --pn-bottom-inset. A sixth one there would sit on top of at least
- * one of them at 360px. From --pn-top-inset this banner is geometrically incapable of covering the
+ * consent 1400), all anchored to --dz-bottom-inset. A sixth one there would sit on top of at least
+ * one of them at 360px. From --dz-top-inset this banner is geometrically incapable of covering the
  * bottom nav or the FAB, and it rides the hide-on-scroll navbar for free (the token drops to 0
  * when the bar slides away), so it never strands content behind a fixed strip.
  *
@@ -69,13 +69,13 @@ export default function ConnectivityBanner({ zClass = 'z-[1450]' }) {
 
   return (
     <div
-      className={`pn-safe-x fixed inset-x-0 top-[var(--pn-top-inset)] ${zClass} flex justify-center pointer-events-none`}
+      className={`dz-safe-x fixed inset-x-0 top-[var(--dz-top-inset)] ${zClass} flex justify-center pointer-events-none`}
       role="status"
       aria-live="polite"
       aria-atomic="true"
     >
       {showing && (
-        <div className="pn-connectivity-card pointer-events-auto mt-2 mx-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#15122a]/95 px-3.5 py-2 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+        <div className="dz-connectivity-card pointer-events-auto mt-2 mx-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#15122a]/95 px-3.5 py-2 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
           <Icon name={icon} className={`w-4 h-4 shrink-0 ${tone}`} />
           <p className="text-[13px] leading-snug text-gray-300 min-w-0">
             <span className="font-semibold text-white">{title}</span>{' '}{body}

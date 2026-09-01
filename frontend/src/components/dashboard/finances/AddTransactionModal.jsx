@@ -13,8 +13,8 @@ export default function AddTransactionModal({ open, onClose, txForm, setTxForm, 
       onClose={onClose}
       title={t('fin.addTransaction')}
       footer={<>
-        <button onClick={onClose} className="pn-control pn-control--ghost px-4">{t('fin.cancel')}</button>
-        <button onClick={onSubmit} className="pn-control pn-control--action px-4">{t('fin.save')}</button>
+        <button onClick={onClose} className="dz-control dz-control--ghost px-4">{t('fin.cancel')}</button>
+        <button onClick={onSubmit} className="dz-control dz-control--action px-4">{t('fin.save')}</button>
       </>}
     >
       <div className="space-y-3">

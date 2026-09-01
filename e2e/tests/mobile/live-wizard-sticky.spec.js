@@ -16,14 +16,14 @@ import { trackErrors } from '../../helpers/console.js';
 
    Runs under `mobile` (412x915) and `mobile-small` (360x640). */
 
-const DRAFT_KEY = 'pnDraft:list-property';
+const DRAFT_KEY = 'dzDraft:list-property';
 
 /* Only the cookie bar is seeded here: it is bottom-anchored at z-1400, which is precisely where
    the docked step actions this spec measures live. The session is a real owner sign-in. */
 async function withConsent(page) {
   await page.addInitScript(() => {
     try {
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
     } catch { /* storage unavailable — the cookie bar just stays up */ }
   });
 }
@@ -84,7 +84,7 @@ test.describe('Mobile listing wizard', () => {
     await page.locator('.lp-step-actions').last().getByRole('button', { name: /next/i }).click();
     await page.waitForTimeout(800);
 
-    const marked = page.locator('.pn-invalid');
+    const marked = page.locator('.dz-invalid');
     await expect(marked.first(), 'the failing fields are marked').toBeVisible();
 
     // Whatever came first must have been brought to the user, not left above the fold.
@@ -112,7 +112,7 @@ test.describe('Mobile listing wizard', () => {
 
     // Red-marking only the first field makes the user play whack-a-mole. Step 1 has
     // several empty required fields, so more than one must light up.
-    const marked = page.locator('.pn-invalid');
+    const marked = page.locator('.dz-invalid');
     expect(await marked.count(), 'all failing fields are marked at once').toBeGreaterThan(1);
   });
 

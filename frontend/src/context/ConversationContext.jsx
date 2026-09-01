@@ -58,7 +58,7 @@ export function ConversationProvider({ children }) {
   }, [isIn]);
 
   /**
-   * The mock provider writes through `lib/chat.js`, which broadcasts `pn-convs-change` on every
+   * The mock provider writes through `lib/chat.js`, which broadcasts `dz-convs-change` on every
    * save. The navbar used to subscribe to that itself; the listener lives here now so the mock keeps
    * its live-update behaviour without the navbar knowing which provider is active. The http provider
    * never emits it and does not need to — its writes go through `refresh`.
@@ -66,10 +66,10 @@ export function ConversationProvider({ children }) {
   useEffect(() => {
     if (!isIn) return undefined;
     const onChange = () => { refresh(); };
-    window.addEventListener('pn-convs-change', onChange);
+    window.addEventListener('dz-convs-change', onChange);
     window.addEventListener('storage', onChange);
     return () => {
-      window.removeEventListener('pn-convs-change', onChange);
+      window.removeEventListener('dz-convs-change', onChange);
       window.removeEventListener('storage', onChange);
     };
   }, [isIn, refresh]);

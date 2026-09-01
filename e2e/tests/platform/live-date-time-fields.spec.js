@@ -7,7 +7,7 @@ import { test, expect } from '../../fixtures/live.js';
  * wizard, the tenant profile, schedule-visit, the dashboard visits tab, the
  * flatmates filter bar, admin enquiries and the post-on-behalf wizard.
  *
- * Their stylesheet was not shared. `.pn-datefield`, `.pn-cal` and `.pn-timepicker`
+ * Their stylesheet was not shared. `.dz-datefield`, `.dz-cal` and `.dz-timepicker`
  * lived in `styles/routes/list-property.css`, which only ListProperty.jsx imports —
  * so on every OTHER route the field rendered as a plain block and the calendar as
  * a static, unlayered element that reflowed the page instead of floating over it.
@@ -49,17 +49,17 @@ test.describe('Date & time pickers', () => {
     test(`the calendar floats over the page on ${route.name}`, async ({ page, login }) => {
       await route.open(page, login);
 
-      const field = page.locator('.pn-datefield').first();
+      const field = page.locator('.dz-datefield').first();
       await expect(field).toBeVisible({ timeout: 20_000 });
 
       // The field itself is styled (flex row with the trailing calendar icon).
       await expect(field).toHaveCSS('display', 'flex');
-      await expect(field.locator('.pn-datefield__icon')).toBeVisible();
+      await expect(field.locator('.dz-datefield__icon')).toBeVisible();
 
       await field.click();
 
       // The dialog is an overlay, not an inline block that pushes the form down.
-      const cal = page.locator('.pn-cal');
+      const cal = page.locator('.dz-cal');
       await expect(cal).toBeVisible();
       await expect(cal).toHaveCSS('position', 'fixed');
       await expect(cal).toHaveCSS('z-index', '2000');
@@ -70,20 +70,20 @@ test.describe('Date & time pickers', () => {
     await login.asTenant();
     await page.goto('/tenant-profile');
 
-    const field = page.locator('.pn-datefield').first();
+    const field = page.locator('.dz-datefield').first();
     await field.click();
 
-    const cal = page.locator('.pn-cal');
+    const cal = page.locator('.dz-cal');
     await expect(cal).toBeVisible();
 
     // Any selectable day in the current view commits immediately.
-    const day = cal.locator('.pn-cal__day:not(.is-muted):not([disabled])').first();
+    const day = cal.locator('.dz-cal__day:not(.is-muted):not([disabled])').first();
     const iso = await day.getAttribute('aria-label');
     await day.click();
     await expect(cal).toBeHidden();
 
     const [y, m, d] = iso.split('-');
-    await expect(field.locator('.pn-datefield__text')).toHaveText(`${d}/${m}/${y}`);
+    await expect(field.locator('.dz-datefield__text')).toHaveText(`${d}/${m}/${y}`);
   });
 
   test('the time picker is the app dialog, not the OS control', async ({ page, login }) => {
@@ -94,14 +94,14 @@ test.describe('Date & time pickers', () => {
     // dialogs, and a native control would silently bypass them.
     await expect(page.locator('input[type="time"], input[type="date"]')).toHaveCount(0);
 
-    const time = page.locator('.pn-datefield').last();
+    const time = page.locator('.dz-datefield').last();
     await expect(time).toBeVisible({ timeout: 20_000 });
     await time.click();
 
-    const picker = page.locator('.pn-timepicker');
+    const picker = page.locator('.dz-timepicker');
     await expect(picker).toBeVisible();
     // AM/PM toggle, not a 24h spinner — the readout is what the user confirms.
-    await expect(picker.locator('.pn-timepicker__mer button')).toHaveCount(2);
-    await expect(picker.locator('.pn-timepicker__readout')).toBeVisible();
+    await expect(picker.locator('.dz-timepicker__mer button')).toHaveCount(2);
+    await expect(picker.locator('.dz-timepicker__readout')).toBeVisible();
   });
 });

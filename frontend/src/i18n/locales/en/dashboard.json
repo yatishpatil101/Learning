@@ -155,10 +155,10 @@
     "completedTitle": "Completed visits",
     "cancelledTitle": "Cancelled visits",
     "propertyFallback": "the property",
-    "waConfirmed": "Hi {{name}}, your visit to {{listing}} is confirmed {{when}}. See you then! — PuneNest",
-    "waCancelled": "Hi {{name}}, unfortunately the visit to {{listing}} {{when}} has been cancelled. Happy to help you reschedule. — PuneNest",
-    "waPending": "Hi {{name}}, regarding your visit request for {{listing}} {{when}}. Let me know if the slot works and I’ll confirm it. — PuneNest",
-    "waReschedOwner": "Hi {{name}}, can we move your visit to {{listing}} to {{date}} at {{time}}? Please confirm and I’ll lock it in. — PuneNest",
+    "waConfirmed": "Hi {{name}}, your visit to {{listing}} is confirmed {{when}}. See you then! — Draazy",
+    "waCancelled": "Hi {{name}}, unfortunately the visit to {{listing}} {{when}} has been cancelled. Happy to help you reschedule. — Draazy",
+    "waPending": "Hi {{name}}, regarding your visit request for {{listing}} {{when}}. Let me know if the slot works and I’ll confirm it. — Draazy",
+    "waReschedOwner": "Hi {{name}}, can we move your visit to {{listing}} to {{date}} at {{time}}? Please confirm and I’ll lock it in. — Draazy",
     "thereFallback": "there",
     "whenOn": "on {{date}}",
     "whenAt": "at {{time}}"
@@ -269,7 +269,7 @@
     "title": "Rent Wallet",
     "intro": "Every rupee of rent, working for you — record the home you rent and see your yearly total, your deposit and the tax your rent is saving you.",
     "emptyTitle": "Add the home you rent",
-    "emptyBody": "Rent does not move through PuneNest, so tell us what you already pay and your <1>Rent Wallet</1> fills in — yearly totals, a deposit tracker and your HRA tax saving.",
+    "emptyBody": "Rent does not move through Draazy, so tell us what you already pay and your <1>Rent Wallet</1> fills in — yearly totals, a deposit tracker and your HRA tax saving.",
     "browseRentals": "Browse rentals",
     "rentPaidFy": "Rent paid · {{fy}}",
     "lifetime": "Total recorded",
@@ -311,7 +311,7 @@
     "cancel": "Cancel",
     "optional": "Optional",
     "since": "since {{date}}",
-    "selfDeclared": "You entered this. PuneNest does not collect this rent and has not verified it.",
+    "selfDeclared": "You entered this. Draazy does not collect this rent and has not verified it.",
     "comingSoon": "Coming soon",
     "formSub": "Only the address, the rent and the start date are needed.",
     "formAddress": "Address of the home you rent",
@@ -329,6 +329,6 @@
     "loadFailedBody": "Something went wrong on our side. Nothing you have recorded is lost — try again in a moment.",
     "retry": "Try again",
     "passportSoonSub": "A portable record of rent you have paid — coming soon.",
-    "passportSoonBody": "The Rent Passport is a document you hand to a future landlord, so it can only be built from rent PuneNest has actually seen move. Paying rent through PuneNest is coming; until then the figures above are your own record, not a credential."
+    "passportSoonBody": "The Rent Passport is a document you hand to a future landlord, so it can only be built from rent Draazy has actually seen move. Paying rent through Draazy is coming; until then the figures above are your own record, not a credential."
   }
 }

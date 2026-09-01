@@ -12,7 +12,7 @@ import Icon from '../../../components/Icon.jsx';
 
    Deliberately the same component as the dashboard's MobileNav (see
    pages/consumer/dashboard/MobileNav.jsx) down to the markup: same trigger
-   geometry, same pn-modal-panel / glass-card / brand-teal sheet, same focus and
+   geometry, same dz-modal-panel / glass-card / brand-teal sheet, same focus and
    Escape handling. A second, subtly different sheet would be worse than the row
    this replaces. Tablet and desktop keep the pill strip unchanged.
 
@@ -101,7 +101,7 @@ export default function CategorySwitcher({ categories, activeKey, counts = {}, o
         >
           <div
             ref={panelRef}
-            className="pn-modal-panel border border-white/10 w-full rounded-t-2xl p-4 pb-6 max-h-[85vh] flex flex-col shadow-2xl"
+            className="dz-modal-panel border border-white/10 w-full rounded-t-2xl p-4 pb-6 max-h-[85vh] flex flex-col shadow-2xl"
           >
             <div className="mx-auto w-9 h-1 rounded-full bg-white/15 mb-4" aria-hidden="true" />
             <div className="flex items-center justify-between gap-3 mb-4">

@@ -22,7 +22,7 @@ import { STATS, popularFor } from '../../data/homeData.js';
 // stats and testimonial reflect the active city instead of hardcoding Pune. Cities
 // we don't have inventory for yet ("launched-empty" / coming-soon) get honest
 // "launching soon" copy and generic-but-true claims instead of Pune numbers.
-// The three claims that make PuneNest hard to copy — stated plainly, not sold.
+// The three claims that make Draazy hard to copy — stated plainly, not sold.
 const MOAT = [
   [IndianRupee, 'auth.moatZeroBrokerage'],
   [ShieldCheck, 'auth.moatRera'],
@@ -133,7 +133,7 @@ export default function Signin() {
       // hints it ignores; they are still sent because `login()`'s shape is shared with Sign Up,
       // where the visitor really has typed a name.
       await login({
-        name: 'PuneNest Member',
+        name: 'Draazy Member',
         mobile: mobile.value,
         role: 'buyer',
         otp: otp.otp,
@@ -216,7 +216,7 @@ export default function Signin() {
           </div>
 
           {otp.otpSent ? (
-            <button type="submit" disabled={verifying || done} className="pn-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
+            <button type="submit" disabled={verifying || done} className="dz-auth-submit btn-teal w-full py-3.5 rounded-xl text-white font-semibold text-sm shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2" style={done ? { background: 'linear-gradient(135deg,#059669,#10b981)' } : undefined}>
               {done ? <><CheckCircle2 className="w-5 h-5" /> {t('auth.verifiedRedirecting')}</>
                 : verifying ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('auth.verifying')}</>
                 : <>{t('auth.verifyAndSignIn')} <ArrowRight className="w-4 h-4" /></>}
@@ -231,7 +231,7 @@ export default function Signin() {
           </p>
         ) : (
           <p className="text-center text-sm text-gray-500 mt-7">
-            {t('auth.newToPuneNest')}
+            {t('auth.newToDraazy')}
           </p>
         )}
       </div>

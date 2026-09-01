@@ -48,7 +48,7 @@ export function popularChipsFor(city) {
   return CITY_POPULAR[city] || [];
 }
 
-/* Canonical marketing stats — single source of truth so the hero, "Why PuneNest"
+/* Canonical marketing stats — single source of truth so the hero, "Why Draazy"
    and testimonials never disagree. Each figure describes a DIFFERENT metric.
    TODO(API): bind these to real aggregate counts once the backend lands. */
 export const STATS = {

@@ -126,22 +126,22 @@ function FunnelView({ enquiries, visits, deals, funnelTime, setFunnelTime }) {
           <TrendingUp className="h-4 w-4 text-emerald-400" /> Platform-wide Conversion Rates
         </h3>
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-teal-400">{enqToVisit}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Enquiry → Visit</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(visitCount)} of {fmtNum(enqCount)} enquiries</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-emerald-400">{visitToDeal}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Visit → Deal</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(dealCount)} of {fmtNum(visitCount)} visits</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-indigo-400">{enqToDeal}%</div>
             <div className="text-xs text-gray-500 mt-0.5">Overall: Enquiry → Deal</div>
             <div className="text-[11px] text-gray-400 mt-1">{fmtNum(dealCount)} of {fmtNum(enqCount)} enquiries</div>
           </div>
-          <div className="pn-card p-4">
+          <div className="dz-card p-4">
             <div className="text-2xl font-bold text-amber-400">{enqCount > 0 ? fmtINR(Math.round(dealGMV / enqCount)) : '₹0'}</div>
             <div className="text-xs text-gray-500 mt-0.5">Revenue per Enquiry</div>
             <div className="text-[11px] text-gray-400 mt-1">GMV {fmtINR(dealGMV)} / {fmtNum(enqCount)} enq</div>

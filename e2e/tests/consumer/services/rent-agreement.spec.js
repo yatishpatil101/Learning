@@ -8,12 +8,12 @@ import { test, expect } from '@playwright/test';
  * `live-rent-agreement.spec.js`, which drives the real server:
  *
  *   - "owner submits the full flow and the uploaded documents reach the request" — the mock
- *     read the uploads back out of `puneNestServiceReq:`, i.e. the browser confirming its own
+ *     read the uploads back out of `draazyServiceReq:`, i.e. the browser confirming its own
  *     write. The live spec reads them back from `GET /service-requests/{id}` outside the
  *     browser, and in doing so exposed that they had never been sent at all.
  *   - "platform service fee is driven by the admin Fees panel" — a duplicate; the live fee
  *     schedule is owned elsewhere (see COVERAGE.md). It also only ever proved that a number
- *     the test itself had written into `puneNestDB_v5` came back out.
+ *     the test itself had written into `draazyDB_v5` came back out.
  *   - "after submitting, the owner sees a locked panel … and can start a new agreement" — the
  *     locked panel is now proved live. The second half is **behaviour that has since
  *     reversed**: rent-agreement is priced, so a submitted request is parked at
@@ -32,11 +32,11 @@ import { test, expect } from '@playwright/test';
  *   - "customer (checker) can approve the draft our team shares" — our team had not shared
  *     anything; the browser had fabricated a draft one line earlier.
  *   - "sharing a draft raises a dashboard bell notification" — read back out of
- *     `pnNotifications:` in the same tab that wrote it. Converting it found the server raised
+ *     `dzNotifications:` in the same tab that wrote it. Converting it found the server raised
  *     **no notification at all**, so live the checker was never told a draft was waiting on
  *     them — on a flow that no one else is permitted to advance.
  *   - "request-changes uses an on-brand modal … and records the note" — the modal half was a
- *     real component claim and is preserved live; "records the note" read `puneNestServiceReq:`
+ *     real component claim and is preserved live; "records the note" read `draazyServiceReq:`
  *     back out of localStorage.
  *
  * The live spec files a **valuation** rather than a rent agreement, deliberately: rent-agreement
@@ -77,7 +77,7 @@ const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 
 async function login(page, user) {
   await page.addInitScript((u) => {
-    localStorage.setItem('puneNestUser', JSON.stringify(u));
+    localStorage.setItem('draazyUser', JSON.stringify(u));
   }, user);
 }
 
@@ -90,7 +90,7 @@ const active = (page) => page.locator('.step-panel.active');
  * Nothing here notices, because the Property, Owner and Tenant panels share every
  * placeholder (`As per PAN/Aadhaar`, `ABCDE1234F`, `10-digit mobile`, …): the next helper
  * happily types tenant answers into the owner panel, and the run only falls over several
- * steps later on `.pn-datefield`, a locator with nothing to do with the cause. That
+ * steps later on `.dz-datefield`, a locator with nothing to do with the cause. That
  * misdirection is how this spec's timeout came to be filed as a review-step scroll/animation
  * bug against `submitFromReview`.
  *
@@ -137,11 +137,11 @@ async function fillTenant(page) {
 
 async function fillTerms(page) {
   const p = active(page);
-  await p.locator('.pn-datefield').click();
-  await page.locator('.pn-cal').waitFor({ state: 'visible' });
+  await p.locator('.dz-datefield').click();
+  await page.locator('.dz-cal').waitFor({ state: 'visible' });
   const day = page.getByRole('button', { name: todayIso(), exact: true }).first();
   await day.click();
-  await page.locator('.pn-cal').waitFor({ state: 'detached' });
+  await page.locator('.dz-cal').waitFor({ state: 'detached' });
   await p.getByPlaceholder('e.g. 25000').fill('30000');
   await p.getByPlaceholder('e.g. 100000').fill('150000');
   await clickNext(page, 4);
@@ -169,7 +169,7 @@ test.describe('Rent Agreement — revenue flow', () => {
   });
 
   /* RETIRED (D256): "mandatory docs are reused from — and saved back to — the dashboard Document
-     vault" seeded `puneNestDocs:<mobile>` directly and read it back, so it asserted against the
+     vault" seeded `draazyDocs:<mobile>` directly and read it back, so it asserted against the
      browser-local vault the mock build kept. Document reuse now belongs to the document service
      and its live specs; re-pointing this at the server is a port, not a rescue, and is tracked
      rather than faked here. The four surviving tests in this file stay because they assert the
@@ -178,7 +178,7 @@ test.describe('Rent Agreement — revenue flow', () => {
 
   test('a mid-fill refresh restores every answer except PAN and Aadhaar, which are never persisted', async ({ page }) => {
     // The rule, not the mechanics: the autosave is deliberately incomplete. A PAN plus an Aadhaar
-    // plus a name and a permanent address is a complete identity set, and `pnDraft:rentAgreement`
+    // plus a name and a permanent address is a complete identity set, and `dzDraft:rentAgreement`
     // is plain JSON on localStorage — readable by any XSS on this origin and inherited by the next
     // person on a shared device. So those two fields are stripped before the draft is written and
     // the owner retypes them; everything else must still come back, or the autosave is pointless.
@@ -210,12 +210,12 @@ test.describe('Rent Agreement — revenue flow', () => {
        makes the far more interesting claim underneath -- that the PAN and Aadhaar never reach the
        disk -- about what the app refused to write rather than about a save still in flight. */
     await expect
-      .poll(async () => page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || ''))
+      .poll(async () => page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || ''))
       .toContain('"step":1');
-    expect(await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '')).toContain('Anita Verma');
+    expect(await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '')).toContain('Anita Verma');
 
     // The numbers never reach the disk in the first place.
-    const written = await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '');
+    const written = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
     expect(written).not.toContain('ABCDE1234F');
     expect(written).not.toContain('123412341234');
 
@@ -244,7 +244,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     // to clean what is already there — and clean it on disk, not merely decline to display it.
     await login(page, BUYER);
     await page.addInitScript(() => {
-      localStorage.setItem('pnDraft:rentAgreement', JSON.stringify({
+      localStorage.setItem('dzDraft:rentAgreement', JSON.stringify({
         step: 1,
         aType: 'Residential',
         prop: { propType: 'Flat / Apartment', furnish: 'Unfurnished', flatNo: 'B-1204', society: 'Skyline Heights', locality: 'Baner', city: 'Pune', pincode: '411045', area: '' },
@@ -256,7 +256,7 @@ test.describe('Rent Agreement — revenue flow', () => {
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await expect(page.getByText('We saved your progress')).toBeVisible();
 
-    const stored = await page.evaluate(() => localStorage.getItem('pnDraft:rentAgreement') || '');
+    const stored = await page.evaluate(() => localStorage.getItem('dzDraft:rentAgreement') || '');
     expect(stored).not.toContain('ABCDE1234F');
     expect(stored).not.toContain('123412341234');
     expect(stored).not.toContain('PQRSX6789K');
@@ -287,7 +287,7 @@ test.describe('Rent Agreement — revenue flow', () => {
   });
 
   /* RETIRED (D256): "submitting records the request itself, and raises no browser-only admin
-     ticket" asserted its delta by counting `puneNestServiceReq:*` and `puneNestDB_v5.tickets` in
+     ticket" asserted its delta by counting `draazyServiceReq:*` and `draazyDB_v5.tickets` in
      localStorage — the mock store, which went with `services/providers/mock`. Both halves of it
      already live against the real server: the park, the amount and the single-use session are
      covered by `consumer/services/live-rent-agreement.spec.js`, and settlement by

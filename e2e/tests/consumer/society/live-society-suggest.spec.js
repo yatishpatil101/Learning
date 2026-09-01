@@ -5,8 +5,8 @@ import { mintSociety } from '../../../helpers/liveSociety.js';
 /* What the hub says about a building nobody has confirmed — live.
  *
  * Split out of the retired `onboarding-p2.spec.js`, which kept the whole society-onboarding
- * lifecycle in localStorage: candidates in `pnCommunitySocieties`, promotions in
- * `pnSocietyOverlay`, merges in `pnSocietyMerges`, suggestions in `pnSocietySuggestions`. Six of
+ * lifecycle in localStorage: candidates in `dzCommunitySocieties`, promotions in
+ * `dzSocietyOverlay`, merges in `dzSocietyMerges`, suggestions in `dzSocietySuggestions`. Six of
  * its eight tests are now owned elsewhere and are deleted rather than ported:
  *
  *   RERA import fills the catalogue      -> admin/live-societies-directory ("the desk counts the
@@ -80,7 +80,7 @@ test('details offered for an unconfirmed society are held for review, not printe
   await expect(statLabel(page, 'Total units')).toHaveCount(0);
   await expect(page.getByText(BUILDER)).toHaveCount(0);
 
-  /* The reload is the live half. The retired spec read `pnSocietySuggestions` back out of the tab
+  /* The reload is the live half. The retired spec read `dzSocietySuggestions` back out of the tab
      that had just written it, which is true of any value a page holds in memory. Coming back after
      a reload means the proposal is on the server, attributed to this account, and that a second
      visit edits it rather than filing a duplicate the server would refuse. */

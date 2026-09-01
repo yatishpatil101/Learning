@@ -71,7 +71,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                       <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div>
                           <label className={lbl3}>{isHouse() ? tr('listProperty.fields.configuration') : tr('listProperty.fields.flatType')}</label>
-                          <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'pn-invalid-group' : ''}`} data-err="bhk">
+                          <div className={`flex flex-wrap gap-2.5 ${errors.bhk ? 'dz-invalid-group' : ''}`} data-err="bhk">
                             {['1', '2', '3', '4'].map((n) => (
                               <Pill key={n} selected={form.bhk === n} onClick={() => set('bhk', n)} className="px-5 py-2.5">{n === '4' ? '4+ BHK' : `${n} BHK`}</Pill>
                             ))}
@@ -80,7 +80,7 @@ export default function PropertyDetailsFlatmate({ form, set, errors, isHouse, to
                         </div>
                         <div>
                           <label className={lbl3}>{tr('listProperty.fields.roomOffered')}</label>
-                          <div className={`flex flex-wrap gap-2.5 ${errors.roomType ? 'pn-invalid-group' : ''}`} data-err="roomType">
+                          <div className={`flex flex-wrap gap-2.5 ${errors.roomType ? 'dz-invalid-group' : ''}`} data-err="roomType">
                             {['Private room', 'Shared room'].map((r) => (
                               <Pill key={r} selected={form.roomType === r} onClick={() => set('roomType', r)} className="px-5 py-2.5">{r}</Pill>
                             ))}

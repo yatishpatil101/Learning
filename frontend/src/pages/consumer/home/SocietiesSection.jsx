@@ -74,7 +74,7 @@ export default function SocietiesSection() {
       };
     })
     /* D196: there used to be a rating tie-break between `homes` and `name`, read from the
-       `pnEntityReviews` localStorage bucket. A live session never writes that bucket, so the
+       `dzEntityReviews` localStorage bucket. A live session never writes that bucket, so the
        term was a constant zero against the real API and the ordering it promised never happened
        — an inert sort key is worse than no sort key, because it reads as intentional.
 

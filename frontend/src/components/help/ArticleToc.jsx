@@ -80,7 +80,7 @@ export default function ArticleToc({ headings, variant = 'inline' }) {
   if (isRail) {
     return (
       <nav aria-label={t('help.onThisPage')} className="hidden xl:block">
-        <div className="sticky top-[calc(var(--pn-nav-h)+4.5rem)] max-h-[calc(100vh-var(--pn-nav-h)-6rem)] overflow-y-auto py-1">
+        <div className="sticky top-[calc(var(--dz-nav-h)+4.5rem)] max-h-[calc(100vh-var(--dz-nav-h)-6rem)] overflow-y-auto py-1">
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-gray-500">{t('help.onThisPage')}</p>
           {links}
         </div>

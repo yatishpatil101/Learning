@@ -57,7 +57,7 @@ function measure(value) {
  *
  * Rewriting a rem to px is not a neutral re-spelling: a rem font-size tracks the
  * browser/OS font-size setting and a px one is frozen against it. Flooring
- * `.pn-bottom-nav__label { font-size: 0.6875rem }` to `12px` therefore fixed a
+ * `.dz-bottom-nav__label { font-size: 0.6875rem }` to `12px` therefore fixed a
  * legibility bug by introducing a worse one — the label stopped responding to
  * dynamic type entirely, which is the exact accessibility failure that rule's own
  * comment was written to prevent. `mobile/landscape.spec.js` caught it.
@@ -68,7 +68,7 @@ const floorValue = (unit, min) => (unit === 'rem' ? `${min / ROOT_PX}rem` : `${m
 /** @type {import('postcss').PluginCreator<{ min?: number }>} */
 export default function minFontSize({ min = MIN_FONT_PX } = {}) {
   return {
-    postcssPlugin: 'punenest-min-font-size',
+    postcssPlugin: 'draazy-min-font-size',
     Declaration: {
       'font-size': (decl) => {
         const m = measure(decl.value);

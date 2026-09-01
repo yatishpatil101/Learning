@@ -23,7 +23,7 @@ test.describe('Nestor assistant', () => {
   test('opens with greeting + quick chips, Esc closes', async ({ page }) => {
     await page.goto('/');
     await openPanel(page);
-    await expect(page.getByText(/your PuneNest guide/i)).toBeVisible();
+    await expect(page.getByText(/your Draazy guide/i)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Find a home', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'List my property', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
@@ -57,11 +57,11 @@ test.describe('Nestor assistant', () => {
     await page.setViewportSize({ width: 375, height: 720 });
     // Seed cookie consent so the DPDPA banner doesn't keep the Nestor FAB max-sm:hidden on mobile.
     await page.addInitScript(() => {
-      localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
+      localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now() }));
     });
     // Force a non-live city so CityChrome shows its bottom waitlist bar.
     await page.goto('/');
-    await page.evaluate(() => localStorage.setItem('puneNestCity', 'Nagpur'));
+    await page.evaluate(() => localStorage.setItem('draazyCity', 'Nagpur'));
     await page.reload();
     const bar = page.getByText(/join the waitlist/i).first();
     await expect(bar).toBeVisible({ timeout: 5000 });
@@ -78,7 +78,7 @@ test.describe('Nestor assistant', () => {
     await page.goto('/');
     await openPanel(page);
     const box = page.getByRole('dialog', { name: /Nestor/i });
-    await box.getByRole('textbox', { name: /Ask Nestor/i }).fill('how does punenest work');
+    await box.getByRole('textbox', { name: /Ask Nestor/i }).fill('how does draazy work');
     await box.getByRole('button', { name: /^Send$/i }).click();
     await page.waitForTimeout(400);
     expect(consoleErrors).toHaveLength(0);

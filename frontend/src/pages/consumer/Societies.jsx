@@ -182,7 +182,7 @@ export default function Societies() {
       verified, community, managed: soc.claimStatus === 'claimed',
       /* The row's own aggregate, from `GET /societies`, keyed on the **slug**.
 
-         This used to be `entityRating('society', soc.slug)` — a reduce over the `pnEntityReviews`
+         This used to be `entityRating('society', soc.slug)` — a reduce over the `dzEntityReviews`
          localStorage bucket. That bucket is only written by the mock provider, so against a live
          server the read was dead: every card in the grid said "Not rated yet" no matter how many
          reviews Postgres held for that society. (Before that it was keyed on `soc.id`, the

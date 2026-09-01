@@ -53,36 +53,36 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
   let action;
   if (item.kind === 'room') {
     action = interested
-      ? <button className="pn-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.sent')}</button>
-      : <button className="pn-sp-cta" onClick={() => onRoomInterest(item)}><Icon name="hand-heart" /> {t('flatmates.message')}</button>;
+      ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.sent')}</button>
+      : <button className="dz-sp-cta" onClick={() => onRoomInterest(item)}><Icon name="hand-heart" /> {t('flatmates.message')}</button>;
   } else if (item.kind === 'group') {
     const full = seatsLeft(item) <= 0;
     action = full
-      ? <button className="pn-sp-cta is-off" disabled><Icon name="lock" /> {t('flatmates.full')}</button>
+      ? <button className="dz-sp-cta is-off" disabled><Icon name="lock" /> {t('flatmates.full')}</button>
       : interested
-        ? <button className="pn-sp-cta is-done" disabled><Icon name="check-check" /> {item.policy === 'any' ? t('flatmates.joined') : t('flatmates.sent')}</button>
-        : <button className="pn-sp-cta" onClick={() => onJoin(item)}><Icon name={item.policy === 'any' ? 'user-plus' : 'user-check'} /> {item.policy === 'any' ? t('flatmates.join') : t('flatmates.request')}</button>;
+        ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {item.policy === 'any' ? t('flatmates.joined') : t('flatmates.sent')}</button>
+        : <button className="dz-sp-cta" onClick={() => onJoin(item)}><Icon name={item.policy === 'any' ? 'user-plus' : 'user-check'} /> {item.policy === 'any' ? t('flatmates.join') : t('flatmates.request')}</button>;
   } else {
     action = interested
-      ? <button className="pn-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.interested')}</button>
-      : <button className="pn-sp-cta" onClick={() => onInterest(item)}><Icon name="hand-heart" /> {t('flatmates.interest')}</button>;
+      ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.interested')}</button>
+      : <button className="dz-sp-cta" onClick={() => onInterest(item)}><Icon name="hand-heart" /> {t('flatmates.interest')}</button>;
   }
 
   return (
-    <div className="pn-sp-row">
-      <button type="button" className="pn-sp-rowmain" onClick={() => goToPosting(m.prefix, item.id, locality)} title={t('flatmates.titleViewDetails')}>
+    <div className="dz-sp-row">
+      <button type="button" className="dz-sp-rowmain" onClick={() => goToPosting(m.prefix, item.id, locality)} title={t('flatmates.titleViewDetails')}>
         {m.thumb
-          ? <img className="pn-sp-thumb" src={m.thumb} alt="" loading="lazy" />
-          : <span className={'pn-sp-av bg-gradient-to-br ' + m.avatarGrad}>{m.avatarIcon ? <Icon name={m.avatarIcon} /> : m.avatarText}</span>}
-        <span className="pn-sp-rowinfo">
-          <span className="pn-sp-rowtitle">{m.title}{m.verified ? <Icon name="shield-check" className="pn-sp-vtick" /> : null}</span>
-          <span className="pn-sp-rowmeta">{m.meta}</span>
+          ? <img className="dz-sp-thumb" src={m.thumb} alt="" loading="lazy" />
+          : <span className={'dz-sp-av bg-gradient-to-br ' + m.avatarGrad}>{m.avatarIcon ? <Icon name={m.avatarIcon} /> : m.avatarText}</span>}
+        <span className="dz-sp-rowinfo">
+          <span className="dz-sp-rowtitle">{m.title}{m.verified ? <Icon name="shield-check" className="dz-sp-vtick" /> : null}</span>
+          <span className="dz-sp-rowmeta">{m.meta}</span>
         </span>
-        <Icon name="chevron-right" className="pn-sp-chev" />
+        <Icon name="chevron-right" className="dz-sp-chev" />
       </button>
-      <div className="pn-sp-rowact">
+      <div className="dz-sp-rowact">
         {action}
-        <button type="button" className={'pn-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey)}><Icon name="bookmark" /></button>
+        <button type="button" className={'dz-sp-save' + (isSaved ? ' is-saved' : '')} aria-pressed={isSaved} aria-label={isSaved ? t('flatmates.saved') : t('flatmates.save')} onClick={() => onSave(saveKey)}><Icon name="bookmark" /></button>
       </div>
     </div>
   );
@@ -154,19 +154,19 @@ function FlatmateMap({ items, tab, kindWord, onInterest, onRoomInterest, onJoin,
               pixelOffset={IW_OFFSET}
               headerDisabled
               onClose={() => setOpenLoc(null)}
-              className="pn-gm-iw pn-gm-iw-share"
+              className="dz-gm-iw dz-gm-iw-share"
             >
-              <div className="pn-sp">
-                <div className="pn-sp-head">
-                  <div className="pn-sp-title">{openLoc}</div>
-                  <div className="pn-sp-sub">{t(`flatmates.${hereKey}`, { count: openList.length })}</div>
+              <div className="dz-sp">
+                <div className="dz-sp-head">
+                  <div className="dz-sp-title">{openLoc}</div>
+                  <div className="dz-sp-sub">{t(`flatmates.${hereKey}`, { count: openList.length })}</div>
                 </div>
-                <div className="pn-sp-list">
+                <div className="dz-sp-list">
                   {openList.slice(0, MAX_ROWS).map((item) => (
                     <PostRow key={(PREFIX[item.kind] || 's') + ':' + item.id} item={item} saved={saved} onSave={onSave} onInterest={onInterest} onRoomInterest={onRoomInterest} onJoin={onJoin} interestedFor={interestedFor} goToPosting={goToPosting} locality={openLoc} />
                   ))}
                 </div>
-                <button type="button" className="pn-sp-all" onClick={() => goToPosting(prefix, null, openLoc)}>
+                <button type="button" className="dz-sp-all" onClick={() => goToPosting(prefix, null, openLoc)}>
                   {openList.length > MAX_ROWS ? t('flatmates.seeAllInLoc', { count: openList.length, loc: openLoc }) : t('flatmates.openInList', { loc: openLoc })}
                   <Icon name="arrow-right" />
                 </button>

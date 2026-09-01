@@ -112,7 +112,7 @@ async function withConsent(page) {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem(
-        'pn_cookie_consent_v1',
+        'dz_cookie_consent_v1',
         JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }),
       );
     } catch { /* storage unavailable — the bar just stays up */ }
@@ -134,7 +134,7 @@ async function withConsent(page) {
  * undersized controls sat behind a green tick for as long as they did.
  *
  * Three gates now, in order:
- *   1. `appReady` — `main.jsx` sets `data-pn-boot="ready"` once the store and the
+ *   1. `appReady` — `main.jsx` sets `data-dz-boot="ready"` once the store and the
  *      one-shot migrations are done. A real signal rather than a coincidence.
  *   2. the candidate count clears `MIN_CANDIDATES`, which is what proves pixels
  *      exist: `appReady` fires just *before* the first render, so on its own it

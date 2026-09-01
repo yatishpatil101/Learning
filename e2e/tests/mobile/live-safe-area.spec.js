@@ -45,8 +45,8 @@ test.describe('Mobile safe area + PWA baseline', () => {
     const vars = await page.evaluate(() => {
       const s = getComputedStyle(document.documentElement);
       return {
-        safeB: s.getPropertyValue('--pn-safe-b').trim(),
-        navH: s.getPropertyValue('--pn-bottom-nav-h').trim(),
+        safeB: s.getPropertyValue('--dz-safe-b').trim(),
+        navH: s.getPropertyValue('--dz-bottom-nav-h').trim(),
       };
     });
     // Headless Chromium reports a 0px inset, which is exactly what a device without a
@@ -76,7 +76,7 @@ test.describe('Mobile safe area + PWA baseline', () => {
     test(`no two fixed layers overlap on ${route}`, async ({ page }) => {
       await page.addInitScript(() => {
         try {
-          localStorage.setItem('pn_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
+          localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({ necessary: true, functional: true, analytics: true, marketing: true, version: 1, ts: Date.now() }));
         } catch { /* storage unavailable — the consent bar just stays up */ }
       });
       await page.goto(route, { waitUntil: 'domcontentloaded' });
