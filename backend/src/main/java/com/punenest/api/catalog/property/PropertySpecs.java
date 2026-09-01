@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.hibernate.query.criteria.HibernateCriteriaBuilder;
+import org.hibernate.query.criteria.JpaExpression;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.util.StringUtils;
 
@@ -60,6 +62,7 @@ final class PropertySpecs {
     static Specification<Property> publicSearch(PropertySearchQuery filters, ListingFacets extra) {
         return (root, query, cb) -> {
             List<Predicate> where = facets(filters, root, cb);
+            publicTextSearch(filters, root, cb, where);
             listingFacets(extra, root, cb, where);
             // Public-visibility floor — non-negotiable, index-aligned.
             where.add(cb.isFalse(root.get("archived")));
@@ -215,6 +218,7 @@ final class PropertySpecs {
                 root.fetch("owner", JoinType.LEFT);
             }
             List<Predicate> where = facets(filters, root, cb);
+            adminTextSearch(filters, root, cb, where);
             if (filters.status() != null) {
                 where.add(cb.equal(root.get("status"), filters.status()));
             }
@@ -255,10 +259,14 @@ final class PropertySpecs {
     }
 
     /**
-     * The facets both searches share. Status and every {@link ModerationFacets} axis are
-     * deliberately <em>not</em> here: they are where the public and moderation reads differ, so
-     * keeping them at the call sites means neither can be changed by accident while editing a price
-     * or locality filter.
+     * The facets both searches share. Status, the free-text {@code q} and every
+     * {@link ModerationFacets} axis are deliberately <em>not</em> here: they are where the public
+     * and moderation reads differ, so keeping them at the call sites means neither can be changed by
+     * accident while editing a price or locality filter.
+     *
+     * <p>{@code q} left this method the day the moderation console needed to search an owner's name
+     * and phone number, which a shopper must never be able to. See {@link #publicTextSearch} and
+     * {@link #adminTextSearch}.
      */
     private static List<Predicate> facets(PropertySearchQuery filters, Root<Property> root,
             CriteriaBuilder cb) {
@@ -288,12 +296,6 @@ final class PropertySpecs {
         if (StringUtils.hasText(filters.possession())) {
             where.add(cb.equal(root.get("possession"), filters.possession()));
         }
-        if (StringUtils.hasText(filters.q())) {
-            String like = "%" + filters.q().toLowerCase() + "%";
-            where.add(cb.or(
-                    cb.like(cb.lower(root.get("title")), like),
-                    cb.like(cb.lower(root.get("locality")), like)));
-        }
         // Parsed here rather than at the controller so a value that is not an id at all becomes a
         // predicate matching nothing, instead of a 400 or — as the first draft did, comparing a
         // String against a UUID column — a 500. The profile page is reached by link, so a bad id
@@ -307,6 +309,85 @@ final class PropertySpecs {
             }
         }
         return where;
+    }
+
+    /**
+     * The free-text term as a <em>shopper</em> may ask it: title and locality, nothing else.
+     *
+     * <p>Deliberately a separate method from {@link #adminTextSearch} rather than one builder with a
+     * boolean, for the same reason {@link #adminSearch} is separate from {@link #publicSearch}: the
+     * difference between them is the owner's name and phone number, and a flag would put that one
+     * mistyped argument away from the busiest public read on the platform. What that mistake would
+     * buy an attacker is worth naming — {@code ?q=98234} against a widened public search answers
+     * "which landlords' numbers start 98234, and exactly what do they own", from an endpoint that
+     * needs no login. The listing pages mask the mobile precisely so that cannot be assembled.
+     *
+     * <p>The column stays bare on the left of the {@code LIKE} in neither case: {@code lower(title)}
+     * is not index-covered either way, and a leading-wildcard {@code LIKE} could not use a b-tree
+     * even if it were. This is a scan, and it is bounded by the facets applied alongside it.
+     */
+    private static void publicTextSearch(PropertySearchQuery filters, Root<Property> root,
+            CriteriaBuilder cb, List<Predicate> where) {
+        if (!StringUtils.hasText(filters.q())) {
+            return;
+        }
+        String like = "%" + filters.q().trim().toLowerCase() + "%";
+        where.add(cb.or(
+                cb.like(cb.lower(root.get("title")), like),
+                cb.like(cb.lower(root.get("locality")), like)));
+    }
+
+    /**
+     * The same term as a <em>moderator</em> asks it: title, locality, the owner's name, the owner's
+     * mobile, and the listing id.
+     *
+     * <p>The moderation console's search boxes have said "title, owner, locality" since they were
+     * written, and matched all three — in the browser, over whichever hundred listings had been
+     * fetched. That is a different feature with the same label: an owner rings the desk about a
+     * listing they posted last month, staff type the name, and the box answers "no listings match
+     * your filters" because the row is on page two. The queue banners this screen now renders say
+     * "narrow with the search box to reach the rest", which is only true once the term is a
+     * predicate the database can see.
+     *
+     * <p>Mobile is added rather than merely kept: it is the one key a desk always has, because the
+     * caller is on the phone. Name is not — Indian names are transliterated inconsistently enough
+     * that "Rajesh"/"Rajeshh" is an ordinary support call.
+     *
+     * <p>The id is matched as text so a partial paste works, which is how ids actually travel
+     * between people — the tail of one, quoted in chat. An exact {@code UUID.fromString} match would
+     * be cheaper and would reject every one of those.
+     *
+     * <p>That cast has to be a real one. {@code Path.as(String.class)} looks like the JPA spelling
+     * and is not: it re-types the expression for the compiler without emitting anything, so the
+     * generated SQL was {@code lower(uuid)} and every search on this screen answered
+     * <strong>500</strong> — including the ones matching on title, because a broken branch of an
+     * {@code OR} takes the whole query with it. {@link HibernateCriteriaBuilder#cast} emits the
+     * {@code cast(... as varchar)} Postgres needs. No {@code lower()} around it: Postgres renders a
+     * uuid as lowercase hex already, so the only side needing folding is the term.
+     *
+     * <p>{@code owner} is reached by path rather than an explicit join: {@code owner_id} is
+     * {@code NOT NULL}, so the implicit inner join cannot drop a row from either the page or its
+     * count, and the two {@code get}s share one join. It is a second join to {@code users} alongside
+     * {@link #adminSearch}'s fetch join, paid only when a term is present, on a query a handful of
+     * staff run interactively.
+     */
+    private static void adminTextSearch(PropertySearchQuery filters, Root<Property> root,
+            CriteriaBuilder cb, List<Predicate> where) {
+        if (!StringUtils.hasText(filters.q())) {
+            return;
+        }
+        String term = filters.q().trim().toLowerCase();
+        String like = "%" + term + "%";
+        // The path is typed to UUID before the cast because HibernateCriteriaBuilder.cast takes a
+        // JpaExpression<T>, and an untyped `root.get("id")` is a Path<Object> that matches nothing.
+        JpaExpression<UUID> id = (JpaExpression<UUID>) root.<UUID>get("id");
+        Expression<String> idAsText = ((HibernateCriteriaBuilder) cb).cast(id, String.class);
+        where.add(cb.or(
+                cb.like(cb.lower(root.get("title")), like),
+                cb.like(cb.lower(root.get("locality")), like),
+                cb.like(cb.lower(root.get("owner").get("name")), like),
+                cb.like(root.get("owner").get("mobile"), like),
+                cb.like(idAsText, like)));
     }
 
     /**

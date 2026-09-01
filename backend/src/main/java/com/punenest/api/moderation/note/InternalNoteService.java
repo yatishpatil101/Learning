@@ -39,6 +39,14 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The author is taken from the principal and is immutable. The client does not get to say who
  * wrote a note, for the same reason it does not get to say who filed a report.
  *
+ * <h2>One listing, one case file</h2>
+ *
+ * <p>Every id that reaches this service goes through {@link NoteEntityKey} first. A listing answers
+ * to both a slug and a uuid, both were arriving, and {@code entity_id} is free text — so one
+ * listing had two note histories and neither surface could tell, because each read back exactly
+ * what it had written. See that class for why normalising is not the same as existence-checking,
+ * which {@code V90} rules out on purpose.
+ *
  * <h2>What is audited, and what is not</h2>
  *
  * <p>Writing a note is not audited; editing one is. Adding is the ordinary work this table exists
@@ -54,13 +62,15 @@ public class InternalNoteService {
     private final InternalNoteMapper mapper;
     private final UserRepository users;
     private final AuditService audit;
+    private final NoteEntityKey key;
 
     public InternalNoteService(InternalNoteRepository notes, InternalNoteMapper mapper,
-            UserRepository users, AuditService audit) {
+            UserRepository users, AuditService audit, NoteEntityKey key) {
         this.notes = notes;
         this.mapper = mapper;
         this.users = users;
         this.audit = audit;
+        this.key = key;
     }
 
     /**
@@ -79,8 +89,8 @@ public class InternalNoteService {
     @Transactional(readOnly = true)
     public List<InternalNoteResponse> list(String entityType, String entityId) {
         requireKnownType(entityType);
-        List<InternalNote> rows =
-                notes.findByEntityTypeAndEntityIdOrderByCreatedAtDesc(entityType, entityId);
+        List<InternalNote> rows = notes.findByEntityTypeAndEntityIdOrderByCreatedAtDesc(
+                entityType, key.resolve(entityType, entityId));
         return decorate(rows);
     }
 
@@ -97,8 +107,8 @@ public class InternalNoteService {
     public InternalNoteResponse add(AuthPrincipal actor, String entityType, String entityId,
             String action, String text) {
         requireKnownType(entityType);
-        InternalNote note = new InternalNote(entityType, entityId, actor.userId(),
-                blankToNull(action), text.trim());
+        InternalNote note = new InternalNote(entityType, key.resolve(entityType, entityId),
+                actor.userId(), blankToNull(action), text.trim());
         return decorate(List.of(notes.saveAndFlush(note))).getFirst();
     }
 
@@ -132,6 +142,12 @@ public class InternalNoteService {
      * <p>Exists so a console can badge twenty rows without twenty round trips. Entities with no
      * notes are absent from the returned map rather than present with zero — a caller should read it
      * with a default, which is also what stops an empty result from needing a special case.
+     *
+     * <p><strong>Keyed by the identifier the caller passed, not by the one the rows are stored
+     * under.</strong> The lookup goes through {@link NoteEntityKey} like every other read here, so a
+     * console holding slugs gets counts; but returning the resolved uuids would hand that console a
+     * map it cannot index with the ids it has, and a badge that silently reads zero is exactly the
+     * "looks like nobody wrote one" failure this seam already had once.
      */
     @Transactional(readOnly = true)
     public Map<String, Long> countsFor(String entityType, List<String> entityIds) {
@@ -139,9 +155,13 @@ public class InternalNoteService {
         if (entityIds == null || entityIds.isEmpty()) {
             return Map.of();
         }
-        return notes.countByEntityTypeAndEntityIdIn(entityType, new LinkedHashSet<>(entityIds))
+        Map<String, String> asGiven = entityIds.stream().distinct().collect(Collectors.toMap(
+                given -> key.resolve(entityType, given), given -> given, (first, second) -> first));
+        return notes.countByEntityTypeAndEntityIdIn(entityType, new LinkedHashSet<>(asGiven.keySet()))
                 .stream()
-                .collect(Collectors.toMap(row -> (String) row[0], row -> (Long) row[1]));
+                .collect(Collectors.toMap(
+                        row -> asGiven.getOrDefault((String) row[0], (String) row[0]),
+                        row -> (Long) row[1]));
     }
 
     /**

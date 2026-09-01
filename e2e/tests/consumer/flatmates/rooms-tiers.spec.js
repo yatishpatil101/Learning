@@ -7,7 +7,15 @@ import { openFlatmateFilters } from '../../../helpers/app.js';
    approves the uploaded agreement (then "Tenant-verified"), seats can be
    reopened/closed by the owner, and the "Verified only" filter surfaces owner rooms
    and Ops-approved tenant rooms. Rooms are seeded directly (the create path is the
-   multi-step list-property wizard, covered elsewhere). */
+   multi-step list-property wizard, covered elsewhere).
+
+   Live cover, and why the seeding stays. `live-room-seat-stepper.spec.js` creates a real
+   standalone room over HTTP, publishes it through moderation and drives close/reopen from
+   the host card, reading `/me/flatmate-rooms` back after each action. It can only ever
+   prove one seat: `FlatmateRoomCreate` carries no property reference, so a standalone room
+   is a one-seat vacancy by server design and the 2→1→Filled walk below has no live shape.
+   The tier badges are the same localStorage `reviewStatus` read described in
+   `eligibility.spec.js`. Both reasons are properties of the app, not of the test. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';

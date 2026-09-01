@@ -130,22 +130,53 @@ const fetchRecheckQueue = (onError) => listForModeration({ recheck: true, archiv
  *
  * Keyed on the serialised filters so a caller can pass an object literal without memoising it —
  * `JSON.stringify` also drops the `undefined` values that would not have been sent anyway.
+ *
+ * Debounced, because `q` made these fetches keystroke-driven: an owner's name is a dozen requests
+ * typed at speed, and without a delay the last one to *arrive* wins rather than the last one sent.
+ * The `alive` flag already stops a stale response overwriting a fresh one, but it cannot stop the
+ * requests being made. The delay is skipped when there is no term — tab switches, the deal filter
+ * and `reloadToken` after a moderation decision are all single events, and making the desk wait a
+ * quarter second to watch a row disappear after they approved it would be a worse screen.
+ *
+ * `stale` is the price of that delay, and it is not cosmetic. Moving `q` to the server put time
+ * between the term the operator typed and the rows answering it; for those few hundred milliseconds
+ * the list still shows the *previous* result set while the box reads the new term. Every row on it
+ * carries Approve, Reject, Archive and Remind. Caught by `listing-freshness.spec.js`: the desk
+ * searched one owner's listing, pressed Remind on the only row it could see, and the chaser was
+ * written for a different owner entirely — a real outbound message, to the wrong person, produced
+ * by a search box. So the hook says out loud when its page does not answer the current key, and the
+ * list is inert until it does. This is inherent to a server-side search, not to the debounce: even
+ * at zero delay the fetch is not instant.
  */
 function useModerationQueue(filters, reloadToken) {
   const key = JSON.stringify(filters);
-  const [page, setPage] = useState(null);
-  const [failed, setFailed] = useState(false);
+  // The key the settled page answers, tracked with it rather than beside it so the two can never be
+  // read out of step.
+  const [state, setState] = useState({ page: null, failed: false, key: null });
+  const debounced = Boolean(filters.q);
   useEffect(() => {
     let alive = true;
-    searchForModeration(JSON.parse(key), 'newest')
-      .then((res) => { if (alive) { setPage(res); setFailed(false); } })
-      .catch((err) => {
-        console.error('[AdminProperties] moderation queue failed', key, err);
-        if (alive) { setPage(null); setFailed(true); }
-      });
-    return () => { alive = false; };
-  }, [key, reloadToken]);
-  return useMemo(() => ({ page, failed }), [page, failed]);
+    const run = () => {
+      searchForModeration(JSON.parse(key), 'newest')
+        .then((res) => { if (alive) { setState({ page: res, failed: false, key }); } })
+        .catch((err) => {
+          console.error('[AdminProperties] moderation queue failed', key, err);
+          if (alive) { setState({ page: null, failed: true, key }); }
+        });
+    };
+    if (!debounced) {
+      run();
+      return () => { alive = false; };
+    }
+    const t = setTimeout(run, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [key, reloadToken, debounced]);
+  return useMemo(
+    // Not stale before the first answer: `page` is null there, so the tab renders its loading gate
+    // and there are no rows to act on anyway. Calling that "stale" would double-report it.
+    () => ({ page: state.page, failed: state.failed, stale: state.key != null && state.key !== key }),
+    [state, key],
+  );
 }
 
 /**
@@ -165,6 +196,31 @@ function QueueTruncated({ page, noun, testId }) {
       <span className="font-semibold">{fmtNum(page.total)} {noun}.</span>{' '}
       Only the newest {fmtNum(page.items.length)} are on this page — narrow with the search box or
       the filters above to reach the rest.
+    </div>
+  );
+}
+
+/**
+ * The list, made inert while it is answering the previous search term.
+ *
+ * `pointer-events-none` is the load-bearing part and the rest is so the operator can see why: the
+ * rows below are a real answer to a question nobody is asking any more, and every one of them
+ * carries Approve, Reject, Archive and Remind. Blanking them instead would be worse — an empty list
+ * here reads as "no such listing", which is the lie this whole wave exists to stop, and it would
+ * make the page jump about under somebody who is still typing.
+ *
+ * Module scope rather than a closure inside the page, because a component declared during render is
+ * a new type on every render and React remounts its whole subtree — here, the entire queue, on
+ * every keystroke.
+ */
+function QueueBody({ stale, children }) {
+  return (
+    <div
+      aria-busy={stale || undefined}
+      className={stale ? 'pointer-events-none select-none opacity-50' : undefined}
+      data-testid={stale ? 'queue-updating' : undefined}
+    >
+      {children}
     </div>
   );
 }
@@ -381,6 +437,10 @@ export default function AdminProperties() {
    */
   const [allPage, setAllPage] = useState(null);
   const [allFailed, setAllFailed] = useState(false);
+  /* Which query the settled page answers — see `useModerationQueue`'s note on `stale`. This tab
+     runs its own fetch rather than the hook, so it has to carry the same flag itself. */
+  const [allKey, setAllKey] = useState(null);
+  const allQueryKey = JSON.stringify([qAll.trim(), fStatus, fDeal]);
   useEffect(() => {
     let alive = true;
     const q = qAll.trim();
@@ -396,17 +456,18 @@ export default function AdminProperties() {
           ? { archived: true }
           : { archived: false, status: fStatus || undefined }),
       }, 'newest')
-        .then((res) => { if (alive) { setAllPage(res); setAllFailed(false); } })
+        .then((res) => { if (alive) { setAllPage(res); setAllFailed(false); setAllKey(allQueryKey); } })
         .catch((err) => {
           console.error('[AdminProperties] moderation search failed', err);
           // `null` rows, not `[]`. An empty array renders "No listings match your filters", which
           // is a claim about the catalogue; a failed request has made no such claim.
-          if (alive) { setAllPage(null); setAllFailed(true); }
+          if (alive) { setAllPage(null); setAllFailed(true); setAllKey(allQueryKey); }
         });
     };
     const t = setTimeout(run, q ? 250 : 0);
     return () => { alive = false; clearTimeout(t); };
-  }, [qAll, fStatus, fDeal, reloadToken]);
+  }, [qAll, fStatus, fDeal, reloadToken, allQueryKey]);
+  const allStale = allKey != null && allKey !== allQueryKey;
 
   /* The two axes the server cannot answer, applied to the page it returned.
    *
@@ -449,36 +510,57 @@ export default function AdminProperties() {
   /* Each queue is its own server query now — see `useModerationQueue` for what the single shared
      fetch was actually showing the desk.
    *
-   * `deal` goes to the server because it is a real facet there and narrowing early can only reduce
-   * truncation. `q` and the date pills stay in the browser, deliberately: the server's `q` is
-   * title-or-locality only, while every box on this screen also searches owner, staff name and
-   * listing id, so pushing it down today would trade a page-cap defect for a narrower search. That
-   * is filed as its own change; until then these queues are complete sets in the ordinary case, and
-   * `QueueTruncated` says so when they are not. */
-  const verifyQueue = useModerationQueue({ status: 'pending', archived: false, deal: fDeal || undefined }, reloadToken);
-  const flaggedQueue = useModerationQueue({ status: 'flagged', archived: false, deal: fDeal || undefined }, reloadToken);
-  const featuredQueue = useModerationQueue({ featured: true, archived: false, deal: fDeal || undefined }, reloadToken);
-  const staffQueue = useModerationQueue({ postedByAdmin: true, archived: false, deal: fDeal || undefined }, reloadToken);
+   * `deal` and `q` both go to the server. `q` could not until the server's term matched what these
+   * boxes claim to search: it was title-or-locality, while every placeholder on this screen also
+   * offers owner and listing id, so pushing it down would have traded a page-cap defect for a
+   * narrower search. `adminTextSearch` now covers title, locality, owner name, owner mobile and the
+   * id, so the term is a predicate the database can see — which is what the truncation banners have
+   * been telling operators to do all along ("narrow with the search box to reach the rest"). Typing
+   * a name that only appears on page three used to answer "no listings match your filters".
+   *
+   * Debounced, because this is a keystroke-driven fetch: see `useModerationQueue`.
+   *
+   * The date pills stay in the browser. They are a `createdAt` window with no query parameter, and
+   * unlike `q` they narrow a set the operator can already see rather than reaching past the page.
+   *
+   * Owner *mobile* is new to these boxes and deliberately not advertised in every placeholder — the
+   * three that say "owner" mean the person, and a desk with a caller on the line will try the
+   * number whether or not the grey text invites it. */
+  const verifyQueue = useModerationQueue({ status: 'pending', archived: false, q: qVerify || undefined, deal: fDeal || undefined }, reloadToken);
+  const flaggedQueue = useModerationQueue({ status: 'flagged', archived: false, q: qFlagged || undefined, deal: fDeal || undefined }, reloadToken);
+  const featuredQueue = useModerationQueue({ featured: true, archived: false, q: qFeatured || undefined, deal: fDeal || undefined }, reloadToken);
+  const staffQueue = useModerationQueue({ postedByAdmin: true, archived: false, q: qStaff || undefined, deal: fDeal || undefined }, reloadToken);
   /* The one queue whose rows are approved, un-archived and live in search right now — which is why
      it needs a desk at all. It also used to be empty by construction against the live API: the
      predicate began `if (!l.real ...)`, and `real` is a mock-store field the http mapper has never
      emitted, so every live listing failed the first test. The tab read "All caught up" over
      fifty-three listings whose owners had gone silent. */
-  const unconfirmedQueue = useModerationQueue({ status: 'approved', archived: false, unconfirmed: true, deal: fDeal || undefined }, reloadToken);
+  const unconfirmedQueue = useModerationQueue({ status: 'approved', archived: false, unconfirmed: true, q: qFollowUp || undefined, deal: fDeal || undefined }, reloadToken);
+  /* The follow-up tab asks the verification queue's question with its own search box, so it needs
+     its own fetch: folding it back into `verifyQueue` would mean typing in the Verification tab's
+     box silently re-cut the follow-up split, and typing in the follow-up box re-cut the
+     verification queue. Identical requests while both boxes are empty, which is the honest cost of
+     two independent controls over one question — and cheaper than the alternative, which is a
+     shared fetch that answers whichever box was typed in last. */
+  const followUpQueue = useModerationQueue({ status: 'pending', archived: false, q: qFollowUp || undefined, deal: fDeal || undefined }, reloadToken);
+
+  /* The `q` term is gone from every row filter below, not merely duplicated at the server.
+     Leaving it would have been worse than redundant: the server matches owner *mobile* and these
+     predicates never did, so a desk searching the number of the owner on the phone would have had
+     the server find the row and the browser throw it away — a search that works everywhere except
+     the screen. The date pills stay, being a window with no query parameter behind it. */
 
   const rowsVerify = useMemo(() => {
     const list = verifyQueue.page?.items || [];
-    const q = qVerify.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [verifyQueue, qVerify, dateRange]);
+    return list.filter((l) => !cutoff || new Date(l.createdAt).getTime() >= cutoff);
+  }, [verifyQueue, dateRange]);
 
   const rowsFlagged = useMemo(() => {
     const list = flaggedQueue.page?.items || [];
-    const q = qFlagged.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => (!q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [flaggedQueue, qFlagged, dateRange]);
+    return list.filter((l) => !cutoff || new Date(l.createdAt).getTime() >= cutoff);
+  }, [flaggedQueue, dateRange]);
 
   /* Oldest first, always. Sorting is deliberately not offered: the queue's only ordering that
      means anything is how long each listing has been live-but-unreviewed, and letting a moderator
@@ -505,10 +587,9 @@ export default function AdminProperties() {
 
   const rowsFeatured = useMemo(() => {
     const list = featuredQueue.page?.items || [];
-    const q = qFeatured.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => (!q || (l.title + l.locality + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [featuredQueue, qFeatured, dateRange]);
+    return list.filter((l) => !cutoff || new Date(l.createdAt).getTime() >= cutoff);
+  }, [featuredQueue, dateRange]);
 
   /* Filtered on `postedByAdmin`, which is the indexable column, rather than on `postedByStaff`,
      which is the staff member's id inside a jsonb map. `markPostedOnBehalf` writes both in one
@@ -516,23 +597,19 @@ export default function AdminProperties() {
      question about, and the search box below still reads the staff name off the row. */
   const rowsStaff = useMemo(() => {
     const list = staffQueue.page?.items || [];
-    const q = qStaff.toLowerCase();
     const cutoff = dateRange ? Date.now() - Number(dateRange) * 86400000 : 0;
-    return list.filter((l) => (!q || (l.title + l.owner + l.locality + (l.postedByStaff || '') + l.id).toLowerCase().includes(q)) && (!cutoff || new Date(l.createdAt).getTime() >= cutoff));
-  }, [staffQueue, qStaff, dateRange]);
+    return list.filter((l) => !cutoff || new Date(l.createdAt).getTime() >= cutoff);
+  }, [staffQueue, dateRange]);
 
   /* The follow-up split runs over the *complete* pending queue rather than over whichever pending
      rows happened to be in the shared page — which is the difference between "no listing has been
-     waiting more than 48 hours" and "no listing in the newest hundred has". Same fetch as the
-     verification tab, since both ask the server the same question. */
+     waiting more than 48 hours" and "no listing in the newest hundred has". */
   const { rowsFollowUp, rowsStale, rowsAwaiting } = useMemo(() => {
-    const list = verifyQueue.page?.items || [];
+    const list = followUpQueue.page?.items || [];
     const now = Date.now();
-    const q = qFollowUp.toLowerCase();
     const stale = [];
     const awaiting = [];
     list.forEach((l) => {
-      if (q && !(l.title + l.owner + l.locality + l.id).toLowerCase().includes(q)) return;
       const created = new Date(l.createdAt).getTime();
       const isStale = (now - created) > 48 * 60 * 60 * 1000;
       const isAwaitingOwner = l.postedByAdmin && (!l.photosUploaded || !l.aadhaarVerified);
@@ -543,15 +620,13 @@ export default function AdminProperties() {
     stale.sort(byCreated);
     awaiting.sort(byCreated);
     return { rowsFollowUp: [...stale, ...awaiting], rowsStale: stale, rowsAwaiting: awaiting };
-  }, [verifyQueue, qFollowUp]);
+  }, [followUpQueue]);
 
   const rowsUnconfirmed = useMemo(() => {
     const list = unconfirmedQueue.page?.items || [];
-    const q = qFollowUp.toLowerCase();
-    return list
-      .filter((l) => !q || (l.title + l.owner + l.locality + l.id).toLowerCase().includes(q))
+    return [...list]
       .sort((a, b) => new Date(a.freshenedAt || a.createdAt) - new Date(b.freshenedAt || b.createdAt));
-  }, [unconfirmedQueue, qFollowUp]);
+  }, [unconfirmedQueue]);
 
   const activeFollowUp =
     followUpSub === 'unconfirmed' ? rowsUnconfirmed :
@@ -560,7 +635,7 @@ export default function AdminProperties() {
     rowsFollowUp;
   /* The follow-up tab switches between two different fetches, so its loading, failure and
      truncation states have to follow the sub-filter rather than being pinned to one of them. */
-  const activeFollowUpQueue = followUpSub === 'unconfirmed' ? unconfirmedQueue : verifyQueue;
+  const activeFollowUpQueue = followUpSub === 'unconfirmed' ? unconfirmedQueue : followUpQueue;
 
   /* Resolves an id back to its row. It used to search `all` alone, which was survivable only while
      every tab was a slice of `all`; now that each queue is its own fetch, a listing can be selected
@@ -955,6 +1030,22 @@ export default function AdminProperties() {
 
   const actions = { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onClearFlag: doClearFlag, onArchive: doArchive, onRestore: doRestore, onReview: openReview, onReminder: handleReminder, onRecheckPass: doRecheckPass, onRecheckFail: openRecheckReject };
 
+  /* Whether the rows on screen still answer the term in the box, per tab.
+   *
+   * Looked up from `activeTab` rather than threaded through `renderListTab`, which already takes
+   * ten positional arguments; every call to it sits inside its own tab's branch, so the active tab
+   * *is* the queue being rendered. Re-check and Pipeline are absent because neither has a server
+   * `q` — `qRecheck` still narrows its own fetched rows client-side and so is never out of step. */
+  const staleByTab = {
+    all: allStale,
+    verify: verifyQueue.stale,
+    followup: activeFollowUpQueue.stale,
+    staff: staffQueue.stale,
+    flagged: flaggedQueue.stale,
+    featured: featuredQueue.stale,
+  };
+  const rowsAreStale = Boolean(staleByTab[activeTab]);
+
   const renderListTab = (rows, query, setQuery, placeholder, countLabel, extraFilters, cardActions, selectable, selected, onSelect) => (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -962,18 +1053,22 @@ export default function AdminProperties() {
         {extraFilters}
         <DealPills value={fDeal} onChange={setFDeal} />
         <DateRangePills value={dateRange} onChange={setDateRange} />
-        <span className="ml-auto text-sm text-gray-400">{rows.length} {countLabel}</span>
+        <span className="ml-auto text-sm text-gray-400">
+          {rowsAreStale ? 'Searching\u2026' : `${rows.length} ${countLabel}`}
+        </span>
       </div>
-      {rows.length === 0 ? (
-        <p className="pn-card p-8 text-center text-gray-500">No listings match your filters</p>
-      ) : (
-        <div className="space-y-3">
-          {rows.slice(0, PAGE_LIMIT).map((l) => (
-            <AdminPropertyCard key={l.id} listing={l} selectable={selectable} selected={selected?.(l.id)} onSelect={onSelect} showQualityScore={optionEnabled('properties.qualityScore')} actions={cardActions} />
-          ))}
-          <PaginationHint total={rows.length} />
-        </div>
-      )}
+      <QueueBody stale={rowsAreStale}>
+        {rows.length === 0 ? (
+          <p className="pn-card p-8 text-center text-gray-500">No listings match your filters</p>
+        ) : (
+          <div className="space-y-3">
+            {rows.slice(0, PAGE_LIMIT).map((l) => (
+              <AdminPropertyCard key={l.id} listing={l} selectable={selectable} selected={selected?.(l.id)} onSelect={onSelect} showQualityScore={optionEnabled('properties.qualityScore')} actions={cardActions} />
+            ))}
+            <PaginationHint total={rows.length} />
+          </div>
+        )}
+      </QueueBody>
     </div>
   );
 
@@ -1090,13 +1185,20 @@ export default function AdminProperties() {
       {activeTab === 'featured' && (
         <>
           <QueueTruncated page={featuredQueue.page} noun="listings are featured" testId="featured-truncated" />
-          {featuredQueue.failed ? <QueueFailed noun="featured" testId="featured-error" /> : renderListTab(rowsFeatured, qFeatured, setQFeatured, 'Search title, locality\u2026', 'featured', null, { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onArchive: doArchive })}
+          {featuredQueue.failed ? <QueueFailed noun="featured" testId="featured-error" /> : renderListTab(rowsFeatured, qFeatured, setQFeatured, 'Search title, owner, locality\u2026', 'featured', null, { onView: setView, onEdit: openEdit, onFeature: doFeature, onFlag: openFlag, onArchive: doArchive })}
         </>
       )}
       {activeTab === 'staff' && (
         <>
           <QueueTruncated page={staffQueue.page} noun="listings were posted by staff" testId="staff-truncated" />
-          {staffQueue.failed ? <QueueFailed noun="staff-posted" testId="staff-error" /> : renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, staff name\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
+          {/* "staff name" is gone from this placeholder. The browser-side filter used to include
+              `postedByStaff`, which reads as staff-name search and was one against the mock, where
+              the console wrote the display name into the row it then searched. The server derives
+              that field from the caller's token, so live it is a uuid inside a jsonb map — typing
+              "Priya" matched nothing then and matches nothing now. Promising it was the defect;
+              removing the promise is the fix, and a real staff-name filter is a `users` join and a
+              query parameter of its own. */}
+          {staffQueue.failed ? <QueueFailed noun="staff-posted" testId="staff-error" /> : renderListTab(rowsStaff, qStaff, setQStaff, 'Search title, owner, locality\u2026', 'staff-posted', null, { onView: setView, onEdit: openEdit, onReview: openReview, onArchive: doArchive })}
         </>
       )}
 
@@ -1107,7 +1209,9 @@ export default function AdminProperties() {
             <Select value={followUpSub} onChange={setFollowUpSub} options={[{ value: 'all', label: 'All reasons' }, { value: 'stale', label: 'Stale pending' }, { value: 'awaiting', label: 'Awaiting owner' }, { value: 'unconfirmed', label: 'Unconfirmed (stale)' }]} className="sm:w-48" ariaLabel="Filter by reason" />
             <DealPills value={fDeal} onChange={setFDeal} />
             <DateRangePills value={dateRange} onChange={setDateRange} />
-            <span className="ml-auto text-sm text-gray-400">{activeFollowUp.length} listings</span>
+            <span className="ml-auto text-sm text-gray-400">
+              {rowsAreStale ? 'Searching\u2026' : `${activeFollowUp.length} listings`}
+            </span>
           </div>
           <QueueTruncated
             page={activeFollowUpQueue.page}
@@ -1120,20 +1224,25 @@ export default function AdminProperties() {
               <span>Live listings whose owners haven't confirmed availability in over {30} days. Send a WhatsApp nudge so buyers keep seeing fresh, trustworthy listings.</span>
             </p>
           )}
-          {activeFollowUpQueue.failed ? (
-            <QueueFailed noun="follow-up" testId="followup-error" />
-          ) : activeFollowUp.length === 0 ? (
-            <p className="pn-card p-8 text-center text-gray-500">All caught up — no listings need follow-up right now.</p>
-          ) : (
-            <div className="space-y-3">
-              {activeFollowUp.slice(0, PAGE_LIMIT).map((l) => (
-                <AdminPropertyCard key={l.id} listing={l} showQualityScore={optionEnabled('properties.qualityScore')} actions={followUpSub === 'unconfirmed'
-                  ? { onView: setView, onEdit: openEdit, onReminder: handleConfirmReminder, reminderAlways: true, onFlag: openFlag, onArchive: doArchive }
-                  : { onView: setView, onEdit: openEdit, onReview: openReview, onReminder: handleReminder, onFlag: openFlag, onArchive: doArchive }} />
-              ))}
-              <PaginationHint total={activeFollowUp.length} />
-            </div>
-          )}
+          {/* Wrapped for the same reason as every other queue, and this is the tab that proved the
+              need: `onReminder` writes a chaser to a named owner and opens WhatsApp. Acting on a
+              row that answers the previous term sends a real message to the wrong person. */}
+          <QueueBody stale={rowsAreStale}>
+            {activeFollowUpQueue.failed ? (
+              <QueueFailed noun="follow-up" testId="followup-error" />
+            ) : activeFollowUp.length === 0 ? (
+              <p className="pn-card p-8 text-center text-gray-500">All caught up — no listings need follow-up right now.</p>
+            ) : (
+              <div className="space-y-3">
+                {activeFollowUp.slice(0, PAGE_LIMIT).map((l) => (
+                  <AdminPropertyCard key={l.id} listing={l} showQualityScore={optionEnabled('properties.qualityScore')} actions={followUpSub === 'unconfirmed'
+                    ? { onView: setView, onEdit: openEdit, onReminder: handleConfirmReminder, reminderAlways: true, onFlag: openFlag, onArchive: doArchive }
+                    : { onView: setView, onEdit: openEdit, onReview: openReview, onReminder: handleReminder, onFlag: openFlag, onArchive: doArchive }} />
+                ))}
+                <PaginationHint total={activeFollowUp.length} />
+              </div>
+            )}
+          </QueueBody>
         </div>
       )}
 

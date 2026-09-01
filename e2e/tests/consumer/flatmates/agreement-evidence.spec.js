@@ -29,7 +29,21 @@ import { approveFlatmates, postAsGroup, switchToTeamUp } from '../../../helpers/
 
    Leaving two permanently-red tests in place would have been the worse option. A
    suite with standing failures teaches its readers to scroll past red, which is how
-   the next genuine regression gets scrolled past too. */
+   the next genuine regression gets scrolled past too.
+
+   ## Why the two consumer tests below are still mock-side
+
+   `live-agreement-evidence-browser.spec.js` now drives the same uploader against the
+   real server and proves the half that is server-owned: an upload lands as
+   `verificationTier: 'tenant'` with a row in `/admin/flatmate-reviews` carrying the
+   document, and a bare declaration stays `identity` with no row. That is the contract.
+
+   What it deliberately does not claim is what the two tests below assert — the words on
+   the card. `useFlatmates` reads `reviewStatus` from `getFlatmateReviewStatusMap()` in
+   localStorage, not from the review route, so on a live build the card has no
+   browser-readable pending state and asserting one would mean seeding the very state the
+   spec exists to prove. These two are therefore the only cover for the rendered claim and
+   stay until that read moves onto the seam. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const TENANT = '9812345678';

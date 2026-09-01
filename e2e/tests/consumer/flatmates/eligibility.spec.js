@@ -7,7 +7,16 @@ import { approveFlatmates, postAsGroup, switchToTeamUp, openFlatmateFilters, app
    only after Ops approves it; until then the post shows "Pending Ops review". An
    owner attaches an Ops-verified property to earn "Owner-verified". Identity-only
    posts carry no host badge. The "Verified only" filter surfaces owner-verified and
-   Ops-approved tenant groups. */
+   Ops-approved tenant groups.
+
+   Live cover, and what it stops short of. `live-eligibility.spec.js` owns the route-level
+   tier derivation and `live-browser-eligibility.spec.js` proves the browser half for the
+   owner tier — a real owner-tier group renders Owner-verified and survives "Verified only"
+   while a real identity group is filtered out. Neither claims the tenant states asserted
+   here: `useFlatmates` still reads `reviewStatus` from the localStorage review map rather
+   than the review route, so "Pending Ops review" and the earned "Tenant-verified" badge
+   have no live browser-readable source. Those tests stay mock-side until that read moves
+   onto the seam. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 const MOBILE = '9812345678';

@@ -27,7 +27,10 @@ function toViewModel(row) {
     name: row.name ?? undefined,
     query: row.query ?? '',
     criteria: row.criteria ?? undefined,
-    label: row.label || filters.label || '',
+    // `label` is in TOP_LEVEL, so it is never written into the filters blob — there is no route by
+    // which `filters.label` could be populated by this client, and a fallback to it read as if
+    // there were one.
+    label: row.label || '',
     mobile: row.mobile ?? undefined,
     alertFrequency: row.alertFrequency || 'daily',
     // Derived so the existing Switch and the `s.alerts !== false` guards keep working unchanged.
@@ -64,7 +67,14 @@ function toCreateRequest(record = {}) {
   const kind = record.kind || 'listings';
   return {
     kind,
-    name: record.name,
+    // The wire calls the human summary `name`; the cards call it `label`. `SavedSearchCreate` has
+    // no `label` field at all, and the server derives the stored label from `name` or leaves it
+    // null — "the user-given name wins; otherwise there is nothing to invent". Since `label` is
+    // also excluded from the filters blob by TOP_LEVEL, sending only `record.name` meant every
+    // alert built by a card (which sets `label` and never `name`) was stored label-less: the
+    // dashboard titled them all "Saved search" and the match notification said "your saved
+    // search" instead of naming the criteria.
+    name: record.name || record.label,
     // The server requires a query for a listings alert and forbids relying on it for flatmates.
     // Several call sites save a filter-only alert with `query: ''`, so fall back to the label —
     // it is the human summary of exactly those filters, which is what the user would have typed.

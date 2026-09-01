@@ -16,7 +16,6 @@
  * localStorage store on the day it was broken. So:
  *
  * - one session writes, a **different signed-in account** reads it back;
- * - the note appears on the **communication log**, which had an indigo `note` style and no producer;
  * - a note on a **person** survives closing and reopening the drawer.
  *
  * ## Why this is still a mock spec, stated honestly
@@ -31,7 +30,7 @@
  * real thing — which can only ever restate a claim the live suite already owns, and quietly
  * becomes false the day the two drift, in the direction of the fake.
  *
- * So the six tests below are not one bucket. They are three:
+ * So the five tests below are not one bucket. They are two:
  *
  * - **Genuinely client-only, and the reason this file still exists.** `the Add note button will
  *   not file an empty note` is a claim about a control that never issues a request — no server can
@@ -40,15 +39,19 @@
  *   of one does not block the decision, which is a branch in the handler rather than a row anywhere.
  * - **Duplicates of live coverage, kept only for the run time.** `survives the decision and is
  *   there for whoever opens the listing next` and `the note carries the byline of whoever wrote it`
- *   are both `live-notes.spec.js:78` (`a note one account files is read by another, under the
- *   writer's name`); `a note on an account is there when the drawer is opened again` is
- *   `live-notes.spec.js:159`. These three prove nothing here that is not proved there against
+ *   are both `live-notes.spec.js` (`a note one account files is read by another, under the
+ *   writer's name`); `a note on an account is there when the drawer is opened again` is the drawer
+ *   test in the same file. These three prove nothing here that is not proved there against
  *   Postgres, and they prove it against a store that agrees with the client by construction.
- * - **A gap, named rather than left implied.** `a note lands on the timeline that had a style for
- *   it and no source` has no counterpart in `live-notes.spec.js`. The communication log rendering a
- *   note is a server-observable claim — the row has to come back on the log read — so it belongs
- *   over there and does not yet exist over there. Converting it is the one piece of real work this
- *   file still owes.
+ *
+ * The gap this docblock used to name is closed. `a note lands on the timeline that had a style for
+ * it and no source` has moved to `live-notes.spec.js` as `a note taken during a review is on the
+ * timeline when the case file is reopened` — the communication log rendering a note is a
+ * server-observable claim, the row has to come back on the log read, so it belonged over there.
+ * Converting it found a real defect this file could not have seen: the console addresses a listing
+ * by slug and the enquiries board by uuid, and notes were being filed into two separate histories
+ * under one listing. One localStorage database serving every login here agrees with whichever id
+ * it is handed, so both halves passed.
  *
  * `live-notes.spec.js` is what proves the seam reaches Postgres and that two *different people* see
  * the same row.
@@ -155,43 +158,6 @@ test.describe('A note filed beside a decision', () => {
     const note = history.getByText('Same photos as the Baner listing from last week.');
     await expect(note).toBeVisible();
     await expect(history.getByText(/Admin|Staff/).first()).toBeVisible();
-  });
-});
-
-test.describe('Notes on the communication log', () => {
-  test('a note lands on the timeline that had a style for it and no source', async ({ page, login }) => {
-    await login.asAdmin();
-
-    /* The review modal is reached by deep link rather than through the queue, because every
-       decision that files a note also moves the listing off the queue it was sitting in. The link
-       resolves against the whole catalogue, so the same case file reopens either way. */
-    await page.goto('/admin/properties?review=PRC001');
-    await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
-
-    const modal = page.getByRole('dialog');
-    await writeNote(page, modal, 'Rang the owner; the rent excludes maintenance.');
-    /* Approving with checklist items still unticked raises a `window.confirm`, which Playwright
-       dismisses by default — which would silently abort the decision and leave this test asserting
-       nothing. Say yes: the checklist is not what is under test here. */
-    page.once('dialog', (d) => d.accept());
-    await modal.getByRole('button', { name: /Approve & publish/ }).click();
-    await expect(page.getByText(/Approved & published/)).toBeVisible();
-
-    await page.goto('/admin/properties?review=PRC001');
-    await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
-
-    /* `CommunicationLog` has had an indigo `note` style since it was written, with nothing
-       producing one. The chaser ledger and the notes are the same question — what has already been
-       done about this listing — and reading them in two panels made the operator interleave them
-       by eye. */
-    const log = page.getByRole('button', { name: /Communication log/ });
-    await expect(log).toBeVisible();
-    await log.click();
-    const entry = page.getByTestId('comms-entry').filter({ hasText: 'Rang the owner' });
-    await expect(entry).toHaveCount(1);
-    await expect(entry.getByTestId('comms-entry-detail')).toHaveText('Rang the owner; the rent excludes maintenance.');
-    // The byline the outreach rows cannot carry: the notes route resolves the author server-side.
-    await expect(entry).toContainText('Note \u2014 Approved');
   });
 });
 

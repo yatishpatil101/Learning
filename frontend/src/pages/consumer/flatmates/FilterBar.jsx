@@ -126,8 +126,11 @@ function FilterControls({ filters, setF, seg, budgetLbl, genderLabel, tab }) {
         </Field>
       )}
       <Field label={genderLabel}>
+        {/* `aria-pressed` so the selected option is announced, not just tinted. The lifestyle tags
+            below already carry it; without it here the only signal is the `seg()` class, which a
+            screen reader cannot see. */}
         <div className="flex gap-2">
-          {[['', t('flatmates.gEveryone')], ['female', t('flatmates.gWomen')], ['male', t('flatmates.gMen')]].map(([g, label]) => <button key={label} onClick={() => setF({ gender: g })} className={seg(filters.gender === g)}>{label}</button>)}
+          {[['', t('flatmates.gEveryone')], ['female', t('flatmates.gWomen')], ['male', t('flatmates.gMen')]].map(([g, label]) => <button key={label} onClick={() => setF({ gender: g })} aria-pressed={filters.gender === g} className={seg(filters.gender === g)}>{label}</button>)}
         </div>
       </Field>
       {showSharing && (

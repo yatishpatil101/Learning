@@ -27,15 +27,26 @@ import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
      - **The wire word is `property`.** The console has said `listing` since it was a mock; the
        schema says `property`, like every other route. One mapper bridges the two and the server
        refuses the console's word outright, so a second spelling cannot quietly take root.
+     - **One listing, one case file.** A listing answers to a slug *and* a uuid, the contract takes
+       either, and different screens hold different ones. Until `NoteEntityKey` that made two
+       histories with nothing on screen to say so. Every suite was blind to it by construction —
+       the console specs speak slug on both sides of every assertion, these speak uuid on both
+       sides — so the assertion had to be one that crosses.
 
    ## What is asserted through the browser and what is asserted through `fetch`
 
-   Only the notes panel on a person goes through the UI, because `/admin/users` has a server-side
-   search and a fresh row can be reached by name in one step. The listing notes are asserted against
-   the API: a listing this file creates would be somewhere on page four of the console's catalogue,
-   and a spec that pages to find it is asserting about pagination.
+   Through the browser: the notes panel on a person, because `/admin/users` has a server-side search
+   and a fresh row can be reached by name in one step; and the review modal's communication log,
+   because "the note is rendered on the timeline" is a claim about a screen that no API call can
+   answer. Both are round trips — the log is re-read after a reload, which is exactly what the
+   localStorage store could fake.
 
-   Fixtures: Sakshi Rao, read-only, for the drawer. Every listing here is created by its own test.
+   Everything else is asserted against the API. A listing this file creates would be somewhere on
+   page four of the console's catalogue, and a spec that pages to find it is asserting about
+   pagination.
+
+   Fixtures: Sakshi Rao, read-only, for the drawer. Every listing here is created by its own test,
+   except where a *seeded* one is needed because only seeded listings have a slug.
 */
 
 const RENTAL_STAFF = '9733798115';
@@ -72,6 +83,28 @@ async function freshListing(title) {
   });
   expect(res.status).toBe(201);
   return (await res.json()).id;
+}
+
+/**
+ * A seeded listing that answers to both of its public identifiers.
+ *
+ * Only seeded rows have a slug — nothing in the application mints one, so a listing this file
+ * creates has a uuid and nothing else, and could not show the split below even when it existed.
+ */
+async function slugAndUuid() {
+  const res = await fetch(`${API}/admin/properties?status=approved&size=1`, { headers: await admin() });
+  expect(res.status).toBe(200);
+  const row = (await res.json()).content?.[0];
+  expect(row?.slug, 'seeded listings carry a slug — see the V5 catalogue seed').toBeTruthy();
+  return { slug: row.slug, uuid: row.id, title: row.title };
+}
+
+/** Expand the collapsed "Internal note (optional)" disclosure and type into it. */
+async function writeNote(dialog, text) {
+  await dialog.getByRole('button', { name: /Internal note \(optional\)/ }).click();
+  const box = dialog.getByPlaceholder(/Add a note for the team/);
+  await expect(box).toBeVisible();
+  await box.fill(text);
 }
 
 test.describe('LIVE — notes are one table, read by everyone in the back office', () => {
@@ -152,6 +185,98 @@ test.describe('LIVE — notes are one table, read by everyone in the back office
     const buyer = await authHeaders('9700000001');
     expect((await listNotes('property', id, buyer)).status).toBe(403);
     expect((await addNote('property', id, { text: 'Let me in.' }, buyer)).status).toBe(403);
+  });
+
+  test('both ids a listing answers to open the same case file', async () => {
+    const { slug, uuid } = await slugAndUuid();
+
+    /* A listing has two public identifiers and the contract accepts either one everywhere, so both
+       were arriving at a table whose `entity_id` is free text. The moderation console sends the
+       slug — its seam id is `slug || uuid` — and the enquiries board sends the uuid, because an
+       enquiry row carries `propertyId` straight off the wire.
+
+       That gave one listing two histories and told nobody. Each writer read back exactly what it
+       had written, so both screens looked correct: the note about having responded to an enquiry
+       was filed against a key the review modal's timeline never queries, and was simply absent
+       from the case file. An empty history and a history you cannot see render identically — the
+       precise failure V90 was created to end, one layer down.
+
+       Neither suite could catch it alone. The console-driven specs speak slug on both sides of
+       every assertion and the API specs here speak uuid on both sides, so each was internally
+       consistent and blind. This is the assertion that crosses. */
+    const viaEnquiries = `Rang the owner back about their enquiry ${Date.now()}`;
+    expect((await addNote('property', uuid, { text: viaEnquiries, action: 'responded' })).status).toBe(201);
+
+    const viaConsole = `Photos re-checked against the RERA filing ${Date.now()}`;
+    expect((await addNote('property', slug, { text: viaConsole, action: 'Approved' })).status).toBe(201);
+
+    for (const [label, id] of [['slug', slug], ['uuid', uuid]]) {
+      const seen = await listNotes('property', id);
+      expect(seen.status, `read by ${label}`).toBe(200);
+      const texts = seen.body.map((n) => n.text);
+      expect(texts, `read by ${label} is missing the note filed under the other id`)
+        .toEqual(expect.arrayContaining([viaEnquiries, viaConsole]));
+    }
+  });
+
+  test('an id that resolves to no listing still takes a note', async () => {
+    /* Normalising a slug to a uuid must not turn into existence-checking by the back door. V90 made
+       `entity_id` deliberately not a foreign key, because "a note about a listing that is archived
+       an hour later is precisely the note worth keeping"; a resolver that refused what it could not
+       find would quietly overturn that, and the note that explains a deletion is the one nobody can
+       reconstruct afterwards. Unresolvable ids are stored as given, exactly as before. */
+    const orphan = `never-a-listing-${Date.now()}`;
+    const written = await addNote('property', orphan, { text: 'Owner deleted the listing mid-call.' });
+    expect(written.status).toBe(201);
+
+    const seen = await listNotes('property', orphan);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toHaveLength(1);
+  });
+});
+
+test.describe('LIVE — notes on the communication log', () => {
+  test('a note taken during a review is on the timeline when the case file is reopened', async ({ page, login }) => {
+    /* Converted from `admin/notes.spec.js`, which could only ever prove the rendering. Whether the
+       row comes back is a claim about the server: the log is a fresh read after a full round trip,
+       and against localStorage the browser was reading its own writing.
+
+       The listing is created here rather than borrowed from the seed because the decision below is
+       real — approving a seeded row would move it between queues that another live spec counts. */
+    const id = await freshListing('Case file — timeline');
+
+    await login.asAdmin();
+    /* Deep link rather than the queue, because the decision that files the note also moves the
+       listing off the queue it was sitting in. `findListing` resolves against every page the client
+       has loaded, and a listing created a moment ago is the newest row on the All page. */
+    await page.goto(`/admin/properties?review=${id}`);
+    await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
+
+    const modal = page.getByRole('dialog');
+    const text = 'Rang the owner; the rent excludes maintenance.';
+    await writeNote(modal, text);
+    /* Approving with checklist items unticked raises a `window.confirm`, which Playwright dismisses
+       by default — that would abort the decision and leave this asserting nothing. */
+    page.once('dialog', (d) => d.accept());
+    await modal.getByRole('button', { name: /Approve & publish/ }).click();
+    await expect(page.getByText(/Approved & published/)).toBeVisible();
+
+    // Reopen from scratch. Nothing of the first visit survives this.
+    await page.goto(`/admin/properties?review=${id}`);
+    await expect(page.getByRole('heading', { name: 'Verify property' })).toBeVisible();
+
+    /* `CommunicationLog` had an indigo `note` style and nothing producing one. The chaser ledger
+       and the notes answer the same question — what has already been done about this listing — and
+       reading them in two panels made the operator interleave them by eye. */
+    const log = page.getByRole('button', { name: /Communication log/ });
+    await expect(log).toBeVisible();
+    await log.click();
+
+    const entry = page.getByTestId('comms-entry').filter({ hasText: 'Rang the owner' });
+    await expect(entry).toHaveCount(1);
+    await expect(entry.getByTestId('comms-entry-detail')).toHaveText(text);
+    // The byline the outreach rows cannot carry: the notes route resolves the author server-side.
+    await expect(entry).toContainText('Note \u2014 Approved');
   });
 });
 

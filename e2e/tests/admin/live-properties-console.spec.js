@@ -849,8 +849,14 @@ test.describe('LIVE: the properties console', () => {
     await expect(tab(page, 'Staff Posted')).toHaveAttribute('aria-selected', 'true');
 
     /* Present, first. An absence asserted before anything has been shown to render is a statement
-       about an empty pane, and this tab starts empty on every page load. */
-    const search = page.getByPlaceholder('Search title, owner, staff name');
+       about an empty pane, and this tab starts empty on every page load.
+
+       The placeholder used to say "staff name", and this box used to be able to honour it — against
+       the mock, where the console wrote a display name into `postedByStaff` and then searched the
+       row it had just written. The live server derives that field from the caller's token, so it
+       holds a uuid inside a jsonb map and no staff name was ever matchable. The promise went; a
+       real staff-name filter is a `users` join and a query parameter of its own. */
+    const search = page.getByPlaceholder('Search title, owner, locality');
     await search.fill(desk.tag);
     await expect(cards(page)).toHaveCount(1);
     await expect(cards(page).first()).toContainText(desk.title);
@@ -1004,8 +1010,8 @@ test.describe('LIVE: the properties console', () => {
   const QUEUES = [
     { name: 'Verification Queue', facet: 'status=pending', param: 'status=pending', banner: 'verify-truncated', search: 'Search title, owner, locality' },
     { name: 'Flagged', facet: 'status=flagged', param: 'status=flagged', banner: 'flagged-truncated', search: 'Search title, owner, locality' },
-    { name: 'Featured', facet: 'featured=true', param: 'featured=true', banner: 'featured-truncated', search: 'Search title, locality' },
-    { name: 'Staff Posted', facet: 'postedByAdmin=true', param: 'postedByAdmin=true', banner: 'staff-truncated', search: 'Search title, owner, staff name' },
+    { name: 'Featured', facet: 'featured=true', param: 'featured=true', banner: 'featured-truncated', search: 'Search title, owner, locality' },
+    { name: 'Staff Posted', facet: 'postedByAdmin=true', param: 'postedByAdmin=true', banner: 'staff-truncated', search: 'Search title, owner, locality' },
   ];
 
   /** `PAGE_SIZE` in `services/providers/http/propertyProvider.js` — the cap that caused all of this. */
@@ -1105,6 +1111,309 @@ test.describe('LIVE: the properties console', () => {
       await expect(page.getByText(fixture.title, { exact: false }).first()).toBeVisible();
     });
   }
+
+  /**
+   * The search box searches the *queue*, not the page of it that happens to be loaded.
+   *
+   * This is the companion defect to the counts above and it was the one an operator would actually
+   * ring about. Every box on this screen said "Search title, owner, locality…" and every one of
+   * them filtered an array the browser already held — so the reachable catalogue was the newest
+   * hundred rows, and a term that matched nothing in those hundred produced the sentence "No
+   * listings match your filters". Not "not on this page". The console stated, in as many words,
+   * that a listing sitting in its own verification queue did not exist. The truncation banners
+   * added alongside make it worse if left unfixed: they tell the operator to narrow with the search
+   * box to reach the rest, which was advice the box could not take.
+   *
+   * The subject row is chosen at runtime as the *oldest* row in the queue — the last page of a
+   * newest-first sort — and the test then asserts it is absent from the hundred rows the console
+   * fetches. That assertion is the vacuity guard, and it is the whole test: without it this reads
+   * as "search finds a row", which the browser-side filter also did. With it, every search below is
+   * for a row the old build provably did not have in memory. It is skipped rather than faked when
+   * the queue is smaller than a page, because on a small database there is no such row to find and
+   * a test that invented one would be testing its own fixture.
+   *
+   * Two terms here, because these are the two the browser could otherwise have answered. The old
+   * filter was `(title + owner + locality + id).includes(q)` over the loaded array, so owner *name*
+   * — what the placeholder always promised — and the *id tail* — how a listing travels between two
+   * people in chat, matched as a substring precisely so a fragment pasted out of a message works —
+   * both worked already for anything on the first page. Only distance makes them a test.
+   *
+   * Owner *mobile* is deliberately not here. It was reachable by neither half of the old build, so
+   * it needs no distance to be meaningful, and keeping it in a test that skips below a hundred rows
+   * would have left the one axis a desk actually uses unproven on every clean database. It has its
+   * own test below.
+   */
+  test('an owner name or id fragment finds a queue row the fetched page never held', async ({ page, login }) => {
+    const admin = await authHeaders(ACTORS.admin);
+    const facet = 'status=pending&archived=false';
+
+    const head = await api('GET', `/admin/properties?${facet}&page=0&size=${PAGE_SIZE}&sort=newest`, admin);
+    expect(head.status).toBe(200);
+    const total = head.body.totalElements;
+    test.skip(total <= PAGE_SIZE,
+      `the verification queue holds ${total} rows, so nothing is out of the console's reach and there is no row this test could prove anything with`);
+
+    /* The last row of a newest-first sort: the furthest thing from the fetched page there is. */
+    const tail = await api('GET', `/admin/properties?${facet}&page=${total - 1}&size=1&sort=newest`, admin);
+    expect(tail.status).toBe(200);
+    const deep = tail.body.content[0];
+    expect(deep, 'the queue reported a size it could not then page to').toBeTruthy();
+
+    const fetched = head.body.content.map((p) => p.id);
+    expect(fetched, 'the oldest row is inside the fetched page, so a browser-side filter would have found it too and none of the assertions below can fail')
+      .not.toContain(deep.id);
+
+    const ownerName = deep.owner?.name;
+    expect(ownerName, 'the queue row has no owner name, so the axis under test does not exist on it').toBeTruthy();
+
+    await login.asAdmin();
+    await openConsole(page);
+    await openTab(page, 'Verification Queue');
+    const box = page.getByPlaceholder('Search title, owner, locality');
+
+    /* Each term is checked for selectivity against the server before it is typed, so a term that
+       happens to match more rows than one page of the list renders can never fail this as though
+       the search were broken. */
+    for (const [axis, term] of [
+      ['owner name', ownerName],
+      ['id fragment', deep.id.slice(-8)],
+    ]) {
+      const matches = await api('GET', `/admin/properties?${facet}&page=0&size=1&q=${encodeURIComponent(term)}`, admin);
+      expect(matches.status, `searching by ${axis} was refused`).toBe(200);
+      expect(matches.body.totalElements, `the server matches nothing by ${axis}`).toBeGreaterThan(0);
+      test.skip(matches.body.totalElements > PAGE_LIMIT,
+        `"${term}" matches ${matches.body.totalElements} rows, more than the list renders at once`);
+
+      await box.fill(term);
+      /* The row itself, by title, on a screen that could not have been holding it. `.first()`
+         because a queue may legitimately hold two listings from the same owner. */
+      await expect(
+        page.getByText(deep.title, { exact: false }).first(),
+        `searching by ${axis} did not reach a row past the fetched page`,
+      ).toBeVisible();
+    }
+  });
+
+  /**
+   * The one key a desk actually has in its hand.
+   *
+   * The caller is on the phone. Their number is the only thing they can read out without spelling
+   * it, and until this wave it was the one thing the console could not be asked. The old build had
+   * no path to it at all: the server's `q` was title-or-locality, and the browser's was
+   * `(title + owner + locality + id).includes(q)` over the loaded array. A mobile number is in
+   * neither list, so this needed no page-cap argument to be a real gap, and it needs none to be a
+   * real test \u2014 which is why it is here and not in the sibling above, whose premise cannot exist on
+   * a queue of fifteen rows and which therefore skips on every clean database.
+   *
+   * The vacuity guard is the other half. A number that happened to appear inside the row's own
+   * title or id would have been found by the old browser filter incidentally, and this would then
+   * pass on the build it is meant to fail on. So the term is asserted absent from exactly the
+   * string that filter concatenated, field for field.
+   */
+  test("an owner's phone number finds their listing, which no browser-side filter could have matched", async ({ page, login }) => {
+    const admin = await authHeaders(ACTORS.admin);
+    const facet = 'status=pending&archived=false';
+
+    const head = await api('GET', `/admin/properties?${facet}&page=0&size=${PAGE_SIZE}&sort=newest`, admin);
+    expect(head.status).toBe(200);
+
+    const row = head.body.content.find((p) => p.owner?.mobile && p.owner?.name);
+    expect(row, 'no row in the verification queue carries an owner mobile, so the axis under test does not exist on this data').toBeTruthy();
+    const term = row.owner.mobile;
+
+    /* Exactly the predicate the old build applied in the browser, rebuilt over this row. If the
+       number turns up inside it, the old filter would have matched too and this proves nothing. */
+    const oldFilterHaystack = `${row.title}${row.owner.name}${row.locality || ''}${row.id}`.toLowerCase();
+    expect(
+      oldFilterHaystack,
+      'the mobile occurs inside the fields the browser-side filter already searched, so matching it does not prove the search reaches the owner record',
+    ).not.toContain(term.toLowerCase());
+
+    /* And selective, checked against the server before it is typed, so a shared office number
+       cannot fail this as though the search were broken. */
+    const matches = await api('GET', `/admin/properties?${facet}&page=0&size=1&q=${encodeURIComponent(term)}`, admin);
+    expect(matches.status, 'searching by owner mobile was refused').toBe(200);
+    expect(matches.body.totalElements, 'the server matches nothing by owner mobile').toBeGreaterThan(0);
+    test.skip(matches.body.totalElements > PAGE_LIMIT,
+      `"${term}" matches ${matches.body.totalElements} rows, more than the list renders at once`);
+
+    await login.asAdmin();
+    await openConsole(page);
+    await openTab(page, 'Verification Queue');
+    await page.getByPlaceholder('Search title, owner, locality').fill(term);
+
+    await expect(
+      page.getByText(row.title, { exact: false }).first(),
+      'searching by the owner\u2019s phone number did not reach their listing',
+    ).toBeVisible();
+  });
+
+  /**
+   * And the same widening must not have happened on the public search.
+   *
+   * `q` used to be one shared predicate over title and locality, which is why widening it was a
+   * one-line change and why that one line would have been a leak: `/properties?q=98234` on an
+   * endpoint that needs no login would have answered "which landlords' numbers begin 98234, and
+   * exactly what does each of them own" — an owner directory, assembled from the field the listing
+   * page masks on purpose. Hence two named builders rather than one with a flag.
+   *
+   * The negative half is worthless alone: a public search returns nothing for an unpublished row,
+   * for a typo, or for an endpoint that has stopped working, and all three read as privacy. So the
+   * subject is taken from the *public* list — a row any visitor can already see — and each absence
+   * is paired with the same term put to the admin search, which must find it. The pair is the
+   * assertion: this term is a real key that identifies this row, and it works from a desk and does
+   * not work from the street.
+   */
+  test('the public search cannot be turned into an owner directory', async ({ page }) => {
+    const admin = await authHeaders(ACTORS.admin);
+
+    const publicList = await api('GET', '/properties?page=0&size=1&sort=newest');
+    expect(publicList.status).toBe(200);
+    const listed = publicList.body.content[0];
+    expect(listed, 'the public catalogue is empty, so there is no published row to test with').toBeTruthy();
+
+    /* The owner's real details, read from the side that is allowed to have them. */
+    const full = await api('GET', `/admin/properties?page=0&size=1&q=${encodeURIComponent(listed.id)}`, admin);
+    expect(full.status).toBe(200);
+    const owner = full.body.content[0]?.owner;
+    expect(owner?.name, 'could not read the owner of the published row').toBeTruthy();
+    expect(owner?.mobile, 'could not read the owner mobile of the published row').toBeTruthy();
+
+    const publicTotal = async (term) => {
+      const res = await api('GET', `/properties?page=0&size=5&q=${encodeURIComponent(term)}`);
+      expect(res.status, `the public search refused "${term}"`).toBe(200);
+      return res.body.totalElements;
+    };
+    const adminTotal = async (term) => {
+      const res = await api('GET', `/admin/properties?page=0&size=5&q=${encodeURIComponent(term)}`, admin);
+      expect(res.status, `the moderation search refused "${term}"`).toBe(200);
+      return res.body.totalElements;
+    };
+
+    /* The anchor: this row is reachable through the public search by the words on its own card, so
+       everything below is about the *term*, not about the row being invisible or the endpoint
+       being broken. */
+    const titleWord = listed.title.split(' ').find((w) => w.length > 3) || listed.title;
+    expect(await publicTotal(titleWord), 'the public search cannot even find a published row by its title')
+      .toBeGreaterThan(0);
+
+    expect(await adminTotal(owner.mobile), 'the desk cannot find the row by the number the caller reads out')
+      .toBeGreaterThan(0);
+    expect(await publicTotal(owner.mobile), 'a visitor searched an owner phone number and the catalogue answered')
+      .toBe(0);
+
+    /* Names are weaker evidence than numbers, because an owner's name can legitimately occur in a
+       title or a locality. Only asserted when it does not. */
+    if (!`${listed.title} ${listed.locality || ''}`.toLowerCase().includes(owner.name.toLowerCase())) {
+      expect(await adminTotal(owner.name), 'the desk cannot find the row by its owner name').toBeGreaterThan(0);
+      expect(await publicTotal(owner.name), 'a visitor searched an owner name and the catalogue answered').toBe(0);
+    }
+  });
+
+  /**
+   * The cost of moving the search to the server, and the row that pays it.
+   *
+   * A browser-side filter narrowed on the keystroke, so what the box said and what the list showed
+   * could never disagree. A server-side one cannot: there is a fetch between them, and for its
+   * duration the box reads the new term while the rows below are still the answer to the old one.
+   * Every one of those rows carries Approve, Reject, Archive and — on the follow-up tab — Remind,
+   * which writes a chaser addressed to a named owner and opens WhatsApp on it.
+   *
+   * That is not hypothetical. `listing-freshness.spec.js` caught it the first time this shipped:
+   * the desk searched one owner's listing, pressed Remind on the only row it could see, and the
+   * toast came back "Chaser written for Tanvi Jain" — a different owner, a real outbound message,
+   * produced by a search box. The fix is that a queue whose rows answer a previous term is inert
+   * until they do not, so a click waits for the row it was aimed at instead of landing on whatever
+   * was underneath.
+   *
+   * The test therefore does the one thing a careful test usually avoids: it does not wait. Typing
+   * and clicking with no settle in between is the whole subject. Three things make it non-vacuous —
+   * the row on top before the term is typed is asserted to be a *different* listing, so a click
+   * that ignores the term has a wrong answer available to give; the queue is asserted to be
+   * mid-update at the moment of the click, so the click really is made inside the window; and the
+   * term is the target's id, which matches exactly one row, so "the top row" and "the target" can
+   * only coincide on purpose.
+   *
+   * View, not Approve: the assertion needs an action that names the row it acted on, and this one
+   * is observable without changing anything. The hazard is the same for every button beside it.
+   */
+  test('a row clicked the instant a term is typed is the row that was typed for', async ({ page, login }) => {
+    const admin = await authHeaders(ACTORS.admin);
+    const facet = 'status=pending&archived=false';
+
+    const head = await api('GET', `/admin/properties?${facet}&page=0&size=${PAGE_SIZE}&sort=newest`, admin);
+    expect(head.status).toBe(200);
+    const total = head.body.totalElements;
+    test.skip(total < 2, `the queue holds ${total} rows, so there is no second row for a mis-aimed click to land on`);
+
+    const top = head.body.content[0];
+    /* The oldest row: as far from the top of a newest-first list as the queue goes. */
+    const tail = await api('GET', `/admin/properties?${facet}&page=${total - 1}&size=1&sort=newest`, admin);
+    expect(tail.status).toBe(200);
+    const target = tail.body.content[0];
+    expect(target, 'the queue reported a size it could not then page to').toBeTruthy();
+    expect(target.id, 'the oldest row is also the newest, so there is only one row here').not.toBe(top.id);
+
+    /* An id rather than a title or a name: it matches exactly one row by construction, so after
+       the fetch settles the target is the only thing the list can be showing. */
+    const selective = await api('GET', `/admin/properties?${facet}&page=0&size=1&q=${encodeURIComponent(target.id)}`, admin);
+    expect(selective.status).toBe(200);
+    expect(selective.body.totalElements, 'searching a listing id matched something other than that listing').toBe(1);
+
+    await login.asAdmin();
+    await openConsole(page);
+    await openTab(page, 'Verification Queue');
+
+    /* The guard. Without a different listing sitting on top first, a click that ignored the search
+       term entirely would still open the right row and this test would pass on a broken build. */
+    const firstCard = cards(page).first();
+    await expect(firstCard, 'the queue rendered no rows to aim at').toBeVisible();
+    await expect(firstCard, 'the newest row is already the target, so a mis-aimed click has nothing wrong to hit')
+      .toContainText(top.title);
+
+    await page.getByPlaceholder('Search title, owner, locality').fill(target.id);
+
+    /* The mechanism itself, asserted before the click so that the click below is provably made
+       into a queue that is mid-update rather than one that already settled. Without this the rest
+       could pass simply by being slow enough to miss the window it exists to test. */
+    await expect(
+      page.getByTestId('queue-updating'),
+      'the queue never marked itself as answering a stale term, so the click below is not being made during the window this test is about',
+    ).toBeVisible();
+
+    /* Deliberately no wait: this is the click a real operator makes, into rows that still answer
+       the previous term. Scoped to the card, and exact: `getByTitle` matches substrings, so a bare
+       `getByTitle('View')` also selects the shell's `title="View live site"` button, which precedes
+       the queue in the DOM. `.first()` then clicks it and leaves the console for the public home
+       page — a failure that reads exactly like the defect this test hunts. */
+    await cards(page).first().getByTitle('View', { exact: true }).click();
+
+    /* Then let it settle. The search is selective to one row, so the list can only be showing the
+       target — which is also the anchor that stops the absence check below being vacuous: if the
+       search were broken this assertion fails first, rather than "no wrong modal" passing on an
+       empty screen. */
+    await expect(
+      cards(page).first(),
+      'the search never resolved to the row it selects, so nothing below is being proven',
+    ).toContainText(target.title);
+
+    /* Whether the mis-timed click was discarded or honoured late is not the contract and both are
+       safe. What is the contract is that it never acted on the row that happened to be underneath
+       it, so a modal open at this point must be the target's. */
+    const details = page.getByRole('dialog');
+    if (await details.count()) {
+      await expect(details, 'the console acted on the row that was on screen before the search, not the one that was searched for')
+        .toContainText(target.title);
+    } else {
+      /* Discarded. The positive half: the button is not simply broken, and a click made once the
+         rows answer the term opens the row the desk was looking for. */
+      await cards(page).first().getByTitle('View', { exact: true }).click();
+      await expect(details, 'View did nothing even on a settled queue').toBeVisible();
+      await expect(details).toContainText(target.title);
+    }
+    await expect(details, 'the details on screen belong to the row that was on top before the search')
+      .not.toContainText(top.title);
+  });
 
   test('a signed-in buyer cannot reach the console', async ({ page, login }) => {
     /* `RoleRoute` is the gate and it is role-based, not atom-based: a consumer session is bounced
