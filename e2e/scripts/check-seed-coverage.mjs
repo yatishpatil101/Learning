@@ -91,6 +91,13 @@ const WAIVED = new Map([
   ['page_view_daily', 'output of the hourly `PageViewRollup`; seeding it would fake the job'],
   ['page_view_daily_paths', 'ditto - the per-path rollup'],
   ['page_view_daily_referrers', 'ditto - the per-channel rollup'],
+  // V116. The row is derived: `ListingDuplicateProbe#reindexPhotos` writes one per photograph on
+  // every create and on any edit that moves the hashes. Seeding it would be seeding the evidence
+  // the duplicate arm exists to weigh - and worse than usual here, because the arm's whole history
+  // is that it ran for a year against a store that could not hold another owner's row and nobody
+  // noticed. A fixture that pre-fills the table would reproduce exactly that: a green suite over a
+  // signal the write path never actually produced.
+  ['property_photo_hashes', 'derived on write; consumer/property/live-dedup.spec.js posts the hashes that fill it'],
 ]);
 
 /* PENDING - a real gap. A spec must READ these, and today it cannot.
@@ -109,7 +116,6 @@ const PENDING = new Map([
   ['service_request_timeline', 'ops: hangs off service_requests'],
   ['service_request_identities', 'ops: hangs off service_requests'],
   ['tickets', 'ops: the ticket queue is empty (support_tickets is a different table and IS seeded)'],
-  ['subscriptions', 'owner: no plan state to read'],
   ['payout_accounts', 'owner: no payout destination'],
   ['owner_kyc', 'trust: no KYC record'],
   ['documents', 'vault: the document vault is empty'],

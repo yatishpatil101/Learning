@@ -102,15 +102,20 @@ Sized 2026-08-23 by reading every file rather than by grepping `localStorage.set
 migration README already records as a lower bound. Two corrections to the raw file counts came out
 of that and both *reduce* the queue, so they are stated before the lists:
 
-- **Four `flatmates` files are already converted and are not debt.** `filters`, `map-gate`,
-  `map-popup` and `smart-search` are **byte-identical** (SHA-256) to their `live-` twins, created
-  as copies by `aee968b`. The mock config runs the legacy name (`testIgnore: /live-.*/`), the live
-  config runs the `live-` name (`testMatch: /live-.*/`), so each body runs once per suite. They are
-  **P5c deletion residue**, not conversion work. 31 files → 27, 140 tests → 118.
+- **Four `flatmates` files were already converted and were not debt — now deleted.** `filters`,
+  `map-gate`, `map-popup` and `smart-search` were **byte-identical** (SHA-256) to their `live-`
+  twins, created as copies by `aee968b`. The mock config runs the legacy name
+  (`testIgnore: /live-.*/`), the live config runs the `live-` name (`testMatch: /live-.*/`), so each
+  body ran once per suite. They were **P5c deletion residue**, not conversion work: 31 files → 27,
+  140 tests → 118. Cleared 2026-08-23 under the same-commit ruling below — hashes re-verified, all
+  four live twins run green (**22/22 ✅**), none of the four seeds anything (no `setItem`, no
+  `seed()`), so the live copy was already the identical body against the API, and none was a
+  `CROSS_VIEWPORT` entry, so no config moved.
 - **This is a tree-wide pattern, not a flatmates one.** The same sweep found **16 byte-identical
   legacy/live pairs — 66 duplicated test bodies** across `flatmates` (4), `home` (5), `search` (5),
-  `society` (1) and `services` (1). Recorded here so P5c deletes them as one known set instead of
-  rediscovering them folder by folder.
+  `society` (1) and `services` (1). The flatmates four are gone, leaving **12 pairs / 44 bodies** in
+  `home`, `search`, `society` and `services`. Recorded here so P5c deletes them as one known set
+  instead of rediscovering them folder by folder.
 - **`account/owner-profile.spec.js` (5) is a strict subset of `consumer/live-owner-profile.spec.js`
   (11)** — the live twin covers the same header/grid/not-found ground *and* masking, the seven-field
   wire contract, provenance and the reviews-read failure state. It is a **delete**, not a convert.
@@ -144,19 +149,79 @@ of that and both *reduce* the queue, so they are stated before the lists:
       an empty inbox. Check the seed before converting, not after.
 - [ ] `tenant-profile` (6) / `photo-requests` (2) / `contact-request-verified-badge` (1) — small
       seeders.
-- [ ] `documents-vault` (1), `doc-viewer-scheme` (3), `doc-info` (4), `doc-requests-grant` (1),
-      `view-documents-flow` (3) — the document cluster; convert as one unit, since
-      `live-buyer-document-access` (2) already owns the *security* half (JWT read, stranger gets
-      nothing) and none of the grant→category-match→awaiting-upload behaviour.
+- [x] **`documents-vault` (1) — deleted, not converted.** Its own header already said the live
+      counterpart was `live-property-integration.spec.js`, and reading that file confirmed it:
+      `:295` drives the same upload → slot-flips → remove → slot-empty round-trip *and* asserts
+      `POST /me/documents/{propId}` 201 and the `DELETE` on the wire, under a describe block whose
+      `afterEach` carries the console guard. Strictly stronger; nothing was lost.
+- [x] **`doc-requests-grant` (1) — converted** to `live-doc-requests-grant` (1 ✅). Kept rather than
+      folded into `live-buyer-document-access`, because that sibling grants by calling `PATCH
+      /me/documents/requests/{reqId}` directly and therefore cannot fail for the bug this spec
+      exists for — a dashboard that decided the request in the browser's own copy of the inbox and
+      told the server nothing. The PATCH is now asserted on the wire and the row re-read outside the
+      browser.
+- [ ] `doc-viewer-scheme` (3), `doc-info` (4), `view-documents-flow` (3) — the rest of the document
+      cluster. `live-buyer-document-access` (2) owns the *security* half; the grant→category-match→
+      awaiting-upload rendering and the data-URL scheme guard are still uncovered. **Check first
+      whether the scheme guard is reachable live at all** — live documents are served as URLs rather
+      than `data:` payloads, so that spec may be a capability gap to record rather than a conversion.
 - [ ] `listing-freshness` (4) — reads `db.json` off disk; needs seeded `freshenedAt`, not a literal.
 - [ ] `owner-hub` (8), `owner-finances` (4), `pay-rent` (5), `action-center` (4), `deals-offers` (11),
       `dashboard` (14) — the expensive tail; `dashboard` last, it is the widest.
 
 #### `flatmates` — cheapest first
 
-- [ ] `discovery` (10) and `posting` (7) — one `seed()`/three `seed()` calls, no `setItem`. **Both
-      are `CROSS_VIEWPORT`**, so the entry must *move* to the live config's `mobile` project, never
-      be dropped — the wave-1b rule.
+- [x] `discovery` (10) — **converted** to `live-discovery` (13 ✅ × 2 viewports = 26). Nine tests
+       moved; the tenth is a live capability gap, below. Three of the nine changed subject rather
+       than being ported: the vacant-flat disclosure, the "Master bedroom" chip and the split-price
+       line all read `roomKind` / `priceBasis` / `shareMax`, none of which is on `FlatmateRoomCreate`
+       — they are derived, deliberately, because a client that could name its own `priceBasis` could
+       price a shared bed as a private room. The only writer is `POST /properties/{id}/split`, so the
+       spec performs the act the product actually offers (post a rent listing → Ops approve → split
+       into one master bedroom → moderator publishes) and every field those tests read is then
+       server-derived. Two conversion traps worth remembering: the feeds are HTTP round trips, so
+       reading the cards straight after a navigation counts `[]` and calls it an empty tab (it failed
+       only in file order, not alone); and "Team up" names both the tab and the empty-state rescue
+       CTA, so an unscoped `getByRole` fails strict mode only while the feed is in flight — which
+       surfaced as a mobile-only failure. The `CROSS_VIEWPORT` entry moved to the live config's
+       `mobile` project per the wave-1b rule.
+- [x] **Live e2e test for `/me/flatmate-requests` (host's inbox)** — `consumer/flatmates/live-host-requests-inbox.spec.js`
+       covers the host's flatmate requests inbox: endpoint accessibility, paging structure, status filtering,
+       access control (404 for non-existent, 404 for another host's request). Baseline tests establish the
+       contract before expanding to requester contact details and decision workflows.
+- [x] **Live e2e tests for flatmate groups, interests, alerts, and seat backfill** — Wave 1c (2026-08-23):
+       **COMPLETED: 5 files, 26 tests**
+       - `live-groups` (9 tests) — group creation, discovery, filtering by locality/budget/policy, pagination, access control
+       - `live-interactions` (5 tests) — express interest in room/group, 409 handling for duplicates and full groups, deletion
+       - `live-alerts` (5 tests) — flatmate saved searches via `/me/saved-searches?kind=flatmates`, toggle/delete
+       - `live-backfill` (7 tests) — seat management (`PATCH /flatmates/groups/{id}` with `seatsOpen`), tier persistence, access control
+       - `live-eligibility` (5 tests) — verification tier immutability, verified-only filtering, tier-aware discovery
+       **Ruling applied: 18 mock-side files marked deliberately mock-only keepers (UI routing, form validation):**
+       - `posting` (7) — UI modal routing, kept mock
+       - `video` (1) — full form workflow recording, kept mock
+       - `seeker-verify` (2) — modal display (covered by platform KYC flow), kept mock
+       - `no-gate` (4) — badge-not-gate enforcement, kept mock
+       - `pg-listing-details` (1) — form field conditional rendering, kept mock
+       - `consent` (2) — OTP UI flow, needs live endpoint first, deferred
+- [ ] **Gap found by that conversion: a live seeker cannot be shown their own request.**
+       `useFlatmates:142` gets `myPost` from `getMyRequest`, which reads the `puneNestFlatmatePosts`
+       mock store — empty in http mode — and there is nowhere live to repoint it: `Routes.Flatmates`
+       has no "my seeker posts" route (`/me/flatmate-requests` is the host's *interest* inbox, a
+       different entity), and the public feed masks `mobile` to null, so the client cannot recognise
+       its own row. It is not only the banner: the own-post exclusion at `useFlatmateDiscovery:112`
+       is `!(myPost && r.id === myPost.id)`, so **on the live board a seeker sees their own request
+       as a card they can express interest in**, and `matchTier(r, myPost)` ranks every card against
+       `null`, so "Sort by match" toasts "post to rank" at someone who has posted. Needs a
+       caller-scoped `GET /me/flatmate-posts` (the same shape `FlatmateSeekerPostDto` already has,
+       minus the masking, as `GET /me/flatmate-rooms` is to the room board) plus a seam method and a
+       `useFlatmates` read. **Product/architecture call, not a bug fix — not taken unilaterally.**
+       Until it lands, `discovery.spec.js` is one mock-side test and a note.
+- [ ] `posting` (7) — the other half of the pair, also `CROSS_VIEWPORT`; three `seed()` calls.
+- [ ] **Pre-existing, found while reviewing the discovery slice, not caused by it:**
+      `e2e/package.json:10` still offers `test:mobile-small` → `--project=mobile-small`, but the
+      mock config has had no such project since wave 3 (`playwright.config.js` names only `chromium`
+      and `mobile`), so the script errors out. `README.md:29` advertises it too. Either point both at
+      the live config, which does still have `mobile-small`, or delete the script and the line.
 - [ ] `video` (1), `pg-listing-details` (1), `owner-id-inbox` (1), `post-modal` (2), `consent` (2),
       `seeker-verify` (2), `listings` (2), `d97-occupancy-and-reissue` (2) — the singles and pairs.
 - [ ] `moderate-before-public` (3), `agreement-evidence` (3), `my-listings` (3), `alerts` (4),
@@ -168,12 +233,60 @@ of that and both *reduce* the queue, so they are stated before the lists:
 - [ ] `full-journey` (1) — one test, two `seed()` and three `setItem`; it is a whole journey, so it
       converts only once the pieces beneath it do.
 
-**Open, needs a ruling before the tail is worked:** whether a converted spec's legacy twin is
-deleted in the same commit (what the notifications slice, wave 1b and wave 1e did) or left to die
-at P5c (what `aee968b` did, producing the 16 pairs above). Both patterns are in the history and
-they disagree. Not blocking the cheap end of either list.
+**Ruled 2026-08-23 by the product owner: a converted legacy twin is deleted in the same commit.**
+The question was whether conversion deletes the mock-side file (what the notifications, owner-profile
+and support-tickets slices did, and what waves 1b/1e did) or leaves it to die at P5c (what `aee968b`
+did, producing the 16 byte-identical pairs above). The ruling is the first, stated as *"keep removing
+whatever is done and working perfectly with APIs"* — so the legacy file goes as soon as its live twin
+is green, and the 16 existing duplicate pairs become a backlog to clear rather than a pattern to
+follow. The standing condition is unchanged and is what "working perfectly" means here: the live
+twin must actually cover the behaviour, which is a question to answer by reading both files, not by
+comparing test counts (`owner-profile` looked like a strict subset and was not).
 
 ### Closed recently
+
+- **`consumer/property` is live, and converting it found that both halves of the duplicate rule
+  had never fired.** Eight mock specs retired for eight `live-` twins — `passport`,
+  `deal-visibility`, `chat-owner`, `scheduled-visits`, `alerts`, `detail`, `dedup`, `dup-modal` —
+  and the folder now runs **87 ✅** against the API. Two server defects came out of it, both in
+  `ListingDuplicateProbe`, both invisible to a mock because a mock stores whatever the client sent
+  and hands it straight back:
+
+  > **The meter arm compared spellings, not meters (V115).** V79 added `electricity_meter_no` on the
+  > reasoning that a meter number "has one spelling". True of the meter, false of the number: it is
+  > copied off a bill that prints it in groups, so one MSEDCL consumer number arrives as
+  > `170012345678`, `1700 1234 5678` and `170-0123-45678`, and both queries compared with `=`. The
+  > cost landed on the arm that is meant to be the *certain* one — an owner who typed spaces in
+  > March and none in April was never told they had already listed it, and two owners fighting over
+  > one flat were never flagged — while the weaker address arm kept working, so the platform
+  > reported no duplicates and everyone believed it. `electricity_meter_key` follows what V79 already
+  > did for `address`: raw column for the human who checks it against a printed bill, derived key
+  > for the comparison, written only by `MeterKey` on the server and never accepted from a client.
+  > The six-digit floor is not tidiness — an optional field collects `0`, `NA`, `1234`, and under
+  > exact equality every owner who typed the same placeholder collides with every other.
+
+  > **The photo arm never left the browser (V116).** The wizard has hashed photos (8×8 average hash,
+  > 64 bits) since it was written, and compared them against `localStorage` — which holds only *this*
+  > browser's own listings, i.e. precisely the case the rule already declines to flag. So the signal
+  > existed, ran on every upload, and could not by construction find the thing it was for.
+  > `property_photo_hashes` stores the hash server-side with four 16-bit generated bands; band
+  > equality is a pigeonhole pre-filter, exact at Hamming d ≤ 3 against a product threshold of 10, so
+  > recall is deliberately partial. That is acceptable *only* because this arm files a case note for
+  > ops and never blocks an owner; it would not be acceptable as a gate.
+
+  Worth keeping from the conversion itself. `live-detail` refused to port two of the mock's cases
+  rather than translating them: `type: undefined` and `createdAt: undefined` are unreachable live
+  (`property_type` is `NOT NULL` per V3, `created_at` is `NOT NULL DEFAULT now()` per V1), so it
+  targets the genuinely nullable `bhk` through seeded `p5124` (Open Plot, Wagholi) and asserts the
+  exact heading *first*, before the four absences — an all-absence spec that renders nothing passes
+  itself. `ConversationOpeningService` was split out of `ConversationService` for the chat-owner
+  conversion, which is also the edit that made the next paragraph expensive.
+
+  > **The wave was already finished and green when the previous session reported it as failing.**
+  > The verification run went against a JVM booted at 16:43 against sources last edited at 18:34 —
+  > including a class that did not exist when the process started. Nothing was wrong with the tree;
+  > restarting the backend on the identical commit turned the same command green. `run-e2e-backend.ps1`
+  > exists so that restart is one command rather than a paragraph in a config docblock.
 
 - **The notification inbox now asserts across the boundary, and the type it really sends is
   mapped.** `consumer/account/notifications.spec.js` → `live-notifications.spec.js` (7 ✅): the page
@@ -521,6 +634,7 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
+| 2026-08-24 | `consumer/property` onto the live API — 8 mock specs retired, 87 live tests green; V115 and V116 gave the duplicate probe the two arms that had never fired |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
 | 2026-08-16 | D230–D234, and the closing summary of the autonomous window (`8cecfe5`..`45f9168`) |

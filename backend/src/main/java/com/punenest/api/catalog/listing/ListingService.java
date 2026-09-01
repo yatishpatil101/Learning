@@ -3,6 +3,7 @@ package com.punenest.api.catalog.listing;
 import com.punenest.api.catalog.locality.LocalityResolver;
 import com.punenest.api.catalog.property.AddressKey;
 import com.punenest.api.catalog.property.DealIntent;
+import com.punenest.api.catalog.property.MeterKey;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyMapper;
 import com.punenest.api.catalog.property.PropertyRepository;
@@ -27,7 +28,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 /**
  * Owner write side of the catalogue: the {@code /me/listings} lifecycle plus archive/restore. Every
@@ -210,6 +210,9 @@ public class ListingService {
         p.setLocalitySlug(localities.resolve(in.locality(), in.lat(), in.lng()));
         duplicates.reindex(p);
         properties.saveAndFlush(p);
+        // After the flush, because the hash rows are keyed by the listing's id and it has one only
+        // now. Before `flag`, because the photo arm reads back what this wrote.
+        duplicates.reindexPhotos(p, in.photoHashes());
         duplicates.flag(p);
         return p;
     }
@@ -293,12 +296,13 @@ public class ListingService {
         String localitySlug = localities.resolve(in.locality(), in.lat(), in.lng());
         String addressKey = AddressKey.of(in.address(), in.city(), in.locality());
         return duplicates.ownDuplicate(userId,
-                // Blank to null, which is the one difference from what create stores — and it is a
-                // guard rather than a normalisation. `= ''` is a match in SQL where `= null` is not,
-                // so a caller that sends an empty meter would otherwise collide with every listing
-                // that also has one. The http client drops the field instead of sending "", so this
-                // only ever fires for a caller that is not the wizard.
-                StringUtils.hasText(in.electricityMeterNo()) ? in.electricityMeterNo() : null,
+                /* Through the same normaliser the write path runs, so the pre-check and the create
+                 * cannot disagree about which meters are the same meter — the whole reason this
+                 * endpoint exists. MeterKey also subsumes the blank-to-null guard this line used to
+                 * carry: `= ''` is a match in SQL where `= null` is not, so a caller sending an
+                 * empty meter would otherwise collide with every listing that also had one, and ""
+                 * has no digits, so it keys to null. */
+                MeterKey.of(in.electricityMeterNo()),
                 addressKey, localitySlug);
     }
 
@@ -325,6 +329,7 @@ public class ListingService {
         List<Object> signalBefore = duplicates.signalOf(p);
         EditImpact impact = editRules.apply(p, in);
         duplicates.reindex(p);
+        boolean photosMoved = duplicates.reindexPhotos(p, in.photoHashes());
         if (impact.remoderationRequired()) {
             p.revertToPending();
             caseNotes.post(p.getId(), p.getDeal(),
@@ -369,8 +374,14 @@ public class ListingService {
          * listing is "already live -- decide whether it should stay up" about a listing that is not.
          * The dedupe makes the ordering matter twice over: postInternalOnce compares message bodies,
          * so the same collision described once as approved and once as pending is two notes for one
-         * finding. */
-        if (!duplicates.signalOf(p).equals(signalBefore)) {
+         * finding.
+         *
+         * Photographs are the other half of "moved a signal", and they are not in signalOf: that
+         * method holds typed column values across an edit, and a listing's photo hashes are rows in
+         * another table. Swapping every photograph for somebody else's is precisely the edit that
+         * creates a duplicate while every address value stays put, so without this the evasion the
+         * paragraph above describes has a second door. */
+        if (photosMoved || !duplicates.signalOf(p).equals(signalBefore)) {
             duplicates.flag(p);
         }
         return p;

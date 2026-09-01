@@ -1181,11 +1181,62 @@ public final class Routes {
          */
         public static final String POST_INTERESTS = POST_BY_ID + "/interests";
 
+        /**
+         * Authenticated — the caller's own ad, as its author sees it.
+         *
+         * <p>Sits one line above {@link #MY_REQUESTS} and means the opposite thing, which is the
+         * reason both Javadocs say whose rows they are: this is the one post the caller
+         * <em>wrote</em>, while that is every reply strangers <em>sent</em> them. Sharing the
+         * "flatmate" stem is unavoidable and the plural forms are close, so the distinction is
+         * carried by the noun — {@code posts} is supply the caller authored, {@code requests} is
+         * inbound demand they received.
+         *
+         * <p>Plural for consistency with {@link #MY_ROOMS} and {@link #MY_GROUPS}, though the
+         * one-live-post rule means it can only ever return one.
+         */
+        public static final String MY_POSTS = "/me/flatmate-posts";
+
         /** Authenticated — the caller's incoming requests (host inbox). */
         public static final String MY_REQUESTS = "/me/flatmate-requests";
 
         /** Authenticated — accept or decline one incoming request. Host-scoped. */
         public static final String MY_REQUEST_BY_ID = MY_REQUESTS + "/{id}";
+
+        /**
+         * Authenticated — every ask the caller has <em>sent</em>, through any of the three doors.
+         *
+         * <p>The mirror of {@link #MY_REQUESTS}, and the pair is worth reading together because the
+         * names do not distinguish them well: that one is the post-<em>author's</em> pile of
+         * replies, this one is the <em>seeker's</em> record of what they asked for. Same table, same
+         * row, opposite end.
+         *
+         * <p>"Interests" rather than "requests" because the three doors that write these rows are
+         * spelled {@code interest}, {@code interest} and {@code join}, and the one word every
+         * surface already uses for the button is "interested". Calling it {@code /me/flatmate-requests-sent}
+         * would have paired the names at the cost of the noun the UI says out loud.
+         *
+         * <p>It exists because this answer previously lived in {@code localStorage}: the board
+         * remembered your presses on the device that made them, so the same account on a laptop
+         * offered every button again.
+         */
+        public static final String MY_INTERESTS = "/me/flatmate-interests";
+
+        /**
+         * Authenticated — take back an ask, while it is still unanswered.
+         *
+         * <p><strong>Keyed by target, not by request id</strong>, which is the one place this domain
+         * departs from the usual {@code DELETE /things/{id}}. The thing being undone is a button on
+         * a card, and what the client holds at that moment is the card — the kind and the target id.
+         * Deleting by request id would mean fetching {@link #MY_INTERESTS} first purely to translate
+         * one identifier into another, on every press. The row is unique on
+         * {@code (kind, target_id, requester_id)} and the requester is the token, so the triple is
+         * as precise as an id and needs no round trip.
+         *
+         * <p>{@code kind} is a path variable rather than three routes because the three doors write
+         * one table and refusing a withdrawal differently per door would be a distinction without a
+         * difference.
+         */
+        public static final String INTEREST_BY_TARGET = "/flatmates/{kind}/{id}/interest";
 
         /**
          * Public — the tab-aware mixed feed, and the surface the consumer page actually renders.

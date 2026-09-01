@@ -237,21 +237,12 @@ test.describe('Photos — the listing wizard uploads to the server (live)', () =
     // minted cannot be a data URL, and that difference is the whole of what this test is for.
     expect(url).toBeTruthy();
     expect(url.startsWith('data:')).toBe(false);
-    expect(url).toMatch(/^https?:\/\//);
+     expect(url).toMatch(/^\/api\/dev\/storage\/public\//);
 
-    /* What this test deliberately does NOT do is fetch the URL back and compare bytes. Under the
-       dev storage bean the object really is written, but `MockFileStorage.storePublic` mints it on
-       `https://mock.storage.local/`, a host that does not resolve — and that is on purpose, not an
-       oversight: listing photos are persisted on the listing row, so the fake host is the shape
-       already sitting in the database. The bytes-come-back claim belongs to the storage provider
-       and is made against the real bucket in `R2FileStorageLiveTest`; asserting it here would only
-       be asserting which bean happened to be wired. */
-
-    // The gallery shows the server's URL rather than a local preview kept alongside it. Attached,
-    // not visible: the image cannot actually load from the fake host, so a broken <img> may lay out
-    // at zero size — the claim being made is about the `src` the app chose, which is what fails if
-    // it ever falls back to a data URL.
-    await expect(page.locator(`img[src="${url}"]`).first()).toBeAttached();
+     // The gallery shows the server's URL rather than a local preview kept alongside it, and the
+     // same-origin dev public store now resolves it through the Vite proxy. `toBeVisible`, rather
+     // than just attached, catches a regression back to a host the browser cannot load (D246).
+     await expect(page.locator(`img[src="${url}"]`).first()).toBeVisible();
   });
 });
 

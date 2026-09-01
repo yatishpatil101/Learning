@@ -1,4 +1,4 @@
-import { test, expect } from '../../../fixtures/base.js';
+import { test, expect } from '../../../fixtures/live.js';
 import { seedStorage } from '../../../helpers/seed.js';
 import { signedInAsNew } from '../../../helpers/liveAuth.js';
 

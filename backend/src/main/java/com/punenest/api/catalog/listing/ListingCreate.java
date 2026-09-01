@@ -2,6 +2,7 @@ package com.punenest.api.catalog.listing;
 
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Furnishing;
+import com.punenest.api.catalog.property.PhotoHash;
 import com.punenest.api.catalog.property.PropertyPossession;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -102,5 +103,18 @@ public record ListingCreate(
          * from the integer. `under-construction` sends nothing at all: that is a possession state,
          * not an age, and `possession` already carries it. Null stays "the owner never said", which
          * V95 is explicit is not the same as zero. */
-        @Min(0) Integer ageYears) {
+        @Min(0) Integer ageYears,
+        /* Perceptual hashes of the photographs the owner picked, 16 hex characters each, computed in
+         * the browser because hashing pixels needs a canvas (V116). Accepted here rather than derived
+         * server-side for a reason that is about the moment rather than the capability: the wizard
+         * hashes what was selected, before anything is uploaded, so at this point in the flow the
+         * server has never seen the images.
+         *
+         * Unvalidated beyond the size cap on purpose. These are not an owner's answer to anything —
+         * there is no form control, no error the wizard could render against them, and no way for an
+         * owner to correct one. A malformed entry costs a duplicate signal and is dropped silently by
+         * `PhotoHash.parse`; a 422 here would fail an honest post over a number its author cannot
+         * see. The cap is the part that has to exist, for the same denial-of-service reason as
+         * `address` above: this list becomes rows, and rows become index entries. */
+        @Size(max = PhotoHash.MAX_PER_LISTING) List<String> photoHashes) {
 }

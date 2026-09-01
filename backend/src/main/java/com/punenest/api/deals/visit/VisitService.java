@@ -12,6 +12,7 @@ import com.punenest.api.identity.user.User;
 import com.punenest.api.identity.user.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -252,7 +253,9 @@ public class VisitService {
     @Transactional(readOnly = true)
     public Page<VisitDto> myVisits(UUID callerId, Pageable pageable) {
         Page<Visit> rows = visits.findByVisitorIdOrderByCreatedAtDesc(callerId, pageable);
-        return projectPage(rows, callerId);
+        // Every row on this surface has the caller as its visitor, so the owner branch of the
+        // contact gate is unreachable here and needs no listing-ownership lookup.
+        return projectPage(rows, callerId, Set.of());
     }
 
     /**
@@ -276,7 +279,7 @@ public class VisitService {
             return Page.empty(pageable);
         }
         Page<Visit> rows = visits.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
-        return projectPage(rows, callerId);
+        return projectPage(rows, callerId, Set.copyOf(ownedPropertyIds));
     }
 
     /**
@@ -284,16 +287,21 @@ public class VisitService {
      *
      * <p>Deliberately not {@code Page.map}, which would run the projection per element and put that
      * lookup back inside the loop.
+     *
+     * @param viewerOwnedPropertyIds the listings the viewer owns, among those on this page. Passed
+     *     in rather than re-queried because {@link #visitRequestsOnMine} has already fetched exactly
+     *     this set to scope its own read. Supplying too FEW ids can only mask a number that could
+     *     have been shown, so the safe value for a caller that does not know is the empty set.
      */
-    private Page<VisitDto> projectPage(Page<Visit> rows, UUID viewerId) {
-        return new PageImpl<>(projectVisits(rows.getContent(), viewerId),
+    private Page<VisitDto> projectPage(Page<Visit> rows, UUID viewerId, Set<UUID> viewerOwnedPropertyIds) {
+        return new PageImpl<>(projectVisits(rows.getContent(), viewerId, viewerOwnedPropertyIds),
                 rows.getPageable(), rows.getTotalElements());
     }
 
     /**
      * Project a list of visits into DTOs with N+1-safe batch loading.
      */
-    private List<VisitDto> projectVisits(List<Visit> rows, UUID viewerId) {
+    private List<VisitDto> projectVisits(List<Visit> rows, UUID viewerId, Set<UUID> viewerOwnedPropertyIds) {
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -305,20 +313,62 @@ public class VisitService {
 
         return rows.stream().map(visit -> {
             User visitor = visitorMap.get(visit.getVisitorId());
-            ContactVisibility visibility = visitorMobileVisibility(viewerId, visit.getVisitorId());
+            ContactVisibility visibility = visitorMobileVisibility(viewerId, visit, viewerOwnedPropertyIds);
             return VisitMapper.toDto(visit, visitor, visibility);
         }).toList();
     }
 
     /**
-     * The contact-gate question for visits (D5 global policy): may the viewer see the visitor's
-     * mobile? Only if the viewer is the visitor themselves — each party sees only their own number.
-     * The visitor's mobile stays masked to the owner at every visit status; confirming a visit
-     * unlocks the in-app conversation, not the digits, and no raw number is exchanged before a
-     * signed deal.
+     * The visit statuses at which the listing owner may see the visitor's mobile.
+     *
+     * <p>Excludes {@code scheduled}: a booking nobody has agreed to yet must not hand out a phone
+     * number, or booking would become a way to harvest one. Includes {@code no-show} and
+     * {@code completed} deliberately — the owner who waited at the flat has the strongest reason of
+     * all to call, and both are reachable only from {@code confirmed}, so the number was already
+     * disclosed by the time either is set.
+     *
+     * <p>Excludes {@code cancelled}, which is reachable from BOTH {@code scheduled} and
+     * {@code confirmed}. The status column records only where a visit is now, not where it has
+     * been, so the two cannot be told apart here; masking is the answer that is right on the
+     * {@code scheduled → cancelled} path, where nothing was ever disclosed. On the
+     * {@code confirmed → cancelled} path it re-masks digits the owner has already seen, which
+     * changes nothing in the real world — it is chosen because the alternative gets the first path
+     * wrong, and that is the one an abuser would use.
      */
-    private ContactVisibility visitorMobileVisibility(UUID viewerId, UUID visitorUserId) {
-        return viewerId.equals(visitorUserId)
+    private static final Set<String> OWNER_MAY_SEE_VISITOR_MOBILE =
+            Set.of(VisitStatuses.CONFIRMED, VisitStatuses.COMPLETED, VisitStatuses.NO_SHOW);
+
+    /**
+     * The contact-gate question for visits (D5 global policy): may the viewer see the visitor's
+     * mobile?
+     *
+     * <p>Two ways to earn it, and no third:
+     * <ul>
+     *   <li>the viewer IS the visitor — everyone sees their own number, at every status;</li>
+     *   <li>the viewer owns the listing AND the visit has been confirmed
+     *       ({@link #OWNER_MAY_SEE_VISITOR_MOBILE}).</li>
+     * </ul>
+     *
+     * <p>Confirming is the act that makes a visit real: someone is coming to the owner's home at a
+     * stated hour, and a number to call when they are late is operationally necessary rather than a
+     * marketing convenience. That is the whole justification for the reveal, and it is why the gate
+     * is the owner's own confirmation and not, say, the visitor merely asking.
+     *
+     * <p>Note that a reschedule resets the status to {@code scheduled} (D87), which re-masks the
+     * number until the owner confirms the new slot. That falls out of the rule rather than being
+     * special-cased, and it is the correct reading: the agreement is to a slot, not to a person.
+     *
+     * <p>Anyone who is neither party sees {@code MASKED}. In practice they see nothing at all —
+     * both list reads are scoped so a stranger's page is empty — but this method does not rely on
+     * that, because a gate that is only correct while its callers stay correct is not a gate.
+     */
+    private ContactVisibility visitorMobileVisibility(UUID viewerId, Visit visit,
+                                                      Set<UUID> viewerOwnedPropertyIds) {
+        if (viewerId.equals(visit.getVisitorId())) {
+            return ContactVisibility.REVEALED;
+        }
+        boolean viewerOwnsListing = viewerOwnedPropertyIds.contains(visit.getPropertyId());
+        return viewerOwnsListing && OWNER_MAY_SEE_VISITOR_MOBILE.contains(visit.getStatus())
                 ? ContactVisibility.REVEALED : ContactVisibility.MASKED;
     }
 }

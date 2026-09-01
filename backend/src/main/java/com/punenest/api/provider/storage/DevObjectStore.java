@@ -81,8 +81,17 @@ public class DevObjectStore {
 
     private static final String HMAC = "HmacSHA256";
 
+    /**
+    * The directory {@code MockFileStorage.storePublic} writes under, and the only canonical
+    * directory {@link #openPublic} will serve. It is not decoration: it is the whole
+    * authorisation rule for the unsigned read, and it is decided by the server at write time,
+    * never by a caller.
+     */
+    public static final String PUBLIC_PREFIX = "public/";
+
     private final Path root;
     private final String baseUrl;
+    private final String contextPath;
 
     /**
      * Generated per boot and never written anywhere. A restart invalidates every outstanding URL,
@@ -94,9 +103,12 @@ public class DevObjectStore {
     DevObjectStore(
             @Value("${punenest.storage.dir:${java.io.tmpdir}/punenest-storage}") String root,
             @Value("${punenest.storage.dev.base-url:http://localhost:${server.port:8080}"
-                    + "${server.servlet.context-path:}}") String baseUrl) {
+                    + "${server.servlet.context-path:}}") String baseUrl,
+            @Value("${server.servlet.context-path:}") String contextPath) {
         this.root = Path.of(root).normalize();
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.contextPath = contextPath.endsWith("/")
+                ? contextPath.substring(0, contextPath.length() - 1) : contextPath;
         new SecureRandom().nextBytes(secret);
     }
 
@@ -136,6 +148,36 @@ public class DevObjectStore {
     }
 
     /**
+     * A permanent, unsigned, <strong>relative</strong> URL for a world-readable object (D246).
+     *
+     * <p>Unsigned and permanent because that is what an object in a public bucket is. The private
+     * half above models a signed URL and expires; this one must not, or it would misrepresent the
+     * thing it stands in for — a listing photo URL is persisted on the listing row and has to still
+     * work next month.
+     *
+     * <p><strong>Why relative, when {@link #downloadUrl} is absolute.</strong> This URL is loaded
+     * by the browser as an {@code <img>}, and two gates apply to that which do not apply to a link
+     * a user clicks. The page CSP is {@code img-src 'self' data: blob: https:}, so an absolute
+     * {@code http://localhost:8081/...} is refused outright — plain http, foreign origin, matching
+     * no source in the list. And the create-listing wizard hashes each photo by drawing it to a
+     * canvas, which taints on a cross-origin image unless the response carries
+     * {@code Access-Control-Allow-Origin}. A relative URL resolves against the page, goes through
+     * the Vite proxy, and is same-origin, so both gates fall away rather than being negotiated.
+     * There is no https on localhost to make the absolute form work, so this is the only shape that
+     * resolves in a browser at all.
+     *
+     * <p><strong>What that costs, stated plainly.</strong> Production's public URL is R2's own,
+     * absolute and cross-origin, so the canvas there does need the bucket to send
+     * {@code Access-Control-Allow-Origin}. Dev is same-origin and will therefore never notice if it
+     * does not. That requirement is deployment configuration this repository does not hold and
+     * cannot assert; it is recorded on {@code FileStorage.storePublic} so whoever provisions the
+     * bucket sees it.
+     */
+    public String publicUrl(String key) {
+        return contextPath + "/dev/storage/" + encodePath(key);
+    }
+
+    /**
      * The bytes behind a signed URL, or empty for any reason at all.
      *
      * <p>One empty answer for a bad signature, a lapsed deadline, a key that escapes the root and a
@@ -158,12 +200,30 @@ public class DevObjectStore {
                 sign(key, expiresAt).getBytes(StandardCharsets.UTF_8))) {
             return Optional.empty();
         }
-        Optional<Path> target = resolve(key).filter(Files::isRegularFile);
-        if (target.isEmpty()) {
-            return Optional.empty();
-        }
+        return resolve(key).filter(Files::isRegularFile).flatMap(DevObjectStore::read);
+    }
+
+    /**
+     * The bytes of a world-readable object, or empty — no signature, no expiry.
+     *
+     * <p>The authorisation is the canonical public-directory check, rather than a textual prefix:
+     * a request such as {@code public/../documents/...} must not turn a private document into an
+     * unsigned public object. A caller who guesses a canonical public key gets the object, which is
+     * correct — that is what a public bucket means, and modelling it as anything else would make
+     * dev disagree with production about who may see a listing photo.
+     */
+    Optional<Stored> openPublic(String key) {
+        return resolvePublic(key).filter(Files::isRegularFile).flatMap(DevObjectStore::read);
+    }
+
+    /** Whether {@code key} canonically names an object inside the public directory. */
+    boolean isPublic(String key) {
+        return resolvePublic(key).isPresent();
+    }
+
+    /** One object and its sidecar content type, or empty if either cannot be read. */
+    private static Optional<Stored> read(Path file) {
         try {
-            Path file = target.get();
             Path sidecar = file.resolveSibling(file.getFileName() + TYPE_SUFFIX);
             String contentType = Files.isRegularFile(sidecar)
                     ? Files.readString(sidecar, StandardCharsets.UTF_8).trim()
@@ -188,6 +248,12 @@ public class DevObjectStore {
         }
         Path target = root.resolve(key).normalize();
         return target.startsWith(root) ? Optional.of(target) : Optional.empty();
+    }
+
+    /** Resolve an unsigned key only when its normalised path remains inside {@link #PUBLIC_PREFIX}. */
+    private Optional<Path> resolvePublic(String key) {
+        Path publicRoot = root.resolve(PUBLIC_PREFIX).normalize();
+        return resolve(key).filter(path -> path.startsWith(publicRoot));
     }
 
     private String sign(String key, long expiresAt) {
@@ -230,13 +296,22 @@ class DevStorageController {
     /**
      * {@code GET /dev/storage/**} — the object, or 404.
      *
+    * <p>Two kinds of object arrive here and they are told apart by the canonical path. Anything
+    * inside {@link DevObjectStore#PUBLIC_PREFIX} was written to the stand-in public bucket and is
+    * served unsigned, because an object in a public bucket has no credential to present.
+    * Everything else is private and must carry the signature and deadline {@code downloadUrl}
+    * minted. One mapping rather than two so there is no pattern-precedence question between a
+    * catch-all and a literal prefix, and so the two policies sit in one place where they can be
+    * read against each other.
+     *
      * <p>404 for a bad signature as well as for a missing file. There is no useful distinction to
      * draw for a caller who is meant to be following a URL we minted, and drawing one would turn
      * this into an oracle for which storage keys exist.
      *
      * <p>{@code Content-Disposition: inline} so the browser previews rather than downloads —
-     * the whole point of the row. {@code Cache-Control: no-store} because the URL is a credential
-     * and a shared cache holding the response is a copy of the document nobody authorised.
+     * the whole point of the row. {@code Cache-Control: no-store} on the private half because the
+     * URL is a credential and a shared cache holding the response is a copy of the document nobody
+     * authorised; the public half is cacheable, which is what a CDN object is.
      */
     @GetMapping(Routes.DevStorage.OBJECT)
     ResponseEntity<byte[]> object(
@@ -245,11 +320,13 @@ class DevStorageController {
             @RequestParam(name = "sig", required = false) String signature) {
         // {*key} captures the leading slash with the rest of the path; the stored key has none.
         String storageKey = key.startsWith("/") ? key.substring(1) : key;
-        return store.open(storageKey, expiry, signature)
+        boolean isPublic = store.isPublic(storageKey);
+        return (isPublic ? store.openPublic(storageKey) : store.open(storageKey, expiry, signature))
                 .map(stored -> ResponseEntity.ok()
                         .header(HttpHeaders.CONTENT_TYPE, stored.contentType())
                         .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
-                        .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                        .header(HttpHeaders.CACHE_CONTROL,
+                                isPublic ? "public, max-age=3600" : "no-store")
                         .body(stored.content()))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

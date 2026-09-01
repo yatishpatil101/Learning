@@ -43,13 +43,21 @@ const MOBILE = /[\\/]tests[\\/]mobile[\\/]/;
  * `mobile` project in `playwright.live.config.js` rather than deleting it. A stale
  * path here matches nothing and reports nothing, so the loss is silent. */
 const CROSS_VIEWPORT = [
-  'consumer/flatmates/discovery.spec.js',
   'consumer/flatmates/owner-split.spec.js',
   'consumer/flatmates/posting.spec.js',
-  'consumer/property/detail.spec.js',
   'consumer/services/referral-rewards.spec.js',
   // `platform/help/centre`, `platform/help/i18n-urls` and `platform/i18n` moved to the live
-  // suite's `mobile` project (P5b waves 1b and 1e).
+  // suite's `mobile` project (P5b waves 1b and 1e), and `consumer/flatmates/discovery` followed
+  // them there. What is left of that file mock-side is one test about a banner the live build
+  // cannot render at all (see its header) — a data gap, not a layout one, so it has no claim on a
+  // second viewport.
+  //
+  // `consumer/property/detail` was retired to `live-detail` and deliberately NOT moved, which is
+  // the other half of the rule above. It earned its place here for a breadcrumb assertion it had
+  // already stopped making: its own comment records that it moved to the `h1` *because* the
+  // breadcrumb is `hidden sm:flex` and a locality check only passed on desktop. The live twin
+  // asserts that same heading, which renders identically at every width, so a second viewport
+  // would double its runtime to re-check a string the layout does not touch.
 ].map((p) => `**/${p}`);
 
 export default defineConfig({

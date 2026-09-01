@@ -81,9 +81,9 @@ public class FlatmateFeedService {
         if (FlatmateVocabulary.TAB_MOVE_IN.equals(resolved)) {
             // Places: every room, plus the groups that have somewhere to live. No facets here —
             // this merged feed does its own budget/verified pass in Java after the union below.
-            rooms.feed(filter, null, null, null, null, null, null, null, gather).forEach(r -> merged.add(
+            rooms.feed(filter, null, null, null, null, null, null, null, null, gather).forEach(r -> merged.add(
                     new Entry(r.getCreatedAt(), r.getBudget(), r.isVerified(), r)));
-            groups.feed(filter, null, null, null, gather).stream()
+            groups.feed(filter, null, null, null, null, gather).stream()
                     .filter(FlatmateGroup::hasAddress)
                     .forEach(g -> merged.add(new Entry(
                             g.getCreatedAt(), perHead(g), tierVerified(g), g)));
@@ -91,7 +91,7 @@ public class FlatmateFeedService {
             // People: solo seekers, plus the groups still hunting.
             posts.feed(filter, null, null, null, null, null, gather).forEach(p -> merged.add(
                     new Entry(p.getCreatedAt(), p.getBudget(), p.isVerified(), p)));
-            groups.feed(filter, null, null, null, gather).stream()
+            groups.feed(filter, null, null, null, null, gather).stream()
                     .filter(g -> !g.hasAddress())
                     .forEach(g -> merged.add(new Entry(
                             g.getCreatedAt(), perHead(g), tierVerified(g), g)));

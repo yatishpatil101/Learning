@@ -1,10 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../fixtures/live.js';
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-// The EMI calculator flag is enabled by default; these tests exercise the
-// calculator's own interactive controls (sliders, inputs, lender cards,
-// reset, and the year-wise amortization breakup).
+// The EMI calculator page is pure client-side `useState`/`useMemo` arithmetic — it reads no
+// domain in VITE_API_DOMAINS — so the assertions below are identical in mock and live mode.
+// The route is nevertheless flag-gated, and under the live build that flag comes from
+// `GET /flags` on the server rather than from the mock store. Importing the live fixture is
+// what makes `flags` reachable: if the flag is ever turned off server-side, the honest fix is
+// `await flags.enable('emiCalculator')` here, not a mystery timeout on a page that silently
+// redirected. Until then the default carries it, and the `toHaveCount(3)` in `beforeEach`
+// fails loudly rather than vacuously if the route ever stops rendering.
 /* Not a `waitForTimeout`. The page is synchronous `useState` + `useMemo` with no debounce, fetch or
    timer anywhere in it, so every sleep this file used to carry was padding for a React re-render.
    Where a sleep sat directly above the assertion it was waiting for, it has simply gone: Playwright

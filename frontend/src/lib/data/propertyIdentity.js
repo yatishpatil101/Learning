@@ -16,7 +16,6 @@
  */
 import { rawDb } from '../mockApi.js';
 import { digits, norm, pin, hashToken } from './identityNorm.js';
-import { photoSetsMatch } from './imageHash.js';
 
 export { digits };
 
@@ -84,53 +83,39 @@ export const findListingClaims = (keys, excludeId) => {
   return claims;
 };
 
-/* Active listings whose photos perceptually match `hashes`, excluding `excludeId`.
-   A FUZZY signal (re-compressed copy-paste), so callers only ever FLAG on it —
-   never block — to avoid false-matching a reused stock/amenity photo. */
-export const findImageClaims = (hashes, excludeId) => {
-  if (!Array.isArray(hashes) || !hashes.length) return [];
-  const db = rawDb();
-  const claims = [];
-  (db.listings || []).forEach((l) => {
-    if (l.id === excludeId || !listingActive(l)) return;
-    if (Array.isArray(l.photoHashes) && photoSetsMatch(hashes, l.photoHashes)) {
-      claims.push({ id: l.id, mobile: digits(l.ownerMobile), status: l.status });
-    }
-  });
-  return claims;
-};
-
 /* Decide what to do with a submission against existing supply:
- *   - blocked   : the SAME owner already has this property live -> stop, offer edit.
- *   - flagged   : a DIFFERENT owner already claimed it (by identity OR by matching
- *                 photos) -> allow, route to Ops with the reason.
- * Returns the keys + primary fingerprint to persist onto the new record. */
-export const evaluateListingDedup = ({ mobile, fields, excludeId, photoHashes } = {}) => {
+ *   - blocked : the SAME owner already has this property live -> stop, offer edit.
+ * Returns the keys + primary fingerprint to persist onto the new record.
+ *
+ * D245. This used to have a second half: a DIFFERENT owner claiming the same unit, or reusing the
+ * same photographs, was flagged to Ops from here. Both arms are gone, and the reason is that
+ * neither could ever have worked where it mattered. They scanned `rawDb()` — the browser's local
+ * mirror — which against the live API holds only the listings this browser itself posted. A real
+ * owner's browser has never seen another owner's listing, so the cross-owner question was being
+ * asked of a store that is structurally incapable of answering it. Every mock spec passed on a
+ * feature that had never once fired in production.
+ *
+ * Both now live on the server, where the question is asked against everybody's listings: the
+ * address and meter arm in `ListingDuplicateProbe#flagSameDoorway` (V115 normalises the meter so
+ * three spellings of one number are one number), and the photograph arm in `#flagSamePhotos`
+ * against the `property_photo_hashes` table (V116). The wizard's job is now only to *send* the
+ * evidence — `photoHashes` on the create/update wire — not to judge it.
+ *
+ * The self-arm stays because it answers a different question, "have I already listed this?", whose
+ * subject is the caller's own listings; and even that is only the mock provider's answer now, the
+ * http provider asking the server via `checkOwnDuplicate` (D226). */
+export const evaluateListingDedup = ({ mobile, fields, excludeId } = {}) => {
   const keys = fingerprintKeys(fields || {});
   const fingerprint = keys[0] || '';
   const mine = digits(mobile);
 
-  // Strong signal: shared identity key. Same owner -> block; other owner -> flag.
   const claims = keys.length ? findListingClaims(keys, excludeId) : [];
   const self = claims.find((c) => mine && c.mobile === mine);
-  const other = claims.find((c) => c.mobile && c.mobile !== mine);
 
-  // Fuzzy signal: matching photos against a DIFFERENT owner. Only consulted when
-  // we aren't already blocking, and never turns into a block on its own.
-  let imageOther = null;
-  if (!self && Array.isArray(photoHashes) && photoHashes.length) {
-    imageOther = findImageClaims(photoHashes, excludeId).find((c) => c.mobile && c.mobile !== mine) || null;
-  }
-
-  const flaggedByAddress = !self && !!other;
-  const flaggedByImage = !self && !other && !!imageOther;
   return {
     fingerprint,
     fingerprintKeys: keys,
     blocked: !!self,
     existingId: self ? self.id : null,
-    flagForReview: flaggedByAddress || flaggedByImage,
-    flaggedAgainstId: flaggedByAddress ? other.id : flaggedByImage ? imageOther.id : null,
-    flagBy: flaggedByAddress ? 'address' : flaggedByImage ? 'image' : null,
   };
 };

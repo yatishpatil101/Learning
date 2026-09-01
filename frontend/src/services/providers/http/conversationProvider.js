@@ -104,9 +104,22 @@ export async function unreadCount() {
  * for a server thread. Its limits are real: it lives on one device and does not survive clearing
  * site data. That is acceptable for a message the user has been told is *waiting*, and it is the
  * same split the anonymous saved-search capture took (D85).
+ *
+ * **`active: true` means the gate is already open, so nothing is staged.** The property page passes
+ * it from the "Chat with Owner" affordance, which it only renders once the contact request has been
+ * approved; `startConversation` is then reachable and the message belongs on the server. This is
+ * the contract the mock has always had (`lib/chat.js`: `staged: !active`).
+ *
+ * Honouring it is an optimisation, not a correctness fix, and the distinction is worth recording so
+ * nobody defends it with a test that cannot fail. `Messages.jsx` awaits `drainPendingChats()` before
+ * it reads the inbox, so a row staged in the `active` case is posted, resumes the thread that
+ * already exists (200, not a fork) and is gone before anything renders. Deleting this line is
+ * therefore invisible to the UI — verified by mutation against `live-chat-owner.spec.js`, which
+ * stayed green. What it actually buys is one avoided round-trip and one avoided localStorage write
+ * per click on a path where the answer is already known.
  */
-export async function queuePendingChat(property, { firstMessage } = {}) {
-  if (!property?.id) return;
+export async function queuePendingChat(property, { firstMessage, active = false } = {}) {
+  if (!property?.id || active) return;
   const queue = readQueue();
   // One staged chat per listing — pressing the button twice is not two requests.
   if (queue.some((q) => q.propertyId === String(property.id))) return;
@@ -119,9 +132,10 @@ export async function queuePendingChat(property, { firstMessage } = {}) {
       loc: property.locality ? `${property.locality}, Pune` : 'Pune',
       img: property.image || property.img || '',
     },
-    // The owner's mobile is deliberately NOT copied here. On a property page it is masked until the
-    // gate opens, so storing it would persist a masked string and then send it as if it were a real
-    // number. `drainPendingChats` reads the live listing instead.
+    // The owner's mobile is deliberately NOT copied here, and `drainPendingChats` does not go
+    // looking for one either: under D5 the raw number is revealed to the owner and to nobody else,
+    // so on a buyer's property page it is masked in every state. The drain addresses the thread by
+    // `propertyId` and lets the server name the owner.
     party: { name: property.owner || 'Owner', role: 'Owner' },
     firstMessage: firstMessage
       || `Hi, I'm interested in "${property.title || 'this property'}" on PuneNest. Is it still available?`,
@@ -132,10 +146,14 @@ export async function queuePendingChat(property, { firstMessage } = {}) {
 /**
  * Try to send everything staged.
  *
- * Each entry needs the owner's **unmasked** mobile, which only exists once the gate has opened — so
- * this re-reads the listing rather than trusting anything stored at queue time. An entry the server
- * still refuses stays queued: the gate may open later, and silently dropping a message the user
- * composed would be the worst outcome available.
+ * Each entry is addressed by its `propertyId` alone. It used to re-read the listing for the owner's
+ * unmasked mobile and skip the entry while that came back masked — which under D5 is *always*, since
+ * the raw number is revealed only to the owner. Every staged chat was therefore unsendable forever,
+ * and the buyer sat on "waiting for the owner to accept" long after they had accepted. The server
+ * now derives the owner from the listing, so the drain sends what it holds and the contact-request
+ * guard still decides whether it may. An entry the server still refuses stays queued: the gate may
+ * open later, and silently dropping a message the user composed would be the worst outcome
+ * available.
  */
 export async function drainPendingChats() {
   const queue = readQueue();
@@ -145,17 +163,8 @@ export async function drainPendingChats() {
   let sent = 0;
   for (const item of queue) {
     try {
-      const listing = await get(`/properties/${encodeURIComponent(item.propertyId)}`, null, { auth: false });
-      const mobile = listing?.owner?.mobile;
-      // A masked number still contains X's; sending it would 422 at the edge. Treat it as "the gate
-      // has not opened yet" rather than as an error.
-      if (!mobile || /x/i.test(mobile)) {
-        remaining.push(item);
-        continue;
-      }
       await post('/messages', toConversationCreate({
-        counterpartyMobile: mobile,
-        propertyId: listing.id,
+        propertyId: item.propertyId,
         body: item.firstMessage,
       }));
       sent += 1;

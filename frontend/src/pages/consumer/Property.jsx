@@ -33,6 +33,18 @@ export default function Property() {
       </div>
     );
   }
+  /* The deal is done and this reader is not the owner. Same two sentences the DealPanel shows a
+     buyer on a still-live listing whose deal closed, so the answer does not depend on which of the
+     two routes into "closed" the listing took. See the gate note in `useProperty.js`. */
+  if (ctx.dealClosed) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-32 text-center">
+        <Icon name="check-circle" className="w-10 h-10 text-slate-400 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">{tr('property.noLongerAvailable')}</h2>
+        <p className="text-gray-400 text-sm">{tr('property.propertyBeenSub', { word: ctx.closedWord })}</p>
+      </div>
+    );
+  }
 
   const {
     rootRef, goBackToSearch, backToMap, returnTo, isRent, p, title, gallery, active, setActive,

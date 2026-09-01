@@ -54,6 +54,17 @@ public interface FileStorage {
      * listing photos — and <strong>never</strong> for documents: the returned URL carries no
      * signature and does not expire, so persist it directly on the listing.
      *
+     * <p><strong>Deployment requirement: the public bucket must send
+     * {@code Access-Control-Allow-Origin}.</strong> A listing photo is not only rendered. The
+     * create-listing wizard draws each one to a {@code <canvas>} to compute a perceptual hash, which
+     * the duplicate probe compares across owners, and reading pixels back from a canvas that has
+     * drawn a cross-origin image throws unless that image arrived with CORS headers. The failure is
+     * silent by construction — the client degrades to no hashes, the listing posts normally, and the
+     * only symptom is that duplicate listings sharing photographs stop being flagged. Nothing in
+     * this repository can assert it: the URL is R2's, the header is bucket configuration, and the
+     * dev stand-in is same-origin (see {@code DevObjectStore.publicUrl}), so no test here will ever
+     * go red if the rule is missing. It is written down because that is the only control available.
+     *
      * @return the CDN URL at which the object is now served, with no signing required
      * @throws UncheckedIOException if the bytes cannot be written
      */
@@ -75,8 +86,10 @@ public interface FileStorage {
  * <p>The download URL used to point at {@code https://mock.storage.local/}, a host that does not
  * resolve, so every document read in dev returned a {@code url} nothing could open (D120). It now
  * delegates to {@link com.punenest.api.provider.storage.DevObjectStore}, which serves the bytes
- * this class already wrote. Uploads are untouched — nothing consumes {@code signedUploadUrl} yet,
- * and inventing a dev receiver for a flow no client uses would be shape without a caller.
+ * this class already wrote. {@link #storePublic} had the same defect and kept it three years
+ * longer; it was fixed the same way in D246, for a reason documented on the method. Signed
+ * <em>uploads</em> remain on the fake host — nothing consumes {@code signedUploadUrl} yet, and
+ * inventing a dev receiver for a flow no client uses would be shape without a caller.
  */
 @Component
 @DevOnly
@@ -109,12 +122,20 @@ class MockFileStorage implements FileStorage {
 
     @Override
     public String storePublic(String key, byte[] content, String contentType) {
-        // Same on-disk write as store(), under a public/ prefix, but the URL is deliberately
-        // unsigned — mirroring the real public bucket, whose objects are world-readable. Left on
-        // the fake host: listing photos are persisted on the listing row, so changing this shape
-        // would rewrite what is already in the database rather than what is served today.
-        store("public/" + key, content, contentType);
-        return BASE + "public/" + key;
+        // Same on-disk write as store(), under a public/ prefix, and the URL is deliberately
+        // unsigned and non-expiring — mirroring the real public bucket, whose objects are
+        // world-readable and whose URLs are persisted on the listing row.
+        //
+        // This used to answer on https://mock.storage.local/, a host that does not resolve, on the
+        // reasoning that listing photos are persisted and changing the shape would rewrite what is
+        // in the database. That reasoning held for the URL as a stored string and missed what the
+        // browser does with it: no listing photo uploaded in dev had ever rendered, and — the
+        // reason this changed (D246) — the create-listing wizard hashes each photo through a canvas
+        // to detect duplicate listings, so the hash of an image that cannot load is nothing at all.
+        // The whole photo arm of the duplicate probe was unreachable from a browser here, and no
+        // test could see it, because the only URL dev ever produced was dead.
+        store(DevObjectStore.PUBLIC_PREFIX + key, content, contentType);
+        return objects.publicUrl(DevObjectStore.PUBLIC_PREFIX + key);
     }
 }
 

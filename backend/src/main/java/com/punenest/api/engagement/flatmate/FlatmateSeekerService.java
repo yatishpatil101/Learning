@@ -76,8 +76,21 @@ public class FlatmateSeekerService {
      */
     private static final String ONE_PER_TARGET_INDEX = "uq_flatmate_requests_target_requester";
 
+    /**
+     * The three doors that write {@code flatmate_requests}, spelled as they are stored.
+     *
+     * <p>{@code flatmate} rather than {@code post} is a wart, not a choice — it is the literal
+     * {@link #express} has written since V27 and the value sitting in the column today. Renaming it
+     * would need a data migration to buy tidiness, so the withdraw path validates against what is
+     * actually there.
+     */
+    private static final java.util.Set<String> INTEREST_KINDS =
+            java.util.Set.of("flatmate", "room", "group");
+
     private final FlatmateSeekerPostRepository posts;
     private final FlatmateRequestRepository requests;
+    /** The inbox/outbox join, shared with nothing yet but owned by neither read (D70). */
+    private final FlatmateRequestHydrator hydrator;
     private final FlatmateMapper mapper;
     private final UserRepository users;
     private final Notifier notifier;
@@ -86,10 +99,12 @@ public class FlatmateSeekerService {
     private final RateLimitLock locks;
 
     public FlatmateSeekerService(FlatmateSeekerPostRepository posts,
-            FlatmateRequestRepository requests, FlatmateMapper mapper, UserRepository users,
+            FlatmateRequestRepository requests, FlatmateRequestHydrator hydrator,
+            FlatmateMapper mapper, UserRepository users,
             Notifier notifier, AuditService audit, RateLimitLock locks) {
         this.posts = posts;
         this.requests = requests;
+        this.hydrator = hydrator;
         this.mapper = mapper;
         this.users = users;
         this.notifier = notifier;
@@ -277,6 +292,45 @@ public class FlatmateSeekerService {
     }
 
     /**
+     * {@code GET /me/flatmate-posts} — the ad the caller wrote, as its author sees it.
+     *
+     * <p>Not {@link #feed} narrowed by an author filter, and the difference is the whole point. The
+     * feed is hard-floored to approved rows, so an author whose post is still in moderation cannot
+     * find it there; and every row it returns is {@link FlatmateMapper.SeekerView#ANONYMOUS}, so
+     * even an approved author could not tell which row was theirs. Both are correct for a public
+     * board and both make "have I posted?" unanswerable, which is a question the client asks on
+     * every render — the author gets a banner instead of a card, and their own ad is kept out of
+     * the results so they cannot express interest in themselves.
+     *
+     * <p><strong>The page can only ever hold one row.</strong> {@link #create} refuses a second live
+     * ad and a partial unique index enforces it, so this is a 0..1 resource wearing the envelope its
+     * two {@code /me/flatmate-*} siblings wear. The envelope is deliberate rather than lazy: it
+     * costs the client nothing (the provider already unwraps `content`), it is what a reader of the
+     * neighbouring routes expects, and the cap it is hiding is a product decision that may relax,
+     * whereas a singular route would have to answer "no post" with a 404 — an error status for the
+     * ordinary state of every account that has not posted yet.
+     *
+     * <p>Archived posts are excluded, which is where this parts company with
+     * {@code listMyFlatmateRooms}. A host wants their withdrawn rooms back; the question this
+     * answers is "is one of mine live right now", and a taken-down ad answers it wrongly — it would
+     * put the banner back over an ad nobody can see.
+     *
+     * <p>The mobile is the caller's own and unmasked, which is the same decision {@link #create}
+     * already returns rather than a new one: a seeker post carries its author's number only ever
+     * back to that author.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateSeekerPostDto> myPosts(AuthPrincipal caller, Pageable pageable) {
+        User author = users.findById(caller.userId())
+                .orElseThrow(() -> NotFoundException.of("User"));
+        List<FlatmateSeekerPostDto> mine = posts.findByUserIdAndArchivedFalse(caller.userId())
+                .map(post -> mapper.toDto(post, new FlatmateMapper.SeekerView(author.getMobile())))
+                .map(List::of)
+                .orElseGet(List::of);
+        return new PageImpl<>(mine, pageable, mine.size());
+    }
+
+    /**
      * {@code GET /me/flatmate-requests} — the host's inbox, paged (D77).
      *
      * <p>Paged because the host does not write these rows: each one is a stranger who answered the
@@ -284,7 +338,8 @@ public class FlatmateSeekerService {
      * inbound-demand shape, and the host it punishes hardest is the one whose room everybody wants.
      *
      * <p>The rows are fetched as a page and then hydrated <em>as a batch</em>, exactly as before:
-     * {@link #hydrate} resolves every requester and target in two queries rather than two per row.
+     * {@link FlatmateRequestHydrator} resolves every requester and target in one query per kind
+     * rather than two per row.
      * Mapping row-by-row over a page would look tidier and quietly reinstate the N+1 that method
      * exists to prevent. {@link PageImpl} re-wraps the mapped rows around the original
      * {@code totalElements}, so the envelope still counts the whole inbox rather than this slice —
@@ -298,7 +353,7 @@ public class FlatmateSeekerService {
                 ? requests.findByHostIdOrderByRequestedAtDesc(caller.userId(), pageable)
                 : requests.findByHostIdAndStatusOrderByRequestedAtDesc(
                         caller.userId(), filter, pageable);
-        return new PageImpl<>(hydrate(rows.getContent()), pageable, rows.getTotalElements());
+        return new PageImpl<>(hydrator.hydrate(rows.getContent()), pageable, rows.getTotalElements());
     }
 
     /**
@@ -338,7 +393,7 @@ public class FlatmateSeekerService {
                 "flatmate", post.getId(), caller.userId(), pageable);
         // Batched exactly as the inbox is, and for the same reason: a popular ad renders a page of
         // thirty, and a per-row lookup would be sixty queries for one screen.
-        return new PageImpl<>(hydrate(rows.getContent()), pageable, rows.getTotalElements());
+        return new PageImpl<>(hydrator.hydrate(rows.getContent()), pageable, rows.getTotalElements());
     }
 
     /**
@@ -359,7 +414,81 @@ public class FlatmateSeekerService {
         requests.saveAndFlush(request);
 
         notifyDecision(request, verdict);
-        return hydrate(List.of(request)).getFirst();
+        return hydrator.hydrateOne(request);
+    }
+
+    /**
+     * {@code GET /me/flatmate-interests} — everything I have asked for, paged.
+     *
+     * <p>The exact mirror of {@link #inbox}: same table, same hydration, same DTO, narrowed by
+     * requester instead of host. It exists because until now the answer lived in the browser.
+     * {@code useFlatmates} recorded each press with {@code rememberAsk} into {@code localStorage}
+     * and read the button state back out of it, so "Interest sent" was a property of the device
+     * rather than of the account — sign in on a laptop and every post you had already written to
+     * offered its button again, and pressing it earned a 409 the UI had to apologise for. The row
+     * was in {@code flatmate_requests} the whole time; there was simply no way to ask for it.
+     *
+     * <p><strong>The host's number is not in these rows, and that is not an oversight.</strong>
+     * {@link FlatmateRequestDto} carries {@code requesterMobile}, which on this read is the
+     * caller's own, so the payload discloses nothing new. The contact model is one-directional by
+     * design — the requester volunteers their number by pressing the button, and a host who wants
+     * to be reachable answers. Adding the host's number here would hand every seeker a contact list
+     * assembled by pressing buttons, which is precisely the thing the gate exists to prevent.
+     *
+     * <p>Not filtered to live targets. An ask whose room has since been taken down is still
+     * something this person did, and dropping it would make the list disagree with the button they
+     * are looking at — the same defect one step further along.
+     */
+    @Transactional(readOnly = true)
+    public Page<FlatmateRequestDto> outbox(AuthPrincipal caller, String status, Pageable pageable) {
+        String filter = FlatmateVocabulary.optional(
+                status, FlatmateVocabulary.REQUEST_STATUS, "status");
+        Page<FlatmateRequest> rows = filter == null
+                ? requests.findByRequesterIdOrderByCreatedAtDesc(caller.userId(), pageable)
+                : requests.findByRequesterIdAndStatusOrderByCreatedAtDesc(
+                        caller.userId(), filter, pageable);
+        return new PageImpl<>(hydrator.hydrate(rows.getContent()), pageable, rows.getTotalElements());
+    }
+
+    /**
+     * {@code DELETE /flatmates/{kind}/{id}/interest} — take back an ask.
+     *
+     * <p>The counterpart to a rule that was previously one-way. {@code record} and {@link #express}
+     * both refuse a second ask with {@code already_interested}, which is right — a repeat press
+     * should not rewrite the host's copy — but with no way out it meant a misdirected tap was
+     * permanent. Pressing "I'm interested" on the wrong card left a stranger's phone number in
+     * somebody's inbox for good, and the only remedy anybody could offer was to ask the host.
+     *
+     * <p><strong>Hard delete, not a status.</strong> The duplicate guard is
+     * {@code (kind, target_id, requester_id)} and it is enforced by a unique index, so a withdrawn
+     * row that stayed in the table would keep the door shut behind it — withdraw once and this
+     * person could never write to that post again, which turns an undo into a lockout. A soft flag
+     * would need the index, both finders and the seat counter to learn about it, and the row's only
+     * remaining value would be proving an ask that its author has explicitly retracted.
+     *
+     * <p><strong>Only while it is pending.</strong> Once the host has accepted, they have acted on
+     * it — on a group they gave up a seat for it — and letting the requester erase the record
+     * afterwards would rewrite a decision somebody else made. 409 rather than 403: the row is
+     * theirs, it is its state that refuses.
+     *
+     * <p><strong>The rate-limit budget is not refunded.</strong> Ten interests an hour counts
+     * <em>deliveries</em>, and the notification has already gone out — the host's phone buzzed. A
+     * refund would make withdrawal the cheapest way to buy another send, which is exactly the
+     * pattern the window is there to stop.
+     */
+    @Transactional
+    public void withdraw(AuthPrincipal caller, String kind, UUID targetId) {
+        String door = FlatmateVocabulary.require(
+                kind == null ? "" : kind.strip(), INTEREST_KINDS, "kind");
+        FlatmateRequest request = requests
+                .findByKindAndTargetIdAndRequesterId(door, targetId, caller.userId())
+                .orElseThrow(() -> NotFoundException.of("Flatmate interest"));
+        if (!request.isPending()) {
+            throw new ConflictException(FlatmateConflicts.mark(
+                    "The host has already answered this one, so it cannot be withdrawn.",
+                    FlatmateConflicts.ALREADY_DECIDED));
+        }
+        requests.delete(request);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -492,40 +621,5 @@ public class FlatmateSeekerService {
                         ? "Good news — the host accepted your request. They have your number."
                         : "The host has declined this one. Plenty of other people are looking.",
                 "/flatmates");
-    }
-
-    /**
-     * Fill in the names, titles and numbers the inbox renders.
-     *
-     * <p>Batched: one query for every requester and one for every seeker post, rather than two per
-     * row. An inbox of thirty requests would otherwise be sixty queries to render one screen.
-     */
-    private List<FlatmateRequestDto> hydrate(List<FlatmateRequest> rows) {
-        if (rows.isEmpty()) {
-            return List.of();
-        }
-        var requesterIds = rows.stream().map(FlatmateRequest::getRequesterId).distinct().toList();
-        var byId = users.findAllById(requesterIds).stream()
-                .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
-
-        var seekerTargets = rows.stream()
-                .filter(r -> "flatmate".equals(r.getKind()))
-                .map(FlatmateRequest::getTargetId)
-                .distinct()
-                .toList();
-        var seekerById = posts.findAllById(seekerTargets).stream()
-                .collect(java.util.stream.Collectors.toMap(FlatmateSeekerPost::getId, p -> p));
-
-        return rows.stream().map(r -> {
-            User requester = byId.get(r.getRequesterId());
-            FlatmateSeekerPost target = seekerById.get(r.getTargetId());
-            return FlatmateRequestDto.of(
-                    r,
-                    target == null ? null : target.getName(),
-                    target == null || target.getLocalities().isEmpty()
-                            ? null : target.getLocalities().getFirst(),
-                    requester == null ? null : requester.getName(),
-                    requester == null ? null : requester.getMobile());
-        }).toList();
     }
 }

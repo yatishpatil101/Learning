@@ -23,13 +23,15 @@ import org.springframework.mock.web.MockMultipartFile;
  * is authenticated but not owner-scoped (there is no property to scope to at upload time).
  *
  * <p>Runs under the {@code dev} profile, so {@code MockFileStorage} is the wired {@link
- * com.punenest.api.provider.FileStorage}: its {@code storePublic} returns a
- * {@code https://mock.storage.local/public/...} URL, which stands in for the R2 CDN URL that the
- * live test ({@code R2FileStorageLiveTest}) proves against the real bucket.
+ * com.punenest.api.provider.FileStorage}: its {@code storePublic} returns a relative
+ * {@code /api/dev/storage/public/...} URL served by {@code DevStorageController}, which stands in
+ * for the R2 CDN URL that the live test ({@code R2FileStorageLiveTest}) proves against the real
+ * bucket. It used to answer on {@code https://mock.storage.local/}, a host that does not resolve,
+ * so no photo uploaded in dev could be displayed or hashed (D246).
  */
 class MePhotosEndpointsTest extends AbstractApiTest {
 
-    private static final String MOCK_PUBLIC = "https://mock.storage.local/public/photos/";
+    private static final String MOCK_PUBLIC = "/api/dev/storage/public/photos/";
 
     @Autowired
     UserRepository users;

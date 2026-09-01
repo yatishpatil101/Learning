@@ -117,6 +117,27 @@ public class FlatmateSeekerController {
     }
 
     /**
+     * {@code GET /me/flatmate-posts} (contract {@code listMyFlatmatePosts}) — my own ad.
+     *
+     * <p>Deliberately adjacent to {@link #inbox} below, because the two are the pair a reader is
+     * most likely to mix up and the names are one noun apart. This returns the single post the
+     * caller <em>wrote</em>; that returns every reply strangers <em>sent</em> them.
+     *
+     * <p>No role guard, matching {@code myFlatmateRooms} and {@code myFlatmateGroups}: the scope is
+     * the caller's own row, so being signed in is the whole permission. It is not in
+     * {@code SecurityConfig}'s {@code permitAll} block — {@code /me/**} has no entry there — so it
+     * falls through to {@code anyRequest().authenticated()}, which is the intended registration.
+     *
+     * <p>{@link Pageables#unsorted} for the same reason as the inbox: there is nothing here a
+     * client could usefully sort, and an unmapped {@code ?sort=} reaching the query is a 500.
+     */
+    @GetMapping(Routes.Flatmates.MY_POSTS)
+    public PageResponse<FlatmateSeekerPostDto> myPosts(@CurrentUser AuthPrincipal principal,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(service.myPosts(principal, Pageables.unsorted(pageable)), dto -> dto);
+    }
+
+    /**
      * {@code GET /me/flatmate-requests} (contract {@code listMyFlatmateRequests}) — paged (D77).
      *
      * <p>Was a bare array. The host writes none of these rows, so the list grows with how many
@@ -141,6 +162,43 @@ public class FlatmateSeekerController {
     public FlatmateRequestDto decide(@CurrentUser AuthPrincipal principal,
             @PathVariable UUID id, @Valid @RequestBody DecisionRequest body) {
         return service.decide(principal, id, body.decision());
+    }
+
+    /**
+     * {@code GET /me/flatmate-interests} (contract {@code listMyFlatmateInterests}) — my outbox.
+     *
+     * <p>Directly below {@link #inbox} on purpose: they are the two ends of one row and the reader
+     * most likely to confuse them is the one scrolling this file. Same DTO, same hydration, opposite
+     * scope.
+     *
+     * <p>No role guard and {@link Pageables#unsorted}, on the same terms as every other {@code /me}
+     * read here \u2014 the scope is the caller's own rows, and the order is fixed server-side.
+     */
+    @GetMapping(Routes.Flatmates.MY_INTERESTS)
+    public PageResponse<FlatmateRequestDto> outbox(@CurrentUser AuthPrincipal principal,
+            @RequestParam(required = false) String status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                service.outbox(principal, status, Pageables.unsorted(pageable)), dto -> dto);
+    }
+
+    /**
+     * {@code DELETE /flatmates/{kind}/{id}/interest} (contract {@code withdrawFlatmateInterest}).
+     *
+     * <p>204 and no body, matching every other withdrawal in the domain: the caller is telling the
+     * server something, not asking it for anything, and returning the row they just deleted would
+     * only invite somebody to render it.
+     *
+     * <p>Lives on this controller rather than {@link FlatmateSupplyService}'s, even though two of
+     * the three kinds are written over there. The row is the requester's, this is the requester's
+     * controller, and splitting one verb across two classes by target kind would mean two places to
+     * change the rule about when a withdrawal is allowed.
+     */
+    @DeleteMapping(Routes.Flatmates.INTEREST_BY_TARGET)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void withdraw(@CurrentUser AuthPrincipal principal,
+            @PathVariable String kind, @PathVariable UUID id) {
+        service.withdraw(principal, kind, id);
     }
 
     /** Contract schema {@code FlatmateInterestCreate}. Both fields are optional. */

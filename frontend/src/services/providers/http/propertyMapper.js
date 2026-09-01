@@ -624,9 +624,10 @@ export function toListingCreate(listing = {}) {
     amenities: listing.amenities,
     images: listing.gallery ?? listing.images,
     description: listing.desc ?? listing.description,
-    // The four duplicate-detection inputs (D218). The wizard has always collected these — they fed
-    // a browser-side dedup check that could only ever see the listings on this one machine. They go
-    // to the server now, where the same question is asked against everybody's listings.
+    // The five duplicate-detection inputs (D218, D245). The wizard has always collected these —
+    // they fed a browser-side dedup check that could only ever see the listings on this one
+    // machine. They go to the server now, where the same question is asked against everybody's
+    // listings.
     address: listing.address || composed || undefined,
     // Number('N/A') is NaN and NaN serialises to `null`, which the contract reads as "cleared" —
     // so a non-numeric floor did not fail, it silently erased the one the listing already had.
@@ -641,6 +642,24 @@ export function toListingCreate(listing = {}) {
     // spelling. An empty string here means the lister typed a name without picking one.
     societyId: listing.societyId || undefined,
     electricityMeterNo: listing.electricityConsumerNo || undefined,
+    /* Perceptual hashes of the photographs, computed in the browser (D245). The fifth signal, and
+       the only one the wizard already computed and then dropped on the floor here: `hashPhotos`
+       has been running on every submission since the feature shipped, the result reached
+       `forTheWire` on the record, and this function did not pick the key — so against the live API
+       the photo arm had never once fired for anybody. It matched only against the listings this
+       browser happened to hold, which for a real owner is the seeded demo catalogue.
+
+       Hashes rather than the images because hashing pixels needs a canvas, and at this point in the
+       wizard nothing has been uploaded yet — the server has never seen these files. The value is
+       the same 16-hex aHash the client already compares with (`imageHash.js`), so client and server
+       are reading the same 64 bits.
+
+       Omitted rather than sent empty when nothing decoded, because on a PATCH an empty array is a
+       statement — it clears the stored hashes — and a rent edit that happened to carry no photos
+       must not blank the evidence. */
+    photoHashes: Array.isArray(listing.photoHashes) && listing.photoHashes.length
+      ? listing.photoHashes
+      : undefined,
     /* The five detail answers the wizard collects and this function used to throw away (D244).
        There was no bug report for this because there is no symptom to report: the POST succeeds,
        the listing appears, and the Facing / Age / Floors / Bathrooms tiles on its own detail page

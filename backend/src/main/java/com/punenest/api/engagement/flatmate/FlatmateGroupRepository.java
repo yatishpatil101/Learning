@@ -27,6 +27,22 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
      * <em>unfiltered</em> feed, which is the default page load. See
      * {@link FlatmateRoomRepository#feed} for why this is defensive rather than load-bearing on the
      * current stack, and why no test can prove it.
+     *
+     * <p><strong>{@code verifiedOnly} reproduces the board's own predicate, dead branch excluded.</strong>
+     * The page counted a group as verified when its host held owner tier, or when every member
+     * carried a badge, or when the host held tenant tier and Ops had approved the post. That third
+     * branch reads its verdict out of {@code getFlatmateReviewStatusMap()}, which is
+     * {@code localStorage}: against a live API the map is empty, the branch is unreachable, and
+     * reproducing it here would <em>widen</em> the filter relative to what users see today. So the
+     * clause is the two live branches, and no more. See the {@code hostVerifiedFor} note in
+     * {@code helpers.js} \u2014 the fact that an Ops-approved group cannot currently read as verified is
+     * a real defect, but it is that function's, and fixing it here would only make the server and
+     * the board disagree.
+     *
+     * <p>{@code exists} rather than counting members: "every member is verified" is the absence of an
+     * unverified one, and phrasing it that way lets the row stop at the first counter-example.
+     * {@code members is not empty} carries the {@code g.members.length > 0} half of the same
+     * predicate \u2014 a group with nobody in it vacuously satisfies "all verified" and must not.
      */
     @Query(value = """
             select distinct g from FlatmateGroup g
@@ -39,6 +55,11 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
                    or g.policy = cast(:policy as string) or g.policy = 'any')
               and (:minRent is null or g.rent >= :minRent)
               and (:maxRent is null or g.rent <= :maxRent)
+              and (:verifiedOnly is null or :verifiedOnly = false
+                   or g.verificationTier = 'owner'
+                   or (g.members is not empty
+                       and not exists (select 1 from FlatmateGroupMember m
+                                       where m.group = g and m.verified = false)))
             order by g.createdAt desc, g.id desc
             """,
             countQuery = """
@@ -51,9 +72,15 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
                            or g.policy = cast(:policy as string) or g.policy = 'any')
                       and (:minRent is null or g.rent >= :minRent)
                       and (:maxRent is null or g.rent <= :maxRent)
+                      and (:verifiedOnly is null or :verifiedOnly = false
+                           or g.verificationTier = 'owner'
+                           or (g.members is not empty
+                               and not exists (select 1 from FlatmateGroupMember m
+                                               where m.group = g and m.verified = false)))
                     """)
     Page<FlatmateGroup> feed(@Param("locality") String locality, @Param("policy") String policy,
-            @Param("minRent") Long minRent, @Param("maxRent") Long maxRent, Pageable pageable);
+            @Param("minRent") Long minRent, @Param("maxRent") Long maxRent,
+            @Param("verifiedOnly") Boolean verifiedOnly, Pageable pageable);
 
     @Query("""
             select g from FlatmateGroup g

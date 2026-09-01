@@ -106,6 +106,8 @@ export const postInterest = async (id, body) => (await provider()).postInterest(
  * were already accepted — filter on `awaitingDecision`, not on presence.
  */
 export const myRequests = async (status) => (await provider()).myRequests(status);
+/** The caller's sent-interest outbox. Keys the Flatmates CTA state across devices. */
+export const myFlatmateInterests = async () => (await provider()).myFlatmateInterests();
 /** Accept or decline. Host only. */
 export const decideRequest = async (id, decision) => (await provider()).decideRequest(id, decision);
 
@@ -180,6 +182,7 @@ export const moderateGroupApplication = async (id, modStatus, note) => (await pr
 /** The groups I started — including any still awaiting moderation. Paged, caller-scoped. */
 export const myFlatmateGroups = async (params) => (await provider()).myFlatmateGroups(params);
 export const myFlatmateRooms = async (params) => (await provider()).myFlatmateRooms(params);
+export const myFlatmatePosts = async (params) => (await provider()).myFlatmatePosts(params);
 /** The group's host commits their members to a whole-flat rent listing. 409 if already applied. */
 export const applyGroupToListing = async (groupId, listingId) => (await provider()).applyGroupToListing(groupId, listingId);
 /** The owner inbox — applications on my own listings, newest first. Paged, caller-scoped. */

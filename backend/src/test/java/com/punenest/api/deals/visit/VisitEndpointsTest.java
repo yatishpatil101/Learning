@@ -305,33 +305,141 @@ class VisitEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
     }
 
-    // ---- §11 test 9: Mobile masking: masked while scheduled, stays masked to owner once confirmed ----
+    // ---- §11 test 9: Mobile masking — the owner earns the visitor's number by confirming ----
 
+    /**
+     * The harvest guard. A visit nobody has agreed to yet must not hand out a phone number, or
+     * "book a visit" becomes a way to read any stranger's mobile off their own listing.
+     *
+     * <p>Paired with {@link #visitorMobile_isRevealedToOwnerOnceConfirmed()}: the two differ in
+     * exactly one thing, the visit's status, on the same owner's own surface. That is what makes
+     * each of them non-vacuous — the row asserted masked here is a row that would otherwise pass.
+     */
     @Test
-    void visitorMobile_staysMaskedToOwner_evenOnceConfirmed() throws Exception {
+    void visitorMobile_isMaskedToOwnerWhileMerelyScheduled() throws Exception {
         User owner = user("9820200024", "owner");
         User visitor = user("9829876543", "buyer");
         Property p = listing(owner, "Mask test");
-        String visitId = scheduleVisit(visitor, p);
+        scheduleVisit(visitor, p);
 
-        // Owner views visit requests — visitor mobile should be masked.
         mvc.perform(get(Routes.Visits.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value(VisitStatuses.SCHEDULED))
                 .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX543"));
+    }
 
-        // Confirm the visit.
+    /**
+     * Confirming is the act that makes a visit real — someone is coming to the owner's home at a
+     * stated hour — so it is the act that earns the number to call when they are late.
+     *
+     * <p>Asserts the masked value BEFORE as well as the raw value after: without the before-half a
+     * server that revealed the mobile to everyone from the moment of booking would satisfy this
+     * test completely.
+     */
+    @Test
+    void visitorMobile_isRevealedToOwnerOnceConfirmed() throws Exception {
+        User owner = user("9820200124", "owner");
+        User visitor = user("9829876544", "buyer");
+        Property p = listing(owner, "Reveal test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(get(Routes.Visits.ME_REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX544"));
+
         mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"confirmed\"}"))
                 .andExpect(status().isOk());
 
-        // After confirmation, visitor mobile should be revealed.
         mvc.perform(get(Routes.Visits.ME_REQUESTS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX543"));
+                .andExpect(jsonPath("$.content[0].status").value(VisitStatuses.CONFIRMED))
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("9829876544"));
+    }
+
+    /**
+     * Rescheduling resets the status to {@code scheduled} (D87), which re-masks the number. This
+     * falls out of the rule rather than being special-cased, and it is the correct reading: the
+     * agreement is to a slot, not to a person, so a slot nobody has agreed to yet is back behind
+     * the gate.
+     */
+    @Test
+    void reschedulingReMasksTheVisitorMobile() throws Exception {
+        User owner = user("9820200125", "owner");
+        User visitor = user("9829876545", "buyer");
+        Property p = listing(owner, "Reschedule mask test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"confirmed\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.Visits.ME_REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("9829876545"));
+
+        mvc.perform(patch(Routes.Visits.SLOT.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"slot\":\"" + futureSlot() + "\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.Visits.ME_REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value(VisitStatuses.SCHEDULED))
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX545"));
+    }
+
+    /**
+     * Cancelling from {@code scheduled} leaves the number masked. This is the path the gate exists
+     * for: a booking that was never agreed to must not leak a mobile on its way out either.
+     */
+    @Test
+    void cancellingAScheduledVisitLeavesTheMobileMasked() throws Exception {
+        User owner = user("9820200126", "owner");
+        User visitor = user("9829876546", "buyer");
+        Property p = listing(owner, "Cancel mask test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"cancelled\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get(Routes.Visits.ME_REQUESTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value(VisitStatuses.CANCELLED))
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("98XXXXX546"));
+    }
+
+    /**
+     * The other half of the rule, and the one that has always held: a party sees their own number
+     * in full regardless of status. Asserted at {@code scheduled} — the status at which the owner
+     * is masked — so the two halves cannot both be satisfied by a single blanket answer.
+     */
+    @Test
+    void visitorAlwaysSeesTheirOwnMobileInFull() throws Exception {
+        User owner = user("9820200127", "owner");
+        User visitor = user("9829876547", "buyer");
+        Property p = listing(owner, "Self reveal test");
+        scheduleVisit(visitor, p);
+
+        mvc.perform(get(Routes.Visits.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value(VisitStatuses.SCHEDULED))
+                .andExpect(jsonPath("$.content[0].visitor.mobile").value("9829876547"));
     }
 
     // ---- §11 test 10: Duplicate live visit → 409 ----

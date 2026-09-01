@@ -13,6 +13,7 @@ import com.punenest.api.billing.plan.TestPlanGrants;
 import com.punenest.api.catalog.listing.ListingDuplicateProbe;
 import com.punenest.api.catalog.property.AddressKey;
 import com.punenest.api.catalog.property.Furnishing;
+import com.punenest.api.catalog.property.MeterKey;
 import com.punenest.api.catalog.property.Property;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
@@ -22,6 +23,7 @@ import com.punenest.api.security.Roles;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -106,6 +108,44 @@ class ListingNoticesTest extends AbstractApiTest {
     private UUID create(String token, String meter, String address) throws Exception {
         String json = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content(body(meter, address)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(com.jayway.jsonpath.JsonPath.read(json, "$.id"));
+    }
+
+    /* The photo arm's fixtures, chosen so that each pair isolates one step of the lookup.
+     *
+     * BASE and NEAR differ by two bits, both inside the last 16-bit band, so bands 0-2 match and the
+     * pair is both a band candidate and a real duplicate.
+     *
+     * BASE and BANDED_BUT_DISTANT also share bands 0-2 — so the index returns it exactly as readily —
+     * but they differ in sixteen bits, above the threshold of ten. It is the only fixture that can
+     * tell "the query found it" apart from "the comparison accepted it": a probe that trusted band
+     * equality and skipped PhotoHash.sameShot would flag this pair, and every other case here would
+     * still pass. */
+    private static final String BASE = "ffff0000ffff0000";
+    private static final String NEAR = "ffff0000ffff0003";
+    private static final String BANDED_BUT_DISTANT = "ffff0000ffffffff";
+
+    private static String photoBody(String... hashes) {
+        return """
+                {"title":"2BHK in Kothrud","deal":"rent","propertyType":"apartment","price":32000,
+                 "bhk":2,"locality":"Kothrud","city":"Pune","floor":4,
+                 "photoHashes":[%s]}
+                """.formatted(Arrays.stream(hashes).map(h -> '"' + h + '"')
+                        .collect(java.util.stream.Collectors.joining(",")));
+    }
+
+    /**
+     * Create a listing carrying photo hashes and nothing the doorway arm can use.
+     *
+     * <p>No meter and no address, deliberately. With either of them present a collision could be
+     * explained by {@code flagSameDoorway}, and every assertion below about the photo arm would hold
+     * just as well with the photo arm deleted.
+     */
+    private UUID createWithPhotos(String token, String... hashes) throws Exception {
+        String json = mvc.perform(post("/me/listings").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(photoBody(hashes)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(com.jayway.jsonpath.JsonPath.read(json, "$.id"));
@@ -437,6 +477,162 @@ class ListingNoticesTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("reused photographs collide across owners, and the submitter is never told")
+    void thePhotoArmOfTheProbeFires() throws Exception {
+        UUID first = createWithPhotos(bearer(owner("9820000570")), BASE);
+
+        String secondToken = bearer(owner("9820000571"));
+        UUID second = createWithPhotos(secondToken, NEAR);
+
+        // The positive anchor. It has to come first: everything this test claims about what the
+        // owner cannot see is worthless unless something proves the note exists and this route
+        // renders it. Asserting the other listing's id as well as the wording, because "reuses
+        // photographs" would also be satisfied by a note about the wrong listing.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115570"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(1))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(first.toString())))
+                .andExpect(jsonPath("$.messages[0].internal").value(true));
+
+        // Same route, same listing, the owner's own token: not a redacted case file but no case file
+        // at all. The staff read directly above is what makes this non-vacuous — it has just proved
+        // the record exists and this route renders it, so 404 here can only be the owner filter.
+        //
+        // 404 rather than an empty 200 is the point rather than an implementation detail. An empty
+        // 200 is itself the answer to the question the probe asks: post a listing carrying somebody
+        // else's photograph, then ask your own case file whether it exists. Quieter than the note,
+        // and the same oracle. See PropertyVerificationService#ownerVisibleCase.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, secondToken))
+                .andExpect(status().isNotFound());
+
+        // And nothing is filed against the listing that was there first. It did nothing. A listing
+        // with no findings has no case file at all, which is what 404 means on this route.
+        mvc.perform(get("/properties/" + first + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115571"))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("a photograph that only shares an index band is not a duplicate")
+    void theHammingCheckRejectsAChanceBandCollision() throws Exception {
+        UUID first = createWithPhotos(bearer(owner("9820000562")), BASE);
+
+        UUID distant = createWithPhotos(bearer(owner("9820000563")), BANDED_BUT_DISTANT);
+
+        // This pair IS returned by findBandCandidates — three of its four bands are identical — so
+        // no case file means PhotoHash.sameShot turned it away. A listing with no findings has no
+        // case file at all, which is what 404 means on this route.
+        mvc.perform(get("/properties/" + distant + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115562"))))
+                .andExpect(status().isNotFound());
+
+        // The row that would otherwise pass. Same anchor, same stranger relationship, same band hit;
+        // the only difference is that this hash is two bits from the anchor rather than sixteen.
+        // Without it, "no case file" is equally the result of the arm never running, of the anchor
+        // never storing its hashes, or of the band query matching nothing.
+        UUID near = createWithPhotos(bearer(owner("9820000567")), NEAR);
+        mvc.perform(get("/properties/" + near + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115567"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(first.toString())));
+    }
+
+    @Test
+    @DisplayName("your own photographs on your own second listing are not a duplicate")
+    void thePhotoArmSkipsTheSameOwner() throws Exception {
+        User both = owner("9820000564");
+        // Two listings need two slots, and the free allowance is one.
+        plans.grant(both.getId(), TestPlanGrants.OWNER_PLUS);
+        String token = bearer(both);
+
+        UUID first = createWithPhotos(token, BASE);
+        UUID second = createWithPhotos(token, BASE);
+
+        // Identical hashes, distance zero — the strongest possible match — and still nothing, because
+        // an owner photographing the two flats they are letting in the same building is not fraud.
+        // The exclusion lives in findBandCandidates' own `owner.id <> :ownerId`, which is a different
+        // query from the doorway arm's and would not be covered by that arm's tests.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115564"))))
+                .andExpect(status().isNotFound());
+
+        // The row that would otherwise pass: a stranger posting the very same hash. Only the owner
+        // differs, so this is what stops "nothing happened" from being the answer to every question
+        // in this test.
+        UUID stranger = createWithPhotos(bearer(owner("9820000568")), BASE);
+        mvc.perform(get("/properties/" + stranger + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115568"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(first.toString())));
+    }
+
+    @Test
+    @DisplayName("swapping in somebody else's photographs on an edit raises the flag")
+    void changingPhotographsReprobes() throws Exception {
+        UUID first = createWithPhotos(bearer(owner("9820000565")), BASE);
+
+        String secondToken = bearer(owner("9820000566"));
+        UUID second = createWithPhotos(secondToken, BANDED_BUT_DISTANT);
+
+        mvc.perform(patch("/me/listings/" + second).header(HttpHeaders.AUTHORIZATION, secondToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"photoHashes\":[\"" + NEAR + "\"]}"))
+                .andExpect(status().isOk());
+
+        // None of the values in signalOf moved — no meter, no address, same locality — so the only
+        // thing that can have re-run the probe is the photo set changing. This is the edit the
+        // address arm is structurally blind to: retype nothing, replace the pictures.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115565"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(1))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(first.toString())));
+    }
+
+    @Test
+    @DisplayName("the catch-up sweep reaches a listing whose only signal is its photographs")
+    void theSweepReadsPhotoOnlyListings() throws Exception {
+        // Neither listing carries a meter or an address, so photographs are the only thing either
+        // of them is findable by. The first one is the interesting side: when it was written the
+        // second did not exist, so its own create-time probe had nothing to find and filed nothing.
+        UUID first = createWithPhotos(bearer(owner("9820000572")), BASE);
+        UUID second = createWithPhotos(bearer(owner("9820000573")), NEAR);
+
+        String staffToken = bearer(staff("9871115572"));
+
+        // The precondition, asserted rather than assumed: nothing is on file against the first
+        // listing yet. Without this the assertion below would pass on a note that was already there.
+        mvc.perform(get("/properties/" + first + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, staffToken))
+                .andExpect(status().isNotFound());
+        // And the positive anchor for the fixture itself: the pair really does collide, so a silent
+        // sweep below means the sweep did not reach the listing rather than that there was nothing
+        // to find.
+        mvc.perform(get("/properties/" + second + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, staffToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")));
+
+        probe.resweepRecent(Instant.now().minus(Duration.ofMinutes(20)), 500);
+
+        // This is what findRecentSignalCarrying's photo clause buys. Selecting on the meter and
+        // address columns alone — which is what it did before V116 — skips this listing entirely,
+        // and the earlier owner of a stolen photograph is then the one person never told.
+        mvc.perform(get("/properties/" + first + "/verification")
+                        .header(HttpHeaders.AUTHORIZATION, staffToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages.length()").value(1))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString("reuses photographs")))
+                .andExpect(jsonPath("$.messages[0].body").value(containsString(second.toString())));
+    }
+
+    @Test
     @DisplayName("an owner's read receipt cannot mark the note it never showed them")
     void aReadReceiptSkipsTheNotesTheOwnerCannotSee() throws Exception {
         create(bearer(owner("9820000544")), "MSEDCL-170046201", null);
@@ -764,6 +960,11 @@ class ListingNoticesTest extends AbstractApiTest {
         UUID second = create(secondToken, null, null);
         Property racer = properties.findById(second).orElseThrow();
         racer.setElectricityMeterNo("MSEDCL-170047100");
+        // Both columns, because the write path sets both (V115) and a row with a raw meter and no
+        // derived key is not a state a concurrent commit can leave behind — it is a state only this
+        // test could invent. Staging an impossible row would make the sweep look broken here and
+        // hide whether it works there.
+        racer.setElectricityMeterKey(MeterKey.of("MSEDCL-170047100"));
         properties.saveAndFlush(racer);
 
         String staffToken = bearer(staff("9871115560"));

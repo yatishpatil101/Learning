@@ -3,13 +3,20 @@ package com.punenest.api.catalog.listing;
 import static com.punenest.api.common.PlatformTime.IST;
 
 import com.punenest.api.catalog.property.AddressKey;
+import com.punenest.api.catalog.property.MeterKey;
+import com.punenest.api.catalog.property.PhotoHash;
 import com.punenest.api.catalog.property.Property;
+import com.punenest.api.catalog.property.PropertyPhotoHash;
+import com.punenest.api.catalog.property.PropertyPhotoHashRepository;
 import com.punenest.api.catalog.property.PropertyRepository;
 import com.punenest.api.catalog.property.PropertyStatus;
 import com.punenest.api.common.trust.ListingCaseNotes;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
@@ -48,16 +55,15 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><strong>The society branch is designed and not built.</strong> {@code V79}'s comment says, in
  * the present tense, that "the society branch of the rule matches on (society, floor, bhk)" and
  * creates {@code idx_properties_society_unit} to serve it. No such branch exists: {@link #signalOf}
- * compares meter, address key and locality, and {@link #flag} queries on those three alone. The
- * index therefore has no reader, and reading V79 will tell you otherwise — which is the trap this
- * paragraph exists to spring safely.
+ * compares meter, address key and locality, and {@link #flag} queries on those three alone. Reading
+ * V79 will tell you otherwise, which is the trap this paragraph exists to spring safely; {@code
+ * V113} has since dropped the index, so the only thing left to mislead you is V79's prose.
  *
- * <p>It is left in place rather than dropped because the choice between dropping it and building
- * the branch is a product call, not a cleanup: a society-scoped match on floor and BHK is a
- * <em>much</em> looser signal than a meter number, so it would file case notes on ordinary
- * same-floor neighbours in any tower with more than one 2 BHK per floor, and what that costs is
- * moderator time. Written up in {@code tasks/todo.md} with both options. If the branch is ever
- * built, this paragraph goes; if it is decided against, the index goes with it.
+ * <p>The branch itself is still unbuilt rather than rejected, because choosing is a product call: a
+ * society-scoped match on floor and BHK is a <em>much</em> looser signal than a meter number, so it
+ * would file case notes on ordinary same-floor neighbours in any tower with more than one 2 BHK per
+ * floor, and what that costs is moderator time. Written up in {@code tasks/todo.md} with both
+ * options. If it is ever built it needs its index back.
  */
 @Service
 public class ListingDuplicateProbe {
@@ -69,23 +75,42 @@ public class ListingDuplicateProbe {
     private static final List<String> OCCUPYING =
             List.of(PropertyStatus.PENDING, PropertyStatus.APPROVED);
 
+    /**
+     * How many band hits one create is willing to look at.
+     *
+     * <p>Larger than the two the doorway arm takes, because these are candidates rather than
+     * findings: most of what band equality returns is not a duplicate, and a cap of two would let a
+     * pair of chance collisions hide the real one. Small enough that a hash sharing a band with
+     * something popular cannot pull a catalogue into memory on an unrelated owner's submission.
+     */
+    private static final int PHOTO_CANDIDATE_CAP = 200;
+
     private final PropertyRepository properties;
+    private final PropertyPhotoHashRepository photoHashes;
     private final ListingCaseNotes caseNotes;
 
-    public ListingDuplicateProbe(PropertyRepository properties, ListingCaseNotes caseNotes) {
+    public ListingDuplicateProbe(PropertyRepository properties,
+            PropertyPhotoHashRepository photoHashes, ListingCaseNotes caseNotes) {
         this.properties = properties;
+        this.photoHashes = photoHashes;
         this.caseNotes = caseNotes;
     }
 
     /**
-     * Re-derive the comparison key from the address as it now stands.
+     * Re-derive the comparison keys from the address and meter as they now stand.
      *
      * <p>Called on every write rather than only when the address field is in the patch, because the
      * key is also built from the city and locality columns — an edit that moves the listing to
      * another locality changes what its address means without touching the address text.
+     *
+     * <p>Both keys are derived here, in one method, because this is the only place either of them is
+     * allowed to be written and having one hook is what makes that checkable. The callers already
+     * bracket their edits with {@link #signalOf} on both sides of this call, so a key added here is
+     * automatically covered by the "did the signal move" test that decides whether to re-probe.
      */
     public void reindex(Property p) {
         p.setAddressKey(AddressKey.of(p.getAddress(), p.getCity(), p.getLocality()));
+        p.setElectricityMeterKey(MeterKey.of(p.getElectricityMeterNo()));
     }
 
     /**
@@ -98,7 +123,7 @@ public class ListingDuplicateProbe {
      * would also have made {@code 2} and {@code 2.0} two different signals for one unchanged value.
      */
     public List<Object> signalOf(Property p) {
-        return Arrays.asList(p.getElectricityMeterNo(), p.getAddressKey(), p.getLocalitySlug());
+        return Arrays.asList(p.getElectricityMeterKey(), p.getAddressKey(), p.getLocalitySlug());
     }
 
     /**
@@ -115,17 +140,75 @@ public class ListingDuplicateProbe {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void flag(Property p) {
+        flagSameDoorway(p);
+        flagSamePhotos(p);
+    }
+
+    /**
+     * Replace the stored perceptual hashes of a listing's photographs.
+     *
+     * <p>Separate from {@link #reindex} even though both derive comparison keys, because the two run
+     * at different moments and from different inputs. {@code reindex} works off columns already on
+     * the entity and is called on every write; this needs the hashes off the request body, and a
+     * request that does not mention photographs must leave the stored ones alone rather than clear
+     * them — a PATCH that changes the rent is not a statement about the pictures.
+     *
+     * <p>Malformed hashes are dropped rather than rejected; see {@link PhotoHash#parse}. Duplicates
+     * within one submission are collapsed, because the primary key is (property, hash) and the same
+     * photograph uploaded twice is one piece of evidence.
+     *
+     * @return whether the stored set actually moved, which is what tells {@code update} to re-probe.
+     *     Swapping the photographs is exactly how a listing becomes a duplicate without any of the
+     *     values in {@link #signalOf} changing, so the address arm's "did the signal move" test
+     *     cannot see it. Returning false on an unchanged set also keeps a PATCH that merely resends
+     *     the same photographs from churning the rows and re-running the probe.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean reindexPhotos(Property p, List<String> hexes) {
+        if (hexes == null) {
+            return false;
+        }
+        Set<Long> parsed = new LinkedHashSet<>();
+        for (String hex : hexes) {
+            Long h = PhotoHash.parse(hex);
+            if (h != null) {
+                parsed.add(h);
+            }
+            if (parsed.size() >= PhotoHash.MAX_PER_LISTING) {
+                break;
+            }
+        }
+        Set<Long> stored = photoHashes.findByPropertyId(p.getId()).stream()
+                .map(PropertyPhotoHash::getHash).collect(Collectors.toSet());
+        if (stored.equals(parsed)) {
+            return false;
+        }
+        photoHashes.deleteByPropertyId(p.getId());
+        // Flushed before the inserts because the two statements touch the same primary key: a
+        // photograph kept across an edit is deleted and re-inserted, and Hibernate orders inserts
+        // before deletes within a flush unless told otherwise.
+        photoHashes.flush();
+        List<PropertyPhotoHash> rows = new ArrayList<>();
+        for (Long h : parsed) {
+            rows.add(new PropertyPhotoHash(p.getId(), h));
+        }
+        photoHashes.saveAll(rows);
+        return true;
+    }
+
+    /** The certain arm: the same meter, or the same address in the same locality. */
+    private void flagSameDoorway(Property p) {
         /* No signal, no query. Both arms are `= :param`, so a listing carrying neither a meter nor
          * an address key matches nothing by construction -- but it still costs a scan to prove it,
          * and neither partial index is usable with both parameters null. V79's own comment says most
          * listings carry no meter, so this is the common path, and it runs on every create and on
          * every signal-moving edit. */
-        if (p.getElectricityMeterNo() == null && p.getAddressKey() == null) {
+        if (p.getElectricityMeterKey() == null && p.getAddressKey() == null) {
             return;
         }
         List<Property> hits = properties.findDuplicateCandidates(
                 p.getOwner().getId(), OCCUPYING,
-                p.getElectricityMeterNo(), p.getAddressKey(), p.getLocalitySlug(),
+                p.getElectricityMeterKey(), p.getAddressKey(), p.getLocalitySlug(),
                 // Two is enough to make the point. A third identical listing is the same finding,
                 // and an unbounded read here is one over-eager address key away from loading a
                 // locality into memory.
@@ -143,6 +226,73 @@ public class ListingDuplicateProbe {
         caseNotes.postInternalOnce(p.getId(), p.getDeal(),
                 "Possible duplicate. This listing (" + describe(p) + ") matches an active listing by"
                         + " another owner: " + others + ". " + nextStep(p));
+    }
+
+    /**
+     * The fuzzy arm: somebody else's live listing is showing the same photographs.
+     *
+     * <p>This is the case the doorway arm is built to miss. A broker re-listing a flat retypes the
+     * address — that is the entire point of retyping it — so the address key differs, the meter is
+     * absent, and the two listings look unrelated to every exact comparison the platform has. What
+     * they cannot easily change is the photographs, because the photographs are why the listing gets
+     * clicks.
+     *
+     * <p><strong>It flags and never blocks, and that asymmetry is the design.</strong> A perceptual
+     * hash match is evidence about pixels, not about who holds the mandate: two honest listings in
+     * the same building genuinely do share a photograph of the lobby, the gym and the gate, and a
+     * stock amenity image supplied by the builder can appear on every flat in the society. Refusing
+     * a submission on that would refuse honest owners with no way to argue, which is the mistake the
+     * whole class exists to avoid — see {@link #sweep}'s note on why there is no unique index.
+     *
+     * <p>Both the query and the verification are needed. The query is an index lookup over 16-bit
+     * bands, which is fast and approximate; {@link PhotoHash#sameShot} is exact and would be a scan.
+     * Skipping the second would flag on a chance band collision, and one false duplicate note costs
+     * more than the several true ones it arrives with, because it is what teaches the desk that the
+     * flag is noise.
+     */
+    private void flagSamePhotos(Property p) {
+        List<PropertyPhotoHash> mine = photoHashes.findByPropertyId(p.getId());
+        if (mine.isEmpty()) {
+            return;
+        }
+        Set<Integer> bands0 = new LinkedHashSet<>();
+        Set<Integer> bands1 = new LinkedHashSet<>();
+        Set<Integer> bands2 = new LinkedHashSet<>();
+        Set<Integer> bands3 = new LinkedHashSet<>();
+        for (PropertyPhotoHash h : mine) {
+            int[] b = PhotoHash.bands(h.getHash());
+            bands0.add(b[0]);
+            bands1.add(b[1]);
+            bands2.add(b[2]);
+            bands3.add(b[3]);
+        }
+        List<PropertyPhotoHash> candidates = photoHashes.findBandCandidates(
+                p.getOwner().getId(), OCCUPYING, bands0, bands1, bands2, bands3,
+                PageRequest.of(0, PHOTO_CANDIDATE_CAP));
+        Set<UUID> matched = new LinkedHashSet<>();
+        for (PropertyPhotoHash c : candidates) {
+            for (PropertyPhotoHash m : mine) {
+                if (PhotoHash.sameShot(m.getHash(), c.getHash())) {
+                    matched.add(c.getPropertyId());
+                    break;
+                }
+            }
+        }
+        if (matched.isEmpty()) {
+            return;
+        }
+        // Sorted and capped for the same reason the doorway arm sorts: postInternalOnce dedupes on
+        // the message body, so a finding that renders in a different order per run gets filed again
+        // on every edit. Here the ordering is doubly unstable — the band query has no ORDER BY and
+        // the match set is built from whatever order it returned.
+        String others = properties.findAllById(matched).stream()
+                .map(ListingDuplicateProbe::describe).sorted().limit(2)
+                .collect(Collectors.joining("; "));
+        caseNotes.postInternalOnce(p.getId(), p.getDeal(),
+                "Possible duplicate. This listing (" + describe(p) + ") reuses photographs from an"
+                        + " active listing by another owner: " + others + "."
+                        + " Photographs are a weaker signal than an address — the same lobby or"
+                        + " amenity shot can honestly appear on two listings. " + nextStep(p));
     }
 
     /**

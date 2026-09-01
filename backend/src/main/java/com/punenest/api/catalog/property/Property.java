@@ -406,6 +406,19 @@ public class Property extends SoftDeleteEntity {
     private String electricityMeterNo;
 
     /**
+     * {@link #electricityMeterNo}, normalised for comparison (V115). Server-derived on every write —
+     * see {@link MeterKey} — and never accepted from a client, for the same reason {@link
+     * #addressKey} is not.
+     *
+     * <p>This and not the raw column is what the duplicate probe compares, because the raw one is
+     * whatever grouping the owner copied off their bill and {@code "1700 1234 5678"} is not a
+     * different meter from {@code "170012345678"}.
+     */
+    @Column(name = "electricity_meter_key")
+    @Setter
+    private String electricityMeterKey;
+
+    /**
      * {@link #address}, normalised for comparison (V79). Server-derived on every write — see
      * {@code AddressKey} — and never accepted from a client, because a client that chooses its own
      * key chooses which listings it collides with.

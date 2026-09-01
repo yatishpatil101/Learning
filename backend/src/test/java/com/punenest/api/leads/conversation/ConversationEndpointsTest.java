@@ -121,6 +121,125 @@ class ConversationEndpointsTest extends AbstractApiTest {
         }
     }
 
+    /**
+     * Addressing a thread by listing instead of by number.
+     *
+     * <p>Under D5 the owner's raw mobile is masked for every non-owner, so the buyer half of
+     * {@code POST /messages} had no address it could legitimately hold. These cover the derivation
+     * added for that — and, more importantly, that it did not become a way around the guard.
+     */
+    @Nested
+    @DisplayName("addressing by listing")
+    class ByListing {
+
+        @Test
+        @DisplayName("an approved buyer opens the thread with propertyId and no mobile")
+        void derivesTheOwnerFromTheListing() throws Exception {
+            User owner = user("9830000161", Roles.Wire.OWNER, "Owner Sixty-one");
+            User buyer = user("9830000162", Roles.Wire.BUYER, "Buyer Sixty-two");
+            Property p = listing(owner);
+            approve(buyer, p);
+
+            // The buyer cannot have typed the number: this is exactly what they hold — a listing id.
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(byListing(p, "is this still available?")))
+                    .andExpect(status().isCreated())
+                    /* Named, not "some counterparty": the whole point is *which* user was derived.
+                       The number comes back in the clear per ADR-019 (see `Masking.asymmetry`) —
+                       which does not make the derivation redundant, because that reveal lives on
+                       the thread and the thread is the thing the buyer could not open. */
+                    .andExpect(jsonPath("$.counterpartyName").value("Owner Sixty-one"))
+                    .andExpect(jsonPath("$.counterpartyMobile").value("9830000161"))
+                    .andExpect(jsonPath("$.propertyId").value(p.getId().toString()));
+        }
+
+        @Test
+        @DisplayName("the derived thread is the same thread the mobile would have opened")
+        void derivationDoesNotForkTheThread() throws Exception {
+            User owner = user("9830000163", Roles.Wire.OWNER, "Owner Sixty-three");
+            User buyer = user("9830000164", Roles.Wire.BUYER, "Buyer Sixty-four");
+            Property p = listing(owner);
+            approve(buyer, p);
+
+            String byMobile = start(buyer, owner, p, 201);
+            String derived = mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(byListing(p, "again")))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+
+            // 200 not 201, same id, one row: the derivation resolves to the same user, so it cannot
+            // give one relationship two inboxes depending on how the client happened to address it.
+            assertThat(id(derived)).isEqualTo(id(byMobile));
+            assertThat(conversations.inboxOf(buyer.getId(), Pageable.unpaged())).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("naming a listing is not a relationship — the approval still decides")
+        void derivationIsNotAWayRoundTheGuard() throws Exception {
+            User owner = user("9830000165", Roles.Wire.OWNER, "Owner Sixty-five");
+            User stranger = user("9830000166", Roles.Wire.BUYER, "Stranger Sixty-six");
+            Property p = listing(owner);
+
+            // Byte-identical to the request in `derivesTheOwnerFromTheListing`; the only difference
+            // is the missing approval. Anyone can read a listing id off a public page, so if this
+            // ever answers 201 the derivation has replaced the guard rather than fed it.
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(byListing(p, "is this still available?")))
+                    .andExpect(status().isForbidden());
+
+            approve(stranger, p);
+
+            // And the same request now succeeds, so the 403 above was the approval's absence and
+            // not some unrelated refusal the request would have hit anyway.
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(stranger))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(byListing(p, "is this still available?")))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("a listing whose owner has left is refused like any other unreachable party")
+        void archivedOwnerIsRefused() throws Exception {
+            User owner = user("9830000167", Roles.Wire.OWNER, "Owner Sixty-seven");
+            User buyer = user("9830000168", Roles.Wire.BUYER, "Buyer Sixty-eight");
+            Property p = listing(owner);
+            approve(buyer, p);
+            owner.archive("Erased on the account holder's request");
+            users.saveAndFlush(owner);
+
+            // `findByMobileAndArchivedFalse` already excluded an archived counterparty on the mobile
+            // branch. The derived branch has to match it, or the same person becomes addressable by
+            // listing after they have gone.
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(byListing(p, "hello")))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("addressing nobody is a 422, deliberately not the catch-all 403")
+        void addressingNobodyIsAValidationError() throws Exception {
+            User caller = user("9830000169", Roles.Wire.BUYER, "Caller Sixty-nine");
+
+            // "You addressed nobody" is a malformed request, not a trust decision. Answering it with
+            // the enumeration-safe 403 would hide a client bug behind a refusal the client is told
+            // to expect, and would leave `counterpartyMobile` looking optional in every case.
+            mvc.perform(post(Routes.Conversations.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(caller))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"body\":\"hello\"}"))
+                    .andExpect(status().isUnprocessableEntity());
+        }
+    }
+
     @Nested
     @DisplayName("the refusal must not be an oracle")
     class Oracle {
@@ -500,6 +619,11 @@ class ConversationEndpointsTest extends AbstractApiTest {
         return "{\"counterpartyMobile\":\"" + mobile + "\""
                 + (propertyId == null ? "" : ",\"propertyId\":\"" + propertyId + "\"")
                 + ",\"body\":\"" + text + "\"}";
+    }
+
+    /** The buyer's shape: a listing id and nothing else naming the other party. */
+    private static String byListing(Property property, String text) {
+        return "{\"propertyId\":\"" + property.getId() + "\",\"body\":\"" + text + "\"}";
     }
 
     private static String id(String json) {

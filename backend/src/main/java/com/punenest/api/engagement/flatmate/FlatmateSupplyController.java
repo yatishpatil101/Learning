@@ -56,9 +56,11 @@ public class FlatmateSupplyController {
             @RequestParam(required = false) String bhk,
             @RequestParam(required = false) Long minBudget,
             @RequestParam(required = false) Long maxBudget,
+            @RequestParam(required = false) Boolean verifiedOnly,
             @PageableDefault(size = 20) Pageable pageable) {
         RoomFacets facets = new RoomFacets(
-                locality, gender, food, roomType, furnishing, bhk, minBudget, maxBudget);
+                locality, gender, food, roomType, furnishing, bhk, minBudget, maxBudget,
+                verifiedOnly);
         return PageResponse.of(
                 service.roomFeed(facets, Pageables.unsorted(pageable)), dto -> dto);
     }
@@ -70,6 +72,19 @@ public class FlatmateSupplyController {
     public FlatmateRoomDto createRoom(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody FlatmateRoomCreateRequest body) {
         return service.createRoom(principal, body);
+    }
+
+    /**
+     * {@code PATCH /flatmates/rooms/{id}} (contract {@code updateFlatmateRoom}).
+     *
+     * <p>Same body as the create above, and the same role guard for the same reason: editing a
+     * flatmate ad is the poster's act, and an account that may not write one may not rewrite one.
+     */
+    @PatchMapping(Routes.Flatmates.ROOM_BY_ID)
+    @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
+    public FlatmateRoomDto updateRoom(@CurrentUser AuthPrincipal principal,
+            @PathVariable UUID id, @Valid @RequestBody FlatmateRoomCreateRequest body) {
+        return service.updateRoom(principal, id, body);
     }
 
     /** {@code PATCH /flatmates/rooms/{id}/seats} (contract {@code setRoomSeats}). */
@@ -115,8 +130,9 @@ public class FlatmateSupplyController {
             @RequestParam(required = false) String policy,
             @RequestParam(required = false) Long minRent,
             @RequestParam(required = false) Long maxRent,
+            @RequestParam(required = false) Boolean verifiedOnly,
             @PageableDefault(size = 20) Pageable pageable) {
-        GroupFacets facets = new GroupFacets(locality, policy, minRent, maxRent);
+        GroupFacets facets = new GroupFacets(locality, policy, minRent, maxRent, verifiedOnly);
         return PageResponse.of(
                 service.groupFeed(facets, Pageables.unsorted(pageable)), dto -> dto);
     }
@@ -135,6 +151,20 @@ public class FlatmateSupplyController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteGroup(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
         service.deleteGroup(principal, id);
+    }
+
+    /**
+     * {@code PATCH /flatmates/groups/{id}} (contract {@code updateFlatmateGroup}).
+     *
+     * <p>The whole group, seats included. {@link #setGroupSeats} below still exists and is not
+     * redundant: it is the one-tap "a seat just went" from the host's own card, which should not
+     * require resending the title, the rent and the policy to move one integer.
+     */
+    @PatchMapping(Routes.Flatmates.GROUP_BY_ID)
+    @PreAuthorize("hasAnyRole('" + Roles.BUYER + "', '" + Roles.OWNER + "')")
+    public FlatmateGroupDto updateGroup(@CurrentUser AuthPrincipal principal,
+            @PathVariable UUID id, @Valid @RequestBody FlatmateGroupCreateRequest body) {
+        return service.updateGroup(principal, id, body);
     }
 
     /** {@code PATCH /flatmates/groups/{id}/seats} (contract {@code setGroupSeats}). */

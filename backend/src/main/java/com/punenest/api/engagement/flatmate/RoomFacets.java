@@ -12,5 +12,5 @@ package com.punenest.api.engagement.flatmate;
  * checker could catch. Named components make that transposition impossible to write.
  */
 public record RoomFacets(String locality, String gender, String food, String roomType,
-        String furnishing, String bhk, Long minBudget, Long maxBudget) {
+        String furnishing, String bhk, Long minBudget, Long maxBudget, Boolean verifiedOnly) {
 }

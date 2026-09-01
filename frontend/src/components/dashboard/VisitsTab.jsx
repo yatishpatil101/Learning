@@ -286,7 +286,19 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
     ) : null
   );
 
-  const RescheduleModal = () => (
+  /* A JSX value, not a nested `const RescheduleModal = () => (…)` component.
+     A component declared in the render body is a NEW function identity on every render, so React
+     treats it as a different component type and unmounts + remounts its whole subtree rather than
+     reconciling it. For a dialog that means the DOM nodes are destroyed and rebuilt underneath the
+     user: an open calendar popover inside `DateField` closes on its own, and focus is lost, for no
+     reason the user can see.
+
+     Latent until visits started re-reading after a write — nothing else re-rendered this tab while
+     the modal was open, so the remount had no observable moment to happen in. It is reachable now:
+     confirm a visit, open Reschedule on another one, and the refetch lands mid-dialog. Holding the
+     element instead of a component keeps the type stable at `Modal`, so the same instance is
+     reconciled and the dialog survives a re-render. */
+  const rescheduleModal = (
     <Modal
       open={!!reschedule}
       onClose={closeReschedule}
@@ -403,7 +415,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
             })}
           </div>
         </Card>
-        <RescheduleModal />
+        {rescheduleModal}
       </div>
     );
   }
@@ -485,7 +497,7 @@ export default function VisitsTab({ visits, toast, isOwner = false, onUpdate }) 
 
       <VisitGroup list={completed} icon="check-circle" iconCls="text-emerald-400" title={t('visits.completedTitle')} />
       <VisitGroup list={cancelled} icon="x-circle" iconCls="text-rose-400" title={t('visits.cancelledTitle')} />
-      <RescheduleModal />
+      {rescheduleModal}
     </div>
   );
 }

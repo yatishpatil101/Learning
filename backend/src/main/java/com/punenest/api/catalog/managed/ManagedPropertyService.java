@@ -201,7 +201,11 @@ public class ManagedPropertyService {
                 // bathrooms / parking / balconies / facing / totalFloors / ageYears (V114): a
                 // managed record does not collect them, and publishing must not invent them. The
                 // owner fills them in on the listing afterwards if they want the tiles filled.
-                null, null, null, null, null, null);
+                null, null, null, null, null, null,
+                // photoHashes (V116): a managed record holds no photographs, and the hash is
+                // computed by the wizard from what the owner picked in the browser. There is nothing
+                // here to hash and no browser in this call path.
+                null);
         // A managed record is captured freely (furnishing is free-text, price may be zero); the
         // marketplace contract is stricter. Publish is the boundary, so re-run the listing's own
         // bean-validation here — ListingService.create does not (only @Valid at a controller does) —

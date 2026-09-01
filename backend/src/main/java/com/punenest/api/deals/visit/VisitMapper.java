@@ -6,9 +6,10 @@ import com.punenest.api.identity.user.User;
 
 /**
  * Hand-written mapper for the visits feature. MapStruct is not used here because the entire
- * projection is trust-shaping: the visitor's mobile is gated (masked until the owner confirms),
- * and the viewer's own number is always revealed — these decisions must stay reviewable in source,
- * not in generated code ({@code api-standards.md} §8.1).
+ * projection is trust-shaping: the visitor's mobile is gated (revealed to the visitor themselves,
+ * and to the listing owner once the visit is confirmed), and the viewer's own number is always
+ * revealed — these decisions must stay reviewable in source, not in generated code
+ * ({@code api-standards.md} §8.1).
  *
  * <p>The masking helper is {@code private} so it cannot be accidentally exposed or imported.
  */
@@ -36,8 +37,10 @@ public final class VisitMapper {
     }
 
     /**
-     * Build a {@link VisitDto.Party} for the visitor. Mobile is masked unless the owner has
-     * confirmed (status confirmed/completed/no-show) or an approved contact request exists (D5).
+     * Build a {@link VisitDto.Party} for the visitor. The mobile is masked unless the viewer is the
+     * visitor themselves, or is the listing owner on a visit that has been confirmed (D5, D87). The
+     * decision is made by the caller ({@code VisitService#visitorMobileVisibility}); this method
+     * only applies it.
      */
     private static VisitDto.Party toParty(User visitor, ContactVisibility visibility) {
         if (visitor == null) {

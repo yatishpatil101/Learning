@@ -101,7 +101,8 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
    depends on them** (D237) — it reads `propertyService.myListing(id)`, because a form that
    prefills from this browser and then PATCHes the server is a form that silently blanks a listing
    the moment the owner opens it on a second device. What still reads the mirror is
-   `evaluateListingDedup`'s cross-owner scan and `lib/data/documents.js`.
+   `lib/data/documents.js` — `evaluateListingDedup`'s cross-owner scan used to, and that is exactly
+   why it never worked (D245): the mirror cannot contain another owner's listing.
 
    Removing the mirror is deliberately *not* part of that change, and the reason is a trap rather
    than a preference: `saveListing` is handed `forTheWire(record, …)`, which carries
@@ -113,19 +114,29 @@ const fileFromDataUrl = (dataUrl, name, mime) => {
 export const persistListing = async ({ form, user, editId, editListing, documents, photos, photoHashes }) => {
     const mob = (user && user.mobile) || '';
 
-    // Duplicate prevention, in two halves that go to two different places.
+    // Duplicate prevention, in two halves that go to two different places — both of them the
+    // server's now (D245).
     //
-    // "Have I already listed this?" is now a question for the server (D226), because it is a
-    // question about the caller's real listings and this browser does not hold those. It used to be
+    // "Have I already listed this?" is a question for the server (D226), because it is a question
+    // about the caller's real listings and this browser does not hold those. It used to be
     // answered out of `evaluateListingDedup`'s self-arm against the local store, which against a
     // live API is the seeded demo catalogue: the guard could refuse a genuine owner over a fixture,
     // then offer to open an id the server had never issued. Only asked on a create — an edit is by
     // definition already the listing it would match.
     //
-    // The other half stays local and stays on the write: a DIFFERENT owner claiming the same unit,
-    // or reusing the same photos, still posts and is flagged to Ops. That is an ops signal about
-    // somebody else's property, and it is deliberately never reported back to the lister.
-    const dedup = evaluateListingDedup({ mobile: mob, fields: form, excludeId: editId, photoHashes });
+    // The other half — a DIFFERENT owner claiming the same unit, or reusing the same photographs —
+    // was the last thing still being decided here, and it was the one that could least afford to
+    // be. It compared against the browser's local mirror, which holds only what this browser
+    // posted, so the cross-owner question was put to a store that cannot contain another owner's
+    // listing. It now runs in `ListingDuplicateProbe` on every create and on any edit that moves a
+    // signal, against everybody's listings. Still flag-not-block, and still deliberately never
+    // reported back to the lister: it is an accusation about somebody else's property, and an owner
+    // who could read it could enumerate the catalogue by trial submission.
+    //
+    // What survives on this side is only the *evidence*: `photoHashes`, computed here because
+    // hashing pixels needs a canvas and nothing has been uploaded yet, and carried to the server on
+    // the record.
+    const dedup = evaluateListingDedup({ mobile: mob, fields: form, excludeId: editId });
     if (!editId) {
       const mine = await checkOwnDuplicate({ mobile: mob, fields: form });
       if (mine.found) {
@@ -330,19 +341,18 @@ export const persistListing = async ({ form, user, editId, editListing, document
         pmcPropertyId: form.pmcPropertyId || '',
         reraId: form.reraId || '',
       },
-      // A different owner already claimed this unit → post but flag for Ops.
-      // Recomputed on every save (edit excludes the listing itself via excludeId),
-      // so resolving a collision on edit clears the flag rather than leaving it stale.
-      duplicateFlag: !!dedup.flagForReview,
-      duplicateOf: dedup.flaggedAgainstId || '',
-      ...(dedup.flagForReview
-        ? {
-            flagReason:
-              dedup.flagBy === 'image'
-                ? 'Possible duplicate \u2014 photos match another owner\u2019s active listing.'
-                : 'Possible duplicate \u2014 same address / electricity meter as another owner\u2019s active listing.',
-          }
-        : {}),
+      /* A different owner claiming this unit, or reusing its photographs, is flagged by the server
+         now (D245) — `ListingDuplicateProbe` writes an internal note on the listing's case file the
+         moment it is posted or edited onto the collision. It is not decided here and not carried on
+         the record, because the browser could only ever compare against the listings this browser
+         itself posted, and a real owner's browser has never seen another owner's listing.
+
+         These two keys stay, blank, because the moderation queue reads them on the rows that
+         already carry them (`AdminPropertyCard`), and a listing that stops setting a field is not
+         the same as a listing that sets it false. Nothing writes them from the wizard any more; the
+         answer lives on the case file. */
+      duplicateFlag: false,
+      duplicateOf: '',
     };
 
     /* ---- Cross the seam ------------------------------------------------

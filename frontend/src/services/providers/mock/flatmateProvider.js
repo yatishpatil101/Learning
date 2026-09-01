@@ -34,6 +34,7 @@ import {
   deleteFlatmateGroup as _storeDeleteGroup,
   addInterest,
   hasInterest,
+  getMyInterests,
   getFlatmateRequests,
   addFlatmateRequest,
   decideFlatmateRequest,
@@ -534,6 +535,12 @@ export async function myRequests(status) {
   return rows;
 }
 
+/** Caller-scoped sent-interest outbox, mirroring `GET /me/flatmate-interests`. */
+export async function myFlatmateInterests() {
+  const mine = me();
+  return mine ? getMyInterests(mine) : [];
+}
+
 export async function decideRequest(id, decision) {
   const mine = me();
   requireUser();
@@ -677,6 +684,15 @@ function writeApp(row) {
   if (at >= 0) stored[at] = row; else stored.unshift(row);
   localStorage.setItem(APPS_KEY, JSON.stringify(stored));
   return row;
+}
+
+/** The caller's own seeker posts, including rows not visible on the public feed. */
+export async function myFlatmatePosts({ page = 0, size = 20 } = {}) {
+  const mine = me();
+  const rows = mine
+    ? getFlatmatePosts().filter((post) => digits(post.mobile).slice(-10) === mine).map(postVm)
+    : [];
+  return paginate(rows, page, size);
 }
 
 /**

@@ -195,18 +195,33 @@ export function useDashboardData({ user, toast }) {
   // A status change and a slot change are different operations on the server (one has an endpoint,
   // the other does not — D87), so the single `patch` the dashboard passes is routed by shape
   // rather than collapsed into one call.
+  //
+  // The optimistic patch carries only the fields the caller named, but a status change can move
+  // fields the caller does not know about: confirming a visit is what earns the owner the
+  // visitor's real mobile, which arrives masked until then. Merging `{status}` alone left the row
+  // reading "Confirmed" beside a still-masked number, so `VisitsTab`'s `isFullMobile` guard
+  // suppressed the WhatsApp handoff until the owner happened to reload — the reveal shipped, and
+  // the one screen that acts on it could not see it. So the write is followed by a re-read of the
+  // server's answer, which the derivation effect below folds back over the optimistic row.
+  //
+  // `refreshData`, not `retryData`: refresh keeps the current list on screen while it re-reads and
+  // swallows its own failure, so a confirm never flashes the dashboard back to skeletons, and a
+  // refresh that fails leaves a row that is stale rather than a page that is an error. Chained off
+  // `.then` so the PATCH has been acknowledged before the read that is meant to observe it.
   const mutateVisit = (id, patch) => {
     const snapshot = visits;
     setVisits((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
     const write = patch.when !== undefined
       ? rescheduleVisit(id, patch.when)
       : updateVisitStatus(id, patch.status);
-    // Roll back on failure: a confirmed visit that silently reverts on the next load is worse
-    // than one that visibly refuses.
-    write.catch(() => {
-      setVisits(snapshot);
-      toast('Could not update that visit. Please try again.', 'error');
-    });
+    write
+      .then(() => refreshData())
+      // Roll back on failure: a confirmed visit that silently reverts on the next load is worse
+      // than one that visibly refuses.
+      .catch(() => {
+        setVisits(snapshot);
+        toast('Could not update that visit. Please try again.', 'error');
+      });
   };
 
   /* Open the owner's side of a verification thread.
@@ -256,7 +271,7 @@ export function useDashboardData({ user, toast }) {
      Kept on `[searches]` rather than `[user]` \u2014 the saved-search context reloads per session, so
      this still re-runs on sign-in, and widening the deps here would change refetch behaviour that
      is not what D166 is about. */
-  const [bundle, dataStatus, , retryData, dataError] = useAsyncList(
+  const [bundle, dataStatus, , retryData, dataError, refreshData] = useAsyncList(
     () => Promise.all([
       loadMyListings(user),
       listProperties({ includeAllStatuses: true }, 'newest'),

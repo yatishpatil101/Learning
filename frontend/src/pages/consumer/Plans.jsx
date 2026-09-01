@@ -52,17 +52,27 @@ const ownerPlans = (t, fee) => [
 ];
 /**
  * @param rentFee the published rent-agreement platform fee, already formatted.
- * @param fee     the pricing reader from `usePricing()`. Passed in rather than imported, like every
- *                other builder here, because these run at module scope and the prices now arrive
- *                over the wire — a module-scope read would capture whatever the bundle shipped with
- *                and never hear about a change.
+ * @param price   resolves a plan slug to the price the customer will actually be charged — the
+ *                catalogue row when it has resolved, the configured fee only as a fallback. It is
+ *                the same resolver the cards use, passed in for the same reason `fee` was: these
+ *                builders run at module scope, so a module-scope read would capture whatever the
+ *                bundle shipped with and never hear about a change.
+ *
+ *                It must be this resolver and not `fee()` directly. `GET /pricing` and `GET /plans`
+ *                are two different tables answering two different questions, and on the seeded
+ *                catalogue they disagree: the fee schedule says Owner Plus is ₹999 where the
+ *                catalogue — the number that is charged — says ₹2,499. An FAQ answering "how much
+ *                are the owner plans" from the fee schedule therefore quoted ₹999 directly beneath
+ *                a card quoting ₹2,499 for the same plan, and quoted Owner Pro at ₹2,499, which is
+ *                Owner Plus's real price. Same page, three numbers, one of them a live mis-quote of
+ *                a real charge.
  */
-const plansFaqs = (t, rentFee, fee) => [
+const plansFaqs = (t, rentFee, price) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
   [t('misc1.plansFaq2Q'), t('misc1.plansFaq2A')],
   [t('misc1.plansFaq3Q'), t('misc1.plansFaq3A')],
   [t('misc1.plansFaq4Q'), t('misc1.plansFaq4A', { fee: rentFee })],
-  [t('misc1.plansFaq5Q'), t('misc1.plansFaq5A', { fee1: fee('ownerPlanYearly'), fee2: fee('ownerProYearly') })],
+  [t('misc1.plansFaq5Q'), t('misc1.plansFaq5A', { fee1: price('owner2'), fee2: price('owner5') })],
 ];
 
 function PlanCard({ p, current }) {
@@ -235,7 +245,15 @@ export default function Plans() {
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
   const SEEKER = seekerPlans(t, fee).map(priced);
   const OWNER = ownerPlans(t, fee).map(priced);
-  const FAQS = plansFaqs(t, RENT_FEE, fee);
+  /**
+   * The charged price for a plan slug, formatted — for prose that quotes a price outside a card.
+   * Reads the catalogue first and falls back to the configured fee only while it is unreachable,
+   * so a sentence about a plan cannot quote a different number than the card for that plan.
+   */
+  const priceOf = (slug) => (catalogue[slug]
+    ? rupees(catalogue[slug].price)
+    : fee(slug === 'owner5' ? 'ownerProYearly' : 'ownerPlanYearly'));
+  const FAQS = plansFaqs(t, RENT_FEE, priceOf);
   // On mobile the two persona sections collapse into a single toggle so the user
   // only sees the plans relevant to them — default to their role (seeker-first for
   // signed-out visitors, who are almost always searching).

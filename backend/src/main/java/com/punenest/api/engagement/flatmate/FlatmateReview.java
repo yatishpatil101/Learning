@@ -93,4 +93,35 @@ public class FlatmateReview extends AuditedEntity {
         this.reason = why;
         this.decidedBy = decider;
     }
+
+    /**
+     * Re-open this review because the host edited the post it describes.
+     *
+     * <p>There is one review row per target — {@code uq_flatmate_reviews_room} and its group twin
+     * make sure of it — so an edit cannot file a second one. Before this method it tried to, and
+     * the constraint turned every edit of an agreement-backed post into a 409 the host could do
+     * nothing about.
+     *
+     * <p>Re-opening rather than leaving the old verdict standing, because the verdict was about
+     * facts the edit may have just changed: the address, what the host claims to be, and the
+     * document backing the claim. A moderator's "yes" to the old address is not a "yes" to a new
+     * one.
+     *
+     * <p>Note what this does <em>not</em> touch: the badge. Ops moving a review to approved is
+     * what grants the badge, and nothing here revokes it — the post keeps the trust it earned
+     * until a moderator reads the edit and says otherwise. That is the same asymmetry the whole
+     * feature runs on: publication and verification are separate axes, and an edit should not
+     * punish a host by silently stripping a badge for fixing a typo.
+     */
+    void reopenAfterEdit(String address, String tier, boolean flagForReview, boolean ownerConsent,
+            Map<String, Object> agreementDoc) {
+        this.address = address;
+        this.tier = tier;
+        this.flagForReview = flagForReview;
+        this.ownerConsent = ownerConsent;
+        this.agreementDoc = agreementDoc;
+        this.status = FlatmateVocabulary.STATUS_PENDING;
+        this.reason = null;
+        this.decidedBy = null;
+    }
 }

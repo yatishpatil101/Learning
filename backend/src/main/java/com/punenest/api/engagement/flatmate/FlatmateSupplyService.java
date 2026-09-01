@@ -77,9 +77,10 @@ public class FlatmateSupplyService {
     private final FlatmateRoomRepository rooms;
     private final FlatmateGroupRepository groups;
     private final FlatmateRequestRepository requests;
-    private final FlatmateReviewRepository reviews;
     private final FlatmateOwnerConsentRepository consents;
     private final FlatmateGuardrails guardrails;
+    /** Whether a written or edited post lands on the board or in the D72 backlog. */
+    private final FlatmatePublication publication;
     private final FlatmateMapper mapper;
     /** Room rows → room cards: the host-name and occupancy joins, batched once per window (D212). */
     private final FlatmateRoomCards cards;
@@ -94,17 +95,18 @@ public class FlatmateSupplyService {
     private final RateLimitLock locks;
 
     public FlatmateSupplyService(FlatmateRoomRepository rooms, FlatmateGroupRepository groups,
-            FlatmateRequestRepository requests, FlatmateReviewRepository reviews,
+            FlatmateRequestRepository requests,
             FlatmateOwnerConsentRepository consents, FlatmateGuardrails guardrails,
+            FlatmatePublication publication,
             FlatmateMapper mapper, PropertyRepository properties, UserRepository users,
             Notifier notifier, OtpService otpService, AuditService audit,
             RateLimitLock locks, FlatmateRoomCards cards, SocietyReference societyReference) {
         this.rooms = rooms;
         this.groups = groups;
         this.requests = requests;
-        this.reviews = reviews;
         this.consents = consents;
         this.guardrails = guardrails;
+        this.publication = publication;
         this.mapper = mapper;
         this.properties = properties;
         this.users = users;
@@ -130,7 +132,7 @@ public class FlatmateSupplyService {
                 FlatmateVocabulary.blankToNull(facets.roomType()),
                 FlatmateVocabulary.blankToNull(facets.furnishing()),
                 FlatmateVocabulary.blankToNull(facets.bhk()),
-                facets.minBudget(), facets.maxBudget(), pageable));
+                facets.minBudget(), facets.maxBudget(), facets.verifiedOnly(), pageable));
     }
 
     /**
@@ -200,6 +202,10 @@ public class FlatmateSupplyService {
         room.setAddressFingerprint(eligibility.fingerprint());
         room.setFlagForReview(eligibility.flagForReview());
         room.setVerificationTier(tier);
+        // On the board, or in the D72 backlog. See FlatmatePublication — the tier already ranks the thing
+        // the gate was guessing at, so a host who proved something does not wait behind one who
+        // proved nothing.
+        room.setModStatus(publication.stateFor(tier, eligibility.flagForReview()));
         // The badge follows the tier, and only the owner tier earns it outright. A tenant's claim
         // is a claim until Ops has read the document.
         room.setVerified(FlatmateVocabulary.TIER_OWNER.equals(tier));
@@ -208,7 +214,7 @@ public class FlatmateSupplyService {
         room.setSeatsOpen(1);
 
         FlatmateRoom saved = rooms.saveAndFlush(room);
-        enqueueReviewIfNeeded(caller, "room", saved.getId(), null, tier,
+        publication.enqueueReviewIfNeeded(caller, "room", saved.getId(), null, tier,
                 eligibility.flagForReview(), body.agreementDoc(),
                 addressLabel(saved.getSociety(), saved.getLocality()),
                 FlatmateVocabulary.blankToNull(body.ownerConsentMobile()) != null);
@@ -312,7 +318,7 @@ public class FlatmateSupplyService {
         return groups.feed(
                 FlatmateVocabulary.blankToNull(facets.locality()),
                 FlatmateVocabulary.facetOrNull(facets.policy()),
-                facets.minRent(), facets.maxRent(), pageable)
+                facets.minRent(), facets.maxRent(), facets.verifiedOnly(), pageable)
                 .map(g -> mapper.toFeedDto(g,
                         FlatmateMapper.PartyView.anonymous(hostName(g.getHostId()))));
     }
@@ -349,6 +355,7 @@ public class FlatmateSupplyService {
         group.setAgreementDeclared(declared);
         group.setAddressFingerprint(eligibility.fingerprint());
         group.setFlagForReview(eligibility.flagForReview());
+        group.setModStatus(publication.stateFor(tier, eligibility.flagForReview()));
         // Only honoured when the tier actually came out as owner — see deriveTier.
         group.setPropertyId(FlatmateVocabulary.TIER_OWNER.equals(tier) ? propertyId : null);
         // The creator is the first member, and their badge is the one on the token.
@@ -356,8 +363,137 @@ public class FlatmateSupplyService {
                 body.name().strip(), caller.userId(), caller.aadhaarVerified()));
 
         FlatmateGroup saved = groups.saveAndFlush(group);
-        enqueueReviewIfNeeded(caller, "group", null, saved.getId(), tier,
+        publication.enqueueReviewIfNeeded(caller, "group", null, saved.getId(), tier,
                 eligibility.flagForReview(), body.agreementDoc(),
+                addressLabel(null, saved.getLocality()), saved.isOwnerConsent());
+        return mapper.toDto(saved, ownParty(caller));
+    }
+
+    /**
+     * {@code PATCH /flatmates/rooms/{id}} — edit a room I posted.
+     *
+     * <p>Until this existed the only way to correct a room was to delete it and post it again, which
+     * costs the host every reply the old ad had collected: the interest rows point at the dead id.
+     * A typo in the rent was a choice between leaving it wrong and throwing away the leads.
+     *
+     * <p><strong>A full body, not a sparse one</strong> — the same shape {@code POST} takes, and the
+     * same shape {@code PATCH /flatmates/posts/{id}} has always taken. A partial body would need a
+     * second request record whose every field is nullable, and then "absent" and "cleared" become
+     * the same wire value for {@code note}, {@code deposit} and {@code availableFrom}. The verb is
+     * {@code PATCH} rather than {@code PUT} because the server still owns fields the client cannot
+     * send \u2014 tier, fingerprint, moderation state \u2014 so this is not a replacement of the resource.
+     *
+     * <p><strong>Split rooms are refused.</strong> Their locality, society and flat number are the
+     * parent listing's facts, not this row's; letting a room disagree with the flat it is part of
+     * would make the occupancy ledger describe two different addresses. Editing those belongs on the
+     * property.
+     */
+    @Transactional
+    public FlatmateRoomDto updateRoom(AuthPrincipal caller, UUID roomId,
+            FlatmateRoomCreateRequest body) {
+        FlatmateRoom room = rooms.findById(roomId)
+                .filter(r -> !r.isArchived())
+                .orElseThrow(() -> NotFoundException.of("Room"));
+        if (!room.getHostId().equals(caller.userId())) {
+            throw new ForbiddenException("You can only edit a room you posted.");
+        }
+        if (room.isSplitRoom()) {
+            throw new ConflictException(FlatmateConflicts.mark(
+                    "This room came from splitting a flat, so its address is the flat's. "
+                            + "Edit the property instead.",
+                    FlatmateConflicts.SPLIT_ROOM));
+        }
+
+        String hostRole = FlatmateVocabulary.orDefault(
+                body.hostRole(), FlatmateVocabulary.HOST_ROLE, "tenant", "host role");
+        boolean declared = Boolean.TRUE.equals(body.agreementDeclared());
+        String tier = deriveTier(caller, hostRole, null, declared);
+
+        societyReference.require(body.societyId());
+        mapper.applyTo(body, room);
+        // The three the mapper leaves alone because they are the constructor's invariants. They are
+        // editable here for the same reason everything else is: a room in the wrong locality is the
+        // single most common thing a host needs to fix, and it is exactly what the allowlist cannot
+        // reach.
+        room.setRoomType(FlatmateVocabulary.require(
+                body.roomType(), FlatmateVocabulary.ROOM_TYPE, "room type"));
+        room.setLocality(body.locality().strip());
+        // `budget` is the column behind the contract's `rentShare` — the asking price for the seat.
+        room.setBudget(body.rentShare());
+
+        publication.reapplyAfterEdit(caller, tier, room::setAddressFingerprint, room::setFlagForReview,
+                room::setModStatus,
+                new FlatmateGuardrails.Address(null, body.society(), body.locality(), null));
+        room.setHostRole(hostRole);
+        room.setAgreementDeclared(declared);
+        room.setVerificationTier(tier);
+        room.setVerified(FlatmateVocabulary.TIER_OWNER.equals(tier));
+
+        FlatmateRoom saved = rooms.saveAndFlush(room);
+        publication.enqueueReviewIfNeeded(caller, "room", saved.getId(), null, tier,
+                saved.isFlagForReview(), body.agreementDoc(),
+                addressLabel(saved.getSociety(), saved.getLocality()),
+                FlatmateVocabulary.blankToNull(body.ownerConsentMobile()) != null);
+        return mapper.toDto(saved, ownView(caller, 0));
+    }
+
+    /**
+     * {@code PATCH /flatmates/groups/{id}} — edit a group I started.
+     *
+     * <p>The group counterpart of {@link #updateRoom}, on the same terms and for the same reason:
+     * delete-and-repost was the only correction available, and it discards the members who have
+     * already joined along with everyone who asked to.
+     *
+     * <p><strong>{@code seatsTotal} can move here, and only here.</strong> {@code PATCH
+     * .../seats} adjusts how many of the existing seats are open; this is the flat getting bigger or
+     * smaller. It cannot drop below the people already in the group \u2014 that is not an edit, it is an
+     * eviction, and there is no route that means that.
+     */
+    @Transactional
+    public FlatmateGroupDto updateGroup(AuthPrincipal caller, UUID groupId,
+            FlatmateGroupCreateRequest body) {
+        FlatmateGroup group = groups.findById(groupId)
+                .filter(g -> !g.isArchived())
+                .orElseThrow(() -> NotFoundException.of("Group"));
+        if (!group.getHostId().equals(caller.userId())) {
+            throw new ForbiddenException("You can only edit a group you created.");
+        }
+
+        String hostRole = FlatmateVocabulary.orDefault(
+                body.role(), FlatmateVocabulary.HOST_ROLE, "tenant", "role");
+        boolean declared = Boolean.TRUE.equals(body.agreement());
+        UUID propertyId = Ids.parseUuid(body.propertyId()).orElse(null);
+        String tier = deriveTier(caller, hostRole, propertyId, declared);
+        String locality = body.locality() == null || body.locality().isBlank()
+                ? "Baner" : body.locality().strip();
+
+        mapper.applyTo(body, group);
+        group.setTitle(body.title().strip());
+        group.setLocality(locality);
+        group.setRent(body.rent());
+
+        int taken = group.getMembers().size();
+        if (group.getSeatsTotal() < taken) {
+            throw new BadRequestException("This group already has " + taken
+                    + " members, so it cannot be resized below that.");
+        }
+        if (group.getSeatsOpen() > group.getSeatsTotal()) {
+            throw new BadRequestException("A group cannot have more seats open than it has seats.");
+        }
+
+        publication.reapplyAfterEdit(caller, tier, group::setAddressFingerprint, group::setFlagForReview,
+                group::setModStatus,
+                new FlatmateGuardrails.Address(
+                        FlatmateVocabulary.TIER_OWNER.equals(tier) ? propertyId : null,
+                        null, locality, body.title()));
+        group.setHostRole(hostRole);
+        group.setAgreementDeclared(declared);
+        group.setVerificationTier(tier);
+        group.setPropertyId(FlatmateVocabulary.TIER_OWNER.equals(tier) ? propertyId : null);
+
+        FlatmateGroup saved = groups.saveAndFlush(group);
+        publication.enqueueReviewIfNeeded(caller, "group", null, saved.getId(), tier,
+                saved.isFlagForReview(), body.agreementDoc(),
                 addressLabel(null, saved.getLocality()), saved.isOwnerConsent());
         return mapper.toDto(saved, ownParty(caller));
     }
@@ -535,25 +671,7 @@ public class FlatmateSupplyService {
         return agreementDeclared ? FlatmateVocabulary.TIER_TENANT : FlatmateVocabulary.TIER_IDENTITY;
     }
 
-    /**
-     * Queue an Ops review when the post makes a claim a human has to check.
-     *
-     * <p>Owner-tier posts never enter the queue — they were vetted through the parent listing's own
-     * documents, and reviewing the same evidence twice costs Ops real time for nothing.
-     */
-    private void enqueueReviewIfNeeded(AuthPrincipal caller, String kind, UUID roomId, UUID groupId,
-            String tier, boolean flagged, Map<String, Object> agreementDoc, String address,
-            boolean ownerConsent) {
-        if (FlatmateVocabulary.TIER_OWNER.equals(tier)) {
-            return;
-        }
-        boolean needsReview = FlatmateVocabulary.TIER_TENANT.equals(tier) || flagged;
-        if (!needsReview) {
-            return;
-        }
-        reviews.saveAndFlush(new FlatmateReview(kind, roomId, groupId, caller.userId(), address,
-                tier, flagged, ownerConsent, agreementDoc));
-    }
+
 
     /**
      * File an inbox row, rate-limited and refused if this requester already asked.
@@ -732,7 +850,9 @@ public class FlatmateSupplyService {
         private final transient FlatmateGuardrails.HostEligibility eligibility;
 
         HostBlockedException(FlatmateGuardrails.HostEligibility eligibility) {
-            super(eligibility.reason());
+            super(FlatmateConflicts.mark(eligibility.reason(),
+                    FlatmateConflicts.guardrailSubCode(eligibility.overCap(),
+                            eligibility.duplicate())));
             this.eligibility = eligibility;
         }
 

@@ -18,7 +18,6 @@ import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
 import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
 import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
-import { getMyRooms, getMyFlatmatePosts, getMyFlatmateGroups } from '../../lib/data/myListings.js';
 import { listManaged } from '../../services/managedService.js';
 import { pendingInviteCount } from '../../lib/serviceFlow.js';
 import LoadError from '../../components/LoadError.jsx';
@@ -52,9 +51,6 @@ export default function Dashboard() {
   // Role alone does NOT unlock the management tabs — otherwise a brand-new owner
   // would see empty "My Listings / Enquiries / Finances" dead-ends. The tabs
   // appear the moment they post/register their first property.
-  const hasRooms = getMyRooms(user).length > 0;
-  const hasRequests = getMyFlatmatePosts(user).length > 0;
-  const hasGroups = getMyFlatmateGroups(user).length > 0;
   /* Managed properties used to be read straight out of `localStorage` in the render body, twice —
      once here to decide whether the management tabs exist at all, once further down to find the
      rental being tracked. Against the API that is a request, so it moves into state and an effect
@@ -71,7 +67,7 @@ export default function Dashboard() {
     return () => { live = false; };
   }, [user?.mobile]);
   const hasManaged = managedProps.length > 0;
-  const ownsInventory = hasRooms || hasRequests || hasGroups || hasManaged;
+  const ownsInventory = hasManaged;
 
   /* Loaded here rather than below the tab logic, because `listings` decides whether this user is an
      owner and that decision gates which tabs exist at all.

@@ -105,7 +105,7 @@ export default function PropertyPassport() {
 
           {/* Completeness meter */}
           <div className="mt-5 pt-5 border-t border-white/10">
-            <div className="flex items-center justify-between text-sm mb-2"><span className="text-gray-300 font-medium">{t('ownerHub.completeness')}</span><span className="text-brand-teal-3 font-bold">{pct}%</span></div>
+            <div className="flex items-center justify-between text-sm mb-2"><span className="text-gray-300 font-medium">{t('ownerHub.completeness')}</span><span data-testid="passport-percent" className="text-brand-teal-3 font-bold">{pct}%</span></div>
             <div className="insight-bar mb-3"><span style={{ width: `${pct}%` }} /></div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {checklist.map((c) => (

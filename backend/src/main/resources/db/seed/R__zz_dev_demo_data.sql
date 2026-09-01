@@ -1478,6 +1478,62 @@ INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, b
  ('f1c70000-0000-4000-8000-000000005149', 'p5149', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Flat for sale in Wagholi', 'buy', 'Flat', 3, 11900000, 'total', false, 1385, 'sqft', 1155, 'furnished',      'ready-to-move', NULL, 'Wagholi', 'wagholi', 'Pune', 18.5759, 73.9810, '3 BHK Flat available on sale in Wagholi, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "club"]', '[]', NULL, 'owner', 'approved', false, true, false, false, 2, 35, 1, '2026-01-14 10:00:00+05:30', '2026-01-14 10:00:00+05:30')
     ON CONFLICT DO NOTHING;
 
+-- --------------------------------------------------------------------------------------------
+-- ONE BANER VILLA WITH COORDINATES, FOR THE MAP DRAWER
+-- --------------------------------------------------------------------------------------------
+-- `consumer/search/live-map-popup.spec.js` and `live-map-panel-contact.spec.js` open the map view,
+-- click a price marker and read the drawer that opens. Their mock ancestors fabricated the listing
+-- in `localStorage` precisely so they could pin every number they asserted; live, the drawer renders
+-- whatever the catalogue holds, so the fixture has to carry those numbers instead.
+--
+-- What each field is load-bearing FOR, because none of them is decoration:
+--
+--   * `price` 27300000 is the click target. `PropertyMap.mapLabel` renders a buy marker as
+--     `₹(price / 1e7).toFixed(2)Cr`, so this row and only this row is labelled `₹2.73Cr`. Any other
+--     Baner buy listing landing on the same two decimals makes the marker locator ambiguous and the
+--     spec starts clicking whichever one Google Maps painted last.
+--
+--   * `bathrooms` 3 is here on purpose even though the map drawer cannot currently show it. The
+--     drawer is fed by the SEARCH response, and `PropertySummary` carries no bathroom count — so
+--     `factsOf()` renders Bedrooms and Built-up and silently skips Bathrooms. The column is set so
+--     that the day the summary grows the field, the fixture already states a value that differs from
+--     the old `bhk - 1` guess (3 BHK would have fabricated 2).
+--
+--   * `lat`/`lng` put it inside Baner rather than merely labelled Baner. A listing with a locality
+--     and no coordinates is invisible on the map, which would make the specs fail on the marker with
+--     no hint that the cause was the fixture.
+--
+--   * It is the OLDEST row in the catalogue (4 January, one day before the Wagholi batch), so the
+--     default order puts it last and no spec that reads the first card of `/listings?deal=buy`
+--     changes its answer because of it.
+INSERT INTO public.properties (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit, negotiable, area, area_unit, carpet_area, bathrooms, furnishing, possession, land_use, locality, locality_slug, city, lat, lng, description, amenities, images, cover_image, posted_by_type, status, featured, verified, owner_verified, ownership_verified, docs_count, views, enquiries, created_at, updated_at) VALUES
+ ('f1c70000-0000-4000-8000-000000005150', 'p5150', 'b05422ba-0a55-5136-ba68-d202e83e29b0', '3 BHK Villa for sale in Baner', 'buy', 'Villa', 3, 27300000, 'total', true, 1885, 'sqft', 1560, 3, 'semi-furnished', 'ready-to-move', NULL, 'Baner', 'baner', 'Pune', 18.5590, 73.7868, '3 BHK Villa available on sale in Baner, Pune. Zero brokerage - deal directly with the owner.', '["lift", "parking", "security", "garden"]', '["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70", "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=70"]', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=70', 'owner', 'approved', false, true, false, false, 1, 5, 0, '2026-01-04 10:00:00+05:30', '2026-01-04 10:00:00+05:30')
+    ON CONFLICT DO NOTHING;
+
+-- --------------------------------------------------------------------------------------------
+-- ONE OPEN PROMOTION WINDOW  (D59 paid placement)
+-- --------------------------------------------------------------------------------------------
+-- `consumer/search/live-boost-ranking.spec.js` asserts that a paid boost buys the top of the DEFAULT
+-- order and buys nothing in an order the buyer chose. Live, `properties.boosted_until` is written by
+-- `BoostService.promote()` and only after a payment callback settles, so nothing short of driving a
+-- purchase through the gateway produces a promoted listing — which is a billing test, not a search
+-- one. The column is the whole interface `catalog` has to the boost (see the comment on
+-- `BoostService.promote`), so setting it here reproduces exactly the state the catalogue ranks on.
+--
+-- p5145 is chosen for what it is SURROUNDED by, not for what it is. It is one of ten Wagholi flats
+-- that share an owner, a locality, a posting date and a trust profile, so its nine siblings are the
+-- adversarial rows the spec needs: they clear every filter p5145 clears, differ from it in nothing
+-- the ranker can see, and the boost is the sole reason it outranks them. Deleting the boost leaves
+-- the spec red rather than merely reordered.
+--
+-- It is also neither the cheapest (p5148, ₹51.5L) nor the dearest (p5149, ₹1.19Cr) of the ten, so
+-- first place under `sort=price,asc` or `sort=price,desc` would be a real defect and not a
+-- coincidence the fixture handed the product for free.
+--
+-- Relative to `now()` rather than a literal, because a fixture that expires is a suite that starts
+-- failing on a date nobody chose.
+UPDATE public.properties SET boosted_until = now() + interval '7 days' WHERE slug = 'p5145';
+
 -- ============================================================================================
 -- SOCIETY RESIDENTS AND CLAIMS  (added 2026-08-22, Wave C slice 1)
 -- ============================================================================================
@@ -1891,3 +1947,87 @@ from public.users author, public.users ops
 where author.mobile = '9464709344'   -- Meera Joshi, owner
   and ops.mobile = '9000000000'      -- Admin
 on conflict (slug) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- The duplicate-guard fixture (V115)
+--
+-- WHY THIS OWNER EXISTS AT ALL. "You have already listed this property" is the
+-- one wizard refusal no live test could reach, and the reason is arithmetic
+-- rather than a bug. A duplicate candidate must already occupy a listing slot
+-- (`ListingDuplicateProbe.OCCUPYING` is a subset of the statuses that consume
+-- one), so firing the guard needs an owner with a listing AND a free slot --
+-- allowance >= 2. Every seeded owner is on the free tier, allowance 1, so the
+-- paywall answers first and the guard never runs. The modal was unreachable by
+-- construction, and an unreachable refusal is one nobody can prove still works.
+--
+-- WHY NOT REUSE AN EXISTING OWNER. Meera is the obvious candidate -- four
+-- listings, one short of Owner Pro's five -- but `live-listing-quota.spec.js`
+-- asserts her allowance is exactly 1 with no referral bonus, and its header
+-- names her subscription-free state as the fixture. Giving her a plan would
+-- redden a passing test to make this one possible, which is trading coverage
+-- rather than adding it. Omkar is the deliberate *unverified* owner and carries
+-- four other roles; Sanjay's twelve listings clear the largest plan's ceiling of
+-- five. So: a dedicated owner, whose only job is this, and who no existing
+-- assertion can see.
+--
+-- WHY THE LISTING IS `pending`. Pending occupies a slot and is a duplicate
+-- candidate, but is not publicly visible -- so this fixture is invisible to
+-- every count, facet and search assertion in the suite while still being a
+-- listing the guard must collide with.
+-- ---------------------------------------------------------------------------
+
+insert into public.users
+    (id, name, mobile, role, status, city, mobile_verified, verified, aadhaar_verified,
+     listings_count, joined_at, created_at, updated_at)
+values ('d0000000-0000-4000-8000-000000000090', 'Kunal Bhosale', '9700000090', 'owner',
+        'active', 'Pune', true, true, true, 1,
+        '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30', '2026-08-01 10:00:00+05:30')
+on conflict (mobile) do nothing;
+
+-- Owner Plus (limit 2) rather than Owner Pro (5), because the fixture should
+-- leave exactly one slot free. An owner with four spare slots would still pass
+-- this test on the day the quota check stopped running at all; with one, the
+-- listing below is the only thing standing between him and the ceiling.
+--
+-- Seeded `active` directly. `SubscriptionService` writes `free ? ACTIVE :
+-- PENDING`, so a paid plan bought through the API is not active until the
+-- payment webhook settles it, and this is the first `subscriptions` row the seed
+-- has ever held -- the table was one of the known seed-coverage gaps.
+insert into public.subscriptions (id, user_id, plan_id, status, started_at, renews_at)
+select 'd0000000-0000-4000-8000-000000000091'::uuid, u.id,
+       'b1000000-0000-4000-8000-000000000002'::uuid,  -- Owner Plus, listing_limit 2
+       'active', now() - interval '30 days', now() + interval '335 days'
+from public.users u
+where u.mobile = '9700000090'
+on conflict (id) do nothing;
+
+-- The listing the guard collides with.
+--
+-- `electricity_meter_key` is set alongside the raw number because nothing
+-- re-derives it for a seeded row -- the key is written by the server on write,
+-- and a seed is not a write. Restating the rule here is safe in a way restating
+-- `address_key` would not be: "strip everything that is not a digit" is total
+-- and has no vocabulary to drift, which is the same argument V115's backfill
+-- makes. `address_key` is therefore left NULL and the address arm deliberately
+-- unseeded; the meter arm is the precise one and the one worth an oracle.
+--
+-- The raw value is spaced and the key is not, on purpose: that difference is
+-- exactly the defect V115 fixes, so this row fails to collide with a bare-digit
+-- submission under the old code and collides under the new.
+insert into public.properties
+    (id, slug, owner_id, title, deal, property_type, bhk, price, price_unit,
+     area, area_unit, furnishing, locality, locality_slug, city, address, pincode,
+     electricity_meter_no, electricity_meter_key,
+     posted_by_type, status, description)
+select 'd0000000-0000-4000-8000-0000000000d1'::uuid,
+       'zz-dup-guard-anchor-baner', u.id,
+       '2 BHK Flat for Rent in Baner', 'rent', 'Flat', 2, 32000, 'per-month',
+       900, 'sqft', 'semi-furnished', 'Baner', 'baner', 'Pune',
+       'C-701, Dup Guard Residency, Baner', '411045',
+       '1700 4455 6677', '170044556677',
+       'owner', 'pending',
+       'Fixture listing for the duplicate-guard spec. Pending on purpose: it occupies a listing slot without appearing in public search.'
+from public.users u
+where u.mobile = '9700000090'
+on conflict (id) do nothing;
+

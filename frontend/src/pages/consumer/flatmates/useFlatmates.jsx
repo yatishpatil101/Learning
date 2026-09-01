@@ -6,11 +6,12 @@ import useAsyncList from '../../../hooks/useAsyncList.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { digits } from '../../../lib/contact.js';
-import { getMyRequest, getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
+import { getFlatmateReviewStatusMap, recordAskLocally, getAskedInterests, rememberAsk } from '../../../lib/data/flatmates.js';
 import { toRentalCards } from '../../../lib/data/tenancy.js';
 import * as flatmateService from '../../../services/flatmateService.js';
 import * as propertyService from '../../../services/propertyService.js';
 import * as rentService from '../../../services/rentService.js';
+import { isHttpDomain } from '../../../services/config.js';
 import { reconcileSplitVerification } from '../../../lib/data/flatSplit.js';
 import { FLATMATE_IMG } from './helpers.js';
 import { normalizeTab } from './model.js';
@@ -52,6 +53,7 @@ const PAGE = 200; // one page: the board sorts and filters the whole set client-
 const loadPosts = () => flatmateService.listPosts({}, 0, PAGE).then((r) => r.items);
 const loadRooms = () => flatmateService.listRooms({}, 0, PAGE).then((r) => r.items);
 const loadGroups = () => flatmateService.listGroups({}, 0, PAGE).then((r) => r.items);
+const interestKey = ({ kind, targetId }) => (kind === 'room' || kind === 'group' ? `${kind}-${targetId}` : targetId);
 
 /* "Has Ops approved this listing?", asked of a record already in hand rather than by id.
 
@@ -104,6 +106,10 @@ export function useFlatmates() {
   const [requests, requestsStatus, setRequests, retryRequests, requestsError] = useAsyncList(loadPosts, []);
   const [rooms, roomsStatus, setRooms, retryRooms, roomsError] = useAsyncList(loadRooms, []);
   const [groups, groupsStatus, setGroups, retryGroups, groupsError] = useAsyncList(loadGroups, []);
+  const [myPosts, , setMyPosts] = useAsyncList(
+    () => user ? flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items) : Promise.resolve([]),
+    [user?.mobile],
+  );
   const feedError = requestsError || roomsError || groupsError;
   const feedFailed = requestsStatus === 'error' || roomsStatus === 'error' || groupsStatus === 'error';
   const retryFeeds = useCallback(() => { retryRequests(); retryRooms(); retryGroups(); }, [retryRequests, retryRooms, retryGroups]);
@@ -113,15 +119,31 @@ export function useFlatmates() {
       return Object.fromEntries(Object.keys(s).map((k) => [k, true]));
     } catch { return {}; }
   });
-  /* Seeded from what THIS user has already asked from this browser, so the done-state survives a
-     reload. It is memory of our own taps, never a substitute for the provider's answer (D181) — the
-     handlers below read it for nothing, they only add to it once a call has come back.
-
-     Re-seeded when the signed-in identity changes, because the cards gate their CTA on this map:
-     left holding the previous user's asks, the next person to sign in on a shared browser would
-     see someone else's activity and have no button to press. */
-  const [interests, setInterests] = useState(() => getAskedInterests(user?.mobile));
-  useEffect(() => { setInterests(getAskedInterests(user?.mobile)); }, [user?.mobile]);
+  /* The sent-interest outbox is the CTA's source of truth. The previous localStorage map only
+     remembered this browser's taps, so a second device offered a duplicate action until the API
+     rejected it. It remains safe to optimistically add a key below; this effect restores the
+     provider's answer whenever the signed-in identity changes. */
+  const [interests, setInterests] = useState({});
+  useEffect(() => {
+    let alive = true;
+    if (!user) { setInterests({}); return () => { alive = false; }; }
+    if (!isHttpDomain('flatmate')) {
+      setInterests(getAskedInterests(user.mobile));
+      return () => { alive = false; };
+    }
+    flatmateService.myFlatmateInterests()
+      .then((rows) => {
+        if (!alive) return;
+        setInterests(Object.fromEntries(rows.map((row) => [interestKey(row), true])));
+      })
+      .catch((error) => {
+        if (alive) {
+          setInterests({});
+          console.warn('[flatmates] interests failed', error);
+        }
+      });
+    return () => { alive = false; };
+  }, [user?.mobile]);
   const [reportTarget, setReportTarget] = useState(null);
 
   // Single source of truth for reloading the shared collections after a mutation — supply-side
@@ -133,13 +155,16 @@ export function useFlatmates() {
   // list standing rather than emptying it — the mutation that triggered it reports its own
   // outcome, and the initial-load hooks above own the "we could not read this at all" case.
   const refresh = useCallback(async () => {
-    const [p, r, g] = await Promise.allSettled([loadPosts(), loadRooms(), loadGroups()]);
+    const [p, r, g, mine] = await Promise.allSettled([
+      loadPosts(), loadRooms(), loadGroups(), flatmateService.myFlatmatePosts({ size: PAGE }).then((page) => page.items),
+    ]);
     if (p.status === 'fulfilled') setRequests(p.value); else console.warn('[flatmates] posts failed', p.reason);
     if (r.status === 'fulfilled') setRooms(r.value); else console.warn('[flatmates] rooms failed', r.reason);
     if (g.status === 'fulfilled') setGroups(g.value); else console.warn('[flatmates] groups failed', g.reason);
-  }, [setRequests, setRooms, setGroups]);
+    if (mine.status === 'fulfilled') setMyPosts(mine.value); else console.warn('[flatmates] my posts failed', mine.reason);
+  }, [setRequests, setRooms, setGroups, setMyPosts]);
 
-  const myPost = useMemo(() => (user ? getMyRequest(user.mobile, user.name) : null), [user, requests]);
+  const myPost = myPosts[0] || null;
   // Whether the signed-in user created a given group. Matches tolerantly by the
   // last 10 mobile digits, falling back to name — the same rule getMyRequest uses
   // for flatmate posts. Only user-created groups carry ownerMobile/ownerName; seed
@@ -290,7 +315,6 @@ export function useFlatmates() {
       return;
     }
     rememberAsk(user.mobile, r.id);
-
     // The bell notification and the Messages hand-off (mirrors HTML flatmates.html behavior).
     recordAskLocally(ask);
 
@@ -328,7 +352,6 @@ export function useFlatmates() {
       return;
     }
     rememberAsk(user.mobile, key);
-
     recordAskLocally(ask);
 
     toast(t('flatmates.messageSentOwner', { society: room.society }));

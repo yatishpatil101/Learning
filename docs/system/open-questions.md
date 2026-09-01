@@ -495,7 +495,7 @@ stored `Formats.MOBILE` shape (`^[6-9][0-9]{9}$`). That second gate matters: `no
 closed on length only, so without it a ten-digit number with a leading 1-5 would pass the edge and
 then be rejected by a column CHECK as a 500. Because a `ConstraintValidator` cannot mutate, each
 consuming service normalises at the persist/lookup edge — `AuthService.login`,
-`ConversationService.start`, `DealService.addParty`, `SocietyLeadService`, `CityService`,
+`ConversationOpeningService.start`, `DealService.addParty`, `SocietyLeadService`, `CityService`,
 `RentAgreementService`, `FlatmateSupplyService.ownerConsent`, `UserAdminService.addStaff`, plus the
 finalization/close paths that already did. The OpenAPI `Mobile` schema keeps its strict pattern as
 the stored/returned shape and now carries a description noting the input tolerance. The frontend was

@@ -17,10 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 /**
  * Dev document bytes actually resolve (D120).
  *
- * <p>{@code MockFileStorage} has always written uploads to a real directory, but the URL it handed
- * back pointed at {@code https://mock.storage.local/} — a host that does not exist. Every document
- * the API returned in dev therefore carried a {@code url} nothing could open, and the service
- * tracker's preview could not be demonstrated without real R2 credentials.
+ * <p>{@code MockFileStorage} writes private uploads to a real directory and returns a signed URL
+ * served by this application. Public photo URLs use the same controller but are deliberately
+ * unsigned; D246 verifies that this extra route does not also expose private documents.
  *
  * <p>This asserts the seam, not the wiring: bytes go in, a URL comes out, and following that URL
  * with no session returns the same bytes with the content type they were stored under. The three
@@ -72,6 +71,32 @@ class DevStorageTest extends AbstractApiTest {
                 .andExpect(content().contentTypeCompatibleWith("application/pdf"))
                 .andExpect(content().bytes("%PDF-1.4 hello".getBytes(StandardCharsets.UTF_8)));
     }
+
+            /**
+             * Public listing photographs must be readable without a signature so an ordinary listing page
+             * can render them. That rule is safe only because the controller admits the {@code public/}
+             * prefix and no other key; the private assertion below is the adversarial half of this test.
+             */
+            @Test
+            @DisplayName("a public object is unsigned, but an unsigned private object is still 404")
+            void publicObjectsAreReadableWithoutExposingPrivateObjects() throws Exception {
+            String publicKey = "photos/" + UUID.randomUUID() + "/living-room.png";
+            String privateKey = "documents/" + UUID.randomUUID() + "/lease.pdf";
+            byte[] publicBytes = "public-photo".getBytes(StandardCharsets.UTF_8);
+            storage.store(privateKey, "private-document".getBytes(StandardCharsets.UTF_8), "application/pdf");
+
+            String publicUrl = storage.storePublic(publicKey, publicBytes, "image/png");
+            mvc.perform(get(pathAndQuery(publicUrl)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("image/png"))
+                .andExpect(content().bytes(publicBytes));
+
+            mvc.perform(get("/dev/storage/" + privateKey))
+                .andExpect(status().isNotFound());
+
+            mvc.perform(get("/dev/storage/public/../" + privateKey))
+                .andExpect(status().isBadRequest());
+            }
 
     /**
      * The credential has to be the signature rather than the key, or "openable without a token"

@@ -254,6 +254,56 @@ class OwnListingDuplicateCheckTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the same meter written with spaces or dashes still matches — V79 was wrong that it has one spelling")
+    void meterMatchesAcrossGroupings() throws Exception {
+        User o = owner("9876511012");
+        // Stored the way a bill prints it. The owner is shown this string back and checks it against
+        // that bill, so the raw column keeps the grouping; only the comparison key drops it.
+        UUID existing = createListing(o, null, "1700 4455 6677");
+
+        // Typed the way somebody types a number from memory. V79 introduced this arm under the note
+        // that a meter "has one spelling", and compared the raw column on the strength of it — so
+        // these three were three different meters and the arm that exists *because* it is certain
+        // was the one silently missing its matches.
+        for (String spelling : new String[] {"170044556677", "1700-4455-6677", " 1700  4455 6677 "}) {
+            mvc.perform(post(PATH)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(checkBody(null, spelling)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.found").value(true))
+                    .andExpect(jsonPath("$.existingId").value(existing.toString()));
+        }
+
+        // The counter-anchor, and the reason the loop above is a normalisation test rather than a
+        // "the meter arm fires" test: one digit different is a different meter. Without this, a key
+        // that collapsed to a constant would satisfy every assertion above.
+        mvc.perform(post(PATH)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(checkBody(null, "170044556678")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.found").value(false));
+    }
+
+    @Test
+    @DisplayName("a meter number too short to be one is no signal, on either side")
+    void aTooShortMeterIsNotASignal() throws Exception {
+        User o = owner("9876511013");
+        // "1" is what a placeholder looks like, and two owners who both typed a placeholder have not
+        // told us they own the same flat. Both the stored value and the query normalise to no key,
+        // so this is a clean no rather than a collision manufactured out of two people's shrugs.
+        createListing(o, null, "1");
+
+        mvc.perform(post(PATH)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(checkBody(null, "1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.found").value(false));
+    }
+
+    @Test
     @DisplayName("a different flat in the same building is not a duplicate")
     void aDifferentUnitIsNotADuplicate() throws Exception {
         User o = owner("9876511010");

@@ -124,19 +124,13 @@ test('the photo a resident picks is uploaded and referenced, not pasted into the
   /* The assertion the old code fails on, stated three ways so the failure message says which. */
   expect(typeof mine.photoUrl, 'photoUrl must be a string, not the preview object').toBe('string');
   expect(mine.photoUrl, 'photoUrl must be an uploaded reference, not a data: URL').not.toMatch(/^data:/);
-  expect(mine.photoUrl, 'photoUrl must be a hosted URL').toMatch(/^https?:\/\//);
+    expect(mine.photoUrl, 'photoUrl must use the dev public-storage route').toMatch(/^\/api\/dev\/storage\/public\//);
   expect(mine.photoUrl.length, 'photoUrl must fit the column').toBeLessThanOrEqual(500);
 
-  /* Deliberately not fetched back, for the same reason `live-fees-and-photos.spec.js` gives at its
-     own upload: under the dev storage bean the object really is written, but
-     `MockFileStorage.storePublic` mints it on `https://mock.storage.local/`, a host that does not
-     resolve. The bytes-come-back claim belongs to the storage provider and is made against the real
-     bucket in `R2FileStorageLiveTest`; repeating it here would only assert which bean is wired.
-
-     What is checked instead is that the page renders the server's URL rather than a preview it kept
-     beside it — attached rather than visible, because the image cannot load from the fake host and
-     a broken <img> may lay out at zero size. The `src` the app *chose* is the thing that regresses. */
-  await expect(page.locator(`img[src="${mine.photoUrl}"]`).first()).toBeAttached();
+    /* The page must render the server's URL rather than a preview it kept beside it. The D246 dev
+      public store is same-origin through Vite, so visibility now proves the photo bytes resolve as
+      well as proving the `src` the app chose. */
+    await expect(page.locator(`img[src="${mine.photoUrl}"]`).first()).toBeVisible();
 });
 
 test('an upload that fails files nothing, rather than a photo post with no photo', async ({ page }) => {

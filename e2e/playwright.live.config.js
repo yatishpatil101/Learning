@@ -114,6 +114,7 @@ export default defineConfig({
       use: { ...devices['Pixel 7'] },
       testMatch: [
         MOBILE,
+        '**/consumer/flatmates/live-discovery.spec.js',
         '**/platform/help/live-centre.spec.js',
         '**/platform/help/live-i18n-urls.spec.js',
         '**/platform/live-i18n.spec.js',

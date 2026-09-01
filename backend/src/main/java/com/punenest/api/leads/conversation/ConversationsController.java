@@ -41,8 +41,15 @@ public class ConversationsController {
 
     private final ConversationService service;
 
-    public ConversationsController(ConversationService service) {
+    /**
+     * Opening a thread is a different use-case from carrying one on, and after §4.1 a different
+     * service — see {@link ConversationOpeningService}. Only {@code POST /messages} reaches it.
+     */
+    private final ConversationOpeningService opening;
+
+    public ConversationsController(ConversationService service, ConversationOpeningService opening) {
         this.service = service;
+        this.opening = opening;
     }
 
     /**
@@ -68,7 +75,7 @@ public class ConversationsController {
     @PostMapping(Routes.Conversations.BASE)
     public ResponseEntity<ConversationDto> start(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody ConversationCreate body) {
-        ConversationService.Started started = service.start(principal, body);
+        ConversationOpeningService.Started started = opening.start(principal, body);
         return ResponseEntity
                 .status(started.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(started.conversation());

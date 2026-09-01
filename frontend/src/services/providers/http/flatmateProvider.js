@@ -360,12 +360,26 @@ export async function myRequests(status) {
   return unwrapFullPage(res, 'flatmate').map(toRequestViewModel);
 }
 
+/** `GET /me/flatmate-interests` — caller-scoped sent-interest outbox. */
+export async function myFlatmateInterests() {
+  if (!signedIn()) return [];
+  const res = await get('/me/flatmate-interests', { size: MAX_PAGE_SIZE });
+  return unwrapFullPage(res, 'flatmate');
+}
+
 /** `PATCH /me/flatmate-requests/{id}` — accept or decline. Host only. */
 export async function decideRequest(id, decision) {
   return toRequestViewModel(
     await patch(`/me/flatmate-requests/${encodeURIComponent(id)}`, { decision }),
   );
 }
+/** `GET /me/flatmate-posts` — the caller's own seeker posts, moderation state included. */
+export async function myFlatmatePosts({ page = 0, size = 20 } = {}) {
+  const res = await get('/me/flatmate-posts', clean({ page, size }));
+  const paged = unwrapPage(res, { page, size });
+  return { ...paged, items: paged.items.map(toSeekerPostViewModel) };
+}
+
 
 /* ─── Flat split (a whole rent listing carved into rooms) ───────────────────────────────────── */
 

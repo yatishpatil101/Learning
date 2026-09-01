@@ -142,9 +142,12 @@ export function stagedToViewModel(item) {
 
 /** View-model input → the `ConversationCreate` body. */
 export function toConversationCreate({ counterpartyMobile, propertyId, body }) {
-  const out = { counterpartyMobile, body };
-  // Omitted rather than sent null: the server validates `propertyId` as a UUID when present, and a
-  // general (non-listing) thread is a legitimate shape.
+  const out = { body };
+  // Both addressing fields are omitted rather than sent null. `counterpartyMobile` is optional when
+  // `propertyId` names a listing (the server derives the owner) and carries an `@IndianMobile`
+  // constraint that a null or an empty string would fail as a 422; `propertyId` is validated as a
+  // UUID when present, and a general (non-listing) thread is a legitimate shape.
+  if (counterpartyMobile) out.counterpartyMobile = counterpartyMobile;
   if (propertyId) out.propertyId = propertyId;
   return out;
 }

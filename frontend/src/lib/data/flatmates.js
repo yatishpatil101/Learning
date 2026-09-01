@@ -373,6 +373,16 @@ export const hasInterest = (requesterMobile, kind, targetId) => {
   const map = get(MOCK_LEDGER_KEY, {});
   return !!map[ledgerId(requesterMobile, kind, targetId)];
 };
+/** The mock provider's caller-scoped counterpart to `GET /me/flatmate-interests`. */
+export const getMyInterests = (requesterMobile) => {
+  const prefix = (digitsOf(requesterMobile) || 'anon') + '|';
+  return Object.keys(get(MOCK_LEDGER_KEY, {}))
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => {
+      const [, kind, targetId] = key.split('|');
+      return { kind, targetId };
+    });
+};
 /** Record the ask. Keyed by REQUESTER, because the rule it stands in for is. Provider-only. */
 export const addInterest = (requesterMobile, kind, targetId) => {
   const map = get(MOCK_LEDGER_KEY, {});

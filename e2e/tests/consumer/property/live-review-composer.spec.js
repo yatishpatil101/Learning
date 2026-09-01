@@ -105,7 +105,7 @@ async function eligibleResident() {
   expect(ok.status, JSON.stringify(ok.body)).toBe(200);
   expect(ok.body.status).toBe('confirmed');
 
-  return { resident, ref };
+  return { resident, ref, id, declarationId: claim.body.id };
 }
 
 test.afterEach(async () => {
@@ -121,15 +121,32 @@ test.afterEach(async () => {
 });
 
 test('every star in the property review composer names its value and its aspect', async ({ page }) => {
-  const { resident, ref } = await eligibleResident();
+  const { resident, ref, id, declarationId } = await eligibleResident();
   await signedInAs(page, resident.mobile);
+
+  const declarationsRead = page.waitForResponse((response) => (
+    response.request().method() === 'GET'
+    && response.url().includes(`/properties/${id}/tenancy-declarations`)
+  ));
 
   /* `?tab=amenities`: the reviews block is mounted by PropertyTabs only while that tab is current,
      so on the default Overview tab the "Rate this property" button does not exist at all. */
   await page.goto(`/property/${ref}?tab=amenities`, { waitUntil: 'networkidle' });
   await page.evaluate(() => document.querySelectorAll('.reveal,.fade-up,.fade-in').forEach((el) => el.classList.add('visible')));
 
-  await page.getByRole('button', { name: 'Rate this property' }).click();
+  const declarationResponse = await declarationsRead;
+  expect(declarationResponse.status(), 'the page read the resident’s declaration from the live API').toBe(200);
+  const declarations = await declarationResponse.json();
+  expect(declarations.content, 'the live declaration endpoint keeps its PageResponse content envelope').toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: declarationId, status: 'confirmed' })]),
+  );
+
+  const rateButton = page.getByRole('button', { name: 'Rate this property' });
+  await expect(rateButton).toBeVisible();
+  // The section has rendered and its live declaration read has completed. This absence is therefore
+  // not a first-paint false green: a confirmed resident must not still be invited to declare again.
+  await expect(page.getByTestId('tenancy-declare')).toHaveCount(0);
+  await rateButton.click();
   const dialog = page.getByRole('dialog', { name: 'Rate this property' });
   // Not a formality. The dialog opening is the assertion that the confirmed tenancy actually bought
   // eligibility — every assertion after this one is scoped to `dialog` and would report nothing at

@@ -70,7 +70,13 @@ function toCreateRequest(record = {}) {
     // it is the human summary of exactly those filters, which is what the user would have typed.
     query: kind === 'flatmates' ? undefined : (record.query || record.label || ''),
     filters,
-    criteria: record.criteria,
+    // A flatmates alert is refused (422 `criteriaSuppliedForFlatmates`) without `criteria`, and no
+    // caller supplies one: `buildFlatmateAlertRecord` returns the facets flat, so the loop above
+    // sweeps every one of them into `filters` and leaves `criteria` undefined. The facets *are* the
+    // criteria for this kind — sending them under both names is what the server asks for and what
+    // the tab, locality, budget, gender and habits mean. Without this, every "Get alerted" and
+    // "Save search" on the flatmates board fails, which is how it shipped.
+    criteria: record.criteria ?? (kind === 'flatmates' ? filters : undefined),
     alertFrequency: record.alertFrequency || (record.alerts === false ? 'off' : 'daily'),
     channel: record.channel || 'whatsapp',
   };

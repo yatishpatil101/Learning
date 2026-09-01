@@ -7527,6 +7527,51 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/FlatmateRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /me/flatmate-posts:
+    get:
+      tags: [Engagement]
+      summary: My own flatmate ad
+      operationId: listMyFlatmatePosts
+      description: >
+        The ad the caller wrote, as its author sees it -- the seeker counterpart of
+        `listMyFlatmateRooms`, and for the same reason that route gives: this is not the public feed
+        narrowed. `listFlatmateSeekerPosts` is hard-floored to approved rows and publishes no
+        contact, so an author whose post is still in moderation cannot find it there, and could not
+        recognise it if they could -- the feed masks `mobile` to null on every row.
+
+
+        Without this route a client has no way to answer "have I posted?", which is a question the
+        product asks on every render of the board: the author gets a banner instead of a card, and
+        their own ad is excluded from the results so they cannot express interest in themselves.
+        Both behaviours were unreachable over HTTP until this existed.
+
+
+        Paged for consistency with its two `/me/flatmate-*` siblings, though **the envelope can only
+        ever hold one row**: `createFlatmateSeekerPost` refuses a second live ad (`already_live`) and
+        a partial unique index enforces it. Taken-down ads are excluded -- unlike the room route,
+        which shows withdrawn rooms, because the question this answers is "is one of mine live right
+        now" and an archived ad would answer it wrongly.
+
+
+        The row carries the caller's own `mobile` unmasked. That is the same decision
+        `createFlatmateSeekerPost` already returns and not a new one: a seeker post carries its
+        author's number only ever back to that author.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: The caller's live ad, or an empty page when they have not posted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateSeekerPost' }
   /me/flatmate-rooms:
     get:
       tags: [Engagement]
@@ -7584,6 +7629,46 @@ paths:
         '204':
           description: Withdrawn
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Engagement]
+      summary: Edit a room I am hosting
+      operationId: updateFlatmateRoom
+      description: >
+        The whole room, not a sparse patch -- the same body `createFlatmateRoom` takes. A partial
+        body would make "absent" and "cleared" the same wire value for `note`, `deposit` and
+        `availableFrom`, and a host clearing a note is a thing that has to be expressible.
+
+
+        `PATCH` rather than `PUT` because the server still owns the fields the body never carries:
+        the verification tier is re-derived from what the host can prove, the address fingerprint is
+        recomputed, and the moderation state is re-decided.
+
+
+        **An edit re-enters the trust ladder rather than always returning to `pending`.** A post
+        whose visibility was granted by a moderator (`identity` tier) leaves the board and waits to
+        be read again. A post that publishes on an approved title deed (`owner`) or a declared
+        agreement (`tenant`) stays live, because no moderator approved its copy in the first place
+        and there is nothing for the edit to invalidate. An edit that drops the property or retracts
+        the agreement claim lowers the tier, and that lands it in the queue on its own.
+
+
+        Rooms created by splitting a flat are refused with `409 (split_room)`: their address belongs
+        to the parent listing, so the listing is what to edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateRoomCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateRoom' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /flatmates/rooms:
     get:
       tags: [Engagement]
@@ -7620,6 +7705,12 @@ paths:
           in: query
           description: Highest rent for the room's price basis, in whole rupees.
           schema: { type: integer, format: int64, minimum: 0 }
+        - name: verifiedOnly
+          in: query
+          description: >
+            Keep only rooms carrying the verified badge. Absent and `false` are the same thing -- no
+            filter -- so a client that always sends the toggle's state needs no special case for off.
+          schema: { type: boolean }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -7737,6 +7828,13 @@ paths:
           in: query
           description: Highest whole-flat rent, in whole rupees.
           schema: { type: integer, format: int64, minimum: 0 }
+        - name: verifiedOnly
+          in: query
+          description: >
+            Keep only groups the board counts as verified: the host holds `owner` tier, or every
+            member carries a badge. Absent and `false` are the same thing -- no filter -- so a client
+            that always sends the toggle's state needs no special case for off.
+          schema: { type: boolean }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
       responses:
@@ -7783,6 +7881,40 @@ paths:
       responses:
         '204': { description: Removed }
         '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Engagement]
+      summary: Edit a group I created
+      operationId: updateFlatmateGroup
+      description: >
+        The whole group, not a sparse patch -- the same body `createFlatmateGroup` takes, for the
+        same reason the room edit takes a whole room: a partial body cannot distinguish an absent
+        field from a cleared one.
+
+
+        **`seatsTotal` moves here and only here.** `setGroupSeats` next door adjusts how many of the
+        existing seats are open, which is the one-tap "a seat just went". This is the flat itself
+        getting bigger or smaller. It cannot drop below the number of people already in the group --
+        that is not an edit, it is an eviction, and no route means that.
+
+
+        The verification tier, address fingerprint and moderation state are re-derived rather than
+        accepted, and an edit re-enters the trust ladder rather than always returning to `pending`.
+        See `updateFlatmateRoom` for what that means.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlatmateGroupCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlatmateGroup' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /flatmates/groups/{id}/seats:
     parameters: [ { $ref: '#/components/parameters/GenericId' } ]
     patch:
@@ -8032,6 +8164,85 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/FlatmateRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /me/flatmate-interests:
+    get:
+      tags: [Engagement]
+      summary: Flatmate interests I have sent (seeker outbox)
+      operationId: listMyFlatmateInterests
+      description: >
+        The mirror of `listMyFlatmateRequests`: the same table read from the other end, so the same
+        row shape, the same fixed newest-first order and the same `status` filter. That inbox lists
+        what strangers sent to this account's ads; this lists what this account sent to theirs.
+
+
+        The button state on the flatmates board used to come from `localStorage`, which meant an ask
+        made on a phone was invisible on a laptop and clearing site data made it invisible
+        everywhere. This is the same fact read from the place that actually holds it.
+
+
+        **Nothing travels back toward the host.** `requesterMobile` on these rows is the caller's own
+        number, because the caller is the requester -- the host's number is not in this payload and
+        is not in the inbox's either. Contact in this feature is one-directional by design: the host
+        decides, and accepting is what hands over a number.
+
+
+        Not filtered to targets that are still live. A room taken down after the ask is still
+        something this person did, and hiding the row would only make it look like the ask failed.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, accepted, declined] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: Paged interests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageEnvelope'
+                  - type: object
+                    properties:
+                      content:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlatmateRequest' }
+  /flatmates/{kind}/{id}/interest:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        description: Which board the target lives on. `flatmate` is a seeker post, and is spelled that way because it is the literal stored in the column.
+        schema: { type: string, enum: [flatmate, room, group] }
+      - { $ref: '#/components/parameters/GenericId' }
+    delete:
+      tags: [Engagement]
+      summary: Withdraw an interest I sent
+      operationId: withdrawFlatmateInterest
+      description: >
+        **Keyed by the target, not by the request id.** At the moment the button is pressed the
+        client is holding the card -- a kind and a target id -- and not the id of the row it created,
+        possibly in another session. Deleting by request id would force a `listMyFlatmateInterests`
+        fetch purely to translate identifiers on every press. The row is unique on
+        `(kind, target_id, requester_id)` and the requester is the token, so the triple is exactly as
+        precise as an id.
+
+
+        **The row is deleted, not marked withdrawn.** That same unique index means a retained row
+        would lock the requester out of ever asking again, turning an undo into a lockout.
+
+
+        **Only while pending.** Once the host has answered, they have acted on it -- and on a group
+        they may have given up a seat. That is a `409`, not a `403`: the row is the caller's, it is
+        its state that refuses. Restricting it this way also keeps auto-accepted joins (`policy:
+        any`) out of scope, so no seat ever has to be un-taken.
+
+
+        **The rate-limit budget is not refunded.** The notification already went out; refunding it
+        would make withdrawal the cheapest way to buy another send.
+      responses:
+        '204':
+          description: Withdrawn
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /notifications:
     get:
       tags: [Engagement]
@@ -9743,7 +9954,25 @@ components:
       description: |
         A platform user acting as a participant on an offer, visit, deal or finalization
         request. Always resolves to a registered account, so `id` is the user id.
-        `mobile` is contact gated and arrives masked until the owner has acted.
+
+        `mobile` is contact gated, and the gate is **not** the same on every surface, so do
+        not build on a single rule:
+          * a party always sees their own number in full, on every surface, at every status;
+          * on **visits**, the listing owner also sees the visitor's number once the visit is
+            `confirmed` (and so on `completed` / `no-show`, which only follow it). While it is
+            merely `scheduled` the owner sees `98XXXXX210` — booking must not be a way to
+            harvest a phone number. Rescheduling resets the status to `scheduled` and
+            therefore re-masks it;
+          * on **tenancy**, the counterparty sees `98XXXXX210` at every status;
+          * **contact requests** and **conversations** reveal it once an approved contact
+            request exists between the two parties.
+        The safe assumption for a client is that the number is masked; treat a raw one as a
+        bonus, never as a precondition, and never parse the mask for digits.
+
+        This block previously said "masked until the owner has acted", which described no
+        surface correctly. The visits rule above was then written down for years before it
+        was implemented — a client that trusted it saw a reveal that never arrived.
+
         `verified` is stated by the server rather than derived from `mobile`: the mask is
         lossy, so a client matching `98XXXXX210` against a verified-user list can only ever
         answer false (tech-debt D114).
@@ -10111,10 +10340,16 @@ components:
           items: { $ref: '#/components/schemas/Message' }
     ConversationCreate:
       type: object
-      required: [counterpartyMobile, body]
+      required: [body]
+      description: >
+        Address the thread by `counterpartyMobile`, or by `propertyId` alone — supply at least one.
+        A buyer never holds the owner's raw mobile (it is masked for every non-owner), so the buyer
+        side names the listing and the server derives the owner from it. Whether the two may message
+        is decided by the approved contact request either way; naming a listing buys nothing on its
+        own.
       properties:
         counterpartyMobile: { $ref: '#/components/schemas/Mobile' }
-        propertyId: { type: string, description: 'Listing the chat is about, if any' }
+        propertyId: { type: string, description: 'Listing the chat is about; required when counterpartyMobile is omitted' }
         body: { type: string, maxLength: 4000 }
 
     # ---- Identity & Access ----

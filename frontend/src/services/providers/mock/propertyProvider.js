@@ -90,10 +90,12 @@ export const addListing = _addListing;
  * reading available, since there is no server here to ask. What changed is where it is called from:
  * behind the seam, so the wizard asks one question and gets the same answer shape either way.
  *
- * Only the self-arm is returned. `evaluateListingDedup` also decides whether to *flag* a submission
- * against a different owner's claim, and that half deliberately stays where it is: it is an ops
- * signal, computed on write, and reporting it to the lister is how a duplicate probe turns into a
- * lookup on somebody else's property. The server's route has no such arm at all.
+ * The self-arm is all `evaluateListingDedup` has left. It used to decide whether to *flag* a
+ * submission against a different owner's claim too, and that half has moved to the server (D245),
+ * where it belongs and where it can actually see other owners' listings — `ListingDuplicateProbe`,
+ * on write, as an internal note the lister never sees. Reporting it to the lister is how a
+ * duplicate probe turns into a lookup on somebody else's property, which is why the server's
+ * duplicate-check *route* still has no such arm: it answers only "have I already listed this?".
  *
  * `mobile` is the caller's, because the mock store has no session to read; the http provider ignores
  * it and lets the token say who is asking.

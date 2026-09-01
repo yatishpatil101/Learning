@@ -434,7 +434,7 @@ than the server's rather than a differently-named one.
 
 ### The `state` machine does not exist server-side
 
-`ConversationService.related` requires an approved contact request in one direction or the other
+`ConversationOpeningService.related` requires an approved contact request in one direction or the other
 before a thread can be created at all. So a live thread is always `active` — there is nothing left
 to accept, because the contact gate did the accepting one layer up.
 

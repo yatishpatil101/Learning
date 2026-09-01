@@ -66,6 +66,29 @@ public interface FlatmateRequestRepository extends JpaRepository<FlatmateRequest
     Optional<FlatmateRequest> findByIdAndHostId(UUID id, UUID hostId);
 
     /**
+     * The requester's outbox — every ask this person sent, newest first, paged.
+     *
+     * <p>The mirror of {@link #findByHostIdOrderByRequestedAtDesc}, and the read that stops "I'm
+     * interested" being a fact the browser remembers. The button state used to come from
+     * {@code localStorage} via {@code rememberAsk}, which meant it was true on the phone that
+     * pressed it and false everywhere else: same account, same post, a laptop, and the button
+     * offered itself again. The row was always here; nothing could read it back.
+     *
+     * <p><strong>Ordered by {@code createdAt} rather than {@code requestedAt}, on purpose.</strong>
+     * V27 indexed this side as {@code idx_flatmate_requests_requester (requester_id, created_at
+     * DESC)} while the host side got {@code (host_id, requested_at DESC)}, so the two finders sort
+     * by different columns to ride their own index. The values are set microseconds apart in the
+     * same constructor, so no caller can tell the difference — but sorting this one by
+     * {@code requestedAt} would drop the index's ordering and buy a sort of the whole outbox for
+     * nothing. The DTO still reports {@code requestedAt}; only the ORDER BY differs.
+     */
+    Page<FlatmateRequest> findByRequesterIdOrderByCreatedAtDesc(UUID requesterId, Pageable pageable);
+
+    /** The same outbox, narrowed to one verdict — "what am I still waiting on". */
+    Page<FlatmateRequest> findByRequesterIdAndStatusOrderByCreatedAtDesc(
+            UUID requesterId, String status, Pageable pageable);
+
+    /**
      * Backs the per-sender rate limit.
      *
      * <p>Counted over a window rather than for all time because an interest is <em>delivered</em>:

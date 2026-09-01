@@ -104,7 +104,27 @@ export default function useProperty() {
   const isOwner = isIn && p.ownerMobile && String(p.ownerMobile) === String(user?.mobile);
   const isAdmin = user?.role === 'admin' || user?.role === 'staff';
   const isApproved = p.status === 'approved';
-  if (!isApproved && !isOwner && !isAdmin) return { underReview: true, tr };
+  if (!isApproved && !isOwner && !isAdmin) {
+    /* Two different reasons a stranger cannot see the page, and they deserve different answers.
+       `rented` / `sold` are *terminal* — closing a deal (`POST /me/deals/{id}/close`) moves the
+       listing there, so a listing that was verified, went live, and found its tenant lands in this
+       branch. Telling that reader "hasn't been verified yet — check back later" is false twice
+       over: it was verified, and checking back will never help. It also contradicts the search
+       card, which already reads these two statuses as a closed deal (`Card.jsx`, D110) — so the
+       card told the truth and the page it links to did not.
+
+       The listing is out of search by then, but the URL stays reachable from a saved property, a
+       comparison, a shared link or the browser's history, which is exactly when someone needs the
+       honest answer. Still an interstitial rather than the full page: the deal is done, so the
+       contact and visit CTAs have nothing to offer. */
+    const done = p.status === 'rented' || p.status === 'sold';
+    if (!done) return { underReview: true, tr };
+    return {
+      dealClosed: true,
+      closedWord: tr(p.status === 'rented' ? 'property.rentedOutWord' : 'property.soldWord'),
+      tr,
+    };
+  }
 
   const isRent = p.deal === 'rent';
   const kind = propertyKind(p);

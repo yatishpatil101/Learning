@@ -158,7 +158,7 @@ public interface PropertyRepository
               and p.archived = false
               and p.status in :statuses
               and (
-                    p.electricityMeterNo = :meter
+                    p.electricityMeterKey = :meter
                  or (p.addressKey = :addressKey and p.localitySlug = :localitySlug)
               )
             """)
@@ -192,7 +192,7 @@ public interface PropertyRepository
               and p.archived = false
               and p.status in :statuses
               and (
-                    p.electricityMeterNo = :meter
+                    p.electricityMeterKey = :meter
                  or (p.addressKey = :addressKey and p.localitySlug = :localitySlug)
               )
             """)
@@ -221,9 +221,15 @@ public interface PropertyRepository
      * cost of one indexed range scan.
      *
      * <p>The signal predicate is the same early-out {@code ListingDuplicateProbe#flag} applies for
-     * itself, hoisted into SQL: most listings carry neither a meter number nor an address key, and
-     * fetching them only to return immediately would make the sweep's cost the create rate rather
-     * than the rate of listings it can actually say something about.
+     * itself, hoisted into SQL: most listings carry none of the three signals, and fetching them
+     * only to return immediately would make the sweep's cost the create rate rather than the rate of
+     * listings it can actually say something about. It is {@code electricity_meter_key} rather than
+     * {@code electricity_meter_no} (V115) because the key is what the arm compares — a meter too
+     * short to normalise leaves the raw column set and the key null, and such a listing is not
+     * something the sweep can say anything about. The photo clause is V116's: a listing whose only
+     * signal is its photographs is exactly the pair this sweep exists for, since two owners posting
+     * the same pictures in the same second is the race, and without it those listings would never be
+     * re-read.
      *
      * <p><strong>The ordering is load-bearing, unlike {@link #findDuplicateCandidates}'s absence of
      * one.</strong> There the result is capped at two rows and order is genuinely irrelevant. Here
@@ -234,17 +240,19 @@ public interface PropertyRepository
      * inherits rather than rows that are silently dropped, and the only symptom of getting this
      * wrong would have been a log line that reads like a queue catching up.
      *
-     * <p>There is no index on {@code created_at}; the plan is a bitmap-OR over the two partial
-     * signal indexes with the window applied as a filter, so cost tracks the total number of
-     * signal-carrying listings rather than the window. That is fine at this size and is the thing
-     * to look at first if this ever shows up in slow-query logs.
+     * <p>There is no index on {@code created_at}; the plan is a bitmap-OR over the signal indexes
+     * with the window applied as a filter, so cost tracks the total number of signal-carrying
+     * listings rather than the window. That is fine at this size and is the thing to look at first
+     * if this ever shows up in slow-query logs.
      */
     @Query("""
             select p from Property p
             where p.createdAt >= :since
               and p.archived = false
               and p.status in :statuses
-              and (p.electricityMeterNo is not null or p.addressKey is not null)
+              and (p.electricityMeterKey is not null
+                or p.addressKey is not null
+                or exists (select 1 from PropertyPhotoHash h where h.propertyId = p.id))
             order by p.createdAt asc
             """)
     List<Property> findRecentSignalCarrying(

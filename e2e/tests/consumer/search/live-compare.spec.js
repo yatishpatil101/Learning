@@ -1,5 +1,4 @@
-import { test, expect } from '../../../fixtures/base.js';
-import { appReady } from '../../../helpers/app.js';
+import { test, expect } from '../../../fixtures/live.js';
 
 // Property comparison (/compare).
 //
@@ -9,10 +8,21 @@ import { appReady } from '../../../helpers/app.js';
 // AppFlagRoute flag="compareProperties" -> redirects to / when the flag is off),
 // and i18n/locales/en/compare-saved.json for the visible labels.
 //
-// The feature flag defaults to enabled (flagEnabled returns true unless the flag is
-// explicitly false), and the seed DB sets settings.flags.compareProperties = true.
+// WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor turned the feature flag on by
+// editing `settings.flags` inside `puneNestDB_v5`. Under the live config `settings` is
+// one of the VITE_API_DOMAINS, so the flag the app consults comes from `GET /flags` on
+// the server and that localStorage write is read by nobody — a silent no-op dressed up
+// as setup. Worse, it threw when the mock store was absent, which made the test's own
+// pass depend on a store the live build has no reason to create. The `flags` fixture
+// writes through `PUT /admin/settings` (the only writer) and restores the previous value
+// on teardown even when the test fails, so a flag flipped here cannot leak into the
+// specs that follow.
+//
+// `puneNestCompare` stays in localStorage on purpose: CompareContext genuinely keeps the
+// shortlist client-side, so seeding that key is a statement about the real storage the
+// feature uses, not a substitute for a server the test is avoiding.
 
-// Two real, approved listings from src/data/db.json used to populate the table.
+// Two real, approved listings — both live rows in Postgres, not db.json fixtures.
 const A = 'p5013'; // 1 BHK Flat, Baner (buy)
 const B = 'p5121'; // 2 BHK Flat, Wakad (rent) - seeded 2026-08-19
 
@@ -33,21 +43,6 @@ async function seedCompare(page, ids) {
   await page.addInitScript((list) => {
     localStorage.setItem('puneNestCompare', JSON.stringify(list));
   }, ids);
-}
-
-// Explicitly turn the compareProperties flag ON so the route is reachable regardless
-// of seed state — mirrors the feature-flags spec pattern.
-async function enableCompareFlag(page) {
-  // The only caller reaches this straight off a `goto`, which resolves before the seed is
-  // written (D129); the silent `return` below then left the flag at its default.
-  await appReady(page);
-  await page.evaluate(() => {
-    const db = JSON.parse(localStorage.getItem('puneNestDB_v5'));
-    if (!db || !db.settings || !db.settings.flags) throw new Error('mock store has no settings.flags after appReady()');
-    db.settings.flags.compareProperties = true;
-    localStorage.setItem('puneNestDB_v5', JSON.stringify(db));
-    window.dispatchEvent(new CustomEvent('punenest-settings-change'));
-  });
 }
 
 test.describe('Compare properties — /compare', () => {
@@ -114,10 +109,13 @@ test.describe('Compare properties — /compare', () => {
     await expect(page.locator(`a[href="/property/${B}"]`)).toHaveCount(0);
   });
 
-  test('a property can be added via the property-page compare toggle', async ({ page }) => {
+  test('a property can be added via the property-page compare toggle', async ({ page, flags }) => {
+    // Before the navigation, not after: the route is wrapped in AppFlagRoute, so a page that
+    // boots with the flag off has already been redirected to `/` by the time a later write
+    // could matter.
+    await flags.enable('compareProperties');
     await seedConsent(page);
     await page.goto(`/property/${A}`);
-    await enableCompareFlag(page);
 
     // The compare control lives in the property action bar (title toggles on click).
     const addBtn = page.getByTitle('Add to Compare', { exact: true });

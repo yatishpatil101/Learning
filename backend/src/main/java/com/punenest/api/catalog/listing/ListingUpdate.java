@@ -2,6 +2,7 @@ package com.punenest.api.catalog.listing;
 
 import com.punenest.api.catalog.property.DealIntent;
 import com.punenest.api.catalog.property.Furnishing;
+import com.punenest.api.catalog.property.PhotoHash;
 import com.punenest.api.catalog.property.PropertyPossession;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -74,5 +75,17 @@ public record ListingUpdate(
         @Min(0) Integer balconies,
         @Size(max = 32) String facing,
         @Min(1) Integer totalFloors,
-        @Min(0) Integer ageYears) {
+        @Min(0) Integer ageYears,
+        /* Perceptual hashes of the photographs now on the listing; see ListingCreate for why the
+         * browser computes them and why a malformed one is dropped rather than refused.
+         *
+         * Absent means "this PATCH is not about the photographs" and leaves the stored hashes
+         * alone — a rent change must not blank the evidence. An empty list is a statement, and
+         * clears them: it is what a listing with its photographs removed sends.
+         *
+         * Not a foundation field, and deliberately not in ListingEditRules' tier lists. Swapping
+         * photographs does change what a buyer sees, but it is the duplicate probe that cares, and
+         * it is told directly — sending a listing back for re-moderation on a photo swap would put
+         * every owner who retook a dark photograph into the queue. */
+        @Size(max = PhotoHash.MAX_PER_LISTING) List<String> photoHashes) {
 }

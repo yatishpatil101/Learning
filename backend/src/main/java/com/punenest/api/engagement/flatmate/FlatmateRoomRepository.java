@@ -52,6 +52,7 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
               and (cast(:bhk as string) is null or r.bhk = cast(:bhk as string))
               and (:minBudget is null or r.budget >= :minBudget)
               and (:maxBudget is null or r.budget <= :maxBudget)
+              and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true)
             order by r.createdAt desc, r.id desc
             """,
             countQuery = """
@@ -69,12 +70,14 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
                       and (cast(:bhk as string) is null or r.bhk = cast(:bhk as string))
                       and (:minBudget is null or r.budget >= :minBudget)
                       and (:maxBudget is null or r.budget <= :maxBudget)
+                      and (:verifiedOnly is null or :verifiedOnly = false or r.verified = true)
                     """)
     Page<FlatmateRoom> feed(@Param("locality") String locality,
             @Param("gender") String gender, @Param("food") String food,
             @Param("roomType") String roomType, @Param("furnishing") String furnishing,
             @Param("bhk") String bhk, @Param("minBudget") Long minBudget,
-            @Param("maxBudget") Long maxBudget, Pageable pageable);
+            @Param("maxBudget") Long maxBudget, @Param("verifiedOnly") Boolean verifiedOnly,
+            Pageable pageable);
 
     @Query("""
             select r from FlatmateRoom r

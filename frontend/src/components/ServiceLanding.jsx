@@ -51,6 +51,7 @@ export default function ServiceLanding({
   (quote?.fields || []).forEach((f) => { initial[f.name] = f.value || ''; });
   const [form, setForm] = useState(initial);
   const [done, setDone] = useState(false);
+  const [trackerRefresh, setTrackerRefresh] = useState(0);
   const [openFaq, setOpenFaq] = useState(-1);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   // Never autosave contact PII to localStorage — matches the ignore list every service page uses,
@@ -125,7 +126,8 @@ export default function ServiceLanding({
         if (!flowType) return null;
         return createFlowRequest({ type: flowType, service, customer: { name: form.name }, ticketRef: ref, details });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (flowType) setTrackerRefresh((value) => value + 1); });
     draft.clear();
     setDone(true);
   };
@@ -221,7 +223,7 @@ export default function ServiceLanding({
         </section>
 
         {/* Stats */}
-        {flowType ? <ServiceTracker typeFilter={flowType} title={trackerTitle || 'Your requests'} sampleName={undefined} /> : null}
+        {flowType ? <ServiceTracker key={trackerRefresh} typeFilter={flowType} title={trackerTitle || 'Your requests'} sampleName={undefined} /> : null}
         {stats.length ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
             <div className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">

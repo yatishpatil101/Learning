@@ -333,6 +333,19 @@ class ErasureCoverageTest extends AbstractApiTest {
                         + "Clearing it on erasure would blind the detector to exactly the listings "
                         + "most worth re-checking, while leaving the address it corroborates in "
                         + "place, which erases the evidence and keeps the claim.");
+        map.put("properties.electricity_meter_key",
+                "A normalised form of properties.electricity_meter_no (V115), derived from it and "
+                        + "kept only so the duplicate probe can tell that 'MH-12-3456', 'mh123456' "
+                        + "and 'MH 12 3456' are one meter rather than three. It stands to the meter "
+                        + "number exactly as address_key stands to address, and is classified the "
+                        + "same way for the same reasons: it describes a utility connection on a "
+                        + "flat rather than a natural person, the only route from it to a natural "
+                        + "person is properties.owner_id, and nothing writes it except the "
+                        + "derivation -- so clearing it while retaining the meter number it comes "
+                        + "from would be erasing a cache and not a fact, and the next edit to the "
+                        + "listing would put it straight back. It is never on a public response: it "
+                        + "is derived from a PrivateFieldVisibility field and is projected onto no "
+                        + "DTO at all.");
         map.put("documents.file_name",
                 "The name of a document attached to a property or a service request, both of which "
                         + "are retained. Stripping the file name from a retained document leaves an "

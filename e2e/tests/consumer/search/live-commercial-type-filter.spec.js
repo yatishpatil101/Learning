@@ -86,8 +86,11 @@ for (const [, label] of SUBTYPES) {
     // Active-filter chip appears and is removable.
     await expect(page.getByRole('button', { name: new RegExp('Remove filter ' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })).toBeVisible();
 
-    // Results are limited to the chosen subtype (seed has one buy unit each);
-    // every rendered card's title must be this subtype's label.
+    // Results are limited to the chosen subtype: every rendered card's title must be this
+    // subtype's label. The `not.toHaveCount(0)` inside `expectOnly` is what keeps this from
+    // being vacuous — "every card matches" is trivially true of an empty grid, so the claim
+    // that the Postgres seed carries at least one buy unit per subtype is asserted rather
+    // than assumed. If a subtype ever loses its row, this fails loudly instead of passing.
     await expectOnly(page, label);
   });
 }

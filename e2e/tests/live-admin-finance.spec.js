@@ -22,9 +22,13 @@
  *
  * ## Why the assertions are agreements and invariants, not magnitudes
  *
- * The seed carries three rent payments, **no** subscriptions and **no** boosts. Asserting "MRR is
- * ₹0" would therefore pass whether or not the query works, which is a green record of nothing. The
- * rent fees are the one non-zero anchor, and they are used as one.
+ * The seed carries three rent payments and **no** boosts. It now also carries exactly one active
+ * subscription — the duplicate-guard fixture's Owner Plus, added for a different spec entirely — so
+ * MRR is no longer structurally ₹0. That is a strict improvement here rather than a hazard: nothing
+ * below asserts a magnitude, and a non-zero book means the "the plan lines sum to `mrr`" invariant
+ * is now summing something. Before it, asserting "MRR is ₹0" would have passed whether or not the
+ * query worked, which is a green record of nothing. The rent fees remain the deliberate non-zero
+ * anchor, and are used as one.
  *
  * This file writes nothing and cleans up nothing, because it has nothing to write: all three routes
  * are reads.

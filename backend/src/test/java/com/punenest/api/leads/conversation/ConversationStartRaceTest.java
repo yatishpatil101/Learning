@@ -76,7 +76,7 @@ class ConversationStartRaceTest {
      */
     private static final int RACE_ATTEMPTS = 8;
 
-    @Autowired ConversationService conversations;
+    @Autowired ConversationOpeningService conversations;
     @Autowired UserRepository users;
     @Autowired PropertyRepository properties;
     @Autowired ContactRequestRepository contactRequests;
@@ -213,7 +213,7 @@ class ConversationStartRaceTest {
      * check and the connection acquisition after it are all unsynchronised, so serialisation is a
      * realistic outcome rather than a theoretical one.
      *
-     * <p>{@link ConversationService#racesRetried()} makes the retry observable, and re-running until
+     * <p>{@link ConversationOpeningService#racesRetried()} makes the retry observable, and re-running until
      * it is observed converts a flaky assertion into a deterministic one: a collision is likely per
      * attempt, so across {@link #RACE_ATTEMPTS} attempts never seeing one means the path is
      * unreachable, not unlucky. The invariants are asserted on <em>every</em> attempt, so a serialised
@@ -286,7 +286,7 @@ class ConversationStartRaceTest {
                 buyer.getMobile(), null, "Are you still looking?");
 
         raceUntilRetried(index -> {
-            ConversationService.Started started = index == 0
+            ConversationOpeningService.Started started = index == 0
                     ? conversations.start(fromBuyer, buyerSays)
                     : conversations.start(fromOwner, ownerSays);
             return started.created();

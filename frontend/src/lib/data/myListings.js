@@ -4,10 +4,8 @@
    The alternative was threading owner listings through two callers, a larger diff for no gain. */
 import { listProperties, myListings } from '../../services/propertyService.js';
 import { isHttpDomain } from '../../services/config.js';
-import { getRooms, roomToListing, hasListings } from '../store.js';
-import { getFlatmatePosts, getFlatmateGroups } from './flatmates.js';
-import { digits } from '../contact.js';
-import { myOwnerId, ownerIdForMobile } from './ownerIdentity.js';
+import { roomToListing, hasListings } from '../store.js';
+import { myFlatmateGroups, myFlatmatePosts, myFlatmateRooms } from '../../services/flatmateService.js';
 
 const SHARE_REQ_IMG = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&q=80';
 const FLATMATE_GROUP_IMG = 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&q=80';
@@ -36,18 +34,10 @@ export function flatmatePostToListing(r) {
   };
 }
 
-/* The current user's flatmate requests, matched tolerantly by the last 10
-   mobile digits, falling back to name for legacy posts without a mobile. */
-export function getMyFlatmatePosts(user) {
-  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
-  const nm = (user?.name || '').trim().toLowerCase();
-  return getFlatmatePosts()
-    .filter((r) => {
-      const owner = ownerIdForMobile(r.mobile);
-      if (owner && mine) return owner === mine;
-      return nm && r.name && r.name.trim().toLowerCase() === nm;
-    })
-    .map(flatmatePostToListing);
+/** The caller's own seeker posts, scoped by the provider rather than by browser data. */
+export async function getMyFlatmatePosts() {
+  const page = await myFlatmatePosts({ size: 100 });
+  return page.items.map(flatmatePostToListing);
 }
 
 /* Normalize a user-created flatmate group into the dashboard listing shape.
@@ -74,31 +64,16 @@ export function flatmateGroupToListing(g) {
   };
 }
 
-/* The current user's flatmate groups, matched the same tolerant way as requests. */
-export function getMyFlatmateGroups(user) {
-  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
-  const nm = (user?.name || '').trim().toLowerCase();
-  return getFlatmateGroups()
-    .filter((g) => {
-      const owner = ownerIdForMobile(g.ownerMobile);
-      if (owner && mine) return owner === mine;
-      return nm && g.ownerName && g.ownerName.trim().toLowerCase() === nm;
-    })
-    .map(flatmateGroupToListing);
+/** The caller's own groups, including moderation-hidden rows. */
+export async function getMyFlatmateGroups() {
+  const page = await myFlatmateGroups({ size: 100 });
+  return page.items.map(flatmateGroupToListing);
 }
 
-/* The current user's flatmate/room posts, normalized to the listing shape the
-   dashboard renders. Matching is tolerant of mobile-number formatting (compares
-   the last 10 digits) and legacy rooms without an ownerMobile are treated as the
-   current user's, so a freshly-posted room always surfaces for its owner. */
-export function getMyRooms(user) {
-  const mine = myOwnerId() || ownerIdForMobile(user?.mobile);
-  return getRooms()
-    .filter((r) => {
-      const owner = ownerIdForMobile(r.ownerMobile);
-      return !owner || !mine || owner === mine;
-    })
-    .map(roomToListing);
+/** The caller's own rooms, including moderation-hidden rows. */
+export async function getMyRooms() {
+  const page = await myFlatmateRooms({ size: 100 });
+  return page.items.map(roomToListing);
 }
 
 /* Combined "My Listings": the owner's property listings plus their flatmate
@@ -113,9 +88,11 @@ export async function loadMyListings(user) {
      stop seeing it. The count beside it ("Active Listings") would disagree with the list too, since
      the server's quota already excludes archived rows. */
   const mine = (await myListings(user)).filter((l) => !l.archived);
-  const rooms = getMyRooms(user);
-  const flatmatePosts = getMyFlatmatePosts(user);
-  const flatmateGroups = getMyFlatmateGroups(user);
+  const [rooms, flatmatePosts, flatmateGroups] = await Promise.all([
+    getMyRooms(),
+    getMyFlatmatePosts(),
+    getMyFlatmateGroups(),
+  ]);
   const hasAny = mine.length > 0 || rooms.length > 0 || flatmatePosts.length > 0 || flatmateGroups.length > 0;
   // Demo top-up exists so a seeded owner account never opens an empty dashboard in a walkthrough.
   // It is mock-only on purpose: against the live API these would be *other people's* listings shown

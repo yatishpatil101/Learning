@@ -32,6 +32,13 @@ On conflict: (1) safety/correctness, (2) task-type routing, (3) planning/check-i
 | Ambiguous scope | Ask one clarifying question first |
 | Spawning a subagent | Not a check-in — never pause, spawn silently |
 
+**Asking questions — always via the question tool, never by halting.** Put every question to the
+user through `vscode_askQuestions` (options + a recommended default), not as prose that ends the
+turn. Questions are non-blocking by default: ask, then **keep executing** whatever part of the work
+the answer cannot invalidate — unblocked slices, research, backend groundwork. Only stop outright if
+*every* remaining path depends on the answer, and say so explicitly. Never end a turn with a
+prose question mark and no tool call; never idle waiting for a reply.
+
 ### Execution
 - **Planning** — plan mode for features/architectural changes with real tradeoffs; specs upfront. If it goes sideways, STOP and re-plan; if one full re-plan (approach rewritten from scratch) fails, report the specific obstacle. Bug fixes: just fix it from the logs/errors/failing tests, no hand-holding.
 - **Elegance** — any change touching more than one function or adding an abstraction: ask whether something simpler works. Skip for single-line fixes and mechanical edits (renaming a variable, updating a constant).
