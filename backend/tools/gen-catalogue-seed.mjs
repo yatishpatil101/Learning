@@ -1,6 +1,6 @@
 /*
  * gen-catalogue-seed.mjs — regenerate the localities + societies INSERT blocks of
- * R__seed_reference_data.sql from the frontend's canonical catalogue data.
+ * R__DML_seed_reference_data.sql from the frontend's canonical catalogue data.
  *
  * WHY: the frontend (frontend/src/data/*.js) is the single source of truth for Pune's
  * locality and society reference data. Hand-copying 155 localities + 348 societies into

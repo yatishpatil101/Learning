@@ -24,8 +24,8 @@ import org.springframework.data.repository.query.Param;
  * rows in the JVM means transferring every one of them to add up two numbers; it also makes the
  * response size grow with history for an endpoint whose answer is three integers.
  *
- * <p><strong>And they are answered from the index, not the table</strong> (tech debt D132). V51
- * replaced V12's {@code (property_id, date)} index with one carrying {@code type} and
+ * <p><strong>And they are answered from the index, not the table</strong> (tech debt D132). The old
+ * V51 replaced the old V12's {@code (property_id, date)} index with one carrying {@code type} and
  * {@code amount} in its payload, which is everything the two aggregates below read. Finding the
  * rows was never the expensive part — visiting the heap once per row to add them up was, and that
  * cost grew with every rent cycle the owner ever recorded. Keep it that way: a filter or a sum on

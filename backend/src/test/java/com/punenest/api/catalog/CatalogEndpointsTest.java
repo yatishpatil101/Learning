@@ -32,7 +32,7 @@ import org.springframework.http.MediaType;
  * counters, and the fact that every route answers without authentication.
  *
  * <p>Runs against the live Flyway'd Postgres, so the seeded reference rows
- * ({@code R__seed_reference_data.sql} — generated from the frontend catalogue, so its size grows the
+ * ({@code R__DML_seed_reference_data.sql} — generated from the frontend catalogue, so its size grows the
  * next time the catalogue is regenerated) are real data, not fixtures. Test-local rows are added on
  * top and rolled back. The count- and order-bearing assertions read the live counts from the DB
  * rather than hard-coding a seed size, so they don't re-rot when the catalogue regenerates (D145).

@@ -35,7 +35,7 @@ import org.springframework.test.web.servlet.MvcResult;
  *
  * <p>The seeded ledger is chosen for the cases that break naive rewrites:
  * <ul>
- *   <li>a soft-deleted row, which every aggregate must exclude (V12's {@code archived = false});</li>
+ *   <li>a soft-deleted row, which every aggregate must exclude (V10's {@code archived = false});</li>
  *   <li>months with no rows at all, which a bare {@code GROUP BY} silently drops but the series
  *       must still emit as zero points;</li>
  *   <li>a future-dated row — legal, because {@link TransactionCreateRequest} deliberately does not
@@ -399,7 +399,7 @@ class FinanceAggregateNumbersTest extends AbstractApiTest {
                 .contains("amount")
                 .contains("archived = false"); // partial: no read here ever wants an archived row
 
-        // V12's index had the same key and was replaced, not kept alongside. Two indexes the
+        // The old V12's index had the same key and was replaced, not kept alongside. Two indexes the
         // planner cannot tell apart are paid for on every write and chosen for nothing.
         assertThat(jdbc.queryForList(
                 "select indexdef from pg_indexes where indexname = ?",

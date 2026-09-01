@@ -48,7 +48,7 @@ suite:
 > `addInitScript`. The `http` providers **ignore `localStorage`** and call the API. So
 > every self-seeding spec asserts against data the backend does not have. **The dominant
 > cost of this migration is rewriting self-seeding specs into seed-reliant / create-via-API
-> specs**, and growing `R__zz_dev_demo_data.sql` into a documented fixture contract.
+> specs**, and growing `R__zz_DML_dev_demo_data.sql` into a documented fixture contract.
 
 Start the effort from the **seed-fixture inventory** ([02](02-seed-and-fixtures.md)) — it
 sizes everything downstream.
@@ -82,7 +82,7 @@ sizes everything downstream.
 
 | DB | Job | Seed | Isolation | Persists across restart |
 |----|-----|------|-----------|-------------------------|
-| `punenest` | Local dev driver | Full demo seed (`R__zz_dev_demo_data.sql`) | none | yes |
+| `punenest` | Local dev driver | Full demo seed (`R__zz_DML_dev_demo_data.sql`) | none | yes |
 | `punenest_test` | Java unit/integration suite | **schema only** (guarded by `TestDatabaseIsolationTest`) | `@Transactional` rollback per test | no (rolled back) |
 | **`punenest_e2e`** (new) | Playwright browser suite | Named-fixture baseline seed | **no rollback** — reset-to-baseline at run **start** | **yes** (this is the requirement) |
 
@@ -212,7 +212,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   - There is no admin write path for `cities.live` at all (no route constant, no controller).
 
   So the honest fix was a piece of work in its own right, and it is now done: the four coming-soon
-  cities are seeded as `live = false` rows in `R__seed_reference_data.sql`, `PATCH
+  cities are seeded as `live = false` rows in `R__DML_seed_reference_data.sql`, `PATCH
   /admin/cities/{slug}` gives the admin console a way to flip that column (settings-write permission,
   audited), and `GET /cities` is the single answer to roster **and** liveness **and** inventory.
   `CITY_GEO.live` survives only as the fail-soft fallback for a boot window or an unreachable server;
@@ -816,7 +816,7 @@ Each phase ends green before the next starts. UI instability on this branch is a
   spec that signs in as Rahul or Priya — and only one `buy`-deal saved listing for Rahul, while
   `/saved` tabs by deal, so the swipe-and-undo spec had a single card and nothing to prove
   "the neighbour survived" against. All three are now seeded. The conversation rows had to be
-  moved down the file: `R__zz_dev_demo_data.sql` replays top-to-bottom under `ON_ERROR_STOP=1`,
+  moved down the file: `R__zz_DML_dev_demo_data.sql` replays top-to-bottom under `ON_ERROR_STOP=1`,
   the generated users exist early but the named actors are inserted around line 445, and the
   foreign key says so. A seed error aborts the whole live run before a single test executes.
 

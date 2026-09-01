@@ -41,9 +41,9 @@ const USER = process.env.E2E_DB_USER || 'postgres';
 
 /** Seeds in Flyway's order: reference data before the fixtures that point at it. */
 const SEEDS = [
-  path.join(RESOURCES, 'migration', 'R__seed_permission_map.sql'),
-  path.join(RESOURCES, 'migration', 'R__seed_reference_data.sql'),
-  path.join(RESOURCES, 'seed', 'R__zz_dev_demo_data.sql'),
+  path.join(RESOURCES, 'migration', 'R__DML_seed_permission_map.sql'),
+  path.join(RESOURCES, 'migration', 'R__DML_seed_reference_data.sql'),
+  path.join(RESOURCES, 'seed', 'R__zz_DML_dev_demo_data.sql'),
 ];
 
 function psql(args) {

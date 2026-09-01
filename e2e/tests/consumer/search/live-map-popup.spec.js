@@ -7,7 +7,7 @@ import { API } from '../../../helpers/liveAuth.js';
 
    WHAT CHANGED IN THE MOVE TO LIVE. The mock ancestor fabricated a villa in `localStorage` so it
    could pin every number it asserted. Here the drawer renders a row the server returned, so the row
-   is seeded instead — `p5150`, the Baner villa in `R__zz_dev_demo_data.sql`, whose header comment
+   is seeded instead — `p5150`, the Baner villa in `R__zz_DML_dev_demo_data.sql`, whose header comment
    explains which of its fields are load-bearing and why.
 
    THE CLICK TARGET IS A COMPUTED LABEL, NOT A SELECTOR. `PropertyMap.mapLabel` renders a buy marker

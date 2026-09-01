@@ -76,7 +76,7 @@ public class TenancyService {
      * sign up anyway. Returns empty so the caller can log it.
      *
      * <p><strong>Idempotent.</strong> If the property already has an active tenancy the existing one
-     * is returned untouched. V12's {@code uq_tenancies_active_per_property} is the real guarantee —
+     * is returned untouched. {@code V10__DDL_tenancy_finance.sql}'s {@code uq_tenancies_active_per_property} is the real guarantee —
      * two active rows would be a double-let, not a duplicate record — and this check keeps a
      * legitimate re-close from hitting it as an error.
      *

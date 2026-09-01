@@ -20,8 +20,8 @@ import lombok.Setter;
  * on a rent deal, in the same transaction that closes the deal — which is the moment the agreement
  * actually exists in the real world.
  *
- * <p><strong>At most one active tenancy per property</strong>, enforced by V12's partial unique
- * index rather than a service check. Two active rows would not be a duplicate record but a
+ * <p><strong>At most one active tenancy per property</strong>, enforced by {@code V10__DDL_tenancy_finance.sql}'s
+ * partial unique index rather than a service check. Two active rows would not be a duplicate record but a
  * double-let: two tenants each believing they hold the flat, and rent payments that cannot be
  * attributed to either.
  *

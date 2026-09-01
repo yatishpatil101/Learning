@@ -171,7 +171,7 @@ const PENDING = new Map([
   ['notification_preferences', 'settings: the preferences page has no stored row to read'],
   ['society_follows', 'society: no already-following state, so "unfollow" has no subject'],
   ['back_office_permissions', 'staff: empty, and the permission map seeds into `settings` instead - confirm which one the app reads before seeding'],
-  ['ownership_basis', 'trust: confirm whether this is reference data that R__seed_reference_data should own'],
+  ['ownership_basis', 'trust: confirm whether this is reference data that R__DML_seed_reference_data should own'],
 ]);
 
 function psql(sql) {

@@ -37,7 +37,7 @@ import { test, expect } from '@playwright/test';
    a whole PG building — but the seed has no buy-deal PG: `{p5007, p5033}` are both
    rentals. The mock only got an answer because it injected `deal:'buy'` PG rows into
    localStorage and deep-linked past the type dropdown. Reproducing that live means
-   adding stock to R__zz_dev_demo_data.sql, whose registry warns against filling rows
+   adding stock to R__zz_DML_dev_demo_data.sql, whose registry warns against filling rows
    in "to make the grid look complete". Left out rather than faked; it wants a seeded
    buy-deal PG first. */
 

@@ -14,7 +14,7 @@ import { API } from '../../../helpers/liveAuth.js';
  * reachable only from the payment-callback settlement path, so the sole way to open a promotion
  * window through the API is to drive a payment through the gateway. That is a billing test. The
  * catalogue's entire interface to a boost is the `boosted_until` column, so the seed sets it
- * directly (see the comment above the UPDATE in `R__zz_dev_demo_data.sql`) and this file asserts
+ * directly (see the comment above the UPDATE in `R__zz_DML_dev_demo_data.sql`) and this file asserts
  * what the catalogue does with it.
  *
  * WHY WAGHOLI. The promoted listing p5145 sits in a block of ten flats that share an owner, a

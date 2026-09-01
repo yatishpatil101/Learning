@@ -12,7 +12,7 @@ import org.hibernate.type.SqlTypes;
 
 /**
  * A subscription plan on the public price list. Maps {@code plans} (V8), seeded as reference data
- * in {@code R__seed_reference_data.sql}.
+ * in {@code R__DML_seed_reference_data.sql}.
  *
  * <p>Read-only from the application's point of view: nothing in the platform creates or edits a
  * plan, because a price list is a business decision made in the back office and a migration, not a

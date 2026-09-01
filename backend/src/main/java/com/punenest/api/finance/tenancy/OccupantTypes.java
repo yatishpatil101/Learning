@@ -11,7 +11,7 @@ import java.util.Set;
  * company lease is a different counterparty with a different risk profile again. An unrecognised
  * value would not be a harmless typo — it would silently drop the tenant out of every owner's
  * filter, which looks to the tenant like nobody is interested. So the value is validated here and
- * again by V13's CHECK constraint.
+ * again by V10's CHECK constraint.
  */
 public final class OccupantTypes {
 

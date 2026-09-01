@@ -40,7 +40,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:5173';
 /**
  * A society seeded into the database and absent from the bundled catalogue.
  *
- * Seeded by `R__zz_dev_demo_data.sql` as the confirmed community society: `source: 'community'`,
+ * Seeded by `R__zz_DML_dev_demo_data.sql` as the confirmed community society: `source: 'community'`,
  * `verified_at` set, and — deliberately — `registration` and `conveyance` both still false, because
  * confirming that a building exists is not a statement about its paperwork. Title-casing its slug
  * gives "Greenfield Residency Baner", which is not its name, so the stub and the real row are

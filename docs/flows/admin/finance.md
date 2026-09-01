@@ -150,7 +150,7 @@ identical to an operator:
 | Figure | Reality today | Evidence |
 | --- | --- | --- |
 | `refunds` (server) / **Refunds (recent)** (screen) | The platform has no refund path at all, so no refund can be recorded. | A literal `0L` in `AdminFinanceService.finance()`. The screen's own figure is derived from *mock* transaction statuses and is not a receipt. |
-| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V8__engagement_billing_cms.sql`, status vocabulary widened in `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions subscriptions + boosts only. |
+| Services marketplace inside **revenue** | Excluded. `service_orders.amount` is a quote, and the table carries no column saying money arrived - no `paid_at`, no `paid` status (`V11__DDL_engagement_billing.sql`, folded from the old `V8`, with the status vocabulary widened by the old `V57`). | `AdminMetricsRepository.REVENUE_BY_SOURCE` unions subscriptions + boosts only. |
 
 There used to be a third: `payoutsCompleted` / **Partner payouts**. Both the figure and its
 disclosure are gone. `payout_accounts` stored *where* a remittance to an owner would go and nothing

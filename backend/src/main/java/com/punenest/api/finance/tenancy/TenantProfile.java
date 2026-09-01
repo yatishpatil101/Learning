@@ -53,7 +53,7 @@ public class TenantProfile {
     @Setter
     private Long income;
 
-    /** One of {@link OccupantTypes}; V13's CHECK rejects anything else. */
+    /** One of {@link OccupantTypes}; V10's CHECK rejects anything else. */
     @Column(name = "occupants")
     @Setter
     private String occupants;

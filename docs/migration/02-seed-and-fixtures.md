@@ -12,16 +12,19 @@ the existing demo seed into a documented, stable, named-fixture contract** the e
 
 | Asset | Where | Form | Renders live today? |
 |-------|-------|------|---------------------|
-| Listing photos | `db/seed/R__zz_dev_demo_data.sql`, `photos` JSONB + `hero_image` | External Unsplash URLs (`images.unsplash.com/...?auto=format&fit=crop&w=800&q=70`) | **Yes** — URLs, no storage needed |
-| Localities (155) | `db/migration/R__seed_reference_data.sql` | Generated from frontend by `backend/tools/gen-catalogue-seed.mjs` | **Yes** — runs for every profile incl. prod |
-| Societies (348) | `db/migration/R__seed_reference_data.sql` | Same generator | **Yes** |
-| Listings (16) | `R__zz_dev_demo_data.sql` | Full rows: slug, uuid, deal, type, bhk, price, area, locality, lat/lng, amenities JSONB, photos, status | **Yes** |
-| Users (~78) | `R__zz_dev_demo_data.sql` | Owners/buyers/tenants incl. pinned identities | **Yes** |
+| Listing photos | `db/seed/R__zz_DML_dev_demo_data.sql`, `photos` JSONB + `hero_image` | External Unsplash URLs (`images.unsplash.com/...?auto=format&fit=crop&w=800&q=70`) | **Yes** — URLs, no storage needed |
+| Localities (155) | `db/migration/R__DML_seed_reference_data.sql` | Generated from frontend by `backend/tools/gen-catalogue-seed.mjs` | **Yes** — runs for every profile incl. prod |
+| Societies (348) | `db/migration/R__DML_seed_reference_data.sql` | Same generator | **Yes** |
+| Listings (16) | `R__zz_DML_dev_demo_data.sql` | Full rows: slug, uuid, deal, type, bhk, price, area, locality, lat/lng, amenities JSONB, photos, status | **Yes** |
+| Users (~78) | `R__zz_DML_dev_demo_data.sql` | Owners/buyers/tenants incl. pinned identities | **Yes** |
 
 Load-bearing facts (do not break):
 
-- The `zz_` prefix on `R__zz_dev_demo_data.sql` orders it **after** other repeatable migrations in
-  Flyway. **Never rename or truncate it.**
+- The `zz_` prefix on `R__zz_DML_dev_demo_data.sql` orders it **after** other repeatable migrations in
+  Flyway — sorting is by *description*, not filename, so `DML seed permission map` <
+  `DML seed reference data` < `zz DML dev demo data`. **Never truncate it**, and rename only as a
+  deliberate, swept change: the filename is quoted by name in specs, tooling and docs (the
+  2026-09-01 `_DML_` rename touched 47 files), so a casual rename silently unorders the seeds.
 - Reference data lives in `db/migration` (not `db/seed`) **on purpose** — it is schema meaning, not
   demo content, and `TestDatabaseIsolationTest` asserts `localities` is present while the demo seed
   is absent. Do not move it to `db/seed`.
@@ -50,7 +53,7 @@ Written 2026-08-12. Meera stayed the anchor; three named actors were added aroun
 `9700000001` demand-side, Priya Nair `9700000002` tenant, Arjun Rao `9700000003` reporter) and the
 registry now guarantees one invariant per domain across `saved`, `savedSearch`, `notification`,
 `review`, `report`, `support`, `deal` and `rent`. The rows live in a `NAMED FIXTURE CONTRACT` block
-at the end of `R__zz_dev_demo_data.sql`; every id starts `f1c7` so `grep f1c7` finds the contract.
+at the end of `R__zz_DML_dev_demo_data.sql`; every id starts `f1c7` so `grep f1c7` finds the contract.
 
 The sketch below is kept only to show what was asked for versus what was built. Two rows moved:
 
@@ -106,7 +109,7 @@ for the first cut.
       all 85 live tables counted. Result: 12 of the 19 live domains had zero repo seed.*
 - [x] Write the fixture registry (named actors + invariants), one row per domain in
       [04-modules.md](04-modules.md). → [`docs/system/fixture-registry.md`](../system/fixture-registry.md)
-- [x] Grow `R__zz_dev_demo_data.sql` to guarantee those invariants — **idempotent upserts**, so
+- [x] Grow `R__zz_DML_dev_demo_data.sql` to guarantee those invariants — **idempotent upserts**, so
       re-running against `punenest_e2e` is safe.
       *Idempotent, but INSERTs not upserts: the file uses bare `ON CONFLICT DO NOTHING` with no
       conflict target (scoping it to `(id)` breaks on `users_mobile_key`). Re-running is safe; it

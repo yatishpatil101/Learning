@@ -63,7 +63,7 @@ import tools.jackson.databind.ObjectMapper;
  * remove access by editing the map, which is precisely the bug D67 was raised about.
  *
  * <p>The obvious hazard of deny-on-omission is a partial map locking out teams the author never
- * thought about — so {@code R__seed_permission_map.sql} seeds a <em>complete</em> one (every team in
+ * thought about — so {@code R__DML_seed_permission_map.sql} seeds a <em>complete</em> one (every team in
  * {@link Teams}, plus {@code admin}) and merges the defaults into whatever a deployment already had,
  * and the settings endpoint's merge semantics (S60) mean a key cannot subsequently be deleted at
  * all, only emptied. An administrator therefore edits one team's bundle without silently changing
@@ -84,7 +84,7 @@ public class PermissionMap {
 
     private static final Logger log = LoggerFactory.getLogger(PermissionMap.class);
 
-    /** The settings block this class reads. Seeded by {@code R__seed_permission_map.sql}; written by
+    /** The settings block this class reads. Seeded by {@code R__DML_seed_permission_map.sql}; written by
      * {@code /admin/settings}. */
     static final String PERMISSIONS_KEY = "permissions";
 

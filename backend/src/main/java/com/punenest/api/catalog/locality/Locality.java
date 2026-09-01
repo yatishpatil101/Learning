@@ -26,7 +26,7 @@ import org.hibernate.type.SqlTypes;
  *
  * <p><strong>Curated reference data, now curated through the API.</strong> Until the back-office
  * localities console had a server behind it these rows were written only by
- * {@code R__seed_reference_data.sql} and the entity had no setters at all. It has them now, on the
+ * {@code R__DML_seed_reference_data.sql} and the entity had no setters at all. It has them now, on the
  * editable fields and nowhere else — {@link #slug} is still {@code updatable = false} and has no
  * setter, because it is the {@code PRIMARY KEY} three foreign keys and every public URL point at.
  * Renaming a locality is a {@code name} edit; it is never a slug edit, and there is no route that

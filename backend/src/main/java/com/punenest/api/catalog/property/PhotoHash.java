@@ -16,9 +16,10 @@ package com.punenest.api.catalog.property;
  * the same number for the same reason — about 15% of the hash, loose enough to survive
  * re-compression and a mild crop, tight enough that two unrelated interiors do not collide.
  *
- * <p>{@link #bands(long)} exists for the index rather than for the comparison; see
- * {@code V116__property_photo_hashes.sql} for why band equality is a pre-filter and not a proof.
- * Every candidate it returns is still checked with {@link #distance(long, long)}.
+ * <p>{@link #bands(long)} exists for the index rather than for the comparison; see the
+ * {@code property_photo_hashes} section of {@code V04__DDL_catalog_listings.sql} (added in the old
+ * V116) for why band equality is a pre-filter and not a proof. Every candidate it returns is still
+ * checked with {@link #distance(long, long)}.
  */
 public final class PhotoHash {
 

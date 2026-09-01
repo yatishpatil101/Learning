@@ -340,7 +340,7 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
-    /** {@code sms} is in the contract's channel enum but was missing from V8's CHECK until V27. */
+    /** {@code sms} is in the contract's channel enum but was missing from the old V8's CHECK until the old V27. */
     @Test
     void createSavedSearch_smsChannel_isAccepted() throws Exception {
         User u = user("9820100028");

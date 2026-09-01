@@ -23,7 +23,7 @@
  * navigation, for the reason `live-faqs.spec.js` states: the copy is deliberately identical on both
  * sides, so no assertion about text can prove which side produced it.
  *
- * Fixtures: `R__zz_dev_demo_data.sql`, which seeds nine FAQs and translates two of them.
+ * Fixtures: `R__zz_DML_dev_demo_data.sql`, which seeds nine FAQs and translates two of them.
  */
 import { test, expect } from '../../../fixtures/live.js';
 import { API } from '../../../helpers/liveAuth.js';

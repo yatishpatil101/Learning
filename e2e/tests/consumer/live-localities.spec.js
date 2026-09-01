@@ -17,7 +17,7 @@
  * as the FAQ spec: 155 seeded localities and a bundled registry that overlaps them means no
  * assertion about the *names* on the page can tell which side produced them.
  *
- * Fixtures: the 155 localities seeded by `R__seed_reference_data.sql`, all active.
+ * Fixtures: the 155 localities seeded by `R__DML_seed_reference_data.sql`, all active.
  */
 import { test, expect } from '../../fixtures/live.js';
 import { API } from '../../helpers/liveAuth.js';

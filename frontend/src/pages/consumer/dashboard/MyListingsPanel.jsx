@@ -341,11 +341,12 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
      `confirmListingFresh`, live since `b230be8`, and it renders as the card's *primary* button on
      exactly the two freshness states that showed this control. Register item 28, option (1).
 
-     The template itself is not deleted and is not wrong: `V78__outbound_messages.sql:140` has it
-     server-side, where staff send it from the moderation console and it lands in the outbound
-     ledger. `POST /properties/{id}/outreach` 403s for an owner deliberately — outreach is the
-     platform speaking to an owner, and an owner is not the platform — so there was never a live
-     endpoint to port this onto. */
+     The template itself is not deleted and is not wrong: the WhatsApp template block in
+     `R__DML_seed_reference_data.sql` has it server-side (it lived in `V78__outbound_messages.sql`
+     until the Flyway chain was consolidated), where staff send it from the moderation console and
+     it lands in the outbound ledger. `POST /properties/{id}/outreach` 403s for an owner
+     deliberately — outreach is the platform speaking to an owner, and an owner is not the platform
+     — so there was never a live endpoint to port this onto. */
 
   // Listings (properties only) that need the owner's attention, for the nudge banner.
   const attentionListings = useMemo(

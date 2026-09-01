@@ -44,7 +44,7 @@ public class AppFlagsController {
 
     private static final Logger log = LoggerFactory.getLogger(AppFlagsController.class);
 
-    /** The seeded key holding the flag block (see {@code R__seed_reference_data.sql}). */
+    /** The seeded key holding the flag block (see {@code R__DML_seed_reference_data.sql}). */
     private static final String FLAGS_KEY = "flags";
 
     private final SettingRepository settings;

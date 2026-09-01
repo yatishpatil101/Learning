@@ -61,7 +61,7 @@ class TestDatabaseIsolationTest {
     }
 
     /**
-     * Reference data is the deliberate exception. {@code R__seed_reference_data.sql} lives in
+     * Reference data is the deliberate exception. {@code R__DML_seed_reference_data.sql} lives in
      * {@code db/migration} and runs for every profile including prod — localities and cities are
      * part of the schema's meaning, not demo content, and several tests resolve a locality slug
      * against them. Asserted as present so that moving it to {@code db/seed} (an easy tidy-up to
@@ -83,7 +83,7 @@ class TestDatabaseIsolationTest {
      * instead fail every time someone adds a locality, which is ordinary content work, and a test
      * that cries wolf on ordinary work gets its expectation bumped rather than read. If the rows do
      * vanish again the fix is one line: {@code delete from flyway_schema_history where script =
-     * 'R__seed_reference_data.sql'}, which makes Flyway re-apply it on the next context boot. That is
+     * 'R__DML_seed_reference_data.sql'}, which makes Flyway re-apply it on the next context boot. That is
      * safe because the file is {@code ON CONFLICT ... DO UPDATE} throughout.
      */
     @ParameterizedTest(name = "{0}")
@@ -103,7 +103,7 @@ class TestDatabaseIsolationTest {
     void referenceDataIsStillLoaded(String table) {
         assertThat(count(table))
                 .as(
-                        "%s is seeded by R__seed_reference_data in db/migration and must remain "
+                        "%s is seeded by R__DML_seed_reference_data in db/migration and must remain "
                                 + "available to every profile. If this is 0, the rows were deleted "
                                 + "out from under a repeatable migration, which Flyway will not "
                                 + "re-apply on its own: delete its flyway_schema_history rows and "

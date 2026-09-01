@@ -57,7 +57,7 @@ class MigrationSeedGuardTest {
     private static final Path MIGRATIONS = Path.of("src/main/resources/db/migration");
 
     /** Where reference data is allowed to live, and the file the repair below is measured against. */
-    private static final Path REFERENCE_SEED = MIGRATIONS.resolve("R__seed_reference_data.sql");
+    private static final Path REFERENCE_SEED = MIGRATIONS.resolve("R__DML_seed_reference_data.sql");
 
     /**
      * Versioned migrations whose inserts are a one-time backfill.
@@ -70,32 +70,32 @@ class MigrationSeedGuardTest {
      * description — which Flyway permits, and which changes its checksum rather than its identity —
      * does not silently drop it out of the list and turn this test green for the wrong reason.
      */
-    private static final Map<String, String> BACKFILLS = Map.of(
-            "V28",
-            "Retiring the share-flat feature: rewrites existing user rows into flatmate_requests / "
-                    + "flatmate_seeker_posts. User data, not reference data, and the demo seed recreates "
-                    + "its own copy.");
+    private static final Map<String, String> BACKFILLS = Map.of();
 
     /**
-     * Versioned migrations that seeded reference data before this rule was enforced, and whose rows
-     * have since been re-homed in {@link #REFERENCE_SEED}.
+     * Tables whose rows a versioned migration once seeded, and which the repeatable seed now owns
+     * alone.
      *
-     * <p>These files are <strong>deliberately not edited</strong>. They have been applied on real
-     * databases, and editing an applied migration changes its checksum and fails Flyway validation
-     * on the next start. The duplication between the two files is the repair, not an oversight.
+     * <p>Keyed by table rather than by version because there is no longer a version to point at.
+     * The 2026-09-01 consolidation replaced the {@code V1..V128} chain with fourteen pure-DDL files;
+     * the migrations that carried these inserts are gone, and with them every trace of the repair
+     * except this list. That is precisely why the list has to stay: the repeatable seed is now the
+     * <em>only</em> thing standing between these tables and the empty state, and the original bug's
+     * defining property is that nothing fails when it happens.
      *
-     * <p>Entry here is not a pardon. {@link #repairedMigrationsAreActuallyRepaired()} checks that
-     * every table listed still appears in the repeatable seed, so deleting the replacement rows
-     * fails this suite rather than silently restoring the original bug.
+     * <p>{@link #reHomedTablesAreStillSeeded()} checks each one, so deleting the replacement rows
+     * fails this suite rather than silently restoring the bug.
      */
-    private static final Map<String, String> SUPERSEDED_BY_REFERENCE_SEED = Map.of(
-            "V78",
-            "Created message_template and seeded its ten WhatsApp templates in the same file. The rows "
-                    + "now live in R__seed_reference_data.sql with ON CONFLICT (id) DO UPDATE.");
+    private static final Map<String, String> RE_HOMED_INTO_REFERENCE_SEED = Map.of(
+            "message_template",
+            "V78 created this table and seeded its ten WhatsApp templates in the same file, so the live "
+                    + "reset destroyed them on every machine and GET /admin/message-templates answered [] "
+                    + "for months. The rows now live in R__DML_seed_reference_data.sql with "
+                    + "ON CONFLICT (id) DO UPDATE.");
 
     private static final Pattern INSERT = Pattern.compile("insert\\s+into\\s+([\\w.\"]+)", Pattern.CASE_INSENSITIVE);
 
-    /** Matches {@code V78__outbound_messages.sql} and captures {@code V78}. */
+    /** Matches {@code V05__DDL_leads_conversations.sql} and captures {@code V05}. */
     private static final Pattern VERSION = Pattern.compile("^(V\\d+)__");
 
     @Test
@@ -104,8 +104,7 @@ class MigrationSeedGuardTest {
         Map<String, List<String>> offenders = new TreeMap<>();
 
         for (Path migration : versionedMigrations()) {
-            String version = version(migration);
-            if (BACKFILLS.containsKey(version) || SUPERSEDED_BY_REFERENCE_SEED.containsKey(version)) {
+            if (BACKFILLS.containsKey(version(migration))) {
                 continue;
             }
             List<String> tables = insertedTables(read(migration));
@@ -123,11 +122,11 @@ class MigrationSeedGuardTest {
                         machine, silently.
 
                         If these rows are reference data (the application expects them to exist on every \
-                        environment): copy them into R__seed_reference_data.sql with ON CONFLICT (id) DO \
-                        UPDATE, then list the version in SUPERSEDED_BY_REFERENCE_SEED. Leave the versioned \
-                        migration itself untouched -- it has been applied, and editing an applied file \
-                        changes its checksum and fails Flyway validation on the next start. The \
-                        duplication is the repair.
+                        environment): they belong in R__DML_seed_reference_data.sql with ON CONFLICT (id) DO \
+                        UPDATE, and the table belongs in RE_HOMED_INTO_REFERENCE_SEED. Do not edit the \
+                        versioned migration if it has been applied anywhere -- that changes its checksum \
+                        and fails Flyway validation on the next start; write the seed and leave the \
+                        migration alone.
 
                         If they are a one-time backfill: add the version to BACKFILLS with a sentence \
                         saying why losing them to the reset costs nothing.""")
@@ -135,40 +134,42 @@ class MigrationSeedGuardTest {
     }
 
     /**
-     * A migration listed as repaired must still be repaired.
+     * A table listed as re-homed must still be seeded.
      *
-     * <p>The comment on {@link #SUPERSEDED_BY_REFERENCE_SEED} claims the rows were re-homed. Without
-     * this, deleting them from the repeatable seed would restore the original bug in full while the
-     * list went on asserting the opposite — and the original bug's defining property is that nothing
-     * fails when it happens.
+     * <p>The comment on {@link #RE_HOMED_INTO_REFERENCE_SEED} claims the rows moved to the
+     * repeatable seed. Without this, deleting them from that seed would restore the original bug in
+     * full while the list went on asserting the opposite — and the original bug's defining property
+     * is that nothing fails when it happens.
      */
     @Test
-    @DisplayName("a migration listed as re-homed still has its tables in the repeatable seed")
-    void repairedMigrationsAreActuallyRepaired() {
+    @DisplayName("a table listed as re-homed still has its rows in the repeatable seed")
+    void reHomedTablesAreStillSeeded() {
         List<String> seeded = insertedTables(read(REFERENCE_SEED));
 
-        for (Path migration : versionedMigrations()) {
-            if (!SUPERSEDED_BY_REFERENCE_SEED.containsKey(version(migration))) {
-                continue;
-            }
-            for (String table : insertedTables(read(migration))) {
-                assertThat(seeded)
-                        .as(
-                                "%s is listed as re-homed, but nothing in R__seed_reference_data.sql inserts "
-                                        + "into %s. The live reset truncates it and replays only the R__ seeds, so "
-                                        + "that table is empty on every machine that has run the live suite once.",
-                                migration.getFileName(), table)
-                        .contains(table);
-            }
+        for (Map.Entry<String, String> entry : RE_HOMED_INTO_REFERENCE_SEED.entrySet()) {
+            assertThat(seeded)
+                    .as(
+                            "%s is listed as re-homed, but nothing in R__DML_seed_reference_data.sql inserts "
+                                    + "into it. The live reset truncates every table and replays only the R__ "
+                                    + "seeds, so it is empty on every machine that has run the live suite once.%n%s",
+                            entry.getKey(), entry.getValue())
+                    .contains(entry.getKey());
         }
     }
 
     /**
-     * Neither list may outlive the files it excuses.
+     * The backfill list may not outlive the files it excuses.
      *
      * <p>A stale entry is worse than no entry: it reads as a considered exception while excusing
      * nothing, and the next person to reuse that version prefix inherits a blanket pass they never
-     * asked for.
+     * asked for. This is not hypothetical — it is what caught the consolidation, which deleted both
+     * listed migrations and left two entries pardoning files that no longer existed.
+     *
+     * <p>{@code BACKFILLS} is <strong>empty</strong> as of that consolidation, and this test is
+     * therefore vacuous right now — {@code containsAll(emptySet)} passes unconditionally. That is
+     * deliberate and it re-arms the moment an entry is added, so it is kept rather than deleted.
+     * The assertion below states the empty case explicitly so a green tick is not mistaken for a
+     * check that ran: if someone adds a backfill exemption, the second assertion starts doing work.
      */
     @Test
     @DisplayName("every listed version still exists and still inserts")
@@ -181,10 +182,14 @@ class MigrationSeedGuardTest {
         assertThat(present)
                 .as("a listed migration was deleted or no longer inserts -- drop it from BACKFILLS")
                 .containsAll(BACKFILLS.keySet());
+
+        // The consolidated chain is pure DDL, so no versioned migration should insert at all. This
+        // is the stronger statement the empty BACKFILLS map implies; asserting it directly means
+        // this test has something to say even while the exemption list is empty.
         assertThat(present)
-                .as("a listed migration was deleted or no longer inserts -- drop it from"
-                        + " SUPERSEDED_BY_REFERENCE_SEED")
-                .containsAll(SUPERSEDED_BY_REFERENCE_SEED.keySet());
+                .as("the consolidated chain is DDL-only -- a versioned migration that inserts rows "
+                        + "either belongs in an R__DML_ seed or needs a BACKFILLS entry explaining itself")
+                .isEmpty();
     }
 
     private static List<Path> versionedMigrations() {

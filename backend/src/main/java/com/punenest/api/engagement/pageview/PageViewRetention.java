@@ -19,7 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
  * compromise.
  *
  * <p>Reports read only the rollup, so a sweep can never change an answer — see
- * {@code V96__page_view_telemetry.sql} for why that separation is load-bearing rather than tidy.
+ * {@code V14__DDL_analytics.sql} (the page-view telemetry section, added in the old V96) for why
+ * that separation is load-bearing rather than tidy.
  *
  * <p><strong>Split from {@link PageViewRetentionSweep} deliberately.</strong> The expiry is
  * exercised directly at a cutoff a test chooses, rather than by waiting on a wall-clock timer. Same

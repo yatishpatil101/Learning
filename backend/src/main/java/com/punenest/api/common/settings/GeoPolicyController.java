@@ -60,7 +60,7 @@ public class GeoPolicyController {
      * The key the admin console writes.
      *
      * <p>Unlike {@code fees}, {@code flags} and {@code movePack} this row is <em>not</em> seeded —
-     * see {@code R__seed_reference_data.sql}, where its absence is the point. Defaults for this
+     * see {@code R__DML_seed_reference_data.sql}, where its absence is the point. Defaults for this
      * block live in the client's {@code CITY_GEO}, so seeding a copy here would create a second
      * source of truth that could disagree with the first.
      */

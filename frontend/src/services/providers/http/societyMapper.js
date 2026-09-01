@@ -38,7 +38,7 @@ const num = (v) => (v == null ? null : Number(v));
  *
  * The hub's `soc` object used to come from `resolveSociety` — the bundled 348-row catalogue merged
  * with two `localStorage` buckets. Those two field sets are not merely similar, they are the same
- * one: `R__seed_reference_data.sql` seeds `societies` from the same rows `data/societies.js`
+ * one: `R__DML_seed_reference_data.sql` seeds `societies` from the same rows `data/societies.js`
  * bundles, column for column and *in the same units* (`occupancy` is 92, not 0.92;
  * `maintenancePerSqft` is 3.2 rupees; `security`/`water`/`power`/`petPolicy`/`vegPolicy` are the
  * same free-text display strings on both sides). So this is a rename-free copy, and the reason to

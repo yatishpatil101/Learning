@@ -28,7 +28,7 @@ public class PlatformSettings {
 
     private static final Logger log = LoggerFactory.getLogger(PlatformSettings.class);
 
-    /** The seeded key holding the fee block (see {@code R__seed_reference_data.sql}). */
+    /** The seeded key holding the fee block (see {@code R__DML_seed_reference_data.sql}). */
     private static final String FEES_KEY = "fees";
 
     /** Indian GST, as a percentage. Statutory, and 18% is the current rate for these services. */

@@ -11,7 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 /**
  * One block of platform configuration. Maps {@code settings} (V1), a key/value document store whose
- * rows are seeded by {@code R__seed_reference_data.sql} ({@code fees}, {@code flags}, {@code site}).
+ * rows are seeded by {@code R__DML_seed_reference_data.sql} ({@code fees}, {@code flags}, {@code site}).
  *
  * <p><strong>Why a document and not columns.</strong> V1's own header says it: "so config can evolve
  * without a migration per key". The contract's {@code AdminSettings} is explicitly

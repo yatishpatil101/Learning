@@ -222,8 +222,8 @@ The single decision point every supply path calls - group create, single-room po
 ### Moderate-before-public (`mod_status`, D72)
 - Every seeker post, room and group is created with **`mod_status = 'pending'`** and is invisible on
   the public board until a moderator approves it. Backend default is set in the entity *and* in the
-  column default (`V41__flatmate_moderate_before_public.sql`), so a row inserted by any route -
-  API, migration, manual SQL - is held.
+  column default (`V13__DDL_flatmates.sql`, folded from the old `V41`), so a row inserted by any
+  route - API, migration, manual SQL - is held.
 - Visibility is a **whitelist**, not a blacklist: `FlatmateVocabulary.MOD_PUBLIC = {live, approved}`
   and `isPublic(status)`. Public feeds, the count queries and the by-id `findVisible` paths all use
   it, so a moderation state added later fails **closed** instead of leaking until someone remembers

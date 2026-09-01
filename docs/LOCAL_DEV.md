@@ -38,17 +38,29 @@ The rules, in the order they bite:
    one-character edit to an applied `V__` script means every existing database refuses to boot with
    `Migration checksum mismatch`. This is not theoretical — it is exactly what happened on
    2026-08-04, and repairing it was impossible because the database was also twenty versions behind.
-2. **New change → new script.** `V31__…`, `V32__…`. Never renumber, never reuse.
+2. **New change → new script.** `V15__…`, `V16__…`. Never renumber, never reuse. Note Flyway strips
+   leading zeros, so `V01` and `V1` are the *same* version and collide — keep the two-digit form.
 3. **Never truncate or drop the schema to get out of trouble.** If a migration is wrong, write the
    next one that corrects it.
 4. **`R__` (repeatable) is for content, not structure** — the two seeds. They re-run whenever their
    checksum changes and always after every `V__`, which is what makes editing the demo catalogue a
    one-file change rather than a new migration.
 
-Pre-launch, the version history is allowed to be untidy: nothing is deployed, so **the whole `V1..Vn`
-chain can be flattened into one clean `V1__baseline.sql` later**, once the schema settles. Two things
-have to be true when that happens — every environment is rebuilt from empty (there is no history to
-preserve), and it is done as a deliberate reset rather than an edit-in-place, which is rule 1 again.
+The flatten this section used to reserve for later **has now happened**. On 2026-09-01 the 127-file
+`V1..V128` chain was consolidated into 14 domain-grouped files (`V01__DDL_foundation.sql` …
+`V14__DDL_analytics.sql`), and the filename convention gained a `DDL`/`DML` tag. Both preconditions
+held: every environment was rebuilt from empty, and it was done as a deliberate reset rather than an
+edit-in-place, which is rule 1 again.
+
+Equivalence was proved rather than assumed — the old chain and the new one were each replayed into a
+scratch database and compared on columns, constraints, indexes, triggers, comments and routines
+(1,253 / 509 / 344 / 76 / 471 / 38, identical on every axis). The 197 `ALTER TABLE`s are folded into
+the `CREATE TABLE`s, objects the chain created and later dropped are simply never created, and the
+backfill DML is gone: every statement of it repaired rows that only exist in an already-populated
+database, so none of it can fire on a fresh one.
+
+What this does **not** change: rule 1 still binds. The 14 files are applied everywhere now, so they
+are as frozen as the 127 were. A future squash is possible on the same two preconditions.
 
 Two build-time guards, because both mistakes above are invisible in review:
 
@@ -58,7 +70,7 @@ Two build-time guards, because both mistakes above are invisible in review:
 
 ### Where the demo data lives
 
-`backend/src/main/resources/db/seed/R__zz_dev_demo_data.sql` — 38 listings, 78 users, plus the
+`backend/src/main/resources/db/seed/R__zz_DML_dev_demo_data.sql` — 38 listings, 78 users, plus the
 conversations, visits and contact requests that make the local app look like a product. Read its
 header before changing it; it records three traps that cost real time (seed ordering, `ON CONFLICT`
 scope, and one row that violated a constraint added after the data was created).
@@ -214,9 +226,14 @@ to start rather than guess.
 Confirm Flyway actually ran — a healthy boot logs:
 
 ```
-o.f.core.internal.command.DbValidate : Successfully validated 10 migrations
+o.f.core.internal.command.DbValidate : Successfully validated 17 migrations
 c.punenest.api.PunenestApiApplication : Started PunenestApiApplication
 ```
+
+That count is 14 versioned `V__DDL_*` files plus the two `R__DML_*` reference seeds, and on the
+`dev`/`e2e` profiles a third repeatable from `db/seed`. On a database that is already at v14 the
+line reads *validated*; on an empty one you get `Migrating schema "public" to version "14 - DDL
+analytics"` followed by `Successfully applied 17 migrations`.
 
 If Flyway logs *nothing at all*, the `spring-boot-flyway` autoconfiguration module is missing from
 `pom.xml`. Under Spring Boot 4, `flyway-core` alone is not enough.

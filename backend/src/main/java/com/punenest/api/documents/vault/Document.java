@@ -51,13 +51,13 @@ public class Document extends AuditedEntity {
     private String mimeType;
 
     /**
-     * Set when this file belongs to a service request (V7) — a draft agreement, the registered
+     * Set when this file belongs to a service request (the old V7) — a draft agreement, the registered
      * copy, a document ops asked the customer for.
      *
      * <p>It does <em>not</em> replace {@link #propertyId}: a service-request document is still
-     * about a flat, so it appears in that property's vault as well. V7's comment reads "a document
+     * about a flat, so it appears in that property's vault as well. That migration's comment read "a document
      * may belong to a service request <em>instead of</em> a property", but every service PuneNest
-     * sells is about a specific listing, so V20's {@code NOT NULL} stands and this is an additional
+     * sells is about a specific listing, so the {@code NOT NULL} added by the old V20 stands and this is an additional
      * link rather than an alternative one. {@code ServiceRequestService} refuses a doc upload on a
      * request with no property rather than letting a null through.
      */

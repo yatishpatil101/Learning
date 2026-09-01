@@ -53,7 +53,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @DisplayName("D160 — one outstanding unpaid order per user, on subscriptions and boosts")
 class UnpaidOrderCapTest extends AbstractApiTest {
 
-    /** Seeded by {@code R__seed_reference_data.sql}. Owner Plus, 2499 — priced, so it is capped. */
+    /** Seeded by {@code R__DML_seed_reference_data.sql}. Owner Plus, 2499 — priced, so it is capped. */
     private static final String PAID_PLAN = "b1000000-0000-4000-8000-000000000002";
 
     /** Free, so it never opens an order and the cap must not apply to it. */

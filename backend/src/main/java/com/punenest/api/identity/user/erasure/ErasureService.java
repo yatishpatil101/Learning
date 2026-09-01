@@ -263,8 +263,8 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        // 3. Profile free text the subject wrote about themselves. The column set is V13's, not
-        //    V6's -- V13 reshaped this table and dropped four of the columns the original schema
+        // 3. Profile free text the subject wrote about themselves. The column set is the old V13's, not
+        //    the old V6's -- that migration reshaped this table and dropped four of the columns the original schema
         //    declared, which is exactly the trap a sweep written from the first migration falls
         //    into. `score` and `verified` stay: neither identifies anybody, and both are
         //    platform-derived signals attached to an id that no longer resolves to a person.

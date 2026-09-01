@@ -13,7 +13,7 @@ package com.punenest.api.engagement.search;
  * property seekers actually read.
  *
  * <p><strong>{@code sms} was missing from both halves until V27.</strong> The contract has listed it
- * since the beginning, but V8's CHECK constraint and this pattern both omitted it — so an SMS alert
+ * since the beginning, but the old V8's CHECK constraint and this pattern both omitted it — so an SMS alert
  * was refused by the edge, and would have been a 500 from the constraint had it got past. Both are
  * corrected together, because a vocabulary that disagrees with itself across two files is exactly
  * the drift this class exists to prevent.

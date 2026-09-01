@@ -29,7 +29,7 @@ import org.springframework.http.MediaType;
  * liability with a clock on it, and the funnel is the record of handing it over.
  *
  * <p><strong>Why two vocabularies became two columns (D27).</strong> The admin board shipped
- * {@code contacted, info_collected, listed, docs_submitted, under_review, live}; V3's column said
+ * {@code contacted, info_collected, listed, docs_submitted, under_review, live}; the old V3's column said
  * {@code listed, docs_submitted, photos_uploaded, aadhaar_verified, claim_sent, claimed}. They
  * agreed on two, and four of the board's six would have been refused by Postgres on write. That was
  * never a naming argument: the board's early values ask how far the owner got towards there being a

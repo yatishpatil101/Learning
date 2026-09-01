@@ -22,7 +22,7 @@
  * back-office panel. The server bills from its published `platform_fees('rent')` row. Two different
  * pieces of code, two different data sources, one number on screen and a different number charged —
  * agreeing only by luck. The figures below (`₹1,999` service fee, `₹360` GST) are the seeded row in
- * `R__seed_reference_data.sql`; they are asserted *as rendered* precisely because a regression that
+ * `R__DML_seed_reference_data.sql`; they are asserted *as rendered* precisely because a regression that
  * quietly re-derived them locally would still render *something*, and only a figure traceable to
  * the database can tell the two apart.
  *

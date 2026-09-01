@@ -18,7 +18,7 @@ import lombok.Getter;
  * {@code common.settings.PlatformSettings}, and is published by the admin settings endpoint. They
  * are deliberately kept apart: one is a marketing promise, the other is operational configuration.
  *
- * <p>Reference data — seeded by {@code R__seed_reference_data.sql}, never written by application
+ * <p>Reference data — seeded by {@code R__DML_seed_reference_data.sql}, never written by application
  * code, so no setters. Only the columns the contract's {@code Fees} schema names are mapped;
  * {@code ddl-auto=validate} ignores the rest.
  *

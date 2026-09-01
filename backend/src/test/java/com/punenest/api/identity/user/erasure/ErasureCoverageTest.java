@@ -208,8 +208,8 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("owner_kyc.pan_masked", Outcome.CLEARED);
         map.put("owner_kyc.aadhaar_masked", Outcome.CLEARED);
 
-        // Free text the subject wrote about themselves. This is the column set V13 left behind, not
-        // V6's — the sweep naming a dropped column is the failure this class exists to catch, and
+        // Free text the subject wrote about themselves. This is the column set the old V13 left behind, not
+        // the old V6's — the sweep naming a dropped column is the failure this class exists to catch, and
         // `noClassificationNamesAColumnTheSchemaNoLongerHas` is where it gets caught.
         map.put("tenant_profiles.name", Outcome.CLEARED);
         map.put("tenant_profiles.occupation", Outcome.CLEARED);

@@ -10,7 +10,7 @@
  * ## Nothing here seeds storage
  *
  * No `addInitScript`, no `localStorage.setItem`, no `seedStorage`. Every row asserted below either
- * comes from `R__zz_dev_demo_data.sql` or is created over the API by the test that needs it. A
+ * comes from `R__zz_DML_dev_demo_data.sql` or is created over the API by the test that needs it. A
  * converted spec that still writes storage is worse than no spec: it passes when the server is
  * wrong, which is the one failure it exists to catch.
  *

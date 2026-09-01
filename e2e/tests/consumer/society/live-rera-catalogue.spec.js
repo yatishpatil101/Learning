@@ -76,7 +76,7 @@ const CONSENT = { necessary: true, functional: true, analytics: true, marketing:
  * This spec used to seed `pnEntityReviews` into localStorage — a mock-provider store the live app
  * never reads. Against the real API those two reviews were invisible, so every rating assertion
  * below would have been measuring the server's empty state while appearing to describe a seeded
- * one. The reviews now live in `R__zz_dev_demo_data.sql` as `target_type = 'society'` rows keyed on
+ * one. The reviews now live in `R__zz_DML_dev_demo_data.sql` as `target_type = 'society'` rows keyed on
  * the society's uuid, which is what `SocietyRatingService` aggregates on.
  *
  * 5 + 4 over two societies, so the average is 4.5 and not a whole number: a reader that truncates,

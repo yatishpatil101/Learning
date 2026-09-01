@@ -100,7 +100,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
      * The seed is what makes deny-on-omission survivable, so its completeness is asserted rather
      * than assumed.
      *
-     * <p>{@code R__seed_permission_map.sql} exists to guarantee that no team the platform recognises
+     * <p>{@code R__DML_seed_permission_map.sql} exists to guarantee that no team the platform recognises
      * is missing from the document — because a team the document does not mention is refused, and
      * the failure mode of an incomplete seed is a desk that cannot work, discovered in production by
      * the desk. A seventh team added to {@link Teams} without a bundle would leave that team locked
@@ -113,7 +113,7 @@ class PermissionMapGuardTest extends AbstractApiTest {
         String stored = jdbc.queryForObject(
                 "SELECT value::text FROM settings WHERE key = 'permissions'", String.class);
 
-        assertThat(stored).as("R__seed_permission_map.sql did not run").isNotNull();
+        assertThat(stored).as("R__DML_seed_permission_map.sql did not run").isNotNull();
         assertThat(stored).contains(
                 Teams.RENTAL, Teams.LEGAL, Teams.LOANS,
                 Teams.INTERIOR, Teams.PACKERS, Teams.VALUATION, Roles.Wire.ADMIN);

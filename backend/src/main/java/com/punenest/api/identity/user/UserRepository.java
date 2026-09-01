@@ -40,9 +40,10 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
     /**
      * The staff sign-in lookup, deliberately case-insensitive.
      *
-     * <p>It has to be, because the write side is. {@code V70__users_live_email_unique.sql} indexes
-     * {@code lower(email)}, and the uniqueness checks on {@code addStaff}/{@code update} match that
-     * with {@code IgnoreCase}. A case-<em>sensitive</em> read against a case-insensitive write means
+     * <p>It has to be, because the write side is. {@code V02__DDL_identity_access.sql} indexes
+     * {@code lower(email)} in {@code uq_users_live_email_ci} (added in the old V70), and the
+     * uniqueness checks on {@code addStaff}/{@code update} match that with {@code IgnoreCase}. A
+     * case-<em>sensitive</em> read against a case-insensitive write means
      * a colleague enrolled as {@code A.Sharma@…} is refused when they type {@code a.sharma@…} — an
      * address the platform will not let anybody else hold, and so an address that can only be
      * theirs. Refusing it authenticates nobody and locks out the owner.

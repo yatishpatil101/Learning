@@ -19,7 +19,7 @@
  * difference is real and is written up in `tasks/todo.md` rather than pinned here, because pinning
  * an accident makes it look like a decision.
  *
- * Fixtures: the nine rows seeded by `R__zz_dev_demo_data.sql` (dev/e2e only — production still
+ * Fixtures: the nine rows seeded by `R__zz_DML_dev_demo_data.sql` (dev/e2e only — production still
  * answers `[]`, deliberately, until FAQs have an admin write path).
  */
 import { test, expect } from '../../../fixtures/live.js';

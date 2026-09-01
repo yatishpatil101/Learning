@@ -33,7 +33,7 @@ const TYPE_PREFIXES = [
   //     produces, and until this entry existed it fell through to the grey `system` glyph and
   //     matched no filter chip at all. That is the exact failure this whole map exists to prevent,
   //     landing on the one notification the alerts product is built to deliver.
-  //   - `R__zz_dev_demo_data.sql` seeds `saved.search.match` on the demo buyer. The seed's
+  //   - `R__zz_DML_dev_demo_data.sql` seeds `saved.search.match` on the demo buyer. The seed's
   //     vocabulary disagrees with the emitter's; both are mapped rather than one being "fixed",
   //     because a mapper that only understood the seed would be green in e2e and wrong in
   //     production, which is the direction that ships.

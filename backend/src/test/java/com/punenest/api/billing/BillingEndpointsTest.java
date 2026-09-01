@@ -48,7 +48,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 class BillingEndpointsTest extends AbstractApiTest {
 
-    /** Seeded by {@code R__seed_reference_data.sql}. Free, so it activates without a payment. */
+    /** Seeded by {@code R__DML_seed_reference_data.sql}. Free, so it activates without a payment. */
     private static final String FREE_PLAN = "b1000000-0000-4000-8000-000000000001";
 
     /** Owner Plus, 2499/yearly — priced, so it must go through the gateway. */

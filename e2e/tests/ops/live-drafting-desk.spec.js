@@ -21,7 +21,7 @@
  *
  * ## Why it seeds through the API and asserts through the UI
  *
- * The seeded database has users but **no service requests** - `R__zz_dev_demo_data.sql` has none -
+ * The seeded database has users but **no service requests** - `R__zz_DML_dev_demo_data.sql` has none -
  * so a spec that merely opened the desk would find an empty queue and pass its `not.toMatch`
  * assertions while proving nothing. It would pass just as happily with the disclosure guard deleted.
  *
@@ -45,7 +45,7 @@ import { API, apiLogin, authHeaders, signIn, signedInAsNew, uniqueMobile } from 
 
 /* A seeded consumer (any account may raise a service request) and a seeded `valuation` staffer —
    the desk is scoped by team, so the staffer must match the request's type. Both are from
-   `R__zz_dev_demo_data.sql`; they are read, never written, so re-runs are safe.
+   `R__zz_DML_dev_demo_data.sql`; they are read, never written, so re-runs are safe.
 
    ## Why the valuation desk and not the rental one
 

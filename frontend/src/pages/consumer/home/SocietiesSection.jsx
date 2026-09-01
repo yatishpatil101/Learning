@@ -34,7 +34,7 @@ export default function SocietiesSection() {
   /* The catalogue, from the seam rather than from `data/societies.js` merged with `resolveSociety`.
 
      The bundle was measurably right: ranked both ways against the live server, this strip's eight
-     cards came out identical, because `R__seed_reference_data.sql` seeds `societies` from the same
+     cards came out identical, because `R__DML_seed_reference_data.sql` seeds `societies` from the same
      rows the bundle ships and not one of the 347 shared slugs disagreed on `registration` or
      `conveyance`. So this is not a rendering bug being fixed. It is the guarantee underneath it:
      the two agreed because nothing had yet made them disagree, and two copies of the same table

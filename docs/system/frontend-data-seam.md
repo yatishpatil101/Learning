@@ -1195,8 +1195,8 @@ contract rather than papered over in the client.
   the property domain on http, "Ready to move" returned **zero results**.
 - **Now:** `PropertyPossession` is a first-class enum — `ready-to-move | new-launch |
   under-construction` — on `PropertySummary` (so cards carry it), as a `possession` search facet, and
-  validated on create/update. `V10__property_possession.sql` adds a `CHECK` constraint and backfills
-  the seeded catalogue.
+  validated on create/update. `V04__DDL_catalog_listings.sql` (folded from the old `V10`) declares
+  the column with its `CHECK` constraint; the seeded catalogue ships the values directly.
 
 | Layer | Enforcement |
 |---|---|

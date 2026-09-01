@@ -4,7 +4,8 @@
  *
  * ## The defect this exists to hold down
  *
- * The column was declared in `V2__identity_access.sql` and written by **nothing**. No Java code
+ * The column was declared in the old `V2__identity_access.sql` — now folded into
+ * `V02__DDL_identity_access.sql` — and written by **nothing**. No Java code
  * ever called a setter, so on any real deployment it read `0` for every account that had ever
  * existed, no matter how many listings that account had posted. Everything downstream inherited
  * the zero: `ReferralService.channelOf` could only ever answer `"seeker"`, and the admin user

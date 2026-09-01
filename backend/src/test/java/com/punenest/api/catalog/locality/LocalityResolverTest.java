@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
  * would prove nothing about the constraint that motivates returning {@code null}.
  *
  * <p>Localities are seeded per-test inside the rolled-back transaction rather than relying on
- * {@code R__seed_reference_data.sql}, so the assertions state their own fixtures and can't drift when
+ * {@code R__DML_seed_reference_data.sql}, so the assertions state their own fixtures and can't drift when
  * the seed changes.
  */
 @SpringBootTest

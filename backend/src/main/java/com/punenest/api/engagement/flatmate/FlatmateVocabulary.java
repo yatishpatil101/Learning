@@ -24,7 +24,7 @@ public final class FlatmateVocabulary {
     /** Who a seeker or host will share with. {@code any} is a stated openness, not an absence. */
     public static final Set<String> GENDER = Set.of("any", "male", "female");
 
-    /** Dietary preference. Note {@code nonveg}, one word — V7's {@code non-veg} was respelled in V27. */
+    /** Dietary preference. Note {@code nonveg}, one word — the old V7's {@code non-veg} was respelled in the old V27. */
     public static final Set<String> FOOD = Set.of("any", "veg", "nonveg");
 
     /** Who a seeker wants in the flat as a whole, as opposed to in their own room. */

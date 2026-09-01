@@ -15,7 +15,7 @@ import org.springframework.data.repository.query.Param;
  * so there is nothing for an {@code archived} flag to express that {@link TenancyStatuses} does not
  * already say more precisely.
  *
- * <p>The status-filtered finders ride V12's {@code idx_tenancies_owner_status} /
+ * <p>The status-filtered finders ride {@code V10__DDL_tenancy_finance.sql}'s {@code idx_tenancies_owner_status} /
  * {@code idx_tenancies_tenant_status}.
  */
 public interface TenancyRepository extends JpaRepository<Tenancy, UUID> {

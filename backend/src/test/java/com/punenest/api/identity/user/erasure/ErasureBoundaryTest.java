@@ -140,7 +140,7 @@ class ErasureBoundaryTest extends AbstractApiTest {
         String originalMobile = subject.getMobile();
 
         // Data that must go: an auth credential, a masked government number, and the free text the
-        // subject wrote about themselves. The profile columns are V13's, not V6's — V13 reshaped
+        // subject wrote about themselves. The profile columns are the old V13's, not the old V6's -- V13 reshaped
         // this table, and a sweep written from the original migration names four columns that no
         // longer exist.
         jdbc.update("insert into otp_codes (mobile, code_hash, expires_at) values (?, ?, now() + interval '5 min')",

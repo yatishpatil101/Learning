@@ -50,7 +50,7 @@ const liveness = async (slug) => (await roster()).find((c) => c.slug === slug)?.
 /**
  * Restore every city this file launched.
  *
- * The seed cannot do it: `R__seed_reference_data.sql` sets `live` on INSERT only now, precisely so
+ * The seed cannot do it: `R__DML_seed_reference_data.sql` sets `live` on INSERT only now, precisely so
  * that a re-seed cannot un-launch what ops launched. That makes the roster genuinely shared state
  * across a live run, so the spec that changed it is the spec that puts it back.
  */

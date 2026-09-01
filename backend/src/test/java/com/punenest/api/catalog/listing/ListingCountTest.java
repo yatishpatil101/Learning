@@ -19,7 +19,8 @@ import org.springframework.http.MediaType;
  * The lifetime listing tally, asserted at the column rather than at the object.
  *
  * <p><strong>Why this class exists.</strong> {@code users.listings_count} spent its whole life as a
- * declared column with no writer: it was added in {@code V2__identity_access.sql}, no Java ever
+ * declared column with no writer: it was added in the old {@code V2__identity_access.sql} (now
+ * folded into {@code V02__DDL_identity_access.sql}), no Java ever
  * called a setter, and only the demo seed put numbers in it — so on every real account it read
  * {@code 0} for ever, while the seeded fixtures made it look answered. Three surfaces read it, and
  * all three were quietly wrong. The write now exists ({@link

@@ -907,7 +907,7 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
   `SavedSearchService.alert()` ever emits, so the one notification the alerts product exists to
   deliver rendered as the grey *unrecognised* glyph and matched **no filter chip at all**, reported
   only by a `console.warn` the runner discards. The seed spells it differently again
-  (`saved.search.match`, `R__zz_dev_demo_data.sql:467`); both are mapped, because a mapper taught
+  (`saved.search.match`, `R__zz_DML_dev_demo_data.sql:467`); both are mapped, because a mapper taught
   only the seed's vocabulary is green in e2e and wrong in production. Proven RED with the two
   entries commented out and GREEN with them restored. Commit `20ff3dd`.
 
@@ -1019,6 +1019,30 @@ comparing test counts (`owner-profile` looked like a strict subset and was not).
 ## Needs attention
 
 Open items with no ledger row. Anything covered by a decision is cited, not restated.
+
+**PRE-EXISTING (found 2026-09-01 during the Flyway consolidation, not caused by it): three live
+specs assert things the product no longer does.** All three reproduce in isolation, all three are
+untouched by that branch, and none reaches a database column:
+- `platform/live-settings-debug.spec.js:21` clicks "Monetization & Payments" and expects a feature
+  flag labelled **"Online rent payment"**. `refactor: withdraw the online rent-payment rail`
+  removed that flag; the only two surviving mentions of the phrase in `frontend/src` are comments
+  explaining that the rail is *not* built. The assertion is a claim about a deleted affordance.
+- `platform/live-settings-preferences.spec.js:327` seeds `pnLang=mr` via `addInitScript`, then
+  expects the Marathi heading `सूचना`. The translation exists (`locales/mr/common.json:84`), but
+  the captured snapshot shows the whole shell still in English — `Buy`, `Rent`, `Notifications`.
+  So the language never switched, while the *same* nav rendered `Saved 3` and `Notifications 1`
+  **from the server**. Login and data are correct; only the device-level i18n preference did not
+  take. `pnLang` is localStorage and the translations are Vite-bundled JSON, so nothing on that
+  path reads the database. Likely `login.asBuyer()` navigating before the init script's language
+  is picked up, or the lazy Marathi chunk not being awaited.
+- `admin/live-analytics-page.spec.js:201` expects `/last \d{1,2} \w{3} \d{4}/` in the City
+  Expansion row and receives `"last 1 Sept 2026"` — Chromium renders September as the four-letter
+  "Sept", which `\w{3}` cannot match. A date-format assertion, not a data one; it would have failed
+  on any September run. The same row rendered `Kolkata 3`, the exact count posted over raw HTTP,
+  which is what the test exists to prove.
+
+Fixes: delete the first assertion (the flag is gone on purpose), await the language switch or read
+it from the account in the second, widen to `\w{3,}` in the third.
 
 **PRE-EXISTING (found 2026-09-01, not caused by the rent-pay work): the platform has two price
 lists and they disagree.** `settings.fees` says `ownerPlanYearly` **₹999** / `ownerProYearly`
@@ -1510,7 +1534,7 @@ column.~~ FIXED 2026-08-31 — shape (a).** Kept for the reasoning; the ledger r
 `setRole(` had no call site outside account creation and both signup paths hardcode
 `new User(mobile, Roles.Wire.BUYER)` (`UserService:92`, `:124`), so a consumer who posted twenty
 listings was still `buyer`. `users.listings_count` (declared `V2__identity_access.sql:22`) had
-**zero writers** — no `setListingsCount` anywhere in Java, only `R__zz_dev_demo_data.sql`. Both
+**zero writers** — no `setListingsCount` anywhere in Java, only `R__zz_DML_dev_demo_data.sql`. Both
 were invisible in dev and e2e because the demo seed hardcoded `role` *and* `listings_count`, so
 seeded data modelled a state the running application could not reach. **That is the lesson worth
 keeping**: the obvious cheap fix, `listingsCount > 0`, would have compiled, passed review and
@@ -2193,6 +2217,7 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | What shipped |
 |---|---|
+| 2026-09-01 | Flyway chain consolidated: 127 incremental migrations folded into 14 domain DDL files (`V01__DDL_foundation.sql` … `V14__DDL_analytics.sql`) plus three renamed `R__DML_*` seeds. Schema proved identical both directions (1253 columns, 509 constraints, 344 indexes, 76 triggers, 471 comments, 38 routines); all 22 DML-carrying migrations proved dead and dropped. **Every `V<n>__<name>.sql` citation elsewhere in this file predates it** and names a file now folded into one of the 14 — see [docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md) for the mapping rule and the leading-zero trap |
 | 2026-08-24 | `consumer/property` onto the live API — 8 mock specs retired, 87 live tests green; V115 and V116 gave the duplicate probe the two arms that had never fired |
 | 2026-08-17 | Every open migration decision closed; the 1,975-line register collapsed to a 205-line ledger |
 | 2026-08-16 | Admin command palette stopped searching `db.json` fixtures on live builds |
@@ -2275,7 +2300,7 @@ Newest first. One line per slice; the commit is the record.
 
 | Date | Change |
 |---|---|
-| 2026-08-04 | One populated local DB, schema by Flyway only. Three permanent Flyway traps recorded in `R__zz_dev_demo_data.sql`'s header |
+| 2026-08-04 | One populated local DB, schema by Flyway only. Three permanent Flyway traps recorded in `R__zz_DML_dev_demo_data.sql`'s header |
 | 2026-08-05 | Mobile review B5/C5/D1 + CI; Home "Flatmates" tile |
 | 2026-08-02 | Bundle: 571 KB off first paint — `financeProvider → finances.js → jspdf` was statically imported *and* preloaded |
 | 2026-08-02 | Mobile Phase 4 incl. PWA and landscape; Phase 6 deferred-item sweep |

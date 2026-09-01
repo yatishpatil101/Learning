@@ -37,7 +37,7 @@ The owner's requirement splits cleanly:
 
 1. **Seed/demo photos & localities** — these are **already external URLs** in the seed
    (Unsplash `images.unsplash.com/...` in the `photos` JSONB + `hero_image`; localities/societies
-   from `R__seed_reference_data.sql`). They **display live for free** the moment the frontend hits
+   from `R__DML_seed_reference_data.sql`). They **display live for free** the moment the frontend hits
    the API — no storage work needed. Decision in [02-seed-and-fixtures.md](02-seed-and-fixtures.md):
    keep them as stable URLs (simplest, zero-cost) **or** optionally re-host into the R2 public
    bucket for offline-proof demos. Recommend **keep-URL** unless offline demos are required.

@@ -47,7 +47,7 @@ import org.springframework.test.web.servlet.ResultActions;
  */
 class ServiceOrderLifecycleTest extends AbstractApiTest {
 
-    /** Packers &amp; Movers, seeded by {@code R__seed_reference_data.sql}. */
+    /** Packers &amp; Movers, seeded by {@code R__DML_seed_reference_data.sql}. */
     private static final String OFFERING = "b3000000-0000-4000-8000-000000000001";
 
     /** Whole rupees, as {@code service_orders.amount} stores them. */

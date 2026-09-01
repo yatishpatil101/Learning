@@ -11,7 +11,7 @@ package com.punenest.api.security;
  *
  * <p><strong>These strings are stored data, not code.</strong> They are already sitting in the
  * settings document of every environment seeded from the frontend prototype, and
- * {@code R__seed_permission_map.sql} seeds them server-side. Renaming one here without a migration
+ * {@code R__DML_seed_permission_map.sql} seeds them server-side. Renaming one here without a migration
  * would silently orphan whatever an admin has already written against the old name, and — because an
  * unlisted capability is denied — the rename would lock people out rather than fail loudly. Add new
  * names; do not rewrite these.

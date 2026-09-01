@@ -52,7 +52,7 @@ const mobile = (n) => `9${String(RUN).padStart(9, '0').slice(0, 8)}${n}`;
  * An admin access token, obtained through the real OTP path.
  *
  * Not a staff-password login: the seed carries NO credentials at all (`password_hash` is NULL on
- * every seeded row, deliberately — see the header of `R__zz_dev_demo_data.sql`), so there is no
+ * every seeded row, deliberately — see the header of `R__zz_DML_dev_demo_data.sql`), so there is no
  * password to present. Done once and the token shared, which is now about speed rather than
  * necessity: the `e2e` profile lifts the send budget that a per-test sign-in used to exhaust.
  */

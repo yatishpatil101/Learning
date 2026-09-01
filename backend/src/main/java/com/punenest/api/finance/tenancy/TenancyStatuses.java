@@ -26,7 +26,7 @@ public final class TenancyStatuses {
     private TenancyStatuses() {
     }
 
-    /** The tenant is in occupation. At most one per property — enforced by V12's unique index. */
+    /** The tenant is in occupation. At most one per property — enforced by V10's unique index. */
     public static final String ACTIVE = "active";
 
     /** Ran its course: the agreement expired or both sides parted on schedule. Terminal. */

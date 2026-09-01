@@ -320,7 +320,8 @@ class AuthEndpointsTest extends AbstractApiTest {
     /**
      * The read path matches the write path's case rule.
      *
-     * <p>{@code V70__users_live_email_unique.sql} indexes {@code lower(email)} and the uniqueness
+     * <p>{@code V02__DDL_identity_access.sql} indexes {@code lower(email)} in
+     * {@code uq_users_live_email_ci} (added in the old V70) and the uniqueness
      * checks on {@code addStaff}/{@code update} use {@code IgnoreCase}, so nobody else can ever hold
      * a case variant of this address — it can only be the same colleague. Resolving the login
      * case-sensitively therefore authenticated nobody and locked out the one person entitled to it.

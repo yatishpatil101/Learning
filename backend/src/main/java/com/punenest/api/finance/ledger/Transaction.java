@@ -33,8 +33,8 @@ import lombok.Setter;
  * <p><strong>Why {@code ownerId} is stored at all</strong>, when it is derivable from the property:
  * it is the ledger's <em>author</em>, not a copy of the listing's owner. If a listing changes hands
  * the new owner must not inherit the previous owner's private expense history, so the row keeps the
- * identity of whoever recorded it. It is deliberately <strong>not indexed</strong> (V54 dropped
- * V6's {@code idx_transactions_owner}): nothing filters, sorts or groups on it — every read is
+ * identity of whoever recorded it. It is deliberately <strong>not indexed</strong> (the old V54
+ * dropped the old V6's {@code idx_transactions_owner}): nothing filters, sorts or groups on it — every read is
  * scoped by property — so an index on it was maintained on every write and chosen by nothing.
  */
 @Entity

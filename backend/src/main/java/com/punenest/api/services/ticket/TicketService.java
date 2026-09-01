@@ -137,7 +137,8 @@ public class TicketService {
      * above is about facts the platform owns; a price the customer picked line by line and accepted
      * is a fact about the customer, and the only party who knows it at creation time is the caller.
      * It is a distinct column from {@code value} precisely so accepting it here does not hand a
-     * client the pipeline number: see {@code V83__tickets_quoted_value.sql}. Write-once — the entity
+     * client the pipeline number: see the {@code tickets} section of
+     * {@code V07__DDL_service_requests.sql} (added in the old V83). Write-once — the entity
      * declares it {@code updatable = false} and {@code TicketUpdate} has no component for it — so a
      * quote cannot be revised into agreement with whatever the desk later decides to bill.
      *

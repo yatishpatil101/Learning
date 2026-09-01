@@ -381,7 +381,7 @@ public class FinanceService {
                 tenantedDays += ChronoUnit.DAYS.between(overlapStart, overlapEnd);
             }
         }
-        // Clamp: overlapping historical rows (possible before V12's unique index existed) must not
+        // Clamp: overlapping historical rows (possible before the old V12's unique index existed) must not
         // produce a rate above 1.0, which would read as more than fully occupied.
         return Math.min(1.0, (double) tenantedDays / windowDays);
     }

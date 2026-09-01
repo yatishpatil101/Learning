@@ -43,7 +43,7 @@ public class MovePackController {
 
     private static final Logger log = LoggerFactory.getLogger(MovePackController.class);
 
-    /** The settings key holding the pack block (see {@code R__seed_reference_data.sql}). */
+    /** The settings key holding the pack block (see {@code R__DML_seed_reference_data.sql}). */
     private static final String MOVE_PACK_KEY = "movePack";
 
     /** The block's launch switch. */
